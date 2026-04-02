@@ -61,7 +61,11 @@ final class WorkspacePersistorTests {
     func test_saveAndLoad_withPanes() throws {
         // Arrange
         let pane = makePane(
-            source: .worktree(worktreeId: UUID(), repoId: UUID()),
+            source: .worktree(
+                worktreeId: UUID(),
+                repoId: UUID(),
+                launchDirectory: URL(fileURLWithPath: "/tmp/worktree")
+            ),
             title: "Feature",
             provider: .zmx,
             lifetime: .persistent,

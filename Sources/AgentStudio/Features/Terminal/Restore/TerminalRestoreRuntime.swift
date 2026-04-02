@@ -86,15 +86,15 @@ struct TerminalRestoreRuntime {
             )
         }
 
-        if let workingDirectory = pane.metadata.facets.cwd {
+        if let launchDirectory = pane.metadata.launchDirectory ?? pane.metadata.facets.cwd {
             return ZmxBackend.floatingSessionId(
-                workingDirectory: workingDirectory,
+                launchDirectory: launchDirectory,
                 paneId: pane.id
             )
         }
 
         return ZmxBackend.floatingSessionId(
-            workingDirectory: FileManager.default.homeDirectoryForCurrentUser,
+            launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
             paneId: pane.id
         )
     }

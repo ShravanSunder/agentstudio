@@ -19,13 +19,13 @@ final class WorkspaceStoreArrangementTests {
 
     /// Create a tab with N panes and return (tab, paneIds).
     private func createTabWithPanes(_ count: Int) -> (Tab, [UUID]) {
-        let first = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let first = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: first.id)
         store.appendTab(tab)
 
         var paneIds = [first.id]
         for _ in 1..<count {
-            let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+            let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
             store.insertPane(
                 pane.id, inTab: tab.id, at: paneIds.last!,
                 direction: .horizontal, position: .after
@@ -345,7 +345,7 @@ final class WorkspaceStoreArrangementTests {
         store.switchArrangement(to: arrId, inTab: tab.id)
 
         // Insert a new pane while in custom arrangement
-        let newPane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let newPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         store.insertPane(
             newPane.id, inTab: tab.id, at: paneIds[0],
             direction: .horizontal, position: .after
@@ -393,8 +393,8 @@ final class WorkspaceStoreArrangementTests {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store1 = WorkspaceStore(persistor: persistor)
 
-        let pane1 = store1.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let pane2 = store1.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane1 = store1.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane2 = store1.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: pane1.id)
         store1.appendTab(tab)
         store1.insertPane(

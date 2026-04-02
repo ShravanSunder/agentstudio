@@ -103,12 +103,24 @@ enum CommandBarDataSource {
         store.tabs.enumerated().map { index, tab in
             let title = tabDisplayTitle(tab: tab, store: store, repoCache: repoCache)
             let isActive = tab.id == store.activeTabId
+            let paneCount = tab.paneIds.count
+            let subtitle: String = {
+                var parts: [String] = []
+                if isActive {
+                    parts.append("Active")
+                }
+                parts.append("Tab \(index + 1)")
+                if paneCount > 1 {
+                    parts.append("\(paneCount) panes")
+                }
+                return parts.joined(separator: " · ")
+            }()
 
             let tabId = tab.id
             return CommandBarItem(
                 id: "tab-\(tab.id.uuidString)",
                 title: title,
-                subtitle: isActive ? "Active · Tab \(index + 1)" : "Tab \(index + 1)",
+                subtitle: subtitle,
                 icon: "rectangle.stack",
                 group: Group.tabs,
                 groupPriority: Priority.tabs,
@@ -141,7 +153,7 @@ enum CommandBarDataSource {
                 items.append(
                     CommandBarItem(
                         id: "pane-\(pane.id.uuidString)",
-                        title: PaneDisplayProjector.displayLabel(for: pane.id, store: store, repoCache: repoCache),
+                        title: paneDisplayLabel(for: pane, store: store, repoCache: repoCache),
                         subtitle: "Tab \(tabIndex + 1)" + (isActive ? " · Active" : ""),
                         icon: iconForPane(pane),
                         iconColor: nil,
@@ -198,7 +210,7 @@ enum CommandBarDataSource {
                 items.append(
                     CommandBarItem(
                         id: "pane-\(pane.id.uuidString)",
-                        title: PaneDisplayProjector.displayLabel(for: pane.id, store: store, repoCache: repoCache),
+                        title: paneDisplayLabel(for: pane, store: store, repoCache: repoCache),
                         subtitle: isActive ? "Active Pane" : nil,
                         icon: iconForPane(pane),
                         iconColor: nil,
@@ -384,7 +396,7 @@ enum CommandBarDataSource {
                     items.append(
                         CommandBarItem(
                             id: "target-pane-\(pane.id.uuidString)",
-                            title: PaneDisplayProjector.displayLabel(for: pane.id, store: store, repoCache: repoCache),
+                            title: paneDisplayLabel(for: pane, store: store, repoCache: repoCache),
                             subtitle: "Tab \(tabIndex + 1)",
                             icon: iconForPane(pane),
                             iconColor: nil,
@@ -440,7 +452,7 @@ enum CommandBarDataSource {
                 )
                 return CommandBarItem(
                     id: "target-move-source-pane-\(pane.id.uuidString)",
-                    title: PaneDisplayProjector.displayLabel(for: pane.id, store: store, repoCache: repoCache),
+                    title: paneDisplayLabel(for: pane, store: store, repoCache: repoCache),
                     subtitle: "Tab \(tabIndex + 1)",
                     icon: iconForPane(pane),
                     iconColor: nil,
@@ -551,11 +563,7 @@ enum CommandBarDataSource {
                 let isActive = drawer.activePaneId == drawerPaneId
                 return CommandBarItem(
                     id: "target-drawer-\(drawerPaneId.uuidString)",
-                    title: PaneDisplayProjector.displayLabel(
-                        for: drawerPane.id,
-                        store: store,
-                        repoCache: repoCache
-                    ),
+                    title: paneDisplayLabel(for: drawerPane, store: store, repoCache: repoCache),
                     subtitle: isActive ? "Active" : "Drawer \(index + 1)",
                     icon: "terminal",
                     group: "Drawer Panes",
@@ -577,23 +585,48 @@ enum CommandBarDataSource {
 
     private static func repoScopeItems(store: WorkspaceStore) -> [CommandBarItem] {
         var items: [CommandBarItem] = []
-        for (repoIndex, repo) in store.repos.enumerated() {
+        let singleWorktreeRepos = store.repos
+            .filter { $0.worktrees.count <= 1 }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        let multiWorktreeRepos = store.repos
+            .filter { $0.worktrees.count > 1 }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+
+        for repo in singleWorktreeRepos {
             for worktree in repo.worktrees {
-                let prefix = worktree.isMainWorktree ? "★ " : ""
                 items.append(
                     CommandBarItem(
                         id: "repo-wt-\(worktree.id.uuidString)",
-                        title: "\(prefix)\(worktree.name)",
-                        subtitle: worktree.name,
+                        title: worktree.name,
+                        subtitle: worktree.isMainWorktree ? "main worktree" : nil,
                         icon: worktree.isMainWorktree ? "star.fill" : "arrow.triangle.branch",
-                        group: repo.name,
-                        groupPriority: repoIndex,
+                        group: "Repos",
+                        groupPriority: 0,
                         keywords: ["repo", "worktree", repo.name, worktree.name],
                         action: .dispatchTargeted(.openWorktree, target: worktree.id, targetType: .worktree),
                         command: .openWorktree
                     ))
             }
         }
+
+        for (repoIndex, repo) in multiWorktreeRepos.enumerated() {
+            let groupName = "\(repo.name) (worktrees)"
+            for worktree in repo.worktrees {
+                items.append(
+                    CommandBarItem(
+                        id: "repo-wt-\(worktree.id.uuidString)",
+                        title: worktree.name,
+                        subtitle: worktree.isMainWorktree ? "main worktree" : nil,
+                        icon: worktree.isMainWorktree ? "star.fill" : "arrow.triangle.branch",
+                        group: groupName,
+                        groupPriority: repoIndex + 1,
+                        keywords: ["repo", "worktree", repo.name, worktree.name],
+                        action: .dispatchTargeted(.openWorktree, target: worktree.id, targetType: .worktree),
+                        command: .openWorktree
+                    ))
+            }
+        }
+
         return items
     }
 
@@ -637,7 +670,21 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: WorkspaceRepoCache
     ) -> [String] {
-        var keywords = ["pane"] + PaneDisplayProjector.paneKeywords(for: pane, store: store, repoCache: repoCache)
+        let parts = PaneDisplayProjector.displayParts(for: pane, store: store, repoCache: repoCache)
+        var keywords = ["pane"]
+        if let repoName = parts.repoName {
+            keywords.append(repoName)
+        }
+        if let branchName = parts.branchName {
+            keywords.append(branchName)
+        }
+        if let worktreeFolderName = parts.worktreeFolderName {
+            keywords.append(worktreeFolderName)
+        }
+        if let cwdFolderName = parts.cwdFolderName {
+            keywords.append(cwdFolderName)
+        }
+        keywords.append(parts.primaryLabel)
         if case .webview = pane.content {
             keywords.append(contentsOf: ["web", "browser", "url"])
         } else if case .bridgePanel = pane.content {
@@ -651,12 +698,58 @@ enum CommandBarDataSource {
         return keywords
     }
 
+    private static func paneDisplayLabel(
+        for pane: Pane,
+        store: WorkspaceStore,
+        repoCache: WorkspaceRepoCache
+    ) -> String {
+        let parts = PaneDisplayProjector.displayParts(for: pane, store: store, repoCache: repoCache)
+
+        switch pane.content {
+        case .webview(let webState):
+            if let host = webState.url.host(), !host.isEmpty {
+                return "Webview — \(host)"
+            }
+            if webState.url.isFileURL {
+                let fileName = webState.url.lastPathComponent
+                if !fileName.isEmpty {
+                    return "Webview — \(fileName)"
+                }
+            }
+            if let scheme = webState.url.scheme, !scheme.isEmpty {
+                return "Webview — \(scheme)"
+            }
+            return "Webview"
+        case .bridgePanel:
+            return "Bridge — \(parts.repoName ?? "Panel")"
+        case .codeViewer:
+            return "Code — \(parts.repoName ?? "Viewer")"
+        case .terminal:
+            if let branch = parts.branchName {
+                return "Terminal — \(branch)"
+            }
+            if let folder = parts.cwdFolderName {
+                return "Terminal — \(folder)"
+            }
+            return parts.primaryLabel
+        case .unsupported:
+            if let folder = parts.cwdFolderName {
+                return folder
+            }
+            return parts.primaryLabel
+        }
+    }
+
     private static func tabDisplayTitle(
         tab: Tab,
         store: WorkspaceStore,
         repoCache: WorkspaceRepoCache
     ) -> String {
-        PaneDisplayProjector.tabDisplayLabel(for: tab, store: store, repoCache: repoCache)
+        let primaryPaneId = tab.activePaneId ?? tab.paneIds.first
+        guard let paneId = primaryPaneId else { return "Empty Tab" }
+
+        let parts = PaneDisplayProjector.displayParts(for: paneId, store: store, repoCache: repoCache)
+        return parts.repoName ?? parts.primaryLabel
     }
 
     private static func isHiddenCommand(_ command: AppCommand) -> Bool {

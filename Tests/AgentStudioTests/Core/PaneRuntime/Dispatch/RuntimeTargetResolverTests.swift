@@ -20,7 +20,7 @@ struct RuntimeTargetResolverTests {
         let store = makeStore()
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "A"), title: "A")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "A"), title: "A")
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)

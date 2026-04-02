@@ -112,7 +112,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let pane = harness.store.createPane(
-            source: .floating(workingDirectory: harness.tempDir, title: "Early Restore"),
+            source: .floating(launchDirectory: harness.tempDir, title: "Early Restore"),
             provider: .zmx
         )
         let tab = Tab(paneId: pane.id, name: "Early Restore")
@@ -135,7 +135,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let pane = harness.store.createPane(
-            source: .floating(workingDirectory: harness.tempDir, title: "Launch Restore"),
+            source: .floating(launchDirectory: harness.tempDir, title: "Launch Restore"),
             provider: .zmx
         )
         let tab = Tab(paneId: pane.id, name: "Launch Restore")
@@ -165,7 +165,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let pane = harness.store.createPane(
-            source: .floating(workingDirectory: harness.tempDir, title: "Lifecycle"),
+            source: .floating(launchDirectory: harness.tempDir, title: "Lifecycle"),
             provider: .zmx
         )
         let tab = Tab(paneId: pane.id, name: "Lifecycle")

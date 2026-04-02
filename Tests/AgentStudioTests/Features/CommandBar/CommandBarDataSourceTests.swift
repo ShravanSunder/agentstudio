@@ -138,7 +138,7 @@ struct CommandBarDataSourceTests {
     }
 
     @Test
-    func test_panesScope_usesProjectedWorktreeLabel() {
+    func test_panesScope_usesCommandBarTabTitleAndSubtitle() {
         let store = makeStore()
         let repoCache = makeRepoCache()
         let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio"))
@@ -152,7 +152,7 @@ struct CommandBarDataSourceTests {
             WorktreeEnrichment(worktreeId: worktree.id, repoId: repo.id, branch: "feature/pane-labels")
         )
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Shell title",
             facets: PaneContextFacets(
                 repoId: repo.id,
@@ -173,14 +173,81 @@ struct CommandBarDataSourceTests {
 
         let tabItem = items.first { $0.id == "tab-\(store.tabs[0].id.uuidString)" }
         let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
-        #expect(tabItem?.title == "agent-studio | feature/pane-labels | feature-name")
-        #expect(paneItem?.title == "agent-studio | feature/pane-labels | feature-name")
+
+        #expect(tabItem?.title == "agent-studio")
+        #expect(tabItem?.subtitle == "Active Tab")
+        #expect(paneItem?.title == "Terminal — feature/pane-labels")
+    }
+
+    @Test
+    func test_everythingScope_tabSubtitleIncludesPaneCount() {
+        let store = makeStore()
+        let paneA = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        let paneB = store.createPane(source: .floating(launchDirectory: nil, title: "Pane B"))
+        let paneC = store.createPane(source: .floating(launchDirectory: nil, title: "Pane C"))
+
+        let tab = Tab(paneId: paneA.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+        store.insertPane(paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after)
+        store.insertPane(paneC.id, inTab: tab.id, at: paneB.id, direction: .horizontal, position: .after)
+
+        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
+
+        #expect(tabItem?.subtitle == "Active · Tab 1 · 3 panes")
+    }
+
+    @Test
+    func test_everythingScope_webviewPaneUsesHostInTitle() throws {
+        let store = makeStore()
+        let pane = store.createPane(
+            content: .webview(
+                WebviewState(url: try #require(URL(string: "https://localhost:3000")), title: "", showNavigation: true)
+            ),
+            metadata: PaneMetadata(
+                source: .init(.floating(launchDirectory: nil, title: nil)),
+                title: "Webview"
+            )
+        )
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+
+        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
+
+        #expect(paneItem?.title == "Webview — localhost")
+    }
+
+    @Test
+    func test_everythingScope_webviewFileURLUsesLastPathComponentInTitle() {
+        let store = makeStore()
+        let pane = store.createPane(
+            content: .webview(
+                WebviewState(
+                    url: URL(fileURLWithPath: "/tmp/previews/index.html"),
+                    title: "",
+                    showNavigation: true
+                )
+            ),
+            metadata: PaneMetadata(
+                source: .init(.floating(launchDirectory: nil, title: nil)),
+                title: "Webview"
+            )
+        )
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+
+        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
+
+        #expect(paneItem?.title == "Webview — index.html")
     }
 
     @Test
     func test_everythingScope_tabItem_dispatchesTargetedSelectTabCommand() {
         let store = makeStore()
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: "Pane A"))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
@@ -200,7 +267,7 @@ struct CommandBarDataSourceTests {
     @Test
     func test_everythingScope_paneItem_dispatchesTargetedFocusPaneCommand() {
         let store = makeStore()
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: "Pane A"))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
@@ -215,6 +282,147 @@ struct CommandBarDataSourceTests {
         #expect(command == .focusPane)
         #expect(target == pane.id)
         #expect(targetType == .floatingTerminal)
+    }
+
+    @Test
+    func test_everythingScope_emptyTabUsesEmptyTabTitle() {
+        let store = makeStore()
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(),
+            visiblePaneIds: []
+        )
+        let tab = Tab(
+            name: "Empty",
+            panes: [],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id,
+            activePaneId: nil
+        )
+        store.appendTab(tab)
+
+        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
+
+        #expect(tabItem?.title == "Empty Tab")
+    }
+
+    @Test
+    func test_everythingScope_tabTitleFallsBackToPrimaryLabelWhenRepoNameMissing() {
+        let store = makeStore()
+        let pane = store.createPane(
+            source: .floating(launchDirectory: nil, title: nil),
+            title: "Scratch Pad"
+        )
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+
+        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
+
+        #expect(tabItem?.title == "Scratch Pad")
+    }
+
+    @Test
+    func test_everythingScope_terminalPaneFallsBackToPrimaryLabelWithoutBranchOrCwd() {
+        let store = makeStore()
+        let pane = store.createPane(
+            source: .floating(launchDirectory: nil, title: nil),
+            title: "Scratch Pad"
+        )
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+
+        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
+
+        #expect(paneItem?.title == "Scratch Pad")
+    }
+
+    @Test
+    func test_everythingScope_terminalPaneUsesCwdFolderWithoutBranch() {
+        let store = makeStore()
+        let pane = store.createPane(
+            source: .floating(
+                launchDirectory: URL(fileURLWithPath: "/tmp/workspace-demo"),
+                title: "Shell"
+            ),
+            title: "Shell",
+            facets: PaneContextFacets(cwd: URL(fileURLWithPath: "/tmp/workspace-demo"))
+        )
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+
+        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
+
+        #expect(paneItem?.title == "Terminal — workspace-demo")
+    }
+
+    @Test
+    func test_everythingScope_bridgePaneUsesBridgeFallbackLabel() {
+        let store = makeStore()
+        let pane = store.createPane(
+            content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: nil)),
+            metadata: PaneMetadata(
+                source: .init(.floating(launchDirectory: nil, title: nil)),
+                title: "Bridge"
+            )
+        )
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+
+        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
+
+        #expect(paneItem?.title == "Bridge — Panel")
+    }
+
+    @Test
+    func test_everythingScope_codeViewerPaneUsesCodeFallbackLabel() {
+        let store = makeStore()
+        let pane = store.createPane(
+            content: .codeViewer(
+                CodeViewerState(filePath: URL(fileURLWithPath: "/tmp/example.swift"), scrollToLine: 42)
+            ),
+            metadata: PaneMetadata(
+                source: .init(.floating(launchDirectory: nil, title: nil)),
+                title: "Code"
+            )
+        )
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+
+        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
+
+        #expect(paneItem?.title == "Code — Viewer")
+    }
+
+    @Test
+    func test_everythingScope_unsupportedPaneUsesCwdFolderWithoutTerminalPrefix() {
+        let store = makeStore()
+        let pane = store.createPane(
+            content: .unsupported(UnsupportedContent(type: "future-pane", version: 3, rawState: nil)),
+            metadata: PaneMetadata(
+                source: .init(
+                    .floating(
+                        launchDirectory: URL(fileURLWithPath: "/tmp/unsupported-pane"),
+                        title: nil
+                    )
+                ),
+                title: "Unsupported",
+                facets: PaneContextFacets(cwd: URL(fileURLWithPath: "/tmp/unsupported-pane"))
+            )
+        )
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+
+        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
+
+        #expect(paneItem?.title == "unsupported-pane")
     }
 
     // MARK: - Grouping
@@ -300,7 +508,7 @@ struct CommandBarDataSourceTests {
     func test_commandsScope_targetableArrangementCommandsHaveChildren() {
         // Arrange — need a tab with arrangements for drill-in to work
         let store = makeStore()
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
@@ -323,7 +531,7 @@ struct CommandBarDataSourceTests {
     @Test
     func test_commandsScope_newTerminalInTabHasDrillIn() {
         let store = makeStore()
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: "Pane A"))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
@@ -364,8 +572,8 @@ struct CommandBarDataSourceTests {
     func test_commandsScope_movePaneToTab_hasDrillIn() {
         let store = makeStore()
 
-        let paneA = store.createPane(source: .floating(workingDirectory: nil, title: "Pane A"))
-        let paneB = store.createPane(source: .floating(workingDirectory: nil, title: "Pane B"))
+        let paneA = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        let paneB = store.createPane(source: .floating(launchDirectory: nil, title: "Pane B"))
         let tabA = Tab(paneId: paneA.id)
         let tabB = Tab(paneId: paneB.id)
         store.appendTab(tabA)
@@ -384,8 +592,8 @@ struct CommandBarDataSourceTests {
     func test_movePaneToTab_drillIn_postsMoveEvent() async {
         let store = makeStore()
 
-        let paneA = store.createPane(source: .floating(workingDirectory: nil, title: "Pane A"))
-        let paneB = store.createPane(source: .floating(workingDirectory: nil, title: "Pane B"))
+        let paneA = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        let paneB = store.createPane(source: .floating(launchDirectory: nil, title: "Pane B"))
         let tabA = Tab(paneId: paneA.id)
         let tabB = Tab(paneId: paneB.id)
         store.appendTab(tabA)
@@ -428,8 +636,7 @@ struct CommandBarDataSourceTests {
     }
 
     @Test
-    func test_reposScope_returnsWorktreesGroupedByRepo() {
-        // Arrange
+    func test_reposScope_usesFlatGroupForSingleWorktreeRepos() {
         let store = makeStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/test-repo"))
         store.reconcileDiscoveredWorktrees(
@@ -440,31 +647,51 @@ struct CommandBarDataSourceTests {
                     name: "main",
                     path: URL(filePath: "/tmp/test-repo"),
                     isMainWorktree: true
-                ),
-                Worktree(
-                    repoId: repo.id,
-                    name: "feat-branch",
-                    path: URL(filePath: "/tmp/test-repo-feat"),
-                    isMainWorktree: false
-                ),
+                )
             ])
 
         // Act
         let items = CommandBarDataSource.items(scope: .repos, store: store, dispatcher: dispatcher)
 
         // Assert
-        #expect(items.count == 2)
+        #expect(items.count == 1)
         #expect(items.allSatisfy { $0.id.hasPrefix("repo-wt-") })
-        #expect(items.allSatisfy { $0.group == repo.name })
+        #expect(items.allSatisfy { $0.group == "Repos" })
 
-        // Main worktree should have star prefix and star icon
+        // Main worktree should rely on icon/subtitle rather than title decoration
         let mainItem = items.first { $0.title.contains("main") }
-        #expect(mainItem?.title.hasPrefix("★") == true)
+        #expect(mainItem?.title == "main")
         #expect(mainItem?.icon == "star.fill")
+        #expect(mainItem?.subtitle == "main worktree")
 
-        // Feature branch should have branch icon
-        let featItem = items.first { $0.title.contains("feat-branch") }
-        #expect(featItem?.icon == "arrow.triangle.branch")
+    }
+
+    @Test
+    func test_reposScope_usesPerRepoGroupForMultiWorktreeRepos() {
+        let store = makeStore()
+        let repo = store.addRepo(at: URL(filePath: "/tmp/multi-worktree-repo"))
+        store.reconcileDiscoveredWorktrees(
+            repo.id,
+            worktrees: [
+                Worktree(
+                    repoId: repo.id,
+                    name: "main",
+                    path: URL(filePath: "/tmp/multi-worktree-repo"),
+                    isMainWorktree: true
+                ),
+                Worktree(
+                    repoId: repo.id,
+                    name: "feature",
+                    path: URL(filePath: "/tmp/multi-worktree-repo-feature")
+                ),
+            ]
+        )
+
+        let items = CommandBarDataSource.items(scope: .repos, store: store, dispatcher: dispatcher)
+        let groups = CommandBarDataSource.grouped(items)
+
+        #expect(groups.count == 1)
+        #expect(groups.first?.name == "\(repo.name) (worktrees)")
     }
 
     // MARK: - Drawer Commands
@@ -503,7 +730,7 @@ struct CommandBarDataSourceTests {
     @Test
     func test_commandsScope_navigateDrawerPaneIsTargetable() {
         let store = makeStore()
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
@@ -523,7 +750,7 @@ struct CommandBarDataSourceTests {
     func test_navigateDrawerPane_targetLevel_listsDrawerPanes() {
         // Arrange — create a pane with two drawer panes
         let store = makeStore()
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)

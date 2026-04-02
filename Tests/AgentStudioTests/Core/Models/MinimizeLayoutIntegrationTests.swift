@@ -19,14 +19,14 @@ final class MinimizeLayoutIntegrationTests {
     // MARK: - Helpers
 
     private func createTabWithPanes(_ count: Int) -> (Tab, [UUID]) {
-        let first = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let first = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: first.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
         var paneIds = [first.id]
         for _ in 1..<count {
-            let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+            let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
             store.insertPane(
                 pane.id, inTab: tab.id, at: paneIds.last!,
                 direction: .horizontal, position: .after
@@ -87,7 +87,7 @@ final class MinimizeLayoutIntegrationTests {
 
     func test_minimizeAllDrawerPanes_allInMinimizedSet() {
         // Arrange
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)

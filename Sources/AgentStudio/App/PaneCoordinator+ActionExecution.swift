@@ -53,7 +53,11 @@ extension PaneCoordinator {
         }
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(
+                worktreeId: worktree.id,
+                repoId: repo.id,
+                launchDirectory: worktree.path
+            ),
             title: worktree.name,
             provider: .zmx,
             lifetime: .persistent,
@@ -82,7 +86,7 @@ extension PaneCoordinator {
         let host = url.host() ?? "New Tab"
         let pane = store.createPane(
             content: .webview(state),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: host), title: host)
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: host), title: host)
         )
         viewRegistry.ensureSlot(for: pane.id)
 
@@ -102,13 +106,13 @@ extension PaneCoordinator {
     }
 
     @discardableResult
-    func openFloatingTerminal(cwd: URL?, title: String?) -> Pane? {
+    func openFloatingTerminal(launchDirectory: URL?, title: String?) -> Pane? {
         let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         let pane = store.createPane(
-            source: .floating(workingDirectory: cwd, title: resolvedTitle),
+            source: .floating(launchDirectory: launchDirectory, title: resolvedTitle),
             title: (resolvedTitle?.isEmpty == false) ? resolvedTitle! : "Terminal",
             provider: .zmx,
-            facets: PaneContextFacets(cwd: cwd)
+            facets: PaneContextFacets(cwd: launchDirectory)
         )
         viewRegistry.ensureSlot(for: pane.id)
 
@@ -134,12 +138,12 @@ extension PaneCoordinator {
             }
             _ = openTerminal(for: worktree, in: repo)
 
-        case .openNewTerminalInTab(let worktreeId, let cwd, let title):
+        case .openNewTerminalInTab(let worktreeId, let launchDirectory, let title):
             guard let worktree = store.worktree(worktreeId), let repo = store.repo(containing: worktreeId) else {
                 Self.logger.warning("openNewTerminalInTab: worktree \(worktreeId) not found")
                 return
             }
-            _ = createTerminalTab(for: worktree, in: repo, cwdOverride: cwd, titleOverride: title)
+            _ = createTerminalTab(for: worktree, in: repo, cwdOverride: launchDirectory, titleOverride: title)
 
         case .openWorktreeInPane(let worktreeId):
             guard let worktree = store.worktree(worktreeId), let repo = store.repo(containing: worktreeId) else {
@@ -148,8 +152,8 @@ extension PaneCoordinator {
             }
             _ = openWorktreeInPane(for: worktree, in: repo)
 
-        case .openFloatingTerminal(let cwd, let title):
-            _ = openFloatingTerminal(cwd: cwd, title: title)
+        case .openFloatingTerminal(let launchDirectory, let title):
+            _ = openFloatingTerminal(launchDirectory: launchDirectory, title: title)
 
         case .removeRepo(let repoId):
             removeRepoHandler(repoId)
@@ -387,7 +391,11 @@ extension PaneCoordinator {
             parentFolder: repo.repoPath.deletingLastPathComponent().path
         )
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(
+                worktreeId: worktree.id,
+                repoId: repo.id,
+                launchDirectory: resolvedCwd
+            ),
             title: (resolvedTitle?.isEmpty == false) ? resolvedTitle! : worktree.name,
             provider: .zmx,
             lifetime: .persistent,
@@ -548,7 +556,12 @@ extension PaneCoordinator {
             let targetPane = store.pane(targetPaneId)
             if let resolved = resolvedWorktreeContext(for: targetPane) {
                 let pane = store.createPane(
-                    source: .worktree(worktreeId: resolved.worktree.id, repoId: resolved.repo.id),
+                    source: .worktree(
+                        worktreeId: resolved.worktree.id,
+                        repoId: resolved.repo.id,
+                        launchDirectory: targetPane?.metadata.cwd ?? targetPane?.metadata.launchDirectory
+                            ?? resolved.worktree.path
+                    ),
                     provider: .zmx,
                     facets: targetPane?.metadata.facets ?? .empty
                 )
@@ -563,7 +576,10 @@ extension PaneCoordinator {
             }
 
             let pane = store.createPane(
-                source: .floating(workingDirectory: targetPane?.metadata.facets.cwd, title: nil),
+                source: .floating(
+                    launchDirectory: targetPane?.metadata.cwd ?? targetPane?.metadata.launchDirectory,
+                    title: nil
+                ),
                 provider: .zmx,
                 facets: targetPane?.metadata.facets ?? .empty
             )

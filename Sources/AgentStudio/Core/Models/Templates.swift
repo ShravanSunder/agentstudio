@@ -35,7 +35,7 @@ struct TerminalTemplate: Codable, Identifiable, Hashable {
     }
 
     /// Create a Pane from this template for a given worktree/repo.
-    func instantiate(worktreeId: UUID, repoId: UUID) -> Pane {
+    func instantiate(worktreeId: UUID, repoId: UUID, launchDirectory: URL) -> Pane {
         Pane(
             content: .terminal(
                 TerminalState(
@@ -43,7 +43,11 @@ struct TerminalTemplate: Codable, Identifiable, Hashable {
                     lifetime: .persistent
                 )),
             metadata: PaneMetadata(
-                source: .worktree(worktreeId: worktreeId, repoId: repoId),
+                source: .worktree(
+                    worktreeId: worktreeId,
+                    repoId: repoId,
+                    launchDirectory: launchDirectory
+                ),
                 title: title
             )
         )
@@ -77,8 +81,17 @@ struct WorktreeTemplate: Codable, Identifiable, Hashable {
     }
 
     /// Create panes and a tab from this template for a given worktree/repo.
-    func instantiate(worktreeId: UUID, repoId: UUID) -> (panes: [Pane], tab: Tab) {
-        let panes = terminals.map { $0.instantiate(worktreeId: worktreeId, repoId: repoId) }
+    func instantiate(worktreeId: UUID, repoId: UUID, launchDirectory: URL) -> (panes: [Pane], tab: Tab) {
+        let panes = terminals.map { template in
+            let paneLaunchDirectory =
+                template.relativeWorkingDir
+                .map { launchDirectory.appending(path: $0) } ?? launchDirectory
+            return template.instantiate(
+                worktreeId: worktreeId,
+                repoId: repoId,
+                launchDirectory: paneLaunchDirectory
+            )
+        }
 
         guard let first = panes.first else {
             fatalError("WorktreeTemplate must have at least one terminal")

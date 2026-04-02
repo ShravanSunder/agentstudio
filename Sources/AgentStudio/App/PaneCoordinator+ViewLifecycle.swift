@@ -23,7 +23,7 @@ extension PaneCoordinator {
         return host
     }
 
-    static func floatingZmxRestoreSessionId(for pane: Pane, workingDirectory: URL) -> String {
+    static func floatingZmxRestoreSessionId(for pane: Pane, launchDirectory: URL) -> String {
         if let parentPaneId = pane.parentPaneId {
             return ZmxBackend.drawerSessionId(
                 parentPaneId: parentPaneId,
@@ -32,7 +32,7 @@ extension PaneCoordinator {
         }
 
         return ZmxBackend.floatingSessionId(
-            workingDirectory: workingDirectory,
+            launchDirectory: launchDirectory,
             paneId: pane.id
         )
     }
@@ -151,7 +151,7 @@ extension PaneCoordinator {
             registerTerminalPlaceholderIfNeeded(for: pane, mode: .failedToStart)
             return nil
         }
-        let workingDir = pane.metadata.facets.cwd ?? worktree.path
+        let launchDirectory = pane.metadata.cwd ?? pane.metadata.launchDirectory ?? worktree.path
 
         let shellCommand = "\(getDefaultShell()) -i -l"
         let startupStrategy: Ghostty.SurfaceStartupStrategy
@@ -187,14 +187,14 @@ extension PaneCoordinator {
         }
 
         let config = Ghostty.SurfaceConfiguration(
-            workingDirectory: workingDir.path,
+            launchDirectory: launchDirectory.path,
             startupStrategy: startupStrategy,
             initialFrame: initialFrame,
             environmentVariables: environmentVariables
         )
 
         let metadata = SurfaceMetadata(
-            workingDirectory: workingDir,
+            launchDirectory: launchDirectory,
             command: startupStrategy.startupCommandForSurface,
             title: worktree.name,
             worktreeId: worktree.id,
@@ -262,7 +262,8 @@ extension PaneCoordinator {
             registerTerminalPlaceholderIfNeeded(for: pane, mode: .failedToStart)
             return nil
         }
-        let workingDir = pane.metadata.facets.cwd ?? FileManager.default.homeDirectoryForCurrentUser
+        let launchDirectory =
+            pane.metadata.cwd ?? pane.metadata.launchDirectory ?? FileManager.default.homeDirectoryForCurrentUser
         let shellCommand = "\(getDefaultShell()) -i -l"
         let startupStrategy: Ghostty.SurfaceStartupStrategy
         let showsRestorePresentationDuringStartup: Bool
@@ -283,7 +284,7 @@ extension PaneCoordinator {
             showsRestorePresentationDuringStartup = treatAsRestoredSessionStart
             environmentVariables["ZMX_DIR"] = sessionConfig.zmxDir
             RestoreTrace.log(
-                "createFloatingView zmx pane=\(pane.id) session=\(Self.floatingZmxRestoreSessionId(for: pane, workingDirectory: workingDir)) cwd=\(workingDir.path)"
+                "createFloatingView zmx pane=\(pane.id) session=\(Self.floatingZmxRestoreSessionId(for: pane, launchDirectory: launchDirectory)) cwd=\(launchDirectory.path)"
             )
         } else {
             if pane.provider == .zmx {
@@ -299,18 +300,18 @@ extension PaneCoordinator {
         }
 
         RestoreTrace.log(
-            "createFloatingView pane=\(pane.id) cwd=\(workingDir.path) cmd=\(shellCommand)"
+            "createFloatingView pane=\(pane.id) cwd=\(launchDirectory.path) cmd=\(shellCommand)"
         )
 
         let config = Ghostty.SurfaceConfiguration(
-            workingDirectory: workingDir.path,
+            launchDirectory: launchDirectory.path,
             startupStrategy: startupStrategy,
             initialFrame: initialFrame,
             environmentVariables: environmentVariables
         )
 
         let metadata = SurfaceMetadata(
-            workingDirectory: workingDir,
+            launchDirectory: launchDirectory,
             command: startupStrategy.startupCommandForSurface,
             title: pane.metadata.title,
             contextFacets: pane.metadata.facets,
