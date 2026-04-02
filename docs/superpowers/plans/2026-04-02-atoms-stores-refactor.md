@@ -309,14 +309,41 @@ git commit -m "chore: add swift-dependencies package, create DependencyKeys scaf
 
 ### swift-dependencies usage rules
 
-These rules apply to ALL subsequent tasks:
+These rules apply to ALL subsequent tasks. Verified against source code at `pointfreeco/swift-dependencies`.
+
+**In production code:**
 
 1. **`@ObservationIgnored @Dependency(\.atomName)`** — MANDATORY in `@Observable` classes. Without `@ObservationIgnored`, the dependency backing property triggers spurious observation.
 2. **Never put `@Dependency` on `static` properties** — Task Locals are captured at first access, producing stale values.
 3. **Use `withDependencies(from: self)` when creating child objects** — propagates the parent's dependency context.
-4. **Tests use `withDependencies { }` for isolation** — each test gets fresh atoms.
-5. **`liveValue` creates the singleton-equivalent instance** — only one instance per app lifecycle.
-6. **`testValue` creates a fresh instance per test** — no state leakage.
+4. **`liveValue` creates the singleton-equivalent instance** — cached in `CachedValues` dictionary, one per app lifecycle.
+
+**In tests (Swift Testing, NOT XCTest):**
+
+5. **Use `@Suite(.dependencies { })` for suite-level isolation:**
+   ```swift
+   @Suite(.dependencies {
+       $0.workspaceAtom = WorkspaceAtom()
+       $0.managementModeAtom = ManagementModeAtom()
+   })
+   struct MyTests {
+       @Test func testSomething() {
+           // Gets fresh isolated atoms — no singleton leakage
+       }
+   }
+   ```
+
+6. **Use `@Test(.dependency(\.atom, value))` for per-test overrides:**
+   ```swift
+   @Test(.dependency(\.continuousClock, .immediate))
+   func testDebounce() { ... }
+   ```
+
+7. **Cache resets between tests** — `CachedValues` is keyed by test identifier, reset on test start. Fresh instances per test.
+
+8. **`ManagementModeTestLock` can be deleted** — the custom serialization actor exists solely because of singleton state sharing. With dependency injection, each test is isolated by construction.
+
+9. **`TestPushClock` can be replaced** — `swift-clocks` (transitive dependency) provides `TestClock` and `ImmediateClock`. Use `ImmediateClock` for simple cases, `TestClock` for precise timing control.
 
 ---
 
