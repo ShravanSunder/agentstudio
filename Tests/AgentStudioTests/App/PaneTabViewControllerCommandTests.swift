@@ -200,12 +200,12 @@ struct PaneTabViewControllerCommandTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Visible",
             provider: .zmx
         )
         let hiddenPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Hidden",
             provider: .zmx
         )
