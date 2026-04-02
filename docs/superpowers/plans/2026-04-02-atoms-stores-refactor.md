@@ -66,7 +66,7 @@ The tracking closure must match the `hydrate()` parameter list exactly. If hydra
 ```swift
 @MainActor
 final class WorkspaceStore {
-    let atom: WorkspaceAtom
+    @ObservationIgnored @Dependency(\.workspaceAtom) var atom
     private let persistor: WorkspacePersistor
 
     func startObserving() {
@@ -84,7 +84,10 @@ final class WorkspaceStore {
                 _ = atom.windowFrame
                 _ = atom.unavailableRepoIds
                 _ = atom.createdAt
-                _ = atom.updatedAt
+                // NOTE: Do NOT observe atom.updatedAt — it is set by persistNow()
+                // during save. Observing it would create a save → mutate → save loop.
+                // Similarly, windowFrame is flush-only (not debounced), so observing
+                // it is optional — it won't cause a loop but adds noise.
             } onChange: { [weak self] in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
@@ -230,78 +233,18 @@ Add the package dependency:
 
 Add `Dependencies` to the target's dependencies array.
 
-- [ ] **Step 2: Create `DependencyKeys.swift`**
-
-This file registers all atoms as dependencies. Start with just the ones we're creating in this plan — add more as atoms are extracted.
-
-```swift
-import Dependencies
-
-// MARK: - Atom Dependency Keys
-
-struct ManagementModeAtomKey: DependencyKey {
-    static let liveValue = ManagementModeAtom()
-    static let testValue = ManagementModeAtom()
-}
-
-struct WorkspaceAtomKey: DependencyKey {
-    static let liveValue = WorkspaceAtom()
-    static let testValue = WorkspaceAtom()
-}
-
-struct RepoCacheAtomKey: DependencyKey {
-    static let liveValue = RepoCacheAtom()
-    static let testValue = RepoCacheAtom()
-}
-
-struct UIStateAtomKey: DependencyKey {
-    static let liveValue = UIStateAtom()
-    static let testValue = UIStateAtom()
-}
-
-struct SessionRuntimeAtomKey: DependencyKey {
-    static let liveValue = SessionRuntimeAtom()
-    static let testValue = SessionRuntimeAtom()
-}
-
-// MARK: - DependencyValues Extensions
-
-extension DependencyValues {
-    var workspaceAtom: WorkspaceAtom {
-        get { self[WorkspaceAtomKey.self] }
-        set { self[WorkspaceAtomKey.self] = newValue }
-    }
-    var managementModeAtom: ManagementModeAtom {
-        get { self[ManagementModeAtomKey.self] }
-        set { self[ManagementModeAtomKey.self] = newValue }
-    }
-    var repoCacheAtom: RepoCacheAtom {
-        get { self[RepoCacheAtomKey.self] }
-        set { self[RepoCacheAtomKey.self] = newValue }
-    }
-    var uiStateAtom: UIStateAtom {
-        get { self[UIStateAtomKey.self] }
-        set { self[UIStateAtomKey.self] = newValue }
-    }
-    var sessionRuntimeAtom: SessionRuntimeAtom {
-        get { self[SessionRuntimeAtomKey.self] }
-        set { self[SessionRuntimeAtomKey.self] = newValue }
-    }
-}
-```
-
-**Note:** This file will fail to compile until the atom types exist (Tasks 1-7). That's expected — each subsequent task creates the atom and makes this file compile incrementally. The implementing agent should comment out keys for atoms that don't exist yet and uncomment as they're created.
-
-- [ ] **Step 3: Build to verify package resolution**
+- [ ] **Step 2: Build to verify package resolution**
 
 Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift build --build-path "$SWIFT_BUILD_DIR" > /tmp/build-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
 
-Expected: PASS (with unresolved type errors for atom types that don't exist yet — that's OK, we just want package resolution to succeed)
+Expected: PASS — package resolves, existing code compiles. No new types yet.
 
-- [ ] **Step 4: Commit**
+**Note:** `DependencyKeys.swift` is NOT created in this task. Each subsequent task registers its own dependency key alongside the atom it creates. This avoids forward-referencing types that don't exist yet.
+
+- [ ] **Step 3: Commit**
 
 ```bash
-git add Package.swift Sources/AgentStudio/Infrastructure/DependencyKeys.swift
+git add Package.swift
 git commit -m "chore: add swift-dependencies package, create DependencyKeys scaffold"
 ```
 
@@ -365,11 +308,10 @@ import Observation
 @Observable
 @MainActor
 final class ManagementModeAtom {
-    static let shared = ManagementModeAtom()
-
+    // NO static let shared — instantiated by DependencyKey
     private(set) var isActive: Bool = false
 
-    private init() {}
+    init() {}
 
     func toggle() {
         isActive.toggle()
@@ -686,33 +628,54 @@ Same pattern as WorkspaceStore but simpler — smaller atom, same observation ap
 ```swift
 @MainActor
 final class RepoCacheStore {
-    let atom: RepoCacheAtom
+    @ObservationIgnored @Dependency(\.repoCacheAtom) var atom
     private let persistor: WorkspacePersistor
+    private let workspaceId: UUID  // needed for file path: {workspaceId}.workspace.cache.json
 
-    init(atom: RepoCacheAtom, persistor: WorkspacePersistor) {
-        self.atom = atom
+    init(persistor: WorkspacePersistor, workspaceId: UUID) {
         self.persistor = persistor
+        self.workspaceId = workspaceId
     }
 
     func restore() {
-        // Load from workspace.cache.json via persistor
-        // Call atom.hydrate(...) with loaded state
+        // Current: persistor.loadCache(for: workspaceId) in AppDelegate
+        // Move that logic here, call atom.hydrate(...) with loaded data
         startObserving()
+    }
+
+    func flush() {
+        // Current: persistor.saveCache(workspaceId: ...) in AppDelegate
+        // Move that logic here, read from atom
     }
 
     private func startObserving() {
         // withObservationTracking on atom's persisted properties
     }
-
-    // scheduleDebouncedSave(), flush(), persistNow() — same pattern as WorkspaceStore
 }
 ```
 
-The implementing agent must read the current RepoCacheAtom (formerly WorkspaceRepoCache) to identify what properties to observe and persist. Add a `hydrate()` method to `RepoCacheAtom` for the same `private(set)` reason.
+**Important:** The current persistence API uses workspace ID for file paths:
+- `persistor.loadCache(for: store.workspaceId)` → `{uuid}.workspace.cache.json`
+- `persistor.saveCache(workspaceId: ...)` → same
 
-- [ ] **Step 3: Create `UIStateStore`** — same pattern
+The implementing agent MUST read `AppDelegate.swift` lines ~83 and ~518 to understand the full load/save wiring before writing the store.
+
+Add a `hydrate()` method to `RepoCacheAtom` for the `private(set)` boundary.
+
+**Migrate readers:** Views that currently reference `RepoCacheAtom` (formerly `WorkspaceRepoCache`) directly for observation should use `@Dependency(\.repoCacheAtom)` instead. Check:
+```bash
+rg -l "RepoCacheAtom\|WorkspaceRepoCache" Sources/
+```
+
+Key files: `RepoSidebarContentView.swift`, `CommandBarDataSource.swift`, `PaneDisplayDerived.swift`.
+
+- [ ] **Step 3: Create `UIStateStore`** — same pattern, same `workspaceId` requirement
+
+Migrate readers: `MainWindowController.swift`, `MainSplitViewController.swift` reference `UIStateAtom` directly for observation. These should use `@Dependency(\.uiStateAtom)`.
 
 - [ ] **Step 4: Update AppDelegate** — replace inline persistence wiring with store calls
+
+Move `loadCache`/`saveCache`/`loadUI`/`saveUI` calls from AppDelegate into the stores. AppDelegate creates stores and calls `store.restore()` / `store.flush()`.
 
 - [ ] **Step 5: Build, test, commit**
 
@@ -750,16 +713,34 @@ final class SessionRuntimeAtom {
 }
 ```
 
-- [ ] **Step 2: Update SessionRuntime to accept atom as constructor parameter**
-
-SessionRuntime's init gains an `atom:` parameter. Tests create fresh atoms per test — no shared state leakage:
+- [ ] **Step 2: Update SessionRuntime to use `@Dependency`**
 
 ```swift
-init(atom: SessionRuntimeAtom = SessionRuntimeAtom(), ...) {
-    self.atom = atom
-    // ... existing init ...
+@MainActor
+final class SessionRuntime {
+    @ObservationIgnored @Dependency(\.sessionRuntimeAtom) var atom
+
+    // ... existing init unchanged, remove statuses property ...
+    // Replace all self.statuses[paneId] with atom.setStatus(...) / atom.status(for:)
 }
 ```
+
+Register the dependency key alongside the atom file:
+
+```swift
+struct SessionRuntimeAtomKey: DependencyKey {
+    static let liveValue = SessionRuntimeAtom()
+    static let testValue = SessionRuntimeAtom()
+}
+extension DependencyValues {
+    var sessionRuntimeAtom: SessionRuntimeAtom {
+        get { self[SessionRuntimeAtomKey.self] }
+        set { self[SessionRuntimeAtomKey.self] = newValue }
+    }
+}
+```
+
+Tests get fresh atoms via `@Suite(.dependencies { $0.sessionRuntimeAtom = SessionRuntimeAtom() })`.
 
 - [ ] **Step 3: Build, test, commit**
 
@@ -789,26 +770,31 @@ Test that the observation-based persistence works correctly. Use injected clocks
 
 - [ ] **Step 1: Test atom mutations trigger store save**
 
+Tests use `withDependencies` to inject a fresh atom. The store resolves it via `@Dependency(\.workspaceAtom)`. `persistor` and `clock` are infrastructure — passed via constructor.
+
 ```swift
 @Test
 func test_atomMutation_triggersStoreSave() async {
     let persistor = WorkspacePersistor(workspacesDir: tempDir)
-    let atom = WorkspaceAtom()
-    let clock = TestPushClock()  // existing test helper — NOT TestClock
-    let store = WorkspaceStore(
-        atom: atom,
-        persistor: persistor,
-        persistDebounceDuration: .milliseconds(100),
-        clock: clock
-    )
-    store.restore()  // starts observation
+    let clock = TestPushClock()
 
-    // Mutate the atom — create valid workspace state first
-    let pane = atom.createPane(source: .floating(launchDirectory: nil, title: nil))
+    let store = withDependencies {
+        $0.workspaceAtom = WorkspaceAtom()  // fresh, isolated
+    } operation: {
+        WorkspaceStore(
+            persistor: persistor,
+            persistDebounceDuration: .milliseconds(100),
+            clock: clock
+        )
+    }
+    store.restore()
+
+    // Mutate the atom via the store's dependency-resolved reference
+    let pane = store.atom.createPane(source: .floating(launchDirectory: nil, title: nil))
     let tab = Tab(paneId: pane.id)
-    atom.appendTab(tab)
+    store.atom.appendTab(tab)
 
-    // Wait for debounce to register, then advance clock
+    // Wait for debounce, advance clock
     await clock.waitForPendingSleepCount(atLeast: 1)
     clock.advance(by: .milliseconds(150))
 
@@ -829,53 +815,58 @@ func test_atomMutation_triggersStoreSave() async {
 func test_restore_doesNotTriggerSave() async {
     let persistor = WorkspacePersistor(workspacesDir: tempDir)
 
-    // Save initial state — create valid workspace
-    let atom1 = WorkspaceAtom()
-    let pane1 = atom1.createPane(source: .floating(launchDirectory: nil, title: nil))
-    atom1.appendTab(Tab(paneId: pane1.id))
-    let store1 = WorkspaceStore(atom: atom1, persistor: persistor)
+    // Save initial state
+    let store1 = withDependencies {
+        $0.workspaceAtom = WorkspaceAtom()
+    } operation: {
+        WorkspaceStore(persistor: persistor)
+    }
+    let pane = store1.atom.createPane(source: .floating(launchDirectory: nil, title: nil))
+    store1.atom.appendTab(Tab(paneId: pane.id))
     store1.flush()
 
-    // Restore into new atom — observation starts AFTER hydrate
-    let atom2 = WorkspaceAtom()
+    // Restore into fresh atom
     let clock = TestPushClock()
-    let store2 = WorkspaceStore(
-        atom: atom2,
-        persistor: persistor,
-        persistDebounceDuration: .milliseconds(100),
-        clock: clock
-    )
+    let store2 = withDependencies {
+        $0.workspaceAtom = WorkspaceAtom()
+    } operation: {
+        WorkspaceStore(
+            persistor: persistor,
+            persistDebounceDuration: .milliseconds(100),
+            clock: clock
+        )
+    }
     store2.restore()
 
-    // Advance clock — no save should be triggered by restore
-    await clock.waitForPendingSleepCount(atLeast: 1)
-    clock.advance(by: .milliseconds(150))
+    // Restore should NOT schedule a save
+    // Do NOT waitForPendingSleepCount — it hangs when correct (no pending sleep)
     #expect(store2.isDirty == false)
+    #expect(clock.pendingSleepCount == 0)
 }
 ```
 
 - [ ] **Step 3: Test observation tracks ALL persisted properties**
 
-This test verifies that the tracking closure reads every property that `hydrate()` sets. If someone adds a new persisted property to the atom and `hydrate()` but forgets to add it to the observation tracking, this test catches it.
-
 ```swift
 @Test
 func test_observation_tracksAllHydratedProperties() async {
     let persistor = WorkspacePersistor(workspacesDir: tempDir)
-    let atom = WorkspaceAtom()
     let clock = TestPushClock()
-    let store = WorkspaceStore(
-        atom: atom,
-        persistor: persistor,
-        persistDebounceDuration: .milliseconds(100),
-        clock: clock
-    )
+
+    let store = withDependencies {
+        $0.workspaceAtom = WorkspaceAtom()
+    } operation: {
+        WorkspaceStore(
+            persistor: persistor,
+            persistDebounceDuration: .milliseconds(100),
+            clock: clock
+        )
+    }
     store.restore()
 
-    // Mutate a property that is part of hydrate() but easy to forget in tracking
-    atom.setSidebarWidth(999)
+    // Mutate a property easy to forget in tracking
+    store.atom.setSidebarWidth(999)
 
-    // If tracking misses this property, no save will be triggered
     await clock.waitForPendingSleepCount(atLeast: 1)
     clock.advance(by: .milliseconds(150))
 
@@ -883,7 +874,7 @@ func test_observation_tracksAllHydratedProperties() async {
     case .loaded(let state):
         #expect(state.sidebarWidth == 999)
     case .missing, .corrupt:
-        Issue.record("sidebarWidth mutation not tracked — observation tracking closure is incomplete")
+        Issue.record("sidebarWidth mutation not tracked — observation tracking closure incomplete")
     }
 }
 ```
