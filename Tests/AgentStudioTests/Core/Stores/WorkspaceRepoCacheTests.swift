@@ -66,4 +66,43 @@ final class WorkspaceRepoCacheTests {
         #expect(store.sourceRevision == 42)
         #expect(store.lastRebuiltAt == timestamp)
     }
+
+    @Test
+    func recordRecentTarget_movesExistingEntryToFront_andCapsAtSix() {
+        let store = WorkspaceRepoCache()
+        let targets = (0..<6).map { index in
+            RecentWorkspaceTarget.forCwd(
+                URL(fileURLWithPath: "/tmp/project-\(index)"),
+                title: "project-\(index)",
+                lastOpenedAt: Date(timeIntervalSince1970: Double(index))
+            )
+        }
+
+        for target in targets {
+            store.recordRecentTarget(target)
+        }
+        store.recordRecentTarget(targets[2])
+
+        #expect(store.recentTargets.count == 6)
+        #expect(store.recentTargets.first?.id == targets[2].id)
+        #expect(store.recentTargets.contains { $0.id == targets[0].id })
+    }
+
+    @Test
+    func removeRecentTarget_removesMatchingId_andMissingIdIsNoOp() {
+        let store = WorkspaceRepoCache()
+        let first = RecentWorkspaceTarget.forCwd(URL(fileURLWithPath: "/tmp/first"))
+        let second = RecentWorkspaceTarget.forCwd(URL(fileURLWithPath: "/tmp/second"))
+
+        store.recordRecentTarget(first)
+        store.recordRecentTarget(second)
+
+        store.removeRecentTarget(first.id)
+
+        #expect(store.recentTargets == [second])
+
+        store.removeRecentTarget("cwd:/tmp/missing")
+
+        #expect(store.recentTargets == [second])
+    }
 }

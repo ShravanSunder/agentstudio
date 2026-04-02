@@ -62,6 +62,7 @@ struct CustomTabBar: View {
     var onCommand: ((AppCommand, UUID) -> Void)?
     var onTabFramesChanged: (([UUID: CGRect]) -> Void)?
     var onAdd: (() -> Void)?
+    var onOpenGitHub: (() -> Void)?
     var onPaneAction: ((PaneActionCommand) -> Void)?
     var onSaveArrangement: ((UUID) -> Void)?
     var onOpenRepoInTab: (() -> Void)?
@@ -286,6 +287,10 @@ struct CustomTabBar: View {
                         .fixedSize()
                     }
 
+                    if let onOpenGitHub {
+                        GitHubTabButton(onOpenGitHub: onOpenGitHub)
+                    }
+
                     // New tab button (always visible)
                     if let onAdd {
                         NewTabButton(onAdd: onAdd, onOpenRepoInTab: onOpenRepoInTab)
@@ -368,6 +373,30 @@ struct CustomTabBar: View {
     }
 }
 
+private struct GitHubTabButton: View {
+    let onOpenGitHub: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button {
+            onOpenGitHub()
+        } label: {
+            Image(systemName: "globe")
+                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                .foregroundStyle(isHovered ? .primary : .secondary)
+                .frame(width: AppStyle.toolbarButtonSize, height: AppStyle.toolbarButtonSize)
+                .background(
+                    Circle()
+                        .fill(Color.white.opacity(isHovered ? AppStyle.fillPressed : AppStyle.fillMuted))
+                )
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help("Open GitHub in a new tab")
+    }
+}
+
 /// Arrangement button in the tab bar's fixed controls zone.
 /// Opens the active tab's arrangement panel popover.
 private struct TabBarArrangementButton: View {
@@ -400,7 +429,11 @@ private struct TabBarArrangementButton: View {
         .buttonStyle(.plain)
         .onHover { hovering in isHovered = hovering }
         .help("Arrangements")
-        .popover(isPresented: $showPanel, arrowEdge: .bottom) {
+        .popover(
+            isPresented: $showPanel,
+            attachmentAnchor: .point(.bottomLeading),
+            arrowEdge: .bottom
+        ) {
             if let tab = activeTab, let onPaneAction, let onSaveArrangement {
                 ArrangementPanel(
                     tabId: tab.id,

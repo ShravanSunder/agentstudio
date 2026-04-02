@@ -44,6 +44,8 @@ extension PaneCoordinator {
         initialFrame: NSRect? = nil,
         treatAsRestoredSessionStart: Bool = false
     ) -> NSView? {
+        viewRegistry.ensureSlot(for: pane.id)
+
         switch pane.content {
         case .terminal:
             if let worktreeId = pane.worktreeId,

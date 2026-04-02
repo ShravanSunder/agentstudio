@@ -13,6 +13,7 @@ struct ActiveTabContent: View {
     let appLifecycleStore: AppLifecycleStore
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let onOpenPaneGitHub: (UUID) -> Void
 
     private static func traceBody(
         activeTabId: UUID?,
@@ -55,7 +56,8 @@ struct ActiveTabContent: View {
                 store: store,
                 repoCache: repoCache,
                 viewRegistry: viewRegistry,
-                appLifecycleStore: appLifecycleStore
+                appLifecycleStore: appLifecycleStore,
+                onOpenPaneGitHub: onOpenPaneGitHub
             )
             .background(AppStyle.chromeBackground)
         }

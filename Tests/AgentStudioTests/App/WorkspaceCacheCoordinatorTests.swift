@@ -156,6 +156,49 @@ final class WorkspaceCacheCoordinatorTests {
     }
 
     @Test
+    func workspaceActivity_recentTargetOpened_recordsRecentTargetInCache() {
+        let workspaceStore = makeWorkspaceStore()
+        let repoCache = WorkspaceRepoCache()
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: EventBus<RuntimeEnvelope>(),
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            scopeSyncHandler: { _ in }
+        )
+
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let target = RecentWorkspaceTarget.forWorktree(
+            path: URL(fileURLWithPath: "/tmp/agent-studio"),
+            worktree: Worktree(
+                id: worktreeId,
+                repoId: repoId,
+                name: "agent-studio",
+                path: URL(fileURLWithPath: "/tmp/agent-studio"),
+                isMainWorktree: true
+            ),
+            repo: Repo(
+                id: repoId,
+                name: "agent-studio",
+                repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+                worktrees: [],
+                createdAt: Date()
+            ),
+            displayTitle: "agent-studio",
+            subtitle: "main",
+            lastOpenedAt: Date(timeIntervalSince1970: 1_700_000_456)
+        )
+
+        coordinator.consume(
+            .system(
+                .test(event: .workspaceActivity(.recentTargetOpened(target)))
+            )
+        )
+
+        #expect(repoCache.recentTargets.first == target)
+    }
+
+    @Test
     func enrichment_snapshotChanged_updatesWorktreeCache() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = WorkspaceRepoCache()

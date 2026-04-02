@@ -4,21 +4,25 @@ import SwiftUI
 /// Panel rendering has moved to the tab-level DrawerPanelOverlay so it can
 /// overlay across all panes without being clipped by the pane's bounds.
 struct DrawerOverlay: View {
+    struct TrailingActions {
+        let canOpenTarget: Bool
+        let onOpenFinder: () -> Void
+        let onOpenCursor: () -> Void
+    }
+
     let paneId: UUID
     let drawer: Drawer?
     let isIconBarVisible: Bool
+    let trailingActions: TrailingActions?
     let action: (PaneActionCommand) -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer()
-
-            DrawerIconBar(
-                isExpanded: drawer?.isExpanded ?? false,
-                onAdd: { addDrawerPane() },
-                onToggleExpand: { action(.toggleDrawer(paneId: paneId)) }
-            )
-        }
+        DrawerIconBar(
+            isExpanded: drawer?.isExpanded ?? false,
+            onAdd: { addDrawerPane() },
+            onToggleExpand: { action(.toggleDrawer(paneId: paneId)) },
+            trailingActions: trailingActions
+        )
     }
 
     private func addDrawerPane() {
