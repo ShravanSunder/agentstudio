@@ -135,7 +135,7 @@ struct GhosttyActionRouterTests {
             paneId: paneId,
             metadata: PaneMetadata(
                 paneId: paneId,
-                source: .floating(workingDirectory: nil, title: "Runtime"),
+                source: .init(.floating(workingDirectory: nil, title: "Runtime")),
                 title: "Runtime"
             )
         )
@@ -173,7 +173,7 @@ struct GhosttyActionRouterTests {
             paneId: paneId,
             metadata: PaneMetadata(
                 paneId: paneId,
-                source: .floating(workingDirectory: nil, title: "Runtime"),
+                source: .init(.floating(workingDirectory: nil, title: "Runtime")),
                 title: "Runtime"
             )
         )
