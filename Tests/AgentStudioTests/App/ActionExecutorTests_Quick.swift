@@ -77,7 +77,7 @@ struct ActionExecutorTestsQuick {
         }
 
         let sourcePane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Source",
             facets: PaneContextFacets(
                 repoId: repo.id,

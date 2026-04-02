@@ -23,7 +23,7 @@ struct PaneManagementContextTests {
         }
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Terminal",
             facets: PaneContextFacets(cwd: URL(fileURLWithPath: "/tmp/agent-studio/subdir"))
         )
@@ -63,7 +63,7 @@ struct PaneManagementContextTests {
         }
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Terminal"
         )
 
@@ -84,7 +84,7 @@ struct PaneManagementContextTests {
         let repoCache = WorkspaceRepoCache()
 
         let pane = store.createPane(
-            source: .floating(workingDirectory: nil, title: "Floating"),
+            source: .floating(launchDirectory: nil, title: "Floating"),
             title: "Floating"
         )
 
@@ -110,7 +110,7 @@ struct PaneManagementContextTests {
             content: .webview(WebviewState(url: URL(string: "https://github.com")!)),
             metadata: PaneMetadata(
                 contentType: .browser,
-                source: .floating(workingDirectory: nil, title: "GitHub"),
+                source: .floating(launchDirectory: nil, title: "GitHub"),
                 title: "GitHub"
             )
         )
@@ -140,7 +140,7 @@ struct PaneManagementContextTests {
             content: .webview(WebviewState(url: URL(string: "https://github.com/ShravanSunder/agentstudio")!)),
             metadata: PaneMetadata(
                 contentType: .browser,
-                source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+                source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
                 title: "GitHub",
                 facets: PaneContextFacets(
                     repoId: repo.id,

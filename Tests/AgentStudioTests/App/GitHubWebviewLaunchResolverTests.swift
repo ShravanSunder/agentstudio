@@ -27,7 +27,7 @@ struct GitHubWebviewLaunchResolverTests {
         }
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Terminal"
         )
         let tab = Tab(paneId: pane.id)
@@ -62,7 +62,7 @@ struct GitHubWebviewLaunchResolverTests {
         }
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Terminal"
         )
         let tab = Tab(paneId: pane.id)
@@ -94,7 +94,7 @@ struct GitHubWebviewLaunchResolverTests {
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
         let cwd = URL(fileURLWithPath: "/tmp/agent-studio/Sources")
         let pane = store.createPane(
-            source: .floating(workingDirectory: cwd, title: "Floating"),
+            source: .floating(launchDirectory: cwd, title: "Floating"),
             title: "Floating"
         )
         let tab = Tab(paneId: pane.id)
@@ -139,7 +139,7 @@ struct GitHubWebviewLaunchResolverTests {
         }
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Terminal"
         )
         cache.setRepoEnrichment(

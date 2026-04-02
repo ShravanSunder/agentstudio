@@ -77,7 +77,7 @@ struct WorkspaceLauncherProjectorTests {
         }
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Terminal"
         )
         store.appendTab(Tab(paneId: pane.id))
