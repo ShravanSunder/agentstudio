@@ -60,6 +60,10 @@ NOT TOUCHED
 
 ### How stores observe atoms
 
+**CRITICAL:** `withObservationTracking` fires when ANY property read in the tracking closure changes. The tracking closure MUST read EVERY persisted property. If a property is missing, mutations to it won't trigger saves — silent data loss.
+
+The tracking closure must match the `hydrate()` parameter list exactly. If hydrate takes it, the observation must read it.
+
 ```swift
 @MainActor
 final class WorkspaceStore {
@@ -69,22 +73,35 @@ final class WorkspaceStore {
     func startObserving() {
         func observe() {
             withObservationTracking {
-                // Touch persisted properties to register for changes
+                // MUST read ALL persisted properties — missing = silent data loss
                 _ = atom.repos
                 _ = atom.tabs
                 _ = atom.panes
                 _ = atom.activeTabId
-                // ... all persisted properties
+                _ = atom.watchedPaths
+                _ = atom.workspaceId
+                _ = atom.workspaceName
+                _ = atom.sidebarWidth
+                _ = atom.windowFrame
+                _ = atom.unavailableRepoIds
+                _ = atom.createdAt
+                _ = atom.updatedAt
             } onChange: { [weak self] in
                 Task { @MainActor [weak self] in
-                    self?.scheduleDebouncedSave()
-                    observe()  // re-register
+                    guard let self else { return }
+                    self.scheduleDebouncedSave()
+                    observe()  // re-register for next change
                 }
             }
         }
         observe()
     }
 }
+```
+
+**Timing:** `startObserving()` is called at the END of `restore()`, AFTER `atom.hydrate()` completes. This is synchronous — `hydrate()` sets properties, then `startObserving()` registers. No async gap between them.
+
+**Test clock:** Tests use `TestPushClock` (existing helper at `Tests/Helpers/TestPushClock.swift`). Use `clock.waitForPendingSleepCount(atLeast: 1)` to wait for the debounce to register, then `clock.advance(by:)` to trigger it. No wall-clock sleeps.
 ```
 
 ### How atoms are hydrated during restore
@@ -550,12 +567,12 @@ Test that the observation-based persistence works correctly. Use injected clocks
 func test_atomMutation_triggersStoreSave() async {
     let persistor = WorkspacePersistor(workspacesDir: tempDir)
     let atom = WorkspaceAtom()
-    let testClock = TestClock()
+    let clock = TestPushClock()  // existing test helper — NOT TestClock
     let store = WorkspaceStore(
         atom: atom,
         persistor: persistor,
         persistDebounceDuration: .milliseconds(100),
-        clock: testClock
+        clock: clock
     )
     store.restore()  // starts observation
 
@@ -563,8 +580,9 @@ func test_atomMutation_triggersStoreSave() async {
     let tab = Tab(paneId: UUID())
     atom.appendTab(tab)
 
-    // Advance clock past debounce
-    await testClock.advance(by: .milliseconds(150))
+    // Wait for debounce to register, then advance clock
+    await clock.waitForPendingSleepCount(atLeast: 1)
+    clock.advance(by: .milliseconds(150))
 
     // Verify save happened
     switch persistor.load() {
@@ -591,7 +609,7 @@ func test_restore_doesNotTriggerSave() async {
 
     // Restore into new atom — observation starts AFTER hydrate
     let atom2 = WorkspaceAtom()
-    let testClock = TestClock()
+    let clock = TestPushClock()
     let store2 = WorkspaceStore(
         atom: atom2,
         persistor: persistor,
@@ -601,7 +619,8 @@ func test_restore_doesNotTriggerSave() async {
     store2.restore()
 
     // Advance clock — no save should be triggered by restore
-    await testClock.advance(by: .milliseconds(150))
+    await clock.waitForPendingSleepCount(atLeast: 1)
+    clock.advance(by: .milliseconds(150))
     #expect(store2.isDirty == false)
 }
 ```
