@@ -313,6 +313,17 @@ These rules apply to ALL subsequent tasks. Verified against source code at `poin
 
 12. **AppKit callbacks** (`NSEvent.addLocalMonitorForEvents`, `NSWindow` delegates) run outside any `withDependencies` scope. The `@Dependency` properties captured at object creation time via `initialValues` still work — they're stable. But new objects created inside callbacks need `withDependencies(from: self)`.
 
+**Scoping rule:**
+
+15. **Store lifetimes must be scoped to their `withDependencies` block.** `@Dependency` resolves at first access, not initialization. If an object is created inside `withDependencies { }` but accessed after the scope exits, subsequent `@Dependency` access re-resolves to `liveValue`. In practice this means: create AND use objects within the same scope, or use `withDependencies(from: self)` to propagate context to children that outlive the scope.
+
+**Observation tracking checklists:**
+
+16. **Every store must document its tracked vs excluded properties.** Before implementing each store, create a table:
+    | Property | Tracked? | Rationale |
+    |----------|----------|-----------|
+    The implementing agent builds this table by reading the atom's `hydrate()` parameters and deciding: does changing this property require a save? If yes → tracked. If it's set during save (updatedAt) or flush-only (windowFrame) → excluded.
+
 **Infrastructure as dependencies:**
 
 13. **`WorkspacePersistor` is a dependency** — register via `DependencyKey`. Tests override with in-memory persistor.
