@@ -15,6 +15,7 @@ enum SystemScopedEvent: Sendable {
     case appLifecycle(AppLifecycleEvent)
     case focusChanged(FocusChangeEvent)
     case configChanged(ConfigChangeEvent)
+    case workspaceActivity(WorkspaceActivityEvent)
 }
 
 enum TopologyEvent: Sendable {

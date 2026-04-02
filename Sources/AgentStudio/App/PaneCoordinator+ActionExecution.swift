@@ -3,6 +3,8 @@ import Foundation
 
 @MainActor
 extension PaneCoordinator {
+    private static var nextWorkspaceActivitySeq: UInt64 = 0
+
     static func computeSwitchArrangementTransitions(
         previousVisiblePaneIds: Set<UUID>,
         previouslyMinimizedPaneIds: Set<UUID>,
@@ -27,6 +29,13 @@ extension PaneCoordinator {
             }
         }) {
             store.setActiveTab(existingTab.id)
+            postRecentTargetOpened(
+                target: .forWorktree(
+                    path: worktree.path,
+                    worktree: worktree,
+                    repo: repo
+                )
+            )
             return nil
         }
 
@@ -70,6 +79,13 @@ extension PaneCoordinator {
         )
         store.setActivePane(pane.id, inTab: activeTabId)
         ensureTerminalPaneView(pane)
+        postRecentTargetOpened(
+            target: .forWorktree(
+                path: worktree.path,
+                worktree: worktree,
+                repo: repo
+            )
+        )
 
         Self.logger.info("Opened worktree '\(worktree.name)' in split pane")
         return pane
@@ -116,6 +132,15 @@ extension PaneCoordinator {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
         ensureTerminalPaneView(pane)
+        if let cwd {
+            postRecentTargetOpened(
+                target: .forCwd(
+                    cwd,
+                    title: resolvedTitle,
+                    subtitle: cwd.path
+                )
+            )
+        }
 
         Self.logger.info("Opened floating terminal pane \(pane.id)")
         return pane
@@ -400,9 +425,36 @@ extension PaneCoordinator {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
         ensureTerminalPaneView(pane)
+        postRecentTargetOpened(
+            target: .forWorktree(
+                path: resolvedCwd,
+                worktree: worktree,
+                repo: repo,
+                displayTitle: resolvedTitle,
+                subtitle: repo.name
+            )
+        )
 
         Self.logger.info("Opened terminal for worktree: \(worktree.name)")
         return pane
+    }
+
+    private func postRecentTargetOpened(target: RecentWorkspaceTarget) {
+        Self.nextWorkspaceActivitySeq += 1
+        let envelope = RuntimeEnvelope.system(
+            SystemEnvelope(
+                source: .builtin(.coordinator),
+                seq: Self.nextWorkspaceActivitySeq,
+                timestamp: .now,
+                event: .workspaceActivity(.recentTargetOpened(target))
+            )
+        )
+
+        Task {
+            guard !Task.isCancelled else { return }
+            Self.logger.debug("Posting recent target event id=\(target.id, privacy: .public)")
+            await PaneRuntimeEventBus.shared.post(envelope)
+        }
     }
 
     private func executeCloseTab(_ tabId: UUID) {

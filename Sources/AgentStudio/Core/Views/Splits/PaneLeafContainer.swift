@@ -118,18 +118,41 @@ struct PaneLeafContainer: View {
 
     var body: some View {
         GeometryReader { _ in
+            let managementContext = PaneManagementContext.project(
+                paneId: paneHost.id,
+                store: store,
+                repoCache: repoCache
+            )
             ZStack(alignment: .topTrailing) {
-                // Pane content view
-                PaneViewRepresentable(paneHost: paneHost)
-                    // Force SwiftUI to recreate the representable when the host
-                    // instance changes (e.g. after repair or placeholder retry).
-                    // Without this, updateNSView is a no-op and the old NSView
-                    // stays mounted.
-                    .id(paneHost.hostIdentity)
-                    // In management mode, route drag targeting through the shared
-                    // SwiftUI leaf container so pane type (WKWebView/Ghostty/etc.)
-                    // cannot intercept drop updates differently.
-                    .allowsHitTesting(!managementMode.isActive)
+                VStack(spacing: 0) {
+                    PaneViewRepresentable(paneHost: paneHost)
+                        // Force SwiftUI to recreate the representable when the host
+                        // instance changes (e.g. after repair or placeholder retry).
+                        // Without this, updateNSView is a no-op and the old NSView
+                        // stays mounted.
+                        .id(paneHost.hostIdentity)
+                        // In management mode, route drag targeting through the shared
+                        // SwiftUI leaf container so pane type (WKWebView/Ghostty/etc.)
+                        // cannot intercept drop updates differently.
+                        .allowsHitTesting(!managementMode.isActive)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    if managementMode.isActive {
+                        ManagementPaneFooter(
+                            context: managementContext,
+                            onOpenFinder: { openInFinder(managementContext) },
+                            onOpenCursor: { openInCursor(managementContext) }
+                        )
+                    } else if !isDrawerChild {
+                        DrawerOverlay(
+                            paneId: paneHost.id,
+                            drawer: drawer,
+                            isIconBarVisible: true,
+                            action: actionDispatcher.dispatch
+                        )
+                        .frame(height: DrawerLayout.iconBarFrameHeight)
+                    }
+                }
 
                 // Ghostty-style dimming for unfocused panes
                 if !isActive {
@@ -335,15 +358,6 @@ struct PaneLeafContainer: View {
                     .transition(.opacity)
                 }
 
-                // Drawer icon bar (bottom of pane, layout panes only — no nested drawers)
-                if !isDrawerChild {
-                    DrawerOverlay(
-                        paneId: paneHost.id,
-                        drawer: drawer,
-                        isIconBarVisible: true,
-                        action: actionDispatcher.dispatch
-                    )
-                }
             }
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
@@ -430,6 +444,16 @@ struct PaneLeafContainer: View {
 
     private func paneDisplayTitle(_ paneId: UUID) -> String {
         PaneDisplayProjector.displayLabel(for: paneId, store: store, repoCache: repoCache)
+    }
+
+    private func openInFinder(_ context: PaneManagementContext) {
+        guard let targetPath = context.targetPath else { return }
+        ExternalWorkspaceOpener.openInFinder(targetPath)
+    }
+
+    private func openInCursor(_ context: PaneManagementContext) {
+        guard let targetPath = context.targetPath else { return }
+        ExternalWorkspaceOpener.openInCursor(targetPath)
     }
 }
 

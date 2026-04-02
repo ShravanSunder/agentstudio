@@ -57,6 +57,7 @@ final class WorkspaceCacheCoordinator {
         switch envelope {
         case .system(let systemEnvelope):
             handleTopology(systemEnvelope)
+            handleWorkspaceActivity(systemEnvelope)
         case .worktree(let worktreeEnvelope):
             handleEnrichment(worktreeEnvelope)
         case .pane:
@@ -127,6 +128,16 @@ final class WorkspaceCacheCoordinator {
             let worktrees = repo.worktrees.filter { $0.id != worktreeId }
             workspaceStore.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
             repoCache.removeWorktree(worktreeId)
+        }
+    }
+
+    private func handleWorkspaceActivity(_ envelope: SystemEnvelope) {
+        guard case .workspaceActivity(let activityEvent) = envelope.event else { return }
+
+        switch activityEvent {
+        case .recentTargetOpened(let target):
+            Self.logger.debug("Recording recent target id=\(target.id, privacy: .public)")
+            repoCache.recordRecentTarget(target)
         }
     }
 

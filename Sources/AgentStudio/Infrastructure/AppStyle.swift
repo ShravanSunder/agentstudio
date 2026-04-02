@@ -137,7 +137,7 @@ enum AppStyle {
     static let sidebarRowVerticalInset: CGFloat = 6
 
     /// Leading inset for child checkout rows under a resolved group header.
-    static let sidebarGroupChildRowLeadingInset: CGFloat = 12
+    static let sidebarGroupChildRowLeadingInset: CGFloat = sidebarListRowLeadingInset + textBase + spacingTight
 
     /// Leading inset used for sidebar list rows.
     static let sidebarListRowLeadingInset: CGFloat = 2
