@@ -393,20 +393,62 @@ import Dependencies
 @MainActor
 @Observable
 final class ManagementModeMonitor {
-    static let shared = ManagementModeMonitor()
+    // NO static let shared — this is now a dependency itself
 
     @ObservationIgnored @Dependency(\.managementModeAtom) var atom
 
     var isActive: Bool { atom.isActive }
 
-    // ... toggle(), deactivate() delegate to atom ...
+    init() {
+        startKeyboardMonitoring()
+    }
+
+    func toggle() {
+        atom.toggle()
+        if atom.isActive {
+            resignPaneFirstResponder()
+        }
+    }
+
+    func deactivate() {
+        atom.deactivate()
+    }
+
     // ... keyboard monitoring + first responder code unchanged ...
 }
 ```
 
-All 18 call sites use `ManagementModeMonitor.shared.isActive` — API identical, no changes needed. The `@Dependency` resolves the atom from the dependency system instead of a hardcoded singleton.
+**Register ManagementModeMonitor as a dependency** in `DependencyKeys.swift`:
 
-Uncomment `ManagementModeAtomKey` in `DependencyKeys.swift` now that the type exists.
+```swift
+struct ManagementModeMonitorKey: DependencyKey {
+    static let liveValue = ManagementModeMonitor()
+    static let testValue = ManagementModeMonitor()
+}
+
+extension DependencyValues {
+    var managementModeMonitor: ManagementModeMonitor {
+        get { self[ManagementModeMonitorKey.self] }
+        set { self[ManagementModeMonitorKey.self] = newValue }
+    }
+}
+```
+
+**Migrate all 18 call sites** from `ManagementModeMonitor.shared` to `@Dependency`:
+
+```bash
+rg -l "ManagementModeMonitor.shared" Sources/ Tests/
+```
+
+For each file:
+- If it's an `@Observable` class: add `@ObservationIgnored @Dependency(\.managementModeMonitor) var monitor`
+- If it's a non-observable class: add `@Dependency(\.managementModeMonitor) var monitor`
+- Replace `ManagementModeMonitor.shared.isActive` → `monitor.isActive`
+- Replace `ManagementModeMonitor.shared.toggle()` → `monitor.toggle()`
+
+**Delete `ManagementModeTestLock`** — no longer needed. Tests use `@Suite(.dependencies { })` for isolation.
+
+Uncomment `ManagementModeAtomKey` and `ManagementModeMonitorKey` in `DependencyKeys.swift`.
 
 - [ ] **Step 3: Build and test**
 
@@ -801,7 +843,7 @@ func test_restore_doesNotTriggerSave() async {
         atom: atom2,
         persistor: persistor,
         persistDebounceDuration: .milliseconds(100),
-        clock: testClock
+        clock: clock
     )
     store2.restore()
 
@@ -812,7 +854,62 @@ func test_restore_doesNotTriggerSave() async {
 }
 ```
 
-- [ ] **Step 3: Test hydrate populates atom state**
+- [ ] **Step 3: Test observation tracks ALL persisted properties**
+
+This test verifies that the tracking closure reads every property that `hydrate()` sets. If someone adds a new persisted property to the atom and `hydrate()` but forgets to add it to the observation tracking, this test catches it.
+
+```swift
+@Test
+func test_observation_tracksAllHydratedProperties() async {
+    let persistor = WorkspacePersistor(workspacesDir: tempDir)
+    let atom = WorkspaceAtom()
+    let clock = TestPushClock()
+    let store = WorkspaceStore(
+        atom: atom,
+        persistor: persistor,
+        persistDebounceDuration: .milliseconds(100),
+        clock: clock
+    )
+    store.restore()
+
+    // Mutate a property that is part of hydrate() but easy to forget in tracking
+    atom.setSidebarWidth(999)
+
+    // If tracking misses this property, no save will be triggered
+    await clock.waitForPendingSleepCount(atLeast: 1)
+    clock.advance(by: .milliseconds(150))
+
+    switch persistor.load() {
+    case .loaded(let state):
+        #expect(state.sidebarWidth == 999)
+    case .missing, .corrupt:
+        Issue.record("sidebarWidth mutation not tracked — observation tracking closure is incomplete")
+    }
+}
+```
+
+- [ ] **Step 4: Test dependency isolation (no singleton leakage)**
+
+```swift
+@Suite(.dependencies {
+    $0.managementModeAtom = ManagementModeAtom()
+})
+struct ManagementModeIsolationTests {
+    @ObservationIgnored @Dependency(\.managementModeAtom) var atom
+
+    @Test func testA_toggleDoesNotLeakToTestB() {
+        atom.activate()
+        #expect(atom.isActive == true)
+    }
+
+    @Test func testB_startsInactive() {
+        // If isolation works, this test's atom is fresh — NOT affected by testA
+        #expect(atom.isActive == false)
+    }
+}
+```
+
+- [ ] **Step 5: Test hydrate populates atom state**
 
 ```swift
 @Test

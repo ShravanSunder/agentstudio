@@ -114,11 +114,18 @@ final class WorkspaceStore {
 
 ## Singletons to eliminate
 
+**All `.shared` singletons are eliminated.** `static let shared` is incompatible with `@Dependency` — it captures stale Task Local context at first access, breaking test isolation.
+
 | Current singleton | Replacement |
 |------------------|-------------|
-| `ManagementModeMonitor.shared` | `@Dependency(\.managementModeAtom)` for state, `ManagementModeMonitor` injected for behavior |
+| `ManagementModeMonitor.shared` | `@Dependency(\.managementModeMonitor)` — monitor is itself a dependency |
+| `ManagementModeAtom` (new) | `@Dependency(\.managementModeAtom)` — accessed via monitor or directly |
 | `CommandDispatcher.shared` | `@Dependency(\.commandDispatcher)` |
-| `SurfaceManager.shared` | Keep as singleton — Core can't import Features types |
+| `SurfaceManager.shared` | Keep as singleton for now — Core can't import Features types, and it's behavior-heavy. Future: make it a dependency when Features types are accessible. |
+
+**Rule: Never use `@Dependency` inside a `static let shared` initializer.** The `static let` captures Task Local context at first access, which is always the default (live) context. Test overrides via `withDependencies` won't reach it.
+
+**Delete `ManagementModeTestLock`** — the custom serialization actor exists solely because of singleton state sharing. With dependency injection, each test gets isolated instances by construction.
 
 ## Migration order
 
