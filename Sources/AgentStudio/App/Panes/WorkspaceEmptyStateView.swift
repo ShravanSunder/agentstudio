@@ -91,12 +91,7 @@ struct WorkspaceEmptyStateView: View {
             .frame(maxWidth: .infinity)
 
             VStack(spacing: 12) {
-                Text("Import")
-                    .font(.system(size: AppStyle.textSm, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-
-                Button("Add Folder...") {
+                Button("Add Folder to Scan for Repos...") {
                     onAddFolder()
                 }
                 .buttonStyle(.bordered)
