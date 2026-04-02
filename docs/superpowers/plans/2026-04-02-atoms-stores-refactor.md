@@ -168,6 +168,7 @@ Transient state (`Tab.zoomedPaneId`, `Tab.minimizedPaneIds`) stays on the `Tab` 
 
 ## Task Order
 
+**Phase 0:** Add `swift-dependencies` package, create dependency keys (Task 0).
 **Phase 1:** Create `Core/Atoms/`, establish pattern (Tasks 1-3).
 **Phase 2:** Rename derived computations (Task 4).
 **Phase 3:** Split WorkspaceStore, create RepoCacheStore + UIStateStore (Tasks 5-6).
@@ -188,6 +189,7 @@ Transient state (`Tab.zoomedPaneId`, `Tab.minimizedPaneIds`) stays on the `Tab` 
 | `Core/Atoms/RepoCacheAtom.swift` | Renamed from `WorkspaceRepoCache` |
 | `Core/Atoms/WorkspaceAtom.swift` | State + mutations from `WorkspaceStore`, with `hydrate()` |
 | `Core/Atoms/SessionRuntimeAtom.swift` | Runtime statuses from `SessionRuntime` |
+| `Infrastructure/DependencyKeys.swift` | All atom dependency key registrations |
 | `Core/Atoms/PaneDisplayDerived.swift` | Renamed from `PaneDisplayProjector` |
 | `Core/Atoms/DynamicViewDerived.swift` | Renamed from `DynamicViewProjector` |
 | `Core/Stores/RepoCacheStore.swift` | Persistence wrapper for `RepoCacheAtom` |
@@ -210,6 +212,111 @@ Transient state (`Tab.zoomedPaneId`, `Tab.minimizedPaneIds`) stays on the `Tab` 
 |------|-----|
 | `Core/Stores/WorkspacePersistor.swift` | Shared I/O — used by stores, not refactored |
 | `Features/Terminal/Ghostty/SurfaceManager.swift` | Core can't import Features types |
+
+---
+
+## Task 0: Add `swift-dependencies` and create dependency keys
+
+**Files:**
+- Modify: `Package.swift`
+- Create: `Sources/AgentStudio/Infrastructure/DependencyKeys.swift`
+
+- [ ] **Step 1: Add swift-dependencies to Package.swift**
+
+Add the package dependency:
+```swift
+.package(url: "https://github.com/pointfreeco/swift-dependencies", from: "1.12.0"),
+```
+
+Add `Dependencies` to the target's dependencies array.
+
+- [ ] **Step 2: Create `DependencyKeys.swift`**
+
+This file registers all atoms as dependencies. Start with just the ones we're creating in this plan — add more as atoms are extracted.
+
+```swift
+import Dependencies
+
+// MARK: - Atom Dependency Keys
+
+struct ManagementModeAtomKey: DependencyKey {
+    static let liveValue = ManagementModeAtom()
+    static let testValue = ManagementModeAtom()
+}
+
+struct WorkspaceAtomKey: DependencyKey {
+    static let liveValue = WorkspaceAtom()
+    static let testValue = WorkspaceAtom()
+}
+
+struct RepoCacheAtomKey: DependencyKey {
+    static let liveValue = RepoCacheAtom()
+    static let testValue = RepoCacheAtom()
+}
+
+struct UIStateAtomKey: DependencyKey {
+    static let liveValue = UIStateAtom()
+    static let testValue = UIStateAtom()
+}
+
+struct SessionRuntimeAtomKey: DependencyKey {
+    static let liveValue = SessionRuntimeAtom()
+    static let testValue = SessionRuntimeAtom()
+}
+
+// MARK: - DependencyValues Extensions
+
+extension DependencyValues {
+    var workspaceAtom: WorkspaceAtom {
+        get { self[WorkspaceAtomKey.self] }
+        set { self[WorkspaceAtomKey.self] = newValue }
+    }
+    var managementModeAtom: ManagementModeAtom {
+        get { self[ManagementModeAtomKey.self] }
+        set { self[ManagementModeAtomKey.self] = newValue }
+    }
+    var repoCacheAtom: RepoCacheAtom {
+        get { self[RepoCacheAtomKey.self] }
+        set { self[RepoCacheAtomKey.self] = newValue }
+    }
+    var uiStateAtom: UIStateAtom {
+        get { self[UIStateAtomKey.self] }
+        set { self[UIStateAtomKey.self] = newValue }
+    }
+    var sessionRuntimeAtom: SessionRuntimeAtom {
+        get { self[SessionRuntimeAtomKey.self] }
+        set { self[SessionRuntimeAtomKey.self] = newValue }
+    }
+}
+```
+
+**Note:** This file will fail to compile until the atom types exist (Tasks 1-7). That's expected — each subsequent task creates the atom and makes this file compile incrementally. The implementing agent should comment out keys for atoms that don't exist yet and uncomment as they're created.
+
+- [ ] **Step 3: Build to verify package resolution**
+
+Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift build --build-path "$SWIFT_BUILD_DIR" > /tmp/build-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
+
+Expected: PASS (with unresolved type errors for atom types that don't exist yet — that's OK, we just want package resolution to succeed)
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add Package.swift Sources/AgentStudio/Infrastructure/DependencyKeys.swift
+git commit -m "chore: add swift-dependencies package, create DependencyKeys scaffold"
+```
+
+---
+
+### swift-dependencies usage rules
+
+These rules apply to ALL subsequent tasks:
+
+1. **`@ObservationIgnored @Dependency(\.atomName)`** — MANDATORY in `@Observable` classes. Without `@ObservationIgnored`, the dependency backing property triggers spurious observation.
+2. **Never put `@Dependency` on `static` properties** — Task Locals are captured at first access, producing stale values.
+3. **Use `withDependencies(from: self)` when creating child objects** — propagates the parent's dependency context.
+4. **Tests use `withDependencies { }` for isolation** — each test gets fresh atoms.
+5. **`liveValue` creates the singleton-equivalent instance** — only one instance per app lifecycle.
+6. **`testValue` creates a fresh instance per test** — no state leakage.
 
 ---
 
@@ -254,11 +361,14 @@ final class ManagementModeAtom {
 - [ ] **Step 2: Update ManagementModeMonitor — delegate state to atom**
 
 ```swift
+import Dependencies
+
 @MainActor
 @Observable
 final class ManagementModeMonitor {
     static let shared = ManagementModeMonitor()
-    private let atom = ManagementModeAtom.shared
+
+    @ObservationIgnored @Dependency(\.managementModeAtom) var atom
 
     var isActive: Bool { atom.isActive }
 
@@ -267,7 +377,9 @@ final class ManagementModeMonitor {
 }
 ```
 
-All 18 call sites use `ManagementModeMonitor.shared.isActive` — API identical, no changes needed.
+All 18 call sites use `ManagementModeMonitor.shared.isActive` — API identical, no changes needed. The `@Dependency` resolves the atom from the dependency system instead of a hardcoded singleton.
+
+Uncomment `ManagementModeAtomKey` in `DependencyKeys.swift` now that the type exists.
 
 - [ ] **Step 3: Build and test**
 
