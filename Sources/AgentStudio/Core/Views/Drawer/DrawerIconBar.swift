@@ -119,7 +119,6 @@ struct DrawerIconBar: View {
             .padding(.vertical, DrawerLayout.iconBarVerticalPadding)
             .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: DrawerLayout.iconBarCornerRadius))
-            .padding(DrawerLayout.iconBarContentSpacing)
             .background(
                 GeometryReader { geo in
                     Color.clear.preference(
