@@ -57,20 +57,20 @@ final class CommandBarStateTests {
     }
 
     @Test
-    func test_show_withAtPrefix_setsVisibleAndAtPrefix() {
+    func test_show_withPanePrefix_setsVisibleAndDollarPrefix() {
         // Act
-        state.show(prefix: "@")
+        state.show(prefix: "$")
 
         // Assert
         #expect(state.isVisible)
-        #expect(state.rawInput == "@ ")
+        #expect(state.rawInput == "$ ")
     }
 
     @Test
     func test_dismiss_resetsAllState() {
         // Arrange
         state.show(prefix: ">")
-        state.rawInput = ">close"
+        state.rawInput = "> close"
         state.selectedIndex = 3
         let level = makeCommandBarLevel()
         state.pushLevel(level)
@@ -90,19 +90,19 @@ final class CommandBarStateTests {
     @Test
     func test_activePrefix_greaterThan_returnsCommandPrefix() {
         // Arrange
-        state.rawInput = ">close"
+        state.rawInput = "> close"
 
         // Assert
-        #expect(state.activePrefix == ">")
+        #expect(state.activePrefix == "> ")
     }
 
     @Test
-    func test_activePrefix_at_returnsPanePrefix() {
+    func test_activePrefix_dollar_returnsPanePrefix() {
         // Arrange
-        state.rawInput = "@main"
+        state.rawInput = "$ main"
 
         // Assert
-        #expect(state.activePrefix == "@")
+        #expect(state.activePrefix == "$ ")
     }
 
     @Test
@@ -128,7 +128,7 @@ final class CommandBarStateTests {
         // Arrange — nesting overrides prefix parsing
         let level = makeCommandBarLevel()
         state.pushLevel(level)
-        state.rawInput = ">"
+        state.rawInput = "> "
 
         // Assert
         #expect(state.activePrefix == nil)
@@ -137,11 +137,27 @@ final class CommandBarStateTests {
     @Test
     func test_activePrefix_hashPrefix_returnsHash() {
         // Arrange
-        state.rawInput = "#search"
+        state.rawInput = "# search"
 
         // Assert
-        #expect(state.activePrefix == "#")
+        #expect(state.activePrefix == "# ")
         #expect(state.activeScope == .repos)
+    }
+
+    @Test
+    func test_activePrefix_singleCharWithoutSpace_returnsNil() {
+        state.rawInput = "$"
+
+        #expect(state.activePrefix == nil)
+        #expect(state.activeScope == .everything)
+    }
+
+    @Test
+    func test_activePrefix_symbolSpaceQuery_returnsPrefixAndSearchQuery() {
+        state.rawInput = "$ search term"
+
+        #expect(state.activePrefix == "$ ")
+        #expect(state.searchQuery == "search term")
     }
 
     @Test
@@ -158,7 +174,7 @@ final class CommandBarStateTests {
     @Test
     func test_searchQuery_withPrefix_stripsPrefix() {
         // Arrange
-        state.rawInput = ">close"
+        state.rawInput = "> close"
 
         // Assert
         #expect(state.searchQuery == "close")
@@ -176,7 +192,7 @@ final class CommandBarStateTests {
     @Test
     func test_searchQuery_prefixOnly_returnsEmpty() {
         // Arrange
-        state.rawInput = ">"
+        state.rawInput = "> "
 
         // Assert
         #expect(state.searchQuery.isEmpty)
@@ -205,19 +221,27 @@ final class CommandBarStateTests {
     @Test
     func test_activeScope_greaterThan_returnsCommands() {
         // Arrange
-        state.rawInput = ">"
+        state.rawInput = "> "
 
         // Assert
         #expect(state.activeScope == .commands)
     }
 
     @Test
-    func test_activeScope_at_returnsPanes() {
+    func test_activeScope_dollar_returnsPanes() {
         // Arrange
-        state.rawInput = "@"
+        state.rawInput = "$ "
 
         // Assert
         #expect(state.activeScope == .panes)
+    }
+
+    @Test
+    func test_activeScope_atSymbol_noLongerTriggersPanes() {
+        state.rawInput = "@"
+
+        #expect(state.activeScope == .everything)
+        #expect(state.activePrefix == nil)
     }
 
     @Test
@@ -253,11 +277,25 @@ final class CommandBarStateTests {
         state.pushLevel(makeCommandBarLevel())
 
         // Act
-        state.switchPrefix("@")
+        state.switchPrefix("$")
 
         // Assert
         #expect(state.navigationStack.isEmpty)
-        #expect(state.rawInput == "@ ")
+        #expect(state.rawInput == "$ ")
+    }
+
+    @Test
+    func test_hasPrefixInText_trueWhenRecognizedPrefixVisible() {
+        state.rawInput = "# search"
+
+        #expect(state.hasPrefixInText)
+    }
+
+    @Test
+    func test_hasPrefixInText_falseWhenNoRecognizedPrefixVisible() {
+        state.rawInput = "search"
+
+        #expect(!state.hasPrefixInText)
     }
 
     // MARK: - Navigation
@@ -488,19 +526,19 @@ final class CommandBarStateTests {
     @Test
     func test_placeholder_commands_returnsRunACommand() {
         // Arrange
-        state.rawInput = ">"
+        state.rawInput = "> "
 
         // Assert
         #expect(state.placeholder == "Run a command...")
     }
 
     @Test
-    func test_placeholder_panes_returnsSwitchToPane() {
+    func test_placeholder_panes_returnsSearchPanes() {
         // Arrange
-        state.rawInput = "@"
+        state.rawInput = "$ "
 
         // Assert
-        #expect(state.placeholder == "Switch to pane...")
+        #expect(state.placeholder == "Search panes...")
     }
 
     @Test
@@ -526,19 +564,28 @@ final class CommandBarStateTests {
     @Test
     func test_scopeIcon_commands_returnsChevron() {
         // Arrange
-        state.rawInput = ">"
+        state.rawInput = "> "
 
         // Assert
         #expect(state.scopeIcon == "chevron.right.2")
     }
 
     @Test
-    func test_scopeIcon_panes_returnsAt() {
+    func test_scopeIcon_panes_returnsTerminal() {
         // Arrange
-        state.rawInput = "@"
+        state.rawInput = "$ "
 
         // Assert
-        #expect(state.scopeIcon == "at")
+        #expect(state.scopeIcon == "terminal")
+    }
+
+    @Test
+    func test_scopeIcon_repos_returnsOcticonRepo() {
+        // Arrange
+        state.rawInput = "# "
+
+        // Assert
+        #expect(state.scopeIcon == "octicon-repo")
     }
 
     @Test
@@ -624,7 +671,7 @@ final class CommandBarStateTests {
         // Assert — "#" is now recognized as the repos scope prefix
         #expect(state.isVisible)
         #expect(state.rawInput == "# ")
-        #expect(state.activePrefix == "#")
+        #expect(state.activePrefix == "# ")
         #expect(state.activeScope == .repos)
     }
 

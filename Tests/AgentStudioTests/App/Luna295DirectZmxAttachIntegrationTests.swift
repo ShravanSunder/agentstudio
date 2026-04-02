@@ -71,7 +71,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let worktree = try #require(repo.worktrees.first)
 
         let pane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
 
@@ -93,7 +93,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let pane = harness.store.createPane(
-            source: .floating(workingDirectory: harness.tempDir, title: "Floating"),
+            source: .floating(launchDirectory: harness.tempDir, title: "Floating"),
             provider: .zmx
         )
 
@@ -113,7 +113,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let pane = harness.store.createPane(
-            source: .floating(workingDirectory: nil, title: nil),
+            source: .floating(launchDirectory: nil, title: nil),
             provider: .zmx
         )
 
@@ -135,11 +135,11 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let hiddenPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
 
@@ -176,11 +176,11 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let hiddenPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
 
@@ -222,11 +222,11 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let hiddenPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
 
@@ -263,11 +263,11 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let hiddenPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
 
@@ -309,11 +309,11 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let hiddenPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
 
@@ -352,11 +352,11 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let hiddenParentPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .ghostty
         )
         let hiddenDrawerPane = try #require(harness.store.addDrawerPane(to: hiddenParentPane.id))
@@ -400,11 +400,11 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let hiddenParentPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let hiddenDrawerPane = try #require(harness.store.addDrawerPane(to: hiddenParentPane.id))
@@ -446,7 +446,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let pane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
 
@@ -475,7 +475,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let pane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let drawerPane = try #require(harness.store.addDrawerPane(to: pane.id))
@@ -503,7 +503,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let existingPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let tab = Tab(paneId: existingPane.id, name: "Split")
@@ -573,7 +573,9 @@ struct Luna295DirectZmxAttachIntegrationTests {
             CGRect(x: 0, y: 0, width: 1000, height: 600)
         )
 
-        let pane = try #require(harness.coordinator.openFloatingTerminal(cwd: harness.tempDir, title: "Floating"))
+        let pane = try #require(
+            harness.coordinator.openFloatingTerminal(launchDirectory: harness.tempDir, title: "Floating")
+        )
         let config = try #require(harness.surfaceManager.createdConfigsByPaneId[pane.id])
         let activeTab = try #require(harness.store.activeTab)
         let resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
@@ -666,7 +668,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let pane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
 

@@ -62,7 +62,7 @@ struct PaneCoordinatorHardeningTests {
         let url = URL(string: "https://example.com/\(UUID().uuidString)")!
         return store.createPane(
             content: .webview(WebviewState(url: url, showNavigation: true)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: title), title: title)
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: title), title: title)
         )
     }
 
@@ -73,7 +73,7 @@ struct PaneCoordinatorHardeningTests {
         title: String
     ) -> Pane {
         store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: title,
             provider: .zmx
         )
@@ -176,7 +176,7 @@ struct PaneCoordinatorHardeningTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let targetPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Target",
             provider: .zmx
         )
@@ -206,7 +206,7 @@ struct PaneCoordinatorHardeningTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let targetPane = harness.store.createPane(
-            source: .floating(workingDirectory: worktree.path.appending(path: "nested"), title: "Target"),
+            source: .floating(launchDirectory: worktree.path.appending(path: "nested"), title: "Target"),
             title: "Target",
             provider: .zmx,
             facets: PaneContextFacets(cwd: worktree.path.appending(path: "nested"))
@@ -230,7 +230,7 @@ struct PaneCoordinatorHardeningTests {
         #expect(harness.surfaceManager.createSurfaceCallCount == 1)
         #expect(harness.store.repo(repo.id) != nil)
         #expect(
-            harness.surfaceManager.lastCreatedSurfaceMetadata?.workingDirectory
+            harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd
                 == worktree.path.appending(path: "nested"))
     }
 
@@ -242,7 +242,7 @@ struct PaneCoordinatorHardeningTests {
         let unknownCwd = harness.tempDir.appending(path: "outside-known-repos")
         try? FileManager.default.createDirectory(at: unknownCwd, withIntermediateDirectories: true)
         let targetPane = harness.store.createPane(
-            source: .floating(workingDirectory: unknownCwd, title: "Target"),
+            source: .floating(launchDirectory: unknownCwd, title: "Target"),
             title: "Target",
             provider: .zmx,
             facets: PaneContextFacets(cwd: unknownCwd)
@@ -264,7 +264,7 @@ struct PaneCoordinatorHardeningTests {
         #expect(Set(harness.store.panes.keys).count == initialPaneIds.count + 1)
         #expect(harness.store.tab(tab.id)?.paneIds.count == 2)
         #expect(harness.surfaceManager.createSurfaceCallCount == 1)
-        #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.workingDirectory == unknownCwd)
+        #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd == unknownCwd)
     }
 
     @Test("reactivatePane keeps reactivated pane in canonical state if view creation fails")

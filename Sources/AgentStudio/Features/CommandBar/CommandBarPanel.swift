@@ -82,6 +82,8 @@ final class CommandBarPanel: NSPanel {
 
         let hosting = NSHostingView(rootView: AnyView(view))
         hosting.translatesAutoresizingMaskIntoConstraints = false
+        hosting.setContentHuggingPriority(.defaultLow, for: .vertical)
+        hosting.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         effectView.addSubview(hosting)
         NSLayoutConstraint.activate([
             hosting.leadingAnchor.constraint(equalTo: effectView.leadingAnchor),
@@ -123,6 +125,9 @@ final class CommandBarPanel: NSPanel {
         frame.size.height = panelHeight
         frame.origin.y -= heightDelta  // Grow downward
         setFrame(frame, display: true)
+
+        contentMinSize = NSSize(width: 0, height: panelHeight)
+        contentMaxSize = NSSize(width: .greatestFiniteMagnitude, height: panelHeight)
     }
 
     // MARK: - Key Handling

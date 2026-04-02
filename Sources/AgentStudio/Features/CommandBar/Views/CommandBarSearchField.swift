@@ -13,13 +13,16 @@ struct CommandBarSearchField: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            // Scope icon
-            Image(systemName: state.scopeIcon)
-                .font(.system(size: AppStyle.textBase, weight: .medium))
-                .foregroundStyle(.primary.opacity(0.35))
-                .frame(width: 16, height: 16)
+            if state.isNested {
+                CommandBarScopePill(
+                    parent: state.scopePillParent,
+                    child: state.scopePillChild,
+                    onDismiss: { state.popToRoot() }
+                )
+            } else {
+                scopeIconView
+            }
 
-            // Text input with keyboard interception
             CommandBarTextField(
                 text: $state.rawInput,
                 placeholder: state.placeholder,
@@ -31,5 +34,18 @@ struct CommandBarSearchField: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 44)
+    }
+
+    @ViewBuilder
+    private var scopeIconView: some View {
+        if state.scopeIconIsOcticon {
+            OcticonImage(name: state.scopeIcon, size: 16)
+                .foregroundStyle(.primary.opacity(0.35))
+        } else {
+            Image(systemName: state.scopeIcon)
+                .font(.system(size: AppStyle.textBase, weight: .medium))
+                .foregroundStyle(.primary.opacity(0.35))
+                .frame(width: 16, height: 16)
+        }
     }
 }

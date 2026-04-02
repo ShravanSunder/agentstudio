@@ -17,7 +17,7 @@ final class CommandBarState {
 
     // MARK: - Search Input
 
-    /// Full raw text including prefix character (e.g., ">close", "@main").
+    /// Full raw text including any visible prefix characters (e.g., "> close", "$ main").
     var rawInput: String = "" {
         didSet { selectedIndex = 0 }
     }
@@ -39,33 +39,32 @@ final class CommandBarState {
 
     // MARK: - Computed — Prefix Parsing
 
-    /// Active prefix character: ">", "@", or nil.
+    /// Active prefix token: "> ", "$ ", "# ", or nil.
     var activePrefix: String? {
         guard navigationStack.isEmpty else { return nil }
-        guard let first = rawInput.first else { return nil }
-        let char = String(first)
-        return [">", "@", "#"].contains(char) ? char : nil
+        guard rawInput.count >= 2 else { return nil }
+        let twoChars = String(rawInput.prefix(2))
+        return ["> ", "$ ", "# "].contains(twoChars) ? twoChars : nil
     }
 
-    /// Search query text after stripping the prefix (and any leading space).
+    /// Search query text after stripping the active prefix token.
     var searchQuery: String {
         guard let prefix = activePrefix else { return rawInput }
-        let afterPrefix = String(rawInput.dropFirst(prefix.count))
-        // Strip the space we insert after the prefix for cursor positioning
-        if afterPrefix.first == " " {
-            return String(afterPrefix.dropFirst())
-        }
-        return afterPrefix
+        return String(rawInput.dropFirst(prefix.count))
     }
 
     /// Current scope derived from prefix.
     var activeScope: CommandBarScope {
         switch activePrefix {
-        case ">": return .commands
-        case "@": return .panes
-        case "#": return .repos
+        case "> ": return .commands
+        case "$ ": return .panes
+        case "# ": return .repos
         default: return .everything
         }
+    }
+
+    var hasPrefixInText: Bool {
+        activePrefix != nil && !rawInput.isEmpty
     }
 
     /// Whether we're in a nested navigation level.
@@ -88,20 +87,24 @@ final class CommandBarState {
         switch activeScope {
         case .everything: return "Search or jump to..."
         case .commands: return "Run a command..."
-        case .panes: return "Switch to pane..."
+        case .panes: return "Search panes..."
         case .repos: return "Open repo or worktree..."
         }
     }
 
-    /// SF Symbol name for the scope icon left of the search field.
+    /// Icon name for the scope indicator left of the search field.
     var scopeIcon: String {
         if isNested { return "magnifyingglass" }
         switch activeScope {
         case .everything: return "magnifyingglass"
         case .commands: return "chevron.right.2"
-        case .panes: return "at"
-        case .repos: return "number"
+        case .panes: return "terminal"
+        case .repos: return "octicon-repo"
         }
+    }
+
+    var scopeIconIsOcticon: Bool {
+        scopeIcon.hasPrefix("octicon-")
     }
 
     // MARK: - Actions
@@ -109,7 +112,7 @@ final class CommandBarState {
     /// Show the command bar with an optional prefix pre-filled.
     /// Adds a trailing space after known prefixes so the cursor lands after it.
     func show(prefix: String? = nil) {
-        if let prefix, !prefix.isEmpty, [">", "@", "#"].contains(prefix) {
+        if let prefix, !prefix.isEmpty, [">", "$", "#"].contains(prefix) {
             rawInput = prefix + " "
         } else {
             rawInput = prefix ?? ""

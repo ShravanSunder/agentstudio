@@ -42,7 +42,7 @@ func makeRepo(
 
 func makePane(
     id: UUID = UUIDv7.generate(),
-    source: TerminalSource = .floating(workingDirectory: nil, title: nil),
+    source: TerminalSource = .floating(launchDirectory: nil, title: nil),
     title: String = "Terminal",
     provider: SessionProvider = .zmx,
     lifetime: SessionLifetime = .persistent,
@@ -92,7 +92,7 @@ func makeTab(paneIds: [UUID], activePaneId: UUID? = nil) -> Tab {
 // MARK: - SurfaceMetadata Factory
 
 func makeSurfaceMetadata(
-    workingDirectory: String? = "/tmp/test-dir",
+    launchDirectory: String? = "/tmp/test-dir",
     command: String? = nil,
     title: String = "Terminal",
     worktreeId: UUID? = nil,
@@ -100,7 +100,7 @@ func makeSurfaceMetadata(
     paneId: UUID? = nil
 ) -> SurfaceMetadata {
     SurfaceMetadata(
-        workingDirectory: workingDirectory.map { URL(fileURLWithPath: $0) },
+        launchDirectory: launchDirectory.map { URL(fileURLWithPath: $0) },
         command: command,
         title: title,
         worktreeId: worktreeId,
@@ -119,7 +119,7 @@ func makePaneSessionHandle(
     repoPath: String = "/tmp/test-repo",
     worktreePath: String = "/tmp/test-repo/feature-branch",
     displayName: String = "test",
-    workingDirectory: String = "/tmp/test-repo/feature-branch"
+    launchDirectory: String = "/tmp/test-repo/feature-branch"
 ) -> PaneSessionHandle {
     PaneSessionHandle(
         id: id,
@@ -129,6 +129,6 @@ func makePaneSessionHandle(
         repoPath: URL(fileURLWithPath: repoPath),
         worktreePath: URL(fileURLWithPath: worktreePath),
         displayName: displayName,
-        workingDirectory: URL(fileURLWithPath: workingDirectory)
+        launchDirectory: URL(fileURLWithPath: launchDirectory)
     )
 }

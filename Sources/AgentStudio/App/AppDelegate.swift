@@ -96,6 +96,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             for (worktreeId, count) in cacheState.notificationCountByWorktreeId {
                 workspaceRepoCache.setNotificationCount(count, for: worktreeId)
             }
+            for target in cacheState.recentTargets {
+                workspaceRepoCache.recordRecentTarget(target)
+            }
             workspaceRepoCache.markRebuilt(
                 sourceRevision: cacheState.sourceRevision,
                 at: cacheState.lastRebuiltAt ?? Date()
@@ -522,6 +525,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     worktreeEnrichmentByWorktreeId: workspaceRepoCache.worktreeEnrichmentByWorktreeId,
                     pullRequestCountByWorktreeId: workspaceRepoCache.pullRequestCountByWorktreeId,
                     notificationCountByWorktreeId: workspaceRepoCache.notificationCountByWorktreeId,
+                    recentTargets: workspaceRepoCache.recentTargets,
                     sourceRevision: workspaceRepoCache.sourceRevision,
                     lastRebuiltAt: workspaceRepoCache.lastRebuiltAt
                 )
@@ -912,7 +916,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             appLogger.warning("No window available for command bar (panes)")
             return
         }
-        commandBarController.show(prefix: "@", parentWindow: window)
+        commandBarController.show(prefix: "$", parentWindow: window)
     }
 
 }

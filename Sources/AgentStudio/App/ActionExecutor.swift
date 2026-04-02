@@ -49,10 +49,25 @@ final class ActionExecutor {
         coordinator.openNewTerminal(for: worktree, in: repo)
     }
 
-    /// Open a new webview pane in a new tab. Loads about:blank with navigation bar visible.
+    /// Open a new generic GitHub webview pane in a new tab.
     @discardableResult
-    func openWebview(url: URL = URL(string: "about:blank")!) -> Pane? {
+    func openWebview(url: URL = URL(string: "https://github.com")!) -> Pane? {
         coordinator.openWebview(url: url)
+    }
+
+    @discardableResult
+    func openContextualWebviewInPane(
+        sourcePaneId: UUID,
+        targetTabId: UUID,
+        url: URL,
+        direction: SplitNewDirection = .right
+    ) -> Pane? {
+        coordinator.openContextualWebviewInPane(
+            sourcePaneId: sourcePaneId,
+            targetTabId: targetTabId,
+            url: url,
+            direction: direction
+        )
     }
 
     /// Undo the last close operation (tab or pane).

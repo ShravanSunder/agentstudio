@@ -12,6 +12,7 @@ struct FlatPaneStripContent: View {
     let viewRegistry: ViewRegistry
     let coordinateSpaceName: String?
     let useDrawerFramePreference: Bool
+    let onOpenPaneGitHub: (UUID) -> Void
 
     var body: some View {
         GeometryReader { geometry in
@@ -58,6 +59,7 @@ struct FlatPaneStripContent: View {
                             repoCache: repoCache,
                             coordinateSpaceName: coordinateSpaceName,
                             useDrawerFramePreference: useDrawerFramePreference,
+                            onOpenPaneGitHub: onOpenPaneGitHub,
                             paneSlot: paneSlot
                         )
                         .id("\(segment.paneId.uuidString)-registered=\(paneSlot.host != nil)")
@@ -94,6 +96,7 @@ private struct PaneSegmentSlotView: View {
     let repoCache: WorkspaceRepoCache
     let coordinateSpaceName: String?
     let useDrawerFramePreference: Bool
+    let onOpenPaneGitHub: (UUID) -> Void
     @Bindable var paneSlot: ViewRegistry.PaneViewSlot
 
     var body: some View {
@@ -117,6 +120,7 @@ private struct PaneSegmentSlotView: View {
                 repoCache: repoCache,
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 actionDispatcher: actionDispatcher,
+                onOpenPaneGitHub: onOpenPaneGitHub,
                 dropTargetCoordinateSpace: coordinateSpaceName,
                 useDrawerFramePreference: useDrawerFramePreference
             )

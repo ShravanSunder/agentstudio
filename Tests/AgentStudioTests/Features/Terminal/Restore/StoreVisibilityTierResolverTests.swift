@@ -16,11 +16,11 @@ struct StoreVisibilityTierResolverTests {
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let firstPane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let secondPane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let tab = Tab(paneId: firstPane.id, name: "Zoomed")
@@ -50,11 +50,11 @@ struct StoreVisibilityTierResolverTests {
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let firstPane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let secondPane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let tab = Tab(paneId: firstPane.id, name: "Minimized")
@@ -84,7 +84,7 @@ struct StoreVisibilityTierResolverTests {
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let parentPane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let tab = Tab(paneId: parentPane.id, name: "Drawer")
@@ -109,7 +109,7 @@ struct StoreVisibilityTierResolverTests {
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let parentPane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let tab = Tab(paneId: parentPane.id, name: "Drawer")

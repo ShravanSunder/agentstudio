@@ -146,7 +146,7 @@ final class SurfaceManager {
     ) -> Result<ManagedSurface, SurfaceError> {
 
         RestoreTrace.log(
-            "SurfaceManager.createSurface begin pane=\(metadata.paneId?.uuidString ?? "nil") title=\(metadata.title) cwd=\(metadata.workingDirectory?.path ?? "nil") cmd=\(metadata.command ?? "nil")"
+            "SurfaceManager.createSurface begin pane=\(metadata.paneId?.uuidString ?? "nil") title=\(metadata.title) cwd=\(metadata.cwd?.path ?? "nil") cmd=\(metadata.command ?? "nil")"
         )
         var mutableConfig = config
 
@@ -485,8 +485,8 @@ final class SurfaceManager {
     }
 
     /// Get current working directory for a surface
-    func workingDirectory(for id: UUID) -> URL? {
-        metadata(for: id)?.workingDirectory
+    func cwd(for id: UUID) -> URL? {
+        metadata(for: id)?.cwd
     }
 
     /// Get all active surface IDs
@@ -681,9 +681,9 @@ extension SurfaceManager {
         }()
 
         guard var current = managed else { return }
-        guard current.metadata.workingDirectory != url else { return }
+        guard current.metadata.cwd != url else { return }
 
-        current.metadata.workingDirectory = url
+        current.metadata.cwd = url
         if isActive {
             activeSurfaces[surfaceId] = current
         } else {

@@ -493,7 +493,7 @@ final class BridgePaneController {
         return PaneMetadata(
             paneId: paneId,
             contentType: contentType,
-            source: .floating(workingDirectory: nil, title: title),
+            source: .floating(launchDirectory: nil, title: title),
             title: title
         )
     }

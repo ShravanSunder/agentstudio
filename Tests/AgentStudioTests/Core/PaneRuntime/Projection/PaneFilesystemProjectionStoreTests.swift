@@ -163,7 +163,8 @@ struct PaneFilesystemProjectionStoreTests {
         Pane(
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(
-                source: .worktree(worktreeId: worktreeId, repoId: repoId),
+                source: .worktree(
+                    worktreeId: worktreeId, repoId: repoId, launchDirectory: URL(fileURLWithPath: "/tmp/worktree")),
                 title: "Pane",
                 facets: PaneContextFacets(
                     repoId: repoId,

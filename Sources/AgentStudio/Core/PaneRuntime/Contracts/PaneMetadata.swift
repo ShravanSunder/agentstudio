@@ -3,46 +3,56 @@ import Foundation
 /// Metadata carried by every pane for runtime routing and dynamic grouping.
 struct PaneMetadata: Codable, Hashable, Sendable {
     enum PaneMetadataSource: Codable, Hashable, Sendable {
-        case worktree(worktreeId: UUID, repoId: UUID)
-        case floating(workingDirectory: URL?, title: String?)
+        case worktree(worktreeId: UUID, repoId: UUID, launchDirectory: URL)
+        case floating(launchDirectory: URL?, title: String?)
 
         init(_ terminalSource: TerminalSource) {
             switch terminalSource {
-            case .worktree(let worktreeId, let repoId):
-                self = .worktree(worktreeId: worktreeId, repoId: repoId)
-            case .floating(let workingDirectory, let title):
-                self = .floating(workingDirectory: workingDirectory, title: title)
+            case .worktree(let worktreeId, let repoId, let launchDirectory):
+                self = .worktree(
+                    worktreeId: worktreeId,
+                    repoId: repoId,
+                    launchDirectory: launchDirectory
+                )
+            case .floating(let launchDirectory, let title):
+                self = .floating(launchDirectory: launchDirectory, title: title)
             }
         }
 
         var terminalSource: TerminalSource {
             switch self {
-            case .worktree(let worktreeId, let repoId):
-                return .worktree(worktreeId: worktreeId, repoId: repoId)
-            case .floating(let workingDirectory, let title):
-                return .floating(workingDirectory: workingDirectory, title: title)
+            case .worktree(let worktreeId, let repoId, let launchDirectory):
+                return .worktree(
+                    worktreeId: worktreeId,
+                    repoId: repoId,
+                    launchDirectory: launchDirectory
+                )
+            case .floating(let launchDirectory, let title):
+                return .floating(launchDirectory: launchDirectory, title: title)
             }
         }
 
         var worktreeId: UUID? {
-            if case .worktree(let worktreeId, _) = self {
+            if case .worktree(let worktreeId, _, _) = self {
                 return worktreeId
             }
             return nil
         }
 
         var repoId: UUID? {
-            if case .worktree(_, let repoId) = self {
+            if case .worktree(_, let repoId, _) = self {
                 return repoId
             }
             return nil
         }
 
-        var workingDirectory: URL? {
-            if case .floating(let workingDirectory, _) = self {
-                return workingDirectory
+        var launchDirectory: URL? {
+            switch self {
+            case .worktree(_, _, let launchDirectory):
+                return launchDirectory
+            case .floating(let launchDirectory, _):
+                return launchDirectory
             }
-            return nil
         }
     }
 
@@ -77,7 +87,7 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         let sourceFacets = PaneContextFacets(
             repoId: source.repoId,
             worktreeId: source.worktreeId,
-            cwd: source.workingDirectory
+            cwd: source.launchDirectory
         )
         self.facets = facets.fillingNilFields(from: sourceFacets)
         self.checkoutRef = checkoutRef
@@ -85,6 +95,10 @@ struct PaneMetadata: Codable, Hashable, Sendable {
 
     var terminalSource: TerminalSource {
         source.terminalSource
+    }
+
+    var launchDirectory: URL? {
+        source.launchDirectory
     }
 
     mutating func updateTitle(_ newTitle: String) {

@@ -279,7 +279,7 @@ extension MainWindowController: NSToolbarDelegate {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Add Repo"
             item.paletteLabel = "Add Repo"
-            item.toolTip = "Add a repo (⌘⇧O)"
+            item.toolTip = "Add a repo directly (\u{2318}\u{21E7}O)"
             item.isBordered = true
             item.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: "Add Repo")
             item.action = #selector(addRepoAction)
@@ -290,7 +290,7 @@ extension MainWindowController: NSToolbarDelegate {
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = "Add Folder"
             item.paletteLabel = "Add Folder"
-            item.toolTip = "Add folder containing repos (⌘⌥⇧O)"
+            item.toolTip = "Add folder to scan for repos (\u{2318}\u{2325}\u{21E7}O)"
             let button = NSButton(title: "Add Folder", target: self, action: #selector(addFolderAction))
             button.bezelStyle = .rounded
             button.bezelColor = .systemTeal

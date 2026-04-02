@@ -61,7 +61,11 @@ final class WorkspacePersistorTests {
     func test_saveAndLoad_withPanes() throws {
         // Arrange
         let pane = makePane(
-            source: .worktree(worktreeId: UUID(), repoId: UUID()),
+            source: .worktree(
+                worktreeId: UUID(),
+                repoId: UUID(),
+                launchDirectory: URL(fileURLWithPath: "/tmp/worktree")
+            ),
             title: "Feature",
             provider: .zmx,
             lifetime: .persistent,
@@ -338,6 +342,26 @@ final class WorkspacePersistorTests {
         let workspaceId = UUID()
         let repoId = UUID()
         let worktreeId = UUID()
+        let recentTarget = RecentWorkspaceTarget.forWorktree(
+            path: URL(fileURLWithPath: "/tmp/agent-studio"),
+            worktree: Worktree(
+                id: worktreeId,
+                repoId: repoId,
+                name: "agent-studio",
+                path: URL(fileURLWithPath: "/tmp/agent-studio"),
+                isMainWorktree: true
+            ),
+            repo: Repo(
+                id: repoId,
+                name: "agent-studio",
+                repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+                worktrees: [],
+                createdAt: Date()
+            ),
+            displayTitle: "agent-studio",
+            subtitle: "main",
+            lastOpenedAt: Date(timeIntervalSince1970: 1_700_000_123)
+        )
         let cacheState = WorkspacePersistor.PersistableCacheState(
             workspaceId: workspaceId,
             repoEnrichmentByRepoId: [
@@ -362,6 +386,7 @@ final class WorkspacePersistorTests {
             ],
             pullRequestCountByWorktreeId: [worktreeId: 2],
             notificationCountByWorktreeId: [worktreeId: 7],
+            recentTargets: [recentTarget],
             sourceRevision: 10,
             lastRebuiltAt: Date(timeIntervalSince1970: 1_700_000_000)
         )
@@ -374,7 +399,38 @@ final class WorkspacePersistorTests {
         #expect(loaded?.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "main")
         #expect(loaded?.pullRequestCountByWorktreeId[worktreeId] == 2)
         #expect(loaded?.notificationCountByWorktreeId[worktreeId] == 7)
+        #expect(loaded?.recentTargets == [recentTarget])
         #expect(loaded?.sourceRevision == 10)
+    }
+
+    @Test
+    func test_loadCache_missingRecentTargets_defaultsToEmpty() throws {
+        let workspaceId = UUID()
+        let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.cache.json")
+        let baseline = WorkspacePersistor.PersistableCacheState(
+            workspaceId: workspaceId,
+            sourceRevision: 7,
+            lastRebuiltAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let baselineData = try encoder.encode(baseline)
+        let rawObject = try JSONSerialization.jsonObject(with: baselineData, options: [])
+        guard var dictionary = rawObject as? [String: Any] else {
+            Issue.record("Expected baseline cache JSON dictionary")
+            return
+        }
+        dictionary.removeValue(forKey: "recentTargets")
+        let compatibilityData = try JSONSerialization.data(
+            withJSONObject: dictionary,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        try compatibilityData.write(to: cacheURL, options: .atomic)
+
+        let loaded = persistor.loadCache(for: workspaceId).value
+
+        #expect(loaded?.recentTargets.isEmpty == true)
+        #expect(loaded?.sourceRevision == 7)
     }
 
     @Test

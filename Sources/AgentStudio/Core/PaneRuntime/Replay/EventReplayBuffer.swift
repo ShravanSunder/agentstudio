@@ -240,6 +240,15 @@ final class EventReplayBuffer {
             case .workspacePersistenceUpdated:
                 return 24
             }
+        case .workspaceActivity(let activityEvent):
+            switch activityEvent {
+            case .recentTargetOpened(let target):
+                return 56
+                    + target.id.utf8.count
+                    + target.path.path.utf8.count
+                    + target.displayTitle.utf8.count
+                    + target.subtitle.utf8.count
+            }
         }
     }
 

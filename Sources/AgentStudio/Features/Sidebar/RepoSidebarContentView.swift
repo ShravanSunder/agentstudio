@@ -672,13 +672,7 @@ private struct SidebarWorktreeRow: View {
     }
 
     private func openInCursor() {
-        let cursorURL = URL(fileURLWithPath: "/Applications/Cursor.app")
-        let config = NSWorkspace.OpenConfiguration()
-        NSWorkspace.shared.open(
-            [worktree.path],
-            withApplicationAt: cursorURL,
-            configuration: config
-        )
+        ExternalWorkspaceOpener.openInCursor(worktree.path)
     }
 
     private var syncCounts: (ahead: String, behind: String) {
@@ -934,67 +928,6 @@ private struct SidebarDiffChip: View {
                 .stroke(Color.white.opacity(AppStyle.sidebarChipBorderOpacity), lineWidth: 1)
         )
         .fixedSize(horizontal: true, vertical: true)
-    }
-}
-
-private struct OcticonImage: View {
-    let name: String
-    let size: CGFloat
-
-    var body: some View {
-        Group {
-            if let image = SidebarOcticonLoader.shared.image(named: name) {
-                Image(nsImage: image)
-                    .renderingMode(.template)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-            } else {
-                Image(systemName: "questionmark.square.dashed")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-            }
-        }
-        .frame(width: size, height: size)
-    }
-}
-
-@MainActor
-private final class SidebarOcticonLoader {
-    static let shared = SidebarOcticonLoader()
-
-    private var cache: [String: NSImage] = [:]
-
-    private init() {}
-
-    func image(named name: String) -> NSImage? {
-        if let cached = cache[name] {
-            return cached
-        }
-
-        let subdirectory = "SidebarIcons.xcassets/\(name).imageset"
-        if let svgURL = Bundle.appResources.url(
-            forResource: name,
-            withExtension: "svg",
-            subdirectory: subdirectory
-        ),
-            let image = NSImage(contentsOf: svgURL)
-        {
-            cache[name] = image
-            return image
-        }
-
-        if let pdfURL = Bundle.appResources.url(
-            forResource: name,
-            withExtension: "pdf",
-            subdirectory: subdirectory
-        ),
-            let image = NSImage(contentsOf: pdfURL)
-        {
-            cache[name] = image
-            return image
-        }
-
-        return nil
     }
 }
 

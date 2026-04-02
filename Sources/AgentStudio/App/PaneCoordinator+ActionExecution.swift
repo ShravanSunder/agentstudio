@@ -3,6 +3,9 @@ import Foundation
 
 @MainActor
 extension PaneCoordinator {
+    private static var nextWorkspaceActivitySeq: UInt64 = 0
+    private static let defaultGitHubURL = URL(string: "https://github.com")!
+
     static func computeSwitchArrangementTransitions(
         previousVisiblePaneIds: Set<UUID>,
         previouslyMinimizedPaneIds: Set<UUID>,
@@ -27,6 +30,13 @@ extension PaneCoordinator {
             }
         }) {
             store.setActiveTab(existingTab.id)
+            postRecentTargetOpened(
+                target: .forWorktree(
+                    path: worktree.path,
+                    worktree: worktree,
+                    repo: repo
+                )
+            )
             return nil
         }
 
@@ -53,7 +63,11 @@ extension PaneCoordinator {
         }
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(
+                worktreeId: worktree.id,
+                repoId: repo.id,
+                launchDirectory: worktree.path
+            ),
             title: worktree.name,
             provider: .zmx,
             lifetime: .persistent,
@@ -70,19 +84,26 @@ extension PaneCoordinator {
         )
         store.setActivePane(pane.id, inTab: activeTabId)
         ensureTerminalPaneView(pane)
+        postRecentTargetOpened(
+            target: .forWorktree(
+                path: worktree.path,
+                worktree: worktree,
+                repo: repo
+            )
+        )
 
         Self.logger.info("Opened worktree '\(worktree.name)' in split pane")
         return pane
     }
 
-    /// Open a new webview pane in a new tab. Loads about:blank with navigation bar visible.
+    /// Open a new generic GitHub webview pane in a new tab.
     @discardableResult
-    func openWebview(url: URL = URL(string: "about:blank")!) -> Pane? {
+    func openWebview(url: URL = defaultGitHubURL) -> Pane? {
         let state = WebviewState(url: url, showNavigation: true)
         let host = url.host() ?? "New Tab"
         let pane = store.createPane(
             content: .webview(state),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: host), title: host)
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: host), title: host)
         )
         viewRegistry.ensureSlot(for: pane.id)
 
@@ -102,13 +123,59 @@ extension PaneCoordinator {
     }
 
     @discardableResult
-    func openFloatingTerminal(cwd: URL?, title: String?) -> Pane? {
+    func openContextualWebviewInPane(
+        sourcePaneId: UUID,
+        targetTabId: UUID,
+        url: URL,
+        direction: SplitNewDirection = .right
+    ) -> Pane? {
+        guard let targetPane = store.pane(sourcePaneId) else {
+            Self.logger.warning("openContextualWebviewInPane: source pane \(sourcePaneId) not found")
+            return nil
+        }
+        guard store.tab(targetTabId) != nil else {
+            Self.logger.warning("openContextualWebviewInPane: target tab \(targetTabId) not found")
+            return nil
+        }
+
+        let host = url.host() ?? "GitHub"
+        let context = contextualBrowserMetadata(from: targetPane, fallbackTitle: host)
+        let pane = store.createPane(
+            content: .webview(WebviewState(url: url, title: host, showNavigation: true)),
+            metadata: context.metadata
+        )
+        viewRegistry.ensureSlot(for: pane.id)
+
+        guard createViewForContent(pane: pane) != nil else {
+            Self.logger.error("Contextual webview creation failed — rolling back pane \(pane.id)")
+            store.removePane(pane.id)
+            viewRegistry.removeSlot(for: pane.id)
+            return nil
+        }
+
+        let layoutDirection = bridgeDirection(direction)
+        let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
+        store.insertPane(
+            pane.id,
+            inTab: targetTabId,
+            at: sourcePaneId,
+            direction: layoutDirection,
+            position: position
+        )
+        store.setActivePane(pane.id, inTab: targetTabId)
+
+        Self.logger.info("Opened contextual webview pane \(pane.id) from source pane \(sourcePaneId)")
+        return pane
+    }
+
+    @discardableResult
+    func openFloatingTerminal(launchDirectory: URL?, title: String?) -> Pane? {
         let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         let pane = store.createPane(
-            source: .floating(workingDirectory: cwd, title: resolvedTitle),
+            source: .floating(launchDirectory: launchDirectory, title: resolvedTitle),
             title: (resolvedTitle?.isEmpty == false) ? resolvedTitle! : "Terminal",
             provider: .zmx,
-            facets: PaneContextFacets(cwd: cwd)
+            facets: PaneContextFacets(cwd: launchDirectory)
         )
         viewRegistry.ensureSlot(for: pane.id)
 
@@ -116,6 +183,15 @@ extension PaneCoordinator {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
         ensureTerminalPaneView(pane)
+        if let launchDirectory {
+            postRecentTargetOpened(
+                target: .forCwd(
+                    launchDirectory,
+                    title: resolvedTitle,
+                    subtitle: launchDirectory.path
+                )
+            )
+        }
 
         Self.logger.info("Opened floating terminal pane \(pane.id)")
         return pane
@@ -134,12 +210,12 @@ extension PaneCoordinator {
             }
             _ = openTerminal(for: worktree, in: repo)
 
-        case .openNewTerminalInTab(let worktreeId, let cwd, let title):
+        case .openNewTerminalInTab(let worktreeId, let launchDirectory, let title):
             guard let worktree = store.worktree(worktreeId), let repo = store.repo(containing: worktreeId) else {
                 Self.logger.warning("openNewTerminalInTab: worktree \(worktreeId) not found")
                 return
             }
-            _ = createTerminalTab(for: worktree, in: repo, cwdOverride: cwd, titleOverride: title)
+            _ = createTerminalTab(for: worktree, in: repo, cwdOverride: launchDirectory, titleOverride: title)
 
         case .openWorktreeInPane(let worktreeId):
             guard let worktree = store.worktree(worktreeId), let repo = store.repo(containing: worktreeId) else {
@@ -148,8 +224,8 @@ extension PaneCoordinator {
             }
             _ = openWorktreeInPane(for: worktree, in: repo)
 
-        case .openFloatingTerminal(let cwd, let title):
-            _ = openFloatingTerminal(cwd: cwd, title: title)
+        case .openFloatingTerminal(let launchDirectory, let title):
+            _ = openFloatingTerminal(launchDirectory: launchDirectory, title: title)
 
         case .removeRepo(let repoId):
             removeRepoHandler(repoId)
@@ -387,7 +463,11 @@ extension PaneCoordinator {
             parentFolder: repo.repoPath.deletingLastPathComponent().path
         )
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(
+                worktreeId: worktree.id,
+                repoId: repo.id,
+                launchDirectory: resolvedCwd
+            ),
             title: (resolvedTitle?.isEmpty == false) ? resolvedTitle! : worktree.name,
             provider: .zmx,
             lifetime: .persistent,
@@ -400,9 +480,36 @@ extension PaneCoordinator {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
         ensureTerminalPaneView(pane)
+        postRecentTargetOpened(
+            target: .forWorktree(
+                path: resolvedCwd,
+                worktree: worktree,
+                repo: repo,
+                displayTitle: resolvedTitle,
+                subtitle: repo.name
+            )
+        )
 
         Self.logger.info("Opened terminal for worktree: \(worktree.name)")
         return pane
+    }
+
+    private func postRecentTargetOpened(target: RecentWorkspaceTarget) {
+        Self.nextWorkspaceActivitySeq += 1
+        let envelope = RuntimeEnvelope.system(
+            SystemEnvelope(
+                source: .builtin(.coordinator),
+                seq: Self.nextWorkspaceActivitySeq,
+                timestamp: .now,
+                event: .workspaceActivity(.recentTargetOpened(target))
+            )
+        )
+
+        Task {
+            guard !Task.isCancelled else { return }
+            Self.logger.debug("Posting recent target event id=\(target.id, privacy: .public)")
+            await PaneRuntimeEventBus.shared.post(envelope)
+        }
     }
 
     private func executeCloseTab(_ tabId: UUID) {
@@ -563,7 +670,12 @@ extension PaneCoordinator {
             let targetPane = store.pane(targetPaneId)
             if let resolved = resolvedWorktreeContext(for: targetPane) {
                 let pane = store.createPane(
-                    source: .worktree(worktreeId: resolved.worktree.id, repoId: resolved.repo.id),
+                    source: .worktree(
+                        worktreeId: resolved.worktree.id,
+                        repoId: resolved.repo.id,
+                        launchDirectory: targetPane?.metadata.cwd ?? targetPane?.metadata.launchDirectory
+                            ?? resolved.worktree.path
+                    ),
                     provider: .zmx,
                     facets: targetPane?.metadata.facets ?? .empty
                 )
@@ -578,7 +690,10 @@ extension PaneCoordinator {
             }
 
             let pane = store.createPane(
-                source: .floating(workingDirectory: targetPane?.metadata.facets.cwd, title: nil),
+                source: .floating(
+                    launchDirectory: targetPane?.metadata.cwd ?? targetPane?.metadata.launchDirectory,
+                    title: nil
+                ),
                 provider: .zmx,
                 facets: targetPane?.metadata.facets ?? .empty
             )
@@ -604,6 +719,73 @@ extension PaneCoordinator {
         }
 
         return store.repoAndWorktree(containing: targetPane?.metadata.facets.cwd)
+    }
+
+    private func contextualBrowserMetadata(
+        from pane: Pane,
+        fallbackTitle: String
+    ) -> (
+        metadata: PaneMetadata,
+        repo: Repo?,
+        worktree: Worktree?
+    ) {
+        if let worktreeId = pane.worktreeId,
+            let repoId = pane.repoId,
+            let repo = store.repo(repoId),
+            let worktree = store.worktree(worktreeId)
+        {
+            return (
+                PaneMetadata(
+                    contentType: .browser,
+                    source: .worktree(
+                        worktreeId: worktree.id, repoId: repo.id,
+                        launchDirectory: worktree.path
+                    ),
+                    title: fallbackTitle,
+                    facets: PaneContextFacets(
+                        repoId: repo.id,
+                        repoName: repo.name,
+                        worktreeId: worktree.id,
+                        worktreeName: worktree.name,
+                        cwd: pane.metadata.cwd ?? worktree.path
+                    )
+                ),
+                repo,
+                worktree
+            )
+        }
+
+        if let resolved = store.repoAndWorktree(containing: pane.metadata.cwd) {
+            return (
+                PaneMetadata(
+                    contentType: .browser,
+                    source: .worktree(
+                        worktreeId: resolved.worktree.id, repoId: resolved.repo.id,
+                        launchDirectory: resolved.worktree.path
+                    ),
+                    title: fallbackTitle,
+                    facets: PaneContextFacets(
+                        repoId: resolved.repo.id,
+                        repoName: resolved.repo.name,
+                        worktreeId: resolved.worktree.id,
+                        worktreeName: resolved.worktree.name,
+                        cwd: pane.metadata.cwd ?? resolved.worktree.path
+                    )
+                ),
+                resolved.repo,
+                resolved.worktree
+            )
+        }
+
+        return (
+            PaneMetadata(
+                contentType: .browser,
+                source: .floating(launchDirectory: nil, title: fallbackTitle),
+                title: fallbackTitle
+            ),
+            nil,
+            nil
+        )
     }
 
     private func executeInsertDrawerPane(

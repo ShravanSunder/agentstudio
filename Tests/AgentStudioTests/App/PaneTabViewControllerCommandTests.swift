@@ -84,7 +84,7 @@ struct PaneTabViewControllerCommandTests {
 
         let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let pane = harness.store.createPane(
-            source: .floating(workingDirectory: worktree.path.appending(path: "nested"), title: "Pane A"),
+            source: .floating(launchDirectory: worktree.path.appending(path: "nested"), title: "Pane A"),
             title: "Pane A",
             provider: .zmx,
             facets: PaneContextFacets(cwd: worktree.path.appending(path: "nested"))
@@ -100,7 +100,7 @@ struct PaneTabViewControllerCommandTests {
         #expect(Set(harness.store.panes.keys).count == initialPaneIds.count + 1)
         #expect(harness.surfaceManager.createSurfaceCallCount == 1)
         #expect(
-            harness.surfaceManager.lastCreatedSurfaceMetadata?.workingDirectory
+            harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd
                 == worktree.path.appending(path: "nested"))
     }
 
@@ -112,7 +112,7 @@ struct PaneTabViewControllerCommandTests {
         let unknownCwd = harness.tempDir.appending(path: "outside-known-repos")
         try? FileManager.default.createDirectory(at: unknownCwd, withIntermediateDirectories: true)
         let pane = harness.store.createPane(
-            source: .floating(workingDirectory: unknownCwd, title: "Pane A"),
+            source: .floating(launchDirectory: unknownCwd, title: "Pane A"),
             title: "Pane A",
             provider: .zmx,
             facets: PaneContextFacets(cwd: unknownCwd)
@@ -127,7 +127,7 @@ struct PaneTabViewControllerCommandTests {
 
         #expect(Set(harness.store.panes.keys).count == initialPaneIds.count + 1)
         #expect(harness.surfaceManager.createSurfaceCallCount == 1)
-        #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.workingDirectory == unknownCwd)
+        #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd == unknownCwd)
     }
 
     @Test("terminated pane closes only the matching split pane")
@@ -137,12 +137,12 @@ struct PaneTabViewControllerCommandTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let primaryPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Primary",
             provider: .zmx
         )
         let terminatingPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Terminating",
             provider: .zmx
         )
@@ -171,12 +171,12 @@ struct PaneTabViewControllerCommandTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let survivingPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Surviving",
             provider: .zmx
         )
         let terminatingPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Terminating",
             provider: .zmx
         )
@@ -200,12 +200,12 @@ struct PaneTabViewControllerCommandTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Visible",
             provider: .zmx
         )
         let hiddenPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Hidden",
             provider: .zmx
         )
@@ -239,17 +239,17 @@ struct PaneTabViewControllerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let firstPane = harness.store.createPane(
-            source: .floating(workingDirectory: nil, title: "First"),
+            source: .floating(launchDirectory: nil, title: "First"),
             title: "First",
             provider: .zmx
         )
         let secondPane = harness.store.createPane(
-            source: .floating(workingDirectory: nil, title: "Second"),
+            source: .floating(launchDirectory: nil, title: "Second"),
             title: "Second",
             provider: .zmx
         )
         let foregroundPane = harness.store.createPane(
-            source: .floating(workingDirectory: nil, title: "Foreground"),
+            source: .floating(launchDirectory: nil, title: "Foreground"),
             title: "Foreground",
             provider: .zmx
         )
@@ -279,12 +279,12 @@ struct PaneTabViewControllerCommandTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let parentPane = harness.store.createPane(
-            source: .floating(workingDirectory: nil, title: "Parent"),
+            source: .floating(launchDirectory: nil, title: "Parent"),
             title: "Parent",
             provider: .zmx
         )
         let visiblePane = harness.store.createPane(
-            source: .floating(workingDirectory: nil, title: "Visible"),
+            source: .floating(launchDirectory: nil, title: "Visible"),
             title: "Visible",
             provider: .zmx
         )
