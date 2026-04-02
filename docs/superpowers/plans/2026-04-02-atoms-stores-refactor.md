@@ -90,13 +90,10 @@ final class WorkspaceStore {
                 _ = atom.workspaceId
                 _ = atom.workspaceName
                 _ = atom.sidebarWidth
-                _ = atom.windowFrame
                 _ = atom.unavailableRepoIds
                 _ = atom.createdAt
-                // NOTE: Do NOT observe atom.updatedAt — it is set by persistNow()
-                // during save. Observing it would create a save → mutate → save loop.
-                // Similarly, windowFrame is flush-only (not debounced), so observing
-                // it is optional — it won't cause a loop but adds noise.
+                // Do NOT observe: updatedAt (set during save — feedback loop)
+                // Do NOT observe: windowFrame (flush-only, not debounced)
             } onChange: { [weak self] in
                 Task { @MainActor [weak self] in
                     guard let self else { return }
@@ -271,7 +268,7 @@ These rules apply to ALL subsequent tasks. Verified against source code at `poin
 1. **`@ObservationIgnored @Dependency(\.atomName)`** — MANDATORY in `@Observable` classes. Without `@ObservationIgnored`, the dependency backing property triggers spurious observation.
 2. **Never put `@Dependency` on `static` properties** — Task Locals are captured at first access, producing stale values.
 3. **Use `withDependencies(from: self)` when creating child objects** — propagates the parent's dependency context.
-4. **`liveValue` creates the singleton-equivalent instance** — cached in `CachedValues` dictionary, one per app lifecycle.
+4. **`liveValue` is cached per dependency context scope** — not a universal singleton. In the default (live) context, it behaves like a singleton. In test contexts, `testValue` creates fresh instances per test.
 
 **In tests (Swift Testing, NOT XCTest):**
 
@@ -315,7 +312,7 @@ These rules apply to ALL subsequent tasks. Verified against source code at `poin
 
 **Scoping rule:**
 
-15. **Store lifetimes must be scoped to their `withDependencies` block.** `@Dependency` resolves at first access, not initialization. If an object is created inside `withDependencies { }` but accessed after the scope exits, subsequent `@Dependency` access re-resolves to `liveValue`. In practice this means: create AND use objects within the same scope, or use `withDependencies(from: self)` to propagate context to children that outlive the scope.
+15. **Dependency context is captured at object creation, not first access.** `@Dependency` captures `initialValues = DependencyValues._current` when the property wrapper is initialized (at object creation time). `wrappedValue` then merges `initialValues` with the current Task Local `_current` on each access. Objects created inside `withDependencies { }` retain their captured overrides. Use `withDependencies(from: self)` to propagate a parent's captured context to children created later.
 
 **Observation tracking checklists:**
 
@@ -526,6 +523,7 @@ The big task. 1981 lines split into ~1500 line atom + ~400 line store.
 
 **WorkspaceAtom** — ALL state + mutations + queries + undo + helpers:
 - All `private(set) var` properties (repos, tabs, panes, activeTabId, etc.)
+- Transient UI fields (`draggingTabId`, `dropTargetIndex`, `tabFrames`, `isSplitResizing`) — these are NOT `private(set)`, NOT persisted, and NOT observed by the tracking closure. They stay on the atom because views already read them here. They're drag/drop state used by tab bar interactions.
 - All query methods (`pane(_:)`, `tab(_:)`, `repo(_:)`, etc.)
 - All mutation methods. Remove every `markDirty()` call — atom doesn't know about persistence
 - Undo methods (`snapshotForClose`, `restoreFromSnapshot`, etc.)
