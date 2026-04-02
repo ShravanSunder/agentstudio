@@ -304,18 +304,6 @@ private struct WorkspaceRecentPlaceholderCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            HStack(spacing: AppStyle.spacingTight) {
-                Image(systemName: "folder")
-                    .font(.system(size: AppStyle.sidebarBranchIconSize, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: AppStyle.sidebarRowLeadingIconColumnWidth, alignment: .leading)
-
-                Text("Open a repo from the sidebar or add another folder to start building up recents.")
-                    .font(.system(size: AppStyle.sidebarBranchFontSize, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
