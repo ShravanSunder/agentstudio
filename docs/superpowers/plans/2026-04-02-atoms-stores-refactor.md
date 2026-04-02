@@ -67,7 +67,8 @@ The tracking closure must match the `hydrate()` parameter list exactly. If hydra
 @MainActor
 final class WorkspaceStore {
     @ObservationIgnored @Dependency(\.workspaceAtom) var atom
-    private let persistor: WorkspacePersistor
+    @ObservationIgnored @Dependency(\.workspacePersistor) var persistor
+    @ObservationIgnored @Dependency(\.continuousClock) var clock
 
     func startObserving() {
         func observe() {
@@ -287,6 +288,24 @@ These rules apply to ALL subsequent tasks. Verified against source code at `poin
 8. **`ManagementModeTestLock` can be deleted** — the custom serialization actor exists solely because of singleton state sharing. With dependency injection, each test is isolated by construction.
 
 9. **`TestPushClock` can be replaced** — `swift-clocks` (transitive dependency) provides `TestClock` and `ImmediateClock`. Use `ImmediateClock` for simple cases, `TestClock` for precise timing control.
+
+**Child object creation (CRITICAL):**
+
+10. **Use `withDependencies(from: self)` when creating child objects.** Dependencies propagate via Task Local context. If a coordinator creates a child object directly (`let runtime = SessionRuntime()`), the child sees default `liveValue` dependencies, NOT any test overrides. Always wrap child creation:
+    ```swift
+    let runtime = withDependencies(from: self) {
+        SessionRuntime()
+    }
+    ```
+
+11. **EventBus handlers that create objects need `withEscapedDependencies`.** The `WorkspaceCacheCoordinator` receives events and updates stores. If handlers create new objects, they need explicit context propagation.
+
+12. **AppKit callbacks** (`NSEvent.addLocalMonitorForEvents`, `NSWindow` delegates) run outside any `withDependencies` scope. The `@Dependency` properties captured at object creation time via `initialValues` still work — they're stable. But new objects created inside callbacks need `withDependencies(from: self)`.
+
+**Infrastructure as dependencies:**
+
+13. **`WorkspacePersistor` is a dependency** — register via `DependencyKey`. Tests override with in-memory persistor.
+14. **Clock is a dependency** — use `@Dependency(\.continuousClock)` (built-in). Tests use `ImmediateClock` or `TestClock`.
 
 ---
 
@@ -770,7 +789,7 @@ Test that the observation-based persistence works correctly. Use injected clocks
 
 - [ ] **Step 1: Test atom mutations trigger store save**
 
-Tests use `withDependencies` to inject a fresh atom. The store resolves it via `@Dependency(\.workspaceAtom)`. `persistor` and `clock` are infrastructure — passed via constructor.
+ALL dependencies injected via `withDependencies`. No constructor params.
 
 ```swift
 @Test
@@ -779,26 +798,21 @@ func test_atomMutation_triggersStoreSave() async {
     let clock = TestPushClock()
 
     let store = withDependencies {
-        $0.workspaceAtom = WorkspaceAtom()  // fresh, isolated
+        $0.workspaceAtom = WorkspaceAtom()
+        $0.workspacePersistor = persistor
+        $0.continuousClock = clock
     } operation: {
-        WorkspaceStore(
-            persistor: persistor,
-            persistDebounceDuration: .milliseconds(100),
-            clock: clock
-        )
+        WorkspaceStore()
     }
     store.restore()
 
-    // Mutate the atom via the store's dependency-resolved reference
-    let pane = store.atom.createPane(source: .floating(launchDirectory: nil, title: nil))
-    let tab = Tab(paneId: pane.id)
-    store.atom.appendTab(tab)
+    // Mutate the atom
+    store.atom.createPane(source: .floating(launchDirectory: nil, title: nil))
+    store.atom.appendTab(Tab(paneId: store.atom.panes.values.first!.id))
 
-    // Wait for debounce, advance clock
     await clock.waitForPendingSleepCount(atLeast: 1)
     clock.advance(by: .milliseconds(150))
 
-    // Verify save happened
     switch persistor.load() {
     case .loaded(let state):
         #expect(state.tabs.count == 1)
@@ -818,8 +832,9 @@ func test_restore_doesNotTriggerSave() async {
     // Save initial state
     let store1 = withDependencies {
         $0.workspaceAtom = WorkspaceAtom()
+        $0.workspacePersistor = persistor
     } operation: {
-        WorkspaceStore(persistor: persistor)
+        WorkspaceStore()
     }
     let pane = store1.atom.createPane(source: .floating(launchDirectory: nil, title: nil))
     store1.atom.appendTab(Tab(paneId: pane.id))
@@ -829,17 +844,14 @@ func test_restore_doesNotTriggerSave() async {
     let clock = TestPushClock()
     let store2 = withDependencies {
         $0.workspaceAtom = WorkspaceAtom()
+        $0.workspacePersistor = persistor
+        $0.continuousClock = clock
     } operation: {
-        WorkspaceStore(
-            persistor: persistor,
-            persistDebounceDuration: .milliseconds(100),
-            clock: clock
-        )
+        WorkspaceStore()
     }
     store2.restore()
 
     // Restore should NOT schedule a save
-    // Do NOT waitForPendingSleepCount — it hangs when correct (no pending sleep)
     #expect(store2.isDirty == false)
     #expect(clock.pendingSleepCount == 0)
 }
@@ -855,16 +867,13 @@ func test_observation_tracksAllHydratedProperties() async {
 
     let store = withDependencies {
         $0.workspaceAtom = WorkspaceAtom()
+        $0.workspacePersistor = persistor
+        $0.continuousClock = clock
     } operation: {
-        WorkspaceStore(
-            persistor: persistor,
-            persistDebounceDuration: .milliseconds(100),
-            clock: clock
-        )
+        WorkspaceStore()
     }
     store.restore()
 
-    // Mutate a property easy to forget in tracking
     store.atom.setSidebarWidth(999)
 
     await clock.waitForPendingSleepCount(atLeast: 1)
@@ -874,7 +883,7 @@ func test_observation_tracksAllHydratedProperties() async {
     case .loaded(let state):
         #expect(state.sidebarWidth == 999)
     case .missing, .corrupt:
-        Issue.record("sidebarWidth mutation not tracked — observation tracking closure incomplete")
+        Issue.record("sidebarWidth mutation not tracked — observation tracking incomplete")
     }
 }
 ```
