@@ -19,11 +19,11 @@ PRIMITIVE ATOMS (Core/Atoms/)
   Atoms expose hydrate() for stores to populate state during restore.
   Atoms have ZERO knowledge of whether they are persisted.
 
-  WorkspaceAtom        ← tabs, panes, repos, worktrees, layouts, mutations
+  WorkspaceAtom        ← tabs, panes, repos, worktrees, layouts, mutations, undo snapshots
   RepoCacheAtom        ← branch names, git status, PR counts
   UIStateAtom          ← expanded groups, colors, sidebar filter
   ManagementModeAtom   ← isActive: Bool
-  SessionRuntimeAtom   ← runtime statuses per pane
+  SessionRuntimeAtom   ← runtime statuses per pane (injected, not singleton)
 
 DERIVED (Core/Atoms/)
   Read-only. Pure functions from atoms. No owned state.
@@ -46,14 +46,13 @@ BEHAVIOR (stays in App/, Features/)
 
   ManagementModeMonitor ← keyboard interception, first responder mgmt
                           reads/writes ManagementModeAtom
-  SurfaceManager        ← Ghostty C API lifecycle, health, surface registry
-                          stays as-is (Core can't import Features types)
   SessionRuntime        ← backend coordination, health checks
                           reads/writes SessionRuntimeAtom
 
 NOT TOUCHED
   WorkspacePersistor   ← shared file I/O mechanics, used by stores
-  SurfaceManager       ← surface types are in Features/Terminal, can't move to Core
+  SurfaceManager       ← surface types (ManagedSurface, SurfaceHealth) are in Features/Terminal/,
+                          Core can't import them. Two count properties don't earn an atom.
   AppLifecycleStore    ← already in-memory only, already in App/
   WindowLifecycleStore ← already in-memory only, already in App/
 ```
@@ -138,8 +137,8 @@ WorkspaceAtom ──── observed by ──── WorkspaceStore ──── 
 RepoCacheAtom ──── observed by ──── RepoCacheStore ──── saves to .cache.json
 UIStateAtom ────── observed by ──── UIStateStore ────── saves to .ui.json
 
-ManagementModeAtom ──── no store ──── in-memory only
-SessionRuntimeAtom ──── no store ──── in-memory only
+ManagementModeAtom ──── no store ──── in-memory only (singleton)
+SessionRuntimeAtom ──── no store ──── in-memory only (injected per SessionRuntime)
 ```
 
 ---
@@ -433,16 +432,54 @@ See the "How stores observe atoms" and "How atoms are hydrated" sections above f
 3. Call `startObserving()` AFTER restore — not in init
 4. Read the current `persistNow()` and copy the logic, reading from `atom.*` instead of `self.*`
 
-- [ ] **Step 3: Update all call sites**
+- [ ] **Step 3: Move nested undo types to WorkspaceAtom**
 
-Pattern: `store.tabs` → `store.atom.tabs`, `store.pane(id)` → `store.atom.pane(id)`, etc.
-Persistence calls (`store.restore()`, `store.flush()`) stay on store.
+`WorkspaceStore` currently has nested types: `TabCloseSnapshot`, `PaneCloseSnapshot`, `CloseEntry`. These are undo logic — they belong on `WorkspaceAtom`. Move them and update references in `PaneCoordinator`, `ActionExecutor`, and related files.
 
+Find all references:
+```bash
+rg "WorkspaceStore\.TabCloseSnapshot\|WorkspaceStore\.PaneCloseSnapshot\|WorkspaceStore\.CloseEntry" Sources/ Tests/
+```
+
+Update to `WorkspaceAtom.TabCloseSnapshot`, etc.
+
+- [ ] **Step 4: Update all call sites**
+
+This is NOT just "add `.atom`". Two categories of call sites:
+
+**Views and services that READ state** — these should hold `WorkspaceAtom` directly, not `WorkspaceStore`. `WorkspaceStore` is NOT `@Observable` anymore, so SwiftUI observation won't track through it.
+
+```swift
+// BEFORE
+struct TabBarAdapter {
+    let store: WorkspaceStore  // was @Observable
+    var tabs: [Tab] { store.tabs }
+}
+
+// AFTER — views hold the atom directly
+struct TabBarAdapter {
+    let workspace: WorkspaceAtom  // @Observable
+    var tabs: [Tab] { workspace.tabs }
+}
+```
+
+**App/coordinator code that needs persistence** — these hold `WorkspaceStore` and access `store.atom` for state:
+
+```swift
+// App-level code that needs both state + persistence
+let store: WorkspaceStore
+store.atom.appendTab(tab)  // mutate state
+store.flush()               // persist
+```
+
+Find all call sites:
 ```bash
 rg -l "WorkspaceStore" Sources/ Tests/
 ```
 
-~72 files. Mechanical find-and-add `.atom`.
+For each file, decide: does this code need persistence (`store.restore()`, `store.flush()`)? If no → switch to `WorkspaceAtom`. If yes → keep `WorkspaceStore`, access state via `store.atom`.
+
+**~72 files total.** Most views/services → `WorkspaceAtom`. App-level coordinators → keep `WorkspaceStore`.
 
 - [ ] **Step 4: Build incrementally, fix errors, run full tests, commit**
 
@@ -509,14 +546,14 @@ The implementing agent must read the current RepoCacheAtom (formerly WorkspaceRe
 - [ ] **Step 1: Create atom**
 
 ```swift
+/// Atom: runtime status per pane.
+/// NOT a singleton — injected into SessionRuntime so tests get isolated state.
 @Observable
 @MainActor
 final class SessionRuntimeAtom {
-    static let shared = SessionRuntimeAtom()
-
     private(set) var statuses: [UUID: SessionRuntimeStatus] = [:]
 
-    private init() {}
+    init() {}
 
     func setStatus(_ status: SessionRuntimeStatus, for paneId: UUID) {
         statuses[paneId] = status
@@ -532,7 +569,16 @@ final class SessionRuntimeAtom {
 }
 ```
 
-- [ ] **Step 2: Update SessionRuntime to delegate**
+- [ ] **Step 2: Update SessionRuntime to accept atom as constructor parameter**
+
+SessionRuntime's init gains an `atom:` parameter. Tests create fresh atoms per test — no shared state leakage:
+
+```swift
+init(atom: SessionRuntimeAtom = SessionRuntimeAtom(), ...) {
+    self.atom = atom
+    // ... existing init ...
+}
+```
 
 - [ ] **Step 3: Build, test, commit**
 
@@ -576,8 +622,9 @@ func test_atomMutation_triggersStoreSave() async {
     )
     store.restore()  // starts observation
 
-    // Mutate the atom
-    let tab = Tab(paneId: UUID())
+    // Mutate the atom — create valid workspace state first
+    let pane = atom.createPane(source: .floating(launchDirectory: nil, title: nil))
+    let tab = Tab(paneId: pane.id)
     atom.appendTab(tab)
 
     // Wait for debounce to register, then advance clock
@@ -601,9 +648,10 @@ func test_atomMutation_triggersStoreSave() async {
 func test_restore_doesNotTriggerSave() async {
     let persistor = WorkspacePersistor(workspacesDir: tempDir)
 
-    // Save initial state
+    // Save initial state — create valid workspace
     let atom1 = WorkspaceAtom()
-    atom1.appendTab(Tab(paneId: UUID()))
+    let pane1 = atom1.createPane(source: .floating(launchDirectory: nil, title: nil))
+    atom1.appendTab(Tab(paneId: pane1.id))
     let store1 = WorkspaceStore(atom: atom1, persistor: persistor)
     store1.flush()
 
