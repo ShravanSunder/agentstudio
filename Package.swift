@@ -26,7 +26,7 @@ let package = Package(
                 "Resources/AgentStudio.entitlements",
             ],
             resources: [
-                .process("Resources/SidebarIcons.xcassets"),
+                .process("Resources/Icons.xcassets"),
                 .copy("Resources/AppIcon.icns"),
                 .copy("Resources/AppIcon.iconset"),
                 .copy("Resources/terminfo"),

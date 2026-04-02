@@ -118,7 +118,7 @@ struct ActionExecutorTestsQuick {
 
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "about:blank")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Web"))
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Web"))
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -146,8 +146,8 @@ struct ActionExecutorTestsQuick {
         let tempDir = harness.tempDir
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let paneOne = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let paneTwo = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let paneOne = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let paneTwo = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: paneOne.id)
         store.appendTab(tab)
         store.insertPane(

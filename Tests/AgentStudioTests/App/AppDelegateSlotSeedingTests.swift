@@ -17,7 +17,7 @@ struct AppDelegateSlotSeedingTests {
         store1.restore()
 
         let parentPane = store1.createPane(
-            source: .floating(workingDirectory: tempDir, title: "Parent"),
+            source: .floating(launchDirectory: tempDir, title: "Parent"),
             provider: .zmx
         )
         let restoredTab = Tab(paneId: parentPane.id, name: "Restored")

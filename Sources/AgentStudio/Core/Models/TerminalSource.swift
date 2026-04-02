@@ -5,8 +5,8 @@ import Foundation
 /// whether it's tied to a worktree or is a standalone floating terminal.
 enum TerminalSource: Codable, Hashable {
     /// Terminal associated with a specific worktree in a repo
-    case worktree(worktreeId: UUID, repoId: UUID)
+    case worktree(worktreeId: UUID, repoId: UUID, launchDirectory: URL)
 
     /// Standalone floating terminal not tied to any worktree
-    case floating(workingDirectory: URL?, title: String?)
+    case floating(launchDirectory: URL?, title: String?)
 }

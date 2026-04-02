@@ -2,8 +2,8 @@ import SwiftUI
 
 // MARK: - CommandBarView
 
-/// Root SwiftUI view for the command bar. Composes search field, scope pill,
-/// results list, and footer. Bound to CommandBarState.
+/// Root SwiftUI view for the command bar. Composes search field, results list,
+/// and footer. Bound to CommandBarState.
 struct CommandBarView: View {
     @Bindable var state: CommandBarState
     let store: WorkspaceStore
@@ -13,22 +13,14 @@ struct CommandBarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Scope pill (only when nested)
-            if state.isNested {
-                HStack {
-                    CommandBarScopePill(
-                        parent: state.scopePillParent,
-                        child: state.scopePillChild,
-                        onDismiss: { state.popToRoot() }
-                    )
-                    Spacer()
-                }
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
-            }
+            CommandBarStatusStrip(
+                mode: currentMode,
+                context: currentContext
+            )
 
-            // Search field with keyboard interception
+            Divider()
+                .opacity(0.15)
+
             CommandBarSearchField(
                 state: state,
                 onArrowUp: { state.moveSelectionUp(totalItems: totalItems) },
@@ -64,6 +56,36 @@ struct CommandBarView: View {
     }
 
     // MARK: - Data
+
+    private var currentMode: CommandBarAppMode {
+        ManagementModeMonitor.shared.isActive ? .management : .normal
+    }
+
+    private var currentContext: CommandBarAppContext {
+        guard let activeTabId = store.activeTabId,
+            let tab = store.tab(activeTabId),
+            let activePaneId = tab.activePaneId,
+            let pane = store.pane(activePaneId)
+        else {
+            return CommandBarAppContext(paneContentType: nil)
+        }
+
+        let contentType: CommandBarAppContext.ContentType =
+            switch pane.content {
+            case .terminal:
+                .terminal
+            case .webview:
+                .webview
+            case .bridgePanel:
+                .bridge
+            case .codeViewer:
+                .codeViewer
+            case .unsupported:
+                .unknown
+            }
+
+        return CommandBarAppContext(paneContentType: contentType)
+    }
 
     private var allItems: [CommandBarItem] {
         if let level = state.currentLevel {

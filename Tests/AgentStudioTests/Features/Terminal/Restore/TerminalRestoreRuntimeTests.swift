@@ -16,7 +16,7 @@ struct TerminalRestoreRuntimeTests {
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let runtime = TerminalRestoreRuntime(
@@ -52,7 +52,7 @@ struct TerminalRestoreRuntimeTests {
         let repo = store.addRepo(at: tempDir)
         let worktree = try #require(repo.worktrees.first)
         let parentPane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let drawerPane = try #require(store.addDrawerPane(to: parentPane.id))
@@ -81,9 +81,9 @@ struct TerminalRestoreRuntimeTests {
     @Test
     func zmxSessionId_usesFloatingWorkingDirectory_whenCwdExists() {
         let store = WorkspaceStore()
-        let workingDirectory = FileManager.default.homeDirectoryForCurrentUser.appending(path: "tmp")
+        let launchDirectory = FileManager.default.homeDirectoryForCurrentUser.appending(path: "tmp")
         let pane = store.createPane(
-            source: .floating(workingDirectory: workingDirectory, title: nil),
+            source: .floating(launchDirectory: launchDirectory, title: nil),
             provider: .zmx
         )
         let runtime = TerminalRestoreRuntime(
@@ -102,7 +102,7 @@ struct TerminalRestoreRuntimeTests {
         #expect(
             sessionId
                 == ZmxBackend.floatingSessionId(
-                    workingDirectory: workingDirectory,
+                    launchDirectory: launchDirectory,
                     paneId: pane.id
                 )
         )
@@ -112,7 +112,7 @@ struct TerminalRestoreRuntimeTests {
     func zmxSessionId_fallsBackToHomeDirectory_forFloatingPaneWithoutCwd() {
         let store = WorkspaceStore()
         let pane = store.createPane(
-            source: .floating(workingDirectory: nil, title: nil),
+            source: .floating(launchDirectory: nil, title: nil),
             provider: .zmx
         )
         let runtime = TerminalRestoreRuntime(
@@ -131,7 +131,7 @@ struct TerminalRestoreRuntimeTests {
         #expect(
             sessionId
                 == ZmxBackend.floatingSessionId(
-                    workingDirectory: FileManager.default.homeDirectoryForCurrentUser,
+                    launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
                     paneId: pane.id
                 )
         )

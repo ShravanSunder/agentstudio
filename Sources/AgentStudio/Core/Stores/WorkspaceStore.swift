@@ -753,7 +753,7 @@ final class WorkspaceStore {
 
         let content = PaneContent.terminal(TerminalState(provider: .zmx, lifetime: .persistent))
         let metadata = PaneMetadata(
-            source: .floating(workingDirectory: parentCwd, title: nil),
+            source: .floating(launchDirectory: parentCwd, title: nil),
             title: "Drawer"
         )
 
@@ -813,7 +813,7 @@ final class WorkspaceStore {
 
         let content = PaneContent.terminal(TerminalState(provider: .zmx, lifetime: .persistent))
         let metadata = PaneMetadata(
-            source: .floating(workingDirectory: parentCwd, title: nil),
+            source: .floating(launchDirectory: parentCwd, title: nil),
             title: "Drawer"
         )
 

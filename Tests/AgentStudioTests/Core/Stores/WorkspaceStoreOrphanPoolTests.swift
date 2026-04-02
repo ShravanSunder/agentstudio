@@ -18,7 +18,7 @@ final class WorkspaceStoreOrphanPoolTests {
     // MARK: - Helpers
 
     private func createTabWithPane() -> (Tab, Pane) {
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         return (tab, pane)
@@ -64,8 +64,8 @@ final class WorkspaceStoreOrphanPoolTests {
     @Test
 
     func test_backgroundPane_removesFromLayout() {
-        let pane1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let pane2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: pane1.id)
         store.appendTab(tab)
         store.insertPane(
@@ -99,8 +99,8 @@ final class WorkspaceStoreOrphanPoolTests {
     @Test
 
     func test_backgroundPane_updatesActivePaneId() {
-        let pane1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let pane2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: pane1.id)
         store.appendTab(tab)
         store.insertPane(
@@ -117,8 +117,8 @@ final class WorkspaceStoreOrphanPoolTests {
     @Test
 
     func test_backgroundPane_clearsZoomIfZoomed() {
-        let pane1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let pane2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: pane1.id)
         store.appendTab(tab)
         store.insertPane(
@@ -169,7 +169,7 @@ final class WorkspaceStoreOrphanPoolTests {
 
     func test_reactivatePane_nonBackgrounded_noOp() {
         let (tab, pane1) = createTabWithPane()
-        let pane2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         store.insertPane(
             pane2.id, inTab: tab.id, at: pane1.id,
             direction: .horizontal, position: .after)
@@ -215,8 +215,8 @@ final class WorkspaceStoreOrphanPoolTests {
     @Test
 
     func test_fullLifecycle_background_reactivate() {
-        let pane1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let pane2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: pane1.id)
         store.appendTab(tab)
         store.insertPane(

@@ -674,7 +674,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
             dispatchAction(
                 .openNewTerminalInTab(
                     worktreeId: worktreeId,
-                    cwd: target.path,
+                    launchDirectory: target.path,
                     title: target.displayTitle
                 )
             )
@@ -688,7 +688,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
             return
         }
 
-        dispatchAction(.openFloatingTerminal(cwd: target.path, title: target.displayTitle))
+        dispatchAction(.openFloatingTerminal(launchDirectory: target.path, title: target.displayTitle))
     }
 
     private func openAllRecentTargets() {
@@ -733,24 +733,24 @@ class PaneTabViewController: NSViewController, CommandHandler {
                 dispatchAction(
                     .openNewTerminalInTab(
                         worktreeId: worktreeId,
-                        cwd: pane.metadata.facets.cwd,
+                        launchDirectory: pane.metadata.cwd,
                         title: pane.metadata.title
                     )
                 )
                 return
             }
 
-            dispatchAction(.openFloatingTerminal(cwd: pane.metadata.facets.cwd, title: pane.metadata.title))
+            dispatchAction(.openFloatingTerminal(launchDirectory: pane.metadata.cwd, title: pane.metadata.title))
             return
         }
 
         // Fallback: use the first worktree from the first repo
         if let worktree = store.repos.first?.worktrees.first {
-            dispatchAction(.openNewTerminalInTab(worktreeId: worktree.id, cwd: nil, title: nil))
+            dispatchAction(.openNewTerminalInTab(worktreeId: worktree.id, launchDirectory: nil, title: nil))
             return
         }
 
-        dispatchAction(.openFloatingTerminal(cwd: nil, title: nil))
+        dispatchAction(.openFloatingTerminal(launchDirectory: nil, title: nil))
     }
 
     private func worktreeIdForNewTab(from pane: Pane) -> UUID? {
@@ -768,7 +768,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     func openNewTerminal(for worktree: Worktree, in _: Repo) {
-        dispatchAction(.openNewTerminalInTab(worktreeId: worktree.id, cwd: nil, title: nil))
+        dispatchAction(.openNewTerminalInTab(worktreeId: worktree.id, launchDirectory: nil, title: nil))
     }
 
     func openWorktreeInPane(for worktree: Worktree, in _: Repo) {
@@ -1107,7 +1107,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
             let activePaneCwd = store.activeTabId
                 .flatMap { store.tab($0)?.activePaneId }
                 .flatMap { store.pane($0)?.metadata.facets.cwd }
-            dispatchAction(.openFloatingTerminal(cwd: activePaneCwd, title: nil))
+            dispatchAction(.openFloatingTerminal(launchDirectory: activePaneCwd, title: nil))
         case .openWebview:
             executor.openWebview()
         case .quickFind, .commandBar,
@@ -1198,7 +1198,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         case (.openWorktree, .worktree):
             return .openWorktree(worktreeId: target)
         case (.openNewTerminalInTab, .worktree):
-            return .openNewTerminalInTab(worktreeId: target, cwd: nil, title: nil)
+            return .openNewTerminalInTab(worktreeId: target, launchDirectory: nil, title: nil)
         case (.openWorktreeInPane, .worktree):
             return .openWorktreeInPane(worktreeId: target)
         case (.renameArrangement, .tab):

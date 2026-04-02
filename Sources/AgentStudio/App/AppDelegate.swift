@@ -916,7 +916,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             appLogger.warning("No window available for command bar (panes)")
             return
         }
-        commandBarController.show(prefix: "@", parentWindow: window)
+        commandBarController.show(prefix: "$", parentWindow: window)
     }
 
 }

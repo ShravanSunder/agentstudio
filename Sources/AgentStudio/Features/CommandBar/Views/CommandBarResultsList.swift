@@ -73,7 +73,7 @@ struct CommandBarResultsList: View {
                 .font(.system(size: AppStyle.textXs))
                 .foregroundStyle(.primary.opacity(0.3))
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.vertical, 24)
     }
 

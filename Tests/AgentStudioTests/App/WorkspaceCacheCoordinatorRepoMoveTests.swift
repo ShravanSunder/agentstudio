@@ -37,7 +37,11 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         let persistedMainWorktreeId = workspaceStore.repos[0].worktrees[0].id
 
         let pane = workspaceStore.createPane(
-            source: .worktree(worktreeId: persistedMainWorktreeId, repoId: repo.id)
+            source: .worktree(
+                worktreeId: persistedMainWorktreeId,
+                repoId: repo.id,
+                launchDirectory: repoPath
+            )
         )
 
         repoCache.setRepoEnrichment(
@@ -103,7 +107,11 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         let previousWorktreeId = workspaceStore.repos[0].worktrees[0].id
 
         let pane = workspaceStore.createPane(
-            source: .worktree(worktreeId: previousWorktreeId, repoId: repo.id)
+            source: .worktree(
+                worktreeId: previousWorktreeId,
+                repoId: repo.id,
+                launchDirectory: oldRepoPath
+            )
         )
         workspaceStore.appendTab(Tab(paneId: pane.id))
 
@@ -159,7 +167,13 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         workspaceStore.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
         let worktreeId = workspaceStore.repos[0].worktrees[0].id
 
-        let pane = workspaceStore.createPane(source: .worktree(worktreeId: worktreeId, repoId: repo.id))
+        let pane = workspaceStore.createPane(
+            source: .worktree(
+                worktreeId: worktreeId,
+                repoId: repo.id,
+                launchDirectory: repoPath
+            )
+        )
         workspaceStore.appendTab(Tab(paneId: pane.id))
 
         coordinator.handleTopology(
@@ -203,7 +217,11 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         let worktreeId = workspaceStore.repos[0].worktrees[0].id
 
         let pane = workspaceStore.createPane(
-            source: .worktree(worktreeId: worktreeId, repoId: repo.id)
+            source: .worktree(
+                worktreeId: worktreeId,
+                repoId: repo.id,
+                launchDirectory: oldRepoPath
+            )
         )
         let tab = Tab(paneId: pane.id)
         workspaceStore.appendTab(tab)
@@ -256,7 +274,13 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         workspaceStore.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
         let worktreeId = workspaceStore.repos[0].worktrees[0].id
 
-        let pane = workspaceStore.createPane(source: .worktree(worktreeId: worktreeId, repoId: repo.id))
+        let pane = workspaceStore.createPane(
+            source: .worktree(
+                worktreeId: worktreeId,
+                repoId: repo.id,
+                launchDirectory: repoPath
+            )
+        )
         workspaceStore.setResidency(
             .pendingUndo(expiresAt: Date(timeIntervalSinceNow: 300)),
             for: pane.id

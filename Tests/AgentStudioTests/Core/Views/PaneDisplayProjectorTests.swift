@@ -22,7 +22,7 @@ struct PaneDisplayProjectorTests {
         )
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Ignored Terminal Title",
             facets: PaneContextFacets(
                 repoId: repo.id,
@@ -43,7 +43,7 @@ struct PaneDisplayProjectorTests {
         let store = WorkspaceStore()
         let repoCache = WorkspaceRepoCache()
         let pane = store.createPane(
-            source: .floating(workingDirectory: URL(fileURLWithPath: "/tmp/project-dev"), title: "ignored"),
+            source: .floating(launchDirectory: URL(fileURLWithPath: "/tmp/project-dev"), title: "ignored"),
             title: "ignored",
             facets: PaneContextFacets(cwd: URL(fileURLWithPath: "/tmp/project-dev"))
         )

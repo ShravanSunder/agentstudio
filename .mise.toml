@@ -408,3 +408,7 @@ fi
 codesign --verify --deep --strict AgentStudio.app
 echo "AgentStudio.app created and signed"
 """
+
+[tasks.generate-icon]
+description = "Regenerate AppIcon.icns from AppIcon.svg (requires: brew install librsvg)"
+run = "scripts/generate-icon.sh"
