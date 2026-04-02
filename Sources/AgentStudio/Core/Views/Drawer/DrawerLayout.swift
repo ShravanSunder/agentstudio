@@ -89,10 +89,8 @@ enum DrawerLayout {
     /// Total DrawerIconBar VStack height (connector + icon strip).
     static let iconBarTotalHeight: CGFloat = connectorHeight + iconStripHeight
 
-    /// Gap between pane content and the icon bar.
-    /// Matches the visual gap between two adjacent panes (paneGap × 2).
-    static let iconBarContentSpacing: CGFloat = AppStyle.paneGap
-
-    /// Icon bar height in pane frame coordinates.
-    static let iconBarFrameHeight: CGFloat = iconBarTotalHeight + iconBarContentSpacing
+    /// Approximate icon bar height for imperative layout calculations
+    /// outside SwiftUI (e.g. PaneCoordinator drawer content rect).
+    /// SwiftUI code should use the measured iconBarFrame preference instead.
+    static let iconBarFrameHeight: CGFloat = iconBarTotalHeight
 }

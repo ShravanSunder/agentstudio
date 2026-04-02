@@ -136,7 +136,7 @@ struct DrawerPanelOverlay: View {
             let totalHeight = panelHeight + connectorHeight
 
             // Bottom of overlay aligns with top of pane's icon bar
-            let overlayBottomY = info.frame.maxY - DrawerLayout.iconBarFrameHeight
+            let overlayBottomY = info.frame.maxY - iconBarFrame.height
             let centerY = overlayBottomY - totalHeight / 2
 
             // Centered on originating pane, clamped to tab bounds

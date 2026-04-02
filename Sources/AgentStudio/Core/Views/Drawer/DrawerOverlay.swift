@@ -17,16 +17,12 @@ struct DrawerOverlay: View {
     let action: (PaneActionCommand) -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer()
-
-            DrawerIconBar(
-                isExpanded: drawer?.isExpanded ?? false,
-                onAdd: { addDrawerPane() },
-                onToggleExpand: { action(.toggleDrawer(paneId: paneId)) },
-                trailingActions: trailingActions
-            )
-        }
+        DrawerIconBar(
+            isExpanded: drawer?.isExpanded ?? false,
+            onAdd: { addDrawerPane() },
+            onToggleExpand: { action(.toggleDrawer(paneId: paneId)) },
+            trailingActions: trailingActions
+        )
     }
 
     private func addDrawerPane() {

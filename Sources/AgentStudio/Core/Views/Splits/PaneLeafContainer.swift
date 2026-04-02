@@ -150,16 +150,14 @@ struct PaneLeafContainer: View {
                             paneId: paneHost.id,
                             drawer: drawer,
                             isIconBarVisible: true,
-                            trailingActions: managementMode.isActive
-                                ? DrawerOverlay.TrailingActions(
-                                    canOpenTarget: managementContext.targetPath != nil,
-                                    onOpenFinder: { openInFinder(managementContext) },
-                                    onOpenCursor: { openInCursor(managementContext) }
-                                )
-                                : nil,
+                            trailingActions: DrawerOverlay.TrailingActions(
+                                canOpenTarget: managementContext.targetPath != nil,
+                                onOpenFinder: { openInFinder(managementContext) },
+                                onOpenCursor: { openInCursor(managementContext) }
+                            ),
                             action: actionDispatcher.dispatch
                         )
-                        .frame(height: DrawerLayout.iconBarFrameHeight)
+                        .fixedSize(horizontal: false, vertical: true)
                     }
                 }
 
@@ -187,12 +185,10 @@ struct PaneLeafContainer: View {
                         .animation(.easeInOut(duration: AppStyle.animationFast), value: isManagementHovered)
                 }
 
-                // Drag handle: compact centered pill (management mode + hover + no active drop).
+                // Drag handle: compact centered pill in management mode.
                 // The Color.clear fills the ZStack for centering; allowsHitTesting(false)
                 // ensures only the capsule itself intercepts mouse events.
-                if managementMode.isActive && isManagementHovered
-                    && !store.isSplitResizing
-                {
+                if managementMode.isActive && !store.isSplitResizing {
                     ZStack {
                         Color.clear
                             .allowsHitTesting(false)
@@ -233,8 +229,8 @@ struct PaneLeafContainer: View {
                     }
                 }
 
-                // Pane controls: minimize + close (top-left, management mode + hover)
-                if managementMode.isActive && isManagementHovered && !store.isSplitResizing {
+                // Pane controls: minimize + close (top-left, management mode)
+                if managementMode.isActive && !store.isSplitResizing {
                     VStack {
                         HStack(spacing: AppStyle.spacingStandard) {
                             Button {
@@ -306,8 +302,8 @@ struct PaneLeafContainer: View {
                     .transition(.opacity)
                 }
 
-                // Quarter-moon split and browser buttons (top-right, management mode + hover)
-                if managementMode.isActive && isManagementHovered && !store.isSplitResizing {
+                // Quarter-moon split and browser buttons (top-right, management mode)
+                if managementMode.isActive && !store.isSplitResizing {
                     VStack {
                         HStack {
                             Spacer()

@@ -115,8 +115,7 @@ struct DrawerIconBar: View {
                     }
                 }
             }
-            .padding(.horizontal, DrawerLayout.iconBarHorizontalPadding)
-            .padding(.vertical, DrawerLayout.iconBarVerticalPadding)
+            .padding(DrawerLayout.iconBarVerticalPadding)
             .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: DrawerLayout.iconBarCornerRadius))
             .background(
