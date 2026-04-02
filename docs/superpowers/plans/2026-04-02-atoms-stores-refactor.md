@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Align the codebase to the Jotai-inspired state management model: atoms own state, stores handle persistence, derived computations are pure functions. Establish `Core/Atoms/` as the home for all reactive state.
+**Goal:** Align the codebase to the Jotai-inspired state management model: atoms own state, stores observe atoms and handle persistence, derived computations are pure functions. Establish `Core/Atoms/` as the home for all reactive state.
 
-**Architecture:** Split each fused "store+state" class into an atom (pure `@Observable` state + mutations) and a store (persistence wrapper that saves/restores the atom). Move derived computations (`PaneDisplayProjector`, `DynamicViewProjector`) into `Core/Atoms/` with `*Derived` naming. Extract the atom portion of `ManagementModeMonitor` and `SurfaceManager` from their behavior-heavy containers. Update architecture docs and CLAUDE.md to document the atom/store/derived pattern.
+**Architecture:** Split each fused "store+state" class into an atom (pure `@Observable` state + mutations) and a store (persistence wrapper that observes the atom via `@Observable` and saves/restores). Atoms have zero knowledge of persistence — stores compose atoms by holding references and observing changes. Transient state (zoom, minimize) lives in a separate atom that no store persists. Move derived computations (`PaneDisplayProjector`, `DynamicViewProjector`) into `Core/Atoms/` with `*Derived` naming.
 
-**Tech Stack:** Swift 6.2, `@Observable`, `@MainActor`
+**Tech Stack:** Swift 6.2, `@Observable`, `@MainActor`, `withObservationTracking`
 
 ---
 
@@ -15,53 +15,126 @@
 ```
 PRIMITIVE ATOMS (Core/Atoms/)
   @Observable, private(set), own state, mutation methods.
-  No persistence. No event interception. No resource management.
+  No persistence. No callbacks. No event interception. No resource management.
+  Atoms have ZERO knowledge of whether they are persisted.
 
-  WorkspaceAtom        ← tabs, panes, repos, worktrees, layouts, mutations
-  RepoCacheAtom        ← branch names, git status, PR counts
-  UIStateAtom          ← expanded groups, colors, sidebar filter
-  ManagementModeAtom   ← isActive: Bool
-  SurfaceStateAtom     ← surface registry, counts
-  SessionRuntimeAtom   ← runtime statuses per pane
+  WorkspaceAtom          ← tabs, panes, repos, worktrees, layouts, mutations
+  WorkspaceTransientAtom ← zoomedPaneId, minimizedPaneIds (not persisted)
+  RepoCacheAtom          ← branch names, git status, PR counts
+  UIStateAtom            ← expanded groups, colors, sidebar filter
+  ManagementModeAtom     ← isActive: Bool
+  SurfaceStateAtom       ← surface registry, counts
+  SessionRuntimeAtom     ← runtime statuses per pane
 
 DERIVED (Core/Atoms/)
   Read-only. Pure functions from atoms. No owned state.
 
-  PaneDisplayDerived   ← reads WorkspaceAtom + RepoCacheAtom → display labels
-  DynamicViewDerived   ← reads WorkspaceAtom → tab groupings
-  WorkspaceFocusDerived ← reads WorkspaceAtom → Set<FocusRequirement>  (future plan)
+  PaneDisplayDerived     ← reads WorkspaceAtom + RepoCacheAtom → display labels
+  DynamicViewDerived     ← reads WorkspaceAtom → tab groupings
 
 STORES (Core/Stores/)
-  Persistence wrappers. Take an atom, save it, restore it.
-  Not @Observable — the atom is what views observe.
+  Persistence wrappers. Compose atoms by holding references.
+  Observe atoms via @Observable — when atom state changes, schedule debounced save.
+  No callbacks, no onMutate hooks. The store watches, the atom doesn't know.
 
-  WorkspaceStore       ← saves/restores WorkspaceAtom → workspace.state.json
-  RepoCacheStore       ← saves/restores RepoCacheAtom → workspace.cache.json
-  UIStateStore         ← saves/restores UIStateAtom → workspace.ui.json
+  WorkspaceStore         ← observes WorkspaceAtom, saves → workspace.state.json
+  RepoCacheStore         ← observes RepoCacheAtom, saves → workspace.cache.json
+  UIStateStore           ← observes UIStateAtom, saves → workspace.ui.json
 
 BEHAVIOR (stays in App/, Features/)
   AppKit event interception, resource lifecycle, C API bridges.
   Reads/writes atoms but doesn't own state.
 
-  ManagementModeMonitor ← keyboard interception, first responder mgmt
-                          reads/writes ManagementModeAtom
-  SurfaceManager        ← Ghostty C API lifecycle, health delegates
-                          reads/writes SurfaceStateAtom
-  SessionRuntime        ← backend coordination, health checks
-                          reads/writes SessionRuntimeAtom
+  ManagementModeMonitor  ← keyboard interception, first responder mgmt
+                           reads/writes ManagementModeAtom
+  SurfaceManager         ← Ghostty C API lifecycle, health delegates
+                           reads/writes SurfaceStateAtom
+  SessionRuntime         ← backend coordination, health checks
+                           reads/writes SessionRuntimeAtom
+
+NOT TOUCHED (stays as-is)
+  ZmxBackend             ← zmx session backend, not an atom or store
+  WorkspacePersistor     ← shared file I/O mechanics, used by stores
+  AppLifecycleStore      ← already in-memory only, already in App/
+  WindowLifecycleStore   ← already in-memory only, already in App/
 ```
+
+### How stores observe atoms (no callbacks)
+
+```swift
+@MainActor
+final class WorkspaceStore {
+    let atom: WorkspaceAtom        // the atom this store persists
+    private let persistor: WorkspacePersistor
+
+    func startObserving() {
+        // withObservationTracking re-registers after each change
+        func observe() {
+            withObservationTracking {
+                // Touch all persisted properties so we're notified when any change
+                _ = atom.repos
+                _ = atom.tabs
+                _ = atom.panes
+                _ = atom.activeTabId
+                // ... all persisted properties
+            } onChange: { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.scheduleDebouncedSave()
+                    observe()  // re-register
+                }
+            }
+        }
+        observe()
+    }
+}
+```
+
+The atom mutates freely. The store watches. No coupling.
+
+### Composability
+
+```
+WorkspaceAtom ──── observed by ──── WorkspaceStore ──── saves to .state.json
+RepoCacheAtom ──── observed by ──── RepoCacheStore ──── saves to .cache.json
+UIStateAtom ────── observed by ──── UIStateStore ────── saves to .ui.json
+
+WorkspaceTransientAtom ──── no store ──── in-memory only
+ManagementModeAtom ──────── no store ──── in-memory only
+SurfaceStateAtom ────────── no store ──── in-memory only
+SessionRuntimeAtom ──────── no store ──── in-memory only
+```
+
+A store picks which atoms to persist by holding references. Atoms it doesn't reference are in-memory only. No configuration, no callbacks, no flags.
+
+---
+
+## Scope & Exclusions
+
+### In scope
+- Split `WorkspaceStore` → `WorkspaceAtom` + `WorkspaceTransientAtom` + `WorkspaceStore`
+- Rename `WorkspaceRepoCache` → `RepoCacheAtom`, `WorkspaceUIStore` → `UIStateAtom`
+- Extract atoms from `ManagementModeMonitor`, `SurfaceManager`, `SessionRuntime`
+- Rename `PaneDisplayProjector` → `PaneDisplayDerived`, `DynamicViewProjector` → `DynamicViewDerived`
+- Update CLAUDE.md and architecture docs
+
+### NOT in scope — do not touch
+- `ZmxBackend` — zmx session backend, not an atom or store
+- `WorkspacePersistor` — shared I/O mechanics, used by stores unchanged
+- `AppLifecycleStore` — already in-memory only, already in `App/Lifecycle/`
+- `WindowLifecycleStore` — already in-memory only, already in `App/Lifecycle/`
+- Event bus projectors (`GitWorkingDirectoryProjector`, `FilesystemActor`, `ForgeActor`) — these are real event subscribers, not derived atoms
 
 ---
 
 ## Scope & Order
 
-This plan is ordered to minimize breakage. Each task produces a compiling, passing codebase.
-
-**Phase 1:** Create `Core/Atoms/` folder, establish the pattern with the simplest atoms first (Tasks 1-3).
-**Phase 2:** Rename derived computations — smaller diffs before the big split (Task 4).
-**Phase 3:** Split the big `WorkspaceStore` (1981 lines) — the hardest task (Task 5).
+**Phase 1:** Create `Core/Atoms/`, establish pattern with simplest atoms (Tasks 1-3).
+**Phase 2:** Rename derived computations — smaller diffs before big split (Task 4).
+**Phase 3:** Split `WorkspaceStore` — the big task (Task 5).
 **Phase 4:** Extract remaining atoms from behavior classes (Tasks 6-7).
-**Phase 5:** Update architecture docs and CLAUDE.md (Task 8).
+**Phase 5:** Tests for store observation + persistence (Task 8).
+**Phase 6:** Update architecture docs (Task 9).
+**Phase 7:** Final verification (Task 10).
 
 ---
 
@@ -72,28 +145,41 @@ This plan is ordered to minimize breakage. Each task produces a compiling, passi
 | File | What it is |
 |------|-----------|
 | `Core/Atoms/ManagementModeAtom.swift` | `isActive: Bool`, `toggle()`, `deactivate()` |
-| `Core/Atoms/UIStateAtom.swift` | Renamed + moved from `Core/Stores/WorkspaceUIStore.swift` |
-| `Core/Atoms/RepoCacheAtom.swift` | Renamed + moved from `Core/Stores/WorkspaceRepoCache.swift` |
-| `Core/Atoms/WorkspaceAtom.swift` | State + mutations extracted from `Core/Stores/WorkspaceStore.swift` |
-| `Core/Atoms/SurfaceStateAtom.swift` | Surface registry + counts extracted from `Features/Terminal/Ghostty/SurfaceManager.swift` |
-| `Core/Atoms/SessionRuntimeAtom.swift` | Runtime statuses extracted from `Core/Stores/SessionRuntime.swift` |
-| `Core/Atoms/PaneDisplayDerived.swift` | Renamed + moved from `Core/Views/PaneDisplayProjector.swift` |
-| `Core/Atoms/DynamicViewDerived.swift` | Renamed + moved from `Core/Stores/DynamicViewProjector.swift` |
+| `Core/Atoms/UIStateAtom.swift` | Renamed from `WorkspaceUIStore` |
+| `Core/Atoms/RepoCacheAtom.swift` | Renamed from `WorkspaceRepoCache` |
+| `Core/Atoms/WorkspaceAtom.swift` | Persisted state + mutations from `WorkspaceStore` |
+| `Core/Atoms/WorkspaceTransientAtom.swift` | Transient state: zoom, minimize |
+| `Core/Atoms/SurfaceStateAtom.swift` | Surface registry + counts from `SurfaceManager` |
+| `Core/Atoms/SessionRuntimeAtom.swift` | Runtime statuses from `SessionRuntime` |
+| `Core/Atoms/PaneDisplayDerived.swift` | Renamed from `PaneDisplayProjector` |
+| `Core/Atoms/DynamicViewDerived.swift` | Renamed from `DynamicViewProjector` |
 
 ### Modified files
 
 | File | Change |
 |------|--------|
-| `Core/Stores/WorkspaceStore.swift` | Becomes persistence wrapper around `WorkspaceAtom` |
-| `Core/Stores/WorkspacePersistor.swift` | Unchanged (already just I/O) |
+| `Core/Stores/WorkspaceStore.swift` | Becomes persistence wrapper — observes `WorkspaceAtom`, saves/restores |
 | `App/ManagementModeMonitor.swift` | Behavior only — state moves to `ManagementModeAtom` |
-| `Features/Terminal/Ghostty/SurfaceManager.swift` | Behavior only — registry/counts move to `SurfaceStateAtom` |
+| `Features/Terminal/Ghostty/SurfaceManager.swift` | Behavior only — state moves to `SurfaceStateAtom` |
 | `Core/Stores/SessionRuntime.swift` | Behavior only — statuses move to `SessionRuntimeAtom` |
 | `CLAUDE.md` | Update architecture section |
-| `docs/architecture/component_architecture.md` | Update store table |
+| `docs/architecture/component_architecture.md` | Update component table |
 | `docs/architecture/directory_structure.md` | Add `Core/Atoms/` section |
 | ~72 source files | Update type references |
 | ~41 test files | Update type references |
+
+### Moved files
+
+| File | From | To | Why |
+|------|------|----|-----|
+| `SessionRuntime.swift` | `Core/Stores/` | `Core/PaneRuntime/` | Behavior, not a store — belongs with runtime contracts |
+| `ZmxBackend.swift` | `Core/Stores/` | `Core/PaneRuntime/` | Backend, not a store — belongs with runtime contracts |
+
+### Unchanged files (explicit)
+
+| File | Why unchanged |
+|------|--------------|
+| `Core/Stores/WorkspacePersistor.swift` | Shared I/O — stores use it, not refactored |
 
 ---
 
@@ -138,7 +224,7 @@ final class ManagementModeAtom {
 
 - [ ] **Step 2: Update `ManagementModeMonitor` to use the atom**
 
-In `Sources/AgentStudio/App/ManagementModeMonitor.swift`, remove the state and delegate to the atom:
+In `Sources/AgentStudio/App/ManagementModeMonitor.swift`, remove `isActive` state and delegate to the atom:
 
 ```swift
 @MainActor
@@ -172,21 +258,15 @@ final class ManagementModeMonitor {
 }
 ```
 
-Note: `ManagementModeMonitor.shared.isActive` is referenced in ~18 files. Since we're keeping the `isActive` property as a pass-through, **no call sites need to change**. The monitor's public API is identical.
+All 18 files referencing `ManagementModeMonitor.shared.isActive` continue to work — the public API is identical.
 
-- [ ] **Step 3: Build to verify**
-
-Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift build --build-path "$SWIFT_BUILD_DIR" > /tmp/build-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
-
-Expected: PASS — all call sites use `ManagementModeMonitor.shared.isActive` which still works.
-
-- [ ] **Step 4: Run tests**
+- [ ] **Step 3: Build and run ManagementMode tests**
 
 Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift test --build-path "$SWIFT_BUILD_DIR" --filter "ManagementMode" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
 
 Expected: PASS
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add Sources/AgentStudio/Core/Atoms/ManagementModeAtom.swift Sources/AgentStudio/App/ManagementModeMonitor.swift
@@ -195,60 +275,44 @@ git commit -m "refactor: extract ManagementModeAtom from ManagementModeMonitor"
 
 ---
 
-## Task 2: Move and rename `WorkspaceUIStore` → `UIStateAtom`
+## Task 2: Rename `WorkspaceUIStore` → `UIStateAtom`
 
-`WorkspaceUIStore` is 47 lines — small and self-contained. It's already mostly an atom (just state), but it currently lives in `Core/Stores/`.
+47 lines. Already mostly a pure atom — just rename and move.
 
 **Files:**
 - Rename: `Sources/AgentStudio/Core/Stores/WorkspaceUIStore.swift` → `Sources/AgentStudio/Core/Atoms/UIStateAtom.swift`
-- Modify: all files referencing `WorkspaceUIStore`
+- Modify: all files referencing `WorkspaceUIStore` (~5 source files)
 
-- [ ] **Step 1: Read the current file to understand its shape**
-
-Read `Sources/AgentStudio/Core/Stores/WorkspaceUIStore.swift` in full. Identify:
-- What state it owns
-- Whether it has persistence logic inline (it shouldn't — persistence is in `WorkspacePersistor`)
-- All `WorkspaceUIStore` references in Sources/ and Tests/
-
-- [ ] **Step 2: Rename the file and class**
+- [ ] **Step 1: Rename file and class**
 
 ```bash
 git mv Sources/AgentStudio/Core/Stores/WorkspaceUIStore.swift Sources/AgentStudio/Core/Atoms/UIStateAtom.swift
 ```
 
-In the file, rename `class WorkspaceUIStore` → `class UIStateAtom`. Add a doc comment:
+Rename class in the file: `class WorkspaceUIStore` → `class UIStateAtom`.
 
+Add doc comment:
 ```swift
 /// Atom: UI preferences state (expanded groups, colors, sidebar filter).
-/// Persisted by UIStateStore (in Core/Stores/).
-@Observable
-@MainActor
-final class UIStateAtom {
-    // ... existing state and mutations, class name changed ...
-}
+/// In-memory only — no persistence store wraps this atom yet.
+/// Future: UIStateStore will observe and persist to workspace.ui.json.
 ```
 
-- [ ] **Step 3: Update all references**
-
-Find and replace `WorkspaceUIStore` → `UIStateAtom` across all source and test files:
+- [ ] **Step 2: Update all references**
 
 ```bash
 rg -l "WorkspaceUIStore" Sources/ Tests/
 ```
 
-Update each file. The reference count is ~5 files in Sources/.
+Find and replace `WorkspaceUIStore` → `UIStateAtom` in each file.
 
-- [ ] **Step 4: Build and test**
+- [ ] **Step 3: Build and test**
 
 Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift build --build-path "$SWIFT_BUILD_DIR" > /tmp/build-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
 
 Expected: PASS
 
-Run: `mise run test > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
-
-Expected: PASS
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add -A
@@ -257,30 +321,27 @@ git commit -m "refactor: rename WorkspaceUIStore → UIStateAtom, move to Core/A
 
 ---
 
-## Task 3: Move and rename `WorkspaceRepoCache` → `RepoCacheAtom`
+## Task 3: Rename `WorkspaceRepoCache` → `RepoCacheAtom`
 
-`WorkspaceRepoCache` is 60 lines. Same pattern as Task 2.
+60 lines. Same pattern as Task 2.
 
 **Files:**
 - Rename: `Sources/AgentStudio/Core/Stores/WorkspaceRepoCache.swift` → `Sources/AgentStudio/Core/Atoms/RepoCacheAtom.swift`
-- Modify: ~20 files referencing `WorkspaceRepoCache`
+- Modify: ~20 source files + test files
 
-- [ ] **Step 1: Rename the file and class**
+- [ ] **Step 1: Rename file and class**
 
 ```bash
 git mv Sources/AgentStudio/Core/Stores/WorkspaceRepoCache.swift Sources/AgentStudio/Core/Atoms/RepoCacheAtom.swift
 ```
 
-Rename `class WorkspaceRepoCache` → `class RepoCacheAtom` in the file. Add doc comment:
+Rename class: `class WorkspaceRepoCache` → `class RepoCacheAtom`.
 
+Add doc comment:
 ```swift
 /// Atom: repo enrichment cache (branches, git status, PR counts).
-/// Persisted by RepoCacheStore (in Core/Stores/).
-@Observable
-@MainActor
-final class RepoCacheAtom {
-    // ... existing state and mutations ...
-}
+/// In-memory only — no persistence store wraps this atom yet.
+/// Future: RepoCacheStore will observe and persist to workspace.cache.json.
 ```
 
 - [ ] **Step 2: Update all references**
@@ -289,15 +350,13 @@ final class RepoCacheAtom {
 rg -l "WorkspaceRepoCache" Sources/ Tests/
 ```
 
-~20 source files + test files. Find and replace `WorkspaceRepoCache` → `RepoCacheAtom`.
+~20 files. Find and replace `WorkspaceRepoCache` → `RepoCacheAtom`.
 
-**Important:** `CommandBarDataSource.items()` has a default parameter `repoCache: WorkspaceRepoCache = WorkspaceRepoCache()`. Update to `repoCache: RepoCacheAtom = RepoCacheAtom()`.
+**Important call site:** `CommandBarDataSource.items()` has default parameter `repoCache: WorkspaceRepoCache = WorkspaceRepoCache()`. Update to `repoCache: RepoCacheAtom = RepoCacheAtom()`.
 
 - [ ] **Step 3: Build and test**
 
 Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift build --build-path "$SWIFT_BUILD_DIR" > /tmp/build-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
-
-Run: `mise run test > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
 
 Expected: PASS
 
@@ -312,11 +371,12 @@ git commit -m "refactor: rename WorkspaceRepoCache → RepoCacheAtom, move to Co
 
 ## Task 4: Rename derived computations → `*Derived` in `Core/Atoms/`
 
-Move `PaneDisplayProjector` and `DynamicViewProjector` to `Core/Atoms/` with `*Derived` naming before the big WorkspaceStore split. Smaller diffs first reduce cognitive load.
+Smaller diffs before the big WorkspaceStore split.
 
 **Files:**
 - Rename: `Core/Views/PaneDisplayProjector.swift` → `Core/Atoms/PaneDisplayDerived.swift`
 - Rename: `Core/Stores/DynamicViewProjector.swift` → `Core/Atoms/DynamicViewDerived.swift`
+- Modify: ~14 files referencing these types
 
 - [ ] **Step 1: Rename `PaneDisplayProjector` → `PaneDisplayDerived`**
 
@@ -324,16 +384,14 @@ Move `PaneDisplayProjector` and `DynamicViewProjector` to `Core/Atoms/` with `*D
 git mv Sources/AgentStudio/Core/Views/PaneDisplayProjector.swift Sources/AgentStudio/Core/Atoms/PaneDisplayDerived.swift
 ```
 
-In the file:
-- Rename `enum PaneDisplayProjector` → `enum PaneDisplayDerived`
-- Update doc comment: "Derived atom: projects pane display labels from WorkspaceAtom + RepoCacheAtom."
+Rename `enum PaneDisplayProjector` → `enum PaneDisplayDerived` in the file.
 
-Find and replace across all files:
+Update doc comment: "Derived: projects pane display labels from WorkspaceAtom + RepoCacheAtom. Not an event-bus projector."
+
+Find and replace in all files (~11 source files, ~3 test files):
 ```bash
 rg -l "PaneDisplayProjector" Sources/ Tests/
 ```
-
-~11 files reference it. Replace `PaneDisplayProjector` → `PaneDisplayDerived`.
 
 - [ ] **Step 2: Rename `DynamicViewProjector` → `DynamicViewDerived`**
 
@@ -341,18 +399,17 @@ rg -l "PaneDisplayProjector" Sources/ Tests/
 git mv Sources/AgentStudio/Core/Stores/DynamicViewProjector.swift Sources/AgentStudio/Core/Atoms/DynamicViewDerived.swift
 ```
 
-Rename `enum DynamicViewProjector` → `enum DynamicViewDerived`. Update references:
+Rename `enum DynamicViewProjector` → `enum DynamicViewDerived`.
+
 ```bash
 rg -l "DynamicViewProjector" Sources/ Tests/
 ```
 
-~3 files (mostly tests since it's unused in production).
+~3 files (mostly tests — unused in production code).
 
 - [ ] **Step 3: Build and test**
 
 Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift build --build-path "$SWIFT_BUILD_DIR" > /tmp/build-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
-
-Run: `mise run test > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
 
 Expected: PASS
 
@@ -365,52 +422,73 @@ git commit -m "refactor: rename PaneDisplayProjector → PaneDisplayDerived, Dyn
 
 ---
 
-## Task 5: Split `WorkspaceStore` → `WorkspaceAtom` + `WorkspaceStore`
+## Task 5: Split `WorkspaceStore` → `WorkspaceAtom` + `WorkspaceTransientAtom` + `WorkspaceStore`
 
-This is the biggest task. `WorkspaceStore` is 1981 lines with state, mutations, queries, persistence, undo, and UI state all in one class.
+The biggest task. `WorkspaceStore` is 1981 lines. Split into:
+- `WorkspaceAtom` (~1500 lines): persisted state + mutations + queries + undo
+- `WorkspaceTransientAtom` (~60 lines): zoom and minimize state
+- `WorkspaceStore` (~400 lines): persistence wrapper that observes `WorkspaceAtom`
 
-**Target:**
-- `WorkspaceAtom` (~1600 lines): all state, mutations, queries, undo, helpers
-- `WorkspaceStore` (~300 lines): persistence wrapper — `restore()`, `markDirty()`, `flush()`, `persistNow()`
+### What goes where
+
+**WorkspaceAtom** (all persisted state + mutations):
+- Properties: `repos`, `watchedPaths`, `panes`, `tabs`, `activeTabId`, `workspaceId`, `workspaceName`, `sidebarWidth`, `windowFrame`, `createdAt`, `updatedAt`, `unavailableRepoIds`
+- All query methods: `pane(_:)`, `tab(_:)`, `repo(_:)`, `worktree(_:)`, etc.
+- All mutation methods that currently call `markDirty()`: `createPane`, `removePane`, `appendTab`, `removeTab`, `insertPane`, `removePaneFromLayout`, etc. (~49 methods)
+- Undo methods: `snapshotForClose`, `restoreFromSnapshot`, etc.
+- Private helpers: `findTabIndex`, `canonicalRepos`, `pruneInvalidPanes`, `validateTabInvariants`
+- Remove ALL `markDirty()` calls — the atom doesn't know about persistence
+- Remove `persistor`, `isDirty`, `debouncedSaveTask`, `clock` properties
+- Remove `restore()`, `markDirty()`, `flush()`, `persistNow()`, `prePersistHook`
+- `init()` becomes parameterless — no persistor
+
+**WorkspaceTransientAtom** (transient state, NOT persisted):
+- `zoomedPaneId` per tab — currently `Tab.zoomedPaneId`
+- `minimizedPaneIds` per tab — currently `Tab.minimizedPaneIds`
+- Methods: `toggleZoom`, `minimizePane`, `expandPane` (the three methods that say "Do NOT markDirty()")
+
+Note: zoom and minimize are currently stored ON the `Tab` struct. Extracting them to a separate atom means either:
+- (a) Moving them off `Tab` into a dictionary keyed by tabId
+- (b) Keeping them on `Tab` but accepting that `WorkspaceAtom` holds some transient fields
+
+**Decision: option (b) for now.** Keep `zoomedPaneId` and `minimizedPaneIds` on `Tab`. The `WorkspaceStore` simply doesn't persist those fields (they're already excluded from `PersistableState` encoding). Extracting them to a separate atom is a future refinement. This avoids touching the `Tab` model and all its consumers.
+
+**WorkspaceStore** (persistence only):
+- Properties: `atom: WorkspaceAtom`, `persistor: WorkspacePersistor`, `isDirty`, `debouncedSaveTask`, `clock`
+- `restore()` — loads from disk, writes into `atom`'s properties, then starts observing
+- `startObserving()` — uses `withObservationTracking` to watch atom changes, schedules saves
+- `scheduleDebouncedSave()` — debounced persist logic (existing `markDirty` body)
+- `flush()` — immediate save
+- `persistNow()` — reads from `atom`, writes via `persistor`
+- `prePersistHook` — stays here
 
 **Files:**
 - Create: `Sources/AgentStudio/Core/Atoms/WorkspaceAtom.swift`
-- Modify: `Sources/AgentStudio/Core/Stores/WorkspaceStore.swift` (becomes persistence wrapper)
-- Modify: ~31 source files, ~41 test files that reference `WorkspaceStore`
+- Modify: `Sources/AgentStudio/Core/Stores/WorkspaceStore.swift`
+- Modify: ~31 source files, ~41 test files
 
 - [ ] **Step 1: Create `WorkspaceAtom.swift`**
 
-Copy the current `WorkspaceStore.swift` to `Sources/AgentStudio/Core/Atoms/WorkspaceAtom.swift`. Then:
-
-1. Rename the class: `class WorkspaceStore` → `class WorkspaceAtom`
-2. Remove the persistence section entirely (lines 1436-1600):
-   - Remove `persistor` property
-   - Remove `persistDebounceDuration`, `clock`, `debouncedSaveTask` properties
-   - Remove `isDirty` property
-   - Remove `restore()`, `markDirty()`, `flush()`, `persistNow()`, `prePersistHook`
-   - Remove `tabPersistenceSummary()`, `layoutRatioSummary()`
-3. Remove the persistor from `init()`:
+1. Copy `Sources/AgentStudio/Core/Stores/WorkspaceStore.swift` to `Sources/AgentStudio/Core/Atoms/WorkspaceAtom.swift`
+2. Rename class: `WorkspaceStore` → `WorkspaceAtom`
+3. Delete the MARK: - Persistence section entirely (lines ~1436-1600):
+   - Delete properties: `persistor`, `persistDebounceDuration`, `clock`, `debouncedSaveTask`, `isDirty`, `prePersistHook`
+   - Delete methods: `restore()`, `markDirty()`, `flush()`, `persistNow()`, `tabPersistenceSummary()`, `layoutRatioSummary()`
+4. Delete every `markDirty()` call from mutation methods — there are 49 of them. The three methods with `// Do NOT markDirty()` already don't call it, so they need no change.
+5. Simplify `init()`:
    ```swift
    init() {}
    ```
-4. Remove all `markDirty()` calls from mutation methods — the store wrapper will handle this
-5. Add a `didMutate` callback that the store can hook into:
+6. Add doc comment:
    ```swift
-   /// Called after any mutation. The persistence store hooks this to schedule saves.
-   var onMutate: (() -> Void)?
+   /// Atom: canonical workspace state — tabs, panes, repos, worktrees, layouts.
+   /// Pure @Observable state + mutations. No persistence knowledge.
+   /// Persisted by WorkspaceStore which observes this atom.
    ```
-6. Replace every `markDirty()` call with `onMutate?()` — there are approximately 40-50 call sites
 
-Add doc comment:
-```swift
-/// Atom: canonical workspace state — tabs, panes, repos, worktrees, layouts.
-/// Pure state + mutations. No persistence.
-/// Persisted by WorkspaceStore (in Core/Stores/).
-```
+- [ ] **Step 2: Rewrite `WorkspaceStore.swift` as persistence wrapper**
 
-- [ ] **Step 2: Rewrite `WorkspaceStore` as persistence wrapper**
-
-Replace the contents of `Sources/AgentStudio/Core/Stores/WorkspaceStore.swift`:
+Replace the entire contents of `Sources/AgentStudio/Core/Stores/WorkspaceStore.swift`:
 
 ```swift
 import Foundation
@@ -419,8 +497,8 @@ import os.log
 private let storeLogger = Logger(subsystem: "com.agentstudio", category: "WorkspaceStore")
 
 /// Persistence wrapper for WorkspaceAtom.
-/// Saves and restores the atom's state to/from workspace.state.json.
-/// Not @Observable — observe WorkspaceAtom directly.
+/// Observes the atom via @Observable — when persisted state changes,
+/// schedules a debounced save. The atom has zero knowledge of persistence.
 @MainActor
 final class WorkspaceStore {
     let atom: WorkspaceAtom
@@ -443,98 +521,132 @@ final class WorkspaceStore {
         self.persistor = persistor
         self.persistDebounceDuration = persistDebounceDuration
         self.clock = clock
-        // NOTE: onMutate is NOT wired here — it must be wired AFTER restore()
-        // completes, otherwise restore() mutations trigger markDirty() and
-        // schedule saves of data we just loaded.
     }
 
     // MARK: - Restore
 
     func restore() {
-        // ... move the existing restore() code here,
-        // but write to atom properties instead of self properties:
-        // atom.repos = ..., atom.tabs = ..., atom.panes = ..., etc.
-
-        // Wire atom mutations to persistence AFTER restore is complete.
-        // This prevents restore mutations from triggering markDirty().
-        atom.onMutate = { [weak self] in
-            self?.markDirty()
+        persistor.ensureDirectory()
+        switch persistor.load() {
+        case .loaded(let state):
+            atom.workspaceId = state.id
+            atom.workspaceName = state.name
+            // ... restore all atom properties from PersistableState ...
+            // Copy the existing restore() logic from current WorkspaceStore,
+            // replacing every `self.property` with `atom.property`
+            storeLogger.info("Restored workspace '\(state.name)'")
+        case .corrupt(let error):
+            storeLogger.error("Workspace decode failed — starting fresh: \(error)")
+        case .missing:
+            storeLogger.info("No workspace files — first launch")
         }
+
+        // Prune invalid panes, validate tab invariants
+        // ... copy existing post-restore validation logic ...
+
+        // Start observing atom changes AFTER restore completes
+        startObserving()
+    }
+
+    // MARK: - Observation
+
+    private func startObserving() {
+        func observe() {
+            withObservationTracking {
+                // Touch all persisted properties to register for change notifications
+                _ = atom.repos
+                _ = atom.tabs
+                _ = atom.panes
+                _ = atom.activeTabId
+                _ = atom.watchedPaths
+                _ = atom.workspaceName
+                _ = atom.sidebarWidth
+                _ = atom.windowFrame
+                _ = atom.unavailableRepoIds
+            } onChange: { [weak self] in
+                Task { @MainActor [weak self] in
+                    self?.scheduleDebouncedSave()
+                    observe()  // re-register for next change
+                }
+            }
+        }
+        observe()
     }
 
     // MARK: - Persistence
 
-    func markDirty() {
-        // ... existing markDirty code (debounce + sudden termination) ...
+    private func scheduleDebouncedSave() {
+        if !isDirty {
+            isDirty = true
+            ProcessInfo.processInfo.disableSuddenTermination()
+        }
+        debouncedSaveTask?.cancel()
+        debouncedSaveTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await self.clock.sleep(for: self.persistDebounceDuration)
+            guard !Task.isCancelled else { return }
+            self.persistNow()
+        }
     }
 
     @discardableResult
     func flush() -> Bool {
-        // ... existing flush code ...
+        debouncedSaveTask?.cancel()
+        debouncedSaveTask = nil
+        return persistNow()
     }
 
     @discardableResult
     private func persistNow() -> Bool {
-        // ... existing persistNow code,
-        // but read from atom properties instead of self ...
+        prePersistHook?()
+        persistor.ensureDirectory()
+        atom.updatedAt = Date()
+        // Build PersistableState from atom properties
+        // ... copy existing persistNow() logic, reading from atom instead of self ...
+        // Call persistor.save(state)
+        if isDirty {
+            isDirty = false
+            ProcessInfo.processInfo.enableSuddenTermination()
+        }
+        return true
     }
 }
 ```
 
+**Note on `restore()` and `persistNow()`:** These methods contain significant logic (pruning, validation, serialization). The implementing agent must:
+1. Read the current `restore()` method (lines 1438-1507 of current WorkspaceStore)
+2. Copy it into the new `WorkspaceStore.restore()`, replacing every `self.repos` with `atom.repos`, `self.tabs` with `atom.tabs`, etc.
+3. Same for `persistNow()` (lines 1541-1600) — read from `atom.*` instead of `self.*`
+
+The `pruneInvalidPanes` and `validateTabInvariants` helper methods stay on `WorkspaceAtom` (they mutate state). `restore()` calls them: `atom.pruneInvalidPanes(...)`, `atom.validateTabInvariants()`. These need to become `internal` (not `private`) on the atom.
+
 - [ ] **Step 3: Update all call sites**
 
-This is the largest mechanical step. Every file that uses `WorkspaceStore` needs to decide: am I reading/writing state (use `WorkspaceAtom`) or am I doing persistence (use `WorkspaceStore`)?
+Every file that uses `WorkspaceStore` for state access needs `.atom`:
+- `store.tabs` → `store.atom.tabs`
+- `store.pane(id)` → `store.atom.pane(id)`
+- `store.setActiveTab(id)` → `store.atom.setActiveTab(id)`
+- `store.restore()` → stays as `store.restore()` (persistence method)
+- `store.flush()` → stays as `store.flush()` (persistence method)
 
-**Pattern for most call sites:**
-
-Most code reads state or calls mutations. These should reference `WorkspaceAtom`:
-```swift
-// BEFORE
-let store: WorkspaceStore
-store.tabs
-store.pane(id)
-store.setActiveTab(id)
-
-// AFTER — option A: reference the atom directly
-let workspace: WorkspaceAtom
-workspace.tabs
-workspace.pane(id)
-workspace.setActiveTab(id)
-
-// AFTER — option B: access atom through store
-let store: WorkspaceStore
-store.atom.tabs
-store.atom.pane(id)
-store.atom.setActiveTab(id)
-```
-
-**Recommendation: Option A for new code, Option B as mechanical first pass.** Change `WorkspaceStore` references to access `.atom` for state operations. This minimizes the diff — we're not renaming variables, just adding `.atom`. A follow-up can rename parameters from `store` to `workspace` where appropriate.
-
-Find all call sites in BOTH source and test files:
+Find all call sites:
 ```bash
 rg -l "WorkspaceStore" Sources/ Tests/
 ```
 
-**~31 source files + ~41 test files** need updating. For each file, add `.atom` to state/mutation accesses. Persistence calls (`restore()`, `flush()`, `markDirty()`) stay on the store.
+**~31 source files + ~41 test files.** This is mechanical: add `.atom` to every state/mutation access.
 
-**Test files are the largest batch.** Most tests create a `WorkspaceStore` and call `store.tabs`, `store.pane(id)`, `store.setActiveTab(id)` directly. All of these become `store.atom.tabs`, `store.atom.pane(id)`, `store.atom.setActiveTab(id)`. This is mechanical but must be done for ALL 41 test files or the build fails.
+**Test strategy:** Most tests only test state mutations — they should eventually use `WorkspaceAtom` directly. For this task, use the `.atom` accessor as the mechanical first pass. Tests that test persistence (flush/restore/markDirty) stay using `WorkspaceStore`.
 
 - [ ] **Step 4: Build incrementally**
 
-This step will have many compilation errors. Fix them file by file. The pattern is mechanical:
-- `store.tabs` → `store.atom.tabs`
-- `store.pane(id)` → `store.atom.pane(id)`
-- `store.setActiveTab(id)` → `store.atom.setActiveTab(id)`
-- `store.restore()` → stays as `store.restore()`
-- `store.flush()` → stays as `store.flush()`
-
 Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift build --build-path "$SWIFT_BUILD_DIR" > /tmp/build-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
 
-Fix errors iteratively until PASS.
+Fix compilation errors iteratively. The pattern is mechanical but there are 72+ files.
 
 - [ ] **Step 5: Run full test suite**
 
-Run: `mise run test > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
+Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift test --build-path "$SWIFT_BUILD_DIR" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
 
 Expected: PASS
 
@@ -549,53 +661,47 @@ git commit -m "refactor: split WorkspaceStore into WorkspaceAtom (state) + Works
 
 ## Task 6: Extract `SurfaceStateAtom` from `SurfaceManager`
 
-`SurfaceManager` is 942 lines. The atom portion is small — surface registry and counts. The bulk is Ghostty C API lifecycle.
+`SurfaceManager` is 942 lines. Before writing code, read the file to identify exactly which properties are observable state vs behavior infrastructure.
 
 **Files:**
 - Create: `Sources/AgentStudio/Core/Atoms/SurfaceStateAtom.swift`
 - Modify: `Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift`
 
-- [ ] **Step 1: Read `SurfaceManager` to identify the atom state**
+- [ ] **Step 1: Read `SurfaceManager.swift` and identify atom state**
 
-Read the full file. Identify:
-- `private(set) var activeSurfaceCount: Int`
-- `private(set) var hiddenSurfaceCount: Int`
-- Any surface registry (`surfaces: [UUID: Surface]` or similar)
-- Any other `@Observable` state that views read
+Read `Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift` in full. Find every `private(set) var` property — these are the atom candidates. Expected to find:
+- `activeSurfaceCount: Int`
+- `hiddenSurfaceCount: Int`
+- Possibly a surface registry dictionary
 
-Extract these into `SurfaceStateAtom`. Leave lifecycle, health delegates, and Ghostty C API in `SurfaceManager`.
+Also identify: which properties do views observe? Those are definitely atom state.
 
-- [ ] **Step 2: Create the atom**
+- [ ] **Step 2: Create the atom with the identified properties**
 
+Create `Sources/AgentStudio/Core/Atoms/SurfaceStateAtom.swift` with the exact properties found in Step 1. Add mutation methods for each.
+
+Pattern:
 ```swift
-import Observation
-
-/// Atom: Ghostty surface state — registry and counts.
-/// Behavior (lifecycle, health, C API) lives in SurfaceManager.
 @Observable
 @MainActor
 final class SurfaceStateAtom {
     static let shared = SurfaceStateAtom()
 
-    private(set) var activeSurfaceCount: Int = 0
-    private(set) var hiddenSurfaceCount: Int = 0
-    // ... any other surface registry state ...
+    // ... exact properties from Step 1 ...
 
     private init() {}
 
-    // ... mutation methods for counts/registry ...
+    // ... mutation methods ...
 }
 ```
 
-- [ ] **Step 3: Update `SurfaceManager` to delegate state to the atom**
+- [ ] **Step 3: Update `SurfaceManager` to delegate state to atom**
 
-Make `SurfaceManager` read/write `SurfaceStateAtom.shared` instead of owning the state directly.
+For each property moved: replace `private(set) var X` with a computed property `var X { atom.X }` that delegates to the atom. Update mutation sites to call atom methods.
 
 - [ ] **Step 4: Build and test**
 
 Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift build --build-path "$SWIFT_BUILD_DIR" > /tmp/build-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
-
-Run: `mise run test > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
 
 Expected: PASS
 
@@ -610,7 +716,7 @@ git commit -m "refactor: extract SurfaceStateAtom from SurfaceManager"
 
 ## Task 7: Extract `SessionRuntimeAtom` from `SessionRuntime`
 
-`SessionRuntime` is 238 lines. The atom is `statuses: [UUID: SessionRuntimeStatus]`. The behavior is backend coordination and health checks.
+`SessionRuntime` is 238 lines. The atom is the `statuses` dictionary.
 
 **Files:**
 - Create: `Sources/AgentStudio/Core/Atoms/SessionRuntimeAtom.swift`
@@ -650,11 +756,20 @@ final class SessionRuntimeAtom {
 
 Replace `private(set) var statuses` with reads/writes to `SessionRuntimeAtom.shared`.
 
-- [ ] **Step 3: Build and test**
+- [ ] **Step 3: Move `SessionRuntime` and `ZmxBackend` out of `Core/Stores/`**
+
+They're behavior/backends, not persistence stores. Move to `Core/PaneRuntime/` where runtime contracts already live:
+
+```bash
+git mv Sources/AgentStudio/Core/Stores/SessionRuntime.swift Sources/AgentStudio/Core/PaneRuntime/SessionRuntime.swift
+git mv Sources/AgentStudio/Core/Stores/ZmxBackend.swift Sources/AgentStudio/Core/PaneRuntime/ZmxBackend.swift
+```
+
+Update any imports if needed (SPM single-module — no import changes required).
+
+- [ ] **Step 4: Build and test**
 
 Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift build --build-path "$SWIFT_BUILD_DIR" > /tmp/build-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
-
-Run: `mise run test > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
 
 Expected: PASS
 
@@ -667,67 +782,174 @@ git commit -m "refactor: extract SessionRuntimeAtom from SessionRuntime"
 
 ---
 
-## Task 8: Update architecture docs and CLAUDE.md
+## Task 8: Add tests for store observation and persistence wiring
 
-Document the atom/store/derived pattern so future work follows it.
+The store's observation-based persistence is new behavior that needs tests.
+
+**Files:**
+- Modify: `Tests/AgentStudioTests/Core/Stores/WorkspaceStoreTests.swift`
+
+- [ ] **Step 1: Write test that atom mutations trigger store saves**
+
+```swift
+@Test
+func test_atomMutation_triggersStoreObservation() async {
+    let persistor = WorkspacePersistor(workspacesDir: tempDir)
+    let atom = WorkspaceAtom()
+    let store = WorkspaceStore(
+        atom: atom,
+        persistor: persistor,
+        persistDebounceDuration: .milliseconds(10),
+        clock: ContinuousClock()
+    )
+    store.restore()  // starts observation
+
+    // Mutate the atom directly
+    atom.appendTab(Tab(paneId: UUID()))
+
+    // Wait for debounce
+    try? await Task.sleep(for: .milliseconds(50))
+
+    // Store should have flushed
+    #expect(store.isDirty == false)
+    // Verify file was written
+    #expect(persistor.load() != .missing)
+}
+```
+
+- [ ] **Step 2: Write test that transient mutations do NOT trigger saves**
+
+```swift
+@Test
+func test_transientMutation_doesNotTriggerSave() async {
+    let persistor = WorkspacePersistor(workspacesDir: tempDir)
+    let atom = WorkspaceAtom()
+    let store = WorkspaceStore(
+        atom: atom,
+        persistor: persistor,
+        persistDebounceDuration: .milliseconds(10),
+        clock: ContinuousClock()
+    )
+    store.restore()
+
+    let pane = atom.createPane(source: .floating(launchDirectory: nil, title: nil))
+    let tab = Tab(paneId: pane.id)
+    atom.appendTab(tab)
+    store.flush()  // save the initial state
+
+    // Transient mutation: toggle zoom
+    atom.toggleZoom(paneId: pane.id, inTab: tab.id)
+
+    // Wait — should NOT trigger save since zoom is not observed
+    try? await Task.sleep(for: .milliseconds(50))
+
+    // isDirty should still be false (no persisted property changed)
+    #expect(store.isDirty == false)
+}
+```
+
+- [ ] **Step 3: Write test that restore does NOT trigger observation saves**
+
+```swift
+@Test
+func test_restore_doesNotTriggerObservationSaves() async {
+    let persistor = WorkspacePersistor(workspacesDir: tempDir)
+
+    // Create initial state and save it
+    let atom1 = WorkspaceAtom()
+    let store1 = WorkspaceStore(atom: atom1, persistor: persistor)
+    let pane = atom1.createPane(source: .floating(launchDirectory: nil, title: nil))
+    atom1.appendTab(Tab(paneId: pane.id))
+    store1.flush()
+
+    // Create new store and restore — should NOT trigger a save
+    let atom2 = WorkspaceAtom()
+    let store2 = WorkspaceStore(
+        atom: atom2,
+        persistor: persistor,
+        persistDebounceDuration: .milliseconds(10),
+        clock: ContinuousClock()
+    )
+    store2.restore()
+
+    // Wait for any accidental debounced save
+    try? await Task.sleep(for: .milliseconds(50))
+
+    // Observation starts AFTER restore — no dirty flag should be set
+    #expect(store2.isDirty == false)
+}
+```
+
+- [ ] **Step 4: Run tests**
+
+Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift test --build-path "$SWIFT_BUILD_DIR" --filter "WorkspaceStore" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
+
+Expected: PASS
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add Tests/AgentStudioTests/Core/Stores/WorkspaceStoreTests.swift
+git commit -m "test: add store observation and persistence wiring tests"
+```
+
+---
+
+## Task 9: Update architecture docs and CLAUDE.md
 
 **Files:**
 - Modify: `CLAUDE.md`
 - Modify: `docs/architecture/directory_structure.md`
 - Modify: `docs/architecture/component_architecture.md`
 
-- [ ] **Step 1: Update CLAUDE.md architecture section**
+- [ ] **Step 1: Update CLAUDE.md**
 
-In the "Architecture at a Glance" section, update the store table:
+In "Architecture at a Glance", replace the store table:
 
 ```markdown
 | Atom | Owns | Persisted by |
 |------|------|-------------|
 | `WorkspaceAtom` | repos, worktrees, tabs, panes, layouts | `WorkspaceStore` → `workspace.state.json` |
-| `RepoCacheAtom` | repo enrichment, branches, git status, PR counts | `RepoCacheStore` → `workspace.cache.json` |
-| `UIStateAtom` | expanded groups, colors, filter | `UIStateStore` → `workspace.ui.json` |
+| `RepoCacheAtom` | repo enrichment, branches, git status, PR counts | (future: `RepoCacheStore` → `workspace.cache.json`) |
+| `UIStateAtom` | expanded groups, colors, filter | (future: `UIStateStore` → `workspace.ui.json`) |
 | `ManagementModeAtom` | management mode toggle | in-memory |
 | `SurfaceStateAtom` | Ghostty surface registry, counts | in-memory |
 | `SessionRuntimeAtom` | runtime status per pane | in-memory |
 ```
 
-Add a section explaining the pattern:
+Add the Atom / Store / Derived pattern section:
 
 ```markdown
 ### Atom / Store / Derived Pattern
 
 The codebase follows a Jotai-inspired state model:
 
-- **Atoms** (`Core/Atoms/`, `*Atom` suffix): `@Observable` state containers with `private(set)` properties and mutation methods. Atoms own state but have no persistence, no event handling, no resource management.
+- **Atoms** (`Core/Atoms/`, `*Atom` suffix): `@Observable` state containers with `private(set)` properties and mutation methods. Atoms own state but have no persistence, no event handling, no resource management. Atoms have zero knowledge of whether they are persisted.
 - **Derived** (`Core/Atoms/`, `*Derived` suffix): Read-only computations from atoms. Pure functions, no owned state. Recompute on access via SwiftUI observation.
-- **Stores** (`Core/Stores/`, `*Store` suffix): Persistence wrappers that save/restore atoms to disk. Not `@Observable` — observe the atom, not the store.
+- **Stores** (`Core/Stores/`, `*Store` suffix): Persistence wrappers that observe atoms via `@Observable` and save/restore to disk. Stores compose atoms by holding references — atoms they don't reference are in-memory only.
 - **Behavior** (`App/`, `Features/`): AppKit event interception, C API bridges, resource managers. Read/write atoms but don't own state.
 
 The rule: **atoms own state. Everything else reads/writes atoms.**
 ```
 
-- [ ] **Step 2: Update `docs/architecture/directory_structure.md`**
+- [ ] **Step 2: Update directory_structure.md and component_architecture.md**
 
-Add `Core/Atoms/` to the directory listing with the component placement rationale.
+Add `Core/Atoms/` with component placement rationale. Update component table.
 
-- [ ] **Step 3: Update `docs/architecture/component_architecture.md`**
-
-Update the component table to reflect the new atom/store split.
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add CLAUDE.md docs/architecture/directory_structure.md docs/architecture/component_architecture.md
-git commit -m "docs: document atom/store/derived pattern in architecture docs"
+git commit -m "docs: document atom/store/derived pattern in architecture"
 ```
 
 ---
 
-## Task 9: Run full test suite, lint, and verify
+## Task 10: Run full test suite, lint, and verify
 
 - [ ] **Step 1: Run all tests**
 
-Run: `mise run test > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
+Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift test --build-path "$SWIFT_BUILD_DIR" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
 
 Expected: PASS
 
@@ -737,13 +959,13 @@ Run: `mise run lint > /tmp/lint-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
 
 Expected: PASS
 
-- [ ] **Step 3: Verify `Core/Atoms/` contains all expected files**
+- [ ] **Step 3: Verify `Core/Atoms/` contents**
 
 ```bash
 ls Sources/AgentStudio/Core/Atoms/
 ```
 
-Expected files:
+Expected:
 - `ManagementModeAtom.swift`
 - `UIStateAtom.swift`
 - `RepoCacheAtom.swift`
@@ -753,19 +975,17 @@ Expected files:
 - `PaneDisplayDerived.swift`
 - `DynamicViewDerived.swift`
 
-- [ ] **Step 4: Verify `Core/Stores/` contains only persistence**
+- [ ] **Step 4: Verify `Core/Stores/` — persistence only**
 
 ```bash
 ls Sources/AgentStudio/Core/Stores/
 ```
 
-Expected files:
+Expected (only persistence):
 - `WorkspaceStore.swift` (persistence wrapper)
 - `WorkspacePersistor.swift` (shared I/O)
-- `SessionRuntime.swift` (behavior — reads/writes SessionRuntimeAtom)
-- `ZmxBackend.swift` (backend — not an atom or store)
 
-- [ ] **Step 5: Final commit if any formatting fixes needed**
+- [ ] **Step 5: Commit if formatting fixes needed**
 
 ```bash
 git add -A
