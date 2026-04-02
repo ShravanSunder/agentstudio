@@ -49,7 +49,7 @@ final class ObservableStoreTests {
         }
 
         // Act
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         store.appendTab(Tab(paneId: pane.id))
 
         // Assert — onChange fires synchronously during willSet
@@ -60,8 +60,8 @@ final class ObservableStoreTests {
 
     func test_observationTracking_firesOnActiveTabIdChange() {
         // Arrange
-        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab1 = Tab(paneId: p1.id)
         let tab2 = Tab(paneId: p2.id)
         store.appendTab(tab1)
@@ -93,7 +93,7 @@ final class ObservableStoreTests {
         }
 
         // Act
-        _ = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        _ = store.createPane(source: .floating(launchDirectory: nil, title: nil))
 
         // Assert
         #expect(flag.fired)
@@ -109,7 +109,7 @@ final class ObservableStoreTests {
     @Test
     func test_observationTracking_firesOnDrawerMutation() {
         // Arrange — create a pane with a drawer
-        let parentPane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         _ = store.addDrawerPane(to: parentPane.id)
         #expect(store.pane(parentPane.id)!.drawer!.isExpanded)
 
@@ -132,7 +132,7 @@ final class ObservableStoreTests {
 
     func test_observationTracking_firesOnDrawerPaneAdded() {
         // Arrange
-        let parentPane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
 
         let flag = ObservationFlag()
         withObservationTracking {
@@ -213,7 +213,7 @@ final class ObservableStoreTests {
         #expect(adapter.tabs.isEmpty)
 
         let pane = store.createPane(
-            source: .floating(workingDirectory: nil, title: "AutoRefresh"),
+            source: .floating(launchDirectory: nil, title: "AutoRefresh"),
             title: "AutoRefresh"
         )
         let tab = Tab(paneId: pane.id)
@@ -237,7 +237,7 @@ final class ObservableStoreTests {
         // Arrange
         let adapter = TabBarAdapter(store: store)
         let pane = store.createPane(
-            source: .floating(workingDirectory: nil, title: "WithDrawer"),
+            source: .floating(launchDirectory: nil, title: "WithDrawer"),
             title: "WithDrawer"
         )
         let tab = Tab(paneId: pane.id)
@@ -265,8 +265,8 @@ final class ObservableStoreTests {
     @Test
     func test_singleTabContent_dataPath_resolvesCorrectly() {
         // Arrange
-        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: "Pane1"))
-        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: "Pane2"))
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: "Pane1"))
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: "Pane2"))
         let tab1 = Tab(paneId: p1.id)
         let tab2 = Tab(paneId: p2.id)
         store.appendTab(tab1)
@@ -301,8 +301,8 @@ final class ObservableStoreTests {
 
     func test_singleTabContent_dataPath_updatesOnTabSwitch() {
         // Arrange
-        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab1 = Tab(paneId: p1.id)
         let tab2 = Tab(paneId: p2.id)
         store.appendTab(tab1)
@@ -325,7 +325,7 @@ final class ObservableStoreTests {
     func test_observationTracking_firesOnPaneTitleUpdate() {
         // Arrange
         let pane = store.createPane(
-            source: .floating(workingDirectory: nil, title: "Original"),
+            source: .floating(launchDirectory: nil, title: "Original"),
             title: "Original"
         )
 
@@ -348,8 +348,8 @@ final class ObservableStoreTests {
 
     func test_observationTracking_firesOnActivePaneChange() {
         // Arrange
-        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = makeTab(paneIds: [p1.id, p2.id], activePaneId: p1.id)
         store.appendTab(tab)
 
@@ -371,8 +371,8 @@ final class ObservableStoreTests {
 
     func test_observationTracking_firesOnZoomToggle() {
         // Arrange
-        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = makeTab(paneIds: [p1.id, p2.id])
         store.appendTab(tab)
 

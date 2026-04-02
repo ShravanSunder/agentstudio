@@ -22,7 +22,7 @@ final class PaneContentWiringTests {
     func test_createPane_webviewContent() {
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com")!, showNavigation: true)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Web")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Web")
         )
 
         #expect(pane.title == "Web")
@@ -41,7 +41,7 @@ final class PaneContentWiringTests {
         let filePath = URL(fileURLWithPath: "/tmp/test.swift")
         let pane = store.createPane(
             content: .codeViewer(CodeViewerState(filePath: filePath, scrollToLine: 42)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Code")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Code")
         )
 
         #expect(pane.title == "Code")
@@ -58,7 +58,7 @@ final class PaneContentWiringTests {
     func test_createPane_terminalContent_viaGenericOverload() {
         let pane = store.createPane(
             content: .terminal(TerminalState(provider: .ghostty, lifetime: .persistent)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Term")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Term")
         )
 
         #expect(pane.provider == .ghostty)
@@ -71,7 +71,7 @@ final class PaneContentWiringTests {
         store.flush()
         _ = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://test.com")!, showNavigation: false)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Web")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Web")
         )
         #expect(store.isDirty)
     }
@@ -82,13 +82,13 @@ final class PaneContentWiringTests {
 
     func test_mixedContentTab_layoutContainsAllPanes() {
         let terminalPane = store.createPane(
-            source: .floating(workingDirectory: nil, title: nil),
+            source: .floating(launchDirectory: nil, title: nil),
             title: "Terminal",
             provider: .ghostty
         )
         let webPane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://docs.com")!, showNavigation: true)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Docs")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Docs")
         )
 
         let tab = Tab(paneId: terminalPane.id)
@@ -114,7 +114,7 @@ final class PaneContentWiringTests {
 
         let pane = store1.createPane(
             content: .webview(WebviewState(url: URL(string: "https://round-trip.com")!, showNavigation: false)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Persist Web")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Persist Web")
         )
         let tab = Tab(paneId: pane.id)
         store1.appendTab(tab)
@@ -145,7 +145,7 @@ final class PaneContentWiringTests {
         let filePath = URL(fileURLWithPath: "/tmp/code.swift")
         let pane = store1.createPane(
             content: .codeViewer(CodeViewerState(filePath: filePath, scrollToLine: 99)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Persist Code")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Persist Code")
         )
         let tab = Tab(paneId: pane.id)
         store1.appendTab(tab)
@@ -222,7 +222,7 @@ final class PaneContentWiringTests {
         // Arrange
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://old.com")!, showNavigation: true)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Web")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Web")
         )
         let newState = WebviewState(
             url: URL(string: "https://new.com")!,
@@ -250,7 +250,7 @@ final class PaneContentWiringTests {
         // Arrange
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Web")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Web")
         )
         store.flush()
         #expect(!(store.isDirty))

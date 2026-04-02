@@ -23,7 +23,7 @@ final class SurfaceStartupStrategyTests {
 
         // Act
         let config = Ghostty.SurfaceConfiguration(
-            workingDirectory: "/tmp",
+            launchDirectory: "/tmp",
             startupStrategy: strategy
         )
 

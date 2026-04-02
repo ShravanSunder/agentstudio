@@ -51,7 +51,11 @@ struct RuntimeRegistryTests {
         let worktreeId = UUID()
         let runtime = TestPaneRuntime(
             paneId: paneId,
-            source: .worktree(worktreeId: worktreeId, repoId: UUID())
+            source: .worktree(
+                worktreeId: worktreeId,
+                repoId: UUID(),
+                launchDirectory: URL(fileURLWithPath: "/tmp/worktree")
+            )
         )
         registry.register(runtime)
 
@@ -109,7 +113,7 @@ private final class TestPaneRuntime: PaneRuntime {
     init(
         paneId: PaneId,
         contentType: PaneContentType = .terminal,
-        source: PaneMetadata.PaneMetadataSource = .floating(workingDirectory: nil, title: "Test")
+        source: PaneMetadata.PaneMetadataSource = .floating(launchDirectory: nil, title: "Test")
     ) {
         self.paneId = paneId
         self.metadata = PaneMetadata(

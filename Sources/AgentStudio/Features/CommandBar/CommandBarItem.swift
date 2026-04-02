@@ -7,8 +7,88 @@ import SwiftUI
 enum CommandBarScope {
     case everything  // no prefix — shows recents, tabs, panes, commands, worktrees
     case commands  // ">" prefix — shows only commands grouped by category
-    case panes  // "@" prefix — shows only panes grouped by tab
+    case panes  // "$" prefix — shows only panes grouped by tab
     case repos  // "#" prefix — shows repos and worktrees for opening
+}
+
+// MARK: - CommandBarAppMode
+
+/// Global app mode displayed in the command bar status strip.
+enum CommandBarAppMode {
+    case normal
+    case management
+
+    var label: String {
+        switch self {
+        case .normal:
+            return "Normal"
+        case .management:
+            return "Manage"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .normal:
+            return "rectangle.split.2x2"
+        case .management:
+            return "rectangle.split.2x2.fill"
+        }
+    }
+
+    var isAccented: Bool {
+        switch self {
+        case .normal:
+            return false
+        case .management:
+            return true
+        }
+    }
+}
+
+// MARK: - CommandBarAppContext
+
+/// Coarse app context displayed in the command bar status strip.
+struct CommandBarAppContext {
+    enum ContentType {
+        case terminal
+        case webview
+        case bridge
+        case codeViewer
+        case unknown
+    }
+
+    let paneContentType: ContentType?
+
+    var label: String {
+        switch paneContentType {
+        case .terminal, nil:
+            return "Terminal"
+        case .webview:
+            return "Webview"
+        case .bridge:
+            return "Bridge"
+        case .codeViewer:
+            return "Code Viewer"
+        case .unknown:
+            return "Unknown"
+        }
+    }
+
+    var icon: String {
+        switch paneContentType {
+        case .terminal, nil:
+            return "terminal"
+        case .webview:
+            return "globe"
+        case .bridge:
+            return "rectangle.split.2x1"
+        case .codeViewer:
+            return "doc.text"
+        case .unknown:
+            return "questionmark.square"
+        }
+    }
 }
 
 // MARK: - CommandBarAction

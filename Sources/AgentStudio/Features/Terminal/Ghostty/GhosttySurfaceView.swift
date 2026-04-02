@@ -33,7 +33,7 @@ extension Ghostty {
 
     /// Configuration for creating a new surface
     struct SurfaceConfiguration {
-        var workingDirectory: String?
+        var launchDirectory: String?
         var startupStrategy: SurfaceStartupStrategy
         var initialFrame: NSRect?
         var fontSize: Float?
@@ -52,13 +52,13 @@ extension Ghostty {
         }
 
         init(
-            workingDirectory: String? = nil,
+            launchDirectory: String? = nil,
             startupStrategy: SurfaceStartupStrategy = .surfaceCommand(nil),
             initialFrame: NSRect? = nil,
             fontSize: Float? = nil,
             environmentVariables: [String: String] = [:]
         ) {
-            self.workingDirectory = workingDirectory
+            self.launchDirectory = launchDirectory
             self.startupStrategy = startupStrategy
             self.initialFrame = initialFrame
             self.fontSize = fontSize
@@ -155,7 +155,7 @@ extension Ghostty {
             super.init(frame: config.initialFrame!)
             let startupCommandForSurface = config.startupStrategy.startupCommandForSurface
             RestoreTrace.log(
-                "Ghostty.SurfaceView.init placeholderFrame=\(NSStringFromRect(frame)) cwd=\(config.workingDirectory ?? "nil") hasCommand=\(startupCommandForSurface != nil)"
+                "Ghostty.SurfaceView.init placeholderFrame=\(NSStringFromRect(frame)) cwd=\(config.launchDirectory ?? "nil") hasCommand=\(startupCommandForSurface != nil)"
             )
 
             // Note: Ghostty's Metal renderer will set up the layer properly
@@ -179,7 +179,7 @@ extension Ghostty {
 
             let createSurfaceWithStrings: () -> Void = {
                 // Set working directory/command if provided.
-                if let wd = config.workingDirectory {
+                if let wd = config.launchDirectory {
                     wd.withCString { wdPtr in
                         surfaceConfig.working_directory = wdPtr
 

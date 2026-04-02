@@ -18,13 +18,13 @@ final class PaneRemovalCascadeTests {
     // MARK: - Helpers
 
     private func createTabWithPanes(_ count: Int) -> (Tab, [UUID]) {
-        let first = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let first = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: first.id)
         store.appendTab(tab)
 
         var paneIds = [first.id]
         for _ in 1..<count {
-            let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+            let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
             store.insertPane(
                 pane.id, inTab: tab.id, at: paneIds.last!,
                 direction: .horizontal, position: .after
@@ -248,7 +248,7 @@ final class PaneRemovalCascadeTests {
     @Test
 
     func test_removePane_withDrawer_removesEverything() {
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
@@ -256,7 +256,7 @@ final class PaneRemovalCascadeTests {
         _ = store.addDrawerPane(to: pane.id)
 
         // Extra pane so tab doesn't get removed
-        let pane2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         store.insertPane(pane2.id, inTab: tab.id, at: pane.id, direction: .horizontal, position: .after)
 
         // Remove the pane that has a drawer
@@ -313,9 +313,9 @@ final class PaneRemovalCascadeTests {
     @Test
 
     func test_removePane_cleanedFromMultipleTabs() {
-        let pane1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let pane2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let pane3 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane3 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
 
         let tab1 = Tab(paneId: pane1.id)
         store.appendTab(tab1)

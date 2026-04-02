@@ -63,11 +63,11 @@ struct CommandBarPanelControllerTests {
         let controller = CommandBarPanelController(store: WorkspaceStore(), dispatcher: .shared)
 
         // Act
-        controller.show(prefix: "@", parentWindow: window)
+        controller.show(prefix: "$", parentWindow: window)
 
         // Assert
         #expect(controller.state.isVisible)
-        #expect(controller.state.rawInput == "@ ")
+        #expect(controller.state.rawInput == "$ ")
         #expect(controller.state.activeScope == .panes)
     }
 
@@ -163,12 +163,12 @@ struct CommandBarPanelControllerTests {
         controller.show(prefix: ">", parentWindow: window)
         #expect(controller.state.activeScope == .commands)
 
-        // Act — switch to "@"
-        controller.show(prefix: "@", parentWindow: window)
+        // Act — switch to "$"
+        controller.show(prefix: "$", parentWindow: window)
 
         // Assert
         #expect(controller.state.isVisible)
-        #expect(controller.state.rawInput == "@ ")
+        #expect(controller.state.rawInput == "$ ")
         #expect(controller.state.activeScope == .panes)
     }
 
@@ -183,7 +183,7 @@ struct CommandBarPanelControllerTests {
         #expect(controller.state.isVisible)
 
         // Act — simulate user typing a query
-        controller.state.rawInput = ">close"
+        controller.state.rawInput = "> close"
         #expect(controller.state.searchQuery == "close")
 
         // Act — push into nested level

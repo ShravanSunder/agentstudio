@@ -40,7 +40,7 @@ struct PaneCoordinatorTests {
         let url = URL(string: "https://example.com/\(UUID().uuidString)")!
         return store.createPane(
             content: .webview(WebviewState(url: url, showNavigation: true)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: title), title: title)
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: title), title: title)
         )
     }
 
@@ -250,7 +250,7 @@ struct PaneCoordinatorTests {
         let metadata = PaneMetadata(
             paneId: runtimePaneId,
             contentType: .browser,
-            source: .floating(workingDirectory: nil, title: "Runtime Teardown"),
+            source: .floating(launchDirectory: nil, title: "Runtime Teardown"),
             title: "Runtime Teardown"
         )
         let runtime = WebviewRuntime(
@@ -367,7 +367,7 @@ struct PaneCoordinatorTests {
         )
 
         let primaryPane = store.createPane(
-            source: .worktree(worktreeId: primaryWorktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: primaryWorktree.id, repoId: repo.id, launchDirectory: primaryWorktree.path),
             facets: PaneContextFacets(
                 repoId: repo.id,
                 worktreeId: primaryWorktree.id,
@@ -430,7 +430,9 @@ struct PaneCoordinatorTests {
         }
 
         let tertiaryPane = store.createPane(
-            source: .worktree(worktreeId: reconciledTertiaryWorktree.id, repoId: repo.id),
+            source: .worktree(
+                worktreeId: reconciledTertiaryWorktree.id, repoId: repo.id,
+                launchDirectory: reconciledTertiaryWorktree.path),
             facets: PaneContextFacets(
                 repoId: repo.id,
                 worktreeId: reconciledTertiaryWorktree.id,
@@ -448,8 +450,6 @@ struct PaneCoordinatorTests {
             snapshot.activityByWorktreeId[reconciledTertiaryWorktree.id] == true
                 && snapshot.activePaneWorktreeId == reconciledTertiaryWorktree.id
         }
-
-        _ = coordinator
     }
 
     @Test("syncRootsAndActivity excludes unavailable repos from filesystem registration")
@@ -517,7 +517,7 @@ struct PaneCoordinatorTests {
         )
 
         let primaryPane = store.createPane(
-            source: .worktree(worktreeId: mainWorktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: mainWorktree.id, repoId: repo.id, launchDirectory: mainWorktree.path),
             facets: PaneContextFacets(
                 repoId: repo.id,
                 worktreeId: mainWorktree.id,

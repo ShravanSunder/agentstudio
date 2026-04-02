@@ -53,13 +53,18 @@ final class CommandBarPanelController {
         if state.isVisible {
             // Toggle: same prefix → dismiss; different prefix → switch in-place
             let currentPrefix = state.activePrefix
-            let requestedPrefix = prefix
+            let normalizedRequestedPrefix: String? =
+                if let prefix, [">", "$", "#"].contains(prefix) {
+                    prefix + " "
+                } else {
+                    prefix
+                }
 
-            if currentPrefix == requestedPrefix {
+            if currentPrefix == normalizedRequestedPrefix {
                 dismiss()
                 return
             } else {
-                state.switchPrefix(requestedPrefix ?? "")
+                state.switchPrefix(prefix ?? "")
                 return
             }
         }

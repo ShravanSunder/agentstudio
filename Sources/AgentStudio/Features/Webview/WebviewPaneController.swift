@@ -234,7 +234,7 @@ final class WebviewPaneController {
         return PaneMetadata(
             paneId: paneId,
             contentType: .browser,
-            source: .floating(workingDirectory: nil, title: title),
+            source: .floating(launchDirectory: nil, title: title),
             title: title
         )
     }

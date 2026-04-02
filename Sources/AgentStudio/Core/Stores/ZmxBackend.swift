@@ -40,7 +40,7 @@ struct PaneSessionHandle: Equatable, Sendable, Codable, Hashable {
     let repoPath: URL
     let worktreePath: URL
     let displayName: String
-    let workingDirectory: URL
+    let launchDirectory: URL
 
     var hasValidId: Bool {
         guard id.hasPrefix("agentstudio--") else { return false }
@@ -170,8 +170,8 @@ final class ZmxBackend: SessionBackend {
 
     /// Floating top-level session ID: derive a stable key from the pane cwd and
     /// reuse it for both repo/worktree segments so restart attach stays deterministic.
-    static func floatingSessionId(workingDirectory: URL, paneId: UUID) -> String {
-        let stableKey = StableKey.fromPath(workingDirectory)
+    static func floatingSessionId(launchDirectory: URL, paneId: UUID) -> String {
+        let stableKey = StableKey.fromPath(launchDirectory)
         return sessionId(
             repoStableKey: stableKey,
             worktreeStableKey: stableKey,
@@ -227,7 +227,7 @@ final class ZmxBackend: SessionBackend {
             repoPath: repo.repoPath,
             worktreePath: worktree.path,
             displayName: worktree.name,
-            workingDirectory: worktree.path
+            launchDirectory: worktree.path
         )
     }
 
