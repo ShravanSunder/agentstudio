@@ -54,6 +54,7 @@ private final class RestoreAwareTerminalContainerView: NSView {
 @MainActor
 class PaneTabViewController: NSViewController, CommandHandler {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneTabViewController")
+    private static let genericGitHubURL = URL(string: "https://github.com")!
     // MARK: - Dependencies (injected)
 
     private let store: WorkspaceStore
@@ -697,11 +698,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     private func openGitHubWebview() {
-        let url = GitHubWebviewLaunchResolver.urlForActivePane(
-            store: store,
-            repoCache: repoCache
-        )
-        executor.openWebview(url: url)
+        executor.openWebview(url: Self.genericGitHubURL)
     }
 
     private func openGitHubWebview(for paneId: UUID) {
@@ -710,7 +707,15 @@ class PaneTabViewController: NSViewController, CommandHandler {
             store: store,
             repoCache: repoCache
         )
-        executor.openWebview(url: url)
+        guard let targetTabId = store.activeTabId else {
+            executor.openWebview(url: url)
+            return
+        }
+        _ = executor.openContextualWebviewInPane(
+            sourcePaneId: paneId,
+            targetTabId: targetTabId,
+            url: url
+        )
     }
 
     // MARK: - New Tab

@@ -393,7 +393,7 @@ private struct GitHubTabButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .help("Open GitHub for active repo")
+        .help("Open GitHub in a new tab")
     }
 }
 

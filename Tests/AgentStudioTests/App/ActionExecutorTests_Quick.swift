@@ -40,8 +40,8 @@ struct ActionExecutorTestsQuick {
         )
     }
 
-    @Test("openWebview creates a tab and registers a webview pane")
-    func openWebview_addsTabAndRegistersView() {
+    @Test("openWebview creates a generic GitHub tab without workspace association")
+    func openWebview_addsGenericGitHubTabAndRegistersView() {
         let harness = makeHarness()
         let store = harness.store
         let viewRegistry = harness.viewRegistry
@@ -49,13 +49,61 @@ struct ActionExecutorTestsQuick {
         let tempDir = harness.tempDir
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let pane = executor.openWebview(url: URL(string: "https://example.com")!)
+        let pane = executor.openWebview()
 
         #expect(pane != nil)
         #expect(store.tabs.count == 1)
         #expect(store.activeTabId == store.tabs[0].id)
         #expect(viewRegistry.view(for: pane!.id) != nil)
         #expect(viewRegistry.webviewView(for: pane!.id) != nil)
+        #expect(pane?.webviewState?.url == URL(string: "https://github.com"))
+        #expect(pane?.repoId == nil)
+        #expect(pane?.worktreeId == nil)
+        #expect(pane?.metadata.cwd == nil)
+    }
+
+    @Test("openContextualWebviewInPane creates a split browser pane with inherited workspace association")
+    func openContextualWebviewInPane_addsSplitPaneWithAssociation() {
+        let harness = makeHarness()
+        let store = harness.store
+        let executor = harness.executor
+        let tempDir = harness.tempDir
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let repo = store.addRepo(at: tempDir.appending(path: "repo"))
+        guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
+            Issue.record("Expected main worktree")
+            return
+        }
+
+        let sourcePane = store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            title: "Source",
+            facets: PaneContextFacets(
+                repoId: repo.id,
+                repoName: repo.name,
+                worktreeId: worktree.id,
+                worktreeName: worktree.name,
+                cwd: worktree.path
+            )
+        )
+        let tab = Tab(paneId: sourcePane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let pane = executor.openContextualWebviewInPane(
+            sourcePaneId: sourcePane.id,
+            targetTabId: tab.id,
+            url: URL(string: "https://github.com/ShravanSunder/agentstudio/pulls")!
+        )
+
+        #expect(pane != nil)
+        #expect(store.tab(tab.id)?.paneIds.count == 2)
+        #expect(store.tab(tab.id)?.activePaneId == pane?.id)
+        #expect(pane?.webviewState?.url == URL(string: "https://github.com/ShravanSunder/agentstudio/pulls"))
+        #expect(pane?.repoId == repo.id)
+        #expect(pane?.worktreeId == worktree.id)
+        #expect(pane?.metadata.cwd == worktree.path)
     }
 
     @Test("repair recreateSurface replaces a missing webview view")

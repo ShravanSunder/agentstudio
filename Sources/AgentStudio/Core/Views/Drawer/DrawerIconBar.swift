@@ -49,7 +49,7 @@ struct DrawerIconBar: View {
                                 ? Color.white.opacity(AppStyle.fillActive)
                                 : (isToggleHovered
                                     ? Color.white.opacity(AppStyle.fillHover)
-                                    : Color.white.opacity(AppStyle.fillSubtle)))
+                                    : Color.clear))
                 )
                 .onHover { hovering in
                     withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
@@ -119,6 +119,7 @@ struct DrawerIconBar: View {
             .padding(.vertical, DrawerLayout.iconBarVerticalPadding)
             .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: DrawerLayout.iconBarCornerRadius))
+            .padding(DrawerLayout.iconBarContentSpacing)
             .background(
                 GeometryReader { geo in
                     Color.clear.preference(

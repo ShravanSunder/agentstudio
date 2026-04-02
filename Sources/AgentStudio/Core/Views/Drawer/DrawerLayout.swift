@@ -89,10 +89,12 @@ enum DrawerLayout {
     /// Total DrawerIconBar VStack height (connector + icon strip).
     static let iconBarTotalHeight: CGFloat = connectorHeight + iconStripHeight
 
-    /// Extra reserved space between pane content and the icon bar.
-    /// Kept intentionally tiny so the drawer feels attached to the pane edge.
-    static let iconBarContentSpacing: CGFloat = 1
+    /// External margin around the icon bar's material background.
+    /// Applied as padding outside the clipShape so the bar floats with
+    /// equal breathing room on all sides within its frame.
+    static let iconBarContentSpacing: CGFloat = 3
 
     /// Icon bar height in pane frame coordinates.
-    static let iconBarFrameHeight: CGFloat = iconBarTotalHeight + iconBarContentSpacing
+    /// Accounts for content spacing on both top and bottom.
+    static let iconBarFrameHeight: CGFloat = iconBarTotalHeight + iconBarContentSpacing * 2
 }

@@ -141,7 +141,7 @@ struct PaneLeafContainer: View {
                         .allowsHitTesting(!managementMode.isActive)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    if managementMode.isActive && !isDrawerChild {
+                    if managementMode.isActive && !isDrawerChild && managementContext.showsIdentityBlock {
                         ManagementPaneIdentityStrip(context: managementContext)
                     }
 
@@ -173,17 +173,17 @@ struct PaneLeafContainer: View {
 
                 // Management mode dimming: persistent overlay signaling content is non-interactive
                 if managementMode.isActive {
-                    Rectangle()
-                        .fill(Color.black)
-                        .opacity(AppStyle.managementModeDimming)
+                    RoundedRectangle(cornerRadius: AppStyle.panelCornerRadius + AppStyle.spacingTight)
+                        .fill(Color.black.opacity(AppStyle.managementModeDimming))
+                        .padding(AppStyle.spacingLoose)
                         .allowsHitTesting(false)
                 }
 
                 // Hover border: drag affordance in management mode
                 if managementMode.isActive && isManagementHovered && !store.isSplitResizing {
-                    RoundedRectangle(cornerRadius: AppStyle.buttonCornerRadius)
+                    RoundedRectangle(cornerRadius: AppStyle.panelCornerRadius + AppStyle.spacingTight)
                         .strokeBorder(Color.white.opacity(AppStyle.strokeVisible), lineWidth: 1)
-                        .padding(1)
+                        .padding(AppStyle.spacingStandard)
                         .allowsHitTesting(false)
                         .animation(.easeInOut(duration: AppStyle.animationFast), value: isManagementHovered)
                 }
@@ -312,7 +312,7 @@ struct PaneLeafContainer: View {
                     VStack {
                         HStack {
                             Spacer()
-                            VStack(spacing: 2) {
+                            VStack(spacing: AppStyle.spacingStandard) {
                                 paneEdgeButton(
                                     systemName: "plus",
                                     isHovered: isSplitHovered,
@@ -385,7 +385,7 @@ struct PaneLeafContainer: View {
                 }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 1))
+        .clipShape(RoundedRectangle(cornerRadius: AppStyle.panelCornerRadius))
         .padding(AppStyle.paneGap)
         .background(
             GeometryReader { geo in

@@ -93,5 +93,67 @@ struct PaneManagementContextTests {
         #expect(context.targetPath == nil)
         #expect(context.detailLine == "No filesystem target")
         #expect(context.statusChips == nil)
+        #expect(context.showsIdentityBlock == true)
+    }
+
+    @Test
+    func genericBrowserPane_hidesIdentityBlock_whenNoWorkspaceAssociationExists() {
+        let persistor = WorkspacePersistor(
+            workspacesDir: FileManager.default.temporaryDirectory.appending(
+                path: "pane-management-context-\(UUID().uuidString)")
+        )
+        persistor.ensureDirectory()
+        let store = WorkspaceStore(persistor: persistor)
+        let repoCache = WorkspaceRepoCache()
+
+        let pane = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://github.com")!)),
+            metadata: PaneMetadata(
+                contentType: .browser,
+                source: .floating(workingDirectory: nil, title: "GitHub"),
+                title: "GitHub"
+            )
+        )
+
+        let context = PaneManagementContext.project(paneId: pane.id, store: store, repoCache: repoCache)
+
+        #expect(context.showsIdentityBlock == false)
+    }
+
+    @Test
+    func contextualBrowserPane_showsIdentityBlock_whenWorkspaceAssociationExists() {
+        let persistor = WorkspacePersistor(
+            workspacesDir: FileManager.default.temporaryDirectory.appending(
+                path: "pane-management-context-\(UUID().uuidString)")
+        )
+        persistor.ensureDirectory()
+        let store = WorkspaceStore(persistor: persistor)
+        let repoCache = WorkspaceRepoCache()
+
+        let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
+        guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
+            Issue.record("Expected main worktree")
+            return
+        }
+
+        let pane = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://github.com/ShravanSunder/agentstudio")!)),
+            metadata: PaneMetadata(
+                contentType: .browser,
+                source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+                title: "GitHub",
+                facets: PaneContextFacets(
+                    repoId: repo.id,
+                    repoName: repo.name,
+                    worktreeId: worktree.id,
+                    worktreeName: worktree.name,
+                    cwd: worktree.path
+                )
+            )
+        )
+
+        let context = PaneManagementContext.project(paneId: pane.id, store: store, repoCache: repoCache)
+
+        #expect(context.showsIdentityBlock == true)
     }
 }
