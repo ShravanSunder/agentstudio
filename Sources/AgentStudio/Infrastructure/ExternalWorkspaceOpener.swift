@@ -36,7 +36,7 @@ enum ExternalWorkspaceOpener {
             try process.run()
             return true
         } catch {
-            logger.warning(
+            logger.error(
                 "Open in Cursor failed for path=\(path.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
             return false
