@@ -40,7 +40,7 @@ struct WorkspaceEmptyStateView: View {
     }
 
     private var folderIntakeBody: some View {
-        VStack(spacing: 28) {
+        VStack(spacing: 40) {
             WorkspaceHomeIntroCard()
 
             VStack(spacing: 10) {
@@ -53,7 +53,7 @@ struct WorkspaceEmptyStateView: View {
                     .frame(maxWidth: 520)
             }
 
-            Button("Add Folder...") {
+            Button("Add Folder to Scan...") {
                 onAddFolder()
             }
             .buttonStyle(.borderedProminent)
@@ -160,13 +160,9 @@ private struct WorkspaceHomeIntroCard: View {
             Spacer(minLength: 20)
 
             VStack(spacing: 14) {
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Color.accentColor.opacity(0.14))
-                    .overlay {
-                        Image(systemName: "chevron.left.forwardslash.chevron.right")
-                            .font(.system(size: 28, weight: .semibold))
-                            .foregroundStyle(Color.accentColor)
-                    }
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
                     .frame(width: 92, height: 92)
 
                 VStack(spacing: 6) {
