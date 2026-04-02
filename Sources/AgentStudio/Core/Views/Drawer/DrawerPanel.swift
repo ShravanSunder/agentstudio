@@ -59,6 +59,7 @@ struct DrawerPanel: View {
     let onResize: (CGFloat) -> Void
     let onDismiss: () -> Void
     let appLifecycleStore: AppLifecycleStore
+    let onOpenPaneGitHub: (UUID) -> Void
 
     @State private var drawerPaneFrames: [UUID: CGRect] = [:]
     @State private var dropTarget: PaneDropTarget?
@@ -80,7 +81,8 @@ struct DrawerPanel: View {
         action: @escaping (PaneActionCommand) -> Void,
         onResize: @escaping (CGFloat) -> Void,
         onDismiss: @escaping () -> Void,
-        appLifecycleStore: AppLifecycleStore
+        appLifecycleStore: AppLifecycleStore,
+        onOpenPaneGitHub: @escaping (UUID) -> Void
     ) {
         self.layout = layout
         self.parentPaneId = parentPaneId
@@ -96,6 +98,7 @@ struct DrawerPanel: View {
         self.onResize = onResize
         self.onDismiss = onDismiss
         self.appLifecycleStore = appLifecycleStore
+        self.onOpenPaneGitHub = onOpenPaneGitHub
         self._drawerActionDispatcher = State(
             initialValue: PaneTabActionDispatcher(
                 dispatch: { paneAction in
@@ -209,7 +212,8 @@ struct DrawerPanel: View {
                             repoCache: repoCache,
                             viewRegistry: viewRegistry,
                             coordinateSpaceName: Self.drawerDropCoordinateSpace,
-                            useDrawerFramePreference: true
+                            useDrawerFramePreference: true,
+                            onOpenPaneGitHub: onOpenPaneGitHub
                         )
                         .padding(.horizontal, DrawerLayout.panelContentPadding)
                         .padding(.bottom, DrawerLayout.panelContentPadding)
@@ -326,7 +330,8 @@ struct DrawerPanel: View {
                     action: { _ in },
                     onResize: { _ in },
                     onDismiss: {},
-                    appLifecycleStore: AppLifecycleStore()
+                    appLifecycleStore: AppLifecycleStore(),
+                    onOpenPaneGitHub: { _ in }
                 )
                 Spacer()
             }

@@ -6,46 +6,84 @@ enum GitHubWebviewLaunchResolver {
     private static let fallbackURL = URL(string: "https://github.com")!
     private static let logger = Logger(subsystem: "com.agentstudio", category: "GitHubWebviewLaunchResolver")
 
+    static func url(
+        for paneId: UUID,
+        store: WorkspaceStore,
+        repoCache: WorkspaceRepoCache
+    ) -> URL {
+        guard let pane = store.pane(paneId) else {
+            logger.debug("Falling back to GitHub home because paneId=\(paneId.uuidString, privacy: .public) is missing")
+            return fallbackURL
+        }
+
+        return url(for: pane, store: store, repoCache: repoCache)
+    }
+
     static func urlForActivePane(
         store: WorkspaceStore,
         repoCache: WorkspaceRepoCache
     ) -> URL {
         guard
             let activeTabId = store.activeTabId,
-            let activePaneId = store.tab(activeTabId)?.activePaneId,
-            let pane = store.pane(activePaneId)
+            let activePaneId = store.tab(activeTabId)?.activePaneId
         else {
             logger.debug("Falling back to GitHub home because there is no active pane")
             return fallbackURL
         }
 
-        guard let repo = repoForPane(pane, store: store) else {
+        return url(for: activePaneId, store: store, repoCache: repoCache)
+    }
+
+    private static func url(
+        for pane: Pane,
+        store: WorkspaceStore,
+        repoCache: WorkspaceRepoCache
+    ) -> URL {
+        guard let context = repoContext(for: pane, store: store) else {
             logger.debug("Falling back to GitHub home because no repo resolved for active pane")
             return fallbackURL
         }
 
-        guard let slug = repoCache.repoEnrichmentByRepoId[repo.id]?.remoteSlug else {
+        guard let slug = repoCache.repoEnrichmentByRepoId[context.repo.id]?.remoteSlug else {
             logger.info(
-                "Falling back to GitHub home because repo slug is unavailable for repoId=\(repo.id.uuidString, privacy: .public)"
+                "Falling back to GitHub home because repo slug is unavailable for repoId=\(context.repo.id.uuidString, privacy: .public)"
             )
             return fallbackURL
         }
 
-        guard let url = URL(string: "https://github.com/\(slug)") else {
-            logger.error("Failed to build GitHub URL for slug=\(slug, privacy: .public)")
+        let path =
+            if let worktreeId = context.worktreeId,
+                repoCache.pullRequestCountByWorktreeId[worktreeId, default: 0] > 0
+            {
+                "/\(slug)/pulls"
+            } else {
+                "/\(slug)"
+            }
+
+        var components = URLComponents(url: fallbackURL, resolvingAgainstBaseURL: false)
+        components?.path = path
+
+        guard let url = components?.url else {
+            logger.error("Failed to build GitHub URL for path=\(path, privacy: .public)")
             return fallbackURL
         }
 
         return url
     }
 
-    private static func repoForPane(_ pane: Pane, store: WorkspaceStore) -> Repo? {
+    private static func repoContext(
+        for pane: Pane,
+        store: WorkspaceStore
+    ) -> (repo: Repo, worktreeId: UUID?)? {
         if let repoId = pane.repoId,
             let repo = store.repo(repoId)
         {
-            return repo
+            return (repo, pane.worktreeId)
         }
 
-        return store.repoAndWorktree(containing: pane.metadata.facets.cwd)?.repo
+        guard let resolved = store.repoAndWorktree(containing: pane.metadata.facets.cwd) else {
+            return nil
+        }
+        return (resolved.repo, resolved.worktree.id)
     }
 }

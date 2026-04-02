@@ -105,6 +105,7 @@ struct DrawerPanelOverlay: View {
     let tabSize: CGSize
     let iconBarFrame: CGRect
     let actionDispatcher: PaneActionDispatching
+    let onOpenPaneGitHub: (UUID) -> Void
 
     @AppStorage("drawerHeightRatio") private var heightRatio: Double = DrawerLayout.heightRatioMax
 
@@ -213,7 +214,8 @@ struct DrawerPanelOverlay: View {
                             onDismiss: {
                                 actionDispatcher.dispatch(.toggleDrawer(paneId: info.paneId))
                             },
-                            appLifecycleStore: appLifecycleStore
+                            appLifecycleStore: appLifecycleStore,
+                            onOpenPaneGitHub: onOpenPaneGitHub
                         )
                         .id(info.paneId)
                         .frame(width: panelWidth)

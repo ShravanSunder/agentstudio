@@ -13,6 +13,7 @@ struct FlatTabStripContainer: View {
     let repoCache: WorkspaceRepoCache
     let viewRegistry: ViewRegistry
     let appLifecycleStore: AppLifecycleStore
+    let onOpenPaneGitHub: (UUID) -> Void
 
     @State private var paneFrames: [UUID: CGRect] = [:]
     @State private var iconBarFrame: CGRect = .zero
@@ -75,7 +76,8 @@ struct FlatTabStripContainer: View {
                         repoCache: repoCache,
                         viewRegistry: viewRegistry,
                         coordinateSpaceName: "tabContainer",
-                        useDrawerFramePreference: false
+                        useDrawerFramePreference: false,
+                        onOpenPaneGitHub: onOpenPaneGitHub
                     )
                     .animation(.easeOut(duration: AppStyle.animationFast), value: closingPaneIds)
                 }
@@ -90,7 +92,8 @@ struct FlatTabStripContainer: View {
                     paneFrames: paneFrames,
                     tabSize: tabGeometry.size,
                     iconBarFrame: iconBarFrame,
-                    actionDispatcher: actionDispatcher
+                    actionDispatcher: actionDispatcher,
+                    onOpenPaneGitHub: onOpenPaneGitHub
                 )
 
                 if managementMode.isActive {
@@ -145,7 +148,8 @@ struct FlatTabStripContainer: View {
             store: store,
             repoCache: repoCache,
             closeTransitionCoordinator: closeTransitionCoordinator,
-            actionDispatcher: actionDispatcher
+            actionDispatcher: actionDispatcher,
+            onOpenPaneGitHub: onOpenPaneGitHub
         )
     }
 

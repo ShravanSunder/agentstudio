@@ -88,7 +88,8 @@ struct PaneCloseTransitionCoordinatorTests {
             store: store,
             repoCache: WorkspaceRepoCache(),
             viewRegistry: viewRegistry,
-            appLifecycleStore: AppLifecycleStore()
+            appLifecycleStore: AppLifecycleStore(),
+            onOpenPaneGitHub: { _ in }
         )
 
         guard let leaf = container.zoomedPaneLeafContainer() else {

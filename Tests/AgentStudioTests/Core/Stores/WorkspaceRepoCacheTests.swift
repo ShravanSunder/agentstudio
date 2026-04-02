@@ -68,7 +68,7 @@ final class WorkspaceRepoCacheTests {
     }
 
     @Test
-    func recordRecentTarget_movesExistingEntryToFront_andCapsAtFive() {
+    func recordRecentTarget_movesExistingEntryToFront_andCapsAtSix() {
         let store = WorkspaceRepoCache()
         let targets = (0..<6).map { index in
             RecentWorkspaceTarget.forCwd(
@@ -83,9 +83,9 @@ final class WorkspaceRepoCacheTests {
         }
         store.recordRecentTarget(targets[2])
 
-        #expect(store.recentTargets.count == 5)
+        #expect(store.recentTargets.count == 6)
         #expect(store.recentTargets.first?.id == targets[2].id)
-        #expect(store.recentTargets.contains { $0.id == targets[0].id } == false)
+        #expect(store.recentTargets.contains { $0.id == targets[0].id })
     }
 
     @Test

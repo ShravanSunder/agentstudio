@@ -27,10 +27,23 @@ struct PaneManagementContextTests {
             title: "Terminal",
             facets: PaneContextFacets(cwd: URL(fileURLWithPath: "/tmp/agent-studio/subdir"))
         )
+        repoCache.setWorktreeEnrichment(
+            WorktreeEnrichment(
+                worktreeId: worktree.id,
+                repoId: repo.id,
+                branch: "main"
+            )
+        )
+        repoCache.setPullRequestCount(2, for: worktree.id)
+        repoCache.setNotificationCount(1, for: worktree.id)
 
         let context = PaneManagementContext.project(paneId: pane.id, store: store, repoCache: repoCache)
 
         #expect(context.targetPath?.path == "/tmp/agent-studio/subdir")
+        #expect(context.title == worktree.path.lastPathComponent)
+        #expect(context.detailLine == "main")
+        #expect(context.statusChips?.branchStatus.prCount == 2)
+        #expect(context.statusChips?.notificationCount == 1)
     }
 
     @Test
@@ -57,6 +70,7 @@ struct PaneManagementContextTests {
         let context = PaneManagementContext.project(paneId: pane.id, store: store, repoCache: repoCache)
 
         #expect(context.targetPath?.path == worktree.path.path)
+        #expect(context.detailLine == "detached HEAD")
     }
 
     @Test
@@ -77,6 +91,7 @@ struct PaneManagementContextTests {
         let context = PaneManagementContext.project(paneId: pane.id, store: store, repoCache: repoCache)
 
         #expect(context.targetPath == nil)
-        #expect(context.subtitle == "No filesystem target")
+        #expect(context.detailLine == "No filesystem target")
+        #expect(context.statusChips == nil)
     }
 }

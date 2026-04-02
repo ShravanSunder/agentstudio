@@ -98,7 +98,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     private var tabBarHostingView: DraggableTabBarHostingView!
     private var terminalContainer: RestoreAwareTerminalContainerView!
-    private var emptyStateView: NSView?
+    private var emptyStateView: NSHostingView<WorkspaceEmptyStateView>?
     private var lastEmptyStateModel: WorkspaceEmptyStateModel?
     private var tabContentHosts: [UUID: PersistentTabHostView] = [:]
     #if DEBUG
@@ -401,7 +401,10 @@ class PaneTabViewController: NSViewController, CommandHandler {
             viewRegistry: viewRegistry,
             appLifecycleStore: appLifecycleStore,
             closeTransitionCoordinator: closeTransitionCoordinator,
-            actionDispatcher: actionDispatcher
+            actionDispatcher: actionDispatcher,
+            onOpenPaneGitHub: { [weak self] paneId in
+                self?.openGitHubWebview(for: paneId)
+            }
         )
 
         return PersistentTabHostView(tabId: tabId, rootView: contentView)
@@ -608,13 +611,12 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     private var emptyStateModel: WorkspaceEmptyStateModel {
         WorkspaceLauncherProjector.project(
-            repos: store.repos,
-            tabs: store.tabs,
-            recentTargets: repoCache.recentTargets
+            store: store,
+            repoCache: repoCache
         )
     }
 
-    private func createEmptyStateView() -> NSView {
+    private func createEmptyStateView() -> NSHostingView<WorkspaceEmptyStateView> {
         PaneTabEmptyStateViewFactory.make(
             model: emptyStateModel,
             onAddFolder: { [weak self] in self?.addFolderAction() },
@@ -628,31 +630,21 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     private func updateEmptyState() {
-        let hasTerminals = !store.tabs.isEmpty
-        tabBarHostingView.isHidden = !hasTerminals
-        terminalContainer.isHidden = !hasTerminals
-        emptyStateView?.isHidden = hasTerminals
+        let hasTabs = !store.tabs.isEmpty
+        tabBarHostingView.isHidden = !hasTabs
+        terminalContainer.isHidden = !hasTabs
+        emptyStateView?.isHidden = hasTabs
     }
 
     private func rebuildEmptyStateView() {
         let currentModel = emptyStateModel
         guard currentModel != lastEmptyStateModel else { return }
-
-        let containerView = view
-
-        emptyStateView?.removeFromSuperview()
-
-        let emptyView = createEmptyStateView()
-        emptyView.translatesAutoresizingMaskIntoConstraints = false
-        containerView.addSubview(emptyView)
-        emptyStateView = emptyView
-
-        NSLayoutConstraint.activate([
-            emptyView.topAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.topAnchor),
-            emptyView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            emptyView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            emptyView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
-        ])
+        emptyStateView?.rootView = WorkspaceEmptyStateView(
+            model: currentModel,
+            onAddFolder: { [weak self] in self?.addFolderAction() },
+            onOpenRecent: { [weak self] target in self?.openRecentTarget(target) },
+            onOpenAllRecent: { [weak self] in self?.openAllRecentTargets() }
+        )
         lastEmptyStateModel = currentModel
     }
 
@@ -706,6 +698,15 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     private func openGitHubWebview() {
         let url = GitHubWebviewLaunchResolver.urlForActivePane(
+            store: store,
+            repoCache: repoCache
+        )
+        executor.openWebview(url: url)
+    }
+
+    private func openGitHubWebview(for paneId: UUID) {
+        let url = GitHubWebviewLaunchResolver.url(
+            for: paneId,
             store: store,
             repoCache: repoCache
         )

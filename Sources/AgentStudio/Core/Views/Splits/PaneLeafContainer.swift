@@ -24,6 +24,7 @@ struct PaneLeafContainer: View {
     let repoCache: WorkspaceRepoCache
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let onOpenPaneGitHub: (UUID) -> Void
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
 
@@ -32,6 +33,7 @@ struct PaneLeafContainer: View {
     @State private var isMinimizeHovered: Bool = false
     @State private var isCloseHovered: Bool = false
     @State private var isSplitHovered: Bool = false
+    @State private var isBrowserHovered: Bool = false
 
     init(
         paneHost: PaneHostView,
@@ -42,6 +44,7 @@ struct PaneLeafContainer: View {
         repoCache: WorkspaceRepoCache,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
+        onOpenPaneGitHub: @escaping (UUID) -> Void,
         dropTargetCoordinateSpace: String? = "tabContainer",
         useDrawerFramePreference: Bool = false
     ) {
@@ -53,6 +56,7 @@ struct PaneLeafContainer: View {
         self.repoCache = repoCache
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
+        self.onOpenPaneGitHub = onOpenPaneGitHub
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
     }
@@ -137,17 +141,22 @@ struct PaneLeafContainer: View {
                         .allowsHitTesting(!managementMode.isActive)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    if managementMode.isActive {
-                        ManagementPaneFooter(
-                            context: managementContext,
-                            onOpenFinder: { openInFinder(managementContext) },
-                            onOpenCursor: { openInCursor(managementContext) }
-                        )
-                    } else if !isDrawerChild {
+                    if managementMode.isActive && !isDrawerChild {
+                        ManagementPaneIdentityStrip(context: managementContext)
+                    }
+
+                    if !isDrawerChild {
                         DrawerOverlay(
                             paneId: paneHost.id,
                             drawer: drawer,
                             isIconBarVisible: true,
+                            trailingActions: managementMode.isActive
+                                ? DrawerOverlay.TrailingActions(
+                                    canOpenTarget: managementContext.targetPath != nil,
+                                    onOpenFinder: { openInFinder(managementContext) },
+                                    onOpenCursor: { openInCursor(managementContext) }
+                                )
+                                : nil,
                             action: actionDispatcher.dispatch
                         )
                         .frame(height: DrawerLayout.iconBarFrameHeight)
@@ -298,58 +307,37 @@ struct PaneLeafContainer: View {
                     .transition(.opacity)
                 }
 
-                // Quarter-moon split button (top-right, management mode + hover)
+                // Quarter-moon split and browser buttons (top-right, management mode + hover)
                 if managementMode.isActive && isManagementHovered && !store.isSplitResizing {
                     VStack {
                         HStack {
                             Spacer()
-                            Button {
-                                actionDispatcher.dispatch(
-                                    .insertPane(
-                                        source: .newTerminal,
-                                        targetTabId: tabId,
-                                        targetPaneId: paneHost.id,
-                                        direction: .right
-                                    ))
-                            } label: {
-                                Image(systemName: "plus")
-                                    .font(.system(size: AppStyle.paneSplitIconSize, weight: .bold))
-                                    .foregroundStyle(
-                                        .white.opacity(
-                                            isSplitHovered
-                                                ? AppStyle.foregroundSecondary
-                                                : AppStyle.foregroundMuted)
-                                    )
-                                    .frame(
-                                        width: AppStyle.paneSplitButtonSize,
-                                        height: AppStyle.paneSplitButtonSize + 12
-                                    )
-                                    .background(
-                                        UnevenRoundedRectangle(
-                                            topLeadingRadius: AppStyle.panelCornerRadius + 4,
-                                            bottomLeadingRadius: AppStyle.panelCornerRadius + 4,
-                                            bottomTrailingRadius: 0,
-                                            topTrailingRadius: 0
-                                        )
-                                        .fill(
-                                            Color.black.opacity(
-                                                isSplitHovered
-                                                    ? AppStyle.managementControlFill
-                                                        + AppStyle.managementControlHoverDelta
-                                                    : AppStyle.managementControlFill))
-                                    )
-                                    .contentShape(
-                                        UnevenRoundedRectangle(
-                                            topLeadingRadius: AppStyle.panelCornerRadius + 4,
-                                            bottomLeadingRadius: AppStyle.panelCornerRadius + 4,
-                                            bottomTrailingRadius: 0,
-                                            topTrailingRadius: 0
+                            VStack(spacing: 2) {
+                                paneEdgeButton(
+                                    systemName: "plus",
+                                    isHovered: isSplitHovered,
+                                    helpText: "Split right"
+                                ) {
+                                    actionDispatcher.dispatch(
+                                        .insertPane(
+                                            source: .newTerminal,
+                                            targetTabId: tabId,
+                                            targetPaneId: paneHost.id,
+                                            direction: .right
                                         )
                                     )
+                                }
+                                .onHover { isSplitHovered = $0 }
+
+                                paneEdgeButton(
+                                    systemName: "globe",
+                                    isHovered: isBrowserHovered,
+                                    helpText: "Open GitHub for pane context"
+                                ) {
+                                    onOpenPaneGitHub(paneHost.id)
+                                }
+                                .onHover { isBrowserHovered = $0 }
                             }
-                            .buttonStyle(.plain)
-                            .onHover { isSplitHovered = $0 }
-                            .help("Split right")
                         }
                         .padding(.top, AppStyle.spacingStandard)
                         Spacer()
@@ -444,6 +432,54 @@ struct PaneLeafContainer: View {
 
     private func paneDisplayTitle(_ paneId: UUID) -> String {
         PaneDisplayProjector.displayLabel(for: paneId, store: store, repoCache: repoCache)
+    }
+
+    private func paneEdgeButton(
+        systemName: String,
+        isHovered: Bool,
+        helpText: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: AppStyle.paneSplitIconSize, weight: .bold))
+                .foregroundStyle(
+                    .white.opacity(
+                        isHovered
+                            ? AppStyle.foregroundSecondary
+                            : AppStyle.foregroundMuted)
+                )
+                .frame(
+                    width: AppStyle.paneSplitButtonSize,
+                    height: AppStyle.paneSplitButtonSize + 12
+                )
+                .background(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: AppStyle.panelCornerRadius + 4,
+                        bottomLeadingRadius: AppStyle.panelCornerRadius + 4,
+                        bottomTrailingRadius: 0,
+                        topTrailingRadius: 0
+                    )
+                    .fill(
+                        Color.black.opacity(
+                            isHovered
+                                ? AppStyle.managementControlFill
+                                    + AppStyle.managementControlHoverDelta
+                                : AppStyle.managementControlFill
+                        )
+                    )
+                )
+                .contentShape(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: AppStyle.panelCornerRadius + 4,
+                        bottomLeadingRadius: AppStyle.panelCornerRadius + 4,
+                        bottomTrailingRadius: 0,
+                        topTrailingRadius: 0
+                    )
+                )
+        }
+        .buttonStyle(.plain)
+        .help(helpText)
     }
 
     private func openInFinder(_ context: PaneManagementContext) {

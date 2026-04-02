@@ -1,50 +1,27 @@
 import SwiftUI
 
-struct ManagementPaneFooter: View {
+struct ManagementPaneIdentityStrip: View {
     let context: PaneManagementContext
-    let onOpenFinder: () -> Void
-    let onOpenCursor: () -> Void
 
     var body: some View {
-        HStack(spacing: AppStyle.spacingStandard) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(context.title)
-                    .font(.system(size: AppStyle.textXs, weight: .semibold))
-                    .lineLimit(1)
-                Text(context.subtitle)
-                    .font(.system(size: AppStyle.textXs))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
+        VStack(spacing: 8) {
+            Text(context.title)
+                .font(.system(size: AppStyle.textBase, weight: .medium))
+                .lineLimit(1)
 
-            Spacer(minLength: AppStyle.spacingStandard)
+            Text(context.detailLine)
+                .font(.system(size: AppStyle.sidebarBranchFontSize, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
 
-            Button(action: onOpenFinder) {
-                Image(systemName: "folder")
-                    .font(.system(size: AppStyle.compactIconSize, weight: .medium))
-                    .frame(width: AppStyle.compactButtonSize, height: AppStyle.compactButtonSize)
+            if let statusChips = context.statusChips {
+                WorkspaceStatusChipRow(model: statusChips, accentColor: .accentColor)
             }
-            .buttonStyle(.plain)
-            .disabled(context.targetPath == nil)
-            .help("Open pane location in Finder")
-
-            Button(action: onOpenCursor) {
-                Image(systemName: "cursorarrow.rays")
-                    .font(.system(size: AppStyle.compactIconSize, weight: .medium))
-                    .frame(width: AppStyle.compactButtonSize, height: AppStyle.compactButtonSize)
-            }
-            .buttonStyle(.plain)
-            .disabled(context.targetPath == nil)
-            .help("Open pane location in Cursor")
         }
-        .padding(.horizontal, AppStyle.spacingLoose)
+        .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
-        .frame(height: DrawerLayout.iconBarFrameHeight)
-        .background(
-            RoundedRectangle(cornerRadius: AppStyle.barCornerRadius)
-                .fill(Color.black.opacity(AppStyle.fillMuted))
-        )
-        .padding(.horizontal, AppStyle.paneGap)
-        .padding(.bottom, AppStyle.paneGap)
+        .padding(.horizontal, AppStyle.spacingLoose)
+        .padding(.top, AppStyle.spacingLoose)
+        .padding(.bottom, 1)
     }
 }

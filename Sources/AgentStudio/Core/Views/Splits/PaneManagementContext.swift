@@ -3,7 +3,8 @@ import Foundation
 @MainActor
 struct PaneManagementContext: Equatable {
     let title: String
-    let subtitle: String
+    let detailLine: String
+    let statusChips: WorkspaceStatusChipsModel?
     let targetPath: URL?
 
     static func project(
@@ -14,21 +15,36 @@ struct PaneManagementContext: Equatable {
         let parts = PaneDisplayProjector.displayParts(for: paneId, store: store, repoCache: repoCache)
         let pane = store.pane(paneId)
         let resolvedTargetPath = pane?.metadata.cwd ?? pane?.worktreeId.flatMap { store.worktree($0)?.path }
+        let title = parts.worktreeFolderName ?? parts.cwdFolderName ?? parts.repoName ?? parts.primaryLabel
+        let detailLine = parts.branchName ?? resolvedTargetPath?.path ?? "No filesystem target"
 
-        let subtitleParts = [
-            parts.repoName,
-            parts.branchName,
-            parts.worktreeFolderName ?? parts.cwdFolderName,
-        ]
-        let subtitle =
-            subtitleParts
-            .compactMap { $0 }
-            .filter { !$0.isEmpty }
-            .joined(separator: " | ")
+        let statusChips: WorkspaceStatusChipsModel?
+        if let worktreeId = pane?.worktreeId {
+            let branchStatus = RepoSidebarContentView.branchStatus(
+                enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktreeId],
+                pullRequestCount: repoCache.pullRequestCountByWorktreeId[worktreeId]
+            )
+            statusChips = WorkspaceStatusChipsModel(
+                branchStatus: branchStatus,
+                notificationCount: repoCache.notificationCountByWorktreeId[worktreeId, default: 0]
+            )
+        } else if let resolvedWorktreeId = store.repoAndWorktree(containing: pane?.metadata.cwd)?.worktree.id {
+            let branchStatus = RepoSidebarContentView.branchStatus(
+                enrichment: repoCache.worktreeEnrichmentByWorktreeId[resolvedWorktreeId],
+                pullRequestCount: repoCache.pullRequestCountByWorktreeId[resolvedWorktreeId]
+            )
+            statusChips = WorkspaceStatusChipsModel(
+                branchStatus: branchStatus,
+                notificationCount: repoCache.notificationCountByWorktreeId[resolvedWorktreeId, default: 0]
+            )
+        } else {
+            statusChips = nil
+        }
 
         return Self(
-            title: parts.primaryLabel,
-            subtitle: subtitle.isEmpty ? (resolvedTargetPath?.path ?? "No filesystem target") : subtitle,
+            title: title,
+            detailLine: detailLine,
+            statusChips: statusChips,
             targetPath: resolvedTargetPath
         )
     }

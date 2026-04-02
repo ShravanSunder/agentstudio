@@ -32,8 +32,8 @@ final class WorkspaceRepoCache {
     func recordRecentTarget(_ target: RecentWorkspaceTarget) {
         recentTargets.removeAll { $0.id == target.id }
         recentTargets.insert(target, at: 0)
-        if recentTargets.count > 5 {
-            recentTargets = Array(recentTargets.prefix(5))
+        if recentTargets.count > 6 {
+            recentTargets = Array(recentTargets.prefix(6))
         }
     }
 
