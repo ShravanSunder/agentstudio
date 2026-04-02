@@ -173,17 +173,16 @@ struct PaneLeafContainer: View {
 
                 // Management mode dimming: persistent overlay signaling content is non-interactive
                 if managementMode.isActive {
-                    RoundedRectangle(cornerRadius: AppStyle.panelCornerRadius + AppStyle.spacingTight)
-                        .fill(Color.black.opacity(AppStyle.managementModeDimming))
-                        .padding(AppStyle.spacingLoose)
+                    Rectangle()
+                        .fill(Color.black)
+                        .opacity(AppStyle.managementModeDimming)
                         .allowsHitTesting(false)
                 }
 
                 // Hover border: drag affordance in management mode
                 if managementMode.isActive && isManagementHovered && !store.isSplitResizing {
-                    RoundedRectangle(cornerRadius: AppStyle.panelCornerRadius + AppStyle.spacingTight)
+                    RoundedRectangle(cornerRadius: AppStyle.panelCornerRadius)
                         .strokeBorder(Color.white.opacity(AppStyle.strokeVisible), lineWidth: 1)
-                        .padding(AppStyle.spacingStandard)
                         .allowsHitTesting(false)
                         .animation(.easeInOut(duration: AppStyle.animationFast), value: isManagementHovered)
                 }
