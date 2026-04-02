@@ -23,7 +23,7 @@ PRIMITIVE ATOMS (Core/Atoms/)
   RepoCacheAtom        ← branch names, git status, PR counts
   UIStateAtom          ← expanded groups, colors, sidebar filter
   ManagementModeAtom   ← isActive: Bool
-  SessionRuntimeAtom   ← runtime statuses per pane (injected, not singleton)
+  SessionRuntimeAtom   ← runtime statuses per pane (shared per dependency scope, fresh per test)
 
 DERIVED (Core/Atoms/)
   Read-only. Pure functions from atoms. No owned state.
@@ -61,7 +61,15 @@ NOT TOUCHED
 
 **CRITICAL:** `withObservationTracking` fires when ANY property read in the tracking closure changes. The tracking closure MUST read EVERY persisted property. If a property is missing, mutations to it won't trigger saves — silent data loss.
 
-The tracking closure must match the `hydrate()` parameter list exactly. If hydrate takes it, the observation must read it.
+**Two sets of persisted properties — track vs persist-only:**
+
+| Set | What | Observed for debounced save? |
+|-----|------|----------------------------|
+| **Tracked** | repos, tabs, panes, activeTabId, watchedPaths, workspaceId, workspaceName, sidebarWidth, unavailableRepoIds, createdAt | YES — changes trigger debounced save |
+| **Persist-only** | updatedAt | NO — set by `persistNow()` during save. Observing it creates a save loop |
+| **Flush-only** | windowFrame | NO — saved only on explicit `flush()`, not debounced. Changes don't auto-save |
+
+The tracking closure reads ALL "tracked" properties. It does NOT read "persist-only" or "flush-only" properties.
 
 ```swift
 @MainActor
@@ -141,8 +149,8 @@ WorkspaceAtom ──── observed by ──── WorkspaceStore ──── 
 RepoCacheAtom ──── observed by ──── RepoCacheStore ──── saves to .cache.json
 UIStateAtom ────── observed by ──── UIStateStore ────── saves to .ui.json
 
-ManagementModeAtom ──── no store ──── in-memory only (singleton)
-SessionRuntimeAtom ──── no store ──── in-memory only (injected per SessionRuntime)
+ManagementModeAtom ──── no store ──── in-memory, resolved via @Dependency (NOT singleton)
+SessionRuntimeAtom ──── no store ──── in-memory, resolved via @Dependency (shared per scope)
 ```
 
 ---
@@ -172,13 +180,16 @@ Transient state (`Tab.zoomedPaneId`, `Tab.minimizedPaneIds`) stays on the `Tab` 
 
 ## Task Order
 
-**Phase 0:** Add `swift-dependencies` package, create dependency keys (Task 0).
-**Phase 1:** Create `Core/Atoms/`, establish pattern (Tasks 1-3).
+**Phase 0:** Add `swift-dependencies` package (Task 0).
+**Phase 1:** Create `Core/Atoms/`, establish pattern with ManagementModeAtom (Tasks 1-3).
 **Phase 2:** Rename derived computations (Task 4).
 **Phase 3:** Split WorkspaceStore, create RepoCacheStore + UIStateStore (Tasks 5-6).
-**Phase 4:** Extract remaining atoms, move files (Tasks 7-8).
-**Phase 5:** Tests + docs (Tasks 9-10).
-**Phase 6:** Final verification (Task 11).
+**Phase 4:** Extract SessionRuntimeAtom, move files (Tasks 7-8).
+**Phase 5:** Bootstrap migration — AppDelegate + coordinator dependency propagation (Task 9).
+**Phase 6:** SwiftUI view migration for ManagementModeMonitor (Task 10).
+**Phase 7:** Tests for store observation + dependency isolation (Task 11).
+**Phase 8:** Update architecture docs (Task 12).
+**Phase 9:** Final verification (Task 13).
 
 ---
 
@@ -780,7 +791,123 @@ git mv Sources/AgentStudio/Core/Stores/ZmxBackend.swift Sources/AgentStudio/Core
 
 ---
 
-## Task 9: Tests for store observation
+## Task 9: Bootstrap migration — AppDelegate dependency propagation
+
+AppDelegate creates long-lived objects: `WorkspaceStore`, `SessionRuntime`, `PaneCoordinator`, `MainWindowController`, `CommandBarPanelController`. Today these are created directly. After the refactor, child objects must be created with `withDependencies(from: self)` so they inherit the ambient context.
+
+**Files:**
+- Modify: `Sources/AgentStudio/App/AppDelegate.swift`
+
+- [ ] **Step 1: Read current boot flow**
+
+Read `AppDelegate.swift` lines ~128 and ~494 (`bootLoadCanonicalStore()` and object creation). Identify every object created that uses `@Dependency`.
+
+- [ ] **Step 2: Wrap child creation with `withDependencies(from: self)`**
+
+AppDelegate itself resolves the root dependencies. Every child it creates must inherit that context:
+
+```swift
+// AppDelegate — the root dependency scope
+@MainActor
+class AppDelegate: NSObject, NSApplicationDelegate {
+    @ObservationIgnored @Dependency(\.workspaceAtom) var workspaceAtom
+    @ObservationIgnored @Dependency(\.workspacePersistor) var persistor
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Create stores — they inherit AppDelegate's dependency scope
+        let workspaceStore = withDependencies(from: self) {
+            WorkspaceStore()
+        }
+        workspaceStore.restore()
+
+        // Create coordinator — inherits same scope
+        let coordinator = withDependencies(from: self) {
+            PaneCoordinator()
+        }
+
+        // Create window controller — inherits same scope
+        let windowController = withDependencies(from: self) {
+            MainWindowController()
+        }
+
+        // ... etc for all long-lived objects
+    }
+}
+```
+
+**Every object created from AppDelegate needs `withDependencies(from: self)`.** Without it, child objects resolve `liveValue` defaults independently — they work but lose the ability to be overridden together in tests.
+
+- [ ] **Step 3: Update PaneCoordinator child creation**
+
+`PaneCoordinator` creates child objects (surface views, runtime instances). Wrap each with `withDependencies(from: self)`:
+
+```swift
+// In PaneCoordinator — when creating children
+func createSessionRuntime() -> SessionRuntime {
+    withDependencies(from: self) {
+        SessionRuntime()
+    }
+}
+```
+
+The implementing agent must search for all object creation in `PaneCoordinator`:
+```bash
+rg -n "= .*Runtime\(\|= .*Controller\(\|= .*Manager\(" Sources/AgentStudio/App/PaneCoordinator*.swift
+```
+
+- [ ] **Step 4: Build, test, commit**
+
+---
+
+## Task 10: SwiftUI view migration for ManagementModeMonitor
+
+Views currently use `@Bindable private var managementMode = ManagementModeMonitor.shared`. After removing `.shared`, views need a replacement pattern.
+
+**Three patterns for three contexts:**
+
+1. **SwiftUI views** — use `@Environment` or resolve via a view-level `@Dependency`:
+   ```swift
+   // In a SwiftUI view
+   struct ManagementModeToolbarButton: View {
+       @ObservationIgnored @Dependency(\.managementModeMonitor) var monitor
+
+       var body: some View {
+           Button { monitor.toggle() } label: {
+               Image(systemName: monitor.isActive ? "rectangle.split.2x2.fill" : "rectangle.split.2x2")
+           }
+       }
+   }
+   ```
+
+2. **`withObservationTracking` readers** (like `ManagementModeDragShield`):
+   ```swift
+   // Non-view code observing management mode
+   @ObservationIgnored @Dependency(\.managementModeMonitor) var monitor
+   // Then: monitor.isActive in withObservationTracking
+   ```
+
+3. **Tests** — use `withDependencies` or `@Suite(.dependencies { })`:
+   ```swift
+   @Suite(.dependencies {
+       $0.managementModeAtom = ManagementModeAtom()
+       $0.managementModeMonitor = ManagementModeMonitor()
+   })
+   struct ManagementModeTests { ... }
+   ```
+
+The implementing agent must find all `ManagementModeMonitor.shared` and `@Bindable` usage:
+```bash
+rg -n "ManagementModeMonitor.shared\|@Bindable.*managementMode" Sources/ Tests/
+```
+
+- [ ] **Step 1: Update SwiftUI views**
+- [ ] **Step 2: Update withObservationTracking readers**
+- [ ] **Step 3: Update tests — delete ManagementModeTestLock**
+- [ ] **Step 4: Build, test, commit**
+
+---
+
+## Task 11: Tests for store observation
 
 Test that the observation-based persistence works correctly. Use injected clocks — no wall-clock sleeps.
 
@@ -943,7 +1070,7 @@ func test_hydrate_setsAtomProperties() {
 
 ---
 
-## Task 10: Update architecture docs and CLAUDE.md
+## Task 12: Update architecture docs and CLAUDE.md
 
 - [ ] **Step 1: Update CLAUDE.md** — replace store table with atom table, add atom/store/derived pattern section
 
@@ -955,7 +1082,7 @@ func test_hydrate_setsAtomProperties() {
 
 ---
 
-## Task 11: Final verification
+## Task 13: Final verification
 
 - [ ] **Step 1: Run all tests**
 
