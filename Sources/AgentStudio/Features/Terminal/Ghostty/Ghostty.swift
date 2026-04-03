@@ -77,9 +77,7 @@ extension Ghostty {
             focusSynchronizer.updateAppHandle(appHandle.app)
 
             // Start unfocused; activation notifications synchronize real app focus state.
-            if let app = appHandle.app {
-                ghostty_app_set_focus(app, false)
-            }
+            ghostty_app_set_focus(appHandle.app, false)
 
             ghosttyLogger.info("Ghostty app initialized successfully")
         }
@@ -88,7 +86,8 @@ extension Ghostty {
             focusSynchronizer.clearAppHandleForDeinit()
         }
 
-        /// Process pending ghostty events
+        /// Process pending ghostty events.
+        @MainActor
         func tick() {
             appHandle?.tick()
         }

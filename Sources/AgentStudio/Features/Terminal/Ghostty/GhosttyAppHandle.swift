@@ -5,10 +5,11 @@ extension Ghostty {
     /// Owns the raw Ghostty app/config lifetime and exposes the minimal API
     /// needed by the host composition root.
     final class AppHandle {
-        private var handle: (app: ghostty_app_t, config: ghostty_config_t)?
+        private let appHandle: ghostty_app_t
+        private let configHandle: ghostty_config_t
 
-        var app: ghostty_app_t? {
-            handle?.app
+        var app: ghostty_app_t {
+            appHandle
         }
 
         init?(runtimeConfig: ghostty_runtime_config_s) {
@@ -27,19 +28,18 @@ extension Ghostty {
                 return nil
             }
 
-            self.handle = (app: app, config: config)
+            self.appHandle = app
+            self.configHandle = config
         }
 
         deinit {
-            if let handle {
-                ghostty_app_free(handle.app)
-                ghostty_config_free(handle.config)
-            }
+            ghostty_app_free(appHandle)
+            ghostty_config_free(configHandle)
         }
 
+        @MainActor
         func tick() {
-            guard let app else { return }
-            ghostty_app_tick(app)
+            ghostty_app_tick(appHandle)
         }
     }
 }
