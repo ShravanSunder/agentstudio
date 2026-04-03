@@ -295,6 +295,34 @@ struct RepoSidebarContentViewTests {
         #expect(colorA != colorB)
     }
 
+    @Test("single repo in a group uses the first automatic palette color")
+    func singleRepoInGroupUsesFirstAutomaticPaletteColor() {
+        let repo = SidebarRepo(
+            id: UUID(),
+            name: "agent-studio",
+            repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+            stableKey: "agent-studio",
+            worktrees: [
+                Worktree(
+                    repoId: UUID(),
+                    name: "main",
+                    path: URL(fileURLWithPath: "/tmp/agent-studio"),
+                    isMainWorktree: true
+                )
+            ]
+        )
+        let group = SidebarRepoGroup(
+            id: "remote:askluna/agent-studio",
+            repoTitle: "agent-studio",
+            organizationName: "askluna",
+            repos: [repo]
+        )
+
+        let color = RepoSidebarContentView.checkoutColorHex(for: repo, in: group)
+
+        #expect(color == SidebarRepoGrouping.automaticPaletteHexes[0])
+    }
+
     @Test("sidebar projection separates resolved groups from loading repos")
     func sidebarProjectionSeparatesResolvedGroupsFromLoadingRepos() {
         let resolvedId = UUID()

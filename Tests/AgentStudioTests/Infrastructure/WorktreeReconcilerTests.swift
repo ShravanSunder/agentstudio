@@ -208,6 +208,102 @@ struct WorktreeReconcilerTests {
         #expect(result.delta.didChange)
     }
 
+    @Test("reuses an existing identifier when the fallback name match is the only match")
+    func reusesIdentifierForNameFallback() {
+        let repoId = UUID(uuidString: "77777777-7777-7777-7777-777777777777")!
+        let existingFeatureId = UUID(uuidString: "88888888-8888-8888-8888-888888888888")!
+
+        let existing = [
+            makeWorktree(
+                id: existingFeatureId,
+                repoId: repoId,
+                name: "feature-a",
+                path: "/tmp/old-feature-a"
+            )
+        ]
+        let discovered = [
+            makeWorktree(
+                repoId: repoId,
+                name: "feature-a",
+                path: "/tmp/new-feature-a"
+            )
+        ]
+
+        let result = WorktreeReconciler.reconcile(
+            repoId: repoId,
+            existing: existing,
+            discovered: discovered
+        )
+
+        #expect(result.merged.count == 1)
+        #expect(result.merged[0].id == existingFeatureId)
+        #expect(result.merged[0].path == URL(fileURLWithPath: "/tmp/new-feature-a"))
+        #expect(result.delta.addedWorktreeIds.isEmpty)
+        #expect(result.delta.removedWorktrees.isEmpty)
+        #expect(result.delta.preservedWorktreeIds == [existingFeatureId])
+    }
+
+    @Test("mixed reconcile reports preserved added and removed categories together")
+    func mixedReconcileReportsAllDeltaCategories() {
+        let repoId = UUID(uuidString: "99999999-9999-9999-9999-999999999999")!
+        let existingMainId = UUID(uuidString: "aaaaaaaa-1111-1111-1111-aaaaaaaaaaaa")!
+        let existingNameMatchedId = UUID(uuidString: "bbbbbbbb-1111-1111-1111-bbbbbbbbbbbb")!
+        let removedId = UUID(uuidString: "cccccccc-1111-1111-1111-cccccccccccc")!
+
+        let existing = [
+            makeWorktree(
+                id: existingMainId,
+                repoId: repoId,
+                name: "main",
+                path: "/tmp/repo",
+                isMainWorktree: true
+            ),
+            makeWorktree(
+                id: existingNameMatchedId,
+                repoId: repoId,
+                name: "feature-a",
+                path: "/tmp/old-feature-a"
+            ),
+            makeWorktree(
+                id: removedId,
+                repoId: repoId,
+                name: "feature-b",
+                path: "/tmp/feature-b"
+            ),
+        ]
+        let discovered = [
+            makeWorktree(
+                repoId: repoId,
+                name: "main",
+                path: "/tmp/repo",
+                isMainWorktree: true
+            ),
+            makeWorktree(
+                repoId: repoId,
+                name: "feature-a",
+                path: "/tmp/new-feature-a"
+            ),
+            makeWorktree(
+                repoId: repoId,
+                name: "feature-c",
+                path: "/tmp/feature-c"
+            ),
+        ]
+
+        let result = WorktreeReconciler.reconcile(
+            repoId: repoId,
+            existing: existing,
+            discovered: discovered
+        )
+
+        #expect(result.merged.count == 3)
+        #expect(result.delta.preservedWorktreeIds == [existingMainId, existingNameMatchedId])
+        #expect(result.delta.addedWorktreeIds.count == 1)
+        #expect(result.delta.removedWorktrees.count == 1)
+        #expect(result.delta.removedWorktrees[0].id == removedId)
+        #expect(result.delta.didChange)
+    }
+
     @Test("empty discovery removes every existing worktree")
     func emptyDiscoveryRemovesAllExistingWorktrees() {
         let repoId = UUID(uuidString: "44444444-4444-4444-4444-444444444444")!

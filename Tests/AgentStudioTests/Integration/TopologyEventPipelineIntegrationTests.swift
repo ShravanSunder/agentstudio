@@ -260,6 +260,55 @@ struct TopologyEventPipelineIntegrationTests {
         }
     }
 
+    @Test("fsevent-triggered watched-folder addition registers the new linked worktree root end-to-end")
+    func watchedFolderFSEventAdditionRegistersNewLinkedWorktreeRoot() async throws {
+        try await withTopologyHarness { harness in
+            await settleTopologyHarness(harness)
+
+            let watchedFolder = URL(fileURLWithPath: "/tmp/topology-fsevent-add-\(UUID().uuidString)")
+            let clonePath = watchedFolder.appending(path: "agent-studio")
+            let initialLinked = watchedFolder.appending(path: "agent-studio-feature-a")
+            let addedLinked = watchedFolder.appending(path: "agent-studio-feature-b")
+
+            harness.scanner.setResults([
+                watchedFolder: [
+                    RepoScanner.RepoScanGroup(
+                        clonePath: clonePath,
+                        linkedWorktreePaths: [initialLinked]
+                    )
+                ]
+            ])
+            _ = await harness.refreshWatchedFolders([watchedFolder])
+
+            let syntheticId = try #require(harness.fseventClient.registeredWorktreeIds.first)
+
+            harness.scanner.setResults([
+                watchedFolder: [
+                    RepoScanner.RepoScanGroup(
+                        clonePath: clonePath,
+                        linkedWorktreePaths: [initialLinked, addedLinked]
+                    )
+                ]
+            ])
+            harness.fseventClient.send(
+                FSEventBatch(
+                    worktreeId: syntheticId,
+                    paths: ["\(clonePath.path)/.git/worktrees/feature-b/HEAD"]
+                )
+            )
+
+            await assertEventuallyMain("new linked worktree should appear in canonical store") {
+                let paths = Set(harness.workspaceStore.repos.first?.worktrees.map(\.path) ?? [])
+                return paths == Set([clonePath, initialLinked, addedLinked])
+            }
+
+            await assertEventuallyAsync("new linked worktree root should be registered") {
+                let snapshot = await harness.filesystemSnapshot()
+                return Set(snapshot.registeredRoots.values) == Set([clonePath, initialLinked, addedLinked])
+            }
+        }
+    }
+
     @Test("global remove dedup keeps repo available when another watched folder still references clone")
     func globalRemoveDedupKeepsRepoAvailableWhenAnotherFolderStillReferencesClone() async throws {
         try await withTopologyHarness { harness in

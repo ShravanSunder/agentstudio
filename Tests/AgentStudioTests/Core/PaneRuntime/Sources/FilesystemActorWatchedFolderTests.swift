@@ -157,6 +157,129 @@ struct FilesystemActorWatchedFolderTests {
         await actor.shutdown()
     }
 
+    @Test("FSEvent-triggered rescan emits repoRemoved when clone disappears")
+    func fseventTriggeredRescanEmitsRepoRemoved() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let fsClient = ControllableFSEventStreamClient()
+        let scanner = ControllableWatchedFolderScanner()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: fsClient,
+            groupedWatchedFolderScanner: scanner.scan,
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+
+        let watchedFolder = URL(fileURLWithPath: "/tmp/watched-fsevent-remove-\(UUID().uuidString)")
+        let repoPath = watchedFolder.appending(path: "app")
+        scanner.setGroupedResults([
+            watchedFolder: [RepoScanner.RepoScanGroup(clonePath: repoPath, linkedWorktreePaths: [])]
+        ])
+        _ = await actor.refreshWatchedFolders([watchedFolder])
+
+        let syntheticId = try #require(fsClient.registeredWorktreeIds.first)
+        let stream = await bus.subscribe()
+
+        scanner.setGroupedResults([watchedFolder: []])
+        fsClient.send(
+            FSEventBatch(
+                worktreeId: syntheticId,
+                paths: ["\(repoPath.path)/.git/HEAD"]
+            )
+        )
+
+        let events = await drainTopologyEvents(from: stream, settleTurns: 150)
+        #expect(events.discovered.isEmpty)
+        #expect(events.removed == Set([repoPath.standardizedFileURL]))
+
+        await actor.shutdown()
+    }
+
+    @Test("FSEvent-triggered rescan emits updated scanned linked worktrees when a worktree appears")
+    func fseventTriggeredRescanEmitsUpdatedLinkedWorktrees() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let fsClient = ControllableFSEventStreamClient()
+        let scanner = ControllableWatchedFolderScanner()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: fsClient,
+            groupedWatchedFolderScanner: scanner.scan,
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+
+        let watchedFolder = URL(fileURLWithPath: "/tmp/watched-fsevent-add-\(UUID().uuidString)")
+        let repoPath = watchedFolder.appending(path: "app")
+        let linkedPath = watchedFolder.appending(path: "app-feature")
+        scanner.setGroupedResults([
+            watchedFolder: [RepoScanner.RepoScanGroup(clonePath: repoPath, linkedWorktreePaths: [])]
+        ])
+        _ = await actor.refreshWatchedFolders([watchedFolder])
+
+        let syntheticId = try #require(fsClient.registeredWorktreeIds.first)
+        let stream = await bus.subscribe()
+
+        scanner.setGroupedResults([
+            watchedFolder: [
+                RepoScanner.RepoScanGroup(clonePath: repoPath, linkedWorktreePaths: [linkedPath])
+            ]
+        ])
+        fsClient.send(
+            FSEventBatch(
+                worktreeId: syntheticId,
+                paths: ["\(repoPath.path)/.git/worktrees/feature/HEAD"]
+            )
+        )
+
+        let events = await drainTopologyEvents(from: stream, settleTurns: 150)
+        #expect(
+            events.discovered == [
+                RepoDiscoveryEvent(
+                    repoPath: repoPath.standardizedFileURL,
+                    linkedWorktrees: .scanned([linkedPath.standardizedFileURL])
+                )
+            ]
+        )
+        #expect(events.removed.isEmpty)
+
+        await actor.shutdown()
+    }
+
+    @Test("periodic fallback rescan emits repoRemoved after clock advances")
+    func periodicFallbackRescanEmitsRepoRemoved() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let fsClient = ControllableFSEventStreamClient()
+        let scanner = ControllableWatchedFolderScanner()
+        let clock = TestPushClock()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: fsClient,
+            groupedWatchedFolderScanner: scanner.scan,
+            sleepClock: clock,
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+
+        let watchedFolder = URL(fileURLWithPath: "/tmp/watched-periodic-remove-\(UUID().uuidString)")
+        let repoPath = watchedFolder.appending(path: "app")
+        scanner.setGroupedResults([
+            watchedFolder: [RepoScanner.RepoScanGroup(clonePath: repoPath, linkedWorktreePaths: [])]
+        ])
+        _ = await actor.refreshWatchedFolders([watchedFolder])
+
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        let stream = await bus.subscribe()
+
+        scanner.setGroupedResults([watchedFolder: []])
+        clock.advance(by: .seconds(300))
+
+        let events = await drainTopologyEvents(from: stream, settleTurns: 150)
+        #expect(events.discovered.isEmpty)
+        #expect(events.removed == Set([repoPath.standardizedFileURL]))
+
+        await actor.shutdown()
+    }
+
     @Test("refreshWatchedFolders preserves global remove dedup across watched folders")
     func refreshWatchedFoldersPreservesGlobalRemoveDedupAcrossWatchedFolders() async throws {
         let bus = EventBus<RuntimeEnvelope>()
