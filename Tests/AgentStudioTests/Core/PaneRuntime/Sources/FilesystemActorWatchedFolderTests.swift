@@ -6,15 +6,15 @@ import Testing
 @Suite("FilesystemActor Watched Folders")
 struct FilesystemActorWatchedFolderTests {
 
-    @Test("refreshWatchedFolders returns summary and emits discovered/removed diffs")
-    func refreshWatchedFoldersReturnsSummaryAndEmitsDiffs() async throws {
+    @Test("refreshWatchedFolders emits scanner-backed discovered events for new clones")
+    func refreshWatchedFoldersEmitsScannerBackedDiscoveredEventsForNewClones() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let fsClient = ControllableFSEventStreamClient()
         let scanner = ControllableWatchedFolderScanner()
         let actor = FilesystemActor(
             bus: bus,
             fseventStreamClient: fsClient,
-            watchedFolderScanner: scanner.scan,
+            groupedWatchedFolderScanner: scanner.scan,
             debounceWindow: .zero,
             maxFlushLatency: .zero
         )
@@ -22,8 +22,23 @@ struct FilesystemActorWatchedFolderTests {
         let watchedFolder = URL(fileURLWithPath: "/tmp/watched-summary-\(UUID().uuidString)")
         let repoA = watchedFolder.appending(path: "app")
         let repoB = watchedFolder.appending(path: "tool")
+        let repoC = watchedFolder.appending(path: "docs")
+        let repoALinkedWorktree = watchedFolder.appending(path: "app-linked")
+        let repoBLinkedWorktree = watchedFolder.appending(path: "tool-linked")
+        let repoCLinkedWorktree = watchedFolder.appending(path: "docs-linked")
 
-        scanner.setResults([watchedFolder: [repoA, repoB]])
+        scanner.setGroupedResults([
+            watchedFolder: [
+                RepoScanner.RepoScanGroup(
+                    clonePath: repoA,
+                    linkedWorktreePaths: [repoALinkedWorktree]
+                ),
+                RepoScanner.RepoScanGroup(
+                    clonePath: repoB,
+                    linkedWorktreePaths: [repoBLinkedWorktree]
+                ),
+            ]
+        ])
         let initialStream = await bus.subscribe()
         let initialSummary = await actor.refreshWatchedFolders([watchedFolder])
         let initialEvents = await drainTopologyEvents(from: initialStream, settleTurns: 50)
@@ -31,7 +46,17 @@ struct FilesystemActorWatchedFolderTests {
         #expect(
             Set(initialSummary.repoPaths(in: watchedFolder))
                 == Set([repoA.standardizedFileURL, repoB.standardizedFileURL]))
-        #expect(initialEvents.discovered == Set([repoA.standardizedFileURL, repoB.standardizedFileURL]))
+        #expect(
+            initialEvents.sortedByRepoPath == [
+                RepoDiscoveryEvent(
+                    repoPath: repoA.standardizedFileURL,
+                    linkedWorktrees: .scanned([repoALinkedWorktree.standardizedFileURL])
+                ),
+                RepoDiscoveryEvent(
+                    repoPath: repoB.standardizedFileURL,
+                    linkedWorktrees: .scanned([repoBLinkedWorktree.standardizedFileURL])
+                ),
+            ])
         #expect(initialEvents.removed.isEmpty)
 
         let repeatStream = await bus.subscribe()
@@ -44,25 +69,264 @@ struct FilesystemActorWatchedFolderTests {
         #expect(repeatEvents.discovered.isEmpty)
         #expect(repeatEvents.removed.isEmpty)
 
-        scanner.setResults([watchedFolder: [repoB]])
-        let removalStream = await bus.subscribe()
-        let removalSummary = await actor.refreshWatchedFolders([watchedFolder])
-        let removalEvents = await drainTopologyEvents(from: removalStream, settleTurns: 50)
-
-        #expect(Set(removalSummary.repoPaths(in: watchedFolder)) == Set([repoB.standardizedFileURL]))
-        #expect(removalEvents.discovered.isEmpty)
-        #expect(removalEvents.removed == Set([repoA.standardizedFileURL]))
-
-        scanner.setResults([watchedFolder: [repoA, repoB]])
-        let rediscoveredStream = await bus.subscribe()
-        let rediscoveredSummary = await actor.refreshWatchedFolders([watchedFolder])
-        let rediscoveredEvents = await drainTopologyEvents(from: rediscoveredStream, settleTurns: 50)
+        scanner.setGroupedResults([
+            watchedFolder: [
+                RepoScanner.RepoScanGroup(
+                    clonePath: repoA,
+                    linkedWorktreePaths: [repoALinkedWorktree]
+                ),
+                RepoScanner.RepoScanGroup(
+                    clonePath: repoB,
+                    linkedWorktreePaths: [repoBLinkedWorktree]
+                ),
+                RepoScanner.RepoScanGroup(
+                    clonePath: repoC,
+                    linkedWorktreePaths: [repoCLinkedWorktree]
+                ),
+            ]
+        ])
+        let newCloneStream = await bus.subscribe()
+        let newCloneSummary = await actor.refreshWatchedFolders([watchedFolder])
+        let newCloneEvents = await drainTopologyEvents(from: newCloneStream, settleTurns: 50)
 
         #expect(
-            Set(rediscoveredSummary.repoPaths(in: watchedFolder))
-                == Set([repoA.standardizedFileURL, repoB.standardizedFileURL]))
-        #expect(rediscoveredEvents.discovered == Set([repoA.standardizedFileURL]))
-        #expect(rediscoveredEvents.removed.isEmpty)
+            Set(newCloneSummary.repoPaths(in: watchedFolder))
+                == Set([repoA.standardizedFileURL, repoB.standardizedFileURL, repoC.standardizedFileURL]))
+        #expect(
+            newCloneEvents.discovered == [
+                RepoDiscoveryEvent(
+                    repoPath: repoC.standardizedFileURL,
+                    linkedWorktrees: .scanned([repoCLinkedWorktree.standardizedFileURL])
+                )
+            ])
+        #expect(newCloneEvents.removed.isEmpty)
+
+        await actor.shutdown()
+    }
+
+    @Test("refreshWatchedFolders re-emits repoDiscovered when linked worktree list changes")
+    func refreshWatchedFoldersReEmitsRepoDiscoveredWhenLinkedWorktreeListChanges() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let fsClient = ControllableFSEventStreamClient()
+        let scanner = ControllableWatchedFolderScanner()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: fsClient,
+            groupedWatchedFolderScanner: scanner.scan,
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+
+        let watchedFolder = URL(fileURLWithPath: "/tmp/watched-linked-\(UUID().uuidString)")
+        let repoPath = watchedFolder.appending(path: "app")
+        let linkedA = watchedFolder.appending(path: "app-linked-a")
+        let linkedB = watchedFolder.appending(path: "app-linked-b")
+
+        scanner.setGroupedResults([
+            watchedFolder: [
+                RepoScanner.RepoScanGroup(clonePath: repoPath, linkedWorktreePaths: [linkedA])
+            ]
+        ])
+        _ = await actor.refreshWatchedFolders([watchedFolder])
+
+        scanner.setGroupedResults([
+            watchedFolder: [
+                RepoScanner.RepoScanGroup(
+                    clonePath: repoPath,
+                    linkedWorktreePaths: [linkedA, linkedB]
+                )
+            ]
+        ])
+        let reemitStream = await bus.subscribe()
+        let reemitSummary = await actor.refreshWatchedFolders([watchedFolder])
+        let reemitEvents = await drainTopologyEvents(from: reemitStream, settleTurns: 50)
+
+        #expect(Set(reemitSummary.repoPaths(in: watchedFolder)) == Set([repoPath.standardizedFileURL]))
+        #expect(
+            reemitEvents.discovered == [
+                RepoDiscoveryEvent(
+                    repoPath: repoPath.standardizedFileURL,
+                    linkedWorktrees: .scanned([
+                        linkedA.standardizedFileURL,
+                        linkedB.standardizedFileURL,
+                    ])
+                )
+            ])
+        #expect(reemitEvents.removed.isEmpty)
+
+        await actor.shutdown()
+    }
+
+    @Test("FSEvent-triggered rescan emits repoRemoved when clone disappears")
+    func fseventTriggeredRescanEmitsRepoRemoved() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let fsClient = ControllableFSEventStreamClient()
+        let scanner = ControllableWatchedFolderScanner()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: fsClient,
+            groupedWatchedFolderScanner: scanner.scan,
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+
+        let watchedFolder = URL(fileURLWithPath: "/tmp/watched-fsevent-remove-\(UUID().uuidString)")
+        let repoPath = watchedFolder.appending(path: "app")
+        scanner.setGroupedResults([
+            watchedFolder: [RepoScanner.RepoScanGroup(clonePath: repoPath, linkedWorktreePaths: [])]
+        ])
+        _ = await actor.refreshWatchedFolders([watchedFolder])
+
+        let syntheticId = try #require(fsClient.registeredWorktreeIds.first)
+        let stream = await bus.subscribe()
+
+        scanner.setGroupedResults([watchedFolder: []])
+        fsClient.send(
+            FSEventBatch(
+                worktreeId: syntheticId,
+                paths: ["\(repoPath.path)/.git/HEAD"]
+            )
+        )
+
+        let events = await drainTopologyEvents(from: stream, settleTurns: 150)
+        #expect(events.discovered.isEmpty)
+        #expect(events.removed == Set([repoPath.standardizedFileURL]))
+
+        await actor.shutdown()
+    }
+
+    @Test("FSEvent-triggered rescan emits updated scanned linked worktrees when a worktree appears")
+    func fseventTriggeredRescanEmitsUpdatedLinkedWorktrees() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let fsClient = ControllableFSEventStreamClient()
+        let scanner = ControllableWatchedFolderScanner()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: fsClient,
+            groupedWatchedFolderScanner: scanner.scan,
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+
+        let watchedFolder = URL(fileURLWithPath: "/tmp/watched-fsevent-add-\(UUID().uuidString)")
+        let repoPath = watchedFolder.appending(path: "app")
+        let linkedPath = watchedFolder.appending(path: "app-feature")
+        scanner.setGroupedResults([
+            watchedFolder: [RepoScanner.RepoScanGroup(clonePath: repoPath, linkedWorktreePaths: [])]
+        ])
+        _ = await actor.refreshWatchedFolders([watchedFolder])
+
+        let syntheticId = try #require(fsClient.registeredWorktreeIds.first)
+        let stream = await bus.subscribe()
+
+        scanner.setGroupedResults([
+            watchedFolder: [
+                RepoScanner.RepoScanGroup(clonePath: repoPath, linkedWorktreePaths: [linkedPath])
+            ]
+        ])
+        fsClient.send(
+            FSEventBatch(
+                worktreeId: syntheticId,
+                paths: ["\(repoPath.path)/.git/worktrees/feature/HEAD"]
+            )
+        )
+
+        let events = await drainTopologyEvents(from: stream, settleTurns: 150)
+        #expect(
+            events.discovered == [
+                RepoDiscoveryEvent(
+                    repoPath: repoPath.standardizedFileURL,
+                    linkedWorktrees: .scanned([linkedPath.standardizedFileURL])
+                )
+            ]
+        )
+        #expect(events.removed.isEmpty)
+
+        await actor.shutdown()
+    }
+
+    @Test("periodic fallback rescan emits repoRemoved after clock advances")
+    func periodicFallbackRescanEmitsRepoRemoved() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let fsClient = ControllableFSEventStreamClient()
+        let scanner = ControllableWatchedFolderScanner()
+        let clock = TestPushClock()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: fsClient,
+            groupedWatchedFolderScanner: scanner.scan,
+            sleepClock: clock,
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+
+        let watchedFolder = URL(fileURLWithPath: "/tmp/watched-periodic-remove-\(UUID().uuidString)")
+        let repoPath = watchedFolder.appending(path: "app")
+        scanner.setGroupedResults([
+            watchedFolder: [RepoScanner.RepoScanGroup(clonePath: repoPath, linkedWorktreePaths: [])]
+        ])
+        _ = await actor.refreshWatchedFolders([watchedFolder])
+
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        let stream = await bus.subscribe()
+
+        scanner.setGroupedResults([watchedFolder: []])
+        clock.advance(by: .seconds(300))
+
+        let events = await drainTopologyEvents(from: stream, settleTurns: 150)
+        #expect(events.discovered.isEmpty)
+        #expect(events.removed == Set([repoPath.standardizedFileURL]))
+
+        await actor.shutdown()
+    }
+
+    @Test("refreshWatchedFolders preserves global remove dedup across watched folders")
+    func refreshWatchedFoldersPreservesGlobalRemoveDedupAcrossWatchedFolders() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let fsClient = ControllableFSEventStreamClient()
+        let scanner = ControllableWatchedFolderScanner()
+        let actor = FilesystemActor(
+            bus: bus,
+            fseventStreamClient: fsClient,
+            groupedWatchedFolderScanner: scanner.scan,
+            debounceWindow: .zero,
+            maxFlushLatency: .zero
+        )
+
+        let sharedParentFolder = URL(fileURLWithPath: "/tmp/watched-parent-\(UUID().uuidString)")
+        let nestedWatchedFolder = sharedParentFolder.appending(path: "team")
+        let sharedRepo = nestedWatchedFolder.appending(path: "app")
+
+        scanner.setResults([
+            sharedParentFolder: [sharedRepo],
+            nestedWatchedFolder: [sharedRepo],
+        ])
+        _ = await actor.refreshWatchedFolders([sharedParentFolder, nestedWatchedFolder])
+
+        scanner.setResults([
+            sharedParentFolder: [],
+            nestedWatchedFolder: [sharedRepo],
+        ])
+        let stillPresentStream = await bus.subscribe()
+        _ = await actor.refreshWatchedFolders([sharedParentFolder, nestedWatchedFolder])
+        let stillPresentEvents = await drainTopologyEvents(from: stillPresentStream, settleTurns: 50)
+
+        #expect(stillPresentEvents.discovered.isEmpty)
+        #expect(stillPresentEvents.removed.isEmpty)
+
+        scanner.setResults([
+            sharedParentFolder: [],
+            nestedWatchedFolder: [],
+        ])
+        let removedEverywhereStream = await bus.subscribe()
+        _ = await actor.refreshWatchedFolders([sharedParentFolder, nestedWatchedFolder])
+        let removedEverywhereEvents = await drainTopologyEvents(
+            from: removedEverywhereStream,
+            settleTurns: 50
+        )
+
+        #expect(removedEverywhereEvents.discovered.isEmpty)
+        #expect(removedEverywhereEvents.removed == Set([sharedRepo.standardizedFileURL]))
 
         await actor.shutdown()
     }
@@ -202,9 +466,20 @@ struct FilesystemActorWatchedFolderTests {
 
     // MARK: - Helpers
 
+    private struct RepoDiscoveryEvent: Equatable {
+        let repoPath: URL
+        let linkedWorktrees: LinkedWorktreeInfo
+    }
+
     private struct TopologyEventSet: Equatable {
-        var discovered: Set<URL> = []
+        var discovered: [RepoDiscoveryEvent] = []
         var removed: Set<URL> = []
+
+        var sortedByRepoPath: [RepoDiscoveryEvent] {
+            discovered.sorted {
+                $0.repoPath.path.localizedCaseInsensitiveCompare($1.repoPath.path) == .orderedAscending
+            }
+        }
     }
 
     private func drainTopologyEvents(
@@ -218,8 +493,12 @@ struct FilesystemActorWatchedFolderTests {
                 case .topology(let topology) = sys.event
             {
                 switch topology {
-                case .repoDiscovered(let repoPath, _):
-                    events.discovered.insert(repoPath.standardizedFileURL)
+                case .repoDiscovered(let repoPath, _, let linkedWorktrees):
+                    events.discovered.append(
+                        RepoDiscoveryEvent(
+                            repoPath: repoPath.standardizedFileURL,
+                            linkedWorktrees: linkedWorktrees
+                        ))
                 case .repoRemoved(let repoPath):
                     events.removed.insert(repoPath.standardizedFileURL)
                 case .worktreeRegistered, .worktreeUnregistered:
@@ -251,22 +530,45 @@ struct FilesystemActorWatchedFolderTests {
 
 final class ControllableWatchedFolderScanner: @unchecked Sendable {
     private let lock = NSLock()
-    private var resultsByRoot: [URL: [URL]] = [:]
+    private var resultsByRoot: [URL: [RepoScanner.RepoScanGroup]] = [:]
 
     func setResults(_ resultsByRoot: [URL: [URL]]) {
+        setGroupedResults(
+            Dictionary(
+                uniqueKeysWithValues: resultsByRoot.map { key, value in
+                    (
+                        key,
+                        value.map {
+                            RepoScanner.RepoScanGroup(
+                                clonePath: $0,
+                                linkedWorktreePaths: []
+                            )
+                        }
+                    )
+                }
+            )
+        )
+    }
+
+    func setGroupedResults(_ resultsByRoot: [URL: [RepoScanner.RepoScanGroup]]) {
         lock.withLock {
             self.resultsByRoot = Dictionary(
                 uniqueKeysWithValues: resultsByRoot.map { key, value in
                     (
                         key.standardizedFileURL,
-                        value.map(\.standardizedFileURL)
+                        value.map { group in
+                            RepoScanner.RepoScanGroup(
+                                clonePath: group.clonePath.standardizedFileURL,
+                                linkedWorktreePaths: group.linkedWorktreePaths.map(\.standardizedFileURL)
+                            )
+                        }
                     )
                 }
             )
         }
     }
 
-    func scan(_ root: URL) -> [URL] {
+    func scan(_ root: URL) -> [RepoScanner.RepoScanGroup] {
         lock.withLock {
             resultsByRoot[root.standardizedFileURL, default: []]
         }

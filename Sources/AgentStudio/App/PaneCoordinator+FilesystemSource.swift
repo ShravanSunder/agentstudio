@@ -24,10 +24,8 @@ extension PaneCoordinator {
 
     func handleFilesystemEnvelopeIfNeeded(_ envelope: RuntimeEnvelope) -> Bool {
         switch envelope {
-        case .system(let systemEnvelope):
-            guard case .topology = systemEnvelope.event else { return false }
-            scheduleFilesystemRootAndActivitySync()
-            return true
+        case .system:
+            return false
         case .worktree:
             break
         case .pane:

@@ -357,12 +357,16 @@ struct RepoSidebarContentView: View {
         .transition(.opacity.animation(.easeOut(duration: 0.12)))
     }
 
-    private func colorForCheckout(repo: SidebarRepo, in group: SidebarRepoGroup) -> Color {
+    static func checkoutColorHex(
+        for repo: SidebarRepo,
+        in group: SidebarRepoGroup,
+        checkoutColorOverrides: [String: String] = [:]
+    ) -> String {
         let overrideKey = repo.id.uuidString
-        if let hex = checkoutColorByRepoId[overrideKey],
+        if let hex = checkoutColorOverrides[overrideKey],
             let nsColor = NSColor(hex: hex)
         {
-            return Color(nsColor: nsColor)
+            return nsColor.hexString
         }
 
         let orderedFamilies = group.repos.sorted { lhs, rhs in
@@ -370,16 +374,22 @@ struct RepoSidebarContentView: View {
         }
 
         guard orderedFamilies.count > 1 else {
-            return Color(nsColor: NSColor(hex: SidebarRepoGrouping.automaticPaletteHexes[0]) ?? .controlAccentColor)
+            return SidebarRepoGrouping.automaticPaletteHexes[0]
         }
 
         guard let familyIndex = orderedFamilies.firstIndex(where: { $0.id == repo.id }) else {
-            return Color(nsColor: NSColor(hex: SidebarRepoGrouping.automaticPaletteHexes[0]) ?? .controlAccentColor)
+            return SidebarRepoGrouping.automaticPaletteHexes[0]
         }
 
-        let colorHex = SidebarRepoGrouping.colorHexForCheckoutIndex(
+        return SidebarRepoGrouping.colorHexForCheckoutIndex(
             familyIndex,
             seed: "\(group.id)|\(repo.stableKey)|\(repo.id.uuidString)"
+        )
+    }
+
+    private func colorForCheckout(repo: SidebarRepo, in group: SidebarRepoGroup) -> Color {
+        let colorHex = Self.checkoutColorHex(
+            for: repo, in: group, checkoutColorOverrides: checkoutColorByRepoId
         )
         return Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
     }
@@ -422,7 +432,7 @@ struct RepoSidebarContentView: View {
         return repo.name
     }
 
-    private func checkoutIconKind(for worktree: Worktree, in repo: SidebarRepo) -> SidebarCheckoutIconKind {
+    static func checkoutIconKind(for worktree: Worktree, in repo: SidebarRepo) -> SidebarCheckoutIconKind {
         let isMainCheckout =
             worktree.isMainWorktree
             || worktree.path.standardizedFileURL.path == repo.repoPath.standardizedFileURL.path
@@ -431,7 +441,11 @@ struct RepoSidebarContentView: View {
             return .gitWorktree
         }
 
-        return repo.worktrees.count > 1 ? .mainCheckout : .standaloneCheckout
+        return .mainCheckout
+    }
+
+    private func checkoutIconKind(for worktree: Worktree, in repo: SidebarRepo) -> SidebarCheckoutIconKind {
+        Self.checkoutIconKind(for: worktree, in: repo)
     }
 
     private func branchName(for worktree: Worktree) -> String {
@@ -720,9 +734,6 @@ private struct SidebarWorktreeRow: View {
             OcticonImage(name: "octicon-git-worktree", size: checkoutTypeSize)
                 .foregroundStyle(iconColor)
                 .rotationEffect(.degrees(180))
-        case .standaloneCheckout:
-            OcticonImage(name: "octicon-git-merge", size: checkoutTypeSize)
-                .foregroundStyle(iconColor)
         }
     }
 }
@@ -774,10 +785,9 @@ private struct SidebarLoadingRepoRow: View {
     }
 }
 
-private enum SidebarCheckoutIconKind {
+enum SidebarCheckoutIconKind {
     case mainCheckout
     case gitWorktree
-    case standaloneCheckout
 }
 
 private struct SidebarChip: View {

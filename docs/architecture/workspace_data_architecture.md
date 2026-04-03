@@ -149,18 +149,23 @@ Sequential enrichment via EventBus. Each stage subscribes to the bus and produce
 ```
 WORKSPACE STATE (canonical repos/worktrees, panes/tabs)
       │
-      │ restored at boot → topology events replayed on bus
+      │ restored at boot → topology events replayed on bus (.notScanned)
       ▼
 FilesystemActor (raw filesystem I/O)
+  watched folder scan via RepoScanner:
+    - classifies .git directory (clone root) vs .git file (linked worktree)
+    - groups linked worktrees under parent clones into ScannedRepoGroup
+    - diffs grouped state per watched folder, global dedup for removes
   worktree roots → deep FSEvents watch (DarwinFSEventStreamClient)
-  emits: SystemEnvelope(.topology(..))     ← repo discovery/removal
-         WorktreeEnvelope(.filesystem(..)) ← file change facts
+  emits: SystemEnvelope(.topology(.repoDiscovered(linkedWorktrees: .scanned([...]))))
+         SystemEnvelope(.topology(.repoRemoved))
+         WorktreeEnvelope(.filesystem(.filesChanged))
       │
       │ posts to EventBus<RuntimeEnvelope>
       ▼
 GitWorkingDirectoryProjector (local git enrichment)
   subscribes to .filesystem(.filesChanged)
-  runs: git status, git branch, git remote, git worktree list
+  runs: git status, git branch, git remote
   emits: .snapshotChanged, .branchChanged, .originChanged, .originUnavailable
          .worktreeDiscovered, .worktreeRemoved
       │
@@ -173,15 +178,25 @@ ForgeActor (remote forge enrichment)
       │
       │ all three post to EventBus, fan-out to:
       ▼
-WorkspaceCacheCoordinator (@MainActor, consolidation consumer)
-  .topology(.repoDiscovered) → register canonical repo+worktrees in WorkspaceStore
-                              → compute enrichment → write to WorkspaceRepoCache
-                              → register with FilesystemActor (deep watch)
-                              → register with ForgeActor (if has remote)
-  .topology(.repoRemoved) → unregister actors → mark panes orphaned → prune cache
+WorkspaceCacheCoordinator (@MainActor, topology accumulator)
+  .topology(.repoDiscovered, linkedWorktrees: .scanned):
+    → WorktreeReconciler.reconcile(existing, discovered) → (merged, delta)
+    → reconcileDiscoveredWorktrees(repoId, merged)
+    → cache prune for delta.removedWorktrees
+    → topologyEffectHandler.topologyDidChange(delta) → PaneCoordinator
+  .topology(.repoDiscovered, linkedWorktrees: .notScanned):
+    → register/reassociate repo only, skip worktree reconciliation (boot replay)
+  .topology(.repoRemoved) → mark unavailable → orphan panes → prune cache
   .snapshotChanged → write to cache store
   .branchChanged → write to cache store (ForgeActor gets its own copy via bus fan-out)
   .pullRequestCountsChanged → map branch→worktreeId → write to cache
+      │
+      │ topology effects via TopologyEffectHandler (NOT bus):
+      ▼
+PaneCoordinator (ordered post-topology effects)
+  topologyDidChange(delta):
+    → orphanPanesForWorktree for delta.removedWorktrees
+    → syncFilesystemRootsAndActivity() (register new / unregister removed)
       │
       ▼
 WorkspaceRepoCache (@Observable, passive)
@@ -231,13 +246,20 @@ SIDEBAR (pure reader of WorkspaceStore + WorkspaceRepoCache + WorkspaceUIStore)
 
 #### WorkspaceCacheCoordinator
 
-Single consolidation consumer with three internal method groups:
+Single topology accumulator with three internal method groups. For topology events with `LinkedWorktreeInfo`, uses `WorktreeReconciler` (pure function) to compute a `WorktreeTopologyDelta`, then delegates ordered effects to an injected `TopologyEffectHandler`.
 
 ```
 handleTopology_*    — CANONICAL mutations (WorkspaceStore)
   Events: .topology(.repoDiscovered), .topology(.repoRemoved),
           .worktreeDiscovered, .worktreeRemoved
   Touches: WorkspaceStore (register/unregister repos+worktrees)
+  For .repoDiscovered with .scanned(linkedPaths):
+    → WorktreeReconciler.reconcile(existing, discovered) → (merged, delta)
+    → store.reconcileDiscoveredWorktrees(repoId, merged)
+    → cache prune for delta.removedWorktrees (coordinator owns repoCache)
+    → topologyEffectHandler.topologyDidChange(delta) → PaneCoordinator
+  For .repoDiscovered with .notScanned:
+    → register/reassociate repo only, skip reconciliation (boot replay)
 
 handleEnrichment_*  — DERIVED cache writes (WorkspaceRepoCache only)
   Events: .snapshotChanged, .branchChanged, .originChanged, .originUnavailable,
@@ -253,18 +275,28 @@ Method naming convention makes responsibility explicit. If coordinator grows too
 
 ### Discovery — Repo Scanning
 
-`RepoScanner` walks the filesystem from a root URL, stops at the first `.git` boundary (file or directory), caps depth at `RepoScanner.defaultMaxDepth` (4 levels), skips hidden directories and symlinks, validates with `git rev-parse --is-inside-work-tree`, and excludes submodules via `--show-superproject-working-tree`.
+`RepoScanner` walks the filesystem from a root URL and classifies each `.git` entry:
+- `.git` **directory** → clone root (real `git init`/`git clone`)
+- `.git` **file** → linked worktree (reads `gitdir:` line to derive parent clone path by stripping `/.git/worktrees/<name>`)
+- `.git` exists but unreadable → treated as clone root (conservative boundary — scanner stops descending)
 
-Used by `FilesystemActor` as the blocking filesystem walk behind watched-folder refresh. Add Folder no longer calls `RepoScanner` directly from `AppDelegate`; the scan is owned by the watched-folder command path.
+After classification, linked worktrees are grouped under their parent clone into `RepoScanGroup` entries via `groupClassifiedPaths()`. The existing validation behavior is preserved: `git rev-parse --is-inside-work-tree` and submodule exclusion via `--show-superproject-working-tree`.
 
-> **File:** `Infrastructure/RepoScanner.swift`
+Used by `FilesystemActor` as the blocking filesystem walk behind watched-folder refresh. The grouped results enable the coordinator to create correct worktree families from the first topology event.
+
+> **Files:** `Infrastructure/RepoScanner.swift`, `Infrastructure/WorktreeReconciler.swift`
 
 ### Event Namespaces
 
 ```
 TopologyEvent (envelope: SystemEnvelope, all via bus)
-  .repoDiscovered(repoPath:, parentPath:)   — producer: AppDelegate (boot replay), FilesystemActor (watched folder diff)
-  .repoRemoved(repoPath:)                   — producer: FilesystemActor (watched folder diff)
+  .repoDiscovered(repoPath:, parentPath:, linkedWorktrees: LinkedWorktreeInfo = .notScanned)
+      — producer: AppDelegate (boot replay with .notScanned), FilesystemActor (watched folder diff with .scanned)
+      — LinkedWorktreeInfo distinguishes "scanner found these linked worktrees" from "no scan performed"
+      — .scanned([]) = authoritative empty (remove stale linked worktrees)
+      — .scanned([url1, url2]) = authoritative list (reconcile to match)
+      — .notScanned = boot replay / manual add (leave existing worktrees unchanged)
+  .repoRemoved(repoPath:)                   — producer: FilesystemActor (watched folder diff, global dedup)
   .worktreeRegistered(worktreeId:, repoId:, rootPath:) — producer: FilesystemActor
   .worktreeUnregistered(worktreeId:, repoId:)          — producer: FilesystemActor
 
@@ -570,6 +602,35 @@ Boot: restore() loads watchedPaths + repos
          ▼
 Bus ──► Coordinator (single intake, dedup by stableKey)
 ```
+
+### Topology Accumulator Pattern
+
+Topology facts flow through a layered pipeline. Each layer's output is the next layer's input. No layer reaches back.
+
+```
+LAYER              COMPONENT                        OWNS
+─────              ─────────                        ────
+Fact Producer      FilesystemActor                  Observing filesystem, emitting raw facts
+Publication        EventBus                         Fan-out to all subscribers (dumb pipe)
+Accumulator        WorkspaceCacheCoordinator         Interpreting facts, sequencing effects
+Reconciler         WorktreeReconciler (pure func)   Identity preservation, diff computation
+State              WorkspaceStore                   Canonical truth, mutation methods
+Effects            TopologyEffectHandler             Ordered follow-on work (PaneCoordinator)
+Reader             Sidebar                          Rendering truth via @Observable
+```
+
+**Why not pure pub/sub for topology:** Multiple bus subscribers independently inferring what changed from raw events is fragile — ordering implicit, diffs rediscovered, cleanup ad hoc. The accumulator pattern ensures one interpreter, one diff (via `WorktreeReconciler`), one ordered effect chain (via `TopologyEffectHandler`).
+
+**Why the bus still exists for topology:** Independent consumers (ForgeActor, NotificationReducer) subscribe to raw topology facts on the bus. They react independently, don't depend on store state, and don't need ordering guarantees. The bus serves notification; the handler serves sequencing.
+
+**The handler pattern:**
+- `WorkspaceCacheCoordinator` produces a `WorktreeTopologyDelta` after reconciliation
+- It handles cache cleanup itself (it owns `repoCache`)
+- It calls `topologyEffectHandler.topologyDidChange(delta)` for ordering-sensitive effects
+- `PaneCoordinator` conforms to `TopologyEffectHandler`: orphans panes for removed worktrees, syncs filesystem roots
+- `PaneCoordinator` does NOT subscribe to topology events on the bus — it receives topology changes only via the handler
+
+This replaces the previous pattern where `PaneCoordinator` subscribed to topology events on the bus and scheduled a deferred filesystem sync. That worked by accident (deferred `Task` ran after the coordinator's synchronous store mutation) but was fragile — any change to the timing would break ordering.
 
 **Constraint:** FilesystemActor may emit `.repoDiscovered` and `.repoRemoved` only for paths under a persisted watched scope (`store.watchedPaths`). This is structurally enforced — watched-folder refresh scans only `watchedFolderIds` paths and diffs against the actor-owned baseline for those roots. The `parentPath` field on `.repoDiscovered` provides traceability back to the watched scope without coupling the event type to `WatchedPath.id`.
 

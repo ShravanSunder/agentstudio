@@ -405,17 +405,16 @@ struct PaneCoordinatorTests {
             repoId: repo.id,
             path: tertiaryWorktree.path
         )
-        await paneEventBus.post(
-            .system(
-                SystemEnvelope.test(
-                    event: .topology(
-                        .worktreeRegistered(
-                            worktreeId: reconciledTertiaryWorktree.id,
-                            repoId: repo.id,
-                            rootPath: reconciledTertiaryWorktree.path
-                        )
-                    )
-                )
+        coordinator.topologyDidChange(
+            WorktreeTopologyDelta(
+                repoId: repo.id,
+                addedWorktreeIds: [reconciledTertiaryWorktree.id],
+                removedWorktrees: [
+                    RemovedWorktreeEntry(id: reconciledSecondaryWorktree.id, path: reconciledSecondaryWorktree.path)
+                ],
+                preservedWorktreeIds: [primaryWorktree.id],
+                didChange: true,
+                traceId: nil
             )
         )
 
@@ -550,17 +549,16 @@ struct PaneCoordinatorTests {
             path: repo.repoPath.appending(path: "latest-branch")
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, latestWorktree])
-        await paneEventBus.post(
-            .system(
-                SystemEnvelope.test(
-                    event: .topology(
-                        .worktreeRegistered(
-                            worktreeId: latestWorktree.id,
-                            repoId: repo.id,
-                            rootPath: latestWorktree.path
-                        )
-                    )
-                )
+        coordinator.topologyDidChange(
+            WorktreeTopologyDelta(
+                repoId: repo.id,
+                addedWorktreeIds: [latestWorktree.id],
+                removedWorktrees: [
+                    RemovedWorktreeEntry(id: reconciledStaleWorktree.id, path: reconciledStaleWorktree.path)
+                ],
+                preservedWorktreeIds: [mainWorktree.id],
+                didChange: true,
+                traceId: nil
             )
         )
 
@@ -574,6 +572,72 @@ struct PaneCoordinatorTests {
                 && snapshot.activityByWorktreeId[latestWorktree.id] == false
                 && snapshot.activePaneWorktreeId == mainWorktree.id
         }
+    }
+
+    @Test("topology effect handler with no removed worktrees still syncs roots and does not orphan panes")
+    func topologyEffectHandlerWithoutRemovedWorktreesStillSyncsRoots() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-pane-coordinator-empty-delta-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let persistor = WorkspacePersistor(workspacesDir: tempDir)
+        let store = WorkspaceStore(persistor: persistor)
+        store.restore()
+
+        let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-empty-delta-\(UUID().uuidString)"))
+        guard let mainWorktree = store.repo(repo.id)?.worktrees.first(where: \.isMainWorktree) else {
+            Issue.record("Expected addRepo to create main worktree")
+            return
+        }
+
+        let pane = store.createPane(
+            source: .worktree(worktreeId: mainWorktree.id, repoId: repo.id, launchDirectory: mainWorktree.path),
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: mainWorktree.id, cwd: mainWorktree.path)
+        )
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let filesystemSource = RecordingFilesystemSource()
+        let coordinator = makeFilesystemSyncCoordinator(
+            store: store,
+            filesystemSource: filesystemSource,
+            paneEventBus: EventBus<RuntimeEnvelope>()
+        )
+        _ = coordinator
+
+        let newWorktree = Worktree(
+            repoId: repo.id,
+            name: "feature-added",
+            path: repo.repoPath.appending(path: "feature-added")
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, newWorktree])
+        let reconciledNewWorktree = try reconciledWorktree(
+            in: store,
+            repoId: repo.id,
+            path: newWorktree.path
+        )
+
+        coordinator.topologyDidChange(
+            WorktreeTopologyDelta(
+                repoId: repo.id,
+                addedWorktreeIds: [reconciledNewWorktree.id],
+                removedWorktrees: [],
+                preservedWorktreeIds: [mainWorktree.id],
+                didChange: true,
+                traceId: nil
+            )
+        )
+
+        await waitUntilFilesystemState(
+            source: filesystemSource,
+            timeout: .milliseconds(600)
+        ) { snapshot in
+            Set(snapshot.registeredRoots.keys) == Set([mainWorktree.id, reconciledNewWorktree.id])
+        }
+
+        let updatedPane = try #require(store.pane(pane.id))
+        #expect(updatedPane.residency == .active)
     }
 
     private func waitUntilFilesystemState(

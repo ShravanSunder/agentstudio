@@ -18,8 +18,17 @@ enum SystemScopedEvent: Sendable {
     case workspaceActivity(WorkspaceActivityEvent)
 }
 
+enum LinkedWorktreeInfo: Sendable, Equatable {
+    case scanned([URL])
+    case notScanned
+}
+
 enum TopologyEvent: Sendable {
-    case repoDiscovered(repoPath: URL, parentPath: URL)
+    case repoDiscovered(
+        repoPath: URL,
+        parentPath: URL,
+        linkedWorktrees: LinkedWorktreeInfo = .notScanned
+    )
     case repoRemoved(repoPath: URL)
     case worktreeRegistered(worktreeId: UUID, repoId: UUID, rootPath: URL)
     case worktreeUnregistered(worktreeId: UUID, repoId: UUID)
