@@ -2,6 +2,7 @@ import AppKit
 import GhosttyKit
 import Observation
 import SwiftUI
+import os.log
 
 // swiftlint:disable file_length type_body_length
 
@@ -52,6 +53,8 @@ private final class RestoreAwareTerminalContainerView: NSView {
 /// interactions as a UI-only mutation.
 @MainActor
 class PaneTabViewController: NSViewController, CommandHandler {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneTabViewController")
+    private static let genericGitHubURL = URL(string: "https://github.com")!
     // MARK: - Dependencies (injected)
 
     private let store: WorkspaceStore
@@ -96,7 +99,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     private var tabBarHostingView: DraggableTabBarHostingView!
     private var terminalContainer: RestoreAwareTerminalContainerView!
-    private var emptyStateView: NSView?
+    private var emptyStateView: NSHostingView<WorkspaceEmptyStateView>?
+    private var lastEmptyStateModel: WorkspaceEmptyStateModel?
     private var tabContentHosts: [UUID: PersistentTabHostView] = [:]
     #if DEBUG
         private(set) var paneRepresentableDismantleCount = 0
@@ -181,6 +185,9 @@ class PaneTabViewController: NSViewController, CommandHandler {
             onAdd: { [weak self] in
                 self?.addNewTab()
             },
+            onOpenGitHub: { [weak self] in
+                self?.openGitHubWebview()
+            },
             onPaneAction: { [weak self] action in
                 self?.dispatchAction(action)
             },
@@ -215,6 +222,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         emptyView.translatesAutoresizingMaskIntoConstraints = false
         containerView.addSubview(emptyView)
         self.emptyStateView = emptyView
+        lastEmptyStateModel = emptyStateModel
 
         NSLayoutConstraint.activate([
             // Tab bar at top - use safeAreaLayoutGuide to respect titlebar
@@ -318,6 +326,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
         withObservationTracking {
             _ = self.store.tabs
             _ = self.store.activeTabId
+            _ = self.store.repos
+            _ = self.repoCache.recentTargets
             _ = ManagementModeMonitor.shared.isActive
         } onChange: {
             Task { @MainActor [weak self] in
@@ -330,6 +340,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
     private func handleAppKitStateChange() {
         syncTabContentHosts()
         updateVisibleTabHost()
+        rebuildEmptyStateView()
         updateEmptyState()
 
         let isManagementModeActive = ManagementModeMonitor.shared.isActive
@@ -391,13 +402,20 @@ class PaneTabViewController: NSViewController, CommandHandler {
             viewRegistry: viewRegistry,
             appLifecycleStore: appLifecycleStore,
             closeTransitionCoordinator: closeTransitionCoordinator,
-            actionDispatcher: actionDispatcher
+            actionDispatcher: actionDispatcher,
+            onOpenPaneGitHub: { [weak self] paneId in
+                self?.openGitHubWebview(for: paneId)
+            }
         )
 
         return PersistentTabHostView(tabId: tabId, rootView: contentView)
     }
 
     private func syncTabContentHosts() {
+        for paneId in store.panes.keys {
+            viewRegistry.ensureSlot(for: paneId)
+        }
+
         let liveTabIds = Set(store.tabs.map(\.id))
         guard liveTabIds != Set(tabContentHosts.keys) else { return }
 
@@ -592,16 +610,20 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     // MARK: - Empty State
 
-    private func createEmptyStateView() -> NSView {
-        PaneTabEmptyStateViewFactory.make(
-            target: self,
-            addRepoAction: #selector(addRepoAction),
-            addFolderAction: #selector(addFolderAction)
+    private var emptyStateModel: WorkspaceEmptyStateModel {
+        WorkspaceLauncherProjector.project(
+            store: store,
+            repoCache: repoCache
         )
     }
 
-    @objc private func addRepoAction() {
-        CommandDispatcher.shared.dispatch(.addRepo)
+    private func createEmptyStateView() -> NSHostingView<WorkspaceEmptyStateView> {
+        PaneTabEmptyStateViewFactory.make(
+            model: emptyStateModel,
+            onAddFolder: { [weak self] in self?.addFolderAction() },
+            onOpenRecent: { [weak self] target in self?.openRecentTarget(target) },
+            onOpenAllRecent: { [weak self] in self?.openAllRecentTargets() }
+        )
     }
 
     @objc private func addFolderAction() {
@@ -609,10 +631,91 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     private func updateEmptyState() {
-        let hasTerminals = !store.tabs.isEmpty
-        tabBarHostingView.isHidden = !hasTerminals
-        terminalContainer.isHidden = !hasTerminals
-        emptyStateView?.isHidden = hasTerminals
+        let hasTabs = !store.tabs.isEmpty
+        tabBarHostingView.isHidden = !hasTabs
+        terminalContainer.isHidden = !hasTabs
+        emptyStateView?.isHidden = hasTabs
+    }
+
+    private func rebuildEmptyStateView() {
+        let currentModel = emptyStateModel
+        guard currentModel != lastEmptyStateModel else { return }
+        emptyStateView?.rootView = WorkspaceEmptyStateView(
+            model: currentModel,
+            onAddFolder: { [weak self] in self?.addFolderAction() },
+            onOpenRecent: { [weak self] target in self?.openRecentTarget(target) },
+            onOpenAllRecent: { [weak self] in self?.openAllRecentTargets() }
+        )
+        lastEmptyStateModel = currentModel
+    }
+
+    private func openRecentTarget(_ target: RecentWorkspaceTarget) {
+        let fileManager = FileManager.default
+        if let worktreeId = target.worktreeId {
+            guard store.worktree(worktreeId) != nil else {
+                Self.logger.warning(
+                    "Recent target removed because worktree is missing: \(target.id, privacy: .public)")
+                repoCache.removeRecentTarget(target.id)
+                return
+            }
+            guard store.repo(containing: worktreeId) != nil else {
+                Self.logger.warning(
+                    "Recent target removed because repo is missing for worktreeId=\(worktreeId.uuidString, privacy: .public)"
+                )
+                repoCache.removeRecentTarget(target.id)
+                return
+            }
+            guard fileManager.fileExists(atPath: target.path.path) else {
+                Self.logger.warning(
+                    "Recent target removed because path is missing: \(target.path.path, privacy: .public)")
+                repoCache.removeRecentTarget(target.id)
+                return
+            }
+            dispatchAction(
+                .openNewTerminalInTab(
+                    worktreeId: worktreeId,
+                    launchDirectory: target.path,
+                    title: target.displayTitle
+                )
+            )
+            return
+        }
+
+        guard fileManager.fileExists(atPath: target.path.path) else {
+            Self.logger.warning(
+                "Recent target removed because path is missing: \(target.path.path, privacy: .public)")
+            repoCache.removeRecentTarget(target.id)
+            return
+        }
+
+        dispatchAction(.openFloatingTerminal(launchDirectory: target.path, title: target.displayTitle))
+    }
+
+    private func openAllRecentTargets() {
+        for target in emptyStateModel.recentTargets {
+            openRecentTarget(target)
+        }
+    }
+
+    private func openGitHubWebview() {
+        executor.openWebview(url: Self.genericGitHubURL)
+    }
+
+    private func openGitHubWebview(for paneId: UUID) {
+        let url = GitHubWebviewLaunchResolver.url(
+            for: paneId,
+            store: store,
+            repoCache: repoCache
+        )
+        guard let targetTabId = store.activeTabId else {
+            executor.openWebview(url: url)
+            return
+        }
+        _ = executor.openContextualWebviewInPane(
+            sourcePaneId: paneId,
+            targetTabId: targetTabId,
+            url: url
+        )
     }
 
     // MARK: - New Tab

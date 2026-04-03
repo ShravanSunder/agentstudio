@@ -105,6 +105,7 @@ struct DrawerPanelOverlay: View {
     let tabSize: CGSize
     let iconBarFrame: CGRect
     let actionDispatcher: PaneActionDispatching
+    let onOpenPaneGitHub: (UUID) -> Void
 
     @AppStorage("drawerHeightRatio") private var heightRatio: Double = DrawerLayout.heightRatioMax
 
@@ -135,7 +136,7 @@ struct DrawerPanelOverlay: View {
             let totalHeight = panelHeight + connectorHeight
 
             // Bottom of overlay aligns with top of pane's icon bar
-            let overlayBottomY = info.frame.maxY - DrawerLayout.iconBarFrameHeight
+            let overlayBottomY = info.frame.maxY - iconBarFrame.height
             let centerY = overlayBottomY - totalHeight / 2
 
             // Centered on originating pane, clamped to tab bounds
@@ -213,7 +214,8 @@ struct DrawerPanelOverlay: View {
                             onDismiss: {
                                 actionDispatcher.dispatch(.toggleDrawer(paneId: info.paneId))
                             },
-                            appLifecycleStore: appLifecycleStore
+                            appLifecycleStore: appLifecycleStore,
+                            onOpenPaneGitHub: onOpenPaneGitHub
                         )
                         .id(info.paneId)
                         .frame(width: panelWidth)

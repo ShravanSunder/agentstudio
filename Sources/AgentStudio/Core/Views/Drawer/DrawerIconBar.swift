@@ -22,9 +22,12 @@ struct DrawerIconBar: View {
     let isExpanded: Bool
     let onAdd: () -> Void
     let onToggleExpand: () -> Void
+    let trailingActions: DrawerOverlay.TrailingActions?
 
     @State private var isAddHovered = false
     @State private var isToggleHovered = false
+    @State private var isFinderHovered = false
+    @State private var isCursorHovered = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -46,7 +49,7 @@ struct DrawerIconBar: View {
                                 ? Color.white.opacity(AppStyle.fillActive)
                                 : (isToggleHovered
                                     ? Color.white.opacity(AppStyle.fillHover)
-                                    : Color.white.opacity(AppStyle.fillSubtle)))
+                                    : Color.clear))
                 )
                 .onHover { hovering in
                     withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
@@ -81,9 +84,38 @@ struct DrawerIconBar: View {
                 .help("Add drawer pane")
 
                 Spacer()
+
+                if let trailingActions {
+                    HStack(spacing: 6) {
+                        trailingActionButton(
+                            systemName: "folder",
+                            helpText: "Open pane location in Finder",
+                            isHovered: isFinderHovered,
+                            action: trailingActions.onOpenFinder
+                        )
+                        .disabled(!trailingActions.canOpenTarget)
+                        .onHover { hovering in
+                            withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
+                                isFinderHovered = hovering
+                            }
+                        }
+
+                        trailingActionButton(
+                            systemName: "cursorarrow.rays",
+                            helpText: "Open pane location in Cursor",
+                            isHovered: isCursorHovered,
+                            action: trailingActions.onOpenCursor
+                        )
+                        .disabled(!trailingActions.canOpenTarget)
+                        .onHover { hovering in
+                            withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
+                                isCursorHovered = hovering
+                            }
+                        }
+                    }
+                }
             }
-            .padding(.horizontal, DrawerLayout.iconBarHorizontalPadding)
-            .padding(.vertical, DrawerLayout.iconBarVerticalPadding)
+            .padding(DrawerLayout.iconBarVerticalPadding)
             .background(.ultraThinMaterial)
             .clipShape(RoundedRectangle(cornerRadius: DrawerLayout.iconBarCornerRadius))
             .background(
@@ -95,6 +127,27 @@ struct DrawerIconBar: View {
                 }
             )
         }
+    }
+
+    private func trailingActionButton(
+        systemName: String,
+        helpText: String,
+        isHovered: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(isHovered ? .primary : .secondary)
+        .background(
+            RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
+                .fill(isHovered ? Color.white.opacity(AppStyle.fillHover) : Color.clear)
+        )
+        .help(helpText)
     }
 }
 
@@ -146,7 +199,8 @@ struct EmptyDrawerBar: View {
                 DrawerIconBar(
                     isExpanded: true,
                     onAdd: {},
-                    onToggleExpand: {}
+                    onToggleExpand: {},
+                    trailingActions: nil
                 )
                 Spacer()
             }

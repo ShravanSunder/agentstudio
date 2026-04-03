@@ -150,9 +150,9 @@ final class SessionConfigurationTests {
         // Act
         let config = SessionConfiguration.detect()
 
-        // Assert — should use the short ~/.agentstudio/z socket root.
+        // Assert — debug builds default to the debug app-state root.
         let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
-        #expect(config.zmxDir.hasPrefix(homeDir + "/.agentstudio/z"))
+        #expect(config.zmxDir.hasPrefix(homeDir + "/.agentstudio-db/z"))
     }
 
     // MARK: - Terminfo Discovery (Ghostty's own terminfo, independent of zmx)

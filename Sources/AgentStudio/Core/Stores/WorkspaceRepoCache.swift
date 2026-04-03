@@ -9,6 +9,7 @@ final class WorkspaceRepoCache {
     private(set) var worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment] = [:]
     private(set) var pullRequestCountByWorktreeId: [UUID: Int] = [:]
     private(set) var notificationCountByWorktreeId: [UUID: Int] = [:]
+    private(set) var recentTargets: [RecentWorkspaceTarget] = []
     private(set) var sourceRevision: UInt64 = 0
     private(set) var lastRebuiltAt: Date?
 
@@ -26,6 +27,18 @@ final class WorkspaceRepoCache {
 
     func setNotificationCount(_ count: Int, for worktreeId: UUID) {
         notificationCountByWorktreeId[worktreeId] = count
+    }
+
+    func recordRecentTarget(_ target: RecentWorkspaceTarget) {
+        recentTargets.removeAll { $0.id == target.id }
+        recentTargets.insert(target, at: 0)
+        if recentTargets.count > 6 {
+            recentTargets = Array(recentTargets.prefix(6))
+        }
+    }
+
+    func removeRecentTarget(_ targetId: String) {
+        recentTargets.removeAll { $0.id == targetId }
     }
 
     func removeWorktree(_ worktreeId: UUID) {
@@ -54,6 +67,7 @@ final class WorkspaceRepoCache {
         worktreeEnrichmentByWorktreeId.removeAll(keepingCapacity: false)
         pullRequestCountByWorktreeId.removeAll(keepingCapacity: false)
         notificationCountByWorktreeId.removeAll(keepingCapacity: false)
+        recentTargets.removeAll(keepingCapacity: false)
         sourceRevision = 0
         lastRebuiltAt = nil
     }

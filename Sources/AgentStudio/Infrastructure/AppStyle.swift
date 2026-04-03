@@ -137,7 +137,7 @@ enum AppStyle {
     static let sidebarRowVerticalInset: CGFloat = 6
 
     /// Leading inset for child checkout rows under a resolved group header.
-    static let sidebarGroupChildRowLeadingInset: CGFloat = 12
+    static let sidebarGroupChildRowLeadingInset: CGFloat = sidebarListRowLeadingInset + textBase + spacingTight
 
     /// Leading inset used for sidebar list rows.
     static let sidebarListRowLeadingInset: CGFloat = 2
@@ -310,7 +310,7 @@ enum AppStyle {
 
     /// Fill opacity for management mode control backgrounds (action circles, half-moon, drag handle).
     /// Darker than the dimming overlay so controls stand out against the dimmed pane content.
-    static let managementControlFill: CGFloat = 0.60
+    static let managementControlFill: CGFloat = 0.70
 
     /// Hover delta added to managementControlFill for interactive feedback.
     static let managementControlHoverDelta: CGFloat = 0.05

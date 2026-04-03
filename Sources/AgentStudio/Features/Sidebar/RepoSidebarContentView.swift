@@ -672,13 +672,7 @@ private struct SidebarWorktreeRow: View {
     }
 
     private func openInCursor() {
-        let cursorURL = URL(fileURLWithPath: "/Applications/Cursor.app")
-        let config = NSWorkspace.OpenConfiguration()
-        NSWorkspace.shared.open(
-            [worktree.path],
-            withApplicationAt: cursorURL,
-            configuration: config
-        )
+        ExternalWorkspaceOpener.openInCursor(worktree.path)
     }
 
     private var syncCounts: (ahead: String, behind: String) {

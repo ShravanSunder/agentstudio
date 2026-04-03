@@ -24,6 +24,7 @@ struct PaneLeafContainer: View {
     let repoCache: WorkspaceRepoCache
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let onOpenPaneGitHub: (UUID) -> Void
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
 
@@ -32,6 +33,7 @@ struct PaneLeafContainer: View {
     @State private var isMinimizeHovered: Bool = false
     @State private var isCloseHovered: Bool = false
     @State private var isSplitHovered: Bool = false
+    @State private var isBrowserHovered: Bool = false
 
     init(
         paneHost: PaneHostView,
@@ -42,6 +44,7 @@ struct PaneLeafContainer: View {
         repoCache: WorkspaceRepoCache,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
+        onOpenPaneGitHub: @escaping (UUID) -> Void,
         dropTargetCoordinateSpace: String? = "tabContainer",
         useDrawerFramePreference: Bool = false
     ) {
@@ -53,6 +56,7 @@ struct PaneLeafContainer: View {
         self.repoCache = repoCache
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
+        self.onOpenPaneGitHub = onOpenPaneGitHub
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
     }
@@ -118,18 +122,44 @@ struct PaneLeafContainer: View {
 
     var body: some View {
         GeometryReader { _ in
+            let managementContext = PaneManagementContext.project(
+                paneId: paneHost.id,
+                store: store,
+                repoCache: repoCache
+            )
             ZStack(alignment: .topTrailing) {
-                // Pane content view
-                PaneViewRepresentable(paneHost: paneHost)
-                    // Force SwiftUI to recreate the representable when the host
-                    // instance changes (e.g. after repair or placeholder retry).
-                    // Without this, updateNSView is a no-op and the old NSView
-                    // stays mounted.
-                    .id(paneHost.hostIdentity)
-                    // In management mode, route drag targeting through the shared
-                    // SwiftUI leaf container so pane type (WKWebView/Ghostty/etc.)
-                    // cannot intercept drop updates differently.
-                    .allowsHitTesting(!managementMode.isActive)
+                VStack(spacing: 0) {
+                    PaneViewRepresentable(paneHost: paneHost)
+                        // Force SwiftUI to recreate the representable when the host
+                        // instance changes (e.g. after repair or placeholder retry).
+                        // Without this, updateNSView is a no-op and the old NSView
+                        // stays mounted.
+                        .id(paneHost.hostIdentity)
+                        // In management mode, route drag targeting through the shared
+                        // SwiftUI leaf container so pane type (WKWebView/Ghostty/etc.)
+                        // cannot intercept drop updates differently.
+                        .allowsHitTesting(!managementMode.isActive)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    if managementMode.isActive && !isDrawerChild && managementContext.showsIdentityBlock {
+                        ManagementPaneIdentityStrip(context: managementContext)
+                    }
+
+                    if !isDrawerChild {
+                        DrawerOverlay(
+                            paneId: paneHost.id,
+                            drawer: drawer,
+                            isIconBarVisible: true,
+                            trailingActions: DrawerOverlay.TrailingActions(
+                                canOpenTarget: managementContext.targetPath != nil,
+                                onOpenFinder: { openInFinder(managementContext) },
+                                onOpenCursor: { openInCursor(managementContext) }
+                            ),
+                            action: actionDispatcher.dispatch
+                        )
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
 
                 // Ghostty-style dimming for unfocused panes
                 if !isActive {
@@ -149,19 +179,16 @@ struct PaneLeafContainer: View {
 
                 // Hover border: drag affordance in management mode
                 if managementMode.isActive && isManagementHovered && !store.isSplitResizing {
-                    RoundedRectangle(cornerRadius: AppStyle.buttonCornerRadius)
+                    RoundedRectangle(cornerRadius: AppStyle.panelCornerRadius)
                         .strokeBorder(Color.white.opacity(AppStyle.strokeVisible), lineWidth: 1)
-                        .padding(1)
                         .allowsHitTesting(false)
                         .animation(.easeInOut(duration: AppStyle.animationFast), value: isManagementHovered)
                 }
 
-                // Drag handle: compact centered pill (management mode + hover + no active drop).
+                // Drag handle: compact centered pill in management mode.
                 // The Color.clear fills the ZStack for centering; allowsHitTesting(false)
                 // ensures only the capsule itself intercepts mouse events.
-                if managementMode.isActive && isManagementHovered
-                    && !store.isSplitResizing
-                {
+                if managementMode.isActive && !store.isSplitResizing {
                     ZStack {
                         Color.clear
                             .allowsHitTesting(false)
@@ -202,8 +229,8 @@ struct PaneLeafContainer: View {
                     }
                 }
 
-                // Pane controls: minimize + close (top-left, management mode + hover)
-                if managementMode.isActive && isManagementHovered && !store.isSplitResizing {
+                // Pane controls: minimize + close (top-left, management mode)
+                if managementMode.isActive && !store.isSplitResizing {
                     VStack {
                         HStack(spacing: AppStyle.spacingStandard) {
                             Button {
@@ -275,58 +302,37 @@ struct PaneLeafContainer: View {
                     .transition(.opacity)
                 }
 
-                // Quarter-moon split button (top-right, management mode + hover)
-                if managementMode.isActive && isManagementHovered && !store.isSplitResizing {
+                // Quarter-moon split and browser buttons (top-right, management mode)
+                if managementMode.isActive && !store.isSplitResizing {
                     VStack {
                         HStack {
                             Spacer()
-                            Button {
-                                actionDispatcher.dispatch(
-                                    .insertPane(
-                                        source: .newTerminal,
-                                        targetTabId: tabId,
-                                        targetPaneId: paneHost.id,
-                                        direction: .right
-                                    ))
-                            } label: {
-                                Image(systemName: "plus")
-                                    .font(.system(size: AppStyle.paneSplitIconSize, weight: .bold))
-                                    .foregroundStyle(
-                                        .white.opacity(
-                                            isSplitHovered
-                                                ? AppStyle.foregroundSecondary
-                                                : AppStyle.foregroundMuted)
-                                    )
-                                    .frame(
-                                        width: AppStyle.paneSplitButtonSize,
-                                        height: AppStyle.paneSplitButtonSize + 12
-                                    )
-                                    .background(
-                                        UnevenRoundedRectangle(
-                                            topLeadingRadius: AppStyle.panelCornerRadius + 4,
-                                            bottomLeadingRadius: AppStyle.panelCornerRadius + 4,
-                                            bottomTrailingRadius: 0,
-                                            topTrailingRadius: 0
-                                        )
-                                        .fill(
-                                            Color.black.opacity(
-                                                isSplitHovered
-                                                    ? AppStyle.managementControlFill
-                                                        + AppStyle.managementControlHoverDelta
-                                                    : AppStyle.managementControlFill))
-                                    )
-                                    .contentShape(
-                                        UnevenRoundedRectangle(
-                                            topLeadingRadius: AppStyle.panelCornerRadius + 4,
-                                            bottomLeadingRadius: AppStyle.panelCornerRadius + 4,
-                                            bottomTrailingRadius: 0,
-                                            topTrailingRadius: 0
+                            VStack(spacing: AppStyle.spacingStandard) {
+                                paneEdgeButton(
+                                    systemName: "plus",
+                                    isHovered: isSplitHovered,
+                                    helpText: "Split right"
+                                ) {
+                                    actionDispatcher.dispatch(
+                                        .insertPane(
+                                            source: .newTerminal,
+                                            targetTabId: tabId,
+                                            targetPaneId: paneHost.id,
+                                            direction: .right
                                         )
                                     )
+                                }
+                                .onHover { isSplitHovered = $0 }
+
+                                paneEdgeButton(
+                                    systemName: "globe",
+                                    isHovered: isBrowserHovered,
+                                    helpText: "Open GitHub for pane context"
+                                ) {
+                                    onOpenPaneGitHub(paneHost.id)
+                                }
+                                .onHover { isBrowserHovered = $0 }
                             }
-                            .buttonStyle(.plain)
-                            .onHover { isSplitHovered = $0 }
-                            .help("Split right")
                         }
                         .padding(.top, AppStyle.spacingStandard)
                         Spacer()
@@ -335,15 +341,6 @@ struct PaneLeafContainer: View {
                     .transition(.opacity)
                 }
 
-                // Drawer icon bar (bottom of pane, layout panes only — no nested drawers)
-                if !isDrawerChild {
-                    DrawerOverlay(
-                        paneId: paneHost.id,
-                        drawer: drawer,
-                        isIconBarVisible: true,
-                        action: actionDispatcher.dispatch
-                    )
-                }
             }
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
@@ -383,7 +380,7 @@ struct PaneLeafContainer: View {
                 }
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 1))
+        .clipShape(RoundedRectangle(cornerRadius: AppStyle.panelCornerRadius))
         .padding(AppStyle.paneGap)
         .background(
             GeometryReader { geo in
@@ -430,6 +427,64 @@ struct PaneLeafContainer: View {
 
     private func paneDisplayTitle(_ paneId: UUID) -> String {
         PaneDisplayProjector.displayLabel(for: paneId, store: store, repoCache: repoCache)
+    }
+
+    private func paneEdgeButton(
+        systemName: String,
+        isHovered: Bool,
+        helpText: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: AppStyle.paneSplitIconSize, weight: .bold))
+                .foregroundStyle(
+                    .white.opacity(
+                        isHovered
+                            ? AppStyle.foregroundSecondary
+                            : AppStyle.foregroundMuted)
+                )
+                .frame(
+                    width: AppStyle.paneSplitButtonSize,
+                    height: AppStyle.paneSplitButtonSize + 12
+                )
+                .background(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: AppStyle.panelCornerRadius + 4,
+                        bottomLeadingRadius: AppStyle.panelCornerRadius + 4,
+                        bottomTrailingRadius: 0,
+                        topTrailingRadius: 0
+                    )
+                    .fill(
+                        Color.black.opacity(
+                            isHovered
+                                ? AppStyle.managementControlFill
+                                    + AppStyle.managementControlHoverDelta
+                                : AppStyle.managementControlFill
+                        )
+                    )
+                )
+                .contentShape(
+                    UnevenRoundedRectangle(
+                        topLeadingRadius: AppStyle.panelCornerRadius + 4,
+                        bottomLeadingRadius: AppStyle.panelCornerRadius + 4,
+                        bottomTrailingRadius: 0,
+                        topTrailingRadius: 0
+                    )
+                )
+        }
+        .buttonStyle(.plain)
+        .help(helpText)
+    }
+
+    private func openInFinder(_ context: PaneManagementContext) {
+        guard let targetPath = context.targetPath else { return }
+        ExternalWorkspaceOpener.openInFinder(targetPath)
+    }
+
+    private func openInCursor(_ context: PaneManagementContext) {
+        guard let targetPath = context.targetPath else { return }
+        ExternalWorkspaceOpener.openInCursor(targetPath)
     }
 }
 

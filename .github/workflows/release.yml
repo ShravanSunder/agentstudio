@@ -165,6 +165,10 @@ jobs:
           cp .build/release/AgentStudio "$APP_DIR/MacOS/"
           [ -f "vendor/zmx/zig-out/bin/zmx" ] && cp vendor/zmx/zig-out/bin/zmx "$APP_DIR/MacOS/"
           cp Sources/AgentStudio/Resources/Info.plist "$APP_DIR/"
+          bash scripts/inject-bundle-version.sh \
+            "$APP_DIR/Info.plist" \
+            "${{ steps.version.outputs.marketing_version }}" \
+            "${{ steps.version.outputs.build_version }}"
           cp Sources/AgentStudio/Resources/AppIcon.icns "$APP_DIR/Resources/"
           [ -d "Sources/AgentStudio/Resources/terminfo" ] && cp -R Sources/AgentStudio/Resources/terminfo "$APP_DIR/Resources/"
           if [ -d "Sources/AgentStudio/Resources/ghostty" ]; then
@@ -305,10 +309,14 @@ jobs:
         id: version
         run: |
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+            RAW_VERSION="${GITHUB_REF#refs/tags/}"
+            echo "version=${RAW_VERSION}" >> "$GITHUB_OUTPUT"
+            echo "marketing_version=${RAW_VERSION#v}" >> "$GITHUB_OUTPUT"
           else
             echo "version=dev-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+            echo "marketing_version=0.0.1-dev" >> "$GITHUB_OUTPUT"
           fi
+          echo "build_version=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
 
       - name: Create ZIP Archive
         run: |

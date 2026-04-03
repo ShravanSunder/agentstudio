@@ -8,6 +8,7 @@ struct SingleTabContent: View {
     let appLifecycleStore: AppLifecycleStore
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let onOpenPaneGitHub: (UUID) -> Void
 
     private static func traceMissingTab(tabId: UUID) -> Int {
         RestoreTrace.log("SingleTabContent.body missingTab tabId=\(tabId)")
@@ -29,7 +30,8 @@ struct SingleTabContent: View {
                 store: store,
                 repoCache: repoCache,
                 viewRegistry: viewRegistry,
-                appLifecycleStore: appLifecycleStore
+                appLifecycleStore: appLifecycleStore,
+                onOpenPaneGitHub: onOpenPaneGitHub
             )
             .background(AppStyle.chromeBackground)
         }

@@ -12,6 +12,7 @@ struct FlatPaneStripContent: View {
     let viewRegistry: ViewRegistry
     let coordinateSpaceName: String?
     let useDrawerFramePreference: Bool
+    let onOpenPaneGitHub: (UUID) -> Void
 
     var body: some View {
         GeometryReader { geometry in
@@ -58,6 +59,7 @@ struct FlatPaneStripContent: View {
                             repoCache: repoCache,
                             coordinateSpaceName: coordinateSpaceName,
                             useDrawerFramePreference: useDrawerFramePreference,
+                            onOpenPaneGitHub: onOpenPaneGitHub,
                             paneSlot: paneSlot
                         )
                         .id("\(segment.paneId.uuidString)-registered=\(paneSlot.host != nil)")
@@ -94,6 +96,7 @@ private struct PaneSegmentSlotView: View {
     let repoCache: WorkspaceRepoCache
     let coordinateSpaceName: String?
     let useDrawerFramePreference: Bool
+    let onOpenPaneGitHub: (UUID) -> Void
     @Bindable var paneSlot: ViewRegistry.PaneViewSlot
 
     var body: some View {
@@ -117,6 +120,7 @@ private struct PaneSegmentSlotView: View {
                 repoCache: repoCache,
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 actionDispatcher: actionDispatcher,
+                onOpenPaneGitHub: onOpenPaneGitHub,
                 dropTargetCoordinateSpace: coordinateSpaceName,
                 useDrawerFramePreference: useDrawerFramePreference
             )
@@ -141,6 +145,24 @@ struct FlatPaneDivider: View {
     private let minSize: CGFloat = AppStyle.splitMinimumPaneSize
 
     @State private var hasStartedResize = false
+    @State private var initialLeftWidth: CGFloat = 0
+    @State private var initialRightWidth: CGFloat = 0
+
+    /// Pure computation for drag-resize ratio. Extracted for testability.
+    nonisolated static func computeResizeRatio(
+        initialLeftWidth: CGFloat,
+        initialRightWidth: CGFloat,
+        translationWidth: CGFloat,
+        minSize: CGFloat
+    ) -> Double {
+        let totalWidth = initialLeftWidth + initialRightWidth
+        guard totalWidth > 0 else { return 0.5 }
+        let clampedLeftWidth = min(
+            max(initialLeftWidth + translationWidth, minSize),
+            totalWidth - minSize
+        )
+        return clampedLeftWidth / totalWidth
+    }
 
     var body: some View {
         Color.clear
@@ -154,14 +176,17 @@ struct FlatPaneDivider: View {
                         guard layout.dividerIds.contains(dividerId) else { return }
                         if !hasStartedResize {
                             hasStartedResize = true
+                            initialLeftWidth = leftPaneWidth
+                            initialRightWidth = rightPaneWidth
                             store.isSplitResizing = true
                         }
 
-                        let clampedLeftWidth = min(
-                            max(leftPaneWidth + gesture.translation.width, minSize),
-                            leftPaneWidth + rightPaneWidth - minSize
+                        let localRatio = Self.computeResizeRatio(
+                            initialLeftWidth: initialLeftWidth,
+                            initialRightWidth: initialRightWidth,
+                            translationWidth: gesture.translation.width,
+                            minSize: minSize
                         )
-                        let localRatio = clampedLeftWidth / (leftPaneWidth + rightPaneWidth)
                         actionDispatcher.dispatch(.resizePane(tabId: tabId, splitId: dividerId, ratio: localRatio))
                     }
                     .onEnded { _ in

@@ -83,6 +83,7 @@ struct WorkspacePersistor {
         var worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment]
         var pullRequestCountByWorktreeId: [UUID: Int]
         var notificationCountByWorktreeId: [UUID: Int]
+        var recentTargets: [RecentWorkspaceTarget]
         var sourceRevision: UInt64
         var lastRebuiltAt: Date?
 
@@ -92,6 +93,7 @@ struct WorkspacePersistor {
             worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment] = [:],
             pullRequestCountByWorktreeId: [UUID: Int] = [:],
             notificationCountByWorktreeId: [UUID: Int] = [:],
+            recentTargets: [RecentWorkspaceTarget] = [],
             sourceRevision: UInt64 = 0,
             lastRebuiltAt: Date? = nil
         ) {
@@ -101,8 +103,54 @@ struct WorkspacePersistor {
             self.worktreeEnrichmentByWorktreeId = worktreeEnrichmentByWorktreeId
             self.pullRequestCountByWorktreeId = pullRequestCountByWorktreeId
             self.notificationCountByWorktreeId = notificationCountByWorktreeId
+            self.recentTargets = recentTargets
             self.sourceRevision = sourceRevision
             self.lastRebuiltAt = lastRebuiltAt
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case schemaVersion
+            case workspaceId
+            case repoEnrichmentByRepoId
+            case worktreeEnrichmentByWorktreeId
+            case pullRequestCountByWorktreeId
+            case notificationCountByWorktreeId
+            case recentTargets
+            case sourceRevision
+            case lastRebuiltAt
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+            self.workspaceId = try container.decode(UUID.self, forKey: .workspaceId)
+            self.repoEnrichmentByRepoId = try container.decode(
+                [UUID: RepoEnrichment].self,
+                forKey: .repoEnrichmentByRepoId
+            )
+            self.worktreeEnrichmentByWorktreeId = try container.decode(
+                [UUID: WorktreeEnrichment].self,
+                forKey: .worktreeEnrichmentByWorktreeId
+            )
+            self.pullRequestCountByWorktreeId = try container.decode(
+                [UUID: Int].self,
+                forKey: .pullRequestCountByWorktreeId
+            )
+            self.notificationCountByWorktreeId = try container.decode(
+                [UUID: Int].self,
+                forKey: .notificationCountByWorktreeId
+            )
+            self.recentTargets =
+                try container.decodeIfPresent(
+                    [RecentWorkspaceTarget].self,
+                    forKey: .recentTargets
+                )
+                ?? []
+            self.sourceRevision = try container.decode(UInt64.self, forKey: .sourceRevision)
+            self.lastRebuiltAt = try container.decodeIfPresent(
+                Date.self,
+                forKey: .lastRebuiltAt
+            )
         }
 
     }
@@ -141,9 +189,7 @@ struct WorkspacePersistor {
         if let dir = workspacesDir {
             self.workspacesDir = dir
         } else {
-            let appSupport = FileManager.default.homeDirectoryForCurrentUser
-                .appending(path: ".agentstudio")
-            self.workspacesDir = appSupport.appending(path: "workspaces")
+            self.workspacesDir = AppDataPaths.workspacesDirectory()
         }
     }
 
