@@ -22,6 +22,7 @@ let package = Package(
             path: "Sources/AgentStudio",
             exclude: [
                 "Resources/Info.plist",
+                "Resources/AppIcon.svg",
                 "Resources/terminfo-src",
                 "Resources/AgentStudio.entitlements",
             ],

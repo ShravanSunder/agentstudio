@@ -103,6 +103,30 @@ AppDelegate
         └── PaneTabViewController
 ```
 
+### Embedded Ghostty Host Boundary
+
+The embedded terminal host keeps one subsystem entry seam:
+
+```text
+callers
+  │
+  ▼
+Ghostty.shared
+  │
+  ▼
+thin Ghostty.App
+  ├── Ghostty.AppHandle
+  ├── Ghostty.CallbackRouter
+  ├── Ghostty.ActionRouter
+  └── Ghostty.AppFocusSynchronizer
+```
+
+- `Ghostty.shared` is the only host entrypoint other app code should use.
+- `Ghostty.App` is composition-only. It does not own callback logic, the action switch, or lifecycle observation directly.
+- `Ghostty.CallbackRouter` stays at the C boundary and captures stable identity before any async hop.
+- `Ghostty.ActionRouter` is the only place Ghostty action routing should expand in future terminal work.
+- `Ghostty.AppFocusSynchronizer` keeps app-level focus separate from per-surface focus in `GhosttySurfaceView` / `GhosttyMountView`.
+
 ### Per-Tab Persistent Hosting
 
 The main pane area keeps one persistent AppKit content host per tab.
@@ -175,6 +199,7 @@ Swift 6.2 toolchain, `.swiftLanguageMode(.v6)`, macOS 26. Data-race safety is en
 - **`isolated deinit` for `@MainActor` classes** (SE-0371, Swift 6.2). Access stored properties, cancel Tasks, finish continuations directly.
 - **`AsyncStream.makeStream(of:)` for new code** (SE-0388, Swift 5.9+). Returns `(stream, continuation)` tuple.
 - **`@preconcurrency import`** for frameworks that haven't fully adopted Sendable.
+- **C callback routers capture stable identity before hopping**. Embedded Ghostty callback trampolines should convert raw pointers to stable IDs synchronously, then `Task { @MainActor ... }` before touching AppKit or stores.
 
 **Don't:**
 

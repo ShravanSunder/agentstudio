@@ -32,6 +32,8 @@ Instead:
 - wait for the exact event or state you care about, with a bounded timeout
 - use injected clocks for debounce/timer behavior
 - fully shut down tasks, streams, actors, and observers before the test returns
+- use explicit protocol seams and fakes for testability
+- do not add new `#if DEBUG` test hooks in production files
 
 ## Architecture at a Glance
 
@@ -50,6 +52,13 @@ AppKit-main architecture hosting SwiftUI views. Seven `@Observable` atomic store
 **Worktree model is structure-only:** `id`, `repoId` (FK), `name`, `path`, `isMainWorktree`. No branch, no status. All enrichment lives in `WorkspaceRepoCache`, populated by the event bus.
 
 **Event bus pattern:** Mutate the store directly → emit a fact on the bus → coordinator updates the other store. This is NOT CQRS — no command bus, no command handlers. `ApplicationLifecycleMonitor` is ingress-only and mutates lifecycle stores directly from AppKit callbacks. See [State Management Patterns](#state-management-patterns) below and [Event System Design](docs/architecture/workspace_data_architecture.md#event-system-design-what-it-is-and-isnt) for full detail.
+
+**Embedded Ghostty host split:** Keep `Ghostty.shared` as the subsystem entrypoint and keep `Ghostty.App` thin. Host-side runtime responsibilities are split by isolation contract:
+- `Ghostty.AppHandle` owns `ghostty_app_t` and config lifetime
+- `Ghostty.CallbackRouter` owns the C callback table and userdata reconstruction
+- `Ghostty.ActionRouter` owns the action switch and runtime routing seam
+- `Ghostty.AppFocusSynchronizer` owns app-level focus sync via `AppLifecycleStore.isActive`
+Future terminal event-routing expansion belongs in `Ghostty.ActionRouter` plus adapter/runtime layers, not back in `Ghostty.swift`.
 
 ### Architecture Docs
 
