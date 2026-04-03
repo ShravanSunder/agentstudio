@@ -248,7 +248,9 @@ struct RepoScanner {
         }
 
         let gitDirPath = gitDirURL.standardizedFileURL.path
-        guard let worktreeRange = gitDirPath.range(of: "/.git/worktrees/") else { return nil }
+        guard let worktreeRange = gitDirPath.range(of: "/.git/worktrees/", options: .backwards) else {
+            return nil
+        }
         return URL(fileURLWithPath: String(gitDirPath[..<worktreeRange.lowerBound])).standardizedFileURL
     }
 }

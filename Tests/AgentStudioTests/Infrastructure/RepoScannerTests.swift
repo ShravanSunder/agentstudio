@@ -412,6 +412,19 @@ struct RepoScannerClassificationTests {
         #expect(result == nil)
     }
 
+    @Test("parseParentClonePath uses the closest worktrees segment in nested metadata-like paths")
+    func parseParentClonePathUsesClosestWorktreesSegment() {
+        let result = RepoScanner.parseParentClonePath(
+            fromGitFileContent:
+                "gitdir: /tmp/projects/.git/worktrees/my-repo/.git/worktrees/feature-a\n"
+        )
+
+        #expect(
+            result?.standardizedFileURL
+                == URL(fileURLWithPath: "/tmp/projects/.git/worktrees/my-repo").standardizedFileURL
+        )
+    }
+
     @Test("parseParentClonePath relative content without base path returns nil")
     func parseParentClonePathRelativeWithoutBasePathReturnsNil() {
         let result = RepoScanner.parseParentClonePath(

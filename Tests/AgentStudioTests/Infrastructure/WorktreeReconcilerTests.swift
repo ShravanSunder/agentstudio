@@ -304,6 +304,48 @@ struct WorktreeReconcilerTests {
         #expect(result.delta.didChange)
     }
 
+    @Test("existing worktree identities are consumed at most once during reconciliation")
+    func existingWorktreeIdentitiesAreConsumedAtMostOnce() {
+        let repoId = UUID(uuidString: "12121212-1212-1212-1212-121212121212")!
+        let existingFeatureId = UUID(uuidString: "34343434-3434-3434-3434-343434343434")!
+
+        let existing = [
+            makeWorktree(
+                id: existingFeatureId,
+                repoId: repoId,
+                name: "feature-a",
+                path: "/tmp/feature-a"
+            )
+        ]
+        let discovered = [
+            makeWorktree(
+                repoId: repoId,
+                name: "feature-a",
+                path: "/tmp/feature-a"
+            ),
+            makeWorktree(
+                repoId: repoId,
+                name: "feature-a",
+                path: "/tmp/feature-a-renamed"
+            ),
+        ]
+
+        let result = WorktreeReconciler.reconcile(
+            repoId: repoId,
+            existing: existing,
+            discovered: discovered
+        )
+
+        #expect(result.merged.count == 2)
+        #expect(Set(result.merged.map(\.id)).count == 2)
+        #expect(result.merged[0].id == existingFeatureId)
+        #expect(result.merged[1].id != existingFeatureId)
+        #expect(result.delta.preservedWorktreeIds == [existingFeatureId])
+        #expect(result.delta.addedWorktreeIds == [result.merged[1].id])
+        #expect(result.delta.removedWorktrees.isEmpty)
+        #expect(result.delta.didChange)
+    }
+
     @Test("empty discovery removes every existing worktree")
     func emptyDiscoveryRemovesAllExistingWorktrees() {
         let repoId = UUID(uuidString: "44444444-4444-4444-4444-444444444444")!

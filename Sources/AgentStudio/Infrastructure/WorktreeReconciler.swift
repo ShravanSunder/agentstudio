@@ -33,10 +33,14 @@ enum WorktreeReconciler {
 
         var preservedWorktreeIds: [UUID] = []
         var addedWorktreeIds: [UUID] = []
+        var consumedExistingIds = Set<UUID>()
 
         let merged = discovered.map { discoveredWorktree -> Worktree in
             let standardizedPath = discoveredWorktree.path.standardizedFileURL
-            if let existingByPathMatch = existingByPath[standardizedPath] {
+            if let existingByPathMatch = existingByPath[standardizedPath],
+                !consumedExistingIds.contains(existingByPathMatch.id)
+            {
+                consumedExistingIds.insert(existingByPathMatch.id)
                 preservedWorktreeIds.append(existingByPathMatch.id)
 
                 var updatedWorktree = existingByPathMatch
@@ -46,7 +50,11 @@ enum WorktreeReconciler {
                 return updatedWorktree
             }
 
-            if discoveredWorktree.isMainWorktree, let existingMainWorktree {
+            if discoveredWorktree.isMainWorktree,
+                let existingMainWorktree,
+                !consumedExistingIds.contains(existingMainWorktree.id)
+            {
+                consumedExistingIds.insert(existingMainWorktree.id)
                 preservedWorktreeIds.append(existingMainWorktree.id)
                 return Worktree(
                     id: existingMainWorktree.id,
@@ -57,7 +65,10 @@ enum WorktreeReconciler {
                 )
             }
 
-            if let existingByNameMatch = existingByName[discoveredWorktree.name] {
+            if let existingByNameMatch = existingByName[discoveredWorktree.name],
+                !consumedExistingIds.contains(existingByNameMatch.id)
+            {
+                consumedExistingIds.insert(existingByNameMatch.id)
                 preservedWorktreeIds.append(existingByNameMatch.id)
                 return Worktree(
                     id: existingByNameMatch.id,
