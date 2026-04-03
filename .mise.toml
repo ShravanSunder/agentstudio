@@ -11,7 +11,14 @@ description = "Populate git submodules required for vendored builds"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
+echo "[setup] hydrating git submodules..."
 git submodule update --init --recursive
+if [ -f "vendor/ghostty/build.zig" ]; then
+  echo "[setup] ghostty ready"
+fi
+if [ -f "vendor/zmx/build.zig" ]; then
+  echo "[setup] zmx ready"
+fi
 """
 
 [tasks.build-ghostty]
