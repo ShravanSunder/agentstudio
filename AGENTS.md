@@ -8,14 +8,15 @@ macOS terminal application embedding Ghostty terminal emulator with project/work
 Build orchestration uses [mise](https://mise.jdx.dev/). Install with `brew install mise`.
 
 ```bash
-mise run build                # Full debug build (ghostty + zmx + dev resources + swift)
+mise run setup                # Init submodules, build vendored artifacts, copy resources
+mise run build                # Build the Swift app
 mise run test                 # Run tests (Swift 6 `Testing`)
 mise run format               # Auto-format all Swift sources
 mise run lint                 # Lint (swift-format + swiftlint + boundary checks)
 .build/debug/AgentStudio      # Launch debug build
 ```
 
-First-time setup: `git submodule update --init --recursive && mise install && mise run build`. See [Agent Resources](docs/guides/agent_resources.md) for full bootstrap.
+First-time setup: `mise install && mise run doctor-mac && mise run setup && mise run build`. See [Agent Resources](docs/guides/agent_resources.md) for full bootstrap.
 
 Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and swiftlint automatically after every Edit/Write on `.swift` files.
 
