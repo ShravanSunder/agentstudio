@@ -808,12 +808,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 1. Persist the watched path (direct store mutation)
         store.addWatchedPath(rootURL)
 
+        // 2. Signal scanning state for UI
+        store.beginScan(rootURL)
+
         // The watched-folder command returns the authoritative scan summary.
         // Do not infer the result from store.repos here because coordinator
         // consumption also runs on MainActor and may not have drained the bus yet.
         let refreshSummary = await watchedFolderCommands.refreshWatchedFolders(
             store.watchedPaths.map(\.path)
         )
+
+        // 3. Clear scanning state
+        store.endScan()
+
         let repoPaths = refreshSummary.repoPaths(in: rootURL)
 
         guard !repoPaths.isEmpty else {
