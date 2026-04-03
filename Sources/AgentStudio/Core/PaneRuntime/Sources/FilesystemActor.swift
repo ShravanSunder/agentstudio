@@ -673,10 +673,9 @@ actor FilesystemActor {
         let previousClonePaths = Set(previousRepoGroupsByClonePath.keys)
 
         let addedRepoPaths = currentClonePaths.subtracting(previousClonePaths)
-            .sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
-        let changedRepoPaths = currentClonePaths.intersection(previousClonePaths).sorted {
-            $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending
-        }
+            .sorted(by: Self.sortByPath)
+        let changedRepoPaths = currentClonePaths.intersection(previousClonePaths)
+            .sorted(by: Self.sortByPath)
         let removedClonePaths = previousClonePaths.subtracting(currentClonePaths)
 
         watchedFolderRepoGroupsByRoot[folderPath] = currentRepoGroups
@@ -705,9 +704,7 @@ actor FilesystemActor {
         }
 
         return WatchedFolderRefreshResult(
-            repoPaths: currentRepoGroups.map(\.clonePath).sorted {
-                $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending
-            },
+            repoPaths: currentRepoGroups.map(\.clonePath).sorted(by: Self.sortByPath),
             removedClonePaths: removedClonePaths
         )
     }
