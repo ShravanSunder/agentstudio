@@ -15,7 +15,7 @@ struct SessionConfiguration: Sendable {
     /// Path to the zmx binary. Nil if zmx is not found.
     let zmxPath: String?
 
-    /// Directory for zmx socket/state isolation (~/.agentstudio/z/).
+    /// Directory for zmx socket/state isolation under the shared app data root.
     let zmxDir: String
 
     /// How often to run health checks on active sessions (seconds).
@@ -36,7 +36,7 @@ struct SessionConfiguration: Sendable {
             ?? true
 
         let zmxPath = findZmx()
-        let zmxDir = ZmxBackend.defaultZmxDir
+        let zmxDir = AppDataPaths.zmxDirectory(environment: env).path
         let backgroundRestorePolicy = Self.resolveBackgroundRestorePolicy()
 
         let healthInterval =

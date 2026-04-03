@@ -113,10 +113,9 @@ final class SurfaceManager {
         self.clock = clock
         (cwdChangeStream, cwdChangeContinuation) = AsyncStream.makeStream()
 
-        let appSupport = FileManager.default.homeDirectoryForCurrentUser
-            .appending(path: ".agentstudio")
+        let appSupport = AppDataPaths.rootDirectory()
         try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        self.checkpointURL = appSupport.appending(path: "surface-checkpoint.json")
+        self.checkpointURL = AppDataPaths.surfaceCheckpointURL()
 
         setupHealthMonitoring()
 

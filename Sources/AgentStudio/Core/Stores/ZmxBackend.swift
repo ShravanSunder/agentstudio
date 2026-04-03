@@ -105,8 +105,7 @@ final class ZmxBackend: SessionBackend {
 
     /// Default zmx directory for socket/state isolation.
     static let defaultZmxDir: String = {
-        FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".agentstudio/z").path
+        AppDataPaths.zmxDirectory().path
     }()
 
     /// Extract a session identifier from `zmx list` output.
