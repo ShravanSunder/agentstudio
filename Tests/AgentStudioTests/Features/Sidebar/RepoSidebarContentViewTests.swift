@@ -118,6 +118,184 @@ struct RepoSidebarContentViewTests {
         }
     }
 
+    @Test("checkout icon kind uses star for the main worktree")
+    func checkoutIconKindUsesStarForMainWorktree() {
+        let repoId = UUID()
+        let repo = SidebarRepo(
+            id: repoId,
+            name: "agent-studio",
+            repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+            stableKey: "agent-studio",
+            worktrees: [
+                Worktree(
+                    repoId: repoId,
+                    name: "main",
+                    path: URL(fileURLWithPath: "/tmp/agent-studio"),
+                    isMainWorktree: true
+                ),
+                Worktree(
+                    repoId: repoId,
+                    name: "feature-sidebar",
+                    path: URL(fileURLWithPath: "/tmp/agent-studio-feature"),
+                    isMainWorktree: false
+                ),
+            ]
+        )
+        let worktree = repo.worktrees[0]
+        #expect(RepoSidebarContentView.checkoutIconKind(for: worktree, in: repo) == .mainCheckout)
+    }
+
+    @Test("checkout icon kind uses git-worktree for a secondary worktree")
+    func checkoutIconKindUsesGitWorktreeForSecondaryWorktree() {
+        let repoId = UUID()
+        let repo = SidebarRepo(
+            id: repoId,
+            name: "agent-studio",
+            repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+            stableKey: "agent-studio",
+            worktrees: [
+                Worktree(
+                    repoId: repoId,
+                    name: "main",
+                    path: URL(fileURLWithPath: "/tmp/agent-studio"),
+                    isMainWorktree: true
+                ),
+                Worktree(
+                    repoId: repoId,
+                    name: "feature-sidebar",
+                    path: URL(fileURLWithPath: "/tmp/agent-studio-feature"),
+                    isMainWorktree: false
+                ),
+            ]
+        )
+        let worktree = repo.worktrees[1]
+        #expect(RepoSidebarContentView.checkoutIconKind(for: worktree, in: repo) == .gitWorktree)
+    }
+
+    @Test("checkout icon kind uses star for a standalone repo")
+    func checkoutIconKindUsesStarForStandaloneRepo() {
+        let repoId = UUID()
+        let repo = SidebarRepo(
+            id: repoId,
+            name: "agent-studio",
+            repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+            stableKey: "agent-studio",
+            worktrees: [
+                Worktree(
+                    repoId: repoId,
+                    name: "main",
+                    path: URL(fileURLWithPath: "/tmp/agent-studio"),
+                    isMainWorktree: true
+                )
+            ]
+        )
+        #expect(RepoSidebarContentView.checkoutIconKind(for: repo.worktrees[0], in: repo) == .mainCheckout)
+    }
+
+    @Test("same repo worktrees share one color")
+    func sameRepoWorktreesShareOneColor() {
+        let repoId = UUID()
+        let singleWorktreeRepo = SidebarRepo(
+            id: repoId,
+            name: "agent-studio",
+            repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+            stableKey: "agent-studio",
+            worktrees: [
+                Worktree(
+                    repoId: repoId,
+                    name: "main",
+                    path: URL(fileURLWithPath: "/tmp/agent-studio"),
+                    isMainWorktree: true
+                )
+            ]
+        )
+        let multiWorktreeRepo = SidebarRepo(
+            id: repoId,
+            name: "agent-studio",
+            repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+            stableKey: "agent-studio",
+            worktrees: [
+                Worktree(
+                    repoId: repoId,
+                    name: "main",
+                    path: URL(fileURLWithPath: "/tmp/agent-studio"),
+                    isMainWorktree: true
+                ),
+                Worktree(
+                    repoId: repoId,
+                    name: "feature-sidebar",
+                    path: URL(fileURLWithPath: "/tmp/agent-studio-feature"),
+                    isMainWorktree: false
+                ),
+            ]
+        )
+        let singleGroup = SidebarRepoGroup(
+            id: "remote:askluna/agent-studio",
+            repoTitle: "agent-studio",
+            organizationName: "askluna",
+            repos: [singleWorktreeRepo]
+        )
+        let multiGroup = SidebarRepoGroup(
+            id: "remote:askluna/agent-studio",
+            repoTitle: "agent-studio",
+            organizationName: "askluna",
+            repos: [multiWorktreeRepo]
+        )
+        let singleColorHex = RepoSidebarContentView.checkoutColorHex(
+            for: singleWorktreeRepo,
+            in: singleGroup
+        )
+        let multiColorHex = RepoSidebarContentView.checkoutColorHex(
+            for: multiWorktreeRepo,
+            in: multiGroup
+        )
+
+        #expect(singleColorHex == multiColorHex)
+    }
+
+    @Test("different repos in the same group get different colors")
+    func differentReposInSameGroupGetDifferentColors() {
+        let repoA = SidebarRepo(
+            id: UUID(),
+            name: "agent-studio-main",
+            repoPath: URL(fileURLWithPath: "/tmp/agent-studio-main"),
+            stableKey: "agent-studio-main",
+            worktrees: [
+                Worktree(
+                    repoId: UUID(),
+                    name: "main",
+                    path: URL(fileURLWithPath: "/tmp/agent-studio-main"),
+                    isMainWorktree: true
+                )
+            ]
+        )
+        let repoB = SidebarRepo(
+            id: UUID(),
+            name: "agent-studio-fork",
+            repoPath: URL(fileURLWithPath: "/tmp/agent-studio-fork"),
+            stableKey: "agent-studio-fork",
+            worktrees: [
+                Worktree(
+                    repoId: UUID(),
+                    name: "main",
+                    path: URL(fileURLWithPath: "/tmp/agent-studio-fork"),
+                    isMainWorktree: true
+                )
+            ]
+        )
+        let group = SidebarRepoGroup(
+            id: "remote:askluna/agent-studio",
+            repoTitle: "agent-studio",
+            organizationName: "askluna",
+            repos: [repoA, repoB]
+        )
+
+        let colorA = RepoSidebarContentView.checkoutColorHex(for: repoA, in: group)
+        let colorB = RepoSidebarContentView.checkoutColorHex(for: repoB, in: group)
+
+        #expect(colorA != colorB)
+    }
+
     @Test("sidebar projection separates resolved groups from loading repos")
     func sidebarProjectionSeparatesResolvedGroupsFromLoadingRepos() {
         let resolvedId = UUID()

@@ -1,835 +1,1332 @@
-# Sidebar Worktree Family Icons & Colors Implementation Plan
+# Sidebar Worktree Family Icons & Colors
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Fix the sidebar so each checkout gets a star icon and unique color shared by all its worktrees, and secondary worktrees get the worktree icon with the same color as their parent checkout.
+**Goal:** Linked worktrees render as one checkout family in the sidebar — star icon for main checkout, worktree icon for secondaries, shared color per family.
 
-**Architecture:** Wire the existing `.worktreeDiscovered` event (already defined in `GitWorkingDirectoryEvent`, never emitted) through the enrichment pipeline. `GitWorkingDirectoryProjector` calls `WorktrunkService.discoverWorktrees()` on initial worktree registration and emits `.worktreeDiscovered` facts. `WorkspaceCacheCoordinator` handles these facts by calling `WorkspaceStore.reconcileDiscoveredWorktrees()`, which merges discovered worktrees under their parent repo. The sidebar then reads correct `repo.worktrees` data and renders icons/colors accordingly.
+**Architecture:** Fix canonical topology at its source. Scanner classifies `.git` file vs directory. FilesystemActor emits grouped `.repoDiscovered`. Coordinator sequences reconciliation via a pure `WorktreeReconciler` function, updates the store via the existing `reconcileDiscoveredWorktrees`, handles cache cleanup itself, and passes a typed `TopologyDelta` to an injected `TopologyEffectHandler`. PaneCoordinator handles pane orphaning and filesystem root sync via the handler — NOT via a bus topology subscription. Cache pruning stays in the coordinator (which already owns `repoCache`). Independent consumers (ForgeActor, NotificationReducer) still consume raw facts from the bus. No dependency on the atoms refactor — works with the current `WorkspaceStore` shape.
 
-**Tech Stack:** Swift 6.2, `WorktrunkService` (`wt list` CLI), `EventBus<RuntimeEnvelope>`, Swift Testing
-
----
-
-## Architecture Context
-
-This plan follows the established enrichment pipeline pattern documented in [Workspace Data Architecture](../../architecture/workspace_data_architecture.md) and [EventBus Design](../../architecture/pane_runtime_eventbus_design.md).
-
-### The Enrichment Pipeline (existing pattern)
-
-```
-FilesystemActor → EventBus → GitWorkingDirectoryProjector → EventBus → WorkspaceCacheCoordinator → Stores
-```
-
-Each boundary actor enriches independently and posts facts to the bus. The coordinator is the single consolidation consumer. The bus is a dumb pipe — no domain logic, no filtering.
-
-### What Already Exists (designed, not yet wired)
-
-| Component | Status | Reference |
-|-----------|--------|-----------|
-| `.worktreeDiscovered(repoId:, worktreePath:, branch:, isMain:)` | **Defined** in `RuntimeEnvelopeCore.swift:56` | Event namespace in architecture doc line 281 |
-| `.worktreeRemoved(repoId:, worktreePath:)` | **Defined** in `RuntimeEnvelopeCore.swift:57` | Event namespace in architecture doc line 282 |
-| `WorkspaceCacheCoordinator` handler for `.worktreeDiscovered` | **Stub** — `break` at `WorkspaceCacheCoordinator.swift:212` | Should call `reconcileDiscoveredWorktrees` |
-| `WorkspaceStore.reconcileDiscoveredWorktrees()` | **Implemented** at `WorkspaceStore.swift:1388` | Merges worktrees by path, preserves UUIDs |
-| `WorktrunkService.discoverWorktrees(for:repoId:)` | **Implemented** at `WorktrunkService.swift:28` | Uses `wt list --format=json` with `git worktree list --porcelain` fallback |
-| `GitWorkingDirectoryProjector` runs `git worktree list` | **Documented** in architecture (line 214) | Never implemented in projector code |
-| `ForgeActor` subscribes to `.worktreeDiscovered` | **Implemented** at `ForgeActor.swift:203` | Already tracks branches from discovered worktrees |
-
-### What's Broken (root cause)
-
-`RepoScanner.scanForGitRepos()` (`RepoScanner.swift:32`) uses `FileManager.fileExists(atPath: gitDir.path)` which returns `true` for both `.git` directories (real clones) and `.git` files (worktree checkouts). Every on-disk directory becomes a separate `Repo` with `worktrees.count == 1` and `isMainWorktree: true`.
-
-The projector is documented to run `git worktree list` and emit `.worktreeDiscovered` events, but this was never implemented. The coordinator handles `.worktreeDiscovered` as a no-op `break`. So the store never learns that multiple repos are actually worktrees of the same parent.
-
-### The Fix (follows existing architecture)
-
-Wire the missing step: after the projector receives a `.worktreeRegistered` topology event and computes git status, it also calls `WorktrunkService.discoverWorktrees()` and emits `.worktreeDiscovered` facts for each discovered worktree. The coordinator handles these facts by reconciling worktrees under the correct parent repo. No new event types. No new model fields. No changes to `RawRepoOrigin` or `RepoEnrichment`.
-
-```
-FilesystemActor emits .worktreeRegistered
-    ↓ (bus)
-GitWorkingDirectoryProjector
-    → runs git status (existing)
-    → calls WorktrunkService.discoverWorktrees() (NEW)
-    → emits .worktreeDiscovered per worktree (NEW, event already defined)
-    ↓ (bus)
-WorkspaceCacheCoordinator
-    → handles .worktreeDiscovered (currently: break)
-    → calls store.reconcileDiscoveredWorktrees() (NEW wiring)
-    ↓
-WorkspaceStore now has correct repo.worktrees with proper isMainWorktree flags
-    ↓
-Sidebar reads correct data → icons and colors work
-```
-
-### Why WorktrunkService, Not Raw Git
-
-`WorktrunkService` (`Infrastructure/WorktrunkService.swift`) is the established infrastructure component (component 3.11 in [Component Architecture](../../architecture/component_architecture.md)). It wraps `wt list --format=json` with fallback to `git worktree list --porcelain`. Using it follows the architecture's rule: domain actors don't run raw git commands — they use injected infrastructure.
+**Tech Stack:** Swift 6.2, `EventBus<RuntimeEnvelope>`, Swift Testing
 
 ---
 
-## Event System: Concrete Flow
+## 1. The Mental Model
 
-This section draws the exact event flow for this feature, end to end. Read this before touching code.
-
-### The Three Data Flow Planes
-
-The architecture has three planes (see [Pane Runtime Architecture — Three Data Flow Planes](../../architecture/pane_runtime_architecture.md)):
+Five layers. Each layer's output is the next layer's input. No layer reaches back.
 
 ```
-EVENT PLANE (one-way: producers → EventBus → consumers)
-  Facts about the world. "A worktree exists at this path." "Branch changed."
-  Never flows backward. Bus is dumb fan-out.
+LAYER                    OWNS                           DOES NOT OWN
+───────────────────────  ─────────────────────────────  ──────────────────────
+Fact Producers           Observing the world            Interpreting observations
+(FilesystemActor)        Emitting raw facts             Deciding what facts mean
 
-COMMAND PLANE (one-way: user/system → coordinator → runtime)
-  Request-response. "Open this worktree." "Close this tab."
-  Never flows through the EventBus.
+Publication              Fan-out delivery               Ordering, filtering,
+(EventBus)               To all subscribers             interpretation
 
-UI PLANE (runtime → SwiftUI view)
-  @Observable properties. Zero overhead. Synchronous on MainActor.
-  Sidebar reads stores via @Observable — no imperative fetches.
+Accumulator              Interpreting facts             Domain diff logic
+(Coordinator)            Sequencing effects             Identity preservation
+                         Calling reconciler + handler   Filesystem/git work
+
+Reconciler + Store       Canonical state (store)        Sequencing effects
+(WorktreeReconciler,     Identity preservation          Event bus interaction
+ WorkspaceStore)         Diff computation (reconciler)  External system calls
+
+Ordered Effects          Orphan panes, sync roots,      Interpreting raw facts
+(TopologyEffectHandler)  prune cache                    Mutating canonical state
+                                                        Computing diffs
 ```
 
-This feature operates entirely on the **event plane** (enrichment pipeline) and **UI plane** (sidebar reads stores).
-
-### Envelope Hierarchy
-
-Events travel in typed envelopes. The bus is generic over `RuntimeEnvelope`, which is a 3-tier discriminated union:
+**The rule:** facts in → accumulator interprets → reconciler computes merged state + delta → store mutated → cache pruned → ordered effects → UI reads.
 
 ```
-RuntimeEnvelope
-├── .system(SystemEnvelope)       ← topology events (repo discovered/removed, worktree registered)
-├── .worktree(WorktreeEnvelope)   ← enrichment events (git status, branch, origin, worktree discovered)
-└── .pane(PaneEnvelope)           ← per-pane events (title changed, bell rang)
+fact → accumulator → reconciler(old, new) → (merged, delta) → store.reconcile(merged) → coordinator prunes cache → effects(delta) → UI reads
 ```
-
-For this feature:
-- `.system(.topology(.worktreeRegistered))` — **trigger** (already emitted by FilesystemActor)
-- `.worktree(.gitWorkingDirectory(.worktreeDiscovered))` — **new emission** from projector
-- Coordinator subscribes to the bus and handles both
-
-### Actor Boundaries
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    COOPERATIVE POOL ACTORS                       │
-│                                                                 │
-│  ┌──────────────────┐     ┌───────────────────────────────┐    │
-│  │ FilesystemActor   │     │ GitWorkingDirectoryProjector  │    │
-│  │ (app-wide)        │     │ (app-wide, keyed by worktree) │    │
-│  │                   │     │                               │    │
-│  │ Owns: FSEvents,   │     │ Owns: git status enrichment   │    │
-│  │ path routing,     │     │                               │    │
-│  │ repo scanning     │     │ NEW: calls WorktrunkService   │    │
-│  │                   │     │ .discoverWorktrees() and      │    │
-│  │ Emits:            │     │ emits .worktreeDiscovered     │    │
-│  │ SystemEnvelope    │     │                               │    │
-│  │ (.topology(       │     │ Emits:                        │    │
-│  │   .worktreeReg.)) │     │ WorktreeEnvelope              │    │
-│  └────────┬──────────┘     │ (.gitWorkingDirectory(        │    │
-│           │                │   .worktreeDiscovered))        │    │
-│           │                └──────────┬────────────────────┘    │
-│           │                           │                         │
-└───────────┼───────────────────────────┼─────────────────────────┘
-            │                           │
-            ▼                           ▼
-    ┌───────────────────────────────────────────────┐
-    │         actor EventBus<RuntimeEnvelope>        │
-    │         (cooperative pool, dumb fan-out)       │
-    │                                               │
-    │  post() → yield to all subscriber streams     │
-    │  No domain logic. No filtering. No transform. │
-    └───────────┬───────────────┬───────────────────┘
-                │               │
-                ▼               ▼
-    ┌───────────────────┐   ┌──────────────────────┐
-    │ ForgeActor         │   │ @MainActor consumers  │
-    │ (already handles   │   │                      │
-    │ .worktreeDiscovered│   │ WorkspaceCacheCoord.  │
-    │ — tracks branches) │   │ (NEW: reconcile      │
-    │                    │   │  discovered worktrees │
-    │                    │   │  into WorkspaceStore) │
-    └────────────────────┘   └──────────┬───────────┘
-                                        │
-                              ┌─────────┴─────────┐
-                              ▼                   ▼
-                      WorkspaceStore      WorkspaceRepoCache
-                      (@Observable)       (@Observable)
-                              │                   │
-                              └─────────┬─────────┘
-                                        ▼
-                              Sidebar (pure reader)
-                              (@Observable binding)
-```
-
-### Concrete Event Sequence (what happens when user adds a folder)
-
-```
-TIME  ACTOR                    EVENT                                  ENVELOPE TYPE
-────  ─────                    ─────                                  ─────────────
- t0   FilesystemActor          scans ~/projects, finds /my-repo       (internal)
- t1   FilesystemActor          .repoDiscovered(repoPath:/my-repo)     SystemEnvelope
-                               → bus.post()
-
- t2   WorkspaceCacheCoord.     handleTopology(.repoDiscovered)        (consumes from bus)
-      (MainActor)              → store.addRepo(at:/my-repo)
-                               → creates Repo with 1 worktree, isMainWorktree:true
-                               → cache.setEnrichment(.awaitingOrigin)
-
- t3   PaneCoordinator          syncs filesystem roots                 (command plane)
-      (MainActor)              → filesystemActor.register(
-                                   worktreeId, repoId, rootPath)
-
- t4   FilesystemActor          .worktreeRegistered(wt-1, repo-A,      SystemEnvelope
-                                rootPath:/my-repo)
-                               → bus.post()
-
- t5   GitWorkingDirectory      receives .worktreeRegistered           (consumes from bus)
-      Projector                → runs git status via provider
-                               → emits .snapshotChanged              WorktreeEnvelope
-                               → emits .branchChanged                WorktreeEnvelope
-                               → emits .originChanged                WorktreeEnvelope
-
- t6   GitWorkingDirectory      ★ NEW: initial registration detected   (internal)
-      Projector                → calls WorktrunkService
-                                 .discoverWorktrees(for:/my-repo)
-                               → wt list returns:
-                                 /my-repo (main), /my-repo.feat (secondary)
-
- t7   GitWorkingDirectory      .worktreeDiscovered(repo-A,            WorktreeEnvelope
-      Projector                  path:/my-repo, branch:"", isMain:true)
-                               → bus.post()
-      GitWorkingDirectory      .worktreeDiscovered(repo-A,            WorktreeEnvelope
-      Projector                  path:/my-repo.feat, branch:"",
-                                 isMain:false)
-                               → bus.post()
-
- t8   WorkspaceCacheCoord.     ★ NEW: handleEnrichment                (consumes from bus)
-      (MainActor)              (.worktreeDiscovered, repo-A,
-                                path:/my-repo.feat, isMain:false)
-                               → appends Worktree to repo.worktrees
-                               → calls store.reconcileDiscoveredWorktrees()
-                               → Repo now has 2 worktrees with correct isMainWorktree
-
- t9   ForgeActor               handles .worktreeDiscovered            (consumes from bus)
-                               → tracks branch for PR lookup
-                               (already implemented, no change needed)
-
- t10  Sidebar                  @Observable fires                      (UI plane)
-      (SwiftUI)                → repo.worktrees.count == 2
-                               → main worktree: star icon, Color A
-                               → secondary worktree: worktree icon, Color A
-```
-
-### Key Architecture Rules This Plan Follows
-
-1. **Bus carries facts, not commands.** `.worktreeDiscovered` is a fact ("this worktree exists at this path"). The coordinator calls store methods in response — the bus never routes mutations.
-
-2. **No core actor calls another core actor for event-plane data.** The projector posts to the bus; the coordinator subscribes from the bus. They never call each other directly for event data. (Command-plane calls like `forgeActor.refresh()` are direct — different plane.)
-
-3. **Boundary actors enrich independently.** `GitWorkingDirectoryProjector` does worktree discovery via `WorktrunkService`. It doesn't ask the coordinator or the store — it discovers and emits facts.
-
-4. **`@concurrent nonisolated` for blocking I/O.** `WorktrunkService.discoverWorktrees()` shells out to `wt list`. The projector calls it via a `@concurrent nonisolated static` helper so it runs on the cooperative pool, not on the projector's serial executor.
-
-5. **Coordinator is sequencing-only.** The new `.worktreeDiscovered` handler calls `reconcileDiscoveredWorktrees()`. No domain logic — just "when I see X, call Y."
-
-6. **Sidebar is a pure reader.** No new imperative fetches. The existing `@Observable` binding on `WorkspaceStore.repos` and `repo.worktrees` drives the UI update automatically when the store is mutated.
 
 ---
 
-## File Structure
+## 2. The Architecture: Bus for Notification, Handler for Sequencing
 
-| File | Action | Responsibility |
-|------|--------|----------------|
-| `Sources/.../GitWorkingDirectoryProjector.swift` | Modify | Call `WorktrunkService.discoverWorktrees()` on worktree registration, emit `.worktreeDiscovered` facts |
-| `Sources/.../WorkspaceCacheCoordinator.swift:212` | Modify | Handle `.worktreeDiscovered` → call `reconcileDiscoveredWorktrees` |
-| `Sources/.../RepoSidebarContentView.swift:425-435,712-727` | Modify | Fix `checkoutIconKind` and `checkoutTypeIcon` — star for main/standalone, worktree icon for secondary |
-| `Sources/.../RepoSidebarContentView.swift:360-385` | Modify | Fix `colorForCheckout` — color per checkout, shared across worktrees |
-| `Tests/.../WorkspaceCacheCoordinatorIntegrationTests.swift` | Modify | Integration test: worktree registration → discovery → reconciliation |
-| `Tests/.../RepoSidebarContentViewTests.swift` | Modify | Tests for icon kind and color with multi-worktree repos |
+Not all event consumers are equal. Some are **independent** (react to facts, don't care about store state). Others are **dependent** (MUST run after store mutation, need to know WHAT changed). Using one mechanism for both is where ordering fragility comes from.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                                                                         │
+│  CHANNEL 1: EventBus (fan-out, independent consumers)                  │
+│                                                                         │
+│  FilesystemActor ──post()──► EventBus ──fan-out──► ForgeActor          │
+│                                                  ► NotificationReducer  │
+│                                                  ► Coordinator (intake) │
+│                                                                         │
+│  Bus is DUMB. No ordering. No priority. No sequencing.                 │
+│                                                                         │
+│  CHANNEL 2: TopologyEffectHandler (sequential, dependent consumers)    │
+│                                                                         │
+│  Coordinator ──topologyDidChange(delta)──► PaneCoordinator             │
+│  (direct call, after store mutation, deterministic)                     │
+│                                                                         │
+│  Handler is DETERMINISTIC. Always runs after mutation. Always ordered.  │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Why This Split
+
+| Consumer | Independent? | Reads store? | Current mechanism | Proposed mechanism |
+|----------|-------------|-------------|-------------------|-------------------|
+| ForgeActor | Yes | No | Bus subscription | Bus subscription (unchanged) |
+| NotificationReducer | Yes | No | Bus subscription | Bus subscription (unchanged) |
+| WorkspaceCacheCoordinator | N/A (IS the accumulator) | Yes | Bus subscription | Bus subscription (unchanged) |
+| PaneCoordinator (topology sync) | **No** — must run after store mutation | **Yes** — reads `store.repos` | Bus subscription (accidental ordering) | **TopologyEffectHandler** (deterministic) |
+
+### Why Not Other Ordering Approaches
+
+| Approach | Problem |
+|----------|---------|
+| Subscriber priority on bus | Makes bus smart. Violates "dumb pipe." Priority inversion risk. |
+| Cascading events (`.topologyReconciled`) | Every primary→secondary dep needs a new event type. Long chains hard to trace. |
+| CausationId for runtime ordering | Forces consumers to invent protocol on top of bus. Hard to test. |
+| Store returns delta | Violates atoms model — atoms are pure state, no interpretation/diff results. |
 
 ---
 
-## Task 1: Emit `.worktreeDiscovered` from GitWorkingDirectoryProjector
+## 3. WorktreeReconciler: Pure Function for Diff + Identity Preservation
 
-**Files:**
-- Modify: `Sources/AgentStudio/Core/PaneRuntime/Sources/GitWorkingDirectoryProjector.swift`
+The reconciliation logic (match by path, preserve existing UUIDs, compute delta) is extracted into a **pure function** — not on the atom, not on the coordinator. This fits the atoms refactor: atoms are dumb state containers, coordinators sequence, reconcilers compute.
 
-- [ ] **Step 1: Write the failing integration test**
+```
+SEPARATION OF CONCERNS:
 
-Add to `Tests/AgentStudioTests/App/WorkspaceCacheCoordinatorIntegrationTests.swift`:
+  Store        = "canonical state, mutated via existing reconcileDiscoveredWorktrees" (current API)
+  Reconciler   = "match old vs new, preserve identities, compute delta" (pure function, extracted)
+  Coordinator  = "call reconciler, update store, prune cache, call effect handler" (sequencing)
+  EffectHandler = "orphan panes, sync filesystem roots" (ordered effects, PaneCoordinator)
+```
+
+**Note:** This plan works with the CURRENT `WorkspaceStore` shape. `reconcileDiscoveredWorktrees` remains the store mutation method. The `WorktreeReconciler` is extracted alongside it as a pure function for delta computation. When the atoms refactor lands later, the reconciler already fits — no rework needed.
+
+### The Types
 
 ```swift
-@Test
-func integration_worktreeDiscoveryReconcilesSiblingWorktrees() async {
-    let bus = EventBus<RuntimeEnvelope>()
-    let workspaceStore = makeWorkspaceStore()
-    let repoCache = WorkspaceRepoCache()
-    let coordinator = WorkspaceCacheCoordinator(
-        bus: bus,
-        workspaceStore: workspaceStore,
-        repoCache: repoCache,
-        scopeSyncHandler: { _ in }
-    )
-    let mainRepoPath = URL(fileURLWithPath: "/tmp/worktree-discovery-main")
-    let secondaryPath = URL(fileURLWithPath: "/tmp/worktree-discovery-feature")
+struct WorktreeTopologyDelta: Sendable, Equatable {
+    let repoId: UUID
+    let addedWorktreeIds: [UUID]
+    let removedWorktreeIds: [UUID]
+    let preservedWorktreeIds: [UUID]
+    let didChange: Bool
+    let traceId: UUID?  // links to originating event for observability
+}
 
-    let projector = GitWorkingDirectoryProjector(
-        bus: bus,
-        gitWorkingTreeProvider: .stub { _ in
-            GitWorkingTreeStatus(
-                summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
-                branch: "main",
-                origin: "git@github.com:askluna/agent-studio.git"
-            )
-        },
-        worktreeDiscoverer: .stub { path, repoId in
-            // Simulate: WorktrunkService discovers two worktrees for this repo
-            [
-                Worktree(repoId: repoId, name: "main", path: mainRepoPath, isMainWorktree: true),
-                Worktree(repoId: repoId, name: "feature", path: secondaryPath, isMainWorktree: false),
-            ]
-        },
-        coalescingWindow: .zero
-    )
+enum WorktreeReconciler {
+    /// Pure function. No side effects. No store access.
+    /// Matches discovered worktrees against existing by path (primary),
+    /// main worktree flag, and name (fallback). Preserves existing UUIDs.
+    /// Returns the merged list AND a typed delta.
+    static func reconcile(
+        repoId: UUID,
+        existing: [Worktree],
+        discovered: [Worktree],
+        traceId: UUID? = nil
+    ) -> (merged: [Worktree], delta: WorktreeTopologyDelta)
+}
+```
 
-    await withStartedCoordinatorAndProjector(bus: bus, coordinator: coordinator, projector: projector) {
-        // Add the main repo
-        let repo = workspaceStore.addRepo(at: mainRepoPath)
-        #expect(repo.worktrees.count == 1)
-        #expect(repo.worktrees[0].isMainWorktree == true)
+### Why a Pure Function
 
-        // Register worktree → triggers projector → discovers siblings → emits .worktreeDiscovered
-        let worktreeId = UUID()
-        _ = await bus.post(
-            .system(
-                SystemEnvelope.test(
-                    event: .topology(
-                        .worktreeRegistered(worktreeId: worktreeId, repoId: repo.id, rootPath: mainRepoPath)
-                    ),
-                    source: .builtin(.filesystemWatcher)
-                )
-            )
-        )
+- **Testable without stores, bus, or actors.** Input: two arrays. Output: merged array + delta. Dozens of edge cases testable in milliseconds.
+- **Atoms stay dumb.** The atom gets `setWorktrees(repoId, merged)` — a simple setter. No return values, no interpretation.
+- **Coordinator stays sequencing-only.** It doesn't contain diff logic — it calls the reconciler and passes the result through.
+- **The reconciliation logic is the same** as what `WorkspaceStore.reconcileDiscoveredWorktrees` does today (`WorkspaceStore.swift:1388-1433`). It just moves from an inline store method to an extracted pure function.
 
-        let reconciled = await eventually("repo should have 2 worktrees after discovery") {
-            guard let updatedRepo = workspaceStore.repos.first(where: { $0.id == repo.id }) else {
-                return false
-            }
-            return updatedRepo.worktrees.count == 2
-                && updatedRepo.worktrees.contains(where: { $0.isMainWorktree && $0.path == mainRepoPath })
-                && updatedRepo.worktrees.contains(where: { !$0.isMainWorktree && $0.path == secondaryPath })
+---
+
+## 4. How FSEvents Become Topology Facts
+
+The FilesystemActor uses a **rescan-based** strategy. It never parses individual FSEvent paths for topology meaning.
+
+```
+macOS FSEvents delivers raw paths
+    ↓
+FilesystemActor ingress task routes by worktreeId:
+  watched folder batch? → handleWatchedFolderFSEvent()   ← TOPOLOGY PATH
+  registered worktree?  → enqueueRawPaths()               ← FILE CHANGE PATH (unrelated)
+    ↓
+handleWatchedFolderFSEvent:
+  Any path contains "/.git/" or ends with "/.git"?
+    NO  → ignore (not topology-relevant)
+    YES → FULL RESCAN of that watched folder
+    ↓
+refreshWatchedFolder:
+  1. Run enhanced scanner on entire folder (@concurrent, blocking I/O)
+  2. Diff current grouped scan results vs previous stored state
+  3. Emit topology events for differences
+  4. Store current state for next diff
+```
+
+**Key design properties:**
+- Rescan, don't parse. One mechanism handles `git worktree add`, `rm -rf`, `git clone`, `mv`.
+- Heuristic gate is cheap (string check, no I/O).
+- Full rescan is correct by construction — no state machine.
+- Periodic fallback (300s) catches anything FSEvents missed.
+
+---
+
+## 5. What's Broken and Why
+
+### Root Cause
+
+`RepoScanner.scanForGitRepos()` (`RepoScanner.swift:32`) uses `FileManager.fileExists(atPath:)` which returns `true` for both `.git` directories (clones) and `.git` files (linked worktrees). Every path becomes a separate Repo with `worktrees.count == 1`.
+
+### `.git` File Classification (Pure Filesystem, No Git Commands)
+
+A linked worktree's `.git` is a plain text file:
+```
+$ cat ~/projects/my-repo.feature/.git
+gitdir: /Users/dev/projects/my-repo/.git/worktrees/feature
+```
+
+The scanner can:
+1. `stat` `.git` → file or directory? (`FileManager`, `isDirectory`)
+2. If file → read contents → parse `gitdir:` line
+3. Strip `/.git/worktrees/<name>` → parent clone path
+
+This is the same category as `FileManager.fileExists` — pure filesystem within FilesystemActor's boundary. The scanner preserves its existing git validation (`rev-parse --is-inside-work-tree`, submodule exclusion) after classification.
+
+---
+
+## 6. Topology Triggers and Downstream Effects
+
+Every topology-relevant filesystem change triggers: FSEvents → heuristic gate → rescan → grouped diff → emit.
+
+```
+TRIGGER                        RESCAN RESULT                            EMIT
+────────────────────────────────────────────────────────────────────────────────
+User adds watched folder       Full scan, all groups                    .repoDiscovered per clone
+git worktree add               Clone's linked list grows               .repoDiscovered (updated linked list)
+git worktree remove            Clone's linked list shrinks             .repoDiscovered (updated linked list)
+git clone (new repo)           New clone group appears                 .repoDiscovered (new clone)
+rm -rf repo                    Clone group disappears                  .repoRemoved
+Periodic rescan (300s)         Full scan                               Whatever changed
+App boot replay                Replays persisted repos                 Validates against disk
+```
+
+### Full Flow: `git worktree add` While Running
+
+```
+t0  User: git worktree add ../my-repo.experiment feat
+    → creates ~/projects/my-repo.experiment/.git (file)
+
+t1  FSEvents fires → heuristic gate: contains "/.git" → rescan
+
+t2  Enhanced scanner returns:
+      ScannedRepoGroup(/my-repo, linked:[.feature, .hotfix, .experiment])
+    Diff: /my-repo linked list changed (.experiment added)
+    Emit: .repoDiscovered(/my-repo, linked:[.feature, .hotfix, .experiment])
+
+t3  Coordinator receives .repoDiscovered
+    → repo /my-repo exists (dedup by stableKey)
+    → builds discovered worktree list: [main, .feature, .hotfix, .experiment]
+    → WorktreeReconciler.reconcile(existing, discovered)
+      → returns (merged, delta: {added: [.experiment.id], removed: []})
+    → atom.setWorktrees(repoId, merged)
+    → topologyEffectHandler.topologyDidChange(delta)
+
+t4  PaneCoordinator.topologyDidChange(delta)
+    → no removed worktrees → no orphaning needed
+    → syncFilesystemRootsAndActivity()
+      → reads store.repos (ALREADY mutated)
+      → registers /my-repo.experiment with FilesystemActor
+      → FilesystemActor emits .worktreeRegistered
+
+t5  Projector receives .worktreeRegistered
+    → git status → .snapshotChanged, .branchChanged
+    → .originChanged
+
+t6  ForgeActor receives .branchChanged → refreshes PR counts
+
+t7  Sidebar updates via @Observable
+    → new worktree row, worktree icon, same color as parent
+```
+
+### Full Flow: `git worktree remove` While Running
+
+```
+t0  User: git worktree remove ../my-repo.hotfix
+
+t1  FSEvents → rescan
+
+t2  Scanner: ScannedRepoGroup(/my-repo, linked:[.feature])  ← .hotfix gone
+    Diff: linked list changed
+    Emit: .repoDiscovered(/my-repo, linked:[.feature])
+
+t3  Coordinator
+    → WorktreeReconciler.reconcile(existing, discovered)
+      → returns (merged, delta: {added: [], removed: [hotfix.id]})
+    → atom.setWorktrees(repoId, merged)
+    → topologyEffectHandler.topologyDidChange(delta)
+
+t4  PaneCoordinator.topologyDidChange(delta)
+    → orphan panes for delta.removedWorktreeIds
+    → repoCache.removeWorktree(hotfix.id)  — prunes enrichment, PR counts
+    → syncFilesystemRootsAndActivity()
+      → reads store.repos → /my-repo.hotfix not in desired set
+      → unregisters from FilesystemActor → .worktreeUnregistered
+
+t5  Sidebar updates: .hotfix row disappears
+```
+
+---
+
+## 7. Diff Contract: Full Grouped State
+
+The diff tracks complete grouped state, not just clone paths. This handles linked worktree additions AND removals.
+
+### State Tracking
+
+```
+CURRENT (flat, broken):
+  watchedFolderRepoPathsByRoot: [URL: Set<URL>]
+  → detects clone appeared/disappeared
+  → CANNOT detect linked worktree list changes
+
+FIXED (grouped):
+  watchedFolderGroupsByRoot: [URL: [ScannedRepoGroup]]
+  → detects clone appeared/disappeared AND linked list changes
+```
+
+### Diff Logic
+
+```
+For each watched folder, compare previous vs current [ScannedRepoGroup]:
+
+1. New clone (not in previous)
+   → emit .repoDiscovered(clone, linked:[...])
+
+2. Existing clone with changed linked worktree list
+   → re-emit .repoDiscovered(clone, linked:[current list])
+   → coordinator reconciles via reconciler (handles adds AND removes)
+
+3. Removed clone (not in current)
+   → GLOBAL dedup: check ALL watched folders before emitting
+   → only emit .repoRemoved if no other folder references this clone
+   → emit .repoRemoved(clone)
+
+4. Unchanged → no event (idempotent)
+```
+
+### Global Dedup for Removes
+
+```
+Folder A: ~/worktrees-a/feat → linked to ~/repos/my-project
+Folder B: ~/worktrees-b/fix  → linked to ~/repos/my-project
+
+User removes folder A:
+  → folder A's ~/repos/my-project entry removed
+  → BUT folder B still references same parent
+  → global check: still alive in folder B → DON'T emit .repoRemoved
+```
+
+---
+
+## 8. Envelope Types
+
+### Widened `.repoDiscovered`
+
+```swift
+// RuntimeEnvelopeCore.swift
+enum TopologyEvent: Sendable {
+    case repoDiscovered(repoPath: URL, parentPath: URL, linkedWorktrees: LinkedWorktreeInfo = .notScanned)
+    case repoRemoved(repoPath: URL)
+    case worktreeRegistered(worktreeId: UUID, repoId: UUID, rootPath: URL)
+    case worktreeUnregistered(worktreeId: UUID, repoId: UUID)
+}
+
+/// Discriminated union distinguishing "scanner ran and found these" from "no scan performed."
+/// Avoids the nil-vs-empty-array ambiguity.
+enum LinkedWorktreeInfo: Sendable, Equatable {
+    /// Scanner ran and found these linked worktrees. Empty array = no linked worktrees exist.
+    case scanned([URL])
+    /// No scan performed (boot replay, manual add). Leave existing worktrees unchanged.
+    case notScanned
+}
+```
+
+**Why a union, not `[URL]?`:** `nil` vs `[]` is a convention you have to know. `.scanned([])` reads as "we scanned and found nothing." `.notScanned` reads as "we didn't scan." The pattern match makes the decision point visible in code review — nobody can accidentally conflate "absent" with "empty."
+
+```
+Boot replay:  .repoDiscovered(path, parent, linkedWorktrees: .notScanned)
+              → coordinator skips reconciliation, worktrees preserved from restore
+
+Scanner:      .repoDiscovered(path, parent, linkedWorktrees: .scanned([feat, hotfix]))
+              → coordinator reconciles full family
+
+Scanner (all removed): .repoDiscovered(path, parent, linkedWorktrees: .scanned([]))
+              → coordinator reconciles to main-only, removes stale linked worktrees
+```
+
+Default `= []` keeps existing call sites and boot replay backward-compatible. Pattern matches require updating (see Task 1).
+
+### TraceId for Observability
+
+`TopologyDelta.traceId` links to the originating event's `eventId`. For observability — tracing causation in logs — not for runtime ordering:
+
+```
+[t=100ms] EventBus delivered .repoDiscovered eventId=E1
+[t=101ms] Coordinator reconciled, delta: added=[wt1], traceId=E1
+[t=102ms] PaneCoordinator.topologyDidChange, synced roots, traceId=E1
+```
+
+---
+
+## 9. TopologyEffectHandler
+
+### The Protocol
+
+```swift
+@MainActor
+protocol TopologyEffectHandler: AnyObject {
+    func topologyDidChange(_ delta: WorktreeTopologyDelta)
+}
+```
+
+### Who Handles What in the Delta
+
+Cache pruning stays in the coordinator (it already owns `repoCache`). Pane/filesystem effects go to PaneCoordinator (it already owns `store` and `filesystemSource`). The coordinator sequences both:
+
+```swift
+// In WorkspaceCacheCoordinator, after reconciliation:
+if delta.didChange {
+    // 1. Cache cleanup (coordinator owns repoCache)
+    for worktreeId in delta.removedWorktreeIds {
+        repoCache.removeWorktree(worktreeId)
+    }
+
+    // 2. Pane/filesystem effects (PaneCoordinator owns these)
+    topologyEffectHandler?.topologyDidChange(delta)
+}
+```
+
+### PaneCoordinator Conforms
+
+PaneCoordinator does NOT get `repoCache`. It handles only what it already owns:
+
+```swift
+extension PaneCoordinator: TopologyEffectHandler {
+    func topologyDidChange(_ delta: WorktreeTopologyDelta) {
+        // 1. Orphan panes for removed worktrees
+        for (worktreeId, path) in delta.removedWorktrees {
+            store.orphanPanesForWorktree(worktreeId, path: path.path)
         }
-        #expect(reconciled)
+
+        // 2. Sync filesystem roots (handles both adds and removes)
+        syncFilesystemRootsAndActivity()
     }
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `swift test --build-path ".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" --filter "integration_worktreeDiscoveryReconcilesSiblingWorktrees" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
-Expected: FAIL — `worktreeDiscoverer` parameter doesn't exist on `GitWorkingDirectoryProjector`.
-
-- [ ] **Step 3: Define `WorktreeDiscoverer` protocol and inject into projector**
-
-The projector needs to call `WorktrunkService.discoverWorktrees()`, but actors don't call concrete services directly — they use injected protocols (architecture rule: transport-agnostic, testable).
-
-Create a protocol and make `WorktrunkService` conform:
-
-```swift
-// Add to GitWorkingDirectoryProjector.swift (or a nearby contracts file)
-protocol WorktreeDiscovering: Sendable {
-    func discoverWorktrees(for projectPath: URL, repoId: UUID) -> [Worktree]
-}
-
-extension WorktrunkService: WorktreeDiscovering {}
+**Note:** `WorkspaceStore` currently has `orphanPanesForRepo(_:)` but not `orphanPanesForWorktree(_:)`. This plan adds the narrower variant — same logic, scoped to one worktreeId instead of all worktrees in a repo. See Task 3 step for implementation.
 ```
 
-Add a stub for testing in `Tests/AgentStudioTests/TestSupport/PaneRuntimeProviderStubs.swift`:
+### PaneCoordinator Stops Subscribing to Topology on the Bus
 
+Current code (`PaneCoordinator+FilesystemSource.swift:26-30`):
 ```swift
-struct StubWorktreeDiscoverer: WorktreeDiscovering {
-    let handler: @Sendable (URL, UUID) -> [Worktree]
-
-    func discoverWorktrees(for projectPath: URL, repoId: UUID) -> [Worktree] {
-        handler(projectPath, repoId)
-    }
-}
-
-extension WorktreeDiscovering where Self == StubWorktreeDiscoverer {
-    static func stub(
-        _ handler: @escaping @Sendable (URL, UUID) -> [Worktree]
-    ) -> StubWorktreeDiscoverer {
-        StubWorktreeDiscoverer(handler: handler)
-    }
-}
+case .system(let systemEnvelope):
+    guard case .topology = systemEnvelope.event else { return false }
+    scheduleFilesystemRootAndActivitySync()  // ← accidental ordering
+    return true
 ```
 
-- [ ] **Step 4: Add `worktreeDiscoverer` to `GitWorkingDirectoryProjector` init**
+After: this topology branch is **removed**. PaneCoordinator only receives topology changes via the handler. Its bus subscription narrows to worktree-scoped events for filesystem projection.
 
-In `GitWorkingDirectoryProjector.swift`, add the dependency:
-
-```swift
-private let worktreeDiscoverer: any WorktreeDiscovering
-
-init(
-    bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
-    gitWorkingTreeProvider: any GitWorkingTreeStatusProvider = ShellGitWorkingTreeStatusProvider(),
-    worktreeDiscoverer: any WorktreeDiscovering = WorktrunkService.shared,
-    // ... existing params unchanged
-) {
-    // ... existing assignments
-    self.worktreeDiscoverer = worktreeDiscoverer
-}
-```
-
-- [ ] **Step 5: Emit `.worktreeDiscovered` after initial worktree registration**
-
-In `computeAndEmit`, after the `snapshotChanged` emission (around line 232), add worktree discovery on the **first** status computation for a worktree (when it's freshly registered — `changeset.paths.isEmpty` indicates initial registration, not a file change):
+### Wiring at Composition Root
 
 ```swift
-// After emitting snapshotChanged, check if this is initial registration
-if changeset.paths.isEmpty {
-    await discoverAndEmitWorktrees(repoId: changeset.repoId, rootPath: changeset.rootPath)
-}
-```
-
-Add the discovery method:
-
-```swift
-private func discoverAndEmitWorktrees(repoId: UUID, rootPath: URL) async {
-    let discovered = await Self.runWorktreeDiscovery(
-        rootPath: rootPath,
-        repoId: repoId,
-        discoverer: worktreeDiscoverer
-    )
-    guard !discovered.isEmpty else { return }
-
-    for worktree in discovered {
-        let branch = "" // Branch enrichment comes separately via snapshotChanged
-        await emitGitWorkingDirectoryEvent(
-            worktreeId: worktree.id,
-            repoId: repoId,
-            event: .worktreeDiscovered(
-                repoId: repoId,
-                worktreePath: worktree.path,
-                branch: branch,
-                isMain: worktree.isMainWorktree
-            )
-        )
-    }
-}
-
-/// Blocking worktree discovery — runs off actor isolation.
-@concurrent
-nonisolated private static func runWorktreeDiscovery(
-    rootPath: URL,
-    repoId: UUID,
-    discoverer: any WorktreeDiscovering
-) async -> [Worktree] {
-    discoverer.discoverWorktrees(for: rootPath, repoId: repoId)
-}
-```
-
-- [ ] **Step 6: Update `FilesystemGitPipeline` to pass `worktreeDiscoverer` through**
-
-In `Sources/AgentStudio/App/FilesystemGitPipeline.swift`, add the parameter:
-
-```swift
-init(
-    // ... existing params
-    worktreeDiscoverer: any WorktreeDiscovering = WorktrunkService.shared,
-    // ...
-) {
-    self.gitWorkingDirectoryProjector = GitWorkingDirectoryProjector(
-        bus: bus,
-        gitWorkingTreeProvider: gitWorkingTreeProvider,
-        worktreeDiscoverer: worktreeDiscoverer,
-        // ... existing params
-    )
-    // ... rest unchanged
-}
-```
-
-- [ ] **Step 7: Run test — should still fail (coordinator doesn't handle the event yet)**
-
-Run: `swift test --build-path ".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" --filter "integration_worktreeDiscoveryReconcilesSiblingWorktrees" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
-Expected: FAIL — events are emitted but coordinator has `break` for `.worktreeDiscovered`.
-
-- [ ] **Step 8: Commit projector changes**
-
-```bash
-git add Sources/AgentStudio/Core/PaneRuntime/Sources/GitWorkingDirectoryProjector.swift
-git add Sources/AgentStudio/App/FilesystemGitPipeline.swift
-git add Tests/AgentStudioTests/TestSupport/PaneRuntimeProviderStubs.swift
-git add Tests/AgentStudioTests/App/WorkspaceCacheCoordinatorIntegrationTests.swift
-git commit -m "feat: emit .worktreeDiscovered from GitWorkingDirectoryProjector via WorktrunkService"
+// AppDelegate.swift
+let paneCoordinator = PaneCoordinator(...)
+let workspaceCacheCoordinator = WorkspaceCacheCoordinator(
+    bus: paneRuntimeBus,
+    workspaceStore: store,
+    repoCache: workspaceRepoCache,
+    scopeSyncHandler: { ... },
+    topologyEffectHandler: paneCoordinator  // ← NEW
+)
 ```
 
 ---
 
-## Task 2: Handle `.worktreeDiscovered` in WorkspaceCacheCoordinator
+## 10. Testing Strategy
 
-**Files:**
-- Modify: `Sources/AgentStudio/App/WorkspaceCacheCoordinator.swift:212`
+Every layer testable in isolation. No wall-clock waits. No real filesystem or git in unit tests.
 
-- [ ] **Step 1: Replace the `break` stub with reconciliation logic**
-
-In `WorkspaceCacheCoordinator.swift`, replace the `.worktreeDiscovered` handler (line 212):
+### WorktreeReconciler (Pure Function Tests)
 
 ```swift
-case .worktreeDiscovered(let repoId, let worktreePath, _, let isMain):
-    guard let repo = workspaceStore.repos.first(where: { $0.id == repoId }) else {
-        Self.logger.debug(
-            "Ignoring worktreeDiscovered for unknown repoId=\(repoId.uuidString, privacy: .public)"
-        )
-        break
-    }
-    let normalizedPath = worktreePath.standardizedFileURL
-    // Only reconcile if this worktree isn't already known
-    if !repo.worktrees.contains(where: { $0.path.standardizedFileURL == normalizedPath }) {
-        var worktrees = repo.worktrees
-        worktrees.append(
-            Worktree(
-                repoId: repoId,
-                name: normalizedPath.lastPathComponent,
-                path: normalizedPath,
-                isMainWorktree: isMain
-            )
-        )
-        workspaceStore.reconcileDiscoveredWorktrees(repoId, worktrees: worktrees)
-    }
-case .worktreeRemoved, .diffAvailable:
-    break
+@Test("preserves existing UUIDs for matching paths")
+@Test("adds new worktrees with fresh UUIDs")
+@Test("removes worktrees not in discovered list")
+@Test("delta reflects added/removed/preserved")
+@Test("matches main worktree by isMainWorktree flag")
+@Test("empty discovered list removes all worktrees")
+@Test("identical lists produce didChange: false")
 ```
 
-- [ ] **Step 2: Run the integration test**
+No mocking. Input: two arrays. Output: merged array + delta.
 
-Run: `swift test --build-path ".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" --filter "integration_worktreeDiscoveryReconcilesSiblingWorktrees" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
-Expected: PASS
-
-- [ ] **Step 3: Run full test suite to check for regressions**
-
-Run: `mise run test > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
-Expected: PASS
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add Sources/AgentStudio/App/WorkspaceCacheCoordinator.swift
-git commit -m "feat: handle .worktreeDiscovered to reconcile worktrees under parent repo"
-```
-
----
-
-## Task 3: Fix sidebar icon logic
-
-**Files:**
-- Modify: `Sources/AgentStudio/Features/Sidebar/RepoSidebarContentView.swift:425-435,712-727,777`
-
-- [ ] **Step 1: Write failing tests for icon kinds**
-
-Add to `Tests/AgentStudioTests/Features/Sidebar/RepoSidebarContentViewTests.swift`:
+### Scanner Classification (Unit Tests)
 
 ```swift
-@Test("standalone repo with one worktree gets star icon")
-func standaloneRepoGetsStarIcon() {
-    let repoId = UUID()
-    let worktree = Worktree(
-        repoId: repoId, name: "my-repo",
-        path: URL(fileURLWithPath: "/tmp/my-repo"), isMainWorktree: true
-    )
-    let repo = SidebarRepo(
-        id: repoId, name: "my-repo",
-        repoPath: URL(fileURLWithPath: "/tmp/my-repo"),
-        stableKey: "my-repo", worktrees: [worktree]
-    )
-
-    let iconKind = RepoSidebarContentView.checkoutIconKind(for: worktree, in: repo)
-    #expect(iconKind == .mainCheckout)
-}
-
-@Test("main worktree in multi-worktree repo gets star icon")
-func mainWorktreeGetsStarIcon() {
-    let repoId = UUID()
-    let main = Worktree(
-        repoId: repoId, name: "my-repo",
-        path: URL(fileURLWithPath: "/tmp/my-repo"), isMainWorktree: true
-    )
-    let secondary = Worktree(
-        repoId: repoId, name: "feature",
-        path: URL(fileURLWithPath: "/tmp/my-repo.feature"), isMainWorktree: false
-    )
-    let repo = SidebarRepo(
-        id: repoId, name: "my-repo",
-        repoPath: URL(fileURLWithPath: "/tmp/my-repo"),
-        stableKey: "my-repo", worktrees: [main, secondary]
-    )
-
-    let iconKind = RepoSidebarContentView.checkoutIconKind(for: main, in: repo)
-    #expect(iconKind == .mainCheckout)
-}
-
-@Test("secondary worktree in multi-worktree repo gets worktree icon")
-func secondaryWorktreeGetsWorktreeIcon() {
-    let repoId = UUID()
-    let main = Worktree(
-        repoId: repoId, name: "my-repo",
-        path: URL(fileURLWithPath: "/tmp/my-repo"), isMainWorktree: true
-    )
-    let secondary = Worktree(
-        repoId: repoId, name: "feature",
-        path: URL(fileURLWithPath: "/tmp/my-repo.feature"), isMainWorktree: false
-    )
-    let repo = SidebarRepo(
-        id: repoId, name: "my-repo",
-        repoPath: URL(fileURLWithPath: "/tmp/my-repo"),
-        stableKey: "my-repo", worktrees: [main, secondary]
-    )
-
-    let iconKind = RepoSidebarContentView.checkoutIconKind(for: secondary, in: repo)
-    #expect(iconKind == .gitWorktree)
-}
+@Test(".git directory → .cloneRoot")              // temp dir, no git
+@Test(".git file with gitdir → .linkedWorktree")  // temp dir, no git
+@Test("no .git → nil")                            // temp dir, no git
+@Test("parseParentClonePath from absolute gitdir") // pure string, no filesystem
+@Test("parseParentClonePath from relative gitdir") // pure string, no filesystem
+@Test("groupClassifiedPaths groups linked under parent") // pure function, no filesystem
+@Test("groupClassifiedPaths handles orphaned linked worktrees") // pure function
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+Classification tests use temp directories — no git commands needed (they test `.git` file/directory stat and content parsing). Grouping tests are pure functions operating on `[(URL, GitEntryKind)]` arrays.
 
-Run: `swift test --build-path ".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" --filter "standaloneRepoGetsStarIcon|mainWorktreeGetsStarIcon|secondaryWorktreeGetsWorktreeIcon" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
-Expected: FAIL — `checkoutIconKind` is a private instance method, not a static testable one. Also, standalone currently returns `.standaloneCheckout`, not `.mainCheckout`.
+The full `scanForGitReposGrouped` calls `scanForGitRepos` which runs `git rev-parse` validation (hardcoded in `RepoScanner.runGit`, no injection seam). Integration tests for the full scan path go through `FilesystemActor` with an injected `groupedWatchedFolderScanner` closure that returns pre-built `[ScannedRepoGroup]` results — bypassing the real scanner entirely.
 
-- [ ] **Step 3: Rewrite `checkoutIconKind` as a static method**
-
-Replace the private instance method at line 425-435:
+### Coordinator Integration (Event Bus Tests)
 
 ```swift
-static func checkoutIconKind(for worktree: Worktree, in repo: SidebarRepo) -> SidebarCheckoutIconKind {
-    let isMainCheckout =
-        worktree.isMainWorktree
-        || worktree.path.standardizedFileURL.path == repo.repoPath.standardizedFileURL.path
-
-    if isMainCheckout {
-        return .mainCheckout
-    }
-    return .gitWorktree
-}
+@Test(".repoDiscovered with linked worktrees → grouped repo in store")
+@Test(".repoDiscovered update → reconciles worktree list via reconciler")
+@Test(".repoDiscovered without linked → standalone repo (backward compat)")
+@Test("topology delta passed to effect handler")
+@Test("removed worktree delta includes correct worktreeIds")
 ```
 
-This is simpler: main worktree → star, everything else → worktree icon. No `.standaloneCheckout` needed — a standalone repo is just a main worktree that happens to have no siblings.
+Pattern: create bus + store + coordinator with mock effect handler. Post events. Assert store state and handler invocations. Uses `eventually()` polling — no `Task.sleep`.
 
-Update the private instance call site to forward to the static method:
+### Effect Handler (Unit Tests)
 
 ```swift
-private func checkoutIconKind(for worktree: Worktree, in repo: SidebarRepo) -> SidebarCheckoutIconKind {
-    Self.checkoutIconKind(for: worktree, in: repo)
-}
+@Test("orphans panes for removed worktreeIds")
+@Test("prunes cache for removed worktreeIds")
+@Test("calls syncFilesystemRootsAndActivity")
+@Test("no-op for empty delta")
 ```
 
-- [ ] **Step 4: Make `SidebarCheckoutIconKind` internal (not private)**
-
-Change at line 777 from `private enum` to `enum` so tests can reference it.
-
-- [ ] **Step 5: Update `checkoutTypeIcon` — remove `.standaloneCheckout` branch**
-
-At line 712-727, simplify:
+### Sidebar (Unit Tests)
 
 ```swift
-@ViewBuilder
-private var checkoutTypeIcon: some View {
-    let checkoutTypeSize = AppStyle.textBase
-    switch checkoutIconKind {
-    case .mainCheckout, .standaloneCheckout:
-        OcticonImage(name: "octicon-star-fill", size: checkoutTypeSize)
-            .foregroundStyle(iconColor)
-    case .gitWorktree:
-        OcticonImage(name: "octicon-git-worktree", size: checkoutTypeSize)
-            .foregroundStyle(iconColor)
-            .rotationEffect(.degrees(180))
-    }
-}
-```
-
-- [ ] **Step 6: Run tests**
-
-Run: `swift test --build-path ".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" --filter "standaloneRepoGetsStarIcon|mainWorktreeGetsStarIcon|secondaryWorktreeGetsWorktreeIcon" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
-Expected: PASS
-
-- [ ] **Step 7: Commit**
-
-```bash
-git add Sources/AgentStudio/Features/Sidebar/RepoSidebarContentView.swift
-git add Tests/AgentStudioTests/Features/Sidebar/RepoSidebarContentViewTests.swift
-git commit -m "fix: sidebar icon logic — star for main/standalone, worktree icon for secondary"
-```
-
----
-
-## Task 4: Fix sidebar color logic
-
-**Files:**
-- Modify: `Sources/AgentStudio/Features/Sidebar/RepoSidebarContentView.swift:360-385`
-- Modify: `Tests/AgentStudioTests/Features/Sidebar/RepoSidebarContentViewTests.swift`
-
-- [ ] **Step 1: Write failing test for color sharing within a repo's worktrees**
-
-```swift
+@Test("main worktree → star icon")
+@Test("secondary worktree → worktree icon")
+@Test("standalone repo → star icon")
 @Test("all worktrees in same repo share color")
-func worktreesInSameRepoShareColor() {
-    let repoId = UUID()
-    let main = Worktree(
-        repoId: repoId, name: "my-repo",
-        path: URL(fileURLWithPath: "/tmp/my-repo"), isMainWorktree: true
-    )
-    let secondary = Worktree(
-        repoId: repoId, name: "feature",
-        path: URL(fileURLWithPath: "/tmp/my-repo.feature"), isMainWorktree: false
-    )
-    let repo = SidebarRepo(
-        id: repoId, name: "my-repo",
-        repoPath: URL(fileURLWithPath: "/tmp/my-repo"),
-        stableKey: "my-repo", worktrees: [main, secondary]
-    )
-    let group = SidebarRepoGroup(
-        id: "remote:org/my-repo", repoTitle: "my-repo",
-        organizationName: "org", repos: [repo]
-    )
-
-    let colorMain = RepoSidebarContentView.colorHexForCheckout(
-        repo: repo, in: group, checkoutColorOverrides: [:]
-    )
-    let colorSecondary = RepoSidebarContentView.colorHexForCheckout(
-        repo: repo, in: group, checkoutColorOverrides: [:]
-    )
-
-    #expect(colorMain == colorSecondary)
-}
-
-@Test("different repos in same group get different colors")
-func differentReposGetDifferentColors() {
-    let repoA = SidebarRepo(
-        id: UUID(), name: "repo-a",
-        repoPath: URL(fileURLWithPath: "/tmp/repo-a"),
-        stableKey: "a",
-        worktrees: [Worktree(repoId: UUID(), name: "a", path: URL(fileURLWithPath: "/tmp/repo-a"), isMainWorktree: true)]
-    )
-    let repoB = SidebarRepo(
-        id: UUID(), name: "repo-b",
-        repoPath: URL(fileURLWithPath: "/tmp/repo-b"),
-        stableKey: "b",
-        worktrees: [Worktree(repoId: UUID(), name: "b", path: URL(fileURLWithPath: "/tmp/repo-b"), isMainWorktree: true)]
-    )
-    let group = SidebarRepoGroup(
-        id: "remote:org/repo", repoTitle: "repo",
-        organizationName: "org", repos: [repoA, repoB]
-    )
-
-    let colorA = RepoSidebarContentView.colorHexForCheckout(
-        repo: repoA, in: group, checkoutColorOverrides: [:]
-    )
-    let colorB = RepoSidebarContentView.colorHexForCheckout(
-        repo: repoB, in: group, checkoutColorOverrides: [:]
-    )
-
-    #expect(colorA != colorB)
-}
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+Pure function tests on static methods. No bus, no actors.
 
-Expected: FAIL — `colorHexForCheckout` static method doesn't exist.
+---
 
-- [ ] **Step 3: Extract color logic into a testable static method**
+## 11. File Structure
 
-The current `colorForCheckout` at line 360 assigns color per `repo.id`. Since worktrees are now properly nested under their parent repo, all worktrees of the same repo share the same `repo.id` → same color. The logic is already correct for the data model after Task 1+2. But we need to make it testable and fix the single-repo-in-group case (currently always returns palette[0]).
+| File | Action | What Changes |
+|------|--------|-------------|
+| `Sources/.../Infrastructure/RepoScanner.swift` | Modify | Add `GitEntryKind`, `classifyGitEntry()`, `parseParentClonePath()`, `groupClassifiedPaths()`, `scanForGitReposGrouped()` |
+| `Sources/.../Infrastructure/WorktreeReconciler.swift` | **Create** | Pure function: `reconcile(existing, discovered) → (merged, delta)`. Extracted from `WorkspaceStore.reconcileDiscoveredWorktrees` |
+| `Sources/.../Contracts/RuntimeEnvelopeCore.swift:22` | Modify | Add `LinkedWorktreeInfo` enum, widen `.repoDiscovered` with `linkedWorktrees: LinkedWorktreeInfo = .notScanned` |
+| `Sources/.../Sources/FilesystemActor.swift` | Modify | Use grouped scanner, track `[ScannedRepoGroup]` per folder, grouped diff, global dedup for removes |
+| `Sources/.../App/WorkspaceCacheCoordinator.swift` | Modify | Use `WorktreeReconciler`, inject `TopologyEffectHandler`, call handler with delta |
+| `Sources/.../App/PaneCoordinator+FilesystemSource.swift` | Modify | Remove topology bus subscription, conform to `TopologyEffectHandler` |
+| `Sources/.../App/PaneCoordinator.swift` | Modify | Add `TopologyEffectHandler` conformance |
+| `Sources/.../App/AppDelegate.swift` | Modify | Wire `topologyEffectHandler: paneCoordinator` into coordinator |
+| `Sources/.../Replay/EventReplayBuffer.swift` | Modify | Update `.repoDiscovered` pattern match and sizing |
+| `Sources/.../Sidebar/RepoSidebarContentView.swift` | Modify | Simplify `checkoutIconKind`, remove `standaloneCheckout` enum case, star for main |
+| `Tests/.../Infrastructure/RepoScannerTests.swift` | **Create** | Classification + grouping tests |
+| `Tests/.../Infrastructure/WorktreeReconcilerTests.swift` | **Create** | Reconciler pure function tests |
+| `Tests/.../App/WorkspaceCacheCoordinatorIntegrationTests.swift` | Modify | Grouped discovery + delta tests |
+| `Tests/.../Sidebar/RepoSidebarContentViewTests.swift` | Modify | Icon tests with multi-worktree repos |
+| `docs/architecture/workspace_data_architecture.md` | Modify | Document `.repoDiscovered` contract change, topology accumulator pattern, effect handler |
+| `docs/architecture/pane_runtime_eventbus_design.md` | Modify | Document handler pattern alongside bus |
 
-Add static method and update the instance method to forward:
+---
+
+## Task 1: Contract and Infrastructure
+
+**Files:**
+- Modify: `Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelopeCore.swift`
+- Create: `Sources/AgentStudio/Infrastructure/WorktreeReconciler.swift`
+- Modify: `Sources/AgentStudio/Infrastructure/RepoScanner.swift`
+- Create: `Tests/AgentStudioTests/Infrastructure/WorktreeReconcilerTests.swift`
+- Create: `Tests/AgentStudioTests/Infrastructure/RepoScannerTests.swift`
+
+This task establishes the two new building blocks (reconciler + scanner classification) and widens the topology event. Everything is testable without actors or bus.
+
+- [ ] **Step 1: Write failing reconciler tests**
 
 ```swift
-static func colorHexForCheckout(
-    repo: SidebarRepo,
-    in group: SidebarRepoGroup,
-    checkoutColorOverrides: [String: String]
-) -> String {
-    let overrideKey = repo.id.uuidString
-    if let hex = checkoutColorOverrides[overrideKey] {
-        return hex
+import Foundation
+import Testing
+
+@testable import AgentStudio
+
+@Suite("WorktreeReconciler")
+struct WorktreeReconcilerTests {
+    @Test("preserves existing UUID when path matches")
+    func preservesUUID() {
+        let existingId = UUID()
+        let existing = [Worktree(id: existingId, repoId: UUID(), name: "main", path: URL(fileURLWithPath: "/repo"), isMainWorktree: true)]
+        let discovered = [Worktree(repoId: UUID(), name: "main", path: URL(fileURLWithPath: "/repo"), isMainWorktree: true)]
+
+        let (merged, delta) = WorktreeReconciler.reconcile(repoId: UUID(), existing: existing, discovered: discovered)
+
+        #expect(merged[0].id == existingId)
+        #expect(delta.didChange == false)
+        #expect(delta.addedWorktreeIds.isEmpty)
+        #expect(delta.removedWorktreeIds.isEmpty)
     }
 
-    let orderedRepos = group.repos.sorted { lhs, rhs in
-        lhs.stableKey.localizedCaseInsensitiveCompare(rhs.stableKey) == .orderedAscending
+    @Test("adds new worktree and reports in delta")
+    func addsNewWorktree() {
+        let repoId = UUID()
+        let existing = [Worktree(repoId: repoId, name: "main", path: URL(fileURLWithPath: "/repo"), isMainWorktree: true)]
+        let discovered = [
+            Worktree(repoId: repoId, name: "main", path: URL(fileURLWithPath: "/repo"), isMainWorktree: true),
+            Worktree(repoId: repoId, name: "feat", path: URL(fileURLWithPath: "/repo.feat"), isMainWorktree: false),
+        ]
+
+        let (merged, delta) = WorktreeReconciler.reconcile(repoId: repoId, existing: existing, discovered: discovered)
+
+        #expect(merged.count == 2)
+        #expect(delta.addedWorktreeIds.count == 1)
+        #expect(delta.removedWorktreeIds.isEmpty)
+        #expect(delta.didChange == true)
     }
 
-    guard orderedRepos.count > 1 else {
-        return SidebarRepoGrouping.automaticPaletteHexes[0]
+    @Test("removes missing worktree and reports in delta")
+    func removesMissingWorktree() {
+        let repoId = UUID()
+        let removedId = UUID()
+        let existing = [
+            Worktree(repoId: repoId, name: "main", path: URL(fileURLWithPath: "/repo"), isMainWorktree: true),
+            Worktree(id: removedId, repoId: repoId, name: "hotfix", path: URL(fileURLWithPath: "/repo.hotfix"), isMainWorktree: false),
+        ]
+        let discovered = [
+            Worktree(repoId: repoId, name: "main", path: URL(fileURLWithPath: "/repo"), isMainWorktree: true),
+        ]
+
+        let (merged, delta) = WorktreeReconciler.reconcile(repoId: repoId, existing: existing, discovered: discovered)
+
+        #expect(merged.count == 1)
+        #expect(delta.removedWorktrees.map(\.id) == [removedId])
+        #expect(delta.removedWorktrees[0].path == URL(fileURLWithPath: "/repo.hotfix"))
+        #expect(delta.didChange == true)
     }
 
-    guard let repoIndex = orderedRepos.firstIndex(where: { $0.id == repo.id }) else {
-        return SidebarRepoGrouping.automaticPaletteHexes[0]
+    @Test("empty discovered list removes all")
+    func emptyDiscoveredRemovesAll() {
+        let repoId = UUID()
+        let existing = [
+            Worktree(repoId: repoId, name: "main", path: URL(fileURLWithPath: "/repo"), isMainWorktree: true),
+            Worktree(repoId: repoId, name: "feat", path: URL(fileURLWithPath: "/repo.feat"), isMainWorktree: false),
+        ]
+
+        let (merged, delta) = WorktreeReconciler.reconcile(repoId: repoId, existing: existing, discovered: [])
+
+        #expect(merged.isEmpty)
+        #expect(delta.removedWorktrees.count == 2)
     }
-
-    return SidebarRepoGrouping.colorHexForCheckoutIndex(
-        repoIndex,
-        seed: "\(group.id)|\(repo.stableKey)|\(repo.id.uuidString)"
-    )
-}
-
-private func colorForCheckout(repo: SidebarRepo, in group: SidebarRepoGroup) -> Color {
-    let hex = Self.colorHexForCheckout(
-        repo: repo, in: group, checkoutColorOverrides: checkoutColorByRepoId
-    )
-    return Color(nsColor: NSColor(hex: hex) ?? .controlAccentColor)
 }
 ```
 
-- [ ] **Step 4: Run tests**
+- [ ] **Step 2: Run tests — verify they fail**
+- [ ] **Step 3: Implement `WorktreeReconciler`**
 
-Run: `swift test --build-path ".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" --filter "worktreesInSameRepoShareColor|differentReposGetDifferentColors" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
-Expected: PASS
+Create `Sources/AgentStudio/Infrastructure/WorktreeReconciler.swift`:
 
-- [ ] **Step 5: Run full test suite**
+```swift
+import Foundation
 
-Run: `mise run test > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
-Expected: PASS
+struct WorktreeTopologyDelta: Sendable, Equatable {
+    let repoId: UUID
+    let addedWorktreeIds: [UUID]
+    let removedWorktrees: [(id: UUID, path: URL)]  // path needed for orphaning reason
+    let preservedWorktreeIds: [UUID]
+    let didChange: Bool
+    let traceId: UUID?
+}
 
+enum WorktreeReconciler {
+    static func reconcile(
+        repoId: UUID,
+        existing: [Worktree],
+        discovered: [Worktree],
+        traceId: UUID? = nil
+    ) -> (merged: [Worktree], delta: WorktreeTopologyDelta) {
+        let existingByPath = Dictionary(
+            existing.map { ($0.path.standardizedFileURL, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let existingMain = existing.first(where: \.isMainWorktree)
+        let existingByName = Dictionary(
+            existing.map { ($0.name, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        var preservedIds: [UUID] = []
+        var addedIds: [UUID] = []
+
+        let merged = discovered.map { disc -> Worktree in
+            if let match = existingByPath[disc.path.standardizedFileURL] {
+                preservedIds.append(match.id)
+                var updated = match
+                updated.name = disc.name
+                updated.isMainWorktree = disc.isMainWorktree
+                return updated
+            }
+            if disc.isMainWorktree, let existingMain {
+                preservedIds.append(existingMain.id)
+                return Worktree(
+                    id: existingMain.id, repoId: repoId,
+                    name: disc.name, path: disc.path,
+                    isMainWorktree: disc.isMainWorktree
+                )
+            }
+            if let matched = existingByName[disc.name] {
+                preservedIds.append(matched.id)
+                return Worktree(
+                    id: matched.id, repoId: repoId,
+                    name: disc.name, path: disc.path,
+                    isMainWorktree: disc.isMainWorktree
+                )
+            }
+            let newWorktree = Worktree(
+                repoId: repoId, name: disc.name,
+                path: disc.path, isMainWorktree: disc.isMainWorktree
+            )
+            addedIds.append(newWorktree.id)
+            return newWorktree
+        }
+
+        let preservedSet = Set(preservedIds)
+        let removedWorktrees = existing
+            .filter { !preservedSet.contains($0.id) }
+            .map { (id: $0.id, path: $0.path) }
+        let didChange = merged != existing
+
+        return (
+            merged: merged,
+            delta: WorktreeTopologyDelta(
+                repoId: repoId,
+                addedWorktreeIds: addedIds,
+                removedWorktrees: removedWorktrees,
+                preservedWorktreeIds: preservedIds,
+                didChange: didChange,
+                traceId: traceId
+            )
+        )
+    }
+}
+```
+
+- [ ] **Step 4: Run reconciler tests — verify they pass**
+- [ ] **Step 5: Write failing scanner classification tests**
+
+```swift
+import Foundation
+import Testing
+
+@testable import AgentStudio
+
+@Suite("RepoScanner classification")
+struct RepoScannerClassificationTests {
+    @Test(".git directory → cloneRoot")
+    func gitDirectoryIsClone() throws {
+        let tmp = FileManager.default.temporaryDirectory.appending(path: "scanner-\(UUID().uuidString)")
+        let repo = tmp.appending(path: "my-repo")
+        try FileManager.default.createDirectory(at: repo.appending(path: ".git"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        #expect(RepoScanner.classifyGitEntry(at: repo) == .cloneRoot)
+    }
+
+    @Test(".git file → linkedWorktree with parent path")
+    func gitFileIsLinked() throws {
+        let tmp = FileManager.default.temporaryDirectory.appending(path: "scanner-\(UUID().uuidString)")
+        let parent = tmp.appending(path: "my-repo")
+        let wt = tmp.appending(path: "my-repo.feat")
+        try FileManager.default.createDirectory(at: parent.appending(path: ".git"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: wt, withIntermediateDirectories: true)
+        try "gitdir: \(parent.path)/.git/worktrees/feat\n"
+            .write(to: wt.appending(path: ".git"), atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        guard case .linkedWorktree(let parentPath) = RepoScanner.classifyGitEntry(at: wt) else {
+            Issue.record("Expected linkedWorktree"); return
+        }
+        #expect(parentPath.standardizedFileURL == parent.standardizedFileURL)
+    }
+
+    @Test("no .git → nil")
+    func noGitIsNil() throws {
+        let tmp = FileManager.default.temporaryDirectory.appending(path: "scanner-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        #expect(RepoScanner.classifyGitEntry(at: tmp) == nil)
+    }
+
+    @Test("parseParentClonePath from absolute gitdir")
+    func parseAbsolute() {
+        let result = RepoScanner.parseParentClonePath(
+            fromGitFileContent: "gitdir: /dev/my-repo/.git/worktrees/feat\n"
+        )
+        #expect(result == URL(fileURLWithPath: "/dev/my-repo"))
+    }
+
+    @Test("groupClassifiedPaths groups linked under clone")
+    func grouping() {
+        let clone = URL(fileURLWithPath: "/tmp/repo")
+        let wt = URL(fileURLWithPath: "/tmp/repo.feat")
+        let standalone = URL(fileURLWithPath: "/tmp/other")
+
+        let groups = RepoScanner.groupClassifiedPaths([
+            (clone, .cloneRoot),
+            (wt, .linkedWorktree(parentClonePath: clone)),
+            (standalone, .cloneRoot),
+        ])
+
+        #expect(groups.count == 2)
+        let cloneGroup = groups.first { $0.clonePath.standardizedFileURL == clone.standardizedFileURL }
+        #expect(cloneGroup?.linkedWorktreePaths.count == 1)
+    }
+
+    @Test("groupClassifiedPaths handles orphaned linked worktrees")
+    func orphanGrouping() {
+        let orphanParent = URL(fileURLWithPath: "/other/repo")
+        let wt = URL(fileURLWithPath: "/tmp/repo.feat")
+
+        let groups = RepoScanner.groupClassifiedPaths([
+            (wt, .linkedWorktree(parentClonePath: orphanParent)),
+        ])
+
+        #expect(groups.count == 1)
+        #expect(groups[0].clonePath.standardizedFileURL == orphanParent.standardizedFileURL)
+    }
+}
+```
+
+- [ ] **Step 6: Implement scanner classification** (see Section 5 for the code: `GitEntryKind`, `classifyGitEntry`, `parseParentClonePath`, `groupClassifiedPaths`, `scanForGitReposGrouped`)
+- [ ] **Step 7: Run scanner tests — verify they pass**
+- [ ] **Step 8: Add `LinkedWorktreeInfo` and widen `.repoDiscovered` in `RuntimeEnvelopeCore.swift`**
+
+```swift
+enum LinkedWorktreeInfo: Sendable, Equatable {
+    case scanned([URL])
+    case notScanned
+}
+
+// In TopologyEvent:
+case repoDiscovered(repoPath: URL, parentPath: URL, linkedWorktrees: LinkedWorktreeInfo = .notScanned)
+```
+
+Default `.notScanned` keeps boot replay and existing call sites backward-compatible.
+
+- [ ] **Step 9: Update ALL `.repoDiscovered` pattern matches and consumers**
+
+Run: `grep -rn 'case .repoDiscovered\|\.repoDiscovered(' Sources/ Tests/ --include='*.swift'`
+
+Known sites requiring update:
+- `WorkspaceCacheCoordinator.handleTopology` (`WorkspaceCacheCoordinator.swift:72`)
+- `EventReplayBuffer` sizing (`EventReplayBuffer.swift:255`)
+- `FilesystemActorWatchedFolderTests` (`FilesystemActorWatchedFolderTests.swift:220`)
+- `RuntimeEnvelopeFactories.swift` — check `SystemEnvelope.test()` factory
+- Boot replay in `AppDelegate`
+- Any contract or serialization tests
+
+- [ ] **Step 10: Build — verify compilation**
+- [ ] **Step 11: Run full test suite**
+- [ ] **Step 12: Commit**
+
+```bash
+git commit -m "feat: WorktreeReconciler, scanner classification, widen .repoDiscovered"
+```
+
+---
+
+## Task 2: FilesystemActor Grouped Diff
+
+**Files:**
+- Modify: `Sources/AgentStudio/Core/PaneRuntime/Sources/FilesystemActor.swift`
+
+- [ ] **Step 1: Add grouped scanner injection and state**
+
+```swift
+private let groupedWatchedFolderScanner: @Sendable (URL) -> [ScannedRepoGroup]
+private var watchedFolderGroupsByRoot: [URL: [ScannedRepoGroup]] = [:]
+```
+
+- [ ] **Step 2: Rewrite `refreshWatchedFolder` with grouped diff**
+
+Diff logic per Section 7: new clones, changed linked lists (re-emit), removed clones (global dedup).
+
+- [ ] **Step 3: Update `emitRepoDiscovered` to pass `LinkedWorktreeInfo.scanned(paths)`**
+
+Scanner results use `.scanned(linkedPaths)` — this is authoritative. Boot replay uses `.notScanned` (the default).
+- [ ] **Step 4: Clean up state in `shutdown()`**
+- [ ] **Step 5: Build and run tests**
 - [ ] **Step 6: Commit**
 
 ```bash
-git add Sources/AgentStudio/Features/Sidebar/RepoSidebarContentView.swift
-git add Tests/AgentStudioTests/Features/Sidebar/RepoSidebarContentViewTests.swift
-git commit -m "fix: sidebar colors per-checkout with worktrees sharing parent color"
+git commit -m "feat: FilesystemActor emits grouped .repoDiscovered with linked worktrees"
 ```
 
 ---
 
-## Task 5: Full validation
+## Task 3: Coordinator Uses Reconciler + Effect Handler
 
-- [ ] **Step 1: Run full test suite**
+**Files:**
+- Modify: `Sources/AgentStudio/App/WorkspaceCacheCoordinator.swift`
+- Modify: `Sources/AgentStudio/App/PaneCoordinator+FilesystemSource.swift`
+- Modify: `Sources/AgentStudio/App/PaneCoordinator.swift`
+- Modify: `Sources/AgentStudio/App/AppDelegate.swift`
+- Modify: `Tests/AgentStudioTests/App/WorkspaceCacheCoordinatorIntegrationTests.swift`
 
-Run: `mise run test > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
-Show pass/fail counts and exit code.
+- [ ] **Step 1: Define `TopologyEffectHandler` protocol**
 
-- [ ] **Step 2: Run lint**
+```swift
+@MainActor
+protocol TopologyEffectHandler: AnyObject {
+    func topologyDidChange(_ delta: WorktreeTopologyDelta)
+}
+```
 
-Run: `mise run lint > /tmp/lint-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
-Zero errors expected.
+- [ ] **Step 2: Inject handler into coordinator**
 
-- [ ] **Step 3: Build and visually verify**
+Add `topologyEffectHandler: (any TopologyEffectHandler)?` to `WorkspaceCacheCoordinator.init`.
+
+- [ ] **Step 3: Update `.repoDiscovered` handler to use reconciler + call handler**
+
+```swift
+case .repoDiscovered(let repoPath, _, let linkedWorktrees):
+    // ... existing dedup logic (stableKey check, addRepo) ...
+
+    // Only reconcile when scanner provided authoritative data.
+    // .notScanned (boot replay) → skip, leave existing worktrees unchanged.
+    // .scanned([]) → authoritative empty, remove all linked worktrees.
+    // .scanned([paths]) → authoritative list, reconcile to match.
+    guard case .scanned(let linkedPaths) = linkedWorktrees else { break }
+
+    let discovered = buildDiscoveredWorktreeList(
+        clonePath: repoPath, linkedPaths: linkedPaths, repoId: repo.id
+    )
+    let existing = repo.worktrees
+    let (merged, delta) = WorktreeReconciler.reconcile(
+        repoId: repo.id, existing: existing, discovered: discovered,
+        traceId: envelope.eventId
+    )
+    if delta.didChange {
+        // 1. Store mutation (existing API)
+        workspaceStore.reconcileDiscoveredWorktrees(repo.id, worktrees: merged)
+        // 2. Cache cleanup — must happen before pane effects below
+        //    (coordinator owns repoCache; prevents stale enrichment reads)
+        for (worktreeId, _) in delta.removedWorktrees {
+            repoCache.removeWorktree(worktreeId)
+        }
+        // 3. Pane/filesystem effects (PaneCoordinator)
+        topologyEffectHandler?.topologyDidChange(delta)
+    }
+```
+
+- [ ] **Step 4: Add `orphanPanesForWorktree` to WorkspaceStore**
+
+The existing `orphanPanesForRepo(_:)` (`WorkspaceStore.swift:1340`) orphans ALL panes for a repo. We need the narrower variant for single worktree removal.
+
+The residency model uses `SessionResidency.orphaned(reason:)` with `WorktreeUnavailableReason` (`SessionResidency.swift:5-33`):
+
+```swift
+enum SessionResidency: Equatable, Codable, Hashable {
+    case active
+    case pendingUndo(expiresAt: Date)
+    case backgrounded
+    case orphaned(reason: WorktreeUnavailableReason)
+}
+
+enum WorktreeUnavailableReason: Equatable, Codable, Hashable {
+    case worktreeNotFound(path: String)
+}
+```
+
+Implementation:
+
+```swift
+@discardableResult
+func orphanPanesForWorktree(_ worktreeId: UUID) -> [UUID] {
+    guard let worktree = repos.flatMap(\.worktrees).first(where: { $0.id == worktreeId }) else {
+        return []
+    }
+    let worktreePath = worktree.path.path
+    let affectedPaneIds = panes.values
+        .filter { $0.worktreeId == worktreeId }
+        // Skip panes in transition (pendingUndo, already orphaned) — only orphan resident panes
+        .filter { $0.residency == .active || $0.residency == .backgrounded }
+        .map(\.id)
+    for paneId in affectedPaneIds {
+        panes[paneId]?.residency = .orphaned(reason: .worktreeNotFound(path: worktreePath))
+    }
+    if !affectedPaneIds.isEmpty { markDirty() }
+    return affectedPaneIds
+}
+```
+
+**Note:** Call `orphanPanesForWorktree` BEFORE the worktree is removed from the store's `repo.worktrees` array — otherwise the worktree path lookup fails. The coordinator handles this by calling the effect handler (which orphans panes) after `reconcileDiscoveredWorktrees` removes the worktree from the array. To fix this ordering: the coordinator should capture the removed worktree paths from the delta BEFORE calling reconcile, or `orphanPanesForWorktree` should accept a path parameter directly. Simplest: change the signature to accept the path:
+
+```swift
+@discardableResult
+func orphanPanesForWorktree(_ worktreeId: UUID, path: String) -> [UUID] {
+    let affectedPaneIds = panes.values
+        .filter { $0.worktreeId == worktreeId }
+        .filter { $0.residency == .active || $0.residency == .backgrounded }
+        .map(\.id)
+    for paneId in affectedPaneIds {
+        panes[paneId]?.residency = .orphaned(reason: .worktreeNotFound(path: path))
+    }
+    if !affectedPaneIds.isEmpty { markDirty() }
+    return affectedPaneIds
+}
+```
+
+And `WorktreeTopologyDelta` should carry removed paths alongside removed IDs:
+
+```swift
+struct WorktreeTopologyDelta: Sendable, Equatable {
+    let repoId: UUID
+    let addedWorktreeIds: [UUID]
+    let removedWorktrees: [(id: UUID, path: URL)]  // ← path needed for orphaning reason
+    let preservedWorktreeIds: [UUID]
+    let didChange: Bool
+    let traceId: UUID?
+}
+```
+
+- [ ] **Step 5: PaneCoordinator conforms to `TopologyEffectHandler`**
+
+See Section 9 for the implementation. PaneCoordinator calls `store.orphanPanesForWorktree` (the new method) and `syncFilesystemRootsAndActivity` (existing method). It does NOT touch `repoCache`.
+
+- [ ] **Step 5: Remove topology bus subscription from PaneCoordinator**
+
+In `PaneCoordinator+FilesystemSource.swift`, remove the `.system(.topology)` branch from `handleFilesystemEnvelopeIfNeeded`.
+
+- [ ] **Step 6: Wire in AppDelegate**
+
+```swift
+topologyEffectHandler: paneCoordinator
+```
+
+- [ ] **Step 7: Write integration tests**
+
+```swift
+@Test("repoDiscovered with .scanned([wt1,wt2]) creates grouped repo and calls effect handler")
+@Test("repoDiscovered with .scanned([wt1]) after .scanned([wt1,wt2]) removes wt2 and produces delta")
+@Test("repoDiscovered with .scanned([]) removes all linked worktrees")
+@Test("repoDiscovered with .notScanned leaves existing worktrees unchanged (boot replay)")
+@Test("effect handler receives correct delta with removed worktree paths")
+```
+
+- [ ] **Step 8: Run full test suite**
+- [ ] **Step 9: Commit**
 
 ```bash
-AGENT_RUN_ID=$(uuidgen) mise run build > /tmp/build-output.txt 2>&1 && echo "PASS" || echo "FAIL"
-pkill -9 -f "AgentStudio" 2>/dev/null
-.build/debug/AgentStudio &
+git commit -m "feat: coordinator uses WorktreeReconciler + TopologyEffectHandler"
+```
+
+---
+
+## Task 4: Sidebar Icons
+
+**Files:**
+- Modify: `Sources/AgentStudio/Features/Sidebar/RepoSidebarContentView.swift`
+- Modify: `Tests/AgentStudioTests/Features/Sidebar/RepoSidebarContentViewTests.swift`
+
+Once Tasks 1-3 land, `repo.worktrees` has correct `isMainWorktree` flags. Sidebar changes are minimal.
+
+- [ ] **Step 1: Write icon tests**
+
+```swift
+@Test("main worktree → star") ...
+@Test("secondary worktree → worktree icon") ...
+@Test("standalone repo → star") ...
+```
+
+- [ ] **Step 2: Rewrite `checkoutIconKind` as static method**
+
+```swift
+static func checkoutIconKind(for worktree: Worktree, in repo: SidebarRepo) -> SidebarCheckoutIconKind {
+    let isMain = worktree.isMainWorktree
+        || worktree.path.standardizedFileURL.path == repo.repoPath.standardizedFileURL.path
+    return isMain ? .mainCheckout : .gitWorktree
+}
+```
+
+- [ ] **Step 3: Remove `standaloneCheckout` enum case entirely**
+
+```swift
+enum SidebarCheckoutIconKind {
+    case mainCheckout    // star — main worktree or standalone repo
+    case gitWorktree     // worktree icon — secondary worktree
+}
+```
+
+No producer emits `.standaloneCheckout`. Removing it prevents drift.
+Run `grep -rn 'standaloneCheckout' Sources/` to find and update all references.
+
+- [ ] **Step 4: Update `checkoutTypeIcon` for two-case enum**
+
+Use `OcticonImage` for custom octicon assets and SF Symbols (`Image(systemName:)`) for Apple system icons. Do NOT use `WorkspaceOcticonImage` — it should be removed if it exists.
+- [ ] **Step 5: Verify color logic needs no changes** (all worktrees share `repo.id` → same color)
+- [ ] **Step 6: Run tests, run full suite**
+- [ ] **Step 7: Commit**
+
+```bash
+git commit -m "fix: sidebar icons — star for main/standalone, worktree for secondary"
+```
+
+---
+
+## Task 5: Update Architecture Docs
+
+Four docs need updates. Each owns a specific concern — update only what that doc is authoritative for.
+
+**Files:**
+- Modify: `docs/architecture/workspace_data_architecture.md`
+- Modify: `docs/architecture/pane_runtime_eventbus_design.md`
+- Modify: `docs/architecture/component_architecture.md`
+- Modify: `docs/architecture/README.md`
+
+### `workspace_data_architecture.md` — Topology, Enrichment, Sidebar
+
+This is the authoritative doc for topology contracts, enrichment pipeline, and sidebar data flow. Heaviest changes.
+
+- [ ] **Step 1: Update Event Namespaces section (line 265-292)**
+
+Update the `TopologyEvent` listing to show the widened `.repoDiscovered`:
+
+```
+TopologyEvent (envelope: SystemEnvelope, all via bus)
+  .repoDiscovered(repoPath:, parentPath:, linkedWorktrees: LinkedWorktreeInfo = .notScanned)
+      — producer: AppDelegate (boot replay), FilesystemActor (watched folder diff)
+      — .scanned([urls]) = authoritative scanner result (may be empty = no linked worktrees)
+      — .notScanned = no scan performed (boot replay), leave existing worktrees unchanged
+  .repoRemoved(repoPath:)
+  .worktreeRegistered(worktreeId:, repoId:, rootPath:)
+  .worktreeUnregistered(worktreeId:, repoId:)
+```
+
+- [ ] **Step 2: Update Enrichment Pipeline diagram (line 149-192)**
+
+Add scanner classification and grouped discovery to the pipeline:
+
+```
+WORKSPACE STATE (canonical repos/worktrees, panes/tabs)
+      │
+      │ restored at boot → topology events replayed on bus
+      ▼
+FilesystemActor (raw filesystem I/O)
+  watched folder scan via RepoScanner:
+    - classifies .git directory (clone) vs .git file (linked worktree)
+    - groups linked worktrees under parent clones
+    - diffs grouped state, emits .repoDiscovered with .scanned(linkedPaths)
+  worktree roots → deep FSEvents watch (DarwinFSEventStreamClient)
+  emits: SystemEnvelope(.topology(..))     ← repo discovery/removal (grouped)
+         WorktreeEnvelope(.filesystem(..)) ← file change facts
+```
+
+- [ ] **Step 3: Update Coordinator responsibilities (line 232-252)**
+
+Update `handleTopology_*` to document the reconciler + effect handler pattern:
+
+```
+handleTopology_*    — CANONICAL mutations (WorkspaceStore)
+  Events: .topology(.repoDiscovered), .topology(.repoRemoved)
+  Flow:
+    1. Interpret fact (extract linked worktree paths from event)
+    2. Build discovered worktree list
+    3. Call WorktreeReconciler.reconcile(existing, discovered)
+       → pure function, returns (merged, TopologyDelta)
+    4. Update store with merged worktree list
+    5. Call topologyEffectHandler.topologyDidChange(delta)
+       → PaneCoordinator handles ordered effects
+  
+  The coordinator is sequencing-only. Diff/identity logic lives in
+  WorktreeReconciler (pure function). Ordered effects live in
+  TopologyEffectHandler (PaneCoordinator).
+```
+
+- [ ] **Step 4: Update "User Adds a Folder" lifecycle flow (line 338-360)**
+
+Update steps 6-8:
+
+```
+6. WorkspaceCacheCoordinator.handleTopology(.repoDiscovered):
+   a. Idempotent check by stableKey — skip if repo already exists
+   b. If new: addRepo(at:), seed .awaitingOrigin
+   c. If linkedWorktrees is .scanned(paths):
+      - Build discovered worktree list (main + linked)
+      - WorktreeReconciler.reconcile(existing, discovered)
+      - Update store with merged list
+      - topologyEffectHandler.topologyDidChange(delta)
+7. TopologyEffectHandler (PaneCoordinator):
+   a. Orphan panes for delta.removedWorktreeIds
+   b. Prune cache for removed worktrees
+   c. syncFilesystemRootsAndActivity() — registers new roots, unregisters removed
+8. Actors start producing enrichment events → cache updates → sidebar renders
+```
+
+- [ ] **Step 5: Add new section: Topology Accumulator Pattern**
+
+Add after "Event System Design: What It Is (and Isn't)" section (around line 428):
+
+```markdown
+### Topology Accumulator Pattern
+
+Topology facts flow through a layered pipeline where each layer's output is the next layer's input:
+
+| Layer | Component | Owns | Does Not Own |
+|-------|-----------|------|--------------|
+| Fact | FilesystemActor | Observing filesystem, emitting raw facts | Interpreting what facts mean |
+| Publication | EventBus | Fan-out to all subscribers | Ordering, filtering |
+| Accumulator | WorkspaceCacheCoordinator | Interpreting facts, sequencing effects | Domain diff logic, identity preservation |
+| Reconciler | WorktreeReconciler (pure function) | Identity preservation, diff computation | Store access, side effects |
+| State | WorkspaceStore (atom) | Canonical truth, simple setters | Sequencing, events, diffs |
+| Effects | TopologyEffectHandler (PaneCoordinator) | Ordered follow-on work (orphan panes, sync roots) | Interpreting raw facts, mutating canonical state |
+| Reader | Sidebar | Rendering truth via @Observable | Mutating anything |
+
+**Why not pure pub/sub for topology:**
+Multiple subscribers independently inferring what changed from raw events is fragile — ordering implicit, diffs rediscovered, cleanup ad hoc. The accumulator pattern ensures one interpreter, one diff, one ordered effect chain.
+
+**Why the bus still exists for topology:**
+Independent consumers (ForgeActor, NotificationReducer) subscribe to raw topology facts on the bus. They react independently, don't depend on store state, and don't need ordering guarantees. The bus serves notification; the handler serves sequencing.
+```
+
+- [ ] **Step 6: Update Scanner section (line 254-260)**
+
+Add classification behavior to the RepoScanner description:
+
+```markdown
+### Discovery — Repo Scanning
+
+`RepoScanner` walks the filesystem from a root URL and classifies each `.git` entry:
+- `.git` directory → clone root (real `git init`/`git clone`)
+- `.git` file → linked worktree (reads `gitdir:` to derive parent clone path)
+
+After classification, it groups linked worktrees under their parent clone into `ScannedRepoGroup` entries. The existing validation behavior is preserved: `git rev-parse --is-inside-work-tree` and submodule exclusion via `--show-superproject-working-tree`.
+
+Used by `FilesystemActor` as the blocking filesystem walk behind watched-folder refresh. The grouped results enable the coordinator to create correct worktree families from the first topology event.
+
+> **File:** `Infrastructure/RepoScanner.swift`
+```
+
+### `pane_runtime_eventbus_design.md` — Bus Coordination Patterns
+
+This doc is authoritative for how actors connect to the bus and the threading model.
+
+- [ ] **Step 7: Update WorkspaceCacheCoordinator connection inventory**
+
+Find the `WorkspaceCacheCoordinator` entry in the Per-Actor Connection Inventory and add the effect handler output:
+
+```
+| **Out** | `topologyEffectHandler.topologyDidChange(delta)` | Direct call | Ordered effects that depend on store mutation completing first. Deterministic — not via bus. |
+```
+
+- [ ] **Step 8: Update PaneCoordinator connection inventory**
+
+Remove the topology bus subscription entry. Add the handler entry:
+
+```
+| **In** | `TopologyEffectHandler.topologyDidChange(delta)` | Direct call from coordinator | Deterministic post-topology effects. Replaces bus topology subscription for ordering-sensitive work. |
+```
+
+- [ ] **Step 9: Add note to "Connection Patterns" section (line 613-625)**
+
+Add a new pattern:
+
+```
+HANDLER CHAIN (ordered dependent effects):
+  When a consumer MUST run after another consumer's mutation:
+  1. Primary consumer mutates state
+  2. Primary consumer calls injected handler with typed delta
+  3. Handler runs ordered effects
+
+  This is NOT a bus concern. The bus carries facts; the handler
+  carries processed deltas. The bus is for "something happened,
+  react if you care." The handler is for "I changed X, here's
+  exactly what changed, do Y in order."
+```
+
+- [ ] **Step 10: Update event namespace listing (line 265-289)**
+
+Same `.repoDiscovered` update as workspace_data_architecture.md.
+
+### `component_architecture.md` — Component Table
+
+- [ ] **Step 11: Add `WorktreeReconciler` to component → slice map**
+
+Add to the Infrastructure section of the component table:
+
+```
+| `WorktreeReconciler` | `Infrastructure/` | Pure function: matches existing vs discovered worktrees, preserves UUIDs, returns merged list + TopologyDelta |
+```
+
+- [ ] **Step 12: Update `PaneCoordinator` entry**
+
+Add note that PaneCoordinator conforms to `TopologyEffectHandler` for deterministic post-topology filesystem root sync and pane orphaning.
+
+- [ ] **Step 13: Update `WorkspaceCacheCoordinator` entry**
+
+Add note that it uses `WorktreeReconciler` for worktree family reconciliation and invokes `TopologyEffectHandler` after topology mutations.
+
+### `README.md` — Architecture Index
+
+- [ ] **Step 14: Update Mutation Flow summary (line 101-120)**
+
+Add topology accumulator flow:
+
+```
+Topology fact → EventBus → WorkspaceCacheCoordinator
+  → WorktreeReconciler.reconcile() → atom.setWorktrees()
+  → TopologyEffectHandler.topologyDidChange(delta)
+    → PaneCoordinator: orphan panes, sync roots, prune cache
+```
+
+### CLAUDE.md
+
+- [ ] **Step 15: Update CLAUDE.md Coordination Plane Decision Table**
+
+Add a row for topology effects:
+
+```
+| Topology fact (repo/worktree discovered/removed) | `PaneRuntimeEventBus` | Fact fan-out only. Coordinator is the single accumulator. |
+| Ordered post-topology effects (root sync, pane orphan) | `TopologyEffectHandler` | Direct handler call from coordinator. NOT via bus. |
+```
+
+- [ ] **Step 16: Commit**
+
+```bash
+git add docs/architecture/workspace_data_architecture.md
+git add docs/architecture/pane_runtime_eventbus_design.md
+git add docs/architecture/component_architecture.md
+git add docs/architecture/README.md
+git add CLAUDE.md
+git commit -m "docs: topology accumulator pattern, WorktreeReconciler, TopologyEffectHandler"
+```
+
+---
+
+## Task 6: Full Validation
+
+- [ ] **Step 1: `mise run test`** — show pass/fail counts and exit code
+- [ ] **Step 2: `mise run lint`** — zero errors
+- [ ] **Step 3: Build and visually verify with Peekaboo**
+
+```bash
+AGENT_RUN_ID=$(uuidgen) mise run build
+pkill -9 -f "AgentStudio" 2>/dev/null; .build/debug/AgentStudio &
 PID=$(pgrep -f ".build/debug/AgentStudio")
 peekaboo see --app "PID:$PID" --json
 ```
 
-Verify:
-- Main worktrees show star icon
-- Secondary worktrees show worktree icon (rotated)
-- Worktrees of same checkout share color
-- Different checkouts in same group have different colors
+Verify: star for main, worktree icon for secondary, shared colors per family.
 
-- [ ] **Step 4: Final commit if any fixes needed**
-
-```bash
-git add -A
-git commit -m "chore: lint and format fixes"
-```
+- [ ] **Step 4: Commit any fixes**

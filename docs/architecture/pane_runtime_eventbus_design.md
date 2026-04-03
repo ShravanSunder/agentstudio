@@ -621,6 +621,11 @@ Every edge in the architecture uses one of four patterns. The choice is mechanic
  │  No  + request-response    →  Direct await call         │
  │  No  + UI binding          →  @Observable               │
  │  No  + one-shot/finite     →  Continuation / array      │
+ │                                                         │
+ │  ORDERING-SENSITIVE DEPENDENT EFFECTS:                   │
+ │  Consumer MUST run after another's mutation?             │
+ │  → Handler chain (typed delta, direct call after mutate) │
+ │  → NOT via bus (bus has no ordering guarantee)           │
  └─────────────────────────────────────────────────────────┘
 ```
 
@@ -761,9 +766,13 @@ Pure sink. Consumes from bus stream, writes to @Observable.
 
 | Direction | Connection | Pattern | Why |
 |-----------|-----------|---------|-----|
-| **In** | `for await envelope in await bus.subscribe()` | **AsyncStream** (from bus) | Decoupled consumption from bus. |
+| **In** | `TopologyEffectHandler.topologyDidChange(delta)` | Direct call from coordinator | Deterministic post-topology effects. Replaces bus topology subscription for ordering-sensitive work. |
+| **In** | `for await envelope in await bus.subscribe()` | **AsyncStream** (from bus) | Worktree-scoped and pane-scoped events only. No longer subscribes to topology events on the bus. |
 | **Out** | `runtime.handleCommand(envelope)` | Direct call | Command dispatch is request-response. |
 | **Out** | Store mutations | Direct call | `workspace.closeTab()`, `surfaces.moveSurfacesToUndo()` — known targets. |
+| **Out** | `filesystemSource.register/unregister` | Direct call | Filesystem root sync after topology changes — sole owner of registration. |
+
+**Note:** PaneCoordinator no longer subscribes to `.system(.topology)` events on the bus. It receives topology changes exclusively via the `TopologyEffectHandler` protocol, which the coordinator calls after mutating the store. This makes ordering deterministic — the store is always mutated before PaneCoordinator reacts.
 
 #### Sink+Source actors (CheckpointActor pattern, future)
 

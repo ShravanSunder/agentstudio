@@ -156,6 +156,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             bus: paneRuntimeBus,
             workspaceStore: store,
             repoCache: workspaceRepoCache,
+            topologyEffectHandler: paneCoordinator,
             scopeSyncHandler: { [weak pipeline] change in
                 guard let pipeline else { return }
                 await pipeline.applyScopeChange(change)

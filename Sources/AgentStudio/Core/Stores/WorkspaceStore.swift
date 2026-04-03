@@ -1362,6 +1362,28 @@ final class WorkspaceStore {
     }
 
     @discardableResult
+    func orphanPanesForWorktree(_ worktreeId: UUID, path: String) -> [UUID] {
+        let affectedPaneIds = panes.values
+            .filter { $0.worktreeId == worktreeId }
+            .filter { pane in
+                switch pane.residency {
+                case .active, .backgrounded:
+                    return true
+                case .pendingUndo, .orphaned:
+                    return false
+                }
+            }
+            .map(\.id)
+
+        guard !affectedPaneIds.isEmpty else { return [] }
+        for paneId in affectedPaneIds {
+            panes[paneId]?.residency = .orphaned(reason: .worktreeNotFound(path: path))
+        }
+        markDirty()
+        return affectedPaneIds
+    }
+
+    @discardableResult
     func reassociateRepo(_ repoId: UUID, to newPath: URL, discoveredWorktrees: [Worktree]) -> Bool {
         guard let repoIndex = repos.firstIndex(where: { $0.id == repoId }) else { return false }
         repos[repoIndex].name = newPath.lastPathComponent

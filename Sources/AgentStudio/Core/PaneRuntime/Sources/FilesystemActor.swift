@@ -61,7 +61,7 @@ actor FilesystemActor {
     private let fseventStreamClient: any FSEventStreamClient
     private let envelopeClock = ContinuousClock()
     private let schedulingClock: SchedulingClock
-    private let watchedFolderScanner: @Sendable (URL) -> [URL]
+    private let groupedWatchedFolderScanner: @Sendable (URL) -> [RepoScanner.RepoScanGroup]
     private let debounceWindow: Duration
     private let maxFlushLatency: Duration
 
@@ -71,7 +71,7 @@ actor FilesystemActor {
     private var nextEnvelopeSequence: UInt64 = 0
 
     private var watchedFolderIds: [URL: UUID] = [:]
-    private var watchedFolderRepoPathsByRoot: [URL: Set<URL>] = [:]
+    private var watchedFolderRepoGroupsByRoot: [URL: [RepoScanner.RepoScanGroup]] = [:]
     private var fallbackRescanTask: Task<Void, Never>?
 
     private var ingressTask: Task<Void, Never>?
@@ -81,13 +81,15 @@ actor FilesystemActor {
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
-        watchedFolderScanner: @escaping @Sendable (URL) -> [URL] = { RepoScanner().scanForGitRepos(in: $0) },
+        groupedWatchedFolderScanner: @escaping @Sendable (URL) -> [RepoScanner.RepoScanGroup] = {
+            RepoScanner().scanForGitReposGrouped(in: $0)
+        },
         debounceWindow: Duration = .milliseconds(500),
         maxFlushLatency: Duration = .seconds(2)
     ) {
         self.runtimeBus = bus
         self.fseventStreamClient = fseventStreamClient
-        self.watchedFolderScanner = watchedFolderScanner
+        self.groupedWatchedFolderScanner = groupedWatchedFolderScanner
         schedulingClock = .continuous()
         self.debounceWindow = debounceWindow
         self.maxFlushLatency = maxFlushLatency
@@ -96,14 +98,16 @@ actor FilesystemActor {
     init<C: Clock>(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         fseventStreamClient: any FSEventStreamClient = DarwinFSEventStreamClient(),
-        watchedFolderScanner: @escaping @Sendable (URL) -> [URL] = { RepoScanner().scanForGitRepos(in: $0) },
+        groupedWatchedFolderScanner: @escaping @Sendable (URL) -> [RepoScanner.RepoScanGroup] = {
+            RepoScanner().scanForGitReposGrouped(in: $0)
+        },
         sleepClock: C,
         debounceWindow: Duration = .milliseconds(500),
         maxFlushLatency: Duration = .seconds(2)
     ) where C.Duration == Duration, C: Sendable {
         self.runtimeBus = bus
         self.fseventStreamClient = fseventStreamClient
-        self.watchedFolderScanner = watchedFolderScanner
+        self.groupedWatchedFolderScanner = groupedWatchedFolderScanner
         schedulingClock = .make(clock: sleepClock)
         self.debounceWindow = debounceWindow
         self.maxFlushLatency = maxFlushLatency
@@ -209,7 +213,7 @@ actor FilesystemActor {
         roots.removeAll(keepingCapacity: false)
         pendingChangesByWorktreeId.removeAll(keepingCapacity: false)
         watchedFolderIds.removeAll(keepingCapacity: false)
-        watchedFolderRepoPathsByRoot.removeAll(keepingCapacity: false)
+        watchedFolderRepoGroupsByRoot.removeAll(keepingCapacity: false)
         activePaneWorktreeId = nil
         fseventStreamClient.shutdown()
         hasShutdown = true
@@ -577,12 +581,15 @@ actor FilesystemActor {
 
         let newPaths = Set(paths.map { $0.standardizedFileURL })
         let oldPaths = Set(watchedFolderIds.keys)
+        var removedClonePaths = Set<URL>()
 
         for removed in oldPaths.subtracting(newPaths) {
             if let syntheticId = watchedFolderIds.removeValue(forKey: removed) {
                 fseventStreamClient.unregister(worktreeId: syntheticId)
             }
-            watchedFolderRepoPathsByRoot.removeValue(forKey: removed)
+            if let removedGroups = watchedFolderRepoGroupsByRoot.removeValue(forKey: removed) {
+                removedClonePaths.formUnion(removedGroups.map(\.clonePath))
+            }
         }
 
         for added in newPaths.subtracting(oldPaths) {
@@ -591,9 +598,11 @@ actor FilesystemActor {
             fseventStreamClient.register(worktreeId: syntheticId, repoId: syntheticId, rootPath: added)
         }
 
-        let summary = await rescanAllWatchedFolders()
+        let rescanResult = await rescanAllWatchedFolders()
+        removedClonePaths.formUnion(rescanResult.removedClonePaths)
+        await emitRemovedClones(noLongerReferencedByAnyWatchedFolder: removedClonePaths)
         startFallbackRescan()
-        return summary
+        return rescanResult.summary
     }
 
     private func isWatchedFolderBatch(_ worktreeId: UUID) -> Bool {
@@ -610,7 +619,8 @@ actor FilesystemActor {
             return
         }
 
-        _ = await refreshWatchedFolder(folderPath)
+        let result = await refreshWatchedFolder(folderPath)
+        await emitRemovedClones(noLongerReferencedByAnyWatchedFolder: result.removedClonePaths)
     }
 
     /// Blocking filesystem scan — MUST run off the actor's executor.
@@ -618,50 +628,108 @@ actor FilesystemActor {
     /// @concurrent ensures this escapes to the global executor.
     @concurrent nonisolated private static func scanFolder(
         _ folderPath: URL,
-        using watchedFolderScanner: @escaping @Sendable (URL) -> [URL]
-    ) async -> [URL] {
+        using watchedFolderScanner: @escaping @Sendable (URL) -> [RepoScanner.RepoScanGroup]
+    ) async -> [RepoScanner.RepoScanGroup] {
         watchedFolderScanner(folderPath)
     }
 
-    private func rescanAllWatchedFolders() async -> WatchedFolderRefreshSummary {
+    private struct WatchedFolderRefreshScanResult {
+        let summary: WatchedFolderRefreshSummary
+        let removedClonePaths: Set<URL>
+    }
+
+    private func rescanAllWatchedFolders() async -> WatchedFolderRefreshScanResult {
+        var removedClonePaths = Set<URL>()
         var repoPathsByWatchedFolder: [URL: [URL]] = [:]
         for (folderPath, _) in watchedFolderIds {
-            repoPathsByWatchedFolder[folderPath] = await refreshWatchedFolder(folderPath)
+            let refreshResult = await refreshWatchedFolder(folderPath)
+            repoPathsByWatchedFolder[folderPath] = refreshResult.repoPaths
+            removedClonePaths.formUnion(refreshResult.removedClonePaths)
         }
-        return WatchedFolderRefreshSummary(repoPathsByWatchedFolder: repoPathsByWatchedFolder)
+        return WatchedFolderRefreshScanResult(
+            summary: WatchedFolderRefreshSummary(repoPathsByWatchedFolder: repoPathsByWatchedFolder),
+            removedClonePaths: removedClonePaths
+        )
     }
 
-    private func refreshWatchedFolder(_ folderPath: URL) async -> [URL] {
-        let currentRepoPaths = await Self.scanFolder(folderPath, using: watchedFolderScanner)
-            .map(\.standardizedFileURL)
-        let currentRepoPathSet = Set(currentRepoPaths)
-        let previousRepoPathSet = watchedFolderRepoPathsByRoot[folderPath, default: []]
+    private struct WatchedFolderRefreshResult {
+        let repoPaths: [URL]
+        let removedClonePaths: Set<URL>
+    }
 
-        let addedRepoPaths = currentRepoPathSet.subtracting(previousRepoPathSet)
+    private func refreshWatchedFolder(_ folderPath: URL) async -> WatchedFolderRefreshResult {
+        let currentRepoGroups = Self.normalizeRepoScanGroups(
+            await Self.scanFolder(folderPath, using: groupedWatchedFolderScanner)
+        )
+        let previousRepoGroups = watchedFolderRepoGroupsByRoot[folderPath, default: []]
+        let currentRepoGroupsByClonePath: [URL: RepoScanner.RepoScanGroup] = Dictionary(
+            uniqueKeysWithValues: currentRepoGroups.map { ($0.clonePath, $0) }
+        )
+        let previousRepoGroupsByClonePath: [URL: RepoScanner.RepoScanGroup] = Dictionary(
+            uniqueKeysWithValues: previousRepoGroups.map { ($0.clonePath, $0) }
+        )
+
+        let currentClonePaths = Set(currentRepoGroupsByClonePath.keys)
+        let previousClonePaths = Set(previousRepoGroupsByClonePath.keys)
+
+        let addedRepoPaths = currentClonePaths.subtracting(previousClonePaths)
             .sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
-        let removedRepoPaths = previousRepoPathSet.subtracting(currentRepoPathSet)
-            .sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
+        let changedRepoPaths = currentClonePaths.intersection(previousClonePaths).sorted {
+            $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending
+        }
+        let removedClonePaths = previousClonePaths.subtracting(currentClonePaths)
+
+        watchedFolderRepoGroupsByRoot[folderPath] = currentRepoGroups
 
         for repoPath in addedRepoPaths {
-            await emitRepoDiscovered(repoPath: repoPath, parentPath: folderPath)
+            guard let group = currentRepoGroupsByClonePath[repoPath] else { continue }
+            await emitRepoDiscovered(
+                repoPath: repoPath,
+                parentPath: folderPath,
+                linkedWorktrees: .scanned(group.linkedWorktreePaths)
+            )
         }
 
-        for repoPath in removedRepoPaths {
-            await emitRepoRemoved(repoPath: repoPath)
+        for repoPath in changedRepoPaths {
+            guard let currentGroup = currentRepoGroupsByClonePath[repoPath],
+                let previousGroup = previousRepoGroupsByClonePath[repoPath]
+            else {
+                continue
+            }
+            guard currentGroup.linkedWorktreePaths != previousGroup.linkedWorktreePaths else { continue }
+            await emitRepoDiscovered(
+                repoPath: repoPath,
+                parentPath: folderPath,
+                linkedWorktrees: .scanned(currentGroup.linkedWorktreePaths)
+            )
         }
 
-        watchedFolderRepoPathsByRoot[folderPath] = currentRepoPathSet
-        return currentRepoPaths.sorted { $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending }
+        return WatchedFolderRefreshResult(
+            repoPaths: currentRepoGroups.map(\.clonePath).sorted {
+                $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending
+            },
+            removedClonePaths: removedClonePaths
+        )
     }
 
-    private func emitRepoDiscovered(repoPath: URL, parentPath: URL) async {
+    private func emitRepoDiscovered(
+        repoPath: URL,
+        parentPath: URL,
+        linkedWorktrees: LinkedWorktreeInfo = .notScanned
+    ) async {
         nextEnvelopeSequence += 1
         let envelope = RuntimeEnvelope.system(
             SystemEnvelope(
                 source: .builtin(.filesystemWatcher),
                 seq: nextEnvelopeSequence,
                 timestamp: envelopeClock.now,
-                event: .topology(.repoDiscovered(repoPath: repoPath, parentPath: parentPath))
+                event: .topology(
+                    .repoDiscovered(
+                        repoPath: repoPath,
+                        parentPath: parentPath,
+                        linkedWorktrees: linkedWorktrees
+                    )
+                )
             )
         )
         let droppedCount = (await runtimeBus.post(envelope)).droppedCount
@@ -669,6 +737,13 @@ actor FilesystemActor {
             Self.logger.warning(
                 "Repo discovered event delivery dropped for \(droppedCount, privacy: .public) subscriber(s); repoPath=\(repoPath.path, privacy: .public)"
             )
+        }
+    }
+
+    private func emitRemovedClones(noLongerReferencedByAnyWatchedFolder clonePaths: Set<URL>) async {
+        for repoPath in clonePaths.sorted(by: Self.sortByPath) {
+            guard !isReferencedByAnyWatchedFolder(repoPath) else { continue }
+            await emitRepoRemoved(repoPath: repoPath)
         }
     }
 
@@ -688,6 +763,38 @@ actor FilesystemActor {
                 "Repo removed event delivery dropped for \(droppedCount, privacy: .public) subscriber(s); repoPath=\(repoPath.path, privacy: .public)"
             )
         }
+    }
+
+    private func isReferencedByAnyWatchedFolder(_ repoPath: URL) -> Bool {
+        watchedFolderRepoGroupsByRoot.values.contains { repoGroups in
+            repoGroups.contains { $0.clonePath == repoPath }
+        }
+    }
+
+    private static func normalizeRepoScanGroups(
+        _ groups: [RepoScanner.RepoScanGroup]
+    ) -> [RepoScanner.RepoScanGroup] {
+        groups
+            .map { group in
+                RepoScanner.RepoScanGroup(
+                    clonePath: group.clonePath.standardizedFileURL,
+                    linkedWorktreePaths: group.linkedWorktreePaths
+                        .map(\.standardizedFileURL)
+                        .sorted(by: Self.sortByPath)
+                )
+            }
+            .sorted(by: Self.sortByClonePath)
+    }
+
+    private static func sortByClonePath(
+        _ lhs: RepoScanner.RepoScanGroup,
+        _ rhs: RepoScanner.RepoScanGroup
+    ) -> Bool {
+        sortByPath(lhs.clonePath, rhs.clonePath)
+    }
+
+    private static func sortByPath(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.path.localizedCaseInsensitiveCompare(rhs.path) == .orderedAscending
     }
 
     private func startFallbackRescan() {

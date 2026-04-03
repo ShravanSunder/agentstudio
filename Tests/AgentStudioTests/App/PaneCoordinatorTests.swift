@@ -405,17 +405,16 @@ struct PaneCoordinatorTests {
             repoId: repo.id,
             path: tertiaryWorktree.path
         )
-        await paneEventBus.post(
-            .system(
-                SystemEnvelope.test(
-                    event: .topology(
-                        .worktreeRegistered(
-                            worktreeId: reconciledTertiaryWorktree.id,
-                            repoId: repo.id,
-                            rootPath: reconciledTertiaryWorktree.path
-                        )
-                    )
-                )
+        coordinator.topologyDidChange(
+            WorktreeTopologyDelta(
+                repoId: repo.id,
+                addedWorktreeIds: [reconciledTertiaryWorktree.id],
+                removedWorktrees: [
+                    RemovedWorktreeEntry(id: reconciledSecondaryWorktree.id, path: reconciledSecondaryWorktree.path)
+                ],
+                preservedWorktreeIds: [primaryWorktree.id],
+                didChange: true,
+                traceId: nil
             )
         )
 
@@ -550,17 +549,16 @@ struct PaneCoordinatorTests {
             path: repo.repoPath.appending(path: "latest-branch")
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, latestWorktree])
-        await paneEventBus.post(
-            .system(
-                SystemEnvelope.test(
-                    event: .topology(
-                        .worktreeRegistered(
-                            worktreeId: latestWorktree.id,
-                            repoId: repo.id,
-                            rootPath: latestWorktree.path
-                        )
-                    )
-                )
+        coordinator.topologyDidChange(
+            WorktreeTopologyDelta(
+                repoId: repo.id,
+                addedWorktreeIds: [latestWorktree.id],
+                removedWorktrees: [
+                    RemovedWorktreeEntry(id: reconciledStaleWorktree.id, path: reconciledStaleWorktree.path)
+                ],
+                preservedWorktreeIds: [mainWorktree.id],
+                didChange: true,
+                traceId: nil
             )
         )
 

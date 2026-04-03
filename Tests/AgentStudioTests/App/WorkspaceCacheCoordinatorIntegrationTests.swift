@@ -426,6 +426,189 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
     }
 
     @Test
+    func topology_repoDiscoveredScannedLinkedWorktrees_createsGroupedWorktrees() {
+        let workspaceStore = makeWorkspaceStore()
+        let repoCache = WorkspaceRepoCache()
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: EventBus<RuntimeEnvelope>(),
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            scopeSyncHandler: { _ in }
+        )
+
+        let repoPath = URL(fileURLWithPath: "/tmp/grouped-topology-repo")
+        let featurePath = URL(fileURLWithPath: "/tmp/grouped-topology-repo-feature")
+        let hotfixPath = URL(fileURLWithPath: "/tmp/grouped-topology-repo-hotfix")
+
+        coordinator.handleTopology(
+            SystemEnvelope.test(
+                event: .topology(
+                    .repoDiscovered(
+                        repoPath: repoPath,
+                        parentPath: repoPath.deletingLastPathComponent(),
+                        linkedWorktrees: .scanned([featurePath, hotfixPath])
+                    )
+                )
+            )
+        )
+
+        #expect(workspaceStore.repos.count == 1)
+        let discoveredPaths = Set(workspaceStore.repos[0].worktrees.map(\.path))
+        #expect(discoveredPaths == Set([repoPath, featurePath, hotfixPath]))
+    }
+
+    @Test
+    func topology_repoDiscoveredScannedUpdate_removesMissingWorktreeAndPrunesCache() {
+        let workspaceStore = makeWorkspaceStore()
+        let repoCache = WorkspaceRepoCache()
+        let effectHandler = RecordingTopologyEffectHandler()
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: EventBus<RuntimeEnvelope>(),
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            topologyEffectHandler: effectHandler,
+            scopeSyncHandler: { _ in }
+        )
+
+        let repoPath = URL(fileURLWithPath: "/tmp/reconciled-topology-repo")
+        let keepPath = URL(fileURLWithPath: "/tmp/reconciled-topology-repo-keep")
+        let removedPath = URL(fileURLWithPath: "/tmp/reconciled-topology-repo-removed")
+
+        coordinator.handleTopology(
+            SystemEnvelope.test(
+                event: .topology(
+                    .repoDiscovered(
+                        repoPath: repoPath,
+                        parentPath: repoPath.deletingLastPathComponent(),
+                        linkedWorktrees: .scanned([keepPath, removedPath])
+                    )
+                )
+            )
+        )
+
+        let repo = try! #require(workspaceStore.repos.first)
+        let removedWorktreeId = try! #require(
+            repo.worktrees.first(where: { $0.path == removedPath })?.id
+        )
+        repoCache.setWorktreeEnrichment(
+            WorktreeEnrichment(worktreeId: removedWorktreeId, repoId: repo.id, branch: "removed")
+        )
+        repoCache.setPullRequestCount(7, for: removedWorktreeId)
+
+        coordinator.handleTopology(
+            SystemEnvelope.test(
+                event: .topology(
+                    .repoDiscovered(
+                        repoPath: repoPath,
+                        parentPath: repoPath.deletingLastPathComponent(),
+                        linkedWorktrees: .scanned([keepPath])
+                    )
+                )
+            )
+        )
+
+        let remainingPaths = Set(try! #require(workspaceStore.repos.first).worktrees.map(\.path))
+        #expect(remainingPaths == Set([repoPath, keepPath]))
+        #expect(repoCache.worktreeEnrichmentByWorktreeId[removedWorktreeId] == nil)
+        #expect(repoCache.pullRequestCountByWorktreeId[removedWorktreeId] == nil)
+        #expect(effectHandler.deltas.count == 2)
+        let lastDelta = try! #require(effectHandler.deltas.last)
+        #expect(lastDelta.repoId == repo.id)
+        #expect(lastDelta.removedWorktrees.map { $0.id } == [removedWorktreeId])
+        #expect(lastDelta.removedWorktrees.map { $0.path } == [removedPath])
+        #expect(lastDelta.addedWorktreeIds.isEmpty)
+        #expect(lastDelta.didChange)
+    }
+
+    @Test
+    func topology_repoDiscoveredScannedEmpty_removesAllLinkedWorktrees() {
+        let workspaceStore = makeWorkspaceStore()
+        let repoCache = WorkspaceRepoCache()
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: EventBus<RuntimeEnvelope>(),
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            scopeSyncHandler: { _ in }
+        )
+
+        let repoPath = URL(fileURLWithPath: "/tmp/empty-topology-repo")
+        let featurePath = URL(fileURLWithPath: "/tmp/empty-topology-repo-feature")
+        let hotfixPath = URL(fileURLWithPath: "/tmp/empty-topology-repo-hotfix")
+
+        coordinator.handleTopology(
+            SystemEnvelope.test(
+                event: .topology(
+                    .repoDiscovered(
+                        repoPath: repoPath,
+                        parentPath: repoPath.deletingLastPathComponent(),
+                        linkedWorktrees: .scanned([featurePath, hotfixPath])
+                    )
+                )
+            )
+        )
+
+        coordinator.handleTopology(
+            SystemEnvelope.test(
+                event: .topology(
+                    .repoDiscovered(
+                        repoPath: repoPath,
+                        parentPath: repoPath.deletingLastPathComponent(),
+                        linkedWorktrees: .scanned([])
+                    )
+                )
+            )
+        )
+
+        #expect(workspaceStore.repos.count == 1)
+        #expect(workspaceStore.repos[0].worktrees.map(\.path) == [repoPath])
+    }
+
+    @Test
+    func topology_repoDiscoveredNotScanned_preservesExistingLinkedWorktrees() {
+        let workspaceStore = makeWorkspaceStore()
+        let repoCache = WorkspaceRepoCache()
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: EventBus<RuntimeEnvelope>(),
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            scopeSyncHandler: { _ in }
+        )
+
+        let repoPath = URL(fileURLWithPath: "/tmp/not-scanned-topology-repo")
+        let featurePath = URL(fileURLWithPath: "/tmp/not-scanned-topology-repo-feature")
+        let hotfixPath = URL(fileURLWithPath: "/tmp/not-scanned-topology-repo-hotfix")
+
+        coordinator.handleTopology(
+            SystemEnvelope.test(
+                event: .topology(
+                    .repoDiscovered(
+                        repoPath: repoPath,
+                        parentPath: repoPath.deletingLastPathComponent(),
+                        linkedWorktrees: .scanned([featurePath, hotfixPath])
+                    )
+                )
+            )
+        )
+
+        let pathsBeforeBootReplay = Set(workspaceStore.repos[0].worktrees.map(\.path))
+
+        coordinator.handleTopology(
+            SystemEnvelope.test(
+                event: .topology(
+                    .repoDiscovered(
+                        repoPath: repoPath,
+                        parentPath: repoPath.deletingLastPathComponent(),
+                        linkedWorktrees: .notScanned
+                    )
+                )
+            )
+        )
+
+        let pathsAfterBootReplay = Set(workspaceStore.repos[0].worktrees.map(\.path))
+        #expect(pathsAfterBootReplay == pathsBeforeBootReplay)
+    }
+
+    @Test
     func shutdown_removesBusSubscriberBeforeReturning() async {
         let bus = EventBus<RuntimeEnvelope>()
         let coordinator = WorkspaceCacheCoordinator(
@@ -526,5 +709,14 @@ private actor RecordedScopeChanges {
 
     var values: [ScopeChange] {
         scopeChanges
+    }
+}
+
+@MainActor
+private final class RecordingTopologyEffectHandler: TopologyEffectHandler {
+    private(set) var deltas: [WorktreeTopologyDelta] = []
+
+    func topologyDidChange(_ delta: WorktreeTopologyDelta) {
+        deltas.append(delta)
     }
 }

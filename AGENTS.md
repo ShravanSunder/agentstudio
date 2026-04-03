@@ -136,16 +136,24 @@ A coordinator sequences operations across stores for a user action. Owns no stat
 Runtime actors produce facts → `EventBus` → `WorkspaceCacheCoordinator` → updates stores.
 
 ```
-FilesystemActor ──► .repoDiscovered ──┐
-GitProjector    ──► .snapshotChanged ─┤──► EventBus ──► WorkspaceCacheCoordinator
-ForgeActor      ──► .prCountsChanged ─┘        │               │
-                                                │        ┌──────┴──────┐
-                                                │        ▼             ▼
-                                                │  WorkspaceStore  WorkspaceRepoCache
-                                                │  (associations)  (enrichment)
-                                                │
-                                                └──► Sidebar observes both via @Observable
+FilesystemActor ──► .repoDiscovered(linkedWorktrees: .scanned([...])) ──┐
+GitProjector    ──► .snapshotChanged, .branchChanged ───────────────────┤──► EventBus
+ForgeActor      ──► .pullRequestCountsChanged ──────────────────────────┘      │
+                                                                               ▼
+                                                              WorkspaceCacheCoordinator
+                                                              (topology accumulator)
+                                                                       │
+                                              ┌────────────────────────┼──────────────────────┐
+                                              ▼                        ▼                      ▼
+                                       WorkspaceStore          WorkspaceRepoCache    TopologyEffectHandler
+                                       (canonical)             (enrichment)          (PaneCoordinator)
+                                              │                        │              orphan panes +
+                                              └────────────┬───────────┘              sync FS roots
+                                                           ▼
+                                                    Sidebar (@Observable reader)
 ```
+
+**Topology accumulator pattern:** For topology events with `LinkedWorktreeInfo.scanned(...)`, the coordinator uses `WorktreeReconciler` (pure function) to compute a `WorktreeTopologyDelta`, then calls `TopologyEffectHandler.topologyDidChange(delta)` for ordered effects. Cache pruning happens in the coordinator; pane orphaning + filesystem root sync happens in PaneCoordinator via the handler. PaneCoordinator does NOT subscribe to topology events on the bus. See [Workspace Data Architecture — Topology Accumulator Pattern](docs/architecture/workspace_data_architecture.md).
 
 **This is NOT CQRS.** The event bus carries facts, not commands. Stores are mutated by their own methods. Typed command planes still exist, but they do **not** run through the bus:
 - `PaneActionCommand` for workspace mutations (`CommandDispatcher` → `ActionResolver` → `ActionValidator` → `PaneCoordinator`)
@@ -168,6 +176,8 @@ Use the narrowest plane that still preserves the architecture boundary.
 | Workspace mutation | `PaneActionCommand` | Validator-gated, then sequenced by `PaneCoordinator` into stores. |
 | Runtime command | `RuntimeCommand` | Direct `PaneCoordinator -> RuntimeRegistry -> runtime.handleCommand(...)`. |
 | Runtime fact | `PaneRuntimeEventBus` | Fact fan-out only; never route commands through it. |
+| Topology fact (repo/worktree discovered/removed) | `PaneRuntimeEventBus` | Fact fan-out. Coordinator is the single accumulator. Uses `WorktreeReconciler` + `TopologyEffectHandler`. |
+| Ordered post-topology effects (root sync, pane orphan) | `TopologyEffectHandler` | Direct handler call from coordinator to PaneCoordinator. NOT via bus — ordering must be deterministic. |
 | App-level notification that is not a command | `AppEventBus` | Notification fan-out only. Not a workspace command boundary. |
 | AppKit/macOS lifecycle ingress | `ApplicationLifecycleMonitor` | Owns AppKit ingress and writes `AppLifecycleStore` / `WindowLifecycleStore`. |
 | UI-only local state | Local `@Observable` state | Keep it in the owning view/controller. Do not bounce it through a bus or `NotificationCenter`. |

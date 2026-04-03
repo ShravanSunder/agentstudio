@@ -2,12 +2,18 @@ import Foundation
 import os
 
 @MainActor
+protocol TopologyEffectHandler: AnyObject {
+    func topologyDidChange(_ delta: WorktreeTopologyDelta)
+}
+
+@MainActor
 final class WorkspaceCacheCoordinator {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "WorkspaceCacheCoordinator")
 
     private let bus: EventBus<RuntimeEnvelope>
     private let workspaceStore: WorkspaceStore
     private let repoCache: WorkspaceRepoCache
+    private let topologyEffectHandler: (any TopologyEffectHandler)?
     private let scopeSyncHandler: @Sendable (ScopeChange) async -> Void
     private var consumeTask: Task<Void, Never>?
 
@@ -15,11 +21,13 @@ final class WorkspaceCacheCoordinator {
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         workspaceStore: WorkspaceStore,
         repoCache: WorkspaceRepoCache,
+        topologyEffectHandler: (any TopologyEffectHandler)? = nil,
         scopeSyncHandler: @escaping @Sendable (ScopeChange) async -> Void
     ) {
         self.bus = bus
         self.workspaceStore = workspaceStore
         self.repoCache = repoCache
+        self.topologyEffectHandler = topologyEffectHandler
         self.scopeSyncHandler = scopeSyncHandler
     }
 
@@ -69,11 +77,13 @@ final class WorkspaceCacheCoordinator {
         guard case .topology(let topologyEvent) = envelope.event else { return }
 
         switch topologyEvent {
-        case .repoDiscovered(let repoPath, _):
-            let incomingStableKey = StableKey.fromPath(repoPath)
+        case .repoDiscovered(let repoPath, _, let linkedWorktrees):
+            let normalizedRepoPath = repoPath.standardizedFileURL
+            let incomingStableKey = StableKey.fromPath(normalizedRepoPath)
             let existingRepo = workspaceStore.repos.first {
-                $0.repoPath == repoPath || $0.stableKey == incomingStableKey
+                $0.repoPath.standardizedFileURL == normalizedRepoPath || $0.stableKey == incomingStableKey
             }
+            let repoId: UUID
             if let repo = existingRepo {
                 if repoCache.repoEnrichmentByRepoId[repo.id] == nil {
                     repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
@@ -81,14 +91,48 @@ final class WorkspaceCacheCoordinator {
                 if workspaceStore.isRepoUnavailable(repo.id) {
                     _ = workspaceStore.reassociateRepo(
                         repo.id,
-                        to: repoPath,
+                        to: normalizedRepoPath,
                         discoveredWorktrees: repo.worktrees
                     )
                 }
+                repoId = repo.id
             } else {
-                let repo = workspaceStore.addRepo(at: repoPath)
+                let repo = workspaceStore.addRepo(at: normalizedRepoPath)
                 repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
+                repoId = repo.id
             }
+
+            guard case .scanned(let linkedPaths) = linkedWorktrees else { return }
+            guard let repo = workspaceStore.repos.first(where: { $0.id == repoId }) else {
+                Self.logger.error(
+                    "Repo id=\(repoId.uuidString, privacy: .public) not found after creation — store state inconsistency"
+                )
+                return
+            }
+
+            let discoveredWorktrees = Self.buildDiscoveredWorktreeList(
+                clonePath: normalizedRepoPath,
+                linkedPaths: linkedPaths,
+                repoId: repo.id
+            )
+            let (mergedWorktrees, delta) = WorktreeReconciler.reconcile(
+                repoId: repo.id,
+                existing: repo.worktrees,
+                discovered: discoveredWorktrees,
+                traceId: envelope.eventId
+            )
+            guard delta.didChange else { return }
+
+            workspaceStore.reconcileDiscoveredWorktrees(repo.id, worktrees: mergedWorktrees)
+            for entry in delta.removedWorktrees {
+                repoCache.removeWorktree(entry.id)
+            }
+            if !delta.removedWorktrees.isEmpty, topologyEffectHandler == nil {
+                Self.logger.warning(
+                    "Topology delta has \(delta.removedWorktrees.count, privacy: .public) removed worktree(s) but no effect handler — pane orphaning skipped"
+                )
+            }
+            topologyEffectHandler?.topologyDidChange(delta)
         case .repoRemoved(let repoPath):
             if let repo = workspaceStore.repos.first(where: { $0.repoPath == repoPath }) {
                 workspaceStore.markRepoUnavailable(repo.id)
@@ -290,6 +334,36 @@ final class WorkspaceCacheCoordinator {
         let updated = workspaceStore.reassociateRepo(repoId, to: newPath, discoveredWorktrees: discoveredWorktrees)
         guard updated else { return false }
         return true
+    }
+
+    private static func buildDiscoveredWorktreeList(
+        clonePath: URL,
+        linkedPaths: [URL],
+        repoId: UUID
+    ) -> [Worktree] {
+        let normalizedClonePath = clonePath.standardizedFileURL
+        let normalizedLinkedPaths = Array(Set(linkedPaths.map(\.standardizedFileURL)))
+            .filter { $0 != normalizedClonePath }
+            .sorted(by: sortPaths)
+
+        let mainWorktree = Worktree(
+            repoId: repoId,
+            name: normalizedClonePath.lastPathComponent,
+            path: normalizedClonePath,
+            isMainWorktree: true
+        )
+        let linkedWorktrees = normalizedLinkedPaths.map { linkedPath in
+            Worktree(
+                repoId: repoId,
+                name: linkedPath.lastPathComponent,
+                path: linkedPath
+            )
+        }
+        return [mainWorktree] + linkedWorktrees
+    }
+
+    private static func sortPaths(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.path.localizedCaseInsensitiveCompare(rhs.path) == .orderedAscending
     }
 }
 
