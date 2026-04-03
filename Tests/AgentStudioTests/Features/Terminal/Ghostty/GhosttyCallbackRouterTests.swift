@@ -4,11 +4,11 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("Ghostty clipboard callbacks")
-struct GhosttyClipboardCallbackTests {
+@Suite("Ghostty callback router")
+struct GhosttyCallbackRouterTests {
     @Test("readClipboard returns false when no surface userdata is available")
     func readClipboard_withoutUserdata_returnsFalse() {
-        let handled = Ghostty.App.readClipboard(
+        let handled = Ghostty.CallbackRouter.readClipboard(
             nil,
             location: GHOSTTY_CLIPBOARD_STANDARD,
             state: nil

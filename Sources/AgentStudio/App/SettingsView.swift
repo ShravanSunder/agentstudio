@@ -50,13 +50,13 @@ struct GeneralSettingsView: View {
 
             Section {
                 LabeledContent("Data Location") {
-                    Text("~/.agentstudio/")
+                    Text(AppDataPaths.displayPath(for: AppDataPaths.rootDirectory()))
                         .foregroundStyle(.secondary)
                         .font(.system(size: AppStyle.textBase, design: .monospaced))
                 }
 
                 Button("Reveal in Finder") {
-                    let url = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".agentstudio")
+                    let url = AppDataPaths.rootDirectory()
                     NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.path)
                 }
             }

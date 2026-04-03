@@ -6,30 +6,46 @@ PROJECT_ROOT = "{{config_root}}"
 
 # --- Low-level build tasks ---
 
+[tasks.init-submodules]
+description = "Populate git submodules required for vendored builds"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+echo "[setup] hydrating git submodules..."
+git submodule update --init --recursive
+if [ -f "vendor/ghostty/build.zig" ]; then
+  echo "[setup] ghostty ready"
+fi
+if [ -f "vendor/zmx/build.zig" ]; then
+  echo "[setup] zmx ready"
+fi
+"""
+
 [tasks.build-ghostty]
 description = "Build Ghostty XCFramework"
-run = "zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native"
-dir = "vendor/ghostty"
+depends = ["init-submodules"]
+run = "bash \"${PROJECT_ROOT}/scripts/build-ghostty-local.sh\""
 
 [tasks.build-zmx]
 description = "Build zmx session multiplexer"
-run = "zig build -Doptimize=ReleaseFast"
+depends = ["init-submodules"]
+run = "bash \"${PROJECT_ROOT}/scripts/zig.sh\" build -Doptimize=ReleaseFast"
 dir = "vendor/zmx"
 
 [tasks.copy-xcframework]
 description = "Copy GhosttyKit.xcframework to Frameworks/"
 depends = ["build-ghostty"]
 run = """
-if [ -d "Frameworks/GhosttyKit.xcframework" ]; then
-  echo "GhosttyKit.xcframework already exists, skipping copy"
-else
-  mkdir -p Frameworks
-  cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
-fi
+rm -rf Frameworks/GhosttyKit.xcframework
+mkdir -p Frameworks
+cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
 # Drop vendored debug info from the static archive to avoid Apple toolchain
 # symbol-resolution warnings during app/test links. This does not affect
 # linkable symbols; it only reduces unusable third-party debug metadata.
-xcrun strip -S Frameworks/GhosttyKit.xcframework/macos-arm64/libghostty-fat.a
+ARCHIVE_PATH="$(find Frameworks/GhosttyKit.xcframework -type f \\( -name 'libghostty-fat.a' -o -name 'libghostty.a' \\) | head -n 1)"
+if [ -n "$ARCHIVE_PATH" ]; then
+  xcrun strip -S "$ARCHIVE_PATH"
+fi
 """
 
 [tasks.setup-dev-resources]
@@ -93,6 +109,14 @@ echo "--- swiftlint ---"
 swiftlint lint --strict 2>&1 && echo "swiftlint: OK" || { echo "swiftlint: FAIL"; exit 1; }
 echo "--- architecture boundary checks ---"
 bash scripts/check-core-boundary-imports.sh
+"""
+
+[tasks.doctor-mac]
+description = "Check local macOS prerequisites and known build hazards"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+bash scripts/doctor-mac.sh
 """
 
 # --- Setup (first-time / after clean) ---

@@ -189,9 +189,7 @@ struct WorkspacePersistor {
         if let dir = workspacesDir {
             self.workspacesDir = dir
         } else {
-            let appSupport = FileManager.default.homeDirectoryForCurrentUser
-                .appending(path: ".agentstudio")
-            self.workspacesDir = appSupport.appending(path: "workspaces")
+            self.workspacesDir = AppDataPaths.workspacesDirectory()
         }
     }
 

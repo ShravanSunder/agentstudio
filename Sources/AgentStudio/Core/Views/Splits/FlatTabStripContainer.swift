@@ -80,6 +80,7 @@ struct FlatTabStripContainer: View {
                         onOpenPaneGitHub: onOpenPaneGitHub
                     )
                     .animation(.easeOut(duration: AppStyle.animationFast), value: closingPaneIds)
+                    .animation(.easeOut(duration: AppStyle.animationFast), value: minimizedPaneIds)
                 }
 
                 DrawerPanelOverlay(

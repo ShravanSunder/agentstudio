@@ -145,6 +145,24 @@ struct FlatPaneDivider: View {
     private let minSize: CGFloat = AppStyle.splitMinimumPaneSize
 
     @State private var hasStartedResize = false
+    @State private var initialLeftWidth: CGFloat = 0
+    @State private var initialRightWidth: CGFloat = 0
+
+    /// Pure computation for drag-resize ratio. Extracted for testability.
+    nonisolated static func computeResizeRatio(
+        initialLeftWidth: CGFloat,
+        initialRightWidth: CGFloat,
+        translationWidth: CGFloat,
+        minSize: CGFloat
+    ) -> Double {
+        let totalWidth = initialLeftWidth + initialRightWidth
+        guard totalWidth > 0 else { return 0.5 }
+        let clampedLeftWidth = min(
+            max(initialLeftWidth + translationWidth, minSize),
+            totalWidth - minSize
+        )
+        return clampedLeftWidth / totalWidth
+    }
 
     var body: some View {
         Color.clear
@@ -158,14 +176,17 @@ struct FlatPaneDivider: View {
                         guard layout.dividerIds.contains(dividerId) else { return }
                         if !hasStartedResize {
                             hasStartedResize = true
+                            initialLeftWidth = leftPaneWidth
+                            initialRightWidth = rightPaneWidth
                             store.isSplitResizing = true
                         }
 
-                        let clampedLeftWidth = min(
-                            max(leftPaneWidth + gesture.translation.width, minSize),
-                            leftPaneWidth + rightPaneWidth - minSize
+                        let localRatio = Self.computeResizeRatio(
+                            initialLeftWidth: initialLeftWidth,
+                            initialRightWidth: initialRightWidth,
+                            translationWidth: gesture.translation.width,
+                            minSize: minSize
                         )
-                        let localRatio = clampedLeftWidth / (leftPaneWidth + rightPaneWidth)
                         actionDispatcher.dispatch(.resizePane(tabId: tabId, splitId: dividerId, ratio: localRatio))
                     }
                     .onEnded { _ in
