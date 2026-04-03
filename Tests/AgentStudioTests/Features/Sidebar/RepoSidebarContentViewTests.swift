@@ -192,65 +192,64 @@ struct RepoSidebarContentViewTests {
         #expect(RepoSidebarContentView.checkoutIconKind(for: repo.worktrees[0], in: repo) == .mainCheckout)
     }
 
-    @Test("same repo worktrees share one color")
-    func sameRepoWorktreesShareOneColor() {
-        let repoId = UUID()
-        let singleWorktreeRepo = SidebarRepo(
-            id: repoId,
+    @Test("worktrees of the same repo share color, different repo in same group gets different color")
+    func worktreeFamilyColorInvariant() {
+        let repoAId = UUID()
+        let repoBId = UUID()
+        let repoA = SidebarRepo(
+            id: repoAId,
             name: "agent-studio",
             repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
-            stableKey: "agent-studio",
+            stableKey: "agent-studio-a",
             worktrees: [
                 Worktree(
-                    repoId: repoId,
-                    name: "main",
-                    path: URL(fileURLWithPath: "/tmp/agent-studio"),
-                    isMainWorktree: true
-                )
-            ]
-        )
-        let multiWorktreeRepo = SidebarRepo(
-            id: repoId,
-            name: "agent-studio",
-            repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
-            stableKey: "agent-studio",
-            worktrees: [
-                Worktree(
-                    repoId: repoId,
+                    repoId: repoAId,
                     name: "main",
                     path: URL(fileURLWithPath: "/tmp/agent-studio"),
                     isMainWorktree: true
                 ),
                 Worktree(
-                    repoId: repoId,
-                    name: "feature-sidebar",
+                    repoId: repoAId,
+                    name: "feature",
                     path: URL(fileURLWithPath: "/tmp/agent-studio-feature"),
                     isMainWorktree: false
                 ),
             ]
         )
-        let singleGroup = SidebarRepoGroup(
+        let repoB = SidebarRepo(
+            id: repoBId,
+            name: "agent-studio-fork",
+            repoPath: URL(fileURLWithPath: "/tmp/agent-studio-fork"),
+            stableKey: "agent-studio-b",
+            worktrees: [
+                Worktree(
+                    repoId: repoBId,
+                    name: "main",
+                    path: URL(fileURLWithPath: "/tmp/agent-studio-fork"),
+                    isMainWorktree: true
+                )
+            ]
+        )
+        // One group with two repos — this is the real sidebar scenario
+        let group = SidebarRepoGroup(
             id: "remote:askluna/agent-studio",
             repoTitle: "agent-studio",
             organizationName: "askluna",
-            repos: [singleWorktreeRepo]
-        )
-        let multiGroup = SidebarRepoGroup(
-            id: "remote:askluna/agent-studio",
-            repoTitle: "agent-studio",
-            organizationName: "askluna",
-            repos: [multiWorktreeRepo]
-        )
-        let singleColorHex = RepoSidebarContentView.checkoutColorHex(
-            for: singleWorktreeRepo,
-            in: singleGroup
-        )
-        let multiColorHex = RepoSidebarContentView.checkoutColorHex(
-            for: multiWorktreeRepo,
-            in: multiGroup
+            repos: [repoA, repoB]
         )
 
-        #expect(singleColorHex == multiColorHex)
+        // All worktrees of repoA share color (keyed by repo.id)
+        let colorA = RepoSidebarContentView.checkoutColorHex(for: repoA, in: group)
+
+        // repoB gets a different color
+        let colorB = RepoSidebarContentView.checkoutColorHex(for: repoB, in: group)
+
+        // Family invariant: same repo = same color, different repo = different color
+        #expect(colorA != colorB, "Different repos in same group should get different colors")
+
+        // Color is deterministic — calling again produces same result
+        let colorAAgain = RepoSidebarContentView.checkoutColorHex(for: repoA, in: group)
+        #expect(colorA == colorAAgain, "Color should be deterministic for same repo")
     }
 
     @Test("different repos in the same group get different colors")

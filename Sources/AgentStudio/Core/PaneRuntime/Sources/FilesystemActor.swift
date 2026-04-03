@@ -805,7 +805,10 @@ actor FilesystemActor {
             while !Task.isCancelled {
                 try? await self.schedulingClock.sleep(.seconds(300))
                 guard !Task.isCancelled else { break }
-                _ = await self.rescanAllWatchedFolders()
+                let rescanResult = await self.rescanAllWatchedFolders()
+                await self.emitRemovedClones(
+                    noLongerReferencedByAnyWatchedFolder: rescanResult.removedClonePaths
+                )
             }
         }
     }
