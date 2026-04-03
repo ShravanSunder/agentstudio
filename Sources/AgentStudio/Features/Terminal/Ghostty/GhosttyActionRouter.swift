@@ -241,9 +241,16 @@ extension Ghostty {
             runtimeRegistryOverride
         }
 
-        private enum ReportedSurfaceSizeKind {
+        private enum ReportedSurfaceSizeKind: CustomStringConvertible {
             case initial
             case cell
+
+            var description: String {
+                switch self {
+                case .initial: return "initial"
+                case .cell: return "cell"
+                }
+            }
         }
 
         private static func updateReportedSurfaceSize(
@@ -254,7 +261,11 @@ extension Ghostty {
             guard target.tag == GHOSTTY_TARGET_SURFACE,
                 let surface = target.target.surface,
                 let resolvedSurfaceView = surfaceView(from: surface)
-            else { return }
+            else {
+                ghosttyLogger.debug(
+                    "updateReportedSurfaceSize dropped: target is not a resolvable surface (kind=\(kind))")
+                return
+            }
 
             switch kind {
             case .initial:
@@ -353,6 +364,9 @@ extension Ghostty {
             routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider
         ) -> Bool {
             guard target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface else {
+                ghosttyLogger.debug(
+                    "routeActionToTerminalRuntime dropped action tag \(actionTag): target is not a surface"
+                )
                 return false
             }
 
