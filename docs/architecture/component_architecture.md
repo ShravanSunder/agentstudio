@@ -826,9 +826,10 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `Core/Stores/ZmxBackend.swift` | zmx CLI wrapper — session create/destroy/health |
 | **Infrastructure** | |
 | `Infrastructure/WorktrunkService.swift` | Git worktree CLI wrapper |
+| `Infrastructure/WorktreeReconciler.swift` | Pure function: matches existing vs discovered worktrees, preserves UUIDs, returns merged list + `WorktreeTopologyDelta` |
 | `Infrastructure/ProcessExecutor.swift` | Protocol + default impl for CLI execution |
 | **App** | |
-| `App/PaneCoordinator.swift` | Action dispatch, orchestration, and undo sequencing |
+| `App/PaneCoordinator.swift` | Action dispatch, orchestration, undo sequencing, and `TopologyEffectHandler` conformance (orphan panes + filesystem root sync after topology changes) |
 | `App/MainWindowController.swift` | Primary window management |
 | `App/MainSplitViewController.swift` | Split view: sidebar + terminal panes |
 | `App/Panes/PaneTabViewController.swift` | Tab controller, observes store via @Observable |

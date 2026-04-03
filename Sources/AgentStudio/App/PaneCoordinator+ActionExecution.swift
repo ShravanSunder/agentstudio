@@ -507,8 +507,8 @@ extension PaneCoordinator {
 
         Task {
             guard !Task.isCancelled else { return }
-            Self.logger.debug("Posting recent target event id=\(target.id, privacy: .public)")
             await PaneRuntimeEventBus.shared.post(envelope)
+            Self.logger.debug("Posted recent target event id=\(target.id, privacy: .public)")
         }
     }
 

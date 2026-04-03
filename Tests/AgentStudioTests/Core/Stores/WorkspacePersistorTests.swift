@@ -43,6 +43,14 @@ final class WorkspacePersistorTests {
     // MARK: - Save & Load
 
     @Test
+    func test_defaultWorkspacesDir_usesDebugAppDataRoot() {
+        let defaultPersistor = WorkspacePersistor()
+        let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+
+        #expect(defaultPersistor.workspacesDir.path == "\(homeDir)/.agentstudio-db/workspaces")
+    }
+
+    @Test
     func test_saveAndLoad_emptyState() throws {
         // Arrange
         let state = WorkspacePersistor.PersistableState()

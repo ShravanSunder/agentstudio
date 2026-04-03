@@ -8,14 +8,15 @@ macOS terminal application embedding Ghostty terminal emulator with project/work
 Build orchestration uses [mise](https://mise.jdx.dev/). Install with `brew install mise`.
 
 ```bash
-mise run build                # Full debug build (ghostty + zmx + dev resources + swift)
+mise run setup                # Init submodules, build vendored artifacts, copy resources
+mise run build                # Build the Swift app
 mise run test                 # Run tests (Swift 6 `Testing`)
 mise run format               # Auto-format all Swift sources
 mise run lint                 # Lint (swift-format + swiftlint + boundary checks)
 .build/debug/AgentStudio      # Launch debug build
 ```
 
-First-time setup: `git submodule update --init --recursive && mise install && mise run build`. See [Agent Resources](docs/guides/agent_resources.md) for full bootstrap.
+First-time setup: `mise install && mise run doctor-mac && mise run setup && mise run build`. See [Agent Resources](docs/guides/agent_resources.md) for full bootstrap.
 
 Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and swiftlint automatically after every Edit/Write on `.swift` files.
 
@@ -32,6 +33,8 @@ Instead:
 - wait for the exact event or state you care about, with a bounded timeout
 - use injected clocks for debounce/timer behavior
 - fully shut down tasks, streams, actors, and observers before the test returns
+- use explicit protocol seams and fakes for testability
+- do not add new `#if DEBUG` test hooks in production files
 
 ## Architecture at a Glance
 
@@ -50,6 +53,13 @@ AppKit-main architecture hosting SwiftUI views. Seven `@Observable` atomic store
 **Worktree model is structure-only:** `id`, `repoId` (FK), `name`, `path`, `isMainWorktree`. No branch, no status. All enrichment lives in `WorkspaceRepoCache`, populated by the event bus.
 
 **Event bus pattern:** Mutate the store directly → emit a fact on the bus → coordinator updates the other store. This is NOT CQRS — no command bus, no command handlers. `ApplicationLifecycleMonitor` is ingress-only and mutates lifecycle stores directly from AppKit callbacks. See [State Management Patterns](#state-management-patterns) below and [Event System Design](docs/architecture/workspace_data_architecture.md#event-system-design-what-it-is-and-isnt) for full detail.
+
+**Embedded Ghostty host split:** Keep `Ghostty.shared` as the subsystem entrypoint and keep `Ghostty.App` thin. Host-side runtime responsibilities are split by isolation contract:
+- `Ghostty.AppHandle` owns `ghostty_app_t` and config lifetime
+- `Ghostty.CallbackRouter` owns the C callback table and userdata reconstruction
+- `Ghostty.ActionRouter` owns the action switch and runtime routing seam
+- `Ghostty.AppFocusSynchronizer` owns app-level focus sync via `AppLifecycleStore.isActive`
+Future terminal event-routing expansion belongs in `Ghostty.ActionRouter` plus adapter/runtime layers, not back in `Ghostty.swift`.
 
 ### Architecture Docs
 
@@ -136,16 +146,24 @@ A coordinator sequences operations across stores for a user action. Owns no stat
 Runtime actors produce facts → `EventBus` → `WorkspaceCacheCoordinator` → updates stores.
 
 ```
-FilesystemActor ──► .repoDiscovered ──┐
-GitProjector    ──► .snapshotChanged ─┤──► EventBus ──► WorkspaceCacheCoordinator
-ForgeActor      ──► .prCountsChanged ─┘        │               │
-                                                │        ┌──────┴──────┐
-                                                │        ▼             ▼
-                                                │  WorkspaceStore  WorkspaceRepoCache
-                                                │  (associations)  (enrichment)
-                                                │
-                                                └──► Sidebar observes both via @Observable
+FilesystemActor ──► .repoDiscovered(linkedWorktrees: .scanned([...])) ──┐
+GitProjector    ──► .snapshotChanged, .branchChanged ───────────────────┤──► EventBus
+ForgeActor      ──► .pullRequestCountsChanged ──────────────────────────┘      │
+                                                                               ▼
+                                                              WorkspaceCacheCoordinator
+                                                              (topology accumulator)
+                                                                       │
+                                              ┌────────────────────────┼──────────────────────┐
+                                              ▼                        ▼                      ▼
+                                       WorkspaceStore          WorkspaceRepoCache    TopologyEffectHandler
+                                       (canonical)             (enrichment)          (PaneCoordinator)
+                                              │                        │              orphan panes +
+                                              └────────────┬───────────┘              sync FS roots
+                                                           ▼
+                                                    Sidebar (@Observable reader)
 ```
+
+**Topology accumulator pattern:** For topology events with `LinkedWorktreeInfo.scanned(...)`, the coordinator uses `WorktreeReconciler` (pure function) to compute a `WorktreeTopologyDelta`, then calls `TopologyEffectHandler.topologyDidChange(delta)` for ordered effects. Cache pruning happens in the coordinator; pane orphaning + filesystem root sync happens in PaneCoordinator via the handler. PaneCoordinator does NOT subscribe to topology events on the bus. See [Workspace Data Architecture — Topology Accumulator Pattern](docs/architecture/workspace_data_architecture.md).
 
 **This is NOT CQRS.** The event bus carries facts, not commands. Stores are mutated by their own methods. Typed command planes still exist, but they do **not** run through the bus:
 - `PaneActionCommand` for workspace mutations (`CommandDispatcher` → `ActionResolver` → `ActionValidator` → `PaneCoordinator`)
@@ -168,6 +186,8 @@ Use the narrowest plane that still preserves the architecture boundary.
 | Workspace mutation | `PaneActionCommand` | Validator-gated, then sequenced by `PaneCoordinator` into stores. |
 | Runtime command | `RuntimeCommand` | Direct `PaneCoordinator -> RuntimeRegistry -> runtime.handleCommand(...)`. |
 | Runtime fact | `PaneRuntimeEventBus` | Fact fan-out only; never route commands through it. |
+| Topology fact (repo/worktree discovered/removed) | `PaneRuntimeEventBus` | Fact fan-out. Coordinator is the single accumulator. Uses `WorktreeReconciler` + `TopologyEffectHandler`. |
+| Ordered post-topology effects (root sync, pane orphan) | `TopologyEffectHandler` | Direct handler call from coordinator to PaneCoordinator. NOT via bus — ordering must be deterministic. |
 | App-level notification that is not a command | `AppEventBus` | Notification fan-out only. Not a workspace command boundary. |
 | AppKit/macOS lifecycle ingress | `ApplicationLifecycleMonitor` | Owns AppKit ingress and writes `AppLifecycleStore` / `WindowLifecycleStore`. |
 | UI-only local state | Local `@Observable` state | Keep it in the owning view/controller. Do not bounce it through a bus or `NotificationCenter`. |

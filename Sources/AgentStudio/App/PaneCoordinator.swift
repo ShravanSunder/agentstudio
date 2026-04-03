@@ -517,3 +517,17 @@ final class PaneCoordinator {
         }
     }
 }
+
+extension PaneCoordinator: TopologyEffectHandler {
+    func topologyDidChange(_ delta: WorktreeTopologyDelta) {
+        for entry in delta.removedWorktrees {
+            let orphanedPaneIds = store.orphanPanesForWorktree(entry.id, path: entry.path.path)
+            if !orphanedPaneIds.isEmpty {
+                Self.logger.info(
+                    "Worktree removed id=\(entry.id.uuidString, privacy: .public) path=\(entry.path.path, privacy: .public); orphaned \(orphanedPaneIds.count, privacy: .public) pane(s)"
+                )
+            }
+        }
+        syncFilesystemRootsAndActivity()
+    }
+}
