@@ -11,30 +11,32 @@ struct WorkspaceEmptyStateView: View {
     private let cardMinimumWidth: CGFloat = 250
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 32) {
-                Group {
-                    switch model.kind {
-                    case .noFolders:
-                        folderIntakeBody
-                            .id("noFolders")
-                            .transition(.opacity)
-                    case .scanning:
-                        scanningBody
-                            .id("scanning")
-                            .transition(.opacity)
-                    case .launcher:
-                        launcherBody
-                            .id("launcher")
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
+        GeometryReader { geometry in
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 32) {
+                    Group {
+                        switch model.kind {
+                        case .noFolders:
+                            folderIntakeBody
+                                .id("noFolders")
+                                .transition(.opacity)
+                        case .scanning:
+                            scanningBody
+                                .id("scanning")
+                                .transition(.opacity)
+                        case .launcher:
+                            launcherBody
+                                .id("launcher")
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        }
                     }
                 }
+                .frame(maxWidth: contentWidth)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: geometry.size.height, alignment: .center)
+                .padding(.horizontal, 40)
+                .animation(.easeInOut(duration: 0.25), value: model.kind)
             }
-            .frame(maxWidth: contentWidth)
-            .frame(maxWidth: .infinity, minHeight: 680)
-            .padding(.horizontal, 40)
-            .padding(.vertical, 48)
-            .animation(.easeInOut(duration: 0.25), value: model.kind)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
@@ -44,35 +46,29 @@ struct WorkspaceEmptyStateView: View {
         HStack(alignment: .center, spacing: 56) {
             WelcomeSidebarIllustration()
 
-            VStack(alignment: .leading, spacing: 20) {
-                AppLogoView(size: 56)
+            VStack(alignment: .leading, spacing: 24) {
+                AppLogoView(size: 64)
 
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 10) {
                     Text("Welcome to AgentStudio")
-                        .font(.system(size: 26, weight: .semibold))
+                        .font(.system(size: 28, weight: .semibold))
 
                     Text("A terminal workspace for your repos.")
-                        .font(.system(size: AppStyle.textLg))
+                        .font(.system(size: AppStyle.textXl))
                         .foregroundStyle(.secondary)
                 }
 
                 Text("Point at a parent folder — AgentStudio discovers every repo and worktree inside.")
-                    .font(.system(size: AppStyle.textBase))
+                    .font(.system(size: AppStyle.textLg))
                     .foregroundStyle(.tertiary)
-                    .frame(maxWidth: 320)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 340)
 
-                VStack(alignment: .leading, spacing: 8) {
-                    Button("Choose a Folder to Scan…") {
-                        onAddFolder()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-
-                    Text("⌘⌥⇧O")
-                        .font(.system(size: AppStyle.textXs))
-                        .foregroundStyle(.quaternary)
-                        .padding(.leading, 2)
+                Button("Choose a Folder to Scan…") {
+                    onAddFolder()
                 }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
             }
         }
         .frame(maxWidth: .infinity)
@@ -135,7 +131,7 @@ struct WorkspaceEmptyStateView: View {
     private var launcherBody: some View {
         VStack(spacing: 28) {
             WorkspaceHomeHeader(
-                title: "Workspace Ready",
+                title: "Pick Up Where You Left Off",
                 subtitle: "Open a recent worktree, or pick one from the sidebar."
             )
 
@@ -268,10 +264,10 @@ private struct WorkspaceRecentCardView: View {
     private var leadingIcon: some View {
         switch card.icon {
         case .mainWorktree:
-            WorkspaceOcticonImage(name: "octicon-star-fill", size: AppStyle.textBase)
+            OcticonImage(name: "octicon-star-fill", size: AppStyle.textBase)
                 .foregroundStyle(Color.accentColor)
         case .gitWorktree:
-            WorkspaceOcticonImage(name: "octicon-git-worktree", size: AppStyle.textBase)
+            OcticonImage(name: "octicon-git-worktree", size: AppStyle.textBase)
                 .foregroundStyle(Color.accentColor)
                 .rotationEffect(.degrees(180))
         case .cwdOnly:
@@ -288,7 +284,7 @@ private struct WorkspaceRecentCardView: View {
                 .font(.system(size: AppStyle.sidebarBranchIconSize, weight: .medium))
                 .foregroundStyle(.secondary)
         } else {
-            WorkspaceOcticonImage(name: "octicon-git-branch", size: AppStyle.sidebarBranchIconSize)
+            OcticonImage(name: "octicon-git-branch", size: AppStyle.sidebarBranchIconSize)
                 .foregroundStyle(.secondary)
         }
     }

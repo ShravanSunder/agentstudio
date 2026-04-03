@@ -2,6 +2,7 @@ import Foundation
 
 enum WorkspaceEmptyStateKind: Equatable {
     case noFolders
+    case scanning(URL)
     case launcher
 }
 
@@ -24,6 +25,11 @@ struct WorkspaceEmptyStateModel: Equatable {
     let kind: WorkspaceEmptyStateKind
     let recentCards: [WorkspaceRecentCardModel]
 
+    var scanningFolderPath: URL? {
+        if case .scanning(let url) = kind { return url }
+        return nil
+    }
+
     var recentTargets: [RecentWorkspaceTarget] {
         recentCards.map(\.target)
     }
@@ -39,6 +45,11 @@ enum WorkspaceLauncherProjector {
         store: WorkspaceStore,
         repoCache: WorkspaceRepoCache
     ) -> WorkspaceEmptyStateModel {
+        // Scanning takes priority when no repos exist yet
+        if let scanningPath = store.scanningPath, store.repos.isEmpty {
+            return WorkspaceEmptyStateModel(kind: .scanning(scanningPath), recentCards: [])
+        }
+
         if store.repos.isEmpty {
             return WorkspaceEmptyStateModel(kind: .noFolders, recentCards: [])
         }

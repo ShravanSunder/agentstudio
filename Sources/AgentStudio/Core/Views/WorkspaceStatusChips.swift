@@ -97,7 +97,7 @@ struct WorkspaceStatusChip: View {
 
     var body: some View {
         HStack(spacing: AppStyle.sidebarChipContentSpacing) {
-            WorkspaceOcticonImage(name: iconAsset, size: AppStyle.sidebarChipIconSize)
+            OcticonImage(name: iconAsset, size: AppStyle.sidebarChipIconSize)
             if let text {
                 Text(text)
                     .font(.system(size: AppStyle.sidebarChipFontSize, weight: .medium).monospacedDigit())
@@ -140,11 +140,11 @@ struct WorkspaceStatusSyncChip: View {
     var body: some View {
         HStack(spacing: AppStyle.sidebarChipContentSpacing) {
             HStack(spacing: AppStyle.sidebarSyncClusterSpacing) {
-                WorkspaceOcticonImage(name: "octicon-arrow-up", size: AppStyle.sidebarSyncChipIconSize)
+                OcticonImage(name: "octicon-arrow-up", size: AppStyle.sidebarSyncChipIconSize)
                 Text(aheadText)
             }
             HStack(spacing: AppStyle.sidebarSyncClusterSpacing) {
-                WorkspaceOcticonImage(name: "octicon-arrow-down", size: AppStyle.sidebarSyncChipIconSize)
+                OcticonImage(name: "octicon-arrow-down", size: AppStyle.sidebarSyncChipIconSize)
                 Text(behindText)
             }
         }
@@ -192,7 +192,7 @@ struct WorkspaceDiffChip: View {
     var body: some View {
         HStack(spacing: AppStyle.sidebarChipContentSpacing) {
             if showsDirtyIndicator {
-                WorkspaceOcticonImage(name: "octicon-dot-fill", size: AppStyle.sidebarChipIconSize)
+                OcticonImage(name: "octicon-dot-fill", size: AppStyle.sidebarChipIconSize)
                     .foregroundStyle(
                         WorkspaceStatusChip.Style.danger.foreground.opacity(AppStyle.sidebarChipForegroundOpacity)
                     )
@@ -222,66 +222,5 @@ struct WorkspaceDiffChip: View {
                 .stroke(Color.white.opacity(AppStyle.sidebarChipBorderOpacity), lineWidth: 1)
         )
         .fixedSize(horizontal: true, vertical: true)
-    }
-}
-
-struct WorkspaceOcticonImage: View {
-    let name: String
-    let size: CGFloat
-
-    var body: some View {
-        Group {
-            if let image = WorkspaceOcticonLoader.shared.image(named: name) {
-                Image(nsImage: image)
-                    .renderingMode(.template)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-            } else {
-                Image(systemName: "questionmark.square.dashed")
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-            }
-        }
-        .frame(width: size, height: size)
-    }
-}
-
-@MainActor
-private final class WorkspaceOcticonLoader {
-    static let shared = WorkspaceOcticonLoader()
-
-    private var cache: [String: NSImage] = [:]
-
-    private init() {}
-
-    func image(named name: String) -> NSImage? {
-        if let cached = cache[name] {
-            return cached
-        }
-
-        let subdirectory = "SidebarIcons.xcassets/\(name).imageset"
-        if let svgURL = Bundle.appResources.url(
-            forResource: name,
-            withExtension: "svg",
-            subdirectory: subdirectory
-        ),
-            let image = NSImage(contentsOf: svgURL)
-        {
-            cache[name] = image
-            return image
-        }
-
-        if let pdfURL = Bundle.appResources.url(
-            forResource: name,
-            withExtension: "pdf",
-            subdirectory: subdirectory
-        ),
-            let image = NSImage(contentsOf: pdfURL)
-        {
-            cache[name] = image
-            return image
-        }
-
-        return nil
     }
 }

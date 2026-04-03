@@ -26,27 +26,42 @@ private struct IllustrationGroup {
 
 private let illustrationGroups: [IllustrationGroup] = [
     IllustrationGroup(
-        repoTitle: "react",
-        organizationName: "facebook",
-        accentColor: Color(red: 0.49, green: 0.54, blue: 0.97),
+        repoTitle: "ghostty",
+        organizationName: "ghostty-org",
+        accentColor: Color(red: 0.96, green: 0.77, blue: 0.32),
         isExpanded: true,
         worktrees: [
             IllustrationWorktree(
-                checkoutTitle: "react",
+                checkoutTitle: "ghostty",
                 branchName: "main",
                 isMainWorktree: true,
                 chips: nil
             ),
             IllustrationWorktree(
-                checkoutTitle: "react.concurrent-mode",
-                branchName: "feature/concurrent-mode",
+                checkoutTitle: "ghostty.gpu-renderer",
+                branchName: "feature/gpu-renderer",
                 isMainWorktree: false,
                 chips: IllustrationChips(
                     branchStatus: GitBranchStatus(
                         isDirty: true,
-                        syncState: .diverged(ahead: 2, behind: 1),
+                        syncState: .ahead(3),
                         prCount: 1,
-                        linesAdded: 42,
+                        linesAdded: 86,
+                        linesDeleted: 12
+                    ),
+                    notificationCount: 0
+                )
+            ),
+            IllustrationWorktree(
+                checkoutTitle: "ghostty.fix-keybinds",
+                branchName: "fix/keybind-passthrough",
+                isMainWorktree: false,
+                chips: IllustrationChips(
+                    branchStatus: GitBranchStatus(
+                        isDirty: false,
+                        syncState: .synced,
+                        prCount: 1,
+                        linesAdded: 24,
                         linesDeleted: 8
                     ),
                     notificationCount: 0
@@ -57,7 +72,7 @@ private let illustrationGroups: [IllustrationGroup] = [
     IllustrationGroup(
         repoTitle: "uv",
         organizationName: "astral-sh",
-        accentColor: Color(red: 0.35, green: 0.79, blue: 0.56),
+        accentColor: Color(red: 0.29, green: 0.87, blue: 0.50),
         isExpanded: true,
         worktrees: [
             IllustrationWorktree(
@@ -82,13 +97,6 @@ private let illustrationGroups: [IllustrationGroup] = [
                 )
             ),
         ]
-    ),
-    IllustrationGroup(
-        repoTitle: "ghostty",
-        organizationName: "ghostty-org",
-        accentColor: Color.secondary,
-        isExpanded: false,
-        worktrees: []
     ),
 ]
 
@@ -142,7 +150,7 @@ private struct IllustrationGroupView: View {
                 .frame(width: AppStyle.textBase, alignment: .center)
 
             HStack(spacing: AppStyle.spacingStandard) {
-                WorkspaceOcticonImage(name: "octicon-repo", size: AppStyle.sidebarGroupIconSize)
+                OcticonImage(name: "octicon-repo", size: AppStyle.sidebarGroupIconSize)
                     .foregroundStyle(.secondary)
 
                 HStack(spacing: AppStyle.sidebarGroupTitleSpacing) {
@@ -190,7 +198,7 @@ private struct IllustrationWorktreeRow: View {
 
             // Branch name row
             HStack(spacing: AppStyle.spacingTight) {
-                WorkspaceOcticonImage(name: "octicon-git-branch", size: AppStyle.sidebarBranchIconSize)
+                OcticonImage(name: "octicon-git-branch", size: AppStyle.sidebarBranchIconSize)
                     .foregroundStyle(.secondary)
                     .frame(width: AppStyle.sidebarRowLeadingIconColumnWidth, alignment: .leading)
 
@@ -221,10 +229,10 @@ private struct IllustrationWorktreeRow: View {
     @ViewBuilder
     private var worktreeIcon: some View {
         if worktree.isMainWorktree {
-            WorkspaceOcticonImage(name: "octicon-star-fill", size: AppStyle.textBase)
+            OcticonImage(name: "octicon-star-fill", size: AppStyle.textBase)
                 .foregroundStyle(accentColor)
         } else {
-            WorkspaceOcticonImage(name: "octicon-git-worktree", size: AppStyle.textBase)
+            OcticonImage(name: "octicon-git-worktree", size: AppStyle.textBase)
                 .foregroundStyle(accentColor)
                 .rotationEffect(.degrees(180))
         }

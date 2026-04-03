@@ -808,22 +808,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 1. Persist the watched path (direct store mutation)
         store.addWatchedPath(rootURL)
 
-        // 2. Signal scanning state for UI
+        // 2. Signal scanning state and expand sidebar immediately.
+        //    The scan runs in a separate Task so the MainActor is free
+        //    to render the scanning UI before the filesystem work starts.
         store.beginScan(rootURL)
+        mainWindowController?.expandSidebar()
 
-        // The watched-folder command returns the authoritative scan summary.
-        // Do not infer the result from store.repos here because coordinator
-        // consumption also runs on MainActor and may not have drained the bus yet.
-        let refreshSummary = await watchedFolderCommands.refreshWatchedFolders(
-            store.watchedPaths.map(\.path)
-        )
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.store.endScan() }
 
-        // 3. Clear scanning state
-        store.endScan()
+            let refreshSummary = await self.watchedFolderCommands.refreshWatchedFolders(
+                self.store.watchedPaths.map(\.path)
+            )
 
-        let repoPaths = refreshSummary.repoPaths(in: rootURL)
+            let repoPaths = refreshSummary.repoPaths(in: rootURL)
 
-        guard !repoPaths.isEmpty else {
+            guard repoPaths.isEmpty else { return }
             let alert = NSAlert()
             alert.messageText = "No Git Repositories Found"
             alert.informativeText =
@@ -831,7 +832,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             alert.alertStyle = .informational
             alert.addButton(withTitle: "OK")
             alert.runModal()
-            return
         }
     }
 
@@ -944,7 +944,6 @@ extension AppDelegate: AppCommandRouting {
             Task { await handleAddRepoRequested() }
             return true
         case .addFolder:
-            mainWindowController?.expandSidebar()
             Task { await handleAddFolderRequested() }
             return true
         case .toggleSidebar:

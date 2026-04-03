@@ -1,0 +1,132 @@
+<h2>Onboarding Flow: Three States</h2>
+<p class="subtitle">The journey from cold start → scanning → ready. Each mockup simulates the dark macOS window.</p>
+
+<div class="section">
+  <h3>State 1: Welcome (No repos, sidebar collapsed)</h3>
+  <div class="mockup">
+    <div class="mockup-header">AgentStudio — First Launch</div>
+    <div class="mockup-body" style="background:#1e1e1e; min-height:400px; display:flex; align-items:center; justify-content:center;">
+      <div style="text-align:center; max-width:480px; padding:40px;">
+        <!-- App icon placeholder -->
+        <div style="width:72px; height:72px; margin:0 auto 24px; border-radius:16px; background:linear-gradient(135deg, #4a6cf7 0%, #6366f1 100%); display:flex; align-items:center; justify-content:center;">
+          <span style="font-size:32px; color:white; font-family:SF Mono,monospace; font-weight:600;">&gt;_</span>
+        </div>
+
+        <h2 style="color:#f0f0f0; font-size:28px; font-weight:600; margin:0 0 10px;">Welcome to AgentStudio</h2>
+
+        <p style="color:#888; font-size:14px; line-height:1.6; margin:0 0 8px;">
+          Point AgentStudio at a parent folder — like <code style="background:#2a2a2a; padding:2px 6px; border-radius:4px; color:#a0a0a0;">~/dev</code> — and it will discover every Git repo and worktree inside it.
+        </p>
+        <p style="color:#666; font-size:13px; line-height:1.5; margin:0 0 28px;">
+          Your repos appear in the sidebar. Open any worktree in a terminal tab and pick up right where you left off.
+        </p>
+
+        <!-- CTA button -->
+        <div style="display:inline-flex; align-items:center; gap:8px; background:#6366f1; color:white; padding:10px 24px; border-radius:8px; font-size:14px; font-weight:500; cursor:pointer;">
+          <span style="font-size:16px;">📂</span>
+          Choose a Folder to Scan…
+        </div>
+        <div style="color:#555; font-size:12px; margin-top:10px;">⌘⌥⇧O</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>State 2: Scanning (sidebar slides in, content transitions)</h3>
+  <div class="mockup">
+    <div class="mockup-header">AgentStudio — Scanning ~/dev</div>
+    <div class="mockup-body" style="background:#1e1e1e; min-height:400px; display:flex;">
+      <!-- Sidebar sliding in -->
+      <div style="width:220px; background:#181818; border-right:1px solid #2a2a2a; padding:12px; flex-shrink:0;">
+        <div style="color:#888; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px; display:flex; align-items:center; gap:6px;">
+          <span style="display:inline-block; width:12px; height:12px; border:2px solid #6366f1; border-top-color:transparent; border-radius:50%; animation:none;">◌</span>
+          Scanning…
+        </div>
+        <!-- Repos appearing -->
+        <div style="padding:6px 8px; border-radius:6px; background:#ffffff08; margin-bottom:4px;">
+          <div style="color:#ccc; font-size:13px; font-weight:500;">agent-studio</div>
+          <div style="color:#666; font-size:11px;">main</div>
+        </div>
+        <div style="padding:6px 8px; border-radius:6px; margin-bottom:4px;">
+          <div style="color:#ccc; font-size:13px; font-weight:500;">zmx</div>
+          <div style="color:#666; font-size:11px;">develop</div>
+        </div>
+        <div style="padding:6px 8px; border-radius:6px; margin-bottom:4px; opacity:0.5;">
+          <div style="color:#888; font-size:13px; background:#ffffff06; border-radius:4px; height:14px; width:80%;"></div>
+          <div style="color:#888; font-size:11px; background:#ffffff04; border-radius:4px; height:10px; width:50%; margin-top:4px;"></div>
+        </div>
+      </div>
+
+      <!-- Content area -->
+      <div style="flex:1; display:flex; align-items:center; justify-content:center;">
+        <div style="text-align:center; max-width:400px; padding:40px;">
+          <div style="width:48px; height:48px; margin:0 auto 20px; border-radius:50%; border:3px solid #333; border-top-color:#6366f1; display:flex; align-items:center; justify-content:center;">
+            <span style="color:#6366f1; font-size:18px;">🔍</span>
+          </div>
+          <h3 style="color:#e0e0e0; font-size:20px; font-weight:600; margin:0 0 8px;">Scanning ~/dev</h3>
+          <p style="color:#888; font-size:13px; margin:0 0 4px;">Found <strong style="color:#ccc;">2 repositories</strong> so far…</p>
+          <p style="color:#555; font-size:12px; margin:0;">Repos appear in the sidebar as they're discovered.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>State 3: Launcher (repos exist, no tabs open)</h3>
+  <div class="mockup">
+    <div class="mockup-header">AgentStudio — Ready</div>
+    <div class="mockup-body" style="background:#1e1e1e; min-height:400px; display:flex;">
+      <!-- Sidebar -->
+      <div style="width:220px; background:#181818; border-right:1px solid #2a2a2a; padding:12px; flex-shrink:0;">
+        <div style="color:#888; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px;">
+          Repos
+        </div>
+        <div style="padding:6px 8px; border-radius:6px; background:#ffffff08; margin-bottom:4px;">
+          <div style="color:#ccc; font-size:13px; font-weight:500;">agent-studio</div>
+          <div style="color:#666; font-size:11px;">main</div>
+        </div>
+        <div style="padding:6px 8px; border-radius:6px; margin-bottom:4px;">
+          <div style="color:#ccc; font-size:13px; font-weight:500;">zmx</div>
+          <div style="color:#666; font-size:11px;">develop</div>
+        </div>
+        <div style="padding:6px 8px; border-radius:6px; margin-bottom:4px;">
+          <div style="color:#ccc; font-size:13px; font-weight:500;">devfiles</div>
+          <div style="color:#666; font-size:11px;">main</div>
+        </div>
+      </div>
+
+      <!-- Content area: launcher -->
+      <div style="flex:1; display:flex; align-items:center; justify-content:center;">
+        <div style="text-align:center; max-width:520px; padding:40px;">
+          <h2 style="color:#f0f0f0; font-size:24px; font-weight:600; margin:0 0 8px;">Workspace Ready</h2>
+          <p style="color:#888; font-size:13px; margin:0 0 28px;">Open a recent worktree, or pick one from the sidebar.</p>
+
+          <div style="color:#666; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:12px; text-align:left;">Recent</div>
+
+          <!-- Recent cards -->
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; text-align:left;">
+            <div style="background:#ffffff08; border:1px solid #ffffff14; border-radius:12px; padding:14px;">
+              <div style="color:#ccc; font-size:13px; font-weight:500;">agent-studio</div>
+              <div style="color:#666; font-size:11px; margin-top:4px;">⎇ ux-fixes-helpers</div>
+            </div>
+            <div style="background:#ffffff08; border:1px solid #ffffff14; border-radius:12px; padding:14px;">
+              <div style="color:#ccc; font-size:13px; font-weight:500;">zmx</div>
+              <div style="color:#666; font-size:11px; margin-top:4px;">⎇ develop</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top:32px; padding:20px; background:#ffffff06; border-radius:12px; border:1px solid #ffffff10;">
+  <h3 style="margin-top:0;">Transition Summary</h3>
+  <div style="font-size:14px; color:#ccc; line-height:1.8;">
+    <strong>Welcome → Scanning:</strong> Content cross-fades (SwiftUI <code>.transition(.opacity)</code>). Sidebar expands via <code>NSSplitViewItem.isCollapsed = false</code> (AppKit native animation).<br>
+    <strong>Scanning → Launcher:</strong> Content cross-fades when scan completes. Sidebar already visible, repos already populated.<br>
+    <strong>No "Add Folder" on launcher:</strong> Toolbar button (⌘⌥⇧O) handles subsequent folder additions.
+  </div>
+</div>
