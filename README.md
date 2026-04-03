@@ -113,7 +113,8 @@ See the [Architecture Overview](docs/architecture/README.md) for the full system
 ```bash
 mise run doctor-mac           # Check local macOS prerequisites and env hazards
 mise install                  # Install pinned tool versions
-mise run build                # Full debug build (ghostty + zmx + swift)
+mise run setup                # Init submodules, build vendored artifacts, copy resources
+mise run build                # Build the Swift app
 .build/debug/AgentStudio      # Launch
 ```
 

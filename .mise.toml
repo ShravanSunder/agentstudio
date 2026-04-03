@@ -6,13 +6,23 @@ PROJECT_ROOT = "{{config_root}}"
 
 # --- Low-level build tasks ---
 
+[tasks.init-submodules]
+description = "Populate git submodules required for vendored builds"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+git submodule update --init --recursive
+"""
+
 [tasks.build-ghostty]
 description = "Build Ghostty XCFramework"
+depends = ["init-submodules"]
 run = "bash \"${PROJECT_ROOT}/scripts/zig.sh\" build -Doptimize=ReleaseFast -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native"
 dir = "vendor/ghostty"
 
 [tasks.build-zmx]
 description = "Build zmx session multiplexer"
+depends = ["init-submodules"]
 run = "bash \"${PROJECT_ROOT}/scripts/zig.sh\" build -Doptimize=ReleaseFast"
 dir = "vendor/zmx"
 

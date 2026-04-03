@@ -18,16 +18,16 @@ A fresh worktree or clone cannot build or test without completing these steps fi
 Run these in order from the project root:
 
 ```bash
-# 1. Populate git submodules (empty directories without this)
-git submodule update --init --recursive
-
-# 2. Install pinned tool versions (zig 0.15.2)
+# 1. Install pinned tool versions (zig 0.15.2)
 mise install
 
-# 3. Check local macOS prerequisites and known env hazards
+# 2. Check local macOS prerequisites and known env hazards
 mise run doctor-mac
 
-# 4. Full build — ghostty xcframework + zmx + dev resources + swift
+# 3. Initialize submodules and build vendored artifacts/resources
+mise run setup
+
+# 4. Build the Swift app
 mise run build
 ```
 
