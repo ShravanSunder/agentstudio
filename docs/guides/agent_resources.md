@@ -24,7 +24,10 @@ git submodule update --init --recursive
 # 2. Install pinned tool versions (zig 0.15.2)
 mise install
 
-# 3. Full build — ghostty xcframework + zmx + dev resources + swift
+# 3. Check local macOS prerequisites and known env hazards
+mise run doctor-mac
+
+# 4. Full build — ghostty xcframework + zmx + dev resources + swift
 mise run build
 ```
 
@@ -44,6 +47,9 @@ If any of these are missing, the corresponding build or runtime step will fail. 
 ```bash
 # Confirm submodules are populated
 ls vendor/ghostty/build.zig vendor/zmx/build.zig
+
+# Confirm local macOS prerequisites and env are sane
+mise run doctor-mac
 
 # Confirm xcframework exists
 ls Frameworks/GhosttyKit.xcframework

@@ -111,6 +111,7 @@ See the [Architecture Overview](docs/architecture/README.md) for the full system
 ### Build and Run
 
 ```bash
+mise run doctor-mac           # Check local macOS prerequisites and env hazards
 mise install                  # Install pinned tool versions
 mise run build                # Full debug build (ghostty + zmx + swift)
 .build/debug/AgentStudio      # Launch
@@ -123,6 +124,8 @@ mise run test                 # Run tests
 mise run format               # Auto-format Swift sources
 mise run lint                 # swift-format + swiftlint
 ```
+
+If `doctor-mac` reports compiler or linker env pollution from Homebrew LLVM, rerun setup/build from a scrubbed shell environment before assuming the repo build is broken locally.
 
 ### Clone
 
