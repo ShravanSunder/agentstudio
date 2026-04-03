@@ -620,6 +620,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
     private func createEmptyStateView() -> NSHostingView<WorkspaceEmptyStateView> {
         PaneTabEmptyStateViewFactory.make(
             model: emptyStateModel,
+            repoCount: store.repos.count,
             onAddFolder: { [weak self] in self?.addFolderAction() },
             onOpenRecent: { [weak self] target in self?.openRecentTarget(target) },
             onOpenAllRecent: { [weak self] in self?.openAllRecentTargets() }
@@ -642,6 +643,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         guard currentModel != lastEmptyStateModel else { return }
         emptyStateView?.rootView = WorkspaceEmptyStateView(
             model: currentModel,
+            repoCount: store.repos.count,
             onAddFolder: { [weak self] in self?.addFolderAction() },
             onOpenRecent: { [weak self] target in self?.openRecentTarget(target) },
             onOpenAllRecent: { [weak self] in self?.openAllRecentTargets() }

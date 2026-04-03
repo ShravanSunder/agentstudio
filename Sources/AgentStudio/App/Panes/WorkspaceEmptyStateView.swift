@@ -2,6 +2,7 @@ import SwiftUI
 
 struct WorkspaceEmptyStateView: View {
     let model: WorkspaceEmptyStateModel
+    let repoCount: Int
     let onAddFolder: () -> Void
     let onOpenRecent: (RecentWorkspaceTarget) -> Void
     let onOpenAllRecent: () -> Void
@@ -12,59 +13,132 @@ struct WorkspaceEmptyStateView: View {
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 32) {
-                WorkspaceHomeHeader(
-                    title: model.kind == .noFolders ? "Welcome to AgentStudio" : "Workspace Ready",
-                    subtitle: model.kind == .noFolders
-                        ? "Add folders to scan for repos, then jump back into the worktrees and CWDs you were using."
-                        : "Open a recent worktree or CWD, or scan another folder for repos."
-                )
-
                 Group {
                     switch model.kind {
                     case .noFolders:
                         folderIntakeBody
+                            .id("noFolders")
+                            .transition(.opacity)
+                    case .scanning:
+                        scanningBody
+                            .id("scanning")
+                            .transition(.opacity)
                     case .launcher:
                         launcherBody
+                            .id("launcher")
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
                 }
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
             .frame(maxWidth: contentWidth)
             .frame(maxWidth: .infinity, minHeight: 680)
             .padding(.horizontal, 40)
             .padding(.vertical, 48)
-            .animation(.easeInOut(duration: 0.18), value: model.kind)
+            .animation(.easeInOut(duration: 0.25), value: model.kind)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private var folderIntakeBody: some View {
-        VStack(spacing: 40) {
-            WorkspaceHomeIntroCard()
+        HStack(alignment: .center, spacing: 56) {
+            WelcomeSidebarIllustration()
 
-            VStack(spacing: 10) {
-                Text("No folders configured yet")
-                    .font(.system(size: AppStyle.textXl, weight: .semibold))
-                Text("Choose a parent folder and AgentStudio will scan it for repositories and worktrees.")
+            VStack(alignment: .leading, spacing: 20) {
+                AppLogoView(size: 56)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Welcome to AgentStudio")
+                        .font(.system(size: 26, weight: .semibold))
+
+                    Text("A terminal workspace for your repos.")
+                        .font(.system(size: AppStyle.textLg))
+                        .foregroundStyle(.secondary)
+                }
+
+                Text("Point at a parent folder — AgentStudio discovers every repo and worktree inside.")
                     .font(.system(size: AppStyle.textBase))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 520)
-            }
+                    .foregroundStyle(.tertiary)
+                    .frame(maxWidth: 320)
 
-            Button("Add Folder to Scan...") {
-                onAddFolder()
+                VStack(alignment: .leading, spacing: 8) {
+                    Button("Choose a Folder to Scan…") {
+                        onAddFolder()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+
+                    Text("⌘⌥⇧O")
+                        .font(.system(size: AppStyle.textXs))
+                        .foregroundStyle(.quaternary)
+                        .padding(.leading, 2)
+                }
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .help("Add folder to scan for repos")
         }
         .frame(maxWidth: .infinity)
     }
 
+    private var scanningBody: some View {
+        VStack(spacing: 20) {
+            ProgressView()
+                .controlSize(.regular)
+                .scaleEffect(1.2)
+
+            VStack(spacing: 8) {
+                Text("Scanning \(scanningFolderDisplayName)")
+                    .font(.system(size: 20, weight: .semibold))
+
+                if repoCount > 0 {
+                    Text("Found \(repoCount) \(repoCount == 1 ? "repository" : "repositories") so far…")
+                        .font(.system(size: AppStyle.textBase))
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Looking for repositories…")
+                        .font(.system(size: AppStyle.textBase))
+                        .foregroundStyle(.secondary)
+                }
+
+                Text("Repos appear in the sidebar as they're discovered.")
+                    .font(.system(size: AppStyle.textSm))
+                    .foregroundStyle(.tertiary)
+            }
+
+            Rectangle()
+                .fill(Color.white.opacity(AppStyle.fillSubtle))
+                .frame(width: 200, height: 1)
+                .padding(.vertical, 4)
+
+            HStack(alignment: .top, spacing: 10) {
+                Text("⌘T")
+                    .font(.system(size: AppStyle.textBase, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Color.accentColor)
+
+                Text("Open a terminal tab anytime — no need to wait.")
+                    .font(.system(size: AppStyle.textBase))
+                    .foregroundStyle(.tertiary)
+            }
+            .frame(maxWidth: 320)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var scanningFolderDisplayName: String {
+        guard let path = model.scanningFolderPath else { return "" }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let fullPath = path.path
+        if fullPath.hasPrefix(home) {
+            return "~" + fullPath.dropFirst(home.count)
+        }
+        return fullPath
+    }
+
     private var launcherBody: some View {
         VStack(spacing: 28) {
+            WorkspaceHomeHeader(
+                title: "Workspace Ready",
+                subtitle: "Open a recent worktree, or pick one from the sidebar."
+            )
+
             VStack(spacing: 18) {
                 recentSectionHeader
 
@@ -89,15 +163,6 @@ struct WorkspaceEmptyStateView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-
-            VStack(spacing: 12) {
-                Button("Add Folder to Scan for Repos...") {
-                    onAddFolder()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .help("Add folder to scan for repos")
-            }
         }
         .frame(maxWidth: .infinity)
     }
@@ -136,58 +201,6 @@ private struct WorkspaceHomeHeader: View {
                 .frame(maxWidth: 620)
         }
         .frame(maxWidth: .infinity)
-    }
-}
-
-private struct WorkspaceHomeIntroCard: View {
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(Color(red: 1.0, green: 0.43, blue: 0.38))
-                    .frame(width: 12, height: 12)
-                Circle()
-                    .fill(Color.white.opacity(0.22))
-                    .frame(width: 12, height: 12)
-                Circle()
-                    .fill(Color.white.opacity(0.18))
-                    .frame(width: 12, height: 12)
-                Spacer()
-            }
-            .padding(.horizontal, 14)
-            .padding(.top, 14)
-
-            Spacer(minLength: 20)
-
-            VStack(spacing: 14) {
-                Image(nsImage: NSApp.applicationIconImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(width: 92, height: 92)
-
-                VStack(spacing: 6) {
-                    Text("AgentStudio")
-                        .font(.system(size: AppStyle.text2xl, weight: .semibold))
-                    Text("Scan folders, discover repos, and reopen worktrees where you left off.")
-                        .font(.system(size: AppStyle.textBase))
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: 320)
-                }
-            }
-
-            Spacer(minLength: 24)
-        }
-        .frame(width: 360, height: 260)
-        .background(
-            RoundedRectangle(cornerRadius: 28)
-                .fill(Color.white.opacity(AppStyle.fillMuted))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 28)
-                        .stroke(Color.white.opacity(AppStyle.fillActive), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.18), radius: 24, y: 18)
-        )
     }
 }
 
@@ -309,5 +322,27 @@ private struct WorkspaceRecentPlaceholderCard: View {
                     style: StrokeStyle(lineWidth: 1, dash: [8, 6])
                 )
         )
+    }
+}
+
+private struct AppLogoView: View {
+    let size: CGFloat
+
+    var body: some View {
+        Group {
+            if let url = Bundle.appResources.url(
+                forResource: "AppLogoTransparent", withExtension: "svg"),
+                let image = NSImage(contentsOf: url)
+            {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+            } else {
+                Image(systemName: "chevron.left.forwardslash.chevron.right")
+                    .font(.system(size: size * 0.4, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+            }
+        }
+        .frame(width: size, height: size)
     }
 }
