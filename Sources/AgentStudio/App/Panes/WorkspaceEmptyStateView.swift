@@ -52,23 +52,25 @@ struct WorkspaceEmptyStateView: View {
         HStack(alignment: .center, spacing: 56) {
             WelcomeSidebarIllustration()
 
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 20) {
                 AppLogoView(size: 96)
 
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Welcome to AgentStudio")
-                        .font(.system(size: 28, weight: .semibold))
+                Text("Welcome to AgentStudio")
+                    .font(.system(size: 28, weight: .semibold))
 
-                    Text("The terminal development environment built for agents.")
-                        .font(.system(size: AppStyle.textXl))
-                        .foregroundStyle(.secondary)
-                }
+                Text(
+                    "The terminal development environment built for agents. One workspace for all your agents, repos, and worktrees."
+                )
+                .font(.system(size: AppStyle.textLg))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 380, alignment: .leading)
 
-                Text("One workspace for all your agents, repos, and worktrees. Point at a folder to get started.")
-                    .font(.system(size: AppStyle.textLg))
-                    .foregroundStyle(.tertiary)
+                Text("Select a folder to watch. AgentStudio scans it for Git repos and worktrees.")
+                    .font(.system(size: AppStyle.textBase))
+                    .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 380)
+                    .frame(maxWidth: 380, alignment: .leading)
 
                 Button("Choose a Folder to Scan…") {
                     onAddFolder()
@@ -95,39 +97,7 @@ struct WorkspaceEmptyStateView: View {
     }
 
     private var scanningCallout: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("You don't need to wait.")
-                .font(.system(size: AppStyle.textBase, weight: .medium))
-                .foregroundStyle(.primary)
-
-            VStack(alignment: .leading, spacing: 10) {
-                shortcutRow(key: "⌘T", label: "Open a terminal tab")
-                shortcutRow(key: "⌘P", label: "Open the command palette")
-            }
-        }
-        .padding(16)
-        .frame(maxWidth: 320, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.white.opacity(AppStyle.fillMuted))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.white.opacity(AppStyle.fillActive), lineWidth: 1)
-                )
-        )
-    }
-
-    private func shortcutRow(key: String, label: String) -> some View {
-        HStack(spacing: 10) {
-            Text(key)
-                .font(.system(size: AppStyle.textSm, weight: .semibold, design: .monospaced))
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 28, alignment: .trailing)
-
-            Text(label)
-                .font(.system(size: AppStyle.textBase))
-                .foregroundStyle(.secondary)
-        }
+        QuickActionsCallout(header: "You don't need to wait.")
     }
 
     private var scanningFolderDisplayName: String {
@@ -171,6 +141,8 @@ struct WorkspaceEmptyStateView: View {
                 }
             }
             .frame(maxWidth: .infinity)
+
+            QuickActionsCallout()
         }
         .frame(maxWidth: .infinity)
     }
@@ -352,5 +324,57 @@ private struct AppLogoView: View {
             }
         }
         .frame(width: size, height: size)
+    }
+}
+
+private struct QuickActionsCallout: View {
+    var header: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            if let header {
+                Text(header)
+                    .font(.system(size: AppStyle.textBase, weight: .medium))
+                    .foregroundStyle(.primary)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                quickActionButton(key: "⌘T", label: "New terminal tab") {
+                    CommandDispatcher.shared.dispatch(.newTab)
+                }
+                quickActionButton(key: "⌘P", label: "Command palette") {
+                    CommandDispatcher.shared.dispatch(.commandBar)
+                }
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: 320, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.white.opacity(AppStyle.fillMuted))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.white.opacity(AppStyle.fillActive), lineWidth: 1)
+                )
+        )
+    }
+
+    private func quickActionButton(key: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Text(key)
+                    .font(.system(size: AppStyle.textSm, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 28, alignment: .trailing)
+
+                Text(label)
+                    .font(.system(size: AppStyle.textBase))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+            }
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
     }
 }
