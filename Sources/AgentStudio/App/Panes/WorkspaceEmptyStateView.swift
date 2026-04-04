@@ -2,7 +2,6 @@ import SwiftUI
 
 struct WorkspaceEmptyStateView: View {
     let model: WorkspaceEmptyStateModel
-    let repoCount: Int
     let onAddFolder: () -> Void
     let onOpenRecent: (RecentWorkspaceTarget) -> Void
     let onOpenAllRecent: () -> Void
