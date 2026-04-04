@@ -802,10 +802,10 @@ private struct SidebarChip: View {
         var foreground: Color {
             switch self {
             case .neutral: return .secondary
-            case .info: return Color(red: 0.47, green: 0.69, blue: 0.96)
-            case .success: return Color(red: 0.42, green: 0.84, blue: 0.50)
-            case .warning: return Color(red: 0.93, green: 0.71, blue: 0.34)
-            case .danger: return Color(red: 0.93, green: 0.41, blue: 0.41)
+            case .info: return AppStyle.chipInfoColor
+            case .success: return AppStyle.chipSuccessColor
+            case .warning: return AppStyle.chipWarningColor
+            case .danger: return AppStyle.chipDangerColor
             case .accent(let color): return color
             }
         }
@@ -897,14 +897,14 @@ private struct SidebarDiffChip: View {
         if isMuted {
             return SidebarChip.Style.neutral.foreground.opacity(AppStyle.sidebarChipForegroundOpacity)
         }
-        return Color(red: 0.42, green: 0.84, blue: 0.50).opacity(AppStyle.sidebarChipForegroundOpacity)
+        return AppStyle.chipSuccessColor.opacity(AppStyle.sidebarChipForegroundOpacity)
     }
 
     private var minusColor: Color {
         if isMuted {
             return SidebarChip.Style.neutral.foreground.opacity(AppStyle.sidebarChipForegroundOpacity)
         }
-        return Color(red: 0.93, green: 0.41, blue: 0.41).opacity(AppStyle.sidebarChipForegroundOpacity)
+        return AppStyle.chipDangerColor.opacity(AppStyle.sidebarChipForegroundOpacity)
     }
 
     var body: some View {
@@ -1329,14 +1329,7 @@ enum SidebarRepoGrouping {
         let stableTieBreaker: String
     }
 
-    static let automaticPaletteHexes: [String] = [
-        "#F5C451",  // 1: Yellow
-        "#58C4FF",  // 2: Sky
-        "#A78BFA",  // 3: Violet
-        "#4ADE80",  // 4: Green
-        "#FB923C",  // 5: Orange
-        "#F472B6",  // 6: Pink
-    ]
+    static let automaticPaletteHexes: [String] = AppStyle.accentPaletteHexes
 
     static let colorPresets: [ColorPreset] = [
         ColorPreset(name: "Yellow", hex: "#F5C451"),
