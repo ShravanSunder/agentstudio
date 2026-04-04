@@ -19,7 +19,7 @@ derivation.
 | `PaneId` | `PaneId` (`struct` wrapping `UUID`) | `WorkspaceStore` | Yes | `Pane.init(id: UUID = UUIDv7.generate(), ...)` with `PaneMetadata.paneId = PaneId(uuid: id)` | Universal pane identity across store/layout/view/runtime/surface |
 | `RepoStableKey` | `String` (16 hex) | `Repo` | Derived | `StableKey.fromPath(repoPath)` | Deterministic zmx key segment |
 | `WorktreeStableKey` | `String` (16 hex) | `Worktree` | Derived | `StableKey.fromPath(worktree.path)` | Deterministic zmx key segment |
-| `MainZmxSessionId` | `String` (65 chars) | `ZmxBackend` | Derived | `agentstudio--<repo16>--<worktree16>--<pane16>` | zmx daemon/socket identity for layout panes |
+| `MainZmxSessionId` | `String` (53 chars) | `ZmxBackend` | Derived | `as-<repo16>-<worktree16>-<pane16>` | zmx daemon/socket identity for layout panes |
 | `DrawerZmxSessionId` | `String` (49 chars) | `ZmxBackend` | Derived | `agentstudio-d--<parentPane16>--<drawerPane16>` | zmx daemon/socket identity for drawer panes |
 
 ### Session Name Calculation Rules
@@ -27,7 +27,7 @@ derivation.
 1. `paneHex = lowercase(removeHyphens(paneId.uuidString))`
 2. `pane16 = (uuidVersion(paneId) == 7) ? last16hex(paneHex) : first16hex(paneHex)`
 3. UUIDv7 puts timestamp bits at the front; using trailing bits preserves per-pane entropy.
-4. `mainSessionId = "agentstudio--" + repoStableKey + "--" + worktreeStableKey + "--" + pane16`
+4. `mainSessionId = "as-" + repoStableKey + "-" + worktreeStableKey + "-" + pane16`
 5. `drawerSessionId = "agentstudio-d--" + parentPane16 + "--" + drawerPane16`
 6. `repoStableKey` and `worktreeStableKey` are deterministic SHA-256 path keys (16 hex chars each)
 
@@ -75,7 +75,7 @@ PaneId + RepoStableKey + WorktreeStableKey
       ZmxBackend.sessionId(...)
                   |
                   v
-  "agentstudio--repo16--wt16--pane16"
+  "as-repo16-wt16-pane16"
                   |
                   v
       zmx attach/list/kill (scoped by ZMX_DIR)

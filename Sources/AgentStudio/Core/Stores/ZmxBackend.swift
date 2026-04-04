@@ -43,9 +43,9 @@ struct PaneSessionHandle: Equatable, Sendable, Codable, Hashable {
     let launchDirectory: URL
 
     var hasValidId: Bool {
-        guard id.hasPrefix("agentstudio--") else { return false }
-        let suffix = String(id.dropFirst(13))
-        let segments = suffix.components(separatedBy: "--")
+        guard id.hasPrefix(ZmxBackend.sessionPrefix) else { return false }
+        let suffix = String(id.dropFirst(ZmxBackend.sessionPrefix.count))
+        let segments = suffix.components(separatedBy: "-")
         let hexChars = CharacterSet(charactersIn: "0123456789abcdef")
         guard segments.count == 3,
             segments.allSatisfy({ $0.count == 16 })
@@ -101,7 +101,7 @@ enum SessionBackendError: Error, LocalizedError {
 /// executes the attach command.
 final class ZmxBackend: SessionBackend {
     /// Prefix for all Agent Studio zmx sessions.
-    static let sessionPrefix = "agentstudio--"
+    static let sessionPrefix = "as-"
 
     /// Default zmx directory for socket/state isolation.
     static let defaultZmxDir: String = {
@@ -158,13 +158,13 @@ final class ZmxBackend: SessionBackend {
     // MARK: - Session ID Generation
 
     /// Generate a deterministic session ID from stable keys + pane UUID.
-    /// Format: `agentstudio--<repoKey16>--<wtKey16>--<pane16>` (65 chars)
+    /// Format: `as-<repoKey16>-<wtKey16>-<pane16>` (53 chars)
     ///
     /// `pane16` is derived from the pane UUID tail (last 16 hex chars).
     /// In greenfield mode all pane identifiers are UUIDv7, so tail entropy is canonical.
     static func sessionId(repoStableKey: String, worktreeStableKey: String, paneId: UUID) -> String {
         let paneSegment = paneSessionSegment(paneId)
-        return "\(sessionPrefix)\(repoStableKey)--\(worktreeStableKey)--\(paneSegment)"
+        return "\(sessionPrefix)\(repoStableKey)-\(worktreeStableKey)-\(paneSegment)"
     }
 
     /// Floating top-level session ID: derive a stable key from the pane cwd and
@@ -318,7 +318,7 @@ final class ZmxBackend: SessionBackend {
     }
 
     /// Discover zmx sessions that are not tracked by the store.
-    /// Filters by the `agentstudio--` prefix to only find our sessions.
+    /// Filters by the compact main-session prefix plus the legacy drawer prefix.
     func discoverOrphanSessions(excluding knownIds: Set<String>) async -> [String] {
         do {
             let result = try await executeWithRetry(
