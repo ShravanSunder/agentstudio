@@ -2851,8 +2851,8 @@ The pane system is fully operational. Webview panes already work as general-purp
 | `WebviewPaneContentView` | `Features/Webview/Views/WebviewPaneContentView.swift` | SwiftUI view: nav bar + `WebView(controller.page)` |
 | `WebviewNavigationDecider` | `Features/Webview/WebviewNavigationDecider.swift` | Browser-oriented allowlist: `https`, `http`, `about`, `file`, `agentstudio` |
 | `WebviewDialogHandler` | `Features/Webview/WebviewDialogHandler.swift` | JS dialog handler (default implementations) |
-| `PaneCoordinator.createViewForContent` | `App/PaneCoordinator.swift` | Routes `PaneContent` → view creation; webview case at line 101 |
-| `PaneCoordinator.openWebview(url:)` | `App/PaneCoordinator.swift` | Creates browser pane with `WebviewState` + tab |
+| `PaneCoordinator.createViewForContent` | `App/Coordination/PaneCoordinator.swift` | Routes `PaneContent` → view creation; webview case at line 101 |
+| `PaneCoordinator.openWebview(url:)` | `App/Coordination/PaneCoordinator.swift` | Creates browser pane with `WebviewState` + tab |
 
 All webview panes currently share a single static `WebPage.Configuration` (`WebviewPaneController.sharedConfiguration`) with default `websiteDataStore`. The `ViewRegistry` tracks all webview views and supports lookup by pane ID.
 

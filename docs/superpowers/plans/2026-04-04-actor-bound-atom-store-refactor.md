@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the DI-driven atom access model with an actor-bound `AtomStore` + `AtomScope` + `@Atom` helper system, then refactor atoms, derived selectors, persistence stores, and boot wiring to use it consistently in one clean implementation pass.
+**Goal:** Replace the DI-driven atom access model with an actor-bound `AtomStore` + `AtomScope` + `atom(\.foo)` system, then refactor atoms, derived selectors, persistence stores, and boot wiring to use it consistently in one clean implementation pass.
 
-**Architecture:** State atoms stay `@MainActor @Observable` and are owned by a single app-scope `AtomStore`. `AtomScope` provides ambient access to the current store plus scoped test overrides, and `@Atom(\.foo)` is sugar over `AtomScope.store[keyPath:]`. Persistence remains in separate store wrappers with explicit constructor injection for non-state dependencies such as clocks and persistors.
+**Architecture:** State atoms stay `@MainActor @Observable` and are owned by a single app-scope `AtomStore`. `AtomScope` provides ambient access to the current store plus scoped test overrides, and `atom(\.foo)` is the primary runtime access API. Persistence remains in separate store wrappers with explicit constructor injection for non-state dependencies such as clocks and persistors.
 
 **Tech Stack:** Swift 6.2, Swift Observation, `@MainActor`, `@TaskLocal`, AppKit + SwiftUI
 
@@ -37,19 +37,19 @@ It does **not** cover:
 
 | File | Responsibility |
 |------|----------------|
-| `Sources/AgentStudio/Core/Atoms/ManagementModeAtom.swift` | Pure state atom for management mode |
+| `Sources/AgentStudio/Core/State/MainActor/Atoms/ManagementModeAtom.swift` | Pure state atom for management mode |
 | `Sources/AgentStudio/App/State/AtomStore.swift` | App-scope actor-bound store owning live atom instances |
 | `Sources/AgentStudio/App/State/AtomScope.swift` | Production store binding + test-scoped override access |
-| `Sources/AgentStudio/App/State/Atom.swift` | `@Atom(\.foo)` property wrapper sugar over `AtomScope.store` |
+| `Sources/AgentStudio/App/State/Atom.swift` | `atom(\.foo)` function plus optional `@Atom(\.foo)` convenience sugar |
 | `Sources/AgentStudio/App/State/AtomReader.swift` | Jotai-like `get` primitive over the current atom scope |
 | `Sources/AgentStudio/App/State/Derived.swift` | Zero-input derived primitive |
 | `Sources/AgentStudio/App/State/DerivedSelector.swift` | Parameterized derived primitive |
-| `Sources/AgentStudio/Core/Atoms/WorkspaceAtom.swift` | Canonical workspace state + mutations extracted from `WorkspaceStore` |
-| `Sources/AgentStudio/Core/Atoms/RepoCacheAtom.swift` | Renamed workspace repo cache atom |
-| `Sources/AgentStudio/Core/Atoms/UIStateAtom.swift` | Renamed UI state atom |
-| `Sources/AgentStudio/Core/Atoms/SessionRuntimeAtom.swift` | Runtime status atom extracted from `SessionRuntime` |
-| `Sources/AgentStudio/Core/Atoms/PaneDisplayDerived.swift` | Derived selector over workspace + repo cache |
-| `Sources/AgentStudio/Core/Atoms/DynamicViewDerived.swift` | Derived selector for dynamic-view projection |
+| `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceAtom.swift` | Canonical workspace state + mutations extracted from `WorkspaceStore` |
+| `Sources/AgentStudio/Core/State/MainActor/Atoms/RepoCacheAtom.swift` | Renamed workspace repo cache atom |
+| `Sources/AgentStudio/Core/State/MainActor/Atoms/UIStateAtom.swift` | Renamed UI state atom |
+| `Sources/AgentStudio/Core/State/MainActor/Atoms/SessionRuntimeAtom.swift` | Runtime status atom extracted from `SessionRuntime` |
+| `Sources/AgentStudio/Core/State/MainActor/Atoms/PaneDisplayDerived.swift` | Derived selector over workspace + repo cache |
+| `Sources/AgentStudio/Core/State/MainActor/Atoms/DynamicViewDerived.swift` | Derived selector for dynamic-view projection |
 | `Tests/AgentStudioTests/App/State/AtomScopeTests.swift` | Scope + override invariants |
 | `Tests/AgentStudioTests/Core/Atoms/DerivedSelectorObservationTests.swift` | Observation-through-selector validation |
 
@@ -60,14 +60,14 @@ It does **not** cover:
 | `docs/superpowers/specs/2026-04-04-actor-bound-atom-store-design.md` | Source-of-truth spec for this architecture |
 | `docs/superpowers/specs/2026-04-02-swift-dependencies-adoption.md` | Historical note only; superseded |
 | `docs/superpowers/plans/2026-04-02-atoms-stores-refactor.md` | Mark superseded |
-| `Sources/AgentStudio/App/ManagementModeMonitor.swift` | Behavior-only monitor reading `ManagementModeAtom` |
-| `Sources/AgentStudio/Core/Stores/WorkspaceStore.swift` | Persistence wrapper only |
-| `Sources/AgentStudio/Core/Stores/RepoCacheStore.swift` | Persistence wrapper only |
-| `Sources/AgentStudio/Core/Stores/UIStateStore.swift` | Persistence wrapper only |
+| `Sources/AgentStudio/App/Lifecycle/ManagementModeMonitor.swift` | Behavior-only monitor reading `ManagementModeAtom` |
+| `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift` | Persistence wrapper only |
+| `Sources/AgentStudio/Core/State/MainActor/Persistence/RepoCacheStore.swift` | Persistence wrapper only |
+| `Sources/AgentStudio/Core/State/MainActor/Persistence/UIStateStore.swift` | Persistence wrapper only |
 | `Sources/AgentStudio/Core/RuntimeEventSystem/SessionRuntime.swift` | Behavior type reading `SessionRuntimeAtom` |
-| `Sources/AgentStudio/App/AppDelegate.swift` | Boot creates/binds `AtomStore`, passes explicit dependencies |
-| `Sources/AgentStudio/App/MainWindowController.swift` | Switch to atom-store access |
-| `Sources/AgentStudio/App/MainSplitViewController.swift` | Switch to atom-store access |
+| `Sources/AgentStudio/App/Boot/AppDelegate.swift` | Boot creates/binds `AtomStore`, passes explicit dependencies |
+| `Sources/AgentStudio/App/Windows/MainWindowController.swift` | Switch to atom-store access |
+| `Sources/AgentStudio/App/Windows/MainSplitViewController.swift` | Switch to atom-store access |
 | `Sources/AgentStudio/App/Panes/PaneTabViewController.swift` | Switch to atom/selector access |
 | `Sources/AgentStudio/Core/Views/*` and `Features/*` readers | Switch from direct store/DI singleton patterns to `@Atom` or explicit `atoms` |
 | `Tests/AgentStudioTests/**/*` | Replace singleton/DI assumptions with scoped `AtomStore` setup |
@@ -236,6 +236,11 @@ nonisolated enum AtomScope {
 
 ```swift
 @MainActor
+func atom<Value>(_ keyPath: KeyPath<AtomStore, Value>) -> Value {
+    AtomScope.store[keyPath: keyPath]
+}
+
+@MainActor
 @propertyWrapper
 struct Atom<Value> {
     private let keyPath: KeyPath<AtomStore, Value>
@@ -249,6 +254,8 @@ struct Atom<Value> {
     }
 }
 ```
+
+The primary access pattern is `atom(\.foo)`. `@Atom(\.foo)` is optional convenience sugar.
 
 - [ ] **Step 7: Create `TestAtomStore.swift`**
 
@@ -333,8 +340,8 @@ Do not broaden selector migration until this test passes. If struct-based select
 ## Task 2: Extract `ManagementModeAtom` and Remove Monitor-Owned State
 
 **Files:**
-- Create: `Sources/AgentStudio/Core/Atoms/ManagementModeAtom.swift`
-- Modify: `Sources/AgentStudio/App/ManagementModeMonitor.swift`
+- Create: `Sources/AgentStudio/Core/State/MainActor/Atoms/ManagementModeAtom.swift`
+- Modify: `Sources/AgentStudio/App/Lifecycle/ManagementModeMonitor.swift`
 - Modify: `Tests/AgentStudioTests/App/ManagementModeTests.swift`
 - Delete: `Tests/AgentStudioTests/Helpers/ManagementModeTestLock.swift`
 
@@ -391,8 +398,8 @@ Once `ManagementModeMonitor` no longer relies on `.shared`, the lock is dead cod
 ## Task 3: Rename Existing Small Stores Into Atoms
 
 **Files:**
-- Rename: `Sources/AgentStudio/Core/Stores/WorkspaceUIStore.swift` → `Sources/AgentStudio/Core/Atoms/UIStateAtom.swift`
-- Rename: `Sources/AgentStudio/Core/Stores/WorkspaceRepoCache.swift` → `Sources/AgentStudio/Core/Atoms/RepoCacheAtom.swift`
+- Rename: `Sources/AgentStudio/Core/Stores/WorkspaceUIStore.swift` → `Sources/AgentStudio/Core/State/MainActor/Atoms/UIStateAtom.swift`
+- Rename: `Sources/AgentStudio/Core/Stores/WorkspaceRepoCache.swift` → `Sources/AgentStudio/Core/State/MainActor/Atoms/RepoCacheAtom.swift`
 - Modify: all references
 
 - [ ] **Step 1: Rename `WorkspaceUIStore` to `UIStateAtom`**
@@ -410,8 +417,8 @@ Expected: PASS after reference updates.
 ## Task 4: Convert Derived Projectors To Ambient Selectors
 
 **Files:**
-- Rename: `Sources/AgentStudio/Core/Views/PaneDisplayProjector.swift` → `Sources/AgentStudio/Core/Atoms/PaneDisplayDerived.swift`
-- Rename: `Sources/AgentStudio/Core/Stores/DynamicViewProjector.swift` → `Sources/AgentStudio/Core/Atoms/DynamicViewDerived.swift`
+- Rename: `Sources/AgentStudio/Core/Views/PaneDisplayProjector.swift` → `Sources/AgentStudio/Core/State/MainActor/Atoms/PaneDisplayDerived.swift`
+- Rename: `Sources/AgentStudio/Core/Stores/DynamicViewProjector.swift` → `Sources/AgentStudio/Core/State/MainActor/Atoms/DynamicViewDerived.swift`
 - Modify: selector call sites
 
 - [ ] **Step 1: Convert `PaneDisplayProjector` to `PaneDisplayDerived`**
@@ -421,8 +428,11 @@ Use:
 ```swift
 @MainActor
 struct PaneDisplayDerived {
-    @Atom(\.workspace) private var workspace
-    @Atom(\.repoCache) private var repoCache
+    func displayLabel(for paneId: UUID) -> String {
+        let workspace = atom(\.workspace)
+        let repoCache = atom(\.repoCache)
+        // ...
+    }
 }
 ```
 
@@ -433,8 +443,11 @@ Use either:
 ```swift
 @MainActor
 struct DynamicViewDerived {
-    @Atom(\.workspace) private var workspace
-    @Atom(\.repoCache) private var repoCache
+    func projection(for viewType: DynamicViewType) -> DynamicViewProjection {
+        let workspace = atom(\.workspace)
+        let repoCache = atom(\.repoCache)
+        // ...
+    }
 }
 ```
 
@@ -451,8 +464,8 @@ Expected: PASS
 ## Task 5: Split `WorkspaceStore` Into `WorkspaceAtom` + Persistence Wrapper
 
 **Files:**
-- Create: `Sources/AgentStudio/Core/Atoms/WorkspaceAtom.swift`
-- Modify: `Sources/AgentStudio/Core/Stores/WorkspaceStore.swift`
+- Create: `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceAtom.swift`
+- Modify: `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift`
 - Modify: workspace call sites
 
 ### What moves into `WorkspaceAtom`
@@ -570,7 +583,7 @@ final class WorkspaceStore {
     let persistor: WorkspacePersistor
     let clock: any Clock<Duration>
 
-    @Atom(\.workspace) private var workspace
+    private var workspace: WorkspaceAtom { atom(\.workspace) }
 }
 ```
 
@@ -590,9 +603,9 @@ Run the existing workspace store suites plus any new focused persistence tests.
 ## Task 6: Create `RepoCacheStore` and `UIStateStore`
 
 **Files:**
-- Create: `Sources/AgentStudio/Core/Stores/RepoCacheStore.swift`
-- Create: `Sources/AgentStudio/Core/Stores/UIStateStore.swift`
-- Modify: `Sources/AgentStudio/App/AppDelegate.swift`
+- Create: `Sources/AgentStudio/Core/State/MainActor/Persistence/RepoCacheStore.swift`
+- Create: `Sources/AgentStudio/Core/State/MainActor/Persistence/UIStateStore.swift`
+- Modify: `Sources/AgentStudio/App/Boot/AppDelegate.swift`
 
 - [ ] **Step 1: Move cache/UI persistence out of `AppDelegate`**
 - [ ] **Step 2: Implement `RepoCacheStore` with explicit `persistor` + `clock` injection**
@@ -649,14 +662,14 @@ Expected: PASS with new store wrappers in place.
 ## Task 7: Extract `SessionRuntimeAtom` and Move Runtime Files
 
 **Files:**
-- Create: `Sources/AgentStudio/Core/Atoms/SessionRuntimeAtom.swift`
-- Modify: `Sources/AgentStudio/Core/Stores/SessionRuntime.swift`
+- Create: `Sources/AgentStudio/Core/State/MainActor/Atoms/SessionRuntimeAtom.swift`
+- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/SessionRuntime.swift`
 - Move: `Sources/AgentStudio/Core/Stores/SessionRuntime.swift` → `Sources/AgentStudio/Core/RuntimeEventSystem/SessionRuntime.swift`
 - Move: `Sources/AgentStudio/Core/Stores/ZmxBackend.swift` → `Sources/AgentStudio/Core/RuntimeEventSystem/ZmxBackend.swift`
 
 - [ ] **Step 1: Write/update focused `SessionRuntimeTests`**
 - [ ] **Step 2: Extract `SessionRuntimeAtom`**
-- [ ] **Step 3: Update `SessionRuntime` to read/write the atom via `@Atom`**
+- [ ] **Step 3: Update `SessionRuntime` to read/write the atom via `atom(\.sessionRuntime)` or optional `@Atom` convenience**
 - [ ] **Step 4: Move files and fix references**
 - [ ] **Step 5: Re-run filtered runtime tests**
 
@@ -665,8 +678,8 @@ Expected: PASS with new store wrappers in place.
 ## Task 8: Rewrite Boot Wiring Around `AtomStore`
 
 **Files:**
-- Modify: `Sources/AgentStudio/App/AppDelegate.swift`
-- Modify: `Sources/AgentStudio/App/WorkspaceBootSequence.swift`
+- Modify: `Sources/AgentStudio/App/Boot/AppDelegate.swift`
+- Modify: `Sources/AgentStudio/App/Boot/WorkspaceBootSequence.swift`
 - Modify: long-lived object initializers that currently expect direct store/cache/UI objects
 
 - [ ] **Step 1: Create one app-scope `AtomStore` at boot**
@@ -695,18 +708,18 @@ rg -l "WorkspaceStore|WorkspaceRepoCache|WorkspaceUIStore|PaneDisplayProjector|D
 
 ### Call-site migration rules
 
-- SwiftUI/AppKit/state readers that need atoms or selectors: switch to `@Atom(\.foo)`
-- Persistence stores: use `@Atom(\.foo)` for state atoms, constructor injection for clocks/persistors
+- SwiftUI/AppKit/state readers that need atoms or selectors: switch to `atom(\.foo)` as the default access pattern; `@Atom(\.foo)` is optional convenience sugar
+- Persistence stores: use `atom(\.foo)` by default for state atoms, constructor injection for clocks/persistors
 - Runtime/background actors: do **not** keep atom references; keep fact/delta flow explicit
 - Tests: create a fresh scoped `AtomStore()` via `withTestAtomStore`
 
 Representative file buckets:
 
 - Management mode readers:
-  - `Sources/AgentStudio/App/ManagementModeToolbarButton.swift`
-  - `Sources/AgentStudio/Core/Views/ManagementModeDragShield.swift`
-  - `Sources/AgentStudio/Core/Views/CustomTabBar.swift`
-  - `Sources/AgentStudio/Core/Views/DraggableTabBarHostingView.swift`
+  - `Sources/AgentStudio/App/Lifecycle/ManagementModeToolbarButton.swift`
+  - `Sources/AgentStudio/App/Panes/Hosting/ManagementModeDragShield.swift`
+  - `Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift`
+  - `Sources/AgentStudio/App/Panes/TabBar/DraggableTabBarHostingView.swift`
   - `Sources/AgentStudio/Core/Views/Splits/PaneLeafContainer.swift`
   - `Sources/AgentStudio/Features/CommandBar/Views/CommandBarView.swift`
   - `Sources/AgentStudio/Features/Webview/WebviewPaneController.swift`
@@ -715,10 +728,10 @@ Representative file buckets:
   - related tests under `Tests/AgentStudioTests/App/` and `Tests/AgentStudioTests/Core/Views/`
 
 - Workspace/repo/UI readers:
-  - `Sources/AgentStudio/App/MainSplitViewController.swift`
-  - `Sources/AgentStudio/App/MainWindowController.swift`
+  - `Sources/AgentStudio/App/Windows/MainSplitViewController.swift`
+  - `Sources/AgentStudio/App/Windows/MainWindowController.swift`
   - `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
-  - `Sources/AgentStudio/Core/Views/TabBarAdapter.swift`
+  - `Sources/AgentStudio/App/Panes/TabBar/TabBarAdapter.swift`
   - `Sources/AgentStudio/Features/Sidebar/RepoSidebarContentView.swift`
   - `Sources/AgentStudio/Features/CommandBar/CommandBarDataSource.swift`
   - related tests under `Tests/AgentStudioTests/Core/` and `Tests/AgentStudioTests/Features/`

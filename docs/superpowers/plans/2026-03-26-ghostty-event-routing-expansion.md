@@ -126,7 +126,7 @@ struct TerminalSizeConstraints: Sendable, Equatable {
 - Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneKindEvent.swift` — add new GhosttyEvent cases
 - Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntimeEvent.swift` — add new terminal event cases
 - Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Replay/EventReplayBuffer.swift` — replay decisions for new events
-- Modify: `Sources/AgentStudio/App/PaneCoordinator.swift` — handle new bus events (promptTitle, desktopNotification)
+- Modify: `Sources/AgentStudio/App/Coordination/PaneCoordinator.swift` — handle new bus events (promptTitle, desktopNotification)
 
 ### Test files
 
@@ -393,7 +393,7 @@ git commit -m "feat: terminal runtime handles domain-significant ghostty events 
 ### Task 4: Wire Bus Consumers For New Events
 
 **Files:**
-- Modify: `Sources/AgentStudio/App/PaneCoordinator.swift`
+- Modify: `Sources/AgentStudio/App/Coordination/PaneCoordinator.swift`
 - Modify: existing bus consumer code (NotificationReducer, etc.)
 
 - [ ] **Step 1: Wire coordinator handling for promptTitle**
@@ -458,7 +458,7 @@ Expected: PASS
 - [ ] **Step 4: Commit**
 
 ```bash
-git add Sources/AgentStudio/App/PaneCoordinator.swift \
+git add Sources/AgentStudio/App/Coordination/PaneCoordinator.swift \
   Sources/AgentStudio/Core/RuntimeEventSystem/Replay/EventReplayBuffer.swift
 git commit -m "feat: bus consumers handle new ghostty terminal events"
 ```

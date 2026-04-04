@@ -27,15 +27,17 @@ struct CoordinationPlaneArchitectureTests {
     private func loadLifecycleCompositionSources(projectRoot: URL) throws -> LifecycleCompositionSources {
         try LifecycleCompositionSources(
             appDelegateSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/AppDelegate.swift"),
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift"),
                 encoding: .utf8
             ),
             appDelegateRoutingSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/AppDelegate+LifecycleRouting.swift"),
+                contentsOf: projectRoot.appending(
+                    path: "Sources/AgentStudio/App/Boot/AppDelegate+LifecycleRouting.swift"),
                 encoding: .utf8
             ),
             splitViewControllerSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/MainSplitViewController.swift"),
+                contentsOf: projectRoot.appending(
+                    path: "Sources/AgentStudio/App/Windows/MainSplitViewController.swift"),
                 encoding: .utf8
             ),
             paneTabViewControllerSource: String(
@@ -61,7 +63,7 @@ struct CoordinationPlaneArchitectureTests {
                 encoding: .utf8
             ),
             mainWindowControllerSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/MainWindowController.swift"),
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Windows/MainWindowController.swift"),
                 encoding: .utf8
             ),
             paneLeafContainerSource: String(
@@ -297,7 +299,7 @@ struct CoordinationPlaneArchitectureTests {
     func refreshWorktreesRequested_hasRealConsumer() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let appDelegateRoutingPath = projectRoot.appending(
-            path: "Sources/AgentStudio/App/AppDelegate+LifecycleRouting.swift"
+            path: "Sources/AgentStudio/App/Boot/AppDelegate+LifecycleRouting.swift"
         )
         let sidebarPath = projectRoot.appending(
             path: "Sources/AgentStudio/Features/Sidebar/RepoSidebarContentView.swift"
@@ -316,15 +318,15 @@ struct CoordinationPlaneArchitectureTests {
     func userTriggeredCommandRouting_avoidsAppEventBus() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let appDelegateSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/AppDelegate.swift"),
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift"),
             encoding: .utf8
         )
         let mainSplitSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/MainSplitViewController.swift"),
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Windows/MainSplitViewController.swift"),
             encoding: .utf8
         )
         let mainWindowSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/MainWindowController.swift"),
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Windows/MainWindowController.swift"),
             encoding: .utf8
         )
         let paneTabSource = try String(
@@ -344,15 +346,17 @@ struct CoordinationPlaneArchitectureTests {
             encoding: .utf8
         )
         let draggableTabBarSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/DraggableTabBarHostingView.swift"),
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Panes/TabBar/DraggableTabBarHostingView.swift"),
             encoding: .utf8
         )
         let managementModeMonitorSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/ManagementModeMonitor.swift"),
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Lifecycle/ManagementModeMonitor.swift"),
             encoding: .utf8
         )
         let managementModeShieldSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/ManagementModeDragShield.swift"),
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Panes/Hosting/ManagementModeDragShield.swift"),
             encoding: .utf8
         )
 

@@ -117,6 +117,46 @@ Key references:
 
 The core atom access system is intentionally small.
 
+## Folder Structure
+
+The shared app-wide main-actor state system lives under:
+
+```text
+Sources/AgentStudio/
+├── App/
+│   └── State/
+│       ├── AtomStore.swift
+│       ├── AtomScope.swift
+│       ├── Atom.swift
+│       ├── AtomReader.swift
+│       ├── Derived.swift
+│       └── DerivedSelector.swift
+└── Core/
+    └── State/
+        └── MainActor/
+            ├── Atoms/
+            │   ├── WorkspaceAtom.swift
+            │   ├── RepoCacheAtom.swift
+            │   ├── UIStateAtom.swift
+            │   ├── ManagementModeAtom.swift
+            │   ├── SessionRuntimeAtom.swift
+            │   ├── PaneDisplayDerived.swift
+            │   └── DynamicViewDerived.swift
+            └── Persistence/
+                ├── WorkspaceStore.swift
+                ├── RepoCacheStore.swift
+                └── UIStateStore.swift
+```
+
+Rules:
+
+- derived atoms/selectors live in `Atoms/` and are distinguished by the `Derived` suffix in their type/file name
+- there is no shared `Derived/` folder
+- `Persistence/` is only for persistence wrappers
+- actor files themselves do **not** move into a global actor folder; they stay with the feature/subsystem that owns the work
+
+Future actor-local state systems, if introduced, live with the owning feature/subsystem and may use a local `State/` folder there. They do not belong in the shared `MainActor` state tree.
+
 ### 1. `AtomStore`
 
 `AtomStore` is the composition root for live state atoms.
@@ -267,6 +307,8 @@ This gives us convenience sugar:
 without a DI framework.
 
 `@Atom` is optional convenience sugar. The primary design model is function-based access through `atom(\.foo)` and derivation-time access through `AtomReader`.
+
+`@Atom` is an actor-isolated accessor, not a type-isolation mechanism. Any non-`body` method or escaping closure that touches `@Atom` must itself be explicitly `@MainActor` or perform an actor hop.
 
 ## Core Model
 

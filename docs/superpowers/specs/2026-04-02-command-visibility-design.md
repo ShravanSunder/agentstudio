@@ -334,7 +334,7 @@ Some command labels are unclear. Proposed renames:
 | `Features/CommandBar/CommandBarItem.swift` | Remove `CommandBarAppContext`, import `WorkspaceFocus` |
 | `Features/CommandBar/Views/CommandBarView.swift` | Use `WorkspaceFocus` for status strip |
 | `Features/CommandBar/Views/CommandBarStatusStrip.swift` | Update to use `WorkspaceFocus` |
-| `App/AppCommand.swift` → `registerDefaults()` | Add `visibleWhen` to all 55 registered definitions |
+| `App/Commands/AppCommand.swift` → `registerDefaults()` | Add `visibleWhen` to all 55 registered definitions |
 
 ---
 

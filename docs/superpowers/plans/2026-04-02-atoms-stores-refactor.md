@@ -264,7 +264,7 @@ Transient state (`Tab.zoomedPaneId`, `Tab.minimizedPaneIds`) stays on the `Tab` 
 | File | Change |
 |------|--------|
 | `Core/Stores/WorkspaceStore.swift` | Becomes persistence wrapper — observes `WorkspaceAtom` |
-| `App/ManagementModeMonitor.swift` | Behavior only — state moves to `ManagementModeAtom` |
+| `App/Lifecycle/ManagementModeMonitor.swift` | Behavior only — state moves to `ManagementModeAtom` |
 | `Core/Stores/SessionRuntime.swift` | Moves to `Core/RuntimeEventSystem/`, delegates state to `SessionRuntimeAtom` |
 | `Core/Stores/ZmxBackend.swift` | Moves to `Core/RuntimeEventSystem/` (not a store) |
 | ~72 source files | Update type references |
@@ -400,7 +400,7 @@ Simplest atom — one `Bool`. Establishes the pattern.
 
 **Files:**
 - Create: `Sources/AgentStudio/Core/Atoms/ManagementModeAtom.swift`
-- Modify: `Sources/AgentStudio/App/ManagementModeMonitor.swift`
+- Modify: `Sources/AgentStudio/App/Lifecycle/ManagementModeMonitor.swift`
 
 - [ ] **Step 1: Create the atom**
 
@@ -485,23 +485,23 @@ extension DependencyValues {
 **Task boundary:** this task establishes the atom, monitor dependency key, and non-SwiftUI call-site migration. SwiftUI view bindings and other `@Bindable` / `withObservationTracking` readers move in Task 10, where their replacement patterns are handled together.
 
 **Task 1 files (non-view / behavior-heavy):**
-- `Sources/AgentStudio/App/ActionExecutor.swift`
-- `Sources/AgentStudio/App/AppCommand.swift`
+- `Sources/AgentStudio/App/Commands/ActionExecutor.swift`
+- `Sources/AgentStudio/App/Commands/AppCommand.swift`
 - `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
 - `Sources/AgentStudio/Features/Bridge/Runtime/BridgePaneController.swift`
 - `Sources/AgentStudio/Features/Webview/WebviewPaneController.swift`
 - matching non-view tests that exercise these paths
 
 **Deferred to Task 10 (views / observation readers):**
-- `Sources/AgentStudio/App/ManagementModeToolbarButton.swift`
-- `Sources/AgentStudio/Core/Views/Panes/PaneHostView.swift`
+- `Sources/AgentStudio/App/Lifecycle/ManagementModeToolbarButton.swift`
+- `Sources/AgentStudio/App/Panes/Hosting/PaneHostView.swift`
 - `Sources/AgentStudio/Core/Views/Splits/PaneLeafContainer.swift`
 - `Sources/AgentStudio/Core/Views/Splits/FlatTabStripContainer.swift`
 - `Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift`
-- `Sources/AgentStudio/Core/Views/CustomTabBar.swift`
-- `Sources/AgentStudio/Core/Views/TabBarAdapter.swift`
-- `Sources/AgentStudio/Core/Views/ManagementModeDragShield.swift`
-- `Sources/AgentStudio/Core/Views/DraggableTabBarHostingView.swift`
+- `Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift`
+- `Sources/AgentStudio/App/Panes/TabBar/TabBarAdapter.swift`
+- `Sources/AgentStudio/App/Panes/Hosting/ManagementModeDragShield.swift`
+- `Sources/AgentStudio/App/Panes/TabBar/DraggableTabBarHostingView.swift`
 - `Sources/AgentStudio/Features/CommandBar/Views/CommandBarView.swift`
 - `Sources/AgentStudio/Features/Terminal/Ghostty/GhosttySurfaceView.swift`
 - `Sources/AgentStudio/Features/Webview/Views/WebviewPaneMountView.swift`
@@ -530,7 +530,7 @@ Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" sw
 - [ ] **Step 4: Commit**
 
 ```bash
-git add Sources/AgentStudio/Core/Atoms/ManagementModeAtom.swift Sources/AgentStudio/App/ManagementModeMonitor.swift
+git add Sources/AgentStudio/Core/Atoms/ManagementModeAtom.swift Sources/AgentStudio/App/Lifecycle/ManagementModeMonitor.swift
 git commit -m "refactor: extract ManagementModeAtom from ManagementModeMonitor"
 ```
 
@@ -843,14 +843,14 @@ Both `RepoCacheAtom` and `UIStateAtom` are already persisted today via `Workspac
 **Files:**
 - Create: `Sources/AgentStudio/Core/Stores/RepoCacheStore.swift`
 - Create: `Sources/AgentStudio/Core/Stores/UIStateStore.swift`
-- Modify: `Sources/AgentStudio/App/AppDelegate.swift` — move persistence wiring to stores
+- Modify: `Sources/AgentStudio/App/Boot/AppDelegate.swift` — move persistence wiring to stores
 
 - [ ] **Step 1: Read how AppDelegate currently loads/saves these**
 
 Do not rely on stale line numbers. Find the current persistence wiring first:
 
 ```bash
-rg -n "loadCache|saveCache|loadUI|saveUI" Sources/AgentStudio/App/AppDelegate.swift
+rg -n "loadCache|saveCache|loadUI|saveUI" Sources/AgentStudio/App/Boot/AppDelegate.swift
 ```
 
 Then read the matched sections to understand the current `WorkspaceRepoCache` / `WorkspaceUIStore` load-save flow.
@@ -1036,14 +1036,14 @@ git mv Sources/AgentStudio/Core/Stores/ZmxBackend.swift Sources/AgentStudio/Core
 AppDelegate creates long-lived objects: `WorkspaceStore`, `SessionRuntime`, `PaneCoordinator`, `MainWindowController`, `CommandBarPanelController`. Today these are created directly. After the refactor, child objects must be created with `withDependencies(from: self)` so they inherit the ambient context.
 
 **Files:**
-- Modify: `Sources/AgentStudio/App/AppDelegate.swift`
+- Modify: `Sources/AgentStudio/App/Boot/AppDelegate.swift`
 
 - [ ] **Step 1: Read current boot flow**
 
 Find the current boot flow with grep first, then inspect the matched object-creation sections:
 
 ```bash
-rg -n "bootLoadCanonicalStore|WorkspaceStore\\(|SessionRuntime\\(|PaneCoordinator\\(|MainWindowController\\(|CommandBarPanelController\\(" Sources/AgentStudio/App/AppDelegate.swift
+rg -n "bootLoadCanonicalStore|WorkspaceStore\\(|SessionRuntime\\(|PaneCoordinator\\(|MainWindowController\\(|CommandBarPanelController\\(" Sources/AgentStudio/App/Boot/AppDelegate.swift
 ```
 
 This boot is a multi-step `WorkspaceBootSequence`; do not treat it as a trivial one-shot initializer. Identify every object created that uses `@Dependency`, including:
@@ -1110,7 +1110,7 @@ func createSessionRuntime() -> SessionRuntime {
 
 The implementing agent must search for all object creation in `PaneCoordinator`:
 ```bash
-rg -n "= .*Runtime\(\|= .*Controller\(\|= .*Manager\(" Sources/AgentStudio/App/PaneCoordinator*.swift
+rg -n "= .*Runtime\(\|= .*Controller\(\|= .*Manager\(" Sources/AgentStudio/App/Coordination/PaneCoordinator*.swift
 ```
 
 - [ ] **Step 4: Build, test, commit**

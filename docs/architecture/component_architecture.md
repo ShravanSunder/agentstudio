@@ -412,13 +412,13 @@ The `PaneCoordinator` is the canonical orchestration boundary for action executi
 
 **Reentrant-safety invariant:** The coordinator has both synchronous mutation methods (e.g., `execute(_ action: PaneActionCommand)`, `closeTab()`) and an async `for await` event loop consuming from the EventBus. Since both are `@MainActor`, synchronous methods can interleave between event loop iterations — the `for await` yields at each iteration, and synchronous calls execute during the yield. This is correct and expected (same model as Python asyncio). The multiplexing rule guarantees safety: `@Observable` mutation happens synchronously on MainActor **before** `bus.post()`, so by the time the coordinator's event loop picks up an envelope, all store state is already consistent. The coordinator never sees an envelope whose corresponding `@Observable` state hasn't been applied yet. Frame-level interleaving between synchronous UI mutations and async event processing is expected and safe — UI sees updates immediately (synchronous `@Observable`), coordination consumers see complete envelopes within one frame (~16ms). This is not a race; it's the intended scheduling model.
 
-> **File:** `App/PaneCoordinator.swift`
+> **File:** `App/Coordination/PaneCoordinator.swift`
 
 ### 3.7 TabBarAdapter
 
 Derived state bridge between `WorkspaceStore` and the tab bar SwiftUI view. Bridges `@Observable` store state via `withObservationTracking` and transforms it into tab bar display items.
 
-> **File:** `Core/Views/TabBarAdapter.swift`
+> **File:** `App/Panes/TabBar/TabBarAdapter.swift`
 
 ### 3.9 WorkspacePersistor
 
@@ -829,9 +829,9 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `Infrastructure/WorktreeReconciler.swift` | Pure function: matches existing vs discovered worktrees, preserves UUIDs, returns merged list + `WorktreeTopologyDelta` |
 | `Infrastructure/ProcessExecutor.swift` | Protocol + default impl for CLI execution |
 | **App** | |
-| `App/PaneCoordinator.swift` | Action dispatch, orchestration, undo sequencing, and `TopologyEffectHandler` conformance (orphan panes + filesystem root sync after topology changes) |
-| `App/MainWindowController.swift` | Primary window management |
-| `App/MainSplitViewController.swift` | Split view: sidebar + terminal panes |
+| `App/Coordination/PaneCoordinator.swift` | Action dispatch, orchestration, undo sequencing, and `TopologyEffectHandler` conformance (orphan panes + filesystem root sync after topology changes) |
+| `App/Windows/MainWindowController.swift` | Primary window management |
+| `App/Windows/MainSplitViewController.swift` | Split view: sidebar + terminal panes |
 | `App/Panes/PaneTabViewController.swift` | Tab controller, observes store via @Observable |
 | **Core/Actions** (workspace mutations) | |
 | `Core/Actions/PaneActionCommand.swift` | Workspace-level action enum (selectTab, closePane, insertPane, etc.) |
