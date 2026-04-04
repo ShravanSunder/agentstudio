@@ -816,7 +816,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Expand sidebar when the first repo arrives via the event bus.
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await PaneRuntimeEventBus.shared.waitForFirst(timeout: .seconds(30)) { envelope -> Void? in
+            await PaneRuntimeEventBus.shared.waitForFirst { envelope -> Void? in
                 guard case .system(let sys) = envelope,
                     case .topology(.repoDiscovered) = sys.event
                 else { return nil }
