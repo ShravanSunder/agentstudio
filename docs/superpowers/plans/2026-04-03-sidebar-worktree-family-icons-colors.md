@@ -529,7 +529,7 @@ Pure function tests on static methods. No bus, no actors.
 | `Sources/.../Infrastructure/RepoScanner.swift` | Modify | Add `GitEntryKind`, `classifyGitEntry()`, `parseParentClonePath()`, `groupClassifiedPaths()`, `scanForGitReposGrouped()` |
 | `Sources/.../Infrastructure/WorktreeReconciler.swift` | **Create** | Pure function: `reconcile(existing, discovered) → (merged, delta)`. Extracted from `WorkspaceStore.reconcileDiscoveredWorktrees` |
 | `Sources/.../Contracts/RuntimeEnvelopeCore.swift:22` | Modify | Add `LinkedWorktreeInfo` enum, widen `.repoDiscovered` with `linkedWorktrees: LinkedWorktreeInfo = .notScanned` |
-| `Sources/.../Sources/FilesystemActor.swift` | Modify | Use grouped scanner, track `[ScannedRepoGroup]` per folder, grouped diff, global dedup for removes |
+| `Sources/.../Filesystem/FilesystemActor.swift` | Modify | Use grouped scanner, track `[ScannedRepoGroup]` per folder, grouped diff, global dedup for removes |
 | `Sources/.../App/WorkspaceCacheCoordinator.swift` | Modify | Use `WorktreeReconciler`, inject `TopologyEffectHandler`, call handler with delta |
 | `Sources/.../App/PaneCoordinator+FilesystemSource.swift` | Modify | Remove topology bus subscription, conform to `TopologyEffectHandler` |
 | `Sources/.../App/PaneCoordinator.swift` | Modify | Add `TopologyEffectHandler` conformance |
@@ -849,7 +849,7 @@ git commit -m "feat: WorktreeReconciler, scanner classification, widen .repoDisc
 ## Task 2: FilesystemActor Grouped Diff
 
 **Files:**
-- Modify: `Sources/AgentStudio/Core/PaneRuntime/Sources/FilesystemActor.swift`
+- Modify: `Sources/AgentStudio/Core/PaneRuntime/Filesystem/FilesystemActor.swift`
 
 - [ ] **Step 1: Add grouped scanner injection and state**
 

@@ -319,8 +319,8 @@ The filesystem watcher is the first system-level source to implement. It's a pre
 │            Independent of pane lifecycle.                                   │
 │                                                                              │
 │ Location:                                                                    │
-│   Core/PaneRuntime/Sources/FilesystemActor.swift                            │
-│   Core/PaneRuntime/Sources/GitWorkingDirectoryProjector.swift               │
+│   Core/PaneRuntime/Filesystem/FilesystemActor.swift                         │
+│   Core/PaneRuntime/Git/GitWorkingDirectoryProjector.swift                   │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -3173,7 +3173,7 @@ See [Directory Structure](directory_structure.md) for the full decision process 
 | **WebviewRuntime** (future) | `Features/Webview/Runtime/` | Webview-specific `PaneRuntime` conformance (serves .browser) |
 | **WebviewPaneController** | `Features/Webview/` | Per-pane WebKit page, navigation state (transport/view-side lifecycle) |
 | **SwiftPaneRuntime** (future) | `Features/SwiftPane/Runtime/` | Native AppKit/SwiftUI `PaneRuntime` conformance (serves .codeViewer) |
-| **FSEventsWatcher** (future) | `Core/PaneRuntime/Sources/` | System-level filesystem watcher; produces FilesystemEvent envelopes |
+| **FSEventsWatcher** (future) | `Core/PaneRuntime/Filesystem/` | System-level filesystem watcher; produces FilesystemEvent envelopes |
 | **PaneCoordinator** | `App/` | Imports from multiple features; composition root |
 
 ### Why per-kind event enums live in Core
