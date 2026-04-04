@@ -18,6 +18,10 @@ struct EventBusWaitForFirstTests {
             }
         }
 
+        await assertEventuallyAsync("subscriber registered", maxTurns: 50) {
+            await harness.bus.subscriberCount > 0
+        }
+
         await harness.post(1)
         await harness.post(2)
         await harness.post(42)
@@ -36,8 +40,10 @@ struct EventBusWaitForFirstTests {
             }
         }
 
-        await harness.post(1)
-        await Task.yield()
+        await assertEventuallyAsync("subscriber registered", maxTurns: 50) {
+            await harness.bus.subscriberCount > 0
+        }
+
         waitTask.cancel()
 
         let result = await waitTask.value
@@ -52,6 +58,10 @@ struct EventBusWaitForFirstTests {
             await harness.bus.waitForFirst { value -> Int? in
                 value > 10 ? value * 2 : nil
             }
+        }
+
+        await assertEventuallyAsync("subscriber registered", maxTurns: 50) {
+            await harness.bus.subscriberCount > 0
         }
 
         await harness.post(5)
@@ -75,6 +85,10 @@ struct EventBusWaitForFirstTests {
             }
         }
 
+        await assertEventuallyAsync("subscriber registered", maxTurns: 50) {
+            await harness.bus.subscriberCount > 0
+        }
+
         await harness.post(42)
 
         let result = await waitTask.value
@@ -93,7 +107,10 @@ struct EventBusWaitForFirstTests {
             }
         }
 
-        await Task.yield()
+        await assertEventuallyAsync("subscriber registered", maxTurns: 50) {
+            await harness.bus.subscriberCount > 0
+        }
+
         waitTask.cancel()
 
         let result = await waitTask.value

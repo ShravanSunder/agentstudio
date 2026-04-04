@@ -58,7 +58,8 @@ extension EventBus {
             }
 
             // First task to finish wins. Cancel the other.
-            let first = await group.next()
+            // group.next() returns Result?? — flatten the double optional.
+            let first: Result? = if let wrapped = await group.next() { wrapped } else { nil }
             group.cancelAll()
             return first
         }
