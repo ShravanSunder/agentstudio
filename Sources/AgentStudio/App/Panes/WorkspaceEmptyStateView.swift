@@ -80,47 +80,54 @@ struct WorkspaceEmptyStateView: View {
     }
 
     private var scanningBody: some View {
-        VStack(spacing: 20) {
-            ProgressView()
-                .controlSize(.regular)
-                .scaleEffect(1.2)
+        VStack(spacing: 28) {
+            VStack(spacing: 12) {
+                ProgressView()
+                    .controlSize(.regular)
+                    .scaleEffect(1.2)
 
-            VStack(spacing: 8) {
                 Text("Scanning \(scanningFolderDisplayName)")
                     .font(.system(size: 20, weight: .semibold))
-
-                if repoCount > 0 {
-                    Text("Found \(repoCount) \(repoCount == 1 ? "repository" : "repositories") so far…")
-                        .font(.system(size: AppStyle.textBase))
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text("Looking for repositories…")
-                        .font(.system(size: AppStyle.textBase))
-                        .foregroundStyle(.secondary)
-                }
-
-                Text("Repos appear in the sidebar as they're discovered.")
-                    .font(.system(size: AppStyle.textSm))
-                    .foregroundStyle(.tertiary)
             }
 
-            Rectangle()
-                .fill(Color.white.opacity(AppStyle.fillSubtle))
-                .frame(width: 200, height: 1)
-                .padding(.vertical, 4)
-
-            HStack(alignment: .top, spacing: 10) {
-                Text("⌘T")
-                    .font(.system(size: AppStyle.textBase, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Color.accentColor)
-
-                Text("Open a terminal tab anytime — no need to wait.")
-                    .font(.system(size: AppStyle.textBase))
-                    .foregroundStyle(.tertiary)
-            }
-            .frame(maxWidth: 320)
+            scanningCallout
         }
-        .frame(maxWidth: .infinity)
+    }
+
+    private var scanningCallout: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("You don't need to wait.")
+                .font(.system(size: AppStyle.textBase, weight: .medium))
+                .foregroundStyle(.primary)
+
+            VStack(alignment: .leading, spacing: 10) {
+                shortcutRow(key: "⌘T", label: "Open a terminal tab")
+                shortcutRow(key: "⌘P", label: "Open the command palette")
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: 320, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.white.opacity(AppStyle.fillMuted))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.white.opacity(AppStyle.fillActive), lineWidth: 1)
+                )
+        )
+    }
+
+    private func shortcutRow(key: String, label: String) -> some View {
+        HStack(spacing: 10) {
+            Text(key)
+                .font(.system(size: AppStyle.textSm, weight: .semibold, design: .monospaced))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 28, alignment: .trailing)
+
+            Text(label)
+                .font(.system(size: AppStyle.textBase))
+                .foregroundStyle(.secondary)
+        }
     }
 
     private var scanningFolderDisplayName: String {
@@ -136,7 +143,7 @@ struct WorkspaceEmptyStateView: View {
     private var launcherBody: some View {
         VStack(spacing: 28) {
             WorkspaceHomeHeader(
-                title: "Pick Up Where You Left Off",
+                title: "Your workspace",
                 subtitle: "Open a recent worktree, or pick one from the sidebar."
             )
 
