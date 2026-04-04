@@ -105,7 +105,7 @@ These decisions came from user clarification during planning. Treat them as requ
   - `Sources/AgentStudio/Core/Stores/WorkspacePersistor.swift`
   - `Sources/AgentStudio/App/WorkspaceCacheCoordinator.swift`
 - Runtime cwd semantics:
-  - `Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneMetadata.swift`
+  - `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneMetadata.swift`
   - `Sources/AgentStudio/App/PaneCoordinator.swift`
   - `Sources/AgentStudio/Core/Stores/WorkspaceStore.swift`
 - Arrangement popover:
@@ -142,8 +142,8 @@ These decisions came from user clarification during planning. Treat them as requ
 | `Sources/AgentStudio/Core/Models/RecentWorkspaceTarget.swift` | Create | Cache model for recent worktree/CWD launcher entries |
 | `Sources/AgentStudio/Core/Stores/WorkspaceRepoCache.swift` | Modify | Own recent target state and recency mutation methods |
 | `Sources/AgentStudio/Core/Stores/WorkspacePersistor.swift` | Modify | Persist recent target cache entries in `workspace.cache.json` |
-| `Sources/AgentStudio/Core/PaneRuntime/Contracts/WorkspaceActivityEvent.swift` | Create | New system fact type for “recent target opened” |
-| `Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelopeCore.swift` | Modify | Add workspace-activity event namespace |
+| `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/WorkspaceActivityEvent.swift` | Create | New system fact type for “recent target opened” |
+| `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift` | Modify | Add workspace-activity event namespace |
 | `Sources/AgentStudio/App/WorkspaceCacheCoordinator.swift` | Modify | Consume recent-target facts and update cache |
 | `Sources/AgentStudio/App/PaneCoordinator+ActionExecution.swift` | Modify | Emit recent-target facts after successful open/new-tab actions |
 | `Sources/AgentStudio/App/Panes/WorkspaceLauncherProjector.swift` | Create | Derive which empty state to show and which recent entries/actions are available |
@@ -306,8 +306,8 @@ git commit -m "feat: persist recent workspace targets in cache"
 ## Task 2: Record Recent Target Opens Through The Event Bus
 
 **Files:**
-- Create: `Sources/AgentStudio/Core/PaneRuntime/Contracts/WorkspaceActivityEvent.swift`
-- Modify: `Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelopeCore.swift`
+- Create: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/WorkspaceActivityEvent.swift`
+- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift`
 - Modify: `Sources/AgentStudio/App/WorkspaceCacheCoordinator.swift`
 - Modify: `Sources/AgentStudio/App/PaneCoordinator+ActionExecution.swift`
 - Test: `Tests/AgentStudioTests/App/WorkspaceCacheCoordinatorTests.swift`
@@ -438,8 +438,8 @@ Expected: PASS, with recent-target facts stored without violating cache ownershi
 - [ ] **Step 7: Commit**
 
 ```bash
-git add Sources/AgentStudio/Core/PaneRuntime/Contracts/WorkspaceActivityEvent.swift \
-  Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelopeCore.swift \
+git add Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/WorkspaceActivityEvent.swift \
+  Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift \
   Sources/AgentStudio/App/WorkspaceCacheCoordinator.swift \
   Sources/AgentStudio/App/PaneCoordinator+ActionExecution.swift \
   Tests/AgentStudioTests/App/WorkspaceCacheCoordinatorTests.swift

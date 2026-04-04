@@ -103,7 +103,7 @@ The app has two separate event buses. They serve different purposes and carry di
 
 All topology events (`.repoDiscovered`, `.repoRemoved`) and enrichment events (`.snapshotChanged`, `.branchChanged`) flow through `PaneRuntimeEventBus`. The coordinator's bus subscription is the single intake. AppDelegate posts `.repoDiscovered` on the bus for boot replay; `FilesystemActor` posts `.repoDiscovered` and `.repoRemoved` on the bus when diffing watched-folder refreshes.
 
-> **Files:** `Core/PaneRuntime/Events/EventChannels.swift` defines `PaneRuntimeEventBus`. `App/Events/` defines `AppEvent` and `AppEventBus`.
+> **Files:** `Core/RuntimeEventSystem/Events/EventChannels.swift` defines `PaneRuntimeEventBus`. `App/Events/` defines `AppEvent` and `AppEventBus`.
 
 ## Direct Commands Use Capability Protocols
 

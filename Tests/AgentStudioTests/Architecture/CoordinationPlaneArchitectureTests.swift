@@ -241,7 +241,7 @@ struct CoordinationPlaneArchitectureTests {
     func appEventOwnership_staysInAppSlice() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let eventChannelsPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Core/PaneRuntime/Events/EventChannels.swift"
+            path: "Sources/AgentStudio/Core/RuntimeEventSystem/Events/EventChannels.swift"
         )
         let appEventPath = projectRoot.appending(
             path: "Sources/AgentStudio/App/Events/AppEvent.swift"
@@ -268,7 +268,7 @@ struct CoordinationPlaneArchitectureTests {
     func ghosttyMixedBus_isRemoved() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let eventChannelsPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Core/PaneRuntime/Events/EventChannels.swift"
+            path: "Sources/AgentStudio/Core/RuntimeEventSystem/Events/EventChannels.swift"
         )
         let ghosttyPath = projectRoot.appending(
             path: "Sources/AgentStudio/Features/Terminal/Ghostty/Ghostty.swift"

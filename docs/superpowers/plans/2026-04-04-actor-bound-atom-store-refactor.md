@@ -64,7 +64,7 @@ It does **not** cover:
 | `Sources/AgentStudio/Core/Stores/WorkspaceStore.swift` | Persistence wrapper only |
 | `Sources/AgentStudio/Core/Stores/RepoCacheStore.swift` | Persistence wrapper only |
 | `Sources/AgentStudio/Core/Stores/UIStateStore.swift` | Persistence wrapper only |
-| `Sources/AgentStudio/Core/PaneRuntime/SessionRuntime.swift` | Behavior type reading `SessionRuntimeAtom` |
+| `Sources/AgentStudio/Core/RuntimeEventSystem/SessionRuntime.swift` | Behavior type reading `SessionRuntimeAtom` |
 | `Sources/AgentStudio/App/AppDelegate.swift` | Boot creates/binds `AtomStore`, passes explicit dependencies |
 | `Sources/AgentStudio/App/MainWindowController.swift` | Switch to atom-store access |
 | `Sources/AgentStudio/App/MainSplitViewController.swift` | Switch to atom-store access |
@@ -651,8 +651,8 @@ Expected: PASS with new store wrappers in place.
 **Files:**
 - Create: `Sources/AgentStudio/Core/Atoms/SessionRuntimeAtom.swift`
 - Modify: `Sources/AgentStudio/Core/Stores/SessionRuntime.swift`
-- Move: `Sources/AgentStudio/Core/Stores/SessionRuntime.swift` → `Sources/AgentStudio/Core/PaneRuntime/SessionRuntime.swift`
-- Move: `Sources/AgentStudio/Core/Stores/ZmxBackend.swift` → `Sources/AgentStudio/Core/PaneRuntime/ZmxBackend.swift`
+- Move: `Sources/AgentStudio/Core/Stores/SessionRuntime.swift` → `Sources/AgentStudio/Core/RuntimeEventSystem/SessionRuntime.swift`
+- Move: `Sources/AgentStudio/Core/Stores/ZmxBackend.swift` → `Sources/AgentStudio/Core/RuntimeEventSystem/ZmxBackend.swift`
 
 - [ ] **Step 1: Write/update focused `SessionRuntimeTests`**
 - [ ] **Step 2: Extract `SessionRuntimeAtom`**

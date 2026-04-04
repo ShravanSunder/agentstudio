@@ -196,7 +196,7 @@ SessionRuntimeAtom ──── no store ──── in-memory, resolved via @D
 - Extract `ManagementModeAtom` from `ManagementModeMonitor`
 - Extract `SessionRuntimeAtom` from `SessionRuntime`
 - Rename `PaneDisplayProjector` → `PaneDisplayDerived`, `DynamicViewProjector` → `DynamicViewDerived`, and convert them into dependency-resolved read-only selectors
-- Move `SessionRuntime` + `ZmxBackend` from `Core/Stores/` to `Core/PaneRuntime/`
+- Move `SessionRuntime` + `ZmxBackend` from `Core/Stores/` to `Core/RuntimeEventSystem/`
 - Update CLAUDE.md and architecture docs
 
 ### NOT in scope — do not touch
@@ -265,8 +265,8 @@ Transient state (`Tab.zoomedPaneId`, `Tab.minimizedPaneIds`) stays on the `Tab` 
 |------|--------|
 | `Core/Stores/WorkspaceStore.swift` | Becomes persistence wrapper — observes `WorkspaceAtom` |
 | `App/ManagementModeMonitor.swift` | Behavior only — state moves to `ManagementModeAtom` |
-| `Core/Stores/SessionRuntime.swift` | Moves to `Core/PaneRuntime/`, delegates state to `SessionRuntimeAtom` |
-| `Core/Stores/ZmxBackend.swift` | Moves to `Core/PaneRuntime/` (not a store) |
+| `Core/Stores/SessionRuntime.swift` | Moves to `Core/RuntimeEventSystem/`, delegates state to `SessionRuntimeAtom` |
+| `Core/Stores/ZmxBackend.swift` | Moves to `Core/RuntimeEventSystem/` (not a store) |
 | ~72 source files | Update type references |
 | ~41 test files | Update type references |
 
@@ -1016,15 +1016,15 @@ Tests get fresh atoms via `@Suite(.dependencies { $0.sessionRuntimeAtom = Sessio
 
 ---
 
-## Task 8: Move `SessionRuntime` + `ZmxBackend` to `Core/PaneRuntime/`
+## Task 8: Move `SessionRuntime` + `ZmxBackend` to `Core/RuntimeEventSystem/`
 
 They're behavior/backends, not stores. `Core/Stores/` should only have persistence wrappers after this refactor.
 
 - [ ] **Step 1: Move files**
 
 ```bash
-git mv Sources/AgentStudio/Core/Stores/SessionRuntime.swift Sources/AgentStudio/Core/PaneRuntime/SessionRuntime.swift
-git mv Sources/AgentStudio/Core/Stores/ZmxBackend.swift Sources/AgentStudio/Core/PaneRuntime/ZmxBackend.swift
+git mv Sources/AgentStudio/Core/Stores/SessionRuntime.swift Sources/AgentStudio/Core/RuntimeEventSystem/SessionRuntime.swift
+git mv Sources/AgentStudio/Core/Stores/ZmxBackend.swift Sources/AgentStudio/Core/RuntimeEventSystem/ZmxBackend.swift
 ```
 
 - [ ] **Step 2: Build, test, commit**

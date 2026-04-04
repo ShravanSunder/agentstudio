@@ -319,8 +319,8 @@ The filesystem watcher is the first system-level source to implement. It's a pre
 │            Independent of pane lifecycle.                                   │
 │                                                                              │
 │ Location:                                                                    │
-│   Core/PaneRuntime/Filesystem/FilesystemActor.swift                         │
-│   Core/PaneRuntime/Git/GitWorkingDirectoryProjector.swift                   │
+│   Core/RuntimeEventSystem/Filesystem/FilesystemActor.swift                         │
+│   Core/RuntimeEventSystem/Git/GitWorkingDirectoryProjector.swift                   │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1164,7 +1164,7 @@ enum RuntimeErrorEvent: Error, Sendable {
 
 > **Role:** Structural (envelope shape). Carried by all sources, projections, and sinks.
 
-> **File:** `Core/PaneRuntime/Contracts/RuntimeEnvelopeCore.swift`
+> **File:** `Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift`
 
 > **Extensibility:** `SystemSource` uses a three-tier hierarchy: `BuiltinSource` (closed, core-only), `ServiceSource` (discriminated union — new categories need a core code change with typed event protocol, new providers are a String), and `.plugin(String)` (fully open, schema-free). Per-source isolation guarantees (A4: independent `seq`, A10: independent replay buffer) mean new sources at any tier cannot break ordering or replay for existing sources. No shared state to corrupt.
 
@@ -3156,16 +3156,16 @@ You **accept** the discipline of classifying every event kind (critical vs lossy
 
 ## Directory Placement
 
-Contract types are shared pane-system domain infrastructure — used by all features, not owned by any single feature. They live in `Core/PaneRuntime/`. Feature-specific implementations (adapters, concrete runtimes) live in each `Features/X/` directory. The coordinator stays in `App/` as the composition root.
+Contract types are shared pane-system domain infrastructure — used by all features, not owned by any single feature. They live in `Core/RuntimeEventSystem/`. Feature-specific implementations (adapters, concrete runtimes) live in each `Features/X/` directory. The coordinator stays in `App/` as the composition root.
 
 See [Directory Structure](directory_structure.md) for the full decision process and import rules.
 
 | Type | Directory | Rationale |
 |------|-----------|-----------|
-| **Contracts** (PaneRuntime protocol, PaneRuntimeEvent, PaneEventEnvelope, RuntimeCommand, RuntimeCommandEnvelope, PaneLifecycle, PaneMetadata, ActionPolicy, PaneCapability, per-kind event/command enums) | `Core/PaneRuntime/Contracts/` | Imported by all features and App; change driver is pane system contract, not any specific feature |
-| **RuntimeRegistry** | `Core/PaneRuntime/Registry/` | Feature-agnostic lookup; consumed by PaneCoordinator in App/ |
-| **NotificationReducer**, VisibilityTier types | `Core/PaneRuntime/Reduction/` | Feature-agnostic event processing; consumed by PaneCoordinator |
-| **EventReplayBuffer** | `Core/PaneRuntime/Replay/` | Feature-agnostic buffering; consumed by PaneCoordinator |
+| **Contracts** (PaneRuntime protocol, PaneRuntimeEvent, PaneEventEnvelope, RuntimeCommand, RuntimeCommandEnvelope, PaneLifecycle, PaneMetadata, ActionPolicy, PaneCapability, per-kind event/command enums) | `Core/RuntimeEventSystem/Contracts/` | Imported by all features and App; change driver is pane system contract, not any specific feature |
+| **RuntimeRegistry** | `Core/RuntimeEventSystem/Registry/` | Feature-agnostic lookup; consumed by PaneCoordinator in App/ |
+| **NotificationReducer**, VisibilityTier types | `Core/RuntimeEventSystem/Reduction/` | Feature-agnostic event processing; consumed by PaneCoordinator |
+| **EventReplayBuffer** | `Core/RuntimeEventSystem/Replay/` | Feature-agnostic buffering; consumed by PaneCoordinator |
 | **GhosttyAdapter** | `Features/Terminal/Ghostty/` | FFI-specific; translates C callbacks into Core event types |
 | **TerminalRuntime** | `Features/Terminal/Runtime/` | Terminal-specific `PaneRuntime` conformance |
 | **BridgeRuntime** (future) | `Features/Bridge/Runtime/` | Bridge-specific `PaneRuntime` conformance (serves .diff, .editor, .review, .agent, .plugin) |
@@ -3173,12 +3173,12 @@ See [Directory Structure](directory_structure.md) for the full decision process 
 | **WebviewRuntime** (future) | `Features/Webview/Runtime/` | Webview-specific `PaneRuntime` conformance (serves .browser) |
 | **WebviewPaneController** | `Features/Webview/` | Per-pane WebKit page, navigation state (transport/view-side lifecycle) |
 | **SwiftPaneRuntime** (future) | `Features/SwiftPane/Runtime/` | Native AppKit/SwiftUI `PaneRuntime` conformance (serves .codeViewer) |
-| **FSEventsWatcher** (future) | `Core/PaneRuntime/Filesystem/` | System-level filesystem watcher; produces FilesystemEvent envelopes |
+| **FSEventsWatcher** (future) | `Core/RuntimeEventSystem/Filesystem/` | System-level filesystem watcher; produces FilesystemEvent envelopes |
 | **PaneCoordinator** | `App/` | Imports from multiple features; composition root |
 
 ### Why per-kind event enums live in Core
 
-`GhosttyEvent`, `BrowserEvent`, `DiffEvent`, `EditorEvent` are cases in the `PaneRuntimeEvent` discriminated union (Contract 2). Since `PaneRuntimeEvent` is in `Core/PaneRuntime/Contracts/` and Core cannot import Features, all per-kind event enums must also be in Core. These enums define the **domain event vocabulary** — what the system says about terminal/browser/diff/editor events. The adapters that *produce* these events from platform APIs live in Features.
+`GhosttyEvent`, `BrowserEvent`, `DiffEvent`, `EditorEvent` are cases in the `PaneRuntimeEvent` discriminated union (Contract 2). Since `PaneRuntimeEvent` is in `Core/RuntimeEventSystem/Contracts/` and Core cannot import Features, all per-kind event enums must also be in Core. These enums define the **domain event vocabulary** — what the system says about terminal/browser/diff/editor events. The adapters that *produce* these events from platform APIs live in Features.
 
 ### Naming: RuntimeCommand vs PaneActionCommand
 
@@ -3187,7 +3187,7 @@ Two distinct action layers exist with different scopes:
 | Layer | Type | Location | Purpose |
 |-------|------|----------|---------|
 | **Workspace** | `PaneActionCommand` | `Core/Actions/` | Workspace structure mutations — selectTab, closePane, insertPane, toggleDrawer |
-| **Runtime** | `RuntimeCommand` | `Core/PaneRuntime/Contracts/` | Commands to individual runtimes — sendInput, navigate, approveHunk |
+| **Runtime** | `RuntimeCommand` | `Core/RuntimeEventSystem/Contracts/` | Commands to individual runtimes — sendInput, navigate, approveHunk |
 
 `PaneActionCommand` flows: User → ActionResolver → ActionValidator → PaneCoordinator → WorkspaceStore.
 `RuntimeCommand` flows: PaneCoordinator → RuntimeRegistry → `runtime.handleCommand(envelope)`.

@@ -15,7 +15,8 @@ Instead:
 - keep state atoms fully actor-bound on `@MainActor`
 - introduce an explicit `AtomStore` composition root that owns the live atom instances
 - introduce `AtomScope` as the ambient access mechanism for the current atom store
-- use a lightweight `@Atom(\.foo)` property wrapper as sugar over `AtomScope.store[keyPath:]`
+- make `atom(\.foo)` the primary runtime access API
+- keep `@Atom(\.foo)` only as optional convenience sugar
 - implement derived selectors on top of ambient atom access rather than constructor-injected DI
 - keep persistence as separate store wrappers with explicit constructor injection for non-state dependencies such as clocks and persistors
 
@@ -64,7 +65,7 @@ The Swift translation is:
 - state atoms are `@Observable @MainActor` classes
 - `AtomStore` owns the live atom instances
 - `AtomScope` exposes the current atom store for the current scope
-- `@Atom(\.workspace)` is a typed sugar layer over `AtomScope.store`
+- `atom(\.workspace)` is the primary runtime access API
 - `AtomReader` is the Jotai-like `get`
 - `Derived<Value>` and `DerivedSelector<Param, Value>` are the v1 derivation primitives
 - derived selectors read atoms implicitly from that ambient scope
@@ -198,7 +199,35 @@ This gives us:
 
 Accessing `AtomScope.store` before `AtomScope.setUp(_:)` is a programming error and should crash intentionally.
 
-### 3. `@Atom`
+### 3. `atom(_:)`
+
+`atom(_:)` is the primary runtime access function for the current atom store.
+
+Rules:
+
+- `@MainActor`
+- plain function over `AtomScope.store`
+- usable in SwiftUI, AppKit, coordinators, selectors, and stores
+- does not create state or a new scope
+- only reads from the current ambient scope
+
+Example:
+
+```swift
+@MainActor
+func atom<Value>(_ keyPath: KeyPath<AtomStore, Value>) -> Value {
+    AtomScope.store[keyPath: keyPath]
+}
+```
+
+This gives us Jotai-like usage:
+
+```swift
+let workspace = atom(\.workspace)
+let label = atom(\.paneDisplay).displayLabel(for: paneId)
+```
+
+### 4. Optional `@Atom`
 
 `@Atom` is a typed property-wrapper sugar over `AtomScope.store`.
 
@@ -228,7 +257,7 @@ struct Atom<Value> {
 }
 ```
 
-This gives us Jotai-like usage:
+This gives us convenience sugar:
 
 ```swift
 @Atom(\.workspace) private var workspace
@@ -236,6 +265,8 @@ This gives us Jotai-like usage:
 ```
 
 without a DI framework.
+
+`@Atom` is optional convenience sugar. The primary design model is function-based access through `atom(\.foo)` and derivation-time access through `AtomReader`.
 
 ## Core Model
 
@@ -340,7 +371,7 @@ struct PaneDisplayDerived {
 }
 ```
 
-### 3. Base derivation primitives
+### 5. Base derivation primitives
 
 V1 includes a very small derivation helper layer:
 
@@ -381,7 +412,7 @@ These are part of v1 because Jotai-like derivation and future higher-order compo
 
 Concrete selectors such as `PaneDisplayDerived` and `DynamicViewDerived` still exist; the generic helpers are the shared foundation underneath them or for simpler one-liner derivations.
 
-### 4. Read-only in v1, writable later
+### 6. Read-only in v1, writable later
 
 V1 selectors are read-only.
 
@@ -395,7 +426,7 @@ must not mutate atoms directly.
 
 Future Jotai-like writable/action semantics are an explicit extension point, but they are not part of the first implementation. Cross-atom writes remain the responsibility of main-actor coordinators, stores, and explicit domain mutation APIs.
 
-### 5. Pure helpers stay separate
+### 7. Pure helpers stay separate
 
 Heavy pure algorithms remain explicit-argument helpers.
 

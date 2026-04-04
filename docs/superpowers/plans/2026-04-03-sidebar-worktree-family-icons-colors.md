@@ -548,7 +548,7 @@ Pure function tests on static methods. No bus, no actors.
 ## Task 1: Contract and Infrastructure
 
 **Files:**
-- Modify: `Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelopeCore.swift`
+- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift`
 - Create: `Sources/AgentStudio/Infrastructure/WorktreeReconciler.swift`
 - Modify: `Sources/AgentStudio/Infrastructure/RepoScanner.swift`
 - Create: `Tests/AgentStudioTests/Infrastructure/WorktreeReconcilerTests.swift`
@@ -849,7 +849,7 @@ git commit -m "feat: WorktreeReconciler, scanner classification, widen .repoDisc
 ## Task 2: FilesystemActor Grouped Diff
 
 **Files:**
-- Modify: `Sources/AgentStudio/Core/PaneRuntime/Filesystem/FilesystemActor.swift`
+- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemActor.swift`
 
 - [ ] **Step 1: Add grouped scanner injection and state**
 
