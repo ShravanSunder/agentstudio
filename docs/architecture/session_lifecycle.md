@@ -431,7 +431,7 @@ This must stay aligned with:
 
 ## SessionStatus State Machine (Dormant)
 
-A full 7-state machine exists in `Models/StateMachine/SessionStatus.swift` for future integration with zmx backend health monitoring. It is **not yet wired** into `SessionRuntime` (which uses the simpler `SessionRuntimeStatus` enum above).
+A full 7-state machine exists in `Core/Models/SessionStatus.swift` for future integration with zmx backend health monitoring. It is **not yet wired** into `SessionRuntime` (which uses the simpler `SessionRuntimeStatus` enum above).
 
 ```mermaid
 stateDiagram-v2
@@ -473,7 +473,7 @@ stateDiagram-v2
 | `Core/Models/Layout.swift` | Value-type split layout tree (Codable for persistence) |
 | `Core/Models/Tab.swift` | Tab with layout and active pane |
 | `Core/Models/SessionConfiguration.swift` | Config detection from env vars |
-| `Core/Models/StateMachine/SessionStatus.swift` | 7-state machine definition for future zmx health |
+| `Core/Models/SessionStatus.swift` | 7-state machine definition for future zmx health |
 | `Infrastructure/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
 | `Infrastructure/ProcessExecutor.swift` | Protocol + `DefaultProcessExecutor` for CLI execution |
 | `Core/Stores/ZmxBackend.swift` | zmx CLI wrapper — session ID gen, create/destroy/healthCheck |

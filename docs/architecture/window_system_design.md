@@ -750,7 +750,7 @@ The current layout is a horizontal flat pane strip — vertical splits are not s
 | `right` | `right` | unchanged |
 | `previous` / `next` | `focusPrevPane` / `focusNextPane` | focus only |
 
-This mapping lives in `mapSplitDirection`, `mapResizeSplitDirection`, and `mapGotoSplitDirection` in `PaneCoordinator.swift`.
+This mapping lives in `mapSplitDirection`, `mapResizeSplitDirection`, and `mapGotoSplitDirection` in `App/Coordination/PaneCoordinator.swift`.
 
 ### Drawer Pane Tab Resolution
 
