@@ -161,9 +161,9 @@ final class ZmxBackendTests {
         // Act
         let id = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
 
-        // Assert — format: agentstudio-d--<parent16>--<drawer16>
-        #expect(id.hasPrefix("agentstudio-d--"))
-        #expect(id == "agentstudio-d--5566778899001122--99aabbccddeeff00")
+        // Assert — format: as-d--<parent16>--<drawer16>
+        #expect(id.hasPrefix("as-d--"))
+        #expect(id == "as-d--5566778899001122--99aabbccddeeff00")
     }
 
     @Test
@@ -191,8 +191,8 @@ final class ZmxBackendTests {
         // Act
         let id = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
 
-        // Assert — prefix is "agentstudio-d--", then two 16-char hex segments
-        let suffix = String(id.dropFirst("agentstudio-d--".count))
+        // Assert — prefix is "as-d--", then two 16-char hex segments
+        let suffix = String(id.dropFirst("as-d--".count))
         let segments = suffix.components(separatedBy: "--")
         #expect(segments.count == 2)
         let hexChars = CharacterSet(charactersIn: "0123456789abcdef")
@@ -213,7 +213,7 @@ final class ZmxBackendTests {
         let id = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
 
         // Assert
-        #expect(id == "agentstudio-d--bc219f0a5b7c8d9e--a1234f00b16e1aa2")
+        #expect(id == "as-d--bc219f0a5b7c8d9e--a1234f00b16e1aa2")
     }
 
     // MARK: - PaneSessionHandle Validation
@@ -555,7 +555,7 @@ final class ZmxBackendTests {
             ProcessResult(
                 exitCode: 0,
                 stdout:
-                    "name=as-abc-111-222\tpid=123\tclients=0\tcreated=1774059493\tstart_dir=/tmp\tcmd=/bin/sleep 300\nname=agentstudio-d--aabb--ccdd\tpid=456\tclients=0\tcreated=1774059494\tstart_dir=/tmp\tcmd=/bin/sleep 300\nname=user-session\tpid=789\tclients=0",
+                    "name=as-abc-111-222\tpid=123\tclients=0\tcreated=1774059493\tstart_dir=/tmp\tcmd=/bin/sleep 300\nname=as-d--aabb--ccdd\tpid=456\tclients=0\tcreated=1774059494\tstart_dir=/tmp\tcmd=/bin/sleep 300\nname=user-session\tpid=789\tclients=0",
                 stderr: ""
             ))
 
@@ -564,7 +564,7 @@ final class ZmxBackendTests {
 
         // Assert
         #expect(orphans.count == 1)
-        #expect(orphans.contains("agentstudio-d--aabb--ccdd"))
+        #expect(orphans.contains("as-d--aabb--ccdd"))
         #expect(!(orphans.contains("user-session")))
     }
 
@@ -604,7 +604,7 @@ final class ZmxBackendTests {
             ProcessResult(
                 exitCode: 0,
                 stdout:
-                    "as-abc-111-222\trunning\nagentstudio-d--aabb--ccdd\trunning\nuser-session\trunning",
+                    "as-abc-111-222\trunning\nas-d--aabb--ccdd\trunning\nuser-session\trunning",
                 stderr: ""
             ))
 
@@ -613,7 +613,7 @@ final class ZmxBackendTests {
 
         // Assert
         #expect(orphans.count == 1)
-        #expect(orphans.contains("agentstudio-d--aabb--ccdd"))
+        #expect(orphans.contains("as-d--aabb--ccdd"))
         #expect(!(orphans.contains("user-session")))
     }
 

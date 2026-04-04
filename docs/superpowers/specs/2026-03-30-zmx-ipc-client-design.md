@@ -323,7 +323,7 @@ Since we close immediately after, no sustained drain is needed.
 socketPath = zmxDir + "/" + sessionId
 
 zmxDir: ~/.agentstudio/z  (ZmxBackend.defaultZmxDir)
-sessionId: as-<repoKey16>-<wtKey16>-<pane16>
+sessionId: as-<repoKey16>-<wtKey16>-<pane16>  or  as-d--<parentPane16>--<drawerPane16>
 
 Max usable path payload: 103 bytes (104-byte sun_path minus trailing NUL)
 ```

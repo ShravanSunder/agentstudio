@@ -178,13 +178,13 @@ final class ZmxBackend: SessionBackend {
         )
     }
 
-    /// Drawer session ID: `agentstudio-d--<parentPaneId16>--<drawerPaneId16>`
+    /// Drawer session ID: `as-d--<parentPaneId16>--<drawerPaneId16>`
     /// Uses pane UUIDs (not worktree stable keys) since drawer identity
     /// flows through the parent pane relationship, not worktree association.
     static func drawerSessionId(parentPaneId: UUID, drawerPaneId: UUID) -> String {
         let parentSegment = paneSessionSegment(parentPaneId)
         let drawerSegment = paneSessionSegment(drawerPaneId)
-        return "agentstudio-d--\(parentSegment)--\(drawerSegment)"
+        return "as-d--\(parentSegment)--\(drawerSegment)"
     }
 
     private static func paneSessionSegment(_ paneId: UUID) -> String {
@@ -318,7 +318,7 @@ final class ZmxBackend: SessionBackend {
     }
 
     /// Discover zmx sessions that are not tracked by the store.
-    /// Filters by the compact main-session prefix plus the legacy drawer prefix.
+    /// Filters by the compact main-session and drawer-session prefixes.
     func discoverOrphanSessions(excluding knownIds: Set<String>) async -> [String] {
         do {
             let result = try await executeWithRetry(
@@ -335,7 +335,7 @@ final class ZmxBackend: SessionBackend {
                 .components(separatedBy: "\n")
                 .filter { !$0.isEmpty }
                 .compactMap(Self.extractSessionName(from:))
-                .filter { $0.hasPrefix(Self.sessionPrefix) || $0.hasPrefix("agentstudio-d--") }
+                .filter { $0.hasPrefix(Self.sessionPrefix) || $0.hasPrefix("as-d--") }
                 .filter { !knownIds.contains($0) }
         } catch {
             zmxLogger.warning("Failed to discover orphan sessions: \(error.localizedDescription)")

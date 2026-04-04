@@ -20,7 +20,7 @@ derivation.
 | `RepoStableKey` | `String` (16 hex) | `Repo` | Derived | `StableKey.fromPath(repoPath)` | Deterministic zmx key segment |
 | `WorktreeStableKey` | `String` (16 hex) | `Worktree` | Derived | `StableKey.fromPath(worktree.path)` | Deterministic zmx key segment |
 | `MainZmxSessionId` | `String` (53 chars) | `ZmxBackend` | Derived | `as-<repo16>-<worktree16>-<pane16>` | zmx daemon/socket identity for layout panes |
-| `DrawerZmxSessionId` | `String` (49 chars) | `ZmxBackend` | Derived | `agentstudio-d--<parentPane16>--<drawerPane16>` | zmx daemon/socket identity for drawer panes |
+| `DrawerZmxSessionId` | `String` (38 chars) | `ZmxBackend` | Derived | `as-d--<parentPane16>--<drawerPane16>` | zmx daemon/socket identity for drawer panes |
 
 ### Session Name Calculation Rules
 
@@ -28,7 +28,7 @@ derivation.
 2. `pane16 = (uuidVersion(paneId) == 7) ? last16hex(paneHex) : first16hex(paneHex)`
 3. UUIDv7 puts timestamp bits at the front; using trailing bits preserves per-pane entropy.
 4. `mainSessionId = "as-" + repoStableKey + "-" + worktreeStableKey + "-" + pane16`
-5. `drawerSessionId = "agentstudio-d--" + parentPane16 + "--" + drawerPane16`
+5. `drawerSessionId = "as-d--" + parentPane16 + "--" + drawerPane16`
 6. `repoStableKey` and `worktreeStableKey` are deterministic SHA-256 path keys (16 hex chars each)
 
 ### PaneId Lifecycle (ASCII)
