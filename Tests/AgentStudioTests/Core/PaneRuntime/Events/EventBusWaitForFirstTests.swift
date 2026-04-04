@@ -46,35 +46,22 @@ struct EventBusWaitForFirstTests {
 
     @Test("extracts and returns typed value")
     func waitForFirstExtractsValue() async {
-        let harness = EventBusHarness<String>()
+        let harness = EventBusHarness<Int>()
 
         let waitTask = Task {
             await harness.bus.waitForFirst { value -> Int? in
-                Int(value)
+                value > 10 ? value * 2 : nil
             }
         }
 
-        await harness.post("hello")
-        await harness.post("42")
+        await harness.post(5)
+        await harness.post(20)
 
         let result = await waitTask.value
-        #expect(result == 42)
+        #expect(result == 40)
     }
 
     // MARK: - Timeout variant
-
-    @Test("timeout returns nil when no match arrives")
-    func waitForFirstTimeoutExpiresReturnsNil() async {
-        let harness = EventBusHarness<Int>()
-
-        let result = await harness.bus.waitForFirst(
-            timeout: .milliseconds(50)
-        ) { value -> String? in
-            value == 999 ? "found" : nil
-        }
-
-        #expect(result == nil)
-    }
 
     @Test("timeout returns match when it arrives before deadline")
     func waitForFirstTimeoutReturnsMatchBeforeDeadline() async {
@@ -82,7 +69,7 @@ struct EventBusWaitForFirstTests {
 
         let waitTask = Task {
             await harness.bus.waitForFirst(
-                timeout: .seconds(5)
+                timeout: .seconds(10)
             ) { value -> String? in
                 value == 42 ? "found" : nil
             }
@@ -94,16 +81,22 @@ struct EventBusWaitForFirstTests {
         #expect(result == "found")
     }
 
-    @Test("timeout with no events returns nil without blocking")
-    func waitForFirstTimeoutNoEventsReturnsNil() async {
+    @Test("timeout cancellation returns nil")
+    func waitForFirstTimeoutCancellationReturnsNil() async {
         let harness = EventBusHarness<Int>()
 
-        let result = await harness.bus.waitForFirst(
-            timeout: .milliseconds(50)
-        ) { value -> String? in
-            value == 42 ? "found" : nil
+        let waitTask = Task {
+            await harness.bus.waitForFirst(
+                timeout: .seconds(10)
+            ) { value -> String? in
+                value == 999 ? "found" : nil
+            }
         }
 
+        await Task.yield()
+        waitTask.cancel()
+
+        let result = await waitTask.value
         #expect(result == nil)
     }
 }

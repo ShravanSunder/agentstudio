@@ -813,12 +813,16 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         //    the first repo is discovered — never show an empty sidebar.
         store.beginScan(rootURL)
 
-        // Expand sidebar when the first repo arrives via the event bus.
-        Task { @MainActor [weak self] in
+        // Expand sidebar when a repo from this folder is discovered.
+        // Scoped to rootURL so unrelated discoveries don't trigger it.
+        let sidebarExpandTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            let normalizedRoot = rootURL.standardizedFileURL.path
             await PaneRuntimeEventBus.shared.waitForFirst { envelope -> Void? in
                 guard case .system(let sys) = envelope,
-                    case .topology(.repoDiscovered) = sys.event
+                    case .topology(.repoDiscovered(let repoPath, let parentPath, _)) = sys.event,
+                    parentPath.standardizedFileURL.path == normalizedRoot
+                        || repoPath.standardizedFileURL.path.hasPrefix(normalizedRoot)
                 else { return nil }
                 return ()
             }
@@ -827,7 +831,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { self.store.endScan() }
+            defer {
+                self.store.endScan()
+                sidebarExpandTask.cancel()
+            }
 
             let refreshSummary = await self.watchedFolderCommands.refreshWatchedFolders(
                 self.store.watchedPaths.map(\.path)

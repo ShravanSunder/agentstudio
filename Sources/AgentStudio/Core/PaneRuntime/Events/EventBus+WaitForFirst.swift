@@ -14,7 +14,7 @@ extension EventBus {
     func waitForFirst<Result: Sendable>(
         _ extract: @Sendable @escaping (Envelope) -> Result?
     ) async -> Result? {
-        let stream = await subscribe()
+        let stream = subscribe()
         for await envelope in stream {
             if let result = extract(envelope) {
                 return result
@@ -26,6 +26,7 @@ extension EventBus {
     /// Subscribes and waits for the first matching envelope, with a time limit.
     ///
     /// Uses a TaskGroup race between the envelope consumer and a sleep task.
+    /// Whichever task finishes first wins — the other is cancelled.
     /// Returns nil if the timeout expires before a match, even if no events arrive.
     ///
     /// - Parameters:
@@ -56,14 +57,10 @@ extension EventBus {
                 return nil
             }
 
-            while let result = await group.next() {
-                if result != nil {
-                    group.cancelAll()
-                    return result
-                }
-            }
-
-            return nil
+            // First task to finish wins. Cancel the other.
+            let first = await group.next()
+            group.cancelAll()
+            return first
         }
     }
 }
