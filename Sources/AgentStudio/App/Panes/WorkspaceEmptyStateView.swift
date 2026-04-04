@@ -171,8 +171,8 @@ struct WorkspaceEmptyStateView: View {
     private var recentSectionHeader: some View {
         HStack(alignment: .center, spacing: 16) {
             Text("Recent")
-                .font(.system(size: AppStyle.textSm, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .font(.system(size: AppStyle.textBase, weight: .medium))
+                .foregroundStyle(.tertiary)
 
             if model.showsOpenAll {
                 Button("Open All In Tabs") {

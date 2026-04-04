@@ -327,6 +327,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
             _ = self.store.tabs
             _ = self.store.activeTabId
             _ = self.store.repos
+            _ = self.store.scanningPath
             _ = self.repoCache.recentTargets
             _ = ManagementModeMonitor.shared.isActive
         } onChange: {

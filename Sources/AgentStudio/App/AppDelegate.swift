@@ -809,11 +809,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 1. Persist the watched path (direct store mutation)
         store.addWatchedPath(rootURL)
 
-        // 2. Signal scanning state and expand sidebar immediately.
-        //    The scan runs in a separate Task so the MainActor is free
-        //    to render the scanning UI before the filesystem work starts.
+        // 2. Signal scanning state for UI. Sidebar stays collapsed until
+        //    the first repo is discovered — never show an empty sidebar.
         store.beginScan(rootURL)
-        mainWindowController?.expandSidebar()
+
+        // Expand sidebar when the first repo arrives via the event bus.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await PaneRuntimeEventBus.shared.waitForFirst(timeout: .seconds(30)) { envelope -> Void? in
+                guard case .system(let sys) = envelope,
+                    case .topology(.repoDiscovered) = sys.event
+                else { return nil }
+                return ()
+            }
+            self.mainWindowController?.expandSidebar()
+        }
 
         Task { @MainActor [weak self] in
             guard let self else { return }
