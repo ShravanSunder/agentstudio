@@ -25,8 +25,8 @@ struct TopologyEventPipelineIntegrationTests {
     }
 
     @Test("authoritative grouped discovery creates one canonical family and syncs roots")
-    func groupedDiscoveryCreatesCanonicalFamilyAndSyncsRoots() async throws {
-        try await withTopologyHarness { harness in
+    func groupedDiscoveryCreatesCanonicalFamilyAndSyncsRoots() async {
+        await withTopologyHarness { harness in
             await settleTopologyHarness(harness)
 
             let watchedFolder = URL(fileURLWithPath: "/tmp/topology-watched-\(UUID().uuidString)")
@@ -60,8 +60,8 @@ struct TopologyEventPipelineIntegrationTests {
     }
 
     @Test("authoritative removal prunes cache orphans panes and unregisters removed root")
-    func authoritativeRemovalPrunesCacheOrphansPanesAndUnregistersRoot() async throws {
-        try await withTopologyHarness { harness in
+    func authoritativeRemovalPrunesCacheOrphansPanesAndUnregistersRoot() async {
+        await withTopologyHarness { harness in
             await settleTopologyHarness(harness)
 
             let watchedFolder = URL(fileURLWithPath: "/tmp/topology-remove-\(UUID().uuidString)")
@@ -152,8 +152,8 @@ struct TopologyEventPipelineIntegrationTests {
     }
 
     @Test("boot replay notScanned preserves existing family without destructive reconciliation")
-    func bootReplayNotScannedPreservesExistingFamily() async throws {
-        try await withTopologyHarness { harness in
+    func bootReplayNotScannedPreservesExistingFamily() async {
+        await withTopologyHarness { harness in
             await settleTopologyHarness(harness)
 
             let repoPath = URL(fileURLWithPath: "/tmp/topology-boot-\(UUID().uuidString)")
@@ -310,8 +310,8 @@ struct TopologyEventPipelineIntegrationTests {
     }
 
     @Test("global remove dedup keeps repo available when another watched folder still references clone")
-    func globalRemoveDedupKeepsRepoAvailableWhenAnotherFolderStillReferencesClone() async throws {
-        try await withTopologyHarness { harness in
+    func globalRemoveDedupKeepsRepoAvailableWhenAnotherFolderStillReferencesClone() async {
+        await withTopologyHarness { harness in
             await settleTopologyHarness(harness)
 
             let subscriber = await harness.bus.subscribe(bufferingPolicy: .unbounded)
@@ -353,8 +353,8 @@ struct TopologyEventPipelineIntegrationTests {
     }
 
     @Test("authoritative empty scan removes all linked worktrees end-to-end")
-    func authoritativeEmptyScanRemovesAllLinkedWorktreesEndToEnd() async throws {
-        try await withTopologyHarness { harness in
+    func authoritativeEmptyScanRemovesAllLinkedWorktreesEndToEnd() async {
+        await withTopologyHarness { harness in
             await settleTopologyHarness(harness)
 
             let watchedFolder = URL(fileURLWithPath: "/tmp/topology-empty-\(UUID().uuidString)")
