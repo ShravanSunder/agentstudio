@@ -1,113 +1,93 @@
 import SwiftUI
 
-// MARK: - Illustration Data Types
+// MARK: - Mock Data
 
-private struct IllustrationWorktree {
-    let checkoutTitle: String
-    let branchName: String
-    let isMainWorktree: Bool
-    let chips: IllustrationChips?
+private let ghosttyRepoId = UUID()
+private let uvRepoId = UUID()
+
+private let ghosttyMainWorktree = Worktree(
+    repoId: ghosttyRepoId,
+    name: "ghostty",
+    path: URL(fileURLWithPath: "/tmp/mock/ghostty"),
+    isMainWorktree: true
+)
+
+private let ghosttyGpuRendererWorktree = Worktree(
+    repoId: ghosttyRepoId,
+    name: "ghostty.gpu-renderer",
+    path: URL(fileURLWithPath: "/tmp/mock/ghostty.gpu-renderer"),
+    isMainWorktree: false
+)
+
+private let ghosttyFixKeybindsWorktree = Worktree(
+    repoId: ghosttyRepoId,
+    name: "ghostty.fix-keybinds",
+    path: URL(fileURLWithPath: "/tmp/mock/ghostty.fix-keybinds"),
+    isMainWorktree: false
+)
+
+private let uvMainWorktree = Worktree(
+    repoId: uvRepoId,
+    name: "uv",
+    path: URL(fileURLWithPath: "/tmp/mock/uv"),
+    isMainWorktree: true
+)
+
+private let uvFixResolverWorktree = Worktree(
+    repoId: uvRepoId,
+    name: "uv.fix-resolver",
+    path: URL(fileURLWithPath: "/tmp/mock/uv.fix-resolver"),
+    isMainWorktree: false
+)
+
+private let cleanStatus = GitBranchStatus(
+    isDirty: false,
+    syncState: .synced,
+    prCount: 0,
+    linesAdded: 0,
+    linesDeleted: 0
+)
+
+private let gpuRendererStatus = GitBranchStatus(
+    isDirty: true,
+    syncState: .ahead(3),
+    prCount: 1,
+    linesAdded: 86,
+    linesDeleted: 12
+)
+
+private let fixKeybindsStatus = GitBranchStatus(
+    isDirty: false,
+    syncState: .synced,
+    prCount: 1,
+    linesAdded: 24,
+    linesDeleted: 8
+)
+
+private let fixResolverStatus = GitBranchStatus(
+    isDirty: false,
+    syncState: .ahead(1),
+    prCount: 1,
+    linesAdded: 12,
+    linesDeleted: 3
+)
+
+// MARK: - Color Helpers
+
+private func paletteColor(at index: Int) -> Color {
+    Color(nsColor: NSColor(hex: AppStyle.accentPaletteHexes[index]) ?? .controlAccentColor)
 }
 
-private struct IllustrationChips {
-    let branchStatus: GitBranchStatus
-    let notificationCount: Int
-}
-
-private struct IllustrationGroup {
-    let repoTitle: String
-    let organizationName: String
-    let accentColor: Color
-    let isExpanded: Bool
-    let worktrees: [IllustrationWorktree]
-}
-
-// MARK: - Sample Data
-
-private let illustrationGroups: [IllustrationGroup] = [
-    IllustrationGroup(
-        repoTitle: "ghostty",
-        organizationName: "ghostty-org",
-        accentColor: Color(red: 0.96, green: 0.77, blue: 0.32),
-        isExpanded: true,
-        worktrees: [
-            IllustrationWorktree(
-                checkoutTitle: "ghostty",
-                branchName: "main",
-                isMainWorktree: true,
-                chips: nil
-            ),
-            IllustrationWorktree(
-                checkoutTitle: "ghostty.gpu-renderer",
-                branchName: "feature/gpu-renderer",
-                isMainWorktree: false,
-                chips: IllustrationChips(
-                    branchStatus: GitBranchStatus(
-                        isDirty: true,
-                        syncState: .ahead(3),
-                        prCount: 1,
-                        linesAdded: 86,
-                        linesDeleted: 12
-                    ),
-                    notificationCount: 0
-                )
-            ),
-            IllustrationWorktree(
-                checkoutTitle: "ghostty.fix-keybinds",
-                branchName: "fix/keybind-passthrough",
-                isMainWorktree: false,
-                chips: IllustrationChips(
-                    branchStatus: GitBranchStatus(
-                        isDirty: false,
-                        syncState: .synced,
-                        prCount: 1,
-                        linesAdded: 24,
-                        linesDeleted: 8
-                    ),
-                    notificationCount: 0
-                )
-            ),
-        ]
-    ),
-    IllustrationGroup(
-        repoTitle: "uv",
-        organizationName: "astral-sh",
-        accentColor: Color(red: 0.29, green: 0.87, blue: 0.50),
-        isExpanded: true,
-        worktrees: [
-            IllustrationWorktree(
-                checkoutTitle: "uv",
-                branchName: "main",
-                isMainWorktree: true,
-                chips: nil
-            ),
-            IllustrationWorktree(
-                checkoutTitle: "uv.fix-resolver",
-                branchName: "fix/resolver-perf",
-                isMainWorktree: false,
-                chips: IllustrationChips(
-                    branchStatus: GitBranchStatus(
-                        isDirty: false,
-                        syncState: .ahead(1),
-                        prCount: 1,
-                        linesAdded: 12,
-                        linesDeleted: 3
-                    ),
-                    notificationCount: 2
-                )
-            ),
-        ]
-    ),
-]
+private let ghosttyColor = paletteColor(at: 0)
+private let uvColor = paletteColor(at: 3)
 
 // MARK: - Public View
 
 struct WelcomeSidebarIllustration: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyle.spacingLoose) {
-            ForEach(Array(illustrationGroups.enumerated()), id: \.offset) { _, group in
-                IllustrationGroupView(group: group)
-            }
+            ghosttyGroup
+            uvGroup
         }
         .padding(16)
         .frame(width: 300, alignment: .leading)
@@ -119,122 +99,109 @@ struct WelcomeSidebarIllustration: View {
             RoundedRectangle(cornerRadius: 16)
                 .stroke(Color.white.opacity(AppStyle.fillActive), lineWidth: 1)
         )
+        .allowsHitTesting(false)
     }
-}
 
-// MARK: - Group View
+    // MARK: - Ghostty Group
 
-private struct IllustrationGroupView: View {
-    let group: IllustrationGroup
-
-    var body: some View {
+    private var ghosttyGroup: some View {
         VStack(alignment: .leading, spacing: 0) {
-            groupHeader
+            SidebarResolvedGroupHeaderRow(
+                isExpanded: true,
+                repoTitle: "ghostty",
+                organizationName: "ghostty-org"
+            )
 
-            if group.isExpanded {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(group.worktrees.enumerated()), id: \.offset) { _, worktree in
-                        IllustrationWorktreeRow(worktree: worktree, accentColor: group.accentColor)
-                            .padding(.leading, AppStyle.sidebarGroupChildRowLeadingInset)
-                    }
-                }
-            }
-        }
-    }
-
-    private var groupHeader: some View {
-        HStack(spacing: AppStyle.spacingTight) {
-            Image(systemName: group.isExpanded ? "chevron.down" : "chevron.right")
-                .font(.system(size: AppStyle.textXs, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: AppStyle.textBase, alignment: .center)
-
-            HStack(spacing: AppStyle.spacingStandard) {
-                OcticonImage(name: "octicon-repo", size: AppStyle.sidebarGroupIconSize)
-                    .foregroundStyle(.secondary)
-
-                HStack(spacing: AppStyle.sidebarGroupTitleSpacing) {
-                    Text(group.repoTitle)
-                        .font(.system(size: AppStyle.textLg, weight: .semibold))
-                        .lineLimit(1)
-
-                    Text("·")
-                        .font(.system(size: AppStyle.textSm, weight: .semibold))
-                        .foregroundStyle(.secondary)
-
-                    Text(group.organizationName)
-                        .font(.system(size: AppStyle.sidebarGroupOrganizationFontSize, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer()
-        }
-        .padding(.vertical, AppStyle.sidebarGroupRowVerticalPadding)
-    }
-}
-
-// MARK: - Worktree Row
-
-private struct IllustrationWorktreeRow: View {
-    let worktree: IllustrationWorktree
-    let accentColor: Color
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: AppStyle.sidebarRowContentSpacing) {
-            // Checkout title row
-            HStack(spacing: AppStyle.spacingTight) {
-                worktreeIcon
-                    .frame(width: AppStyle.sidebarRowLeadingIconColumnWidth, alignment: .leading)
-
-                Text(worktree.checkoutTitle)
-                    .font(.system(size: AppStyle.textBase, weight: worktree.isMainWorktree ? .medium : .regular))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            // Branch name row
-            HStack(spacing: AppStyle.spacingTight) {
-                OcticonImage(name: "octicon-git-branch", size: AppStyle.sidebarBranchIconSize)
-                    .foregroundStyle(.secondary)
-                    .frame(width: AppStyle.sidebarRowLeadingIconColumnWidth, alignment: .leading)
-
-                Text(worktree.branchName)
-                    .font(.system(size: AppStyle.sidebarBranchFontSize, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            // Status chips (only for worktrees with interesting status)
-            if let chips = worktree.chips {
-                WorkspaceStatusChipRow(
-                    model: WorkspaceStatusChipsModel(
-                        branchStatus: chips.branchStatus,
-                        notificationCount: chips.notificationCount
-                    ),
-                    accentColor: accentColor
+            VStack(alignment: .leading, spacing: 0) {
+                SidebarWorktreeRow(
+                    worktree: ghosttyMainWorktree,
+                    checkoutTitle: "ghostty",
+                    branchName: "main",
+                    checkoutIconKind: .mainCheckout,
+                    iconColor: ghosttyColor,
+                    branchStatus: cleanStatus,
+                    notificationCount: 0,
+                    onOpen: {},
+                    onOpenNew: {},
+                    onOpenInPane: {},
+                    onSetIconColor: { _ in }
                 )
-                .padding(.leading, AppStyle.sidebarStatusRowLeadingIndent)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, AppStyle.sidebarGroupChildRowLeadingInset)
+
+                SidebarWorktreeRow(
+                    worktree: ghosttyGpuRendererWorktree,
+                    checkoutTitle: "ghostty.gpu-renderer",
+                    branchName: "feature/gpu-renderer",
+                    checkoutIconKind: .gitWorktree,
+                    iconColor: ghosttyColor,
+                    branchStatus: gpuRendererStatus,
+                    notificationCount: 0,
+                    onOpen: {},
+                    onOpenNew: {},
+                    onOpenInPane: {},
+                    onSetIconColor: { _ in }
+                )
+                .padding(.leading, AppStyle.sidebarGroupChildRowLeadingInset)
+
+                SidebarWorktreeRow(
+                    worktree: ghosttyFixKeybindsWorktree,
+                    checkoutTitle: "ghostty.fix-keybinds",
+                    branchName: "fix/keybind-passthrough",
+                    checkoutIconKind: .gitWorktree,
+                    iconColor: ghosttyColor,
+                    branchStatus: fixKeybindsStatus,
+                    notificationCount: 0,
+                    onOpen: {},
+                    onOpenNew: {},
+                    onOpenInPane: {},
+                    onSetIconColor: { _ in }
+                )
+                .padding(.leading, AppStyle.sidebarGroupChildRowLeadingInset)
             }
         }
-        .padding(.vertical, AppStyle.sidebarRowVerticalInset)
     }
 
-    @ViewBuilder
-    private var worktreeIcon: some View {
-        if worktree.isMainWorktree {
-            OcticonImage(name: "octicon-star-fill", size: AppStyle.textBase)
-                .foregroundStyle(accentColor)
-        } else {
-            OcticonImage(name: "octicon-git-worktree", size: AppStyle.textBase)
-                .foregroundStyle(accentColor)
-                .rotationEffect(.degrees(180))
+    // MARK: - UV Group
+
+    private var uvGroup: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SidebarResolvedGroupHeaderRow(
+                isExpanded: true,
+                repoTitle: "uv",
+                organizationName: "astral-sh"
+            )
+
+            VStack(alignment: .leading, spacing: 0) {
+                SidebarWorktreeRow(
+                    worktree: uvMainWorktree,
+                    checkoutTitle: "uv",
+                    branchName: "main",
+                    checkoutIconKind: .mainCheckout,
+                    iconColor: uvColor,
+                    branchStatus: cleanStatus,
+                    notificationCount: 0,
+                    onOpen: {},
+                    onOpenNew: {},
+                    onOpenInPane: {},
+                    onSetIconColor: { _ in }
+                )
+                .padding(.leading, AppStyle.sidebarGroupChildRowLeadingInset)
+
+                SidebarWorktreeRow(
+                    worktree: uvFixResolverWorktree,
+                    checkoutTitle: "uv.fix-resolver",
+                    branchName: "fix/resolver-perf",
+                    checkoutIconKind: .gitWorktree,
+                    iconColor: uvColor,
+                    branchStatus: fixResolverStatus,
+                    notificationCount: 2,
+                    onOpen: {},
+                    onOpenNew: {},
+                    onOpenInPane: {},
+                    onSetIconColor: { _ in }
+                )
+                .padding(.leading, AppStyle.sidebarGroupChildRowLeadingInset)
+            }
         }
     }
 }
