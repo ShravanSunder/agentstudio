@@ -41,6 +41,9 @@ It does **not** cover:
 | `Sources/AgentStudio/App/State/AtomStore.swift` | App-scope actor-bound store owning live atom instances |
 | `Sources/AgentStudio/App/State/AtomScope.swift` | Production store binding + test-scoped override access |
 | `Sources/AgentStudio/App/State/Atom.swift` | `@Atom(\.foo)` property wrapper sugar over `AtomScope.store` |
+| `Sources/AgentStudio/App/State/AtomReader.swift` | Jotai-like `get` primitive over the current atom scope |
+| `Sources/AgentStudio/App/State/Derived.swift` | Zero-input derived primitive |
+| `Sources/AgentStudio/App/State/DerivedSelector.swift` | Parameterized derived primitive |
 | `Sources/AgentStudio/Core/Atoms/WorkspaceAtom.swift` | Canonical workspace state + mutations extracted from `WorkspaceStore` |
 | `Sources/AgentStudio/Core/Atoms/RepoCacheAtom.swift` | Renamed workspace repo cache atom |
 | `Sources/AgentStudio/Core/Atoms/UIStateAtom.swift` | Renamed UI state atom |
@@ -100,6 +103,9 @@ Tests inject `TestPushClock` directly through those constructors. Keep `TestPush
 - Create: `Sources/AgentStudio/App/State/AtomStore.swift`
 - Create: `Sources/AgentStudio/App/State/AtomScope.swift`
 - Create: `Sources/AgentStudio/App/State/Atom.swift`
+- Create: `Sources/AgentStudio/App/State/AtomReader.swift`
+- Create: `Sources/AgentStudio/App/State/Derived.swift`
+- Create: `Sources/AgentStudio/App/State/DerivedSelector.swift`
 - Create: `Tests/AgentStudioTests/Helpers/TestAtomStore.swift`
 - Test: `Tests/AgentStudioTests/App/State/AtomScopeTests.swift`
 
