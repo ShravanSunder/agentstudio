@@ -111,7 +111,7 @@ struct TerminalRestoreRuntime {
             zmxDir: sessionConfiguration.zmxDir,
             socketPath: socketPath,
             socketPathLength: socketPath.count,
-            maxSocketPathLength: 104,
+            maxSocketPathLength: 103,
             zmxPath: zmxPath
         )
     }

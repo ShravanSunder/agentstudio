@@ -1129,8 +1129,8 @@ This is a better bounded problem than we had before these two runs.
 Running `pgrep -fl zmx` shows the daemon processes are long-lived and were started from the pre-instrumented zmx binary:
 
 ```text
-886 vendor/zmx/zig-out/bin/zmx attach agentstudio--..--89e051b9d401545d /bin/zsh -i -l
-3778 vendor/zmx/zig-out/bin/zmx attach agentstudio--..--84fcdac607cd8bba /bin/zsh -i -l
+886 vendor/zmx/zig-out/bin/zmx attach <session-id> /bin/zsh -i -l
+3778 vendor/zmx/zig-out/bin/zmx attach <session-id> /bin/zsh -i -l
 ```
 
 The zmx daemon stays alive across app restarts. When AgentStudio restarts and runs `zmx attach`, it connects to the **already running daemon** (the `session already exists` log confirms this). The daemon process is the old binary without the `init resize prev_rows=... changed=...` log line.
@@ -1155,7 +1155,7 @@ The zmx log timestamps for the latest restart cycle:
 ```text
 [1774794114621] attached session=..a3638ee9ec631ab9
 [1774794115577] session unresponsive: Timeout    ← 956ms after attach
-                r/.agentstudio/z/agentstudio--..--9a177622d958de11
+                r/.agentstudio/z/<session-id>
 ```
 
 The timeout log shows a DIFFERENT session ID than the one that just attached. This means:

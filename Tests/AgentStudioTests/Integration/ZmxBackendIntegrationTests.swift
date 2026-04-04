@@ -47,8 +47,8 @@ extension E2ESerializedTests {
                 let handle = try await backend.createPaneSession(repo: repo, worktree: worktree, paneId: UUID())
 
                 // Assert — handle is valid (no zmx session actually started, that happens on attach)
-                #expect(handle.id.hasPrefix("agentstudio--"))
-                #expect(handle.id.count == 65)
+                #expect(handle.id.hasPrefix("as-"))
+                #expect(handle.id.count == 53)
                 #expect(handle.hasValidId)
             }
         }
@@ -105,7 +105,7 @@ extension E2ESerializedTests {
                 // zmx kill for a non-existent session should fail gracefully
                 // or throw — either behavior is acceptable in integration context
                 do {
-                    try await backend.destroySessionById("agentstudio--fake--fake--fake1234567890ab")
+                    try await backend.destroySessionById("as-fake-fake-fake1234567890ab")
                 } catch {
                     #expect(error is SessionBackendError)
                 }

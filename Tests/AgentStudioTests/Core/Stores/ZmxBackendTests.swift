@@ -61,10 +61,10 @@ final class ZmxBackendTests {
         // Act
         let id = ZmxBackend.sessionId(repoStableKey: repoKey, worktreeStableKey: wtKey, paneId: paneId)
 
-        // Assert — format: agentstudio--<repo16>--<wt16>--<pane16>
-        #expect(id.hasPrefix("agentstudio--"))
-        #expect(id == "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--5566778899001122")
-        #expect(id.count == 65)
+        // Assert — format: as-<repo16>-<wt16>-<pane16>
+        #expect(id.hasPrefix("as-"))
+        #expect(id == "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-5566778899001122")
+        #expect(id.count == 53)
     }
 
     @Test
@@ -95,8 +95,8 @@ final class ZmxBackendTests {
         let id = ZmxBackend.sessionId(repoStableKey: repoKey, worktreeStableKey: wtKey, paneId: paneId)
 
         // Assert — all segments should be 16 lowercase hex chars
-        let suffix = String(id.dropFirst(13))
-        let segments = suffix.components(separatedBy: "--")
+        let suffix = String(id.dropFirst(3))
+        let segments = suffix.components(separatedBy: "-")
         #expect(segments.count == 3)
         let hexChars = CharacterSet(charactersIn: "0123456789abcdef")
         for segment in segments {
@@ -117,7 +117,7 @@ final class ZmxBackendTests {
         let id = ZmxBackend.sessionId(repoStableKey: repoKey, worktreeStableKey: wtKey, paneId: paneId)
 
         // Assert — pane segment should come from trailing 16 hex chars for v7.
-        #expect(id == "agentstudio--abcdef0123456789--fedcba9876543210--bc219f0a5b7c8d9e")
+        #expect(id == "as-abcdef0123456789-fedcba9876543210-bc219f0a5b7c8d9e")
     }
 
     @Test
@@ -132,7 +132,7 @@ final class ZmxBackendTests {
         let id = ZmxBackend.sessionId(repoStableKey: repoKey, worktreeStableKey: wtKey, paneId: paneId)
 
         // Assert
-        #expect(id == "agentstudio--abcdef0123456789--fedcba9876543210--5566778899001122")
+        #expect(id == "as-abcdef0123456789-fedcba9876543210-5566778899001122")
     }
 
     @Test
@@ -146,7 +146,7 @@ final class ZmxBackendTests {
 
         // Assert
         let stableKey = StableKey.fromPath(launchDirectory)
-        #expect(id == "agentstudio--\(stableKey)--\(stableKey)--5566778899001122")
+        #expect(id == "as-\(stableKey)-\(stableKey)-5566778899001122")
     }
 
     // MARK: - Drawer Session ID Generation
@@ -161,9 +161,9 @@ final class ZmxBackendTests {
         // Act
         let id = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
 
-        // Assert — format: agentstudio-d--<parent16>--<drawer16>
-        #expect(id.hasPrefix("agentstudio-d--"))
-        #expect(id == "agentstudio-d--5566778899001122--99aabbccddeeff00")
+        // Assert — format: as-d--<parent16>--<drawer16>
+        #expect(id.hasPrefix("as-d--"))
+        #expect(id == "as-d--5566778899001122--99aabbccddeeff00")
     }
 
     @Test
@@ -191,8 +191,8 @@ final class ZmxBackendTests {
         // Act
         let id = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
 
-        // Assert — prefix is "agentstudio-d--", then two 16-char hex segments
-        let suffix = String(id.dropFirst("agentstudio-d--".count))
+        // Assert — prefix is "as-d--", then two 16-char hex segments
+        let suffix = String(id.dropFirst("as-d--".count))
         let segments = suffix.components(separatedBy: "--")
         #expect(segments.count == 2)
         let hexChars = CharacterSet(charactersIn: "0123456789abcdef")
@@ -213,7 +213,7 @@ final class ZmxBackendTests {
         let id = ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)
 
         // Assert
-        #expect(id == "agentstudio-d--bc219f0a5b7c8d9e--a1234f00b16e1aa2")
+        #expect(id == "as-d--bc219f0a5b7c8d9e--a1234f00b16e1aa2")
     }
 
     // MARK: - PaneSessionHandle Validation
@@ -223,7 +223,7 @@ final class ZmxBackendTests {
     func test_paneSessionHandle_hasValidId_validFormat() {
         // Arrange
         let handle = makePaneSessionHandle(
-            id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344"
+            id: "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344"
         )
 
         // Assert
@@ -234,7 +234,7 @@ final class ZmxBackendTests {
 
     func test_paneSessionHandle_hasValidId_invalidPrefix() {
         // Arrange
-        let handle = makePaneSessionHandle(id: "wrong--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
+        let handle = makePaneSessionHandle(id: "wrong-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344")
 
         // Assert
         #expect(!(handle.hasValidId))
@@ -244,7 +244,7 @@ final class ZmxBackendTests {
 
     func test_paneSessionHandle_hasValidId_wrongSegmentCount() {
         // Arrange
-        let handle = makePaneSessionHandle(id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd")
+        let handle = makePaneSessionHandle(id: "as-a1b2c3d4e5f6a7b8-00112233aabbccdd")
 
         // Assert
         #expect(!(handle.hasValidId))
@@ -254,7 +254,7 @@ final class ZmxBackendTests {
 
     func test_paneSessionHandle_hasValidId_nonHexChars() {
         // Arrange
-        let handle = makePaneSessionHandle(id: "agentstudio--gggggggggggggggg--00112233aabbccdd--aabbccdd11223344")
+        let handle = makePaneSessionHandle(id: "as-gggggggggggggggg-00112233aabbccdd-aabbccdd11223344")
 
         // Assert
         #expect(!(handle.hasValidId))
@@ -282,8 +282,8 @@ final class ZmxBackendTests {
 
         // Assert — no CLI calls (zmx auto-creates on attach)
         #expect(executor.calls.isEmpty)
-        #expect(handle.id.hasPrefix("agentstudio--"))
-        #expect(handle.id.count == 65)
+        #expect(handle.id.hasPrefix("as-"))
+        #expect(handle.id.count == 53)
         #expect(handle.projectId == repo.id)
         #expect(handle.worktreeId == worktree.id)
         #expect(handle.displayName == "feature-x")
@@ -303,7 +303,7 @@ final class ZmxBackendTests {
     func test_attachCommand_format() {
         // Arrange
         let handle = makePaneSessionHandle(
-            id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344"
+            id: "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344"
         )
 
         // Act
@@ -313,7 +313,7 @@ final class ZmxBackendTests {
         #expect(!(cmd.contains("ZMX_DIR=")))
         #expect(cmd.hasPrefix("\"/usr/local/bin/zmx\""))
         #expect(cmd.contains("attach"))
-        #expect(cmd.contains("\"agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344\""))
+        #expect(cmd.contains("\"as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344\""))
         #expect(cmd.contains("-i -l"))
         // No ghost.conf, no mouse-off, no unbind-key
         #expect(!(cmd.contains("ghost.conf")))
@@ -331,7 +331,7 @@ final class ZmxBackendTests {
             zmxDir: "/Users/test user/.agentstudio/zmx"
         )
         let handle = makePaneSessionHandle(
-            id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344"
+            id: "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344"
         )
 
         // Act
@@ -348,12 +348,12 @@ final class ZmxBackendTests {
         // Act
         let cmd = ZmxBackend.buildAttachCommand(
             zmxPath: "/opt/homebrew/bin/zmx",
-            sessionId: "agentstudio--abc--def--ghi",
+            sessionId: "as-abc-def-ghi",
             shell: "/bin/zsh"
         )
 
         // Assert
-        #expect(cmd == "\"/opt/homebrew/bin/zmx\" attach \"agentstudio--abc--def--ghi\" \"/bin/zsh\" -i -l")
+        #expect(cmd == "\"/opt/homebrew/bin/zmx\" attach \"as-abc-def-ghi\" \"/bin/zsh\" -i -l")
     }
 
     // MARK: - Shell Escape
@@ -412,8 +412,8 @@ final class ZmxBackendTests {
 
     func test_healthCheck_returnsTrue_whenSessionInList() async {
         // Arrange
-        let handle = makePaneSessionHandle(id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
-        executor.enqueueSuccess("agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344\trunning\t123")
+        let handle = makePaneSessionHandle(id: "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344")
+        executor.enqueueSuccess("as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344\trunning\t123")
 
         // Act
         let alive = await backend.healthCheck(handle)
@@ -429,7 +429,7 @@ final class ZmxBackendTests {
 
     func test_healthCheck_returnsFalse_whenSessionNotInList() async {
         // Arrange
-        let handle = makePaneSessionHandle(id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
+        let handle = makePaneSessionHandle(id: "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344")
         executor.enqueueSuccess("some-other-session\trunning\t456")
 
         // Act
@@ -443,7 +443,7 @@ final class ZmxBackendTests {
 
     func test_healthCheck_returnsFalse_onCommandFailure() async {
         // Arrange
-        let handle = makePaneSessionHandle(id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
+        let handle = makePaneSessionHandle(id: "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344")
         executor.enqueueFailure("zmx: error")
 
         // Act
@@ -457,7 +457,7 @@ final class ZmxBackendTests {
 
     func test_healthCheck_returnsFalse_onEmptyOutput() async {
         // Arrange
-        let handle = makePaneSessionHandle(id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
+        let handle = makePaneSessionHandle(id: "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344")
         executor.enqueueSuccess("")
 
         // Act
@@ -477,10 +477,10 @@ final class ZmxBackendTests {
             zmxDir: "/tmp/zmx-test",
             retryPolicy: .init(maxAttempts: 3, backoffs: [])
         )
-        let handle = makePaneSessionHandle(id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
+        let handle = makePaneSessionHandle(id: "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344")
         localExecutor.enqueueFailure("temporary zmx list failure")
         localExecutor.enqueueFailure("temporary zmx list failure")
-        localExecutor.enqueueSuccess("agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344\trunning\t123")
+        localExecutor.enqueueSuccess("as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344\trunning\t123")
 
         // Act
         let alive = await retryBackend.healthCheck(handle)
@@ -496,7 +496,7 @@ final class ZmxBackendTests {
 
     func test_destroyPaneSession_sendsKillCommand() async throws {
         // Arrange
-        let handle = makePaneSessionHandle(id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
+        let handle = makePaneSessionHandle(id: "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344")
         executor.enqueueSuccess()
 
         // Act
@@ -512,7 +512,7 @@ final class ZmxBackendTests {
 
     func test_destroyPaneSession_throwsOnFailure() async {
         // Arrange
-        let handle = makePaneSessionHandle(id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
+        let handle = makePaneSessionHandle(id: "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344")
         executor.enqueueFailure("session not found")
 
         // Act & Assert
@@ -534,17 +534,17 @@ final class ZmxBackendTests {
             ProcessResult(
                 exitCode: 0,
                 stdout:
-                    "agentstudio--abc--111--222\trunning\nagentstudio--def--333--444\trunning\nuser-session\trunning\nagentstudio--ghi--555--666\trunning",
+                    "as-abc-111-222\trunning\nas-def-333-444\trunning\nuser-session\trunning\nas-ghi-555-666\trunning",
                 stderr: ""
             ))
 
         // Act
-        let orphans = await backend.discoverOrphanSessions(excluding: ["agentstudio--abc--111--222"])
+        let orphans = await backend.discoverOrphanSessions(excluding: ["as-abc-111-222"])
 
         // Assert
         #expect(orphans.count == 2)
-        #expect(orphans.contains("agentstudio--def--333--444"))
-        #expect(orphans.contains("agentstudio--ghi--555--666"))
+        #expect(orphans.contains("as-def-333-444"))
+        #expect(orphans.contains("as-ghi-555-666"))
         #expect(!(orphans.contains("user-session")))
     }
 
@@ -555,16 +555,16 @@ final class ZmxBackendTests {
             ProcessResult(
                 exitCode: 0,
                 stdout:
-                    "name=agentstudio--abc--111--222\tpid=123\tclients=0\tcreated=1774059493\tstart_dir=/tmp\tcmd=/bin/sleep 300\nname=agentstudio-d--aabb--ccdd\tpid=456\tclients=0\tcreated=1774059494\tstart_dir=/tmp\tcmd=/bin/sleep 300\nname=user-session\tpid=789\tclients=0",
+                    "name=as-abc-111-222\tpid=123\tclients=0\tcreated=1774059493\tstart_dir=/tmp\tcmd=/bin/sleep 300\nname=as-d--aabb--ccdd\tpid=456\tclients=0\tcreated=1774059494\tstart_dir=/tmp\tcmd=/bin/sleep 300\nname=user-session\tpid=789\tclients=0",
                 stderr: ""
             ))
 
         // Act
-        let orphans = await backend.discoverOrphanSessions(excluding: ["agentstudio--abc--111--222"])
+        let orphans = await backend.discoverOrphanSessions(excluding: ["as-abc-111-222"])
 
         // Assert
         #expect(orphans.count == 1)
-        #expect(orphans.contains("agentstudio-d--aabb--ccdd"))
+        #expect(orphans.contains("as-d--aabb--ccdd"))
         #expect(!(orphans.contains("user-session")))
     }
 
@@ -604,16 +604,16 @@ final class ZmxBackendTests {
             ProcessResult(
                 exitCode: 0,
                 stdout:
-                    "agentstudio--abc--111--222\trunning\nagentstudio-d--aabb--ccdd\trunning\nuser-session\trunning",
+                    "as-abc-111-222\trunning\nas-d--aabb--ccdd\trunning\nuser-session\trunning",
                 stderr: ""
             ))
 
         // Act — exclude the main session, drawer should appear as orphan
-        let orphans = await backend.discoverOrphanSessions(excluding: ["agentstudio--abc--111--222"])
+        let orphans = await backend.discoverOrphanSessions(excluding: ["as-abc-111-222"])
 
         // Assert
         #expect(orphans.count == 1)
-        #expect(orphans.contains("agentstudio-d--aabb--ccdd"))
+        #expect(orphans.contains("as-d--aabb--ccdd"))
         #expect(!(orphans.contains("user-session")))
     }
 
@@ -626,12 +626,12 @@ final class ZmxBackendTests {
         executor.enqueueSuccess()
 
         // Act
-        try await backend.destroySessionById("agentstudio--abc--def--ghi")
+        try await backend.destroySessionById("as-abc-def-ghi")
 
         // Assert
         let call = executor.calls.first!
         #expect(call.command == "/usr/local/bin/zmx")
-        #expect(call.args == ["kill", "agentstudio--abc--def--ghi"])
+        #expect(call.args == ["kill", "as-abc-def-ghi"])
     }
 
     @Test
@@ -642,7 +642,7 @@ final class ZmxBackendTests {
 
         // Act & Assert
         do {
-            try await backend.destroySessionById("agentstudio--abc--def--ghi")
+            try await backend.destroySessionById("as-abc-def-ghi")
             Issue.record("Expected error")
         } catch {
             #expect(error is SessionBackendError)
@@ -664,7 +664,7 @@ final class ZmxBackendTests {
         localExecutor.enqueueSuccess()
 
         // Act
-        try await retryBackend.destroySessionById("agentstudio--abc--def--ghi")
+        try await retryBackend.destroySessionById("as-abc-def-ghi")
 
         // Assert
         #expect(localExecutor.calls.count == 3)
@@ -699,7 +699,7 @@ final class ZmxBackendTests {
 
     func test_healthCheck_passesZmxDirEnv() async {
         // Arrange
-        let handle = makePaneSessionHandle(id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
+        let handle = makePaneSessionHandle(id: "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344")
         executor.enqueueSuccess("")
 
         // Act
@@ -714,7 +714,7 @@ final class ZmxBackendTests {
 
     func test_destroyPaneSession_passesZmxDirEnv() async throws {
         // Arrange
-        let handle = makePaneSessionHandle(id: "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
+        let handle = makePaneSessionHandle(id: "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344")
         executor.enqueueSuccess()
 
         // Act
@@ -732,7 +732,7 @@ final class ZmxBackendTests {
         executor.enqueueSuccess()
 
         // Act
-        try await backend.destroySessionById("agentstudio--abc--def--ghi")
+        try await backend.destroySessionById("as-abc-def-ghi")
 
         // Assert
         let call = executor.calls.first!
