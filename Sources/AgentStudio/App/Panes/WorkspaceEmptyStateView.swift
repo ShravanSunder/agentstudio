@@ -58,25 +58,22 @@ struct WorkspaceEmptyStateView: View {
                 Text("Welcome to AgentStudio")
                     .font(.system(size: 28, weight: .semibold))
 
-                Text(
-                    "The terminal development environment built for agents. One workspace for all your agents, repos, and worktrees."
-                )
-                .font(.system(size: AppStyle.textLg))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: 380, alignment: .leading)
-
-                Text("Select a folder to watch. AgentStudio scans it for Git repos and worktrees.")
-                    .font(.system(size: AppStyle.textBase))
+                Text("The terminal IDE built for coding agents.")
+                    .font(.system(size: AppStyle.textLg))
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 380, alignment: .leading)
 
-                Button("Choose a Folder to Scan…") {
-                    onAddFolder()
+                VStack(alignment: .leading, spacing: 10) {
+                    Button("Choose a Folder to Scan…") {
+                        onAddFolder()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+
+                    Text("AgentStudio watches the folder and discovers your repos automatically.")
+                        .font(.system(size: AppStyle.textXs))
+                        .foregroundStyle(.tertiary)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .padding(.top, 8)
             }
         }
     }
@@ -143,6 +140,7 @@ struct WorkspaceEmptyStateView: View {
             .frame(maxWidth: .infinity)
 
             QuickActionsCallout()
+                .padding(.top, AppStyle.spacingLoose)
         }
         .frame(maxWidth: .infinity)
     }
