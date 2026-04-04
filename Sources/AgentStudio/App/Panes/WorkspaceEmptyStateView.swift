@@ -11,33 +11,39 @@ struct WorkspaceEmptyStateView: View {
     private let cardMinimumWidth: CGFloat = 250
 
     var body: some View {
-        GeometryReader { geometry in
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 32) {
-                    Group {
-                        switch model.kind {
-                        case .noFolders:
-                            folderIntakeBody
-                                .id("noFolders")
-                                .transition(.opacity)
-                        case .scanning:
-                            scanningBody
-                                .id("scanning")
-                                .transition(.opacity)
-                        case .launcher:
-                            launcherBody
-                                .id("launcher")
-                                .transition(.opacity.combined(with: .move(edge: .bottom)))
-                        }
-                    }
+        Group {
+            switch model.kind {
+            case .noFolders:
+                VStack(spacing: 0) {
+                    Spacer()
+                    folderIntakeBody
+                    Spacer()
                 }
-                .frame(maxWidth: contentWidth)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: geometry.size.height, alignment: .center)
-                .padding(.horizontal, 40)
-                .animation(.easeInOut(duration: 0.25), value: model.kind)
+                .id("noFolders")
+                .transition(.opacity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .scanning:
+                VStack(spacing: 0) {
+                    Spacer()
+                    scanningBody
+                    Spacer()
+                }
+                .id("scanning")
+                .transition(.opacity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .launcher:
+                ScrollView(.vertical, showsIndicators: false) {
+                    launcherBody
+                        .frame(maxWidth: contentWidth)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 40)
+                        .padding(.vertical, 48)
+                }
+                .id("launcher")
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
         }
+        .animation(.easeInOut(duration: 0.25), value: model.kind)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
     }
@@ -47,22 +53,22 @@ struct WorkspaceEmptyStateView: View {
             WelcomeSidebarIllustration()
 
             VStack(alignment: .leading, spacing: 24) {
-                AppLogoView(size: 64)
+                AppLogoView(size: 96)
 
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Welcome to AgentStudio")
                         .font(.system(size: 28, weight: .semibold))
 
-                    Text("A terminal workspace for your repos.")
+                    Text("The terminal development environment built for agents.")
                         .font(.system(size: AppStyle.textXl))
                         .foregroundStyle(.secondary)
                 }
 
-                Text("Point at a parent folder — AgentStudio discovers every repo and worktree inside.")
+                Text("One workspace for all your agents, repos, and worktrees. Point at a folder to get started.")
                     .font(.system(size: AppStyle.textLg))
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 340)
+                    .frame(maxWidth: 380)
 
                 Button("Choose a Folder to Scan…") {
                     onAddFolder()
@@ -71,7 +77,6 @@ struct WorkspaceEmptyStateView: View {
                 .controlSize(.large)
             }
         }
-        .frame(maxWidth: .infinity)
     }
 
     private var scanningBody: some View {

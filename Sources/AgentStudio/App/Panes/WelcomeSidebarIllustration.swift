@@ -40,12 +40,20 @@ private let uvFixResolverWorktree = Worktree(
     isMainWorktree: false
 )
 
-private let cleanStatus = GitBranchStatus(
+private let ghosttyMainStatus = GitBranchStatus(
     isDirty: false,
     syncState: .synced,
-    prCount: 0,
+    prCount: 2,
     linesAdded: 0,
     linesDeleted: 0
+)
+
+private let uvMainStatus = GitBranchStatus(
+    isDirty: true,
+    syncState: .behind(3),
+    prCount: 0,
+    linesAdded: 5,
+    linesDeleted: 2
 )
 
 private let gpuRendererStatus = GitBranchStatus(
@@ -119,7 +127,7 @@ struct WelcomeSidebarIllustration: View {
                     branchName: "main",
                     checkoutIconKind: .mainCheckout,
                     iconColor: ghosttyColor,
-                    branchStatus: cleanStatus,
+                    branchStatus: ghosttyMainStatus,
                     notificationCount: 0,
                     onOpen: {},
                     onOpenNew: {},
@@ -178,7 +186,7 @@ struct WelcomeSidebarIllustration: View {
                     branchName: "main",
                     checkoutIconKind: .mainCheckout,
                     iconColor: uvColor,
-                    branchStatus: cleanStatus,
+                    branchStatus: uvMainStatus,
                     notificationCount: 0,
                     onOpen: {},
                     onOpenNew: {},

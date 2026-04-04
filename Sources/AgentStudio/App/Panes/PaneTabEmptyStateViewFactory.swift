@@ -10,7 +10,7 @@ enum PaneTabEmptyStateViewFactory {
         onOpenRecent: @escaping (RecentWorkspaceTarget) -> Void,
         onOpenAllRecent: @escaping () -> Void
     ) -> NSHostingView<WorkspaceEmptyStateView> {
-        NSHostingView(
+        let view = NSHostingView(
             rootView: WorkspaceEmptyStateView(
                 model: model,
                 repoCount: repoCount,
@@ -19,5 +19,7 @@ enum PaneTabEmptyStateViewFactory {
                 onOpenAllRecent: onOpenAllRecent
             )
         )
+        view.sizingOptions = []
+        return view
     }
 }
