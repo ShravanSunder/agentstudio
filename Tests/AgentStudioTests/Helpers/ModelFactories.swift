@@ -112,7 +112,7 @@ func makeSurfaceMetadata(
 // MARK: - PaneSessionHandle Factory
 
 func makePaneSessionHandle(
-    id: String = "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--a1b2c3d4e5f6a7b8",
+    id: String = "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-a1b2c3d4e5f6a7b8",
     paneId: UUID = UUID(),
     projectId: UUID = UUID(),
     worktreeId: UUID = UUID(),

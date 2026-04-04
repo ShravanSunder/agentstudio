@@ -26,12 +26,12 @@ struct GitEnrichmentEventPipelineIntegrationTests {
     }
 
     @Test("worktree registration and filesChanged converge snapshot and branch enrichment")
-    func worktreeRegistrationAndFilesChangedConvergeSnapshotAndBranchEnrichment() async throws {
+    func worktreeRegistrationAndFilesChangedConvergeSnapshotAndBranchEnrichment() async {
         let repoId = UUID()
         let worktreeId = UUID()
         let rootPath = URL(fileURLWithPath: "/tmp/enrichment-\(UUID().uuidString)")
 
-        try await withEnrichmentHarness(
+        await withEnrichmentHarness(
             gitProvider: StubGitWorkingTreeStatusProvider.stub { _ in
                 GitWorkingTreeStatus(
                     summary: GitWorkingTreeSummary(changed: 2, staged: 1, untracked: 0),
@@ -81,13 +81,13 @@ struct GitEnrichmentEventPipelineIntegrationTests {
     }
 
     @Test("forge counts stay isolated by repo even with the same branch name")
-    func forgeCountsStayIsolatedByRepo() async throws {
+    func forgeCountsStayIsolatedByRepo() async {
         let repoA = UUID()
         let repoB = UUID()
         let worktreeA = UUID()
         let worktreeB = UUID()
 
-        try await withEnrichmentHarness(
+        await withEnrichmentHarness(
             gitProvider: StubGitWorkingTreeStatusProvider.stub { _ in nil },
             forgeProvider: StubForgeStatusProvider.stub { origin, branches in
                 var counts: [String: Int] = [:]

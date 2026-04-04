@@ -371,6 +371,36 @@ enum AppStyle {
     /// Titlebar background color. Slightly darker than the macOS system default.
     static let titlebarBackground = NSColor(white: 0.12, alpha: 1.0)
 
+    // MARK: - Semantic Colors
+    //
+    // Chip and status indicator colors. Used by sidebar chips and status views.
+
+    /// Info/sync indicator blue.
+    static let chipInfoColor = Color(red: 0.47, green: 0.69, blue: 0.96)
+
+    /// Success/additions green.
+    static let chipSuccessColor = Color(red: 0.42, green: 0.84, blue: 0.50)
+
+    /// Warning/amber.
+    static let chipWarningColor = Color(red: 0.93, green: 0.71, blue: 0.34)
+
+    /// Danger/deletions red.
+    static let chipDangerColor = Color(red: 0.93, green: 0.41, blue: 0.41)
+
+    // MARK: - Accent Palette
+    //
+    // Six-color palette for checkout/repo accent colors in the sidebar.
+    // Used by SidebarRepoGrouping and the welcome illustration.
+
+    static let accentPaletteHexes: [String] = [
+        "#F5C451",  // Yellow
+        "#58C4FF",  // Sky
+        "#A78BFA",  // Violet
+        "#4ADE80",  // Green
+        "#FB923C",  // Orange
+        "#F472B6",  // Pink
+    ]
+
     // MARK: - Layout
 
     /// Tab bar height in points.

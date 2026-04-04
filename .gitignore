@@ -81,3 +81,4 @@ build.db
 .codannaignore
 .fastembed_cache
 build.db-journal
+.superpowers/

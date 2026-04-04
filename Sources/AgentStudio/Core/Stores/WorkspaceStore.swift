@@ -32,6 +32,13 @@ final class WorkspaceStore {
     var tabFrames: [UUID: CGRect] = [:]
     var isSplitResizing: Bool = false
 
+    // MARK: - Scanning State
+
+    private(set) var scanningPath: URL?
+
+    func beginScan(_ path: URL) { scanningPath = path }
+    func endScan() { scanningPath = nil }
+
     // MARK: - Internal State
 
     private(set) var workspaceId = UUID()

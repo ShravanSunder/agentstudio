@@ -29,6 +29,7 @@ let package = Package(
             resources: [
                 .process("Resources/Icons.xcassets"),
                 .copy("Resources/AppIcon.icns"),
+                .copy("Resources/AppLogoTransparent.svg"),
                 .copy("Resources/AppIcon.iconset"),
                 .copy("Resources/terminfo"),
                 .copy("Resources/ghostty"),
