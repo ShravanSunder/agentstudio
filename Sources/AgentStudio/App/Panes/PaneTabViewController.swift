@@ -612,8 +612,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     private var emptyStateModel: WorkspaceEmptyStateModel {
         WorkspaceLauncherProjector.project(
-            store: store,
-            repoCache: repoCache
+            store: store
         )
     }
 
@@ -1048,7 +1047,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         // Non-pane commands handled directly
         switch command {
         case .toggleManagementMode:
-            ManagementModeMonitor.shared.toggle()
+            atom(\.managementMode).toggle()
 
         case .newTab:
             addNewTab()

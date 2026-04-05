@@ -195,7 +195,7 @@ SessionRuntimeAtom ──── no store ──── in-memory, resolved via @D
 - Rename `UIStateAtom` → `UIStateAtom`, create `UIStateStore`
 - Extract `ManagementModeAtom` from `ManagementModeMonitor`
 - Extract `SessionRuntimeAtom` from `SessionRuntime`
-- Rename `PaneDisplayProjector` → `PaneDisplayDerived`, `DynamicViewProjector` → `DynamicViewDerived`, and convert them into dependency-resolved read-only selectors
+- Rename `PaneDisplayProjector` → `PaneDisplayDerived`, `DynamicViewDerived` → `DynamicViewDerived`, and convert them into dependency-resolved read-only selectors
 - Move `SessionRuntime` + `ZmxBackend` from `Core/Stores/` to `Core/RuntimeEventSystem/`
 - Update CLAUDE.md and architecture docs
 
@@ -255,7 +255,7 @@ Transient state (`Tab.zoomedPaneId`, `Tab.minimizedPaneIds`) stays on the `Tab` 
 | `Core/Atoms/SessionRuntimeAtom.swift` | Runtime statuses from `SessionRuntime` |
 | `Infrastructure/DependencyKeys.swift` | All atom dependency key registrations |
 | `Core/Atoms/PaneDisplayDerived.swift` | Renamed from `PaneDisplayProjector` |
-| `Core/Atoms/DynamicViewDerived.swift` | Renamed from `DynamicViewProjector` |
+| `Core/Atoms/DynamicViewDerived.swift` | Renamed from `DynamicViewDerived` |
 | `Core/Stores/RepoCacheStore.swift` | Persistence wrapper for `RepoCacheAtom` |
 | `Core/Stores/UIStateStore.swift` | Persistence wrapper for `UIStateAtom` |
 
@@ -655,15 +655,15 @@ Register `\.paneDisplayDerived` in `DependencyKeys.swift`. Update call sites to 
 let label = paneDisplayDerived.displayLabel(for: paneId)
 ```
 
-- [ ] **Step 2: `DynamicViewProjector` → `DynamicViewDerived`**
+- [ ] **Step 2: `DynamicViewDerived` → `DynamicViewDerived`**
 
 ```bash
-git mv Sources/AgentStudio/Core/Stores/DynamicViewProjector.swift Sources/AgentStudio/Core/Atoms/DynamicViewDerived.swift
+git mv Sources/AgentStudio/Core/Stores/DynamicViewDerived.swift Sources/AgentStudio/Core/Atoms/DynamicViewDerived.swift
 ```
 
 Apply the same pattern: a read-only dependency-resolved selector that knows it reads `WorkspaceAtom` internally. Zero-input computed properties are preferred where the selector is not query-shaped.
 
-The current `DynamicViewProjector.project(...)` takes 6 explicit inputs:
+The current `DynamicViewDerived.project(...)` takes 6 explicit inputs:
 - `viewType`
 - `panes`
 - `tabs`

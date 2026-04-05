@@ -37,6 +37,18 @@ final class UIStateAtom {
         isFilterVisible = isVisible
     }
 
+    func hydrate(
+        expandedGroups: Set<String>,
+        checkoutColors: [String: String],
+        filterText: String,
+        isFilterVisible: Bool
+    ) {
+        self.expandedGroups = expandedGroups
+        self.checkoutColors = checkoutColors
+        self.filterText = filterText
+        self.isFilterVisible = isFilterVisible
+    }
+
     func clear() {
         expandedGroups.removeAll(keepingCapacity: false)
         checkoutColors.removeAll(keepingCapacity: false)

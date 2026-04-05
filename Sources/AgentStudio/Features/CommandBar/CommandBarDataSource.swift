@@ -670,7 +670,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> [String] {
-        let parts = PaneDisplayProjector.displayParts(for: pane, store: store, repoCache: repoCache)
+        let parts = displayParts(for: pane, store: store, repoCache: repoCache)
         var keywords = ["pane"]
         if let repoName = parts.repoName {
             keywords.append(repoName)
@@ -703,7 +703,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> String {
-        let parts = PaneDisplayProjector.displayParts(for: pane, store: store, repoCache: repoCache)
+        let parts = displayParts(for: pane, store: store, repoCache: repoCache)
 
         switch pane.content {
         case .webview(let webState):
@@ -748,8 +748,77 @@ enum CommandBarDataSource {
         let primaryPaneId = tab.activePaneId ?? tab.paneIds.first
         guard let paneId = primaryPaneId else { return "Empty Tab" }
 
-        let parts = PaneDisplayProjector.displayParts(for: paneId, store: store, repoCache: repoCache)
+        let parts = displayParts(for: paneId, store: store, repoCache: repoCache)
         return parts.repoName ?? parts.primaryLabel
+    }
+
+    private static func displayParts(
+        for paneId: UUID,
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom
+    ) -> PaneDisplayParts {
+        guard let pane = store.pane(paneId) else {
+            return PaneDisplayParts(
+                primaryLabel: "Terminal",
+                repoName: nil,
+                branchName: nil,
+                worktreeFolderName: nil,
+                cwdFolderName: nil
+            )
+        }
+
+        return displayParts(for: pane, store: store, repoCache: repoCache)
+    }
+
+    private static func displayParts(
+        for pane: Pane,
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom
+    ) -> PaneDisplayParts {
+        let rawTitle = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let defaultLabel = rawTitle.isEmpty ? "Terminal" : rawTitle
+        let cwdFolderName: String? = {
+            guard let cwdFolder = pane.metadata.cwd?.lastPathComponent else { return nil }
+            return cwdFolder.isEmpty ? nil : cwdFolder
+        }()
+
+        if let worktreeId = pane.worktreeId,
+            let repoId = pane.repoId,
+            let repo = store.repo(repoId),
+            let worktree = store.worktree(worktreeId)
+        {
+            let repoName = pane.metadata.repoName ?? repo.name
+            let branchName = atom(\.paneDisplay).resolvedBranchName(
+                worktree: worktree,
+                enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
+            )
+            let worktreeFolderName = worktree.path.lastPathComponent
+            return PaneDisplayParts(
+                primaryLabel: "\(repoName) | \(branchName) | \(worktreeFolderName)",
+                repoName: repoName,
+                branchName: branchName,
+                worktreeFolderName: worktreeFolderName,
+                cwdFolderName: cwdFolderName
+            )
+        }
+
+        if let cwdFolderName {
+            return PaneDisplayParts(
+                primaryLabel: cwdFolderName,
+                repoName: nil,
+                branchName: nil,
+                worktreeFolderName: nil,
+                cwdFolderName: cwdFolderName
+            )
+        }
+
+        return PaneDisplayParts(
+            primaryLabel: defaultLabel,
+            repoName: nil,
+            branchName: nil,
+            worktreeFolderName: nil,
+            cwdFolderName: nil
+        )
     }
 
     private static func isHiddenCommand(_ command: AppCommand) -> Bool {

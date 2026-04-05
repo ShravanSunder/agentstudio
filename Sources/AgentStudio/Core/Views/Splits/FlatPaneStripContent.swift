@@ -34,7 +34,7 @@ struct FlatPaneStripContent: View {
                         CollapsedPaneBar(
                             paneId: paneId,
                             tabId: tabId,
-                            title: PaneDisplayProjector.displayLabel(for: paneId, store: store, repoCache: repoCache),
+                            title: atom(\.paneDisplay).displayLabel(for: paneId),
                             closeTransitionCoordinator: closeTransitionCoordinator,
                             actionDispatcher: actionDispatcher,
                             dropTargetCoordinateSpace: coordinateSpaceName,
@@ -104,7 +104,7 @@ private struct PaneSegmentSlotView: View {
             CollapsedPaneBar(
                 paneId: segment.paneId,
                 tabId: tabId,
-                title: PaneDisplayProjector.displayLabel(for: segment.paneId, store: store, repoCache: repoCache),
+                title: atom(\.paneDisplay).displayLabel(for: segment.paneId),
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 actionDispatcher: actionDispatcher,
                 dropTargetCoordinateSpace: coordinateSpaceName,

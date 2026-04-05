@@ -56,10 +56,7 @@ struct FlatTabStripContainer: View {
                             CollapsedPaneBar(
                                 paneId: paneId,
                                 tabId: tabId,
-                                title: PaneDisplayProjector.displayLabel(
-                                    for: paneId,
-                                    store: store,
-                                    repoCache: repoCache),
+                                title: atom(\.paneDisplay).displayLabel(for: paneId),
                                 closeTransitionCoordinator: closeTransitionCoordinator,
                                 actionDispatcher: actionDispatcher,
                                 dropTargetCoordinateSpace: "tabContainer"

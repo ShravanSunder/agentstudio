@@ -36,9 +36,9 @@ struct WorkspaceEmptyStateModel: Equatable {
 @MainActor
 enum WorkspaceLauncherProjector {
     static func project(
-        store: WorkspaceStore,
-        repoCache: RepoCacheAtom
+        store: WorkspaceStore
     ) -> WorkspaceEmptyStateModel {
+        let repoCache = atom(\.repoCache)
         if store.repos.isEmpty {
             return WorkspaceEmptyStateModel(kind: .noFolders, recentCards: [])
         }
@@ -121,7 +121,7 @@ enum WorkspaceLauncherProjector {
             branchStatus: branchStatus,
             notificationCount: repoCache.notificationCountByWorktreeId[worktree.id, default: 0]
         )
-        let branchName = PaneDisplayProjector.resolvedBranchName(
+        let branchName = atom(\.paneDisplay).resolvedBranchName(
             worktree: worktree,
             enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
         )

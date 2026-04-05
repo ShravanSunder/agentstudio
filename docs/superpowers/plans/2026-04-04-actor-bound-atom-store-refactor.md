@@ -418,7 +418,7 @@ Expected: PASS after reference updates.
 
 **Files:**
 - Rename: `Sources/AgentStudio/Core/Views/PaneDisplayProjector.swift` → `Sources/AgentStudio/Core/State/MainActor/Atoms/PaneDisplayDerived.swift`
-- Rename: `Sources/AgentStudio/Core/Stores/DynamicViewProjector.swift` → `Sources/AgentStudio/Core/State/MainActor/Atoms/DynamicViewDerived.swift`
+- Rename: `Sources/AgentStudio/Core/Stores/DynamicViewDerived.swift` → `Sources/AgentStudio/Core/State/MainActor/Atoms/DynamicViewDerived.swift`
 - Modify: selector call sites
 
 - [ ] **Step 1: Convert `PaneDisplayProjector` to `PaneDisplayDerived`**
@@ -436,7 +436,7 @@ struct PaneDisplayDerived {
 }
 ```
 
-- [ ] **Step 2: Convert `DynamicViewProjector` to `DynamicViewDerived`**
+- [ ] **Step 2: Convert `DynamicViewDerived` to `DynamicViewDerived`**
 
 Use either:
 
@@ -663,9 +663,9 @@ Expected: PASS with new store wrappers in place.
 
 **Files:**
 - Create: `Sources/AgentStudio/Core/State/MainActor/Atoms/SessionRuntimeAtom.swift`
-- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/SessionRuntime.swift`
-- Move: `Sources/AgentStudio/Core/Stores/SessionRuntime.swift` → `Sources/AgentStudio/Core/RuntimeEventSystem/SessionRuntime.swift`
-- Move: `Sources/AgentStudio/Core/Stores/ZmxBackend.swift` → `Sources/AgentStudio/Core/RuntimeEventSystem/ZmxBackend.swift`
+- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/SessionRuntime.swift`
+- Move: `Sources/AgentStudio/Core/Stores/SessionRuntime.swift` → `Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/SessionRuntime.swift`
+- Move: `Sources/AgentStudio/Core/Stores/ZmxBackend.swift` → `Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/ZmxBackend.swift`
 
 - [ ] **Step 1: Write/update focused `SessionRuntimeTests`**
 - [ ] **Step 2: Extract `SessionRuntimeAtom`**
@@ -703,7 +703,7 @@ Use these grep commands to drive the migration:
 
 ```bash
 rg -l "ManagementModeMonitor.shared" Sources/ Tests/
-rg -l "WorkspaceStore|RepoCacheAtom|UIStateAtom|PaneDisplayProjector|DynamicViewProjector" Sources/ Tests/
+rg -l "WorkspaceStore|RepoCacheAtom|UIStateAtom|PaneDisplayProjector|DynamicViewDerived" Sources/ Tests/
 ```
 
 ### Call-site migration rules

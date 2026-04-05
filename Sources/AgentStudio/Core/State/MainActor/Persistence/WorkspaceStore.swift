@@ -5,42 +5,90 @@ import os.log
 
 private let storeLogger = Logger(subsystem: "com.agentstudio", category: "WorkspaceStore")
 
-/// Owns ALL persisted workspace state. Single source of truth.
-/// All mutations go through here. Collaborators (WorkspacePersistor, ViewRegistry)
-/// are internal — not peers.
+/// Main-actor persistence wrapper for `WorkspaceAtom`.
 ///
-/// All mutations MUST happen on the main thread (enforced by @MainActor).
-/// SwiftUI views observe properties via @Observable's withObservationTracking.
-/// AppKit controllers set up NSHostingView once; SwiftUI drives re-renders automatically.
-/// See docs/architecture/appkit_swiftui_architecture.md for the hosting pattern.
+/// Canonical workspace state lives in the atom. This wrapper owns persistence,
+/// debounce scheduling, restore/repair entry points, and the store-shaped API
+/// that the rest of the app still calls during the hard-cut migration.
+///
+/// All mutations MUST happen on the main actor.
 @Observable
 @MainActor
 final class WorkspaceStore {
+    @ObservationIgnored let atom: WorkspaceAtom
 
     // MARK: - Persisted State
 
-    private(set) var repos: [Repo] = []
-    private(set) var watchedPaths: [WatchedPath] = []
-    private(set) var panes: [UUID: Pane] = [:]
-    private(set) var tabs: [Tab] = []
-    private(set) var activeTabId: UUID?
+    private(set) var repos: [Repo] {
+        get { atom.repos }
+        set { atom.setRepos(newValue) }
+    }
+    private(set) var watchedPaths: [WatchedPath] {
+        get { atom.watchedPaths }
+        set { atom.setWatchedPaths(newValue) }
+    }
+    private(set) var panes: [UUID: Pane] {
+        get { atom.panes }
+        set { atom.setPanes(newValue) }
+    }
+    private(set) var tabs: [Tab] {
+        get { atom.tabs }
+        set { atom.setTabs(newValue) }
+    }
+    private(set) var activeTabId: UUID? {
+        get { atom.activeTabId }
+        set { atom.setActiveTabId(newValue) }
+    }
 
     // MARK: - Transient UI State
 
-    var draggingTabId: UUID?
-    var dropTargetIndex: Int?
-    var tabFrames: [UUID: CGRect] = [:]
-    var isSplitResizing: Bool = false
+    var draggingTabId: UUID? {
+        get { atom.draggingTabId }
+        set { atom.setDraggingTabId(newValue) }
+    }
+    var dropTargetIndex: Int? {
+        get { atom.dropTargetIndex }
+        set { atom.setDropTargetIndex(newValue) }
+    }
+    var tabFrames: [UUID: CGRect] {
+        get { atom.tabFrames }
+        set { atom.setTabFrames(newValue) }
+    }
+    var isSplitResizing: Bool {
+        get { atom.isSplitResizing }
+        set { atom.setIsSplitResizing(newValue) }
+    }
 
     // MARK: - Internal State
 
-    private(set) var workspaceId = UUID()
-    private(set) var workspaceName: String = "Default Workspace"
-    private(set) var sidebarWidth: CGFloat = 250
-    private(set) var windowFrame: CGRect?
-    private(set) var createdAt = Date()
-    private(set) var updatedAt = Date()
-    private(set) var unavailableRepoIds: Set<UUID> = []
+    private(set) var workspaceId: UUID {
+        get { atom.workspaceId }
+        set { atom.setWorkspaceId(newValue) }
+    }
+    private(set) var workspaceName: String {
+        get { atom.workspaceName }
+        set { atom.setWorkspaceName(newValue) }
+    }
+    private(set) var sidebarWidth: CGFloat {
+        get { atom.sidebarWidth }
+        set { atom.setSidebarWidthValue(newValue) }
+    }
+    private(set) var windowFrame: CGRect? {
+        get { atom.windowFrame }
+        set { atom.setWindowFrameValue(newValue) }
+    }
+    private(set) var createdAt: Date {
+        get { atom.createdAt }
+        set { atom.setCreatedAt(newValue) }
+    }
+    private(set) var updatedAt: Date {
+        get { atom.updatedAt }
+        set { atom.setUpdatedAt(newValue) }
+    }
+    private(set) var unavailableRepoIds: Set<UUID> {
+        get { atom.unavailableRepoIds }
+        set { atom.setUnavailableRepoIds(newValue) }
+    }
 
     // MARK: - Constants
 
@@ -60,10 +108,12 @@ final class WorkspaceStore {
     // MARK: - Init
 
     init(
+        atom: WorkspaceAtom = WorkspaceAtom(),
         persistor: WorkspacePersistor = WorkspacePersistor(),
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: any Clock<Duration> = ContinuousClock()
     ) {
+        self.atom = atom
         self.persistor = persistor
         self.persistDebounceDuration = persistDebounceDuration
         self.clock = clock
@@ -72,22 +122,22 @@ final class WorkspaceStore {
     // MARK: - Derived State
 
     var activeTab: Tab? {
-        tabs.first { $0.id == activeTabId }
+        atom.activeTab
     }
 
     /// All pane IDs visible in the active tab's active arrangement.
     var activePaneIds: Set<UUID> {
-        Set(activeTab?.paneIds ?? [])
+        atom.activePaneIds
     }
 
     /// Is a worktree active (has any pane)?
     func isWorktreeActive(_ worktreeId: UUID) -> Bool {
-        panes.values.contains { $0.worktreeId == worktreeId }
+        atom.isWorktreeActive(worktreeId)
     }
 
     /// Count of panes for a worktree.
     func paneCount(for worktreeId: UUID) -> Int {
-        panes.values.filter { $0.worktreeId == worktreeId }.count
+        atom.paneCount(for: worktreeId)
     }
 
     // MARK: - Orphaned Pane Pool
@@ -95,11 +145,7 @@ final class WorkspaceStore {
     /// Panes that exist in the store but are not in any tab layout.
     /// These are backgrounded panes waiting to be reactivated or garbage-collected.
     var orphanedPanes: [Pane] {
-        let layoutPaneIds = Set(tabs.flatMap(\.panes))
-        return panes.values.filter {
-            guard !layoutPaneIds.contains($0.id) else { return false }
-            return $0.residency == .backgrounded || $0.residency.isOrphaned
-        }
+        atom.orphanedPanes
     }
 
     /// Remove a pane from all tab layouts and move to the background pool.
@@ -194,97 +240,35 @@ final class WorkspaceStore {
     // MARK: - Queries
 
     func pane(_ id: UUID) -> Pane? {
-        guard let pane = panes[id] else {
-            storeLogger.warning("pane(\(id)): not found in store")
-            return nil
-        }
-        return pane
+        atom.pane(id)
     }
 
     func tab(_ id: UUID) -> Tab? {
-        tabs.first { $0.id == id }
+        atom.tab(id)
     }
 
     func tabContaining(paneId: UUID) -> Tab? {
-        tabs.first { $0.panes.contains(paneId) }
+        atom.tabContaining(paneId: paneId)
     }
 
     func repo(_ id: UUID) -> Repo? {
-        repos.first { $0.id == id }
+        atom.repo(id)
     }
 
     func worktree(_ id: UUID) -> Worktree? {
-        repos.flatMap(\.worktrees).first { $0.id == id }
+        atom.worktree(id)
     }
 
     func repo(containing worktreeId: UUID) -> Repo? {
-        repos.first { repo in
-            repo.worktrees.contains { $0.id == worktreeId }
-        }
+        atom.repo(containing: worktreeId)
     }
 
     func repoAndWorktree(containing cwd: URL?) -> (repo: Repo, worktree: Worktree)? {
-        guard let cwd else { return nil }
-
-        struct MatchCandidate {
-            let repo: Repo
-            let worktree: Worktree
-            let normalizedWorktreePath: String
-            let repoWorktreeCount: Int
-            let repoPathMatchesWorktree: Bool
-            let isMainWorktree: Bool
-            let stableTieBreaker: String
-        }
-
-        let normalizedCwdPath = cwd.standardizedFileURL.resolvingSymlinksInPath().path
-        let candidates = repos.flatMap { repo in
-            repo.worktrees.compactMap { worktree -> MatchCandidate? in
-                let normalizedWorktreePath = worktree.path.standardizedFileURL.resolvingSymlinksInPath().path
-                let isMatch =
-                    normalizedCwdPath == normalizedWorktreePath
-                    || normalizedCwdPath.hasPrefix(normalizedWorktreePath + "/")
-                guard isMatch else { return nil }
-
-                return MatchCandidate(
-                    repo: repo,
-                    worktree: worktree,
-                    normalizedWorktreePath: normalizedWorktreePath,
-                    repoWorktreeCount: repo.worktrees.count,
-                    repoPathMatchesWorktree: repo.repoPath.standardizedFileURL.resolvingSymlinksInPath().path
-                        == normalizedWorktreePath,
-                    isMainWorktree: worktree.isMainWorktree,
-                    stableTieBreaker: "\(repo.id.uuidString)|\(worktree.id.uuidString)"
-                )
-            }
-        }
-
-        guard
-            let winner = candidates.max(by: { lhs, rhs in
-                if lhs.normalizedWorktreePath.count != rhs.normalizedWorktreePath.count {
-                    return lhs.normalizedWorktreePath.count < rhs.normalizedWorktreePath.count
-                }
-                // When two repos claim the same checkout path, prefer the repo with the
-                // larger worktree family so cwd routing matches sidebar ownership dedup.
-                if lhs.repoWorktreeCount != rhs.repoWorktreeCount {
-                    return lhs.repoWorktreeCount < rhs.repoWorktreeCount
-                }
-                if lhs.repoPathMatchesWorktree != rhs.repoPathMatchesWorktree {
-                    return !lhs.repoPathMatchesWorktree
-                }
-                if lhs.isMainWorktree != rhs.isMainWorktree {
-                    return !lhs.isMainWorktree
-                }
-                return lhs.stableTieBreaker.localizedCaseInsensitiveCompare(rhs.stableTieBreaker) == .orderedDescending
-            })
-        else {
-            return nil
-        }
-
-        return (winner.repo, winner.worktree)
+        atom.repoAndWorktree(containing: cwd)
     }
 
     func panes(for worktreeId: UUID) -> [Pane] {
-        panes.values.filter { $0.worktreeId == worktreeId }
+        atom.panes(for: worktreeId)
     }
 
     // MARK: - Pane Mutations
@@ -1312,7 +1296,7 @@ final class WorkspaceStore {
     }
 
     func isRepoUnavailable(_ repoId: UUID) -> Bool {
-        unavailableRepoIds.contains(repoId)
+        atom.isRepoUnavailable(repoId)
     }
 
     // MARK: - WatchedPath Mutations
@@ -1566,7 +1550,7 @@ final class WorkspaceStore {
 
         // Filter out temporary panes — they are never persisted
         let persistablePanes = Array(
-            panes.values.filter { pane in
+            atom.panes.values.filter { pane in
                 if case .terminal(let termState) = pane.content {
                     return termState.lifetime != .temporary
                 }
@@ -1576,26 +1560,26 @@ final class WorkspaceStore {
 
         // Prune tabs: remove temporary pane IDs from layouts in the PERSISTED COPY.
         // Live state is not mutated — only the serialized output is cleaned.
-        var prunedTabs = tabs
-        var prunedActiveTabId = activeTabId
+        var prunedTabs = atom.tabs
+        var prunedActiveTabId = atom.activeTabId
         pruneInvalidPanes(from: &prunedTabs, validPaneIds: validPaneIds, activeTabId: &prunedActiveTabId)
         RestoreTrace.log(
             "WorkspaceStore.persistNow activeTab=\(prunedActiveTabId?.uuidString ?? "nil") tabs=\(tabPersistenceSummary(prunedTabs))"
         )
 
         let state = WorkspacePersistor.PersistableState(
-            id: workspaceId,
-            name: workspaceName,
-            repos: Self.canonicalRepos(from: repos),
-            worktrees: Self.canonicalWorktrees(from: repos),
-            unavailableRepoIds: unavailableRepoIds,
+            id: atom.workspaceId,
+            name: atom.workspaceName,
+            repos: Self.canonicalRepos(from: atom.repos),
+            worktrees: Self.canonicalWorktrees(from: atom.repos),
+            unavailableRepoIds: atom.unavailableRepoIds,
             panes: persistablePanes,
             tabs: prunedTabs,
             activeTabId: prunedActiveTabId,
-            sidebarWidth: sidebarWidth,
-            windowFrame: windowFrame,
-            watchedPaths: watchedPaths,
-            createdAt: createdAt,
+            sidebarWidth: atom.sidebarWidth,
+            windowFrame: atom.windowFrame,
+            watchedPaths: atom.watchedPaths,
+            createdAt: atom.createdAt,
             updatedAt: updatedAt
         )
         do {

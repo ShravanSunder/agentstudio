@@ -445,7 +445,7 @@ struct RepoSidebarContentView: View {
     }
 
     private func branchName(for worktree: Worktree) -> String {
-        PaneDisplayProjector.resolvedBranchName(
+        atom(\.paneDisplay).resolvedBranchName(
             worktree: worktree,
             enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
         )

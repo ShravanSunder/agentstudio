@@ -74,7 +74,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
             if let financeGroup {
                 let allFinanceWorktrees = financeGroup.repos.flatMap(\.worktrees)
                 let visibleBranchLabels = allFinanceWorktrees.map {
-                    PaneDisplayProjector.resolvedBranchName(
+                    atom(\.paneDisplay).resolvedBranchName(
                         worktree: $0,
                         enrichment: testSystem.repoCache.worktreeEnrichmentByWorktreeId[$0.id]
                     )

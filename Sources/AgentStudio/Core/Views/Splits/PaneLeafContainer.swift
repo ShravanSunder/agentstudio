@@ -29,7 +29,9 @@ struct PaneLeafContainer: View {
     let useDrawerFramePreference: Bool
 
     @State private var isHovered: Bool = false
-    @Bindable private var managementMode = ManagementModeMonitor.shared
+    private var managementMode: ManagementModeAtom {
+        atom(\.managementMode)
+    }
     @State private var isMinimizeHovered: Bool = false
     @State private var isCloseHovered: Bool = false
     @State private var isSplitHovered: Bool = false
@@ -124,8 +126,7 @@ struct PaneLeafContainer: View {
         GeometryReader { _ in
             let managementContext = PaneManagementContext.project(
                 paneId: paneHost.id,
-                store: store,
-                repoCache: repoCache
+                store: store
             )
             ZStack(alignment: .topTrailing) {
                 VStack(spacing: 0) {
@@ -422,11 +423,11 @@ struct PaneLeafContainer: View {
     }
 
     private func tabDisplayTitle(tab: Tab) -> String {
-        PaneDisplayProjector.tabDisplayLabel(for: tab, store: store, repoCache: repoCache)
+        atom(\.paneDisplay).tabDisplayLabel(for: tab)
     }
 
     private func paneDisplayTitle(_ paneId: UUID) -> String {
-        PaneDisplayProjector.displayLabel(for: paneId, store: store, repoCache: repoCache)
+        atom(\.paneDisplay).displayLabel(for: paneId)
     }
 
     private func paneEdgeButton(

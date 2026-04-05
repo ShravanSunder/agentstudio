@@ -456,7 +456,7 @@ private struct TabBarManagementModeButton: View {
 
     var body: some View {
         Button {
-            ManagementModeMonitor.shared.toggle()
+            atom(\.managementMode).toggle()
         } label: {
             Image(
                 systemName: isManagementModeActive

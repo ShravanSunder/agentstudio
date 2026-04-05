@@ -150,11 +150,7 @@ final class TabBarAdapter {
 
         tabs = storeTabs.map { tab in
             let paneTitles = tab.paneIds.map { paneDisplayTitle(for: $0) }
-            let displayTitle = PaneDisplayProjector.tabDisplayLabel(
-                for: tab,
-                store: store,
-                repoCache: repoCache
-            )
+            let displayTitle = tabDisplayTitle(for: tab)
 
             let activeArrangement = tab.activeArrangement
             let showArrangementName = tab.arrangements.count > 1 && !activeArrangement.isDefault
@@ -200,7 +196,41 @@ final class TabBarAdapter {
     }
 
     private func paneDisplayTitle(for paneId: UUID) -> String {
-        PaneDisplayProjector.displayLabel(for: paneId, store: store, repoCache: repoCache)
+        guard let pane = store.pane(paneId) else {
+            return "Terminal"
+        }
+
+        let rawTitle = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let defaultLabel = rawTitle.isEmpty ? "Terminal" : rawTitle
+
+        if let worktreeId = pane.worktreeId,
+            let repoId = pane.repoId,
+            let repo = store.repo(repoId),
+            let worktree = store.worktree(worktreeId)
+        {
+            let repoName = pane.metadata.repoName ?? repo.name
+            let branchName = atom(\.paneDisplay).resolvedBranchName(
+                worktree: worktree,
+                enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
+            )
+            return "\(repoName) | \(branchName) | \(worktree.path.lastPathComponent)"
+        }
+
+        if let cwdFolderName = pane.metadata.cwd?.lastPathComponent,
+            !cwdFolderName.isEmpty
+        {
+            return cwdFolderName
+        }
+
+        return defaultLabel
+    }
+
+    private func tabDisplayTitle(for tab: Tab) -> String {
+        let paneLabels = tab.paneIds.map { paneDisplayTitle(for: $0) }
+        if paneLabels.count > 1 {
+            return paneLabels.joined(separator: " | ")
+        }
+        return paneLabels.first ?? "Terminal"
     }
 
     private func updateOverflow() {

@@ -12,6 +12,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var store: WorkspaceStore!
     var repoCache: RepoCacheAtom! { atomStore.repoCache }
     var uiState: UIStateAtom! { atomStore.uiState }
+    var repoCacheStore: RepoCacheStore!
+    var uiStateStore: UIStateStore!
     var workspaceCacheCoordinator: WorkspaceCacheCoordinator!
     var watchedFolderCommands: (any WatchedFolderCommandHandling)!
     var viewRegistry: ViewRegistry!
@@ -22,6 +24,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var appLifecycleStore: AppLifecycleStore!
     var windowLifecycleStore: WindowLifecycleStore!
     var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
+    var managementModeMonitor: ManagementModeMonitor!
     // MARK: - Command Bar
     private(set) var commandBarController: CommandBarPanelController!
     // MARK: - OAuth
@@ -70,8 +73,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func bootLoadCanonicalStore() {
         atomStore = AtomStore()
         AtomScope.setUp(atomStore)
-        store = WorkspaceStore()
+        store = WorkspaceStore(atom: atomStore.workspace)
+        repoCacheStore = RepoCacheStore(atom: atomStore.repoCache)
+        uiStateStore = UIStateStore(atom: atomStore.uiState)
         store.restore()
+        managementModeMonitor = ManagementModeMonitor()
         appLifecycleStore = AppLifecycleStore()
         windowLifecycleStore = WindowLifecycleStore()
         applicationLifecycleMonitor = ApplicationLifecycleMonitor(
@@ -84,56 +90,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func bootLoadCacheStore(persistor: WorkspacePersistor) {
-        switch persistor.loadCache(for: store.workspaceId) {
-        case .loaded(let cacheState):
-            for enrichment in cacheState.repoEnrichmentByRepoId.values {
-                repoCache.setRepoEnrichment(enrichment)
-            }
-            for enrichment in cacheState.worktreeEnrichmentByWorktreeId.values {
-                repoCache.setWorktreeEnrichment(enrichment)
-            }
-            for (worktreeId, count) in cacheState.pullRequestCountByWorktreeId {
-                repoCache.setPullRequestCount(count, for: worktreeId)
-            }
-            for (worktreeId, count) in cacheState.notificationCountByWorktreeId {
-                repoCache.setNotificationCount(count, for: worktreeId)
-            }
-            for target in cacheState.recentTargets {
-                repoCache.recordRecentTarget(target)
-            }
-            repoCache.markRebuilt(
-                sourceRevision: cacheState.sourceRevision,
-                at: cacheState.lastRebuiltAt ?? Date()
-            )
-        case .corrupt(let error):
-            appLogger.warning("Cache file corrupt, will rebuild from events: \(error)")
-        case .missing:
-            break
-        }
+        _ = persistor
+        repoCacheStore.restore(for: store.workspaceId)
         pruneStaleCache(store: store, repoCache: repoCache)
     }
 
     private func bootLoadUIStore(persistor: WorkspacePersistor) {
-        switch persistor.loadUI(for: store.workspaceId) {
-        case .loaded(let uiState):
-            self.uiState.setExpandedGroups(uiState.expandedGroups)
-            for (stableKey, colorHex) in uiState.checkoutColors {
-                self.uiState.setCheckoutColor(colorHex, for: stableKey)
-            }
-            self.uiState.setFilterText(uiState.filterText)
-            self.uiState.setFilterVisible(uiState.isFilterVisible)
-        case .corrupt(let error):
-            appLogger.warning("UI state file corrupt, using defaults: \(error)")
-        case .missing:
-            break
-        }
+        _ = persistor
+        uiStateStore.restore(for: store.workspaceId)
     }
 
     private func bootEstablishRuntimeBus(
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
         filesystemSource: inout FilesystemGitPipeline?
     ) {
-        runtime = SessionRuntime(store: store)
+        runtime = SessionRuntime(atom: atomStore.sessionRuntime, store: store)
         cleanupOrphanZmxSessions()
         viewRegistry = ViewRegistry()
         seedSlotsForRestoredPanes()
@@ -513,35 +484,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let store else { return .terminateNow }
-        let persistor = WorkspacePersistor()
 
         do {
-            try persistor.saveCache(
-                .init(
-                    workspaceId: store.workspaceId,
-                    repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId,
-                    worktreeEnrichmentByWorktreeId: repoCache.worktreeEnrichmentByWorktreeId,
-                    pullRequestCountByWorktreeId: repoCache.pullRequestCountByWorktreeId,
-                    notificationCountByWorktreeId: repoCache.notificationCountByWorktreeId,
-                    recentTargets: repoCache.recentTargets,
-                    sourceRevision: repoCache.sourceRevision,
-                    lastRebuiltAt: repoCache.lastRebuiltAt
-                )
-            )
+            try repoCacheStore.flush(for: store.workspaceId)
         } catch {
             appLogger.warning("Workspace cache flush failed at termination: \(error.localizedDescription)")
         }
 
         do {
-            try persistor.saveUI(
-                .init(
-                    workspaceId: store.workspaceId,
-                    expandedGroups: uiState.expandedGroups,
-                    checkoutColors: uiState.checkoutColors,
-                    filterText: uiState.filterText,
-                    isFilterVisible: uiState.isFilterVisible
-                )
-            )
+            try uiStateStore.flush(for: store.workspaceId)
         } catch {
             appLogger.warning("Workspace UI flush failed at termination: \(error.localizedDescription)")
         }

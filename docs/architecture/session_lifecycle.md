@@ -463,9 +463,9 @@ stateDiagram-v2
 
 | File | Role |
 |------|------|
-| `Core/Stores/WorkspaceStore.swift` | Atomic store — workspace structure (panes, tabs, layouts, persistence) |
-| `Core/Stores/WorkspacePersistor.swift` | JSON serialization/deserialization |
-| `Core/Stores/SessionRuntime.swift` | Runtime health monitoring and status tracking |
+| `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper over `WorkspaceAtom` |
+| `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | JSON serialization/deserialization |
+| `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` | Runtime health monitoring and status tracking |
 | `App/Coordination/PaneCoordinator.swift` | Dispatches actions (open, close, split, undo, etc.) and is the sole intermediary for view/surface orchestration |
 | `Core/Models/Pane.swift` | Pane identity and content metadata |
 | `Core/Models/SessionLifetime.swift` | `.persistent` / `.temporary` enum |
@@ -476,7 +476,7 @@ stateDiagram-v2
 | `Core/Models/StateMachine/SessionStatus.swift` | 7-state machine definition for future zmx health |
 | `Infrastructure/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
 | `Infrastructure/ProcessExecutor.swift` | Protocol + `DefaultProcessExecutor` for CLI execution |
-| `Core/Stores/ZmxBackend.swift` | zmx CLI wrapper — session ID gen, create/destroy/healthCheck |
+| `Core/RuntimeEventSystem/Runtime/ZmxBackend.swift` | zmx CLI wrapper — session ID gen, create/destroy/healthCheck |
 | `Features/Terminal/Hosting/TerminalPaneMountView.swift` | Terminal mounted content (displays surfaces, does not own them) |
 | `App/Boot/AppDelegate.swift` | Launch flow — restore workspace, create window |
 

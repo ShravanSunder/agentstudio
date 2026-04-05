@@ -4,7 +4,7 @@ import os.log
 private let persistorLogger = Logger(subsystem: "com.agentstudio", category: "WorkspacePersistor")
 
 /// Pure persistence I/O for workspace state.
-/// Collaborator of WorkspaceStore — not a public peer.
+/// Collaborator of the main-actor persistence wrappers — not a public peer.
 struct WorkspacePersistor {
 
     /// Distinguishes "no file found" from "file exists but is corrupt" on load.

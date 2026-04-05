@@ -716,7 +716,7 @@ struct RepoSidebarContentViewTests {
             snapshot: nil
         )
 
-        let label = PaneDisplayProjector.resolvedBranchName(
+        let label = atom(\.paneDisplay).resolvedBranchName(
             worktree: worktree,
             enrichment: enrichment
         )
@@ -733,7 +733,7 @@ struct RepoSidebarContentViewTests {
             isMainWorktree: false
         )
 
-        let label = PaneDisplayProjector.resolvedBranchName(
+        let label = atom(\.paneDisplay).resolvedBranchName(
             worktree: worktree,
             enrichment: nil
         )
