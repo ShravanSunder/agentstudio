@@ -9,7 +9,6 @@ enum WorkspaceEmptyStateKind: Equatable {
 enum WorkspaceHomeCardIcon: Equatable {
     case mainWorktree
     case gitWorktree
-    case cwdOnly
 }
 
 struct WorkspaceRecentCardModel: Equatable, Identifiable {
@@ -124,16 +123,7 @@ enum WorkspaceLauncherProjector {
             )
         }
 
-        return WorkspaceRecentCardModel(
-            id: target.id,
-            target: target,
-            title: target.displayTitle,
-            detail: target.subtitle,
-            icon: .cwdOnly,
-            statusChips: nil,
-            checkoutIconKind: nil,
-            iconColorHex: nil
-        )
+        return nil
     }
 
     private static func makeWorktreeCard(

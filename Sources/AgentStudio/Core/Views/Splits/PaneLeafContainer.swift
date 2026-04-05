@@ -484,7 +484,7 @@ struct PaneLeafContainer: View {
 
     private func openInCursor(_ context: PaneManagementContext) {
         guard let targetPath = context.targetPath else { return }
-        ExternalWorkspaceOpener.openInCursor(targetPath)
+        ExternalWorkspaceOpener.openInPreferredEditor(targetPath)
     }
 }
 

@@ -99,11 +99,19 @@ struct WorkspaceLauncherProjectorTests {
     func project_launcherCapsAtFifteenAndShowsOpenAllForTwoOrMoreTargets() {
         let store = makeStore()
         let cache = WorkspaceRepoCache()
-        _ = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
+        let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
+        guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
+            Issue.record("Expected main worktree")
+            return
+        }
 
         for index in 0..<20 {
             cache.recordRecentTarget(
-                .forCwd(URL(fileURLWithPath: "/tmp/project-\(index)"))
+                .forCwd(
+                    worktree.path.appending(path: "nested-\(index)"),
+                    title: "nested-\(index)",
+                    subtitle: repo.name
+                )
             )
         }
 
@@ -114,5 +122,23 @@ struct WorkspaceLauncherProjectorTests {
 
         #expect(result.recentCards.count == 15)
         #expect(result.showsOpenAll == true)
+    }
+
+    @Test
+    func project_unresolvedRecentTarget_isDroppedFromLauncherCards() {
+        let store = makeStore()
+        let cache = WorkspaceRepoCache()
+        _ = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
+
+        cache.recordRecentTarget(.forCwd(URL(fileURLWithPath: "/tmp/missing-project")))
+
+        let result = WorkspaceLauncherProjector.project(
+            store: store,
+            repoCache: cache
+        )
+
+        #expect(result.kind == .launcher)
+        #expect(result.recentCards.isEmpty)
+        #expect(result.showsOpenAll == false)
     }
 }

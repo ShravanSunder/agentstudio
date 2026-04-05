@@ -29,6 +29,11 @@ struct DrawerIconBar: View {
     @State private var isFinderHovered = false
     @State private var isCursorHovered = false
 
+    private enum TrailingActionIcon {
+        case system(name: String)
+        case octicon(name: String)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Icon strip: [toggle] | [+]
@@ -88,7 +93,7 @@ struct DrawerIconBar: View {
                 if let trailingActions {
                     HStack(spacing: 6) {
                         trailingActionButton(
-                            systemName: "folder",
+                            icon: .system(name: "macwindow"),
                             helpText: "Open pane location in Finder",
                             isHovered: isFinderHovered,
                             action: trailingActions.onOpenFinder
@@ -101,8 +106,8 @@ struct DrawerIconBar: View {
                         }
 
                         trailingActionButton(
-                            systemName: "cursorarrow.rays",
-                            helpText: "Open pane location in Cursor",
+                            icon: .octicon(name: "octicon-code-square"),
+                            helpText: "Open pane location in Cursor or VS Code",
                             isHovered: isCursorHovered,
                             action: trailingActions.onOpenCursor
                         )
@@ -130,16 +135,23 @@ struct DrawerIconBar: View {
     }
 
     private func trailingActionButton(
-        systemName: String,
+        icon: TrailingActionIcon,
         helpText: String,
         isHovered: Bool,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
-                .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
-                .contentShape(Rectangle())
+            Group {
+                switch icon {
+                case .system(let systemName):
+                    Image(systemName: systemName)
+                        .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                case .octicon(let octiconName):
+                    OcticonImage(name: octiconName, size: AppStyle.compactIconSize)
+                }
+            }
+            .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(isHovered ? .primary : .secondary)

@@ -183,10 +183,18 @@ struct SidebarWorktreeRow: View {
                 Label("Go to Terminal", systemImage: "terminal")
             }
 
-            Button {
-                openInCursor()
-            } label: {
-                Label("Open in Cursor", systemImage: "cursorarrow.rays")
+            Menu("Open in...") {
+                Button {
+                    openInCursor()
+                } label: {
+                    menuLabel(title: "Cursor", octiconName: "octicon-code-square")
+                }
+
+                Button {
+                    openInVSCode()
+                } label: {
+                    menuLabel(title: "VS Code", octiconName: "octicon-vscode")
+                }
             }
 
             Divider()
@@ -222,5 +230,22 @@ struct SidebarWorktreeRow: View {
 
     private func openInCursor() {
         ExternalWorkspaceOpener.openInCursor(worktree.path)
+    }
+
+    private func openInVSCode() {
+        ExternalWorkspaceOpener.openInVSCode(worktree.path)
+    }
+
+    @ViewBuilder
+    private func menuLabel(title: String, octiconName: String) -> some View {
+        if let image = OcticonLoader.shared.image(named: octiconName) {
+            Label {
+                Text(title)
+            } icon: {
+                Image(nsImage: image)
+            }
+        } else {
+            Label(title, systemImage: "questionmark.square.dashed")
+        }
     }
 }
