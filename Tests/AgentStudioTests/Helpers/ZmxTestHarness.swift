@@ -20,8 +20,8 @@ final class ZmxTestHarness: @unchecked Sendable {
     init() {
         let shortId = UUID().uuidString.prefix(8).lowercased()
         // Use /tmp directly (not NSTemporaryDirectory) to keep socket paths under
-        // the 104-byte Unix domain socket limit. Session IDs are 65 chars, so
-        // ZMX_DIR must be short: /tmp/zt-<8chars>/ = 16 chars + 65 = 81 < 104.
+        // the Darwin 103-byte usable Unix domain socket payload limit. Main
+        // session IDs are now 53 chars, so /tmp/zt-<8chars>/ leaves ample room.
         self.zmxDir = "/tmp/zt-\(shortId)"
         // Keep zmx subprocess calls short in tests; backend-level retry handles transient failures.
         self.executor = DefaultProcessExecutor(timeout: 0.5)

@@ -83,8 +83,10 @@ class MainSplitViewController: NSSplitViewController {
         paneTabItem.minimumThickness = 400
         addSplitViewItem(paneTabItem)
 
-        // Restore sidebar collapsed state
-        if UserDefaults.standard.bool(forKey: Self.sidebarCollapsedKey) {
+        // Restore sidebar collapsed state — force collapse if no repos
+        if store.repos.isEmpty {
+            sidebarItem.isCollapsed = true
+        } else if UserDefaults.standard.bool(forKey: Self.sidebarCollapsedKey) {
             sidebarItem.isCollapsed = true
         }
     }

@@ -1,4 +1,5 @@
 import Foundation
+import GhosttyKit
 import Testing
 
 @testable import AgentStudio
@@ -184,6 +185,129 @@ struct TerminalRuntimeTests {
         #expect(replay.events.isEmpty)
         #expect(replay.nextSeq == 0)
         #expect(!replay.gapDetected)
+    }
+
+    @Test("progress report updates observable state without bus post or replay")
+    func progressReport_isObservableOnly() async {
+        let paneEventBus = EventBus<RuntimeEnvelope>()
+        let runtime = TerminalRuntime(
+            paneId: PaneId(),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime"),
+            paneEventBus: paneEventBus
+        )
+        runtime.transitionToReady()
+
+        runtime.handleGhosttyEvent(
+            .progressReportUpdated(ProgressState(kind: .set, percent: 50))
+        )
+
+        #expect(runtime.commandProgress == ProgressState(kind: .set, percent: 50))
+
+        let replay = await runtime.eventsSince(seq: 0)
+        #expect(replay.events.isEmpty)
+
+        let busEvent = await paneEventBus.waitForFirst(timeout: .milliseconds(100)) { envelope in
+            envelope
+        }
+        #expect(busEvent == nil)
+    }
+
+    @Test("readOnly updates observable state and posts replayable event")
+    func readOnly_postsReplayableBusEvent() async {
+        let paneEventBus = EventBus<RuntimeEnvelope>()
+        let runtime = TerminalRuntime(
+            paneId: PaneId(),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime"),
+            paneEventBus: paneEventBus
+        )
+        runtime.transitionToReady()
+        let stream = await paneEventBus.subscribe()
+        var iterator = stream.makeAsyncIterator()
+
+        runtime.handleGhosttyEvent(.readOnlyChanged(true))
+
+        #expect(runtime.isReadOnly)
+        guard
+            let busEnvelope = await iterator.next(),
+            case .pane(let paneEnvelope) = busEnvelope,
+            case .terminal(.readOnlyChanged(let isReadOnly)) = paneEnvelope.event
+        else {
+            Issue.record("Expected readOnlyChanged event on pane bus")
+            return
+        }
+        #expect(isReadOnly)
+
+        let replay = await runtime.eventsSince(seq: 0)
+        #expect(replay.events.count == 1)
+    }
+
+    @Test("promptTitle posts to bus but is not replayed")
+    func promptTitle_postsNonReplayableBusEvent() async {
+        let paneEventBus = EventBus<RuntimeEnvelope>()
+        let runtime = TerminalRuntime(
+            paneId: PaneId(),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime"),
+            paneEventBus: paneEventBus
+        )
+        runtime.transitionToReady()
+        let stream = await paneEventBus.subscribe()
+        var iterator = stream.makeAsyncIterator()
+
+        runtime.handleGhosttyEvent(.promptTitleRequested(scope: .surface))
+        guard
+            let busEnvelope = await iterator.next(),
+            case .pane(let paneEnvelope) = busEnvelope,
+            case .terminal(.promptTitleRequested(let scope)) = paneEnvelope.event
+        else {
+            Issue.record("Expected promptTitleRequested event on pane bus")
+            return
+        }
+        #expect(scope == .surface)
+
+        let replay = await runtime.eventsSince(seq: 0)
+        #expect(replay.events.isEmpty)
+    }
+
+    @Test("openURL remains runtime-local and non-replayable")
+    func openURL_doesNotPostOrReplay() async {
+        let paneEventBus = EventBus<RuntimeEnvelope>()
+        let runtime = TerminalRuntime(
+            paneId: PaneId(),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime"),
+            paneEventBus: paneEventBus
+        )
+        runtime.transitionToReady()
+
+        runtime.handleGhosttyEvent(.openURLRequested(url: "https://example.com", kind: .text))
+
+        let replay = await runtime.eventsSince(seq: 0)
+        #expect(replay.events.isEmpty)
+
+        let busEvent = await paneEventBus.waitForFirst(timeout: .milliseconds(100)) { envelope in
+            envelope
+        }
+        #expect(busEvent == nil)
+    }
+
+    @Test("deferred events stay out of bus and replay")
+    func deferredEvent_doesNotPostOrReplay() async {
+        let paneEventBus = EventBus<RuntimeEnvelope>()
+        let runtime = TerminalRuntime(
+            paneId: PaneId(),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime"),
+            paneEventBus: paneEventBus
+        )
+        runtime.transitionToReady()
+
+        runtime.handleGhosttyEvent(.deferred(tag: UInt32(GHOSTTY_ACTION_RENDER.rawValue)))
+
+        let replay = await runtime.eventsSince(seq: 0)
+        #expect(replay.events.isEmpty)
+
+        let busEvent = await paneEventBus.waitForFirst(timeout: .milliseconds(100)) { envelope in
+            envelope
+        }
+        #expect(busEvent == nil)
     }
 
     @Test("subscribe returns independent streams and broadcasts events to all subscribers")

@@ -1361,7 +1361,7 @@ These methods don't need MainActor isolation — they take immutable input and r
 
 ### Phase 2: UI — Combine bridge patterns
 
-3 `.onReceive(NotificationCenter.default.publisher(...))` in `MainSplitViewController.swift` (lines 395-404). These bridge NotificationCenter to SwiftUI. They can migrate to EventBus subscriptions or direct store method calls when Phase 1 completes.
+3 `.onReceive(NotificationCenter.default.publisher(...))` in `App/Windows/MainSplitViewController.swift` (lines 395-404). These bridge NotificationCenter to SwiftUI. They can migrate to EventBus subscriptions or direct store method calls when Phase 1 completes.
 
 ### Phase 3: Polish — URLHistoryService JSON I/O
 

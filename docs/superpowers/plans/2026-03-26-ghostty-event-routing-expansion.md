@@ -8,6 +8,20 @@
 
 **Tech Stack:** Swift 6.2, AppKit, Ghostty/libghostty, Swift Testing, mise, swift-format, swiftlint
 
+## Implementation Reality Update (2026-04-04)
+
+The current branch has now landed the runtime isolation split, so the routing entrypoint is definitively:
+
+- `Sources/AgentStudio/Features/Terminal/Ghostty/GhosttyActionRouter.swift`
+
+The implemented branch shape differs from the original draft in a few important ways:
+
+- `Ghostty.ActionRouter` now owns three explicit tag sets: `explicitlyRoutedTags`, `deferredTags`, and `interceptedTags`. The old `shouldForwardUnhandledActionToRuntime` suppression list is gone.
+- `promptTitle` and `desktopNotification` are wired through the runtime and are visible on the pane event bus, but this implementation does **not** add new Agent Studio UI. Returning `false` for those actions preserves Ghostty's existing default host behavior.
+- Progress reporting follows the current Ghostty headers in `vendor/ghostty/include/ghostty.h`: `remove`, `set`, `error`, `indeterminate`, `pause`. The original `start/continue/end/error` sketch in this plan is stale.
+- The current Ghostty headers also expose `GHOSTTY_ACTION_SET_TAB_TITLE`. Agent Studio now accounts for it explicitly as a deferred action until the app adopts a first-class tab-title override model.
+- Fire-and-handle actions such as `openURL`, `undo`, `redo`, and `copyTitleToClipboard` are routed through `TerminalRuntime` for explicit accounting, but they intentionally do not post to the pane event bus.
+
 ---
 
 ## Preconditions

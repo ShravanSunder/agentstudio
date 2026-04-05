@@ -509,45 +509,37 @@ The reference implementation. Fully conforms to `PaneRuntime`. One instance per 
 - **Command handling:** `TerminalRuntime.handleCommand()` validates lifecycle + capability, then dispatches `.sendInput`, `.resize`, `.search` to the Ghostty surface via `SurfaceManager`.
 - **@Observable state:** `title`, `cwd`, `searchState`, `scrollbarState` — bound directly by SwiftUI views.
 
-#### BridgeRuntime (to be extracted from BridgePaneController)
+#### BridgeRuntime (implemented)
 
 Serves ALL React-based pane types. The content-specific behavior lives in the React app (loaded via `agentstudio://` custom scheme), not in the Swift runtime. The runtime handles lifecycle, event transport, and command dispatch generically.
 
 - **Adapter:** `RPCRouter` (per-pane, owned by `BridgePaneController`). Routes incoming JSON-RPC messages to registered method handlers. Outgoing events are pushed via `PushTransport` to the React app.
 - **Controller:** `BridgePaneController` (per-pane). Owns the `WebPage` instance, RPC router configuration, push plan pipeline, bridge handshake state, and dedup cache. The controller handles the WebKit lifecycle — loading the React app, managing `bridge.ready` handshake, and push plan activation.
-- **Extraction strategy:** `BridgeRuntime` will be extracted as a new class that:
-  1. Conforms to `PaneRuntime` (lifecycle, subscribe, handleCommand, snapshot, eventsSince, shutdown)
-  2. Holds a reference to its `BridgePaneController` for transport operations
-  3. Produces `PaneEventEnvelope` from incoming RPC events (bridge → Swift direction)
-  4. Translates `RuntimeCommand` to outgoing RPC calls (Swift → bridge direction)
-  5. Manages its own lifecycle state machine independently of the controller's WebKit state
-- **Event production:** Bridge events arrive as JSON-RPC messages from the React app. The RPC router dispatches them. `BridgeRuntime` wraps them as `PaneRuntimeEvent.diff(...)`, `.editor(...)`, or `.browser(...)` in envelopes with proper seq/source.
+- **Current implementation:** `BridgeRuntime` is a concrete `BusPostingPaneRuntime` in `Features/Bridge/Runtime/BridgeRuntime.swift`. It owns the lifecycle state machine, `PaneRuntimeEventChannel`, replay support, and capability gating. `BridgePaneController` remains the per-pane WebKit/controller owner and acts as the runtime's command/event bridge.
+- **Event production:** Bridge events arrive as JSON-RPC messages from the React app. The RPC router dispatches them, and `BridgePaneController` forwards typed events into `BridgeRuntime.ingestBridgeEvent(...)`, which emits `PaneRuntimeEvent.diff(...)`, `.editor(...)`, `.review(...)`, `.agent(...)`, or `.plugin(...)` envelopes with proper seq/source metadata.
 - **Content type dispatch:** `BridgeRuntime` uses `metadata.contentType` to determine:
   - Which React route to load (e.g., `/diff`, `/editor`, `/review`)
   - Which RPC methods to register on the router
   - Which `PaneRuntimeEvent` case to use for outgoing events
   - Which `PaneCapability` set to expose
 
-#### WebviewRuntime (to be extracted from WebviewPaneController)
+#### WebviewRuntime (implemented)
 
 Serves plain browser panes. Simpler than BridgeRuntime — no JSON-RPC bridge, no push plans, no React app. Just WebKit navigation events.
 
 - **Adapter:** WebKit navigation delegate (per-pane, owned by `WebviewPaneController`). Translates `WKNavigationDelegate` callbacks to typed `BrowserEvent` cases.
 - **Controller:** `WebviewPaneController` (per-pane). Owns the `WebPage` instance, navigation state (URL, title, loading, back/forward lists), and navigation methods (`goBack`, `goForward`, `reload`, `navigate`).
-- **Extraction strategy:** `WebviewRuntime` will be extracted as a new class that:
-  1. Conforms to `PaneRuntime`
-  2. Holds a reference to `WebviewPaneController` for navigation operations
-  3. Produces `PaneEventEnvelope` from WebKit navigation delegate events
-  4. Translates `.navigation` commands to controller navigation methods
-- **Event production:** `BrowserEvent.navigationCompleted`, `.pageLoaded`, `.consoleMessage` wrapped in `PaneRuntimeEvent.browser(...)` envelopes.
+- **Current implementation:** `WebviewRuntime` is a concrete `BusPostingPaneRuntime` in `Features/Webview/Runtime/WebviewRuntime.swift`. It owns lifecycle, replay, and `.navigation` command handling while delegating browser actions to `WebviewPaneController` through `WebviewRuntimeCommandHandling`.
+- **Event production:** `WebviewPaneController` forwards navigation facts into `WebviewRuntime.ingestBrowserEvent(...)`, which emits `PaneRuntimeEvent.browser(...)` envelopes.
 - **@Observable state:** `url`, `title`, `isLoading`, `canGoBack`, `canGoForward` — bound directly by `WebviewNavigationBar`.
 
-#### SwiftPaneRuntime (future — new class)
+#### SwiftPaneRuntime (implemented)
 
 Serves native AppKit/SwiftUI panes that have no WebView. The simplest runtime — no adapter, no controller, direct Swift calls.
 
 - **Adapter:** None. Swift panes produce events directly — no FFI boundary, no message translation.
-- **Controller:** None. The view IS the content — no separate resource to manage.
+- **Controller:** None required for the runtime itself. Native views such as `Features/CodeViewer/Views/CodeViewerPaneMountView.swift` render directly and can pair with `SwiftPaneRuntime` when they need pane-runtime semantics.
+- **Current implementation:** `SwiftPaneRuntime` lives in `Core/RuntimeEventSystem/Runtime/SwiftPaneRuntime.swift`. It is a lightweight native-pane runtime that owns lifecycle, replay, and editor-command handling for `.codeViewer` panes without introducing a WebKit or Ghostty-specific controller layer.
 - **Event production:** Direct `continuation.yield()` calls from the Swift view layer. No translation step.
 - **Use cases:** `.codeViewer` panes showing syntax-highlighted file content, future native editor panes, settings/configuration panels that need runtime lifecycle tracking.
 - **Implementation:** Minimal — lifecycle state machine + event stream + command dispatch. Most of the implementation is the `PaneRuntime` protocol surface itself. Content-specific behavior lives in the SwiftUI views.
@@ -565,31 +557,25 @@ Each pane type follows a layered pattern. The layers have distinct responsibilit
 │  Runtime:     TerminalRuntime             ← PaneRuntime conformer           │
 │  Adapter:     GhosttyAdapter (shared)     ← C FFI → GhosttyEvent           │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                         BRIDGE STACK (extraction needed)                    │
+│                         BRIDGE STACK (current implementation)               │
 │                                                                             │
 │  View:        BridgePaneMountView         ← hosts WKWebView                 │
 │  Controller:  BridgePaneController        ← WebKit page, RPC, push plans    │
-│  Runtime:     BridgeRuntime (future)      ← PaneRuntime conformer           │
+│  Runtime:     BridgeRuntime               ← PaneRuntime conformer           │
 │  Adapter:     RPCRouter (per-pane)        ← JSON-RPC → typed events         │
-│                                                                             │
-│  Current state: Controller and runtime concerns are fused in                │
-│  BridgePaneController. BridgeRuntime needs to be extracted.                 │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                         WEBVIEW STACK (extraction needed)                   │
+│                         WEBVIEW STACK (current implementation)              │
 │                                                                             │
 │  View:        WebviewPaneMountView        ← hosts WKWebView                 │
 │  Controller:  WebviewPaneController       ← WebKit page, navigation state   │
-│  Runtime:     WebviewRuntime (future)     ← PaneRuntime conformer           │
+│  Runtime:     WebviewRuntime              ← PaneRuntime conformer           │
 │  Adapter:     WebKit delegate (per-pane)  ← navigation events → typed       │
-│                                                                             │
-│  Current state: Controller and runtime concerns are fused in                │
-│  WebviewPaneController. WebviewRuntime needs to be extracted.               │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                         SWIFT PANE STACK (future)                           │
+│                         SWIFT PANE STACK (current implementation)           │
 │                                                                             │
-│  View:        SwiftPaneView (future)      ← native AppKit/SwiftUI           │
+│  View:        CodeViewerPaneMountView     ← native AppKit/SwiftUI host      │
 │  Controller:  (none — direct Swift)       ← no WebView, no FFI              │
-│  Runtime:     SwiftPaneRuntime (future)   ← PaneRuntime conformer           │
+│  Runtime:     SwiftPaneRuntime            ← PaneRuntime conformer           │
 │  Adapter:     (none — direct calls)       ← no translation layer needed     │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -743,15 +729,15 @@ Sources are categorized by scope. Topology sources use `SystemEnvelope`; worktre
 | Scope | Source | Tier | Envelope | Events produced | Status |
 |-------|--------|------|----------|-----------------|--------|
 | **Pane** | TerminalRuntime | — | `PaneEnvelope` | `.terminal(GhosttyEvent)` | ✅ Implemented |
-| **Pane** | BridgeRuntime | — | `PaneEnvelope` | `.diff(...)`, `.editor(...)`, `.review(...)`, `.agent(...)`, `.plugin(...)` | Future (LUNA-349) |
-| **Pane** | WebviewRuntime | — | `PaneEnvelope` | `.browser(BrowserEvent)` | Future (LUNA-349) |
-| **Pane** | SwiftPaneRuntime | — | `PaneEnvelope` | Content-dependent | Future (LUNA-349) |
+| **Pane** | BridgeRuntime | — | `PaneEnvelope` | `.diff(...)`, `.editor(...)`, `.review(...)`, `.agent(...)`, `.plugin(...)` | ✅ Implemented |
+| **Pane** | WebviewRuntime | — | `PaneEnvelope` | `.browser(BrowserEvent)` | ✅ Implemented |
+| **Pane** | SwiftPaneRuntime | — | `PaneEnvelope` | Content-dependent | ✅ Implemented |
 | **App** | AppDelegate | Built-in | `SystemEnvelope` | `TopologyEvent` (.repoDiscovered — boot replay) | Via bus |
 | **App** | FilesystemActor | Built-in | `SystemEnvelope` | `TopologyEvent` (.repoDiscovered — watched-folder diff, .repoRemoved — watched-folder diff, .worktreeRegistered, .worktreeUnregistered) | Via bus |
-| **Worktree** | FilesystemActor | Built-in | `WorktreeEnvelope` | `FilesystemEvent` (.filesChanged, .worktreeRegistered, .worktreeUnregistered) | Future (LUNA-349, Contract 6) |
-| **Worktree** | GitWorkingDirectoryProjector | Built-in | `WorktreeEnvelope` | `GitWorkingDirectoryEvent` (.snapshotChanged, .branchChanged, .originChanged, .worktreeDiscovered, .worktreeRemoved) | Future (LUNA-349) |
+| **Worktree** | FilesystemActor | Built-in | `WorktreeEnvelope` | `FilesystemEvent` (.filesChanged, .worktreeRegistered, .worktreeUnregistered) | ✅ Implemented |
+| **Worktree** | GitWorkingDirectoryProjector | Built-in | `WorktreeEnvelope` | `GitWorkingDirectoryEvent` (.snapshotChanged, .branchChanged, .originChanged, .worktreeDiscovered, .worktreeRemoved) | ✅ Implemented |
 | **App** | PaneCoordinator | Built-in | `SystemEnvelope` | `.lifecycle(.tabSwitched)` | ✅ Implemented |
-| **Repo** | ForgeActor | Service | `WorktreeEnvelope` | `ForgeEvent` (.pullRequestCountsChanged, .checksUpdated, .refreshFailed) | Future (LUNA-350) |
+| **Repo** | ForgeActor | Service | `WorktreeEnvelope` | `ForgeEvent` (.pullRequestCountsChanged, .checksUpdated, .refreshFailed) | ✅ Implemented |
 | **App** | Container service | Service | `WorktreeEnvelope` | Future: `ContainerEvent` | Future (plugin-based) |
 | **Pane** | Agent RPC channel | — | `PaneEnvelope` | Future: Contract 15 events | Deferred (LUNA-344) |
 
@@ -1708,67 +1694,35 @@ struct FileChangeset: Sendable {
 /// Conforms to PaneKindEvent — self-classifies priority via actionPolicy.
 /// See "Where Priority Lives" section for implementation pattern.
 enum GhosttyEvent: PaneKindEvent {
-    // Workspace-facing (coordinator consumes, critical priority)
-    case titleChanged(String)
-    case cwdChanged(String)
-    case commandFinished(exitCode: Int, duration: UInt64)
-    case bellRang
-    case desktopNotification(title: String, body: String)
-    case progressReport(state: ProgressState, value: Int?)
-    case childExited(exitCode: UInt32)
-    case closeSurface(processAlive: Bool)
-
-    // Tab/split requests (coordinator routes)
     case newTab
-    case closeTab(GhosttyCloseTabMode)
-    case gotoTab(GhosttyGotoTabTarget)
-    case moveTab(Int)
-    case newSplit(GhosttySplitDirection)
-    case gotoSplit(GhosttyGotoSplitDirection)
+    case closeTab(mode: GhosttyCloseTabMode)
+    case gotoTab(target: GhosttyGotoTabTarget)
+    case moveTab(amount: Int)
+    case newSplit(direction: GhosttySplitDirection)
+    case gotoSplit(direction: GhosttyGotoSplitDirection)
     case resizeSplit(amount: UInt16, direction: GhosttyResizeSplitDirection)
     case equalizeSplits
     case toggleSplitZoom
-
-    // Terminal-internal state (runtime @Observable, lossy priority)
+    case titleChanged(String)
+    case cwdChanged(String)
+    case commandFinished(exitCode: Int, duration: UInt64)
+    case progressReportUpdated(ProgressState?)
+    case readOnlyChanged(Bool)
+    case secureInputRequested(SecureInputMode)
+    case secureInputChanged(Bool)
+    case rendererHealthChanged(healthy: Bool)
+    case cellSizeChanged(NSSize)
+    case initialSizeChanged(NSSize)
+    case sizeLimitChanged(TerminalSizeConstraints)
+    case promptTitleRequested(scope: TitlePromptScope)
+    case desktopNotificationRequested(title: String, body: String)
+    case openURLRequested(url: String, kind: OpenURLKind)
+    case undoRequested
+    case redoRequested
+    case copyTitleToClipboardRequested
+    case bellRang
     case scrollbarChanged(ScrollbarState)
-    case searchStarted
-    case searchEnded
-    case searchTotal(Int)
-    case searchSelected(Int)
-    case mouseShapeChanged(MouseShape)
-    case mouseVisibilityChanged(MouseVisibility)
-    case linkHover(String?)
-    case rendererHealth(RendererHealth)
-    case cellSize(CellSize)
-    case sizeLimits(SizeLimits)
-    case initialSize(width: UInt32, height: UInt32)
-    case readOnly(ReadOnlyState)
-
-    // Config/system
-    case configReload(soft: Bool)
-    case configChanged(ConfigChangeToken)
-    case colorChanged(kind: ColorKind, r: UInt8, g: UInt8, b: UInt8)
-    case secureInput(SecureInputState)
-    case keySequence(active: Bool, trigger: InputTrigger?)
-    case keyTable(KeyTableAction)
-    case openConfig
-    case presentTerminal
-
-    // Application-level
-    case toggleFullscreen(FullscreenMode)
-    case toggleWindowDecorations
-    case toggleCommandPalette
-    case toggleVisibility
-    case floatWindow(FloatWindowState)
-    case quitTimer(QuitTimerAction)
-    case undo
-    case redo
-
-    // Explicit unhandled — logged with surface/pane context, never silent.
-    // Log MUST include: tag value, paneId (from adapter routing), and
-    // Ghostty surface pointer (for cross-referencing with C-level logs).
-    // This identifies which runtime is receiving unmapped actions during
-    // development and Ghostty version upgrades.
+    case deferred(tag: UInt32)
     case unhandled(tag: UInt32)
 }
 ```
@@ -1779,16 +1733,11 @@ Every `ghostty_action_tag_e` case has a defined handling policy. The adapter's s
 
 | GhosttyEvent Case | Handler | Routing | Priority | Notes |
 |---|---|---|---|---|
-| **Workspace-facing (coordinator consumes)** | | | | |
-| `titleChanged` | Runtime → Coordinator | Updates `PaneMetadata.title` | critical | Tab title |
-| `cwdChanged` | Runtime → Coordinator | Updates `PaneMetadata.cwd`, triggers repo/worktree resolution | critical | Dynamic view recomputation |
-| `commandFinished` | Runtime → Coordinator | Workflow trigger, notification badge | critical | Agent completion signal |
-| `bellRang` | Runtime → Coordinator | Notification toast/badge | critical | User attention request |
-| `desktopNotification` | Runtime → Coordinator | System notification | critical | From OSC 777 / iTerm2 escape |
-| `progressReport` | Runtime → Coordinator | Progress bar UI update | critical | From OSC 9;4 |
-| `childExited` | Runtime → Coordinator | Lifecycle transition to draining | critical | Shell/process exit |
-| `closeSurface` | Runtime → Coordinator | Pane close flow (with undo) | critical | User Cmd+W or process-initiated |
-| **Tab/split requests (coordinator routes)** | | | | |
+| **Coordinator-consumed events** | | | | |
+| `titleChanged` | Runtime → Coordinator | Updates `PaneMetadata.title` | critical | Pane title |
+| `cwdChanged` | Runtime → Coordinator | Updates `PaneMetadata.cwd` | critical | Dynamic view recomputation |
+| `commandFinished` | Runtime → Coordinator | Workflow/logging signal | critical | Agent completion signal |
+| `bellRang` | Runtime → Coordinator | Posts `AppEvent.worktreeBellRang` | critical | User attention request |
 | `newTab` | Coordinator | Creates new tab via PaneActionCommand | critical | Keyboard shortcut passthrough |
 | `closeTab` | Coordinator | Closes tab via PaneActionCommand (with undo) | critical | Keyboard shortcut passthrough |
 | `gotoTab` | Coordinator | Tab navigation | critical | |
@@ -1798,44 +1747,31 @@ Every `ghostty_action_tag_e` case has a defined handling policy. The adapter's s
 | `resizeSplit` | Coordinator | Split resize | critical | |
 | `equalizeSplits` | Coordinator | Reset split ratios | critical | |
 | `toggleSplitZoom` | Coordinator | Zoom/unzoom split | critical | |
-| **Terminal-internal state (runtime @Observable)** | | | | |
-| `scrollbarChanged` | Runtime only | Updates `@Observable scrollbarState` | lossy("scroll") | 60fps UI binding |
-| `searchStarted/Ended` | Runtime only | Updates `@Observable searchState` | critical | Mode transition |
-| `searchTotal/Selected` | Runtime only | Updates `@Observable searchState` | lossy("search") | Result count |
-| `mouseShapeChanged` | Runtime only | Updates cursor shape | lossy("mouse") | NSCursor update |
-| `mouseVisibilityChanged` | Runtime only | Shows/hides cursor | lossy("mouse") | |
-| `linkHover` | Runtime only | Shows link preview | lossy("mouse") | URL tooltip |
-| `rendererHealth` | Runtime only | Updates `@Observable healthState` | critical | GPU/renderer status |
-| `cellSize` | Runtime only | Cell metrics for layout | lossy("cell") | |
-| `sizeLimits` | Runtime only | Min/max terminal size | critical | One-time on init |
-| `initialSize` | Runtime only | First size report | critical | Attach readiness signal |
-| `readOnly` | Runtime only | Read-only mode toggle | critical | |
-| **Config/system** | | | | |
-| `configReload` | Runtime → Coordinator | Re-apply terminal config | critical | Soft/hard reload |
-| `configChanged` | Runtime only | Config delta | critical | |
-| `colorChanged` | Runtime only | Terminal color change | lossy("color") | Theme update |
-| `secureInput` | Runtime only | Secure input mode | critical | Password entry |
-| `keySequence` | Runtime only | Key sequence mode | critical | Leader key |
-| `keyTable` | Runtime only | Key table action | critical | |
-| `openConfig` | Coordinator | Open config file/UI | critical | User action |
-| `presentTerminal` | Coordinator | Bring terminal to front | critical | |
-| **Application-level** | | | | |
-| `toggleFullscreen` | Coordinator → Window | Window mode change | critical | |
-| `toggleWindowDecorations` | Coordinator → Window | Chrome toggle | critical | |
-| `toggleCommandPalette` | Coordinator → CommandBar | Open/close ⌘P | critical | |
-| `toggleVisibility` | Coordinator → Window | Show/hide app | critical | |
-| `floatWindow` | Coordinator → Window | Float/unfloat | critical | |
-| `quitTimer` | Coordinator → App | Quit countdown | critical | |
-| `undo/redo` | Coordinator → Undo Manager | Edit undo/redo | critical | |
-| **Fallback** | | | | |
-| `unhandled(tag)` | Adapter | Logged at warning level, never silently dropped | — | Compile-time coverage gap detector |
+| **Runtime-local observable state (no bus post)** | | | | |
+| `progressReportUpdated(ProgressState?)` | Runtime only | Updates `commandProgress` | critical | Current header states are `remove/set/error/indeterminate/pause` |
+| `rendererHealthChanged` | Runtime only | Updates `rendererHealthy` | critical | Existing Ghostty host default still updates the surface view |
+| `cellSizeChanged` | Runtime only | Updates `cellSize` | critical | Metrics for future layout consumers |
+| `initialSizeChanged` | Runtime only | Applied locally only | critical | Reported during attach/default-size updates |
+| `sizeLimitChanged` | Runtime only | Updates `sizeConstraints` | critical | Raw Ghostty size-limit payload |
+| **Runtime state + bus post** | | | | |
+| `readOnlyChanged` | Runtime → Bus | Updates `isReadOnly` and emits replayable state | critical | Ghostty default still drives the built-in badge/overlay path |
+| `secureInputRequested` / `secureInputChanged` | Runtime → Bus | Resolves secure-input mode to current boolean state | critical | Request is input, replayable boolean is output |
+| `promptTitleRequested` | Runtime → Bus | One-shot request, not replayed | critical | Current implementation preserves Ghostty default prompt UX |
+| `desktopNotificationRequested` | Runtime → Bus | One-shot request, not replayed | critical | Current implementation preserves Ghostty default notification UX |
+| **Runtime-accounted, no bus post** | | | | |
+| `openURLRequested` | Runtime only | Explicitly routed, no replay | critical | Ghostty default still opens the URL |
+| `undoRequested` / `redoRequested` | Runtime only | Explicitly routed, no replay | critical | Ghostty default still handles responder-chain undo/redo |
+| `copyTitleToClipboardRequested` | Runtime only | Explicitly routed, no replay | critical | Ghostty default still writes to the pasteboard |
+| **Deferred / explicit fallback** | | | | |
+| `deferred(tag)` | Runtime only | Explicitly accounted, no bus post | critical | Feature-gated or high-frequency tags such as search/key-sequence/render |
+| `unhandled(tag)` | Adapter | Logged at warning level, never silently dropped | critical | Unknown raw tag outside the explicit vocabulary |
 
 #### Coverage Invariants
 
 1. **Exhaustive switch.** The adapter's `handleAction(_ action: ghostty_action_s)` switch is exhaustive over `ghostty_action_tag_e`. Adding a new Ghostty version with new actions produces a compile error until a case is added.
-2. **No silent drops.** Every action either produces a typed `GhosttyEvent` case or maps to `.unhandled(tag)` which is logged. There is no `default:` branch. The current 12/40 coverage gap exists in the legacy code — this contract requires closing it.
-3. **Handler is normative.** The "Handler" column in the table above defines where each event terminates. Runtime-only events do not reach the coordinator. Coordinator events do not mutate runtime state directly — they call store methods.
-4. **Priority is per-case.** The "Priority" column matches the `actionPolicy` implementation in `GhosttyEvent.actionPolicy`. Changing priority requires updating both the table and the code.
+2. **No silent drops.** Every known action tag is explicitly classified in `Ghostty.ActionRouter` as routed, deferred, or intercepted. Unknown raw tags map to `.unhandled(tag)` and are logged.
+3. **Multiplexing is per-event.** Some routed events update `@Observable` state only, some emit replayable bus state, some emit non-replayable one-shot bus events, and some are runtime-accounted without any bus post.
+4. **Ghostty defaults can remain active.** For routed events where Agent Studio is only observing state (`promptTitle`, `desktopNotification`, `openURL`, search/key-table families, read-only overlays), the router intentionally returns `false` so Ghostty's existing host behavior still applies.
 
 ### Contract 8: Per-Kind Event Enums
 
@@ -2976,7 +2912,7 @@ enum PaneFilesystemContextEvent: PaneKindEvent {
 
 ## Migration: NotificationCenter/DispatchQueue → AsyncStream/Event Bus
 
-The current codebase uses `NotificationCenter` and `DispatchQueue.main.async` for Ghostty C callback dispatch. This architecture replaces those mechanisms. This section documents the migration path — what changes, what stays, and what order.
+The historical codebase used `NotificationCenter` and `DispatchQueue.main.async` for Ghostty C callback dispatch. The current implementation has already moved the core routing path onto typed runtime events and `Task { @MainActor in ... }` hops; this section is retained as migration history so the old-to-new boundary stays inspectable.
 
 ### What Gets Replaced
 
@@ -3168,13 +3104,13 @@ See [Directory Structure](directory_structure.md) for the full decision process 
 | **EventReplayBuffer** | `Core/RuntimeEventSystem/Replay/` | Feature-agnostic buffering; consumed by PaneCoordinator |
 | **GhosttyAdapter** | `Features/Terminal/Ghostty/` | FFI-specific; translates C callbacks into Core event types |
 | **TerminalRuntime** | `Features/Terminal/Runtime/` | Terminal-specific `PaneRuntime` conformance |
-| **BridgeRuntime** (future) | `Features/Bridge/Runtime/` | Bridge-specific `PaneRuntime` conformance (serves .diff, .editor, .review, .agent, .plugin) |
+| **BridgeRuntime** | `Features/Bridge/Runtime/` | Bridge-specific `PaneRuntime` conformance (serves .diff, .editor, .review, .agent, .plugin) |
 | **BridgePaneController** | `Features/Bridge/Runtime/` | Per-pane WebKit page, RPC router, push plans (transport/view-side lifecycle) |
-| **WebviewRuntime** (future) | `Features/Webview/Runtime/` | Webview-specific `PaneRuntime` conformance (serves .browser) |
+| **WebviewRuntime** | `Features/Webview/Runtime/` | Webview-specific `PaneRuntime` conformance (serves .browser) |
 | **WebviewPaneController** | `Features/Webview/` | Per-pane WebKit page, navigation state (transport/view-side lifecycle) |
-| **SwiftPaneRuntime** (future) | `Features/SwiftPane/Runtime/` | Native AppKit/SwiftUI `PaneRuntime` conformance (serves .codeViewer) |
+| **SwiftPaneRuntime** | `Core/RuntimeEventSystem/Runtime/` | Native-pane `PaneRuntime` shared by direct AppKit/SwiftUI panes such as `.codeViewer`; kept in Core because it has no feature-specific transport/controller dependency |
 | **FSEventsWatcher** (future) | `Core/RuntimeEventSystem/Filesystem/` | System-level filesystem watcher; produces FilesystemEvent envelopes |
-| **PaneCoordinator** | `App/` | Imports from multiple features; composition root |
+| **PaneCoordinator** | `App/Coordination/` | Imports from multiple features; composition root |
 
 ### Why per-kind event enums live in Core
 

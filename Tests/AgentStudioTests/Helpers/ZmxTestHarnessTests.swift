@@ -6,16 +6,16 @@ struct ZmxTestHarnessTests {
 
     @Test
     func testExtractSessionNameFromKeyValueListLine() {
-        let line = "session_name=agentstudio--repo--wt--pane\tattached=false"
+        let line = "session_name=as-repo-wt-pane\tattached=false"
         let name = ZmxTestHarness.extractSessionName(from: line)
-        #expect(name == "agentstudio--repo--wt--pane")
+        #expect(name == "as-repo-wt-pane")
     }
 
     @Test
     func testExtractSessionNameFromShortListLine() {
-        let line = "agentstudio--repo--wt--pane running"
+        let line = "as-repo-wt-pane running"
         let name = ZmxTestHarness.extractSessionName(from: line)
-        #expect(name == "agentstudio--repo--wt--pane")
+        #expect(name == "as-repo-wt-pane")
     }
 
     @Test
@@ -29,17 +29,17 @@ struct ZmxTestHarnessTests {
     func testExtractSessionNameFromRealZmxListFormat() {
         // Exact format: session_name=<name>\tpid=<pid>\tclients=<n>
         let line =
-            "session_name=agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344\tpid=12345\tclients=0"
+            "session_name=as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344\tpid=12345\tclients=0"
         let name = ZmxTestHarness.extractSessionName(from: line)
-        #expect(name == "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
+        #expect(name == "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344")
     }
 
     @Test
     func testExtractSessionNameFromZmx042ListFormat() {
         let line =
-            "name=agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344\tpid=12345\tclients=0\tcreated=1774059493\tstart_dir=/tmp\tcmd=/bin/sleep 300"
+            "name=as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344\tpid=12345\tclients=0\tcreated=1774059493\tstart_dir=/tmp\tcmd=/bin/sleep 300"
         let name = ZmxTestHarness.extractSessionName(from: line)
-        #expect(name == "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--aabbccdd11223344")
+        #expect(name == "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-aabbccdd11223344")
     }
 
     @Test
@@ -51,8 +51,8 @@ struct ZmxTestHarnessTests {
     @Test
     func testExtractSessionNameFromStaleSessionLine() {
         // Stale/error format: session_name=<name>\tstatus=<error>\t(cleaning up)
-        let line = "session_name=agentstudio--abc--def--ghi\tstatus=connection_refused\t(cleaning up)"
+        let line = "session_name=as-abc-def-ghi\tstatus=connection_refused\t(cleaning up)"
         let name = ZmxTestHarness.extractSessionName(from: line)
-        #expect(name == "agentstudio--abc--def--ghi")
+        #expect(name == "as-abc-def-ghi")
     }
 }

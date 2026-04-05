@@ -186,7 +186,7 @@ Terminal shell (cd /foo)
     │ SurfaceMetadata.workingDirectory = url
     │ AsyncStream yield SurfaceCWDChangeEvent(surfaceId, paneId, cwd)
     ▼
-④ PaneCoordinator                          [PaneCoordinator.swift]
+④ PaneCoordinator                          [App/Coordination/PaneCoordinator.swift]
     │ for await event in surfaceManager.surfaceCWDChanges
     │ store.updatePaneCWD(paneId, url)
     ▼

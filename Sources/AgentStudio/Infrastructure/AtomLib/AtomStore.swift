@@ -38,6 +38,11 @@ final class AtomStore {
         self.sessionRuntime = sessionRuntime
     }
 
+    // Transitional compatibility aliases for migrated call sites/tests.
+    var workspaceCatalog: WorkspaceRepositoryTopologyAtom { workspaceRepositoryTopology }
+    var workspaceGraph: WorkspacePaneAtom { workspacePane }
+    var workspaceInteraction: WorkspaceTabLayoutAtom { workspaceTabLayout }
+
     var paneDisplay: PaneDisplayDerived {
         PaneDisplayDerived()
     }

@@ -21,6 +21,7 @@ final class OcticonLoader {
         ),
             let image = NSImage(contentsOf: svgURL)
         {
+            image.isTemplate = true
             cache[name] = image
             return image
         }
@@ -32,6 +33,7 @@ final class OcticonLoader {
         ),
             let image = NSImage(contentsOf: pdfURL)
         {
+            image.isTemplate = true
             cache[name] = image
             return image
         }

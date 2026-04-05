@@ -763,15 +763,40 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 1. Persist the watched path (direct store mutation)
         _ = store.repositoryTopologyAtom.addWatchedPath(rootURL)
 
-        // The watched-folder command returns the authoritative scan summary.
-        // Do not infer the result from store.repos here because coordinator
-        // consumption also runs on MainActor and may not have drained the bus yet.
-        let refreshSummary = await watchedFolderCommands.refreshWatchedFolders(
-            store.watchedPaths.map(\.path)
-        )
-        let repoPaths = refreshSummary.repoPaths(in: rootURL)
+        // 2. Signal scanning state for UI. Sidebar stays collapsed until
+        //    the first repo is discovered — never show an empty sidebar.
+        store.beginScan(rootURL)
 
-        guard !repoPaths.isEmpty else {
+        // Expand sidebar when a repo from this folder is discovered.
+        // Scoped to rootURL so unrelated discoveries don't trigger it.
+        let sidebarExpandTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let normalizedRoot = rootURL.standardizedFileURL.path
+            await PaneRuntimeEventBus.shared.waitForFirst { envelope -> Void? in
+                guard case .system(let sys) = envelope,
+                    case .topology(.repoDiscovered(let repoPath, let parentPath, _)) = sys.event,
+                    parentPath.standardizedFileURL.path == normalizedRoot
+                        || repoPath.standardizedFileURL.path.hasPrefix(normalizedRoot)
+                else { return nil }
+                return ()
+            }
+            self.mainWindowController?.expandSidebar()
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer {
+                self.store.endScan()
+                sidebarExpandTask.cancel()
+            }
+
+            let refreshSummary = await self.watchedFolderCommands.refreshWatchedFolders(
+                self.store.watchedPaths.map(\.path)
+            )
+
+            let repoPaths = refreshSummary.repoPaths(in: rootURL)
+
+            guard repoPaths.isEmpty else { return }
             let alert = NSAlert()
             alert.messageText = "No Git Repositories Found"
             alert.informativeText =
@@ -779,7 +804,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             alert.alertStyle = .informational
             alert.addButton(withTitle: "OK")
             alert.runModal()
-            return
         }
     }
 
@@ -892,7 +916,6 @@ extension AppDelegate: AppCommandRouting {
             Task { await handleAddRepoRequested() }
             return true
         case .addFolder:
-            mainWindowController?.expandSidebar()
             Task { await handleAddFolderRequested() }
             return true
         case .toggleSidebar:

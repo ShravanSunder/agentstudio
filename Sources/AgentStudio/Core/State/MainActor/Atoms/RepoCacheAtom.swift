@@ -4,6 +4,8 @@ import Observation
 @MainActor
 @Observable
 final class RepoCacheAtom {
+    private static let maximumRecentTargetCount = 15
+
     struct HydrationState {
         let repoEnrichmentByRepoId: [UUID: RepoEnrichment]
         let worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment]
@@ -50,8 +52,8 @@ final class RepoCacheAtom {
         var updated = recentTargets
         updated.removeAll { $0.id == target.id }
         updated.insert(target, at: 0)
-        if updated.count > 6 {
-            updated = Array(updated.prefix(6))
+        if updated.count > Self.maximumRecentTargetCount {
+            updated = Array(updated.prefix(Self.maximumRecentTargetCount))
         }
         recentTargets = updated
     }

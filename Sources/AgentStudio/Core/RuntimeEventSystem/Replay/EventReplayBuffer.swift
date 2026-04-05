@@ -320,10 +320,26 @@ final class EventReplayBuffer {
             return 32 + cwd.utf8.count
         case .commandFinished:
             return 48
+        case .progressReportUpdated:
+            return 40
+        case .readOnlyChanged, .secureInputRequested, .secureInputChanged, .rendererHealthChanged:
+            return 24
+        case .cellSizeChanged, .initialSizeChanged, .sizeLimitChanged:
+            return 40
+        case .promptTitleRequested:
+            return 24
+        case .desktopNotificationRequested(let title, let body):
+            return 32 + title.utf8.count + body.utf8.count
+        case .openURLRequested(let url, _):
+            return 32 + url.utf8.count
+        case .undoRequested, .redoRequested, .copyTitleToClipboardRequested:
+            return 24
         case .bellRang:
             return 24
         case .scrollbarChanged:
             return 40
+        case .deferred:
+            return 24
         case .unhandled:
             return 24
         }

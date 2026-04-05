@@ -323,9 +323,9 @@ Since we close immediately after, no sustained drain is needed.
 socketPath = zmxDir + "/" + sessionId
 
 zmxDir: ~/.agentstudio/z  (ZmxBackend.defaultZmxDir)
-sessionId: agentstudio--<repoKey16>--<wtKey16>--<pane16>
+sessionId: as-<repoKey16>-<wtKey16>-<pane16>  or  as-d--<parentPane16>--<drawerPane16>
 
-Max path: 104 bytes (platform sockaddr_un.sun_path - 1)
+Max usable path payload: 103 bytes (104-byte sun_path minus trailing NUL)
 ```
 
 ## Event Integration
@@ -467,7 +467,7 @@ Replace current flaky E2E tests that shell out to `zmx` CLI.
 ## Constraints
 
 - **macOS 26+ arm64 only** — usize is always 8 bytes
-- **Unix socket path limit** — 104 bytes max
+- **Unix socket path limit** — 103 usable bytes max
 - **No zmx protocol changes** — we speak the existing protocol exactly
 - **One-shot connections only** — avoid Output broadcast drain obligation
 - **Swift 6.2 concurrency** — `@concurrent nonisolated` for blocking socket I/O

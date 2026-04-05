@@ -17,6 +17,20 @@ enum ExternalWorkspaceOpener {
         )
     }
 
+    static func vscodeCommand(path: URL) -> CommandRequest {
+        CommandRequest(
+            executableURL: URL(fileURLWithPath: "/usr/bin/env"),
+            arguments: ["code", "--reuse-window", path.path]
+        )
+    }
+
+    static func preferredEditorCommands(path: URL) -> [CommandRequest] {
+        [
+            cursorCommand(path: path),
+            vscodeCommand(path: path),
+        ]
+    }
+
     @discardableResult
     static func openInFinder(_ path: URL) -> Bool {
         let success = NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path.path)
@@ -28,7 +42,34 @@ enum ExternalWorkspaceOpener {
 
     @discardableResult
     static func openInCursor(_ path: URL) -> Bool {
-        let request = cursorCommand(path: path)
+        open(commands: [cursorCommand(path: path)])
+    }
+
+    @discardableResult
+    static func openInVSCode(_ path: URL) -> Bool {
+        open(commands: [vscodeCommand(path: path)])
+    }
+
+    @discardableResult
+    static func openInPreferredEditor(_ path: URL) -> Bool {
+        open(commands: preferredEditorCommands(path: path))
+    }
+
+    @discardableResult
+    static func open(
+        commands: [CommandRequest],
+        runner: (CommandRequest) -> Bool = run
+    ) -> Bool {
+        for command in commands {
+            if runner(command) {
+                return true
+            }
+        }
+        return false
+    }
+
+    @discardableResult
+    private static func run(_ request: CommandRequest) -> Bool {
         let process = Process()
         process.executableURL = request.executableURL
         process.arguments = request.arguments
@@ -36,8 +77,9 @@ enum ExternalWorkspaceOpener {
             try process.run()
             return true
         } catch {
+            let commandName = request.arguments.first ?? "<unknown>"
             logger.error(
-                "Open in Cursor failed for path=\(path.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                "Open in \(commandName, privacy: .public) failed for args=\(request.arguments.joined(separator: " "), privacy: .public): \(error.localizedDescription, privacy: .public)"
             )
             return false
         }

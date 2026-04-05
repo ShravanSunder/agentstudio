@@ -68,9 +68,9 @@ final class RepoCacheAtomTests {
     }
 
     @Test
-    func recordRecentTarget_movesExistingEntryToFront_andCapsAtSix() {
+    func recordRecentTarget_movesExistingEntryToFront_andCapsAtFifteen() {
         let store = RepoCacheAtom()
-        let targets = (0..<6).map { index in
+        let targets = (0..<16).map { index in
             RecentWorkspaceTarget.forCwd(
                 URL(fileURLWithPath: "/tmp/project-\(index)"),
                 title: "project-\(index)",
@@ -83,9 +83,9 @@ final class RepoCacheAtomTests {
         }
         store.recordRecentTarget(targets[2])
 
-        #expect(store.recentTargets.count == 6)
+        #expect(store.recentTargets.count == 15)
         #expect(store.recentTargets.first?.id == targets[2].id)
-        #expect(store.recentTargets.contains { $0.id == targets[0].id })
+        #expect(store.recentTargets.contains { $0.id == targets[0].id } == false)
     }
 
     @Test
