@@ -25,11 +25,11 @@ final class WorkspaceTabLayoutAtom {
     }
 
     var activePaneIds: Set<UUID> {
-        Set(activeTab?.paneIds ?? [])
+        Set(activeTab?.activePaneIds ?? [])
     }
 
     var allPaneIds: Set<UUID> {
-        Set(tabs.flatMap(\.paneIds))
+        Set(tabs.flatMap(\.allPaneIds))
     }
 
     func tab(_ id: UUID) -> Tab? {
@@ -37,7 +37,7 @@ final class WorkspaceTabLayoutAtom {
     }
 
     func tabContaining(paneId: UUID) -> Tab? {
-        tabs.first { $0.panes.contains(paneId) }
+        tabs.first { $0.allPaneIds.contains(paneId) }
     }
 
     func appendTab(_ tab: Tab) {
@@ -127,8 +127,8 @@ final class WorkspaceTabLayoutAtom {
             }
         }
 
-        if !tabs[tabIndex].panes.contains(paneId) {
-            tabs[tabIndex].panes.append(paneId)
+        if !tabs[tabIndex].allPaneIds.contains(paneId) {
+            tabs[tabIndex].allPaneIds.append(paneId)
         }
         return true
     }
@@ -168,15 +168,15 @@ final class WorkspaceTabLayoutAtom {
             tabs[tabIndex].activePaneId = fallbackVisiblePaneIds.first
         }
 
-        tabs[tabIndex].panes.removeAll { $0 == paneId }
-        if tabs[tabIndex].panes.isEmpty {
+        tabs[tabIndex].allPaneIds.removeAll { $0 == paneId }
+        if tabs[tabIndex].allPaneIds.isEmpty {
             removeTab(tabId)
         }
     }
 
     func removePaneReferences(_ paneId: UUID) {
         for tabIndex in tabs.indices {
-            tabs[tabIndex].panes.removeAll { $0 == paneId }
+            tabs[tabIndex].allPaneIds.removeAll { $0 == paneId }
             for arrIndex in tabs[tabIndex].arrangements.indices {
                 tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
                 if let newLayout = tabs[tabIndex].arrangements[arrIndex].layout.removing(paneId: paneId) {
@@ -224,7 +224,7 @@ final class WorkspaceTabLayoutAtom {
             return
         }
         if let paneId {
-            guard tabs[tabIndex].panes.contains(paneId) else {
+            guard tabs[tabIndex].allPaneIds.contains(paneId) else {
                 workspaceTabLayoutLogger.warning("setActivePane: paneId \(paneId) not found in tab \(tabId)")
                 return
             }
@@ -242,7 +242,7 @@ final class WorkspaceTabLayoutAtom {
             workspaceTabLayoutLogger.warning("createArrangement: empty paneIds")
             return nil
         }
-        let tabPaneSet = Set(tabs[tabIndex].panes)
+        let tabPaneSet = Set(tabs[tabIndex].allPaneIds)
         guard paneIds.isSubset(of: tabPaneSet) else {
             workspaceTabLayoutLogger.warning("createArrangement: paneIds not all in tab \(tabId)")
             return nil
@@ -349,7 +349,7 @@ final class WorkspaceTabLayoutAtom {
             workspaceTabLayoutLogger.warning("minimizePane: tab \(tabId) not found")
             return false
         }
-        let visiblePaneIds = tabs[tabIndex].paneIds
+        let visiblePaneIds = tabs[tabIndex].activePaneIds
         guard visiblePaneIds.contains(paneId) else {
             workspaceTabLayoutLogger.warning("minimizePane: pane \(paneId) not in active arrangement")
             return false
@@ -398,7 +398,7 @@ final class WorkspaceTabLayoutAtom {
 
     func breakUpTab(_ tabId: UUID) -> [Tab] {
         guard let tabIndex = findTabIndex(tabId) else { return [] }
-        let tabPaneIds = tabs[tabIndex].paneIds
+        let tabPaneIds = tabs[tabIndex].activePaneIds
         guard tabPaneIds.count > 1 else { return [] }
 
         tabs[tabIndex].zoomedPaneId = nil
@@ -413,8 +413,8 @@ final class WorkspaceTabLayoutAtom {
 
     func extractPane(_ paneId: UUID, fromTab tabId: UUID) -> Tab? {
         guard let tabIndex = findTabIndex(tabId) else { return nil }
-        guard tabs[tabIndex].paneIds.count > 1 else { return nil }
-        guard tabs[tabIndex].panes.contains(paneId) else {
+        guard tabs[tabIndex].activePaneIds.count > 1 else { return nil }
+        guard tabs[tabIndex].allPaneIds.contains(paneId) else {
             workspaceTabLayoutLogger.warning("extractPane: paneId \(paneId) not in tab \(tabId)")
             return nil
         }
@@ -429,7 +429,7 @@ final class WorkspaceTabLayoutAtom {
                 tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
             }
         }
-        tabs[tabIndex].panes.removeAll { $0 == paneId }
+        tabs[tabIndex].allPaneIds.removeAll { $0 == paneId }
         if tabs[tabIndex].activePaneId == paneId {
             tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
         }
@@ -459,15 +459,15 @@ final class WorkspaceTabLayoutAtom {
         }
 
         tabs[targetTabIndex].zoomedPaneId = nil
-        let sourcePaneIds = tabs[sourceTabIndex].paneIds
+        let sourcePaneIds = tabs[sourceTabIndex].activePaneIds
         var currentTarget = targetPaneId
         for paneId in sourcePaneIds {
             tabs[targetTabIndex].arrangements[targetArrIndex].layout = tabs[targetTabIndex].arrangements[targetArrIndex]
                 .layout
                 .inserting(paneId: paneId, at: currentTarget, direction: direction, position: position)
             tabs[targetTabIndex].arrangements[targetArrIndex].visiblePaneIds.insert(paneId)
-            if !tabs[targetTabIndex].panes.contains(paneId) {
-                tabs[targetTabIndex].panes.append(paneId)
+            if !tabs[targetTabIndex].allPaneIds.contains(paneId) {
+                tabs[targetTabIndex].allPaneIds.append(paneId)
             }
             currentTarget = paneId
         }
@@ -485,7 +485,7 @@ final class WorkspaceTabLayoutAtom {
 
     private func pruneInvalidPanes(validPaneIds: Set<UUID>) {
         for tabIndex in tabs.indices {
-            tabs[tabIndex].panes.removeAll { !validPaneIds.contains($0) }
+            tabs[tabIndex].allPaneIds.removeAll { !validPaneIds.contains($0) }
             for arrIndex in tabs[tabIndex].arrangements.indices {
                 let invalidIds = tabs[tabIndex].arrangements[arrIndex].layout.paneIds.filter {
                     !validPaneIds.contains($0)
@@ -528,11 +528,11 @@ final class WorkspaceTabLayoutAtom {
             }
 
             let allArrangementPaneIds = Set(tabs[tabIndex].arrangements.flatMap { $0.layout.paneIds })
-            tabs[tabIndex].panes = Array(allArrangementPaneIds)
+            tabs[tabIndex].allPaneIds = Array(allArrangementPaneIds)
 
             let duplicatePaneIds = allArrangementPaneIds.intersection(seenPaneIds)
             if !duplicatePaneIds.isEmpty {
-                tabs[tabIndex].panes.removeAll { duplicatePaneIds.contains($0) }
+                tabs[tabIndex].allPaneIds.removeAll { duplicatePaneIds.contains($0) }
                 for arrangementIndex in tabs[tabIndex].arrangements.indices {
                     for paneId in duplicatePaneIds {
                         tabs[tabIndex].arrangements[arrangementIndex].visiblePaneIds.remove(paneId)
@@ -546,7 +546,7 @@ final class WorkspaceTabLayoutAtom {
                 }
             }
 
-            let validPaneIds = Set(tabs[tabIndex].panes)
+            let validPaneIds = Set(tabs[tabIndex].allPaneIds)
             for arrangementIndex in tabs[tabIndex].arrangements.indices {
                 let arrangementPaneIds = Set(tabs[tabIndex].arrangements[arrangementIndex].layout.paneIds)
                 tabs[tabIndex].arrangements[arrangementIndex].visiblePaneIds.formIntersection(validPaneIds)

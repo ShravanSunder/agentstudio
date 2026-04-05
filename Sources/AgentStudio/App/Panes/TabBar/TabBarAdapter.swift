@@ -149,13 +149,13 @@ final class TabBarAdapter {
         let storeTabs = store.tabs
 
         tabs = storeTabs.map { tab in
-            let paneTitles = tab.paneIds.map { paneDisplayTitle(for: $0) }
+            let paneTitles = tab.activePaneIds.map { paneDisplayTitle(for: $0) }
             let displayTitle = tabDisplayTitle(for: tab)
 
             let activeArrangement = tab.activeArrangement
             let showArrangementName = tab.arrangements.count > 1 && !activeArrangement.isDefault
 
-            let paneInfos: [TabBarPaneInfo] = tab.paneIds.map { paneId in
+            let paneInfos: [TabBarPaneInfo] = tab.activePaneIds.map { paneId in
                 TabBarPaneInfo(
                     id: paneId,
                     title: paneDisplayTitle(for: paneId),
@@ -226,7 +226,7 @@ final class TabBarAdapter {
     }
 
     private func tabDisplayTitle(for tab: Tab) -> String {
-        let paneLabels = tab.paneIds.map { paneDisplayTitle(for: $0) }
+        let paneLabels = tab.activePaneIds.map { paneDisplayTitle(for: $0) }
         if paneLabels.count > 1 {
             return paneLabels.joined(separator: " | ")
         }

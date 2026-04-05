@@ -197,7 +197,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func replayBootTopology(store: WorkspaceStore, coordinator: WorkspaceCacheCoordinator) async {
         let activePaneRepoIds: Set<UUID> = {
             guard let activeTab = store.activeTab else { return [] }
-            let repoIds = activeTab.paneIds.compactMap { store.panes[$0]?.repoId }
+            let repoIds = activeTab.activePaneIds.compactMap { store.panes[$0]?.repoId }
             return Set(repoIds)
         }()
         let prioritizedRepos = store.repos.sorted { a, b in

@@ -196,7 +196,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
                 let name = Self.nextArrangementName(existing: tab.arrangements)
                 self.dispatchAction(
                     .createArrangement(
-                        tabId: tabId, name: name, paneIds: Set(tab.paneIds)
+                        tabId: tabId, name: name, paneIds: Set(tab.activePaneIds)
                     ))
             },
             onOpenRepoInTab: {
@@ -781,7 +781,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         // Find the tab containing this worktree
         guard
             let tab = store.tabs.first(where: { tab in
-                tab.panes.contains { id in
+                tab.allPaneIds.contains { id in
                     store.pane(id)?.worktreeId == worktreeId
                 }
             })
@@ -789,9 +789,9 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
         // Single-pane tab: close the whole tab (ActionValidator rejects .closePane
         // for single-pane tabs). Multi-pane: close just the pane.
-        if tab.panes.count > 1 {
+        if tab.allPaneIds.count > 1 {
             guard
-                let matchedPaneId = tab.panes.first(where: { id in
+                let matchedPaneId = tab.allPaneIds.first(where: { id in
                     store.pane(id)?.worktreeId == worktreeId
                 })
             else { return }
@@ -876,7 +876,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
             guard let tab = store.tab(tabId) else { return }
             let name = Self.nextArrangementName(existing: tab.arrangements)
             action = .createArrangement(
-                tabId: tabId, name: name, paneIds: Set(tab.paneIds)
+                tabId: tabId, name: name, paneIds: Set(tab.activePaneIds)
             )
         default:
             action = nil
@@ -912,7 +912,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
             }
 
             if let tab = store.tabContaining(paneId: paneId) {
-                if tab.panes.count > 1 {
+                if tab.allPaneIds.count > 1 {
                     dispatchAction(.closePane(tabId: tab.id, paneId: paneId))
                 } else {
                     dispatchAction(.closeTab(tabId: tab.id))
@@ -935,7 +935,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         // Single-pane tabs cannot extract; treat tab-bar pane drag as tab reorder
         // so "single pane move ability" still works.
         if let sourceTab = store.tab(tabId),
-            sourceTab.paneIds.count == 1
+            sourceTab.activePaneIds.count == 1
         {
             if let targetTabIndex {
                 store.tabLayoutAtom.moveTab(fromId: tabId, toIndex: targetTabIndex)
@@ -976,16 +976,16 @@ class PaneTabViewController: NSViewController, CommandHandler {
         targetTabId: UUID
     ) -> PaneActionCommand? {
         let resolvedSourceTabId: UUID? =
-            if let sourceTabId, store.tab(sourceTabId)?.paneIds.contains(sourcePaneId) == true {
+            if let sourceTabId, store.tab(sourceTabId)?.activePaneIds.contains(sourcePaneId) == true {
                 sourceTabId
             } else {
-                store.tabs.first(where: { $0.paneIds.contains(sourcePaneId) })?.id
+                store.tabs.first(where: { $0.activePaneIds.contains(sourcePaneId) })?.id
             }
 
         guard let resolvedSourceTabId else { return nil }
         guard resolvedSourceTabId != targetTabId else { return nil }
         guard let targetTab = store.tab(targetTabId) else { return nil }
-        guard let targetPaneId = targetTab.activePaneId ?? targetTab.paneIds.first else { return nil }
+        guard let targetPaneId = targetTab.activePaneId ?? targetTab.activePaneIds.first else { return nil }
 
         return .insertPane(
             source: .existingPane(paneId: sourcePaneId, sourceTabId: resolvedSourceTabId),
@@ -1090,7 +1090,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
             let name = Self.nextArrangementName(existing: tab.arrangements)
             dispatchAction(
                 .createArrangement(
-                    tabId: tabId, name: name, paneIds: Set(tab.paneIds)
+                    tabId: tabId, name: name, paneIds: Set(tab.activePaneIds)
                 ))
 
         case .newTerminalInTab:
@@ -1142,7 +1142,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
     }
 
     private func focusTargetedPane(_ paneId: UUID) {
-        guard let tab = store.tabs.first(where: { $0.paneIds.contains(paneId) }) else { return }
+        guard let tab = store.tabs.first(where: { $0.activePaneIds.contains(paneId) }) else { return }
         if store.activeTabId != tab.id {
             dispatchAction(.selectTab(tabId: tab.id))
         }
@@ -1162,10 +1162,10 @@ class PaneTabViewController: NSViewController, CommandHandler {
         case (.breakUpTab, .tab):
             return .breakUpTab(tabId: target)
         case (.closePane, .pane), (.closePane, .floatingTerminal):
-            guard let tab = store.tabs.first(where: { $0.paneIds.contains(target) }) else { return nil }
+            guard let tab = store.tabs.first(where: { $0.activePaneIds.contains(target) }) else { return nil }
             return .closePane(tabId: tab.id, paneId: target)
         case (.extractPaneToTab, .pane), (.extractPaneToTab, .floatingTerminal):
-            guard let tab = store.tabs.first(where: { $0.paneIds.contains(target) }) else { return nil }
+            guard let tab = store.tabs.first(where: { $0.activePaneIds.contains(target) }) else { return nil }
             return .extractPaneToTab(tabId: tab.id, paneId: target)
         case (.movePaneToTab, .tab):
             guard let activeTabId = store.activeTabId, let activePaneId = store.tab(activeTabId)?.activePaneId

@@ -123,7 +123,7 @@ final class WorkspaceMutationCoordinator {
         guard let tabIndex = workspaceTabLayoutAtom.tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         let tab = workspaceTabLayoutAtom.tabs[tabIndex]
         var allPanes: [Pane] = []
-        for paneId in tab.panes {
+        for paneId in tab.allPaneIds {
             guard let layoutPane = workspacePaneAtom.pane(paneId) else { continue }
             allPanes.append(layoutPane)
             if let drawer = layoutPane.drawer {
@@ -146,7 +146,7 @@ final class WorkspaceMutationCoordinator {
             anchorPaneId = closedPane.parentPaneId
             direction = .horizontal
         } else {
-            anchorPaneId = tab.paneIds.first { $0 != paneId }
+            anchorPaneId = tab.activePaneIds.first { $0 != paneId }
             direction = .horizontal
         }
 

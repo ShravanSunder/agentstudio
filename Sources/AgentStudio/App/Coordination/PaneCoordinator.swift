@@ -345,7 +345,7 @@ final class PaneCoordinator {
 
     private func handleTerminalRuntimeEvent(_ event: GhosttyEvent, sourcePaneId: PaneId) {
         let sourcePaneUUID = sourcePaneId.uuid
-        guard let sourceTabId = store.tabs.first(where: { $0.paneIds.contains(sourcePaneUUID) })?.id else {
+        guard let sourceTabId = store.tabs.first(where: { $0.activePaneIds.contains(sourcePaneUUID) })?.id else {
             Self.logger.warning(
                 "Terminal runtime event dropped: source pane \(sourcePaneUUID.uuidString, privacy: .public) is not present in any tab. event=\(String(describing: event), privacy: .public)"
             )

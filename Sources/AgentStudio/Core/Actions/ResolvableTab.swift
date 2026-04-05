@@ -23,8 +23,8 @@ protocol ResolvableTab: Identifiable where ID == UUID {
 // MARK: - Tab Conformance
 
 extension Tab: ResolvableTab {
-    var visiblePaneIds: [UUID] { paneIds }
-    var ownedPaneIds: [UUID] { panes }
+    var visiblePaneIds: [UUID] { activePaneIds }
+    var ownedPaneIds: [UUID] { allPaneIds }
 
     func neighborPaneId(of paneId: UUID, direction: SplitFocusDirection) -> UUID? {
         layout.neighbor(of: paneId, direction: direction.toFocusDirection)

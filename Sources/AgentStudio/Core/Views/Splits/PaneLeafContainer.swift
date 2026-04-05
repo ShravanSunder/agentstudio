@@ -109,7 +109,7 @@ struct PaneLeafContainer: View {
     private var movePaneDestinations: [(tabId: UUID, title: String)] {
         store.tabs.enumerated().compactMap { index, tab in
             guard tab.id != tabId else { return nil }
-            guard tab.activePaneId ?? tab.paneIds.first != nil else { return nil }
+            guard tab.activePaneId ?? tab.activePaneIds.first != nil else { return nil }
             let title = tabDisplayTitle(tab: tab)
             return (tab.id, "Tab \(index + 1): \(title)")
         }
@@ -367,7 +367,7 @@ struct PaneLeafContainer: View {
                             Button(destination.title) {
                                 guard
                                     let targetTab = store.tab(destination.tabId),
-                                    let targetPaneId = targetTab.activePaneId ?? targetTab.paneIds.first
+                                    let targetPaneId = targetTab.activePaneId ?? targetTab.activePaneIds.first
                                 else { return }
 
                                 actionDispatcher.dispatch(

@@ -80,7 +80,7 @@ struct PaneDisplayDerived {
     }
 
     func tabDisplayLabel(for tab: Tab) -> String {
-        let paneLabels = tab.paneIds.map { displayLabel(for: $0) }
+        let paneLabels = tab.activePaneIds.map { displayLabel(for: $0) }
         if paneLabels.count > 1 {
             return paneLabels.joined(separator: " | ")
         }

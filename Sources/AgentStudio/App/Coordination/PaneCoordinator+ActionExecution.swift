@@ -25,7 +25,7 @@ extension PaneCoordinator {
     @discardableResult
     func openTerminal(for worktree: Worktree, in repo: Repo) -> Pane? {
         if let existingTab = store.tabs.first(where: { tab in
-            tab.paneIds.contains { paneId in
+            tab.allPaneIds.contains { paneId in
                 store.pane(paneId)?.worktreeId == worktree.id
             }
         }) {
@@ -526,7 +526,7 @@ extension PaneCoordinator {
             // Close-tab keeps pane models alive for undo snapshots, so teardown only
             // unregisters hosts. Slots are intentionally preserved until the panes
             // are permanently purged from the store.
-            for paneId in tab.panes {
+            for paneId in tab.allPaneIds {
                 teardownDrawerPanes(for: paneId)
                 teardownView(for: paneId)
             }
@@ -561,7 +561,7 @@ extension PaneCoordinator {
     private func currentOwnedPaneIds() -> Set<UUID> {
         Set(
             store.tabs.flatMap { tab in
-                tab.panes.flatMap { paneId -> [UUID] in
+                tab.allPaneIds.flatMap { paneId -> [UUID] in
                     var paneIds = [paneId]
                     if let drawer = store.pane(paneId)?.drawer {
                         paneIds.append(contentsOf: drawer.paneIds)
@@ -588,9 +588,9 @@ extension PaneCoordinator {
         let shouldCreateUndoEntry: Bool
         if let tab = store.tab(tabId), tab.id == store.activeTabId {
             if closingPane.isDrawerChild {
-                shouldCreateUndoEntry = closingPane.parentPaneId.map { tab.paneIds.contains($0) } ?? false
+                shouldCreateUndoEntry = closingPane.parentPaneId.map { tab.activePaneIds.contains($0) } ?? false
             } else {
-                shouldCreateUndoEntry = tab.paneIds.contains(paneId)
+                shouldCreateUndoEntry = tab.activePaneIds.contains(paneId)
             }
         } else {
             shouldCreateUndoEntry = false

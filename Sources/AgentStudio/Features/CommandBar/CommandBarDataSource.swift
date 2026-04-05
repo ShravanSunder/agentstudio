@@ -103,7 +103,7 @@ enum CommandBarDataSource {
         store.tabs.enumerated().map { index, tab in
             let title = tabDisplayTitle(tab: tab, store: store, repoCache: repoCache)
             let isActive = tab.id == store.activeTabId
-            let paneCount = tab.paneIds.count
+            let paneCount = tab.activePaneIds.count
             let subtitle: String = {
                 var parts: [String] = []
                 if isActive {
@@ -139,7 +139,7 @@ enum CommandBarDataSource {
     ) -> [CommandBarItem] {
         var items: [CommandBarItem] = []
         for (tabIndex, tab) in store.tabs.enumerated() {
-            for paneId in tab.paneIds {
+            for paneId in tab.activePaneIds {
                 guard let pane = store.pane(paneId) else { continue }
                 let isActive = tab.activePaneId == paneId
 
@@ -196,7 +196,7 @@ enum CommandBarDataSource {
                 ))
 
             // Panes within this tab
-            for paneId in tab.paneIds {
+            for paneId in tab.activePaneIds {
                 guard let pane = store.pane(paneId) else { continue }
                 let isActive = tab.activePaneId == paneId
 
@@ -386,7 +386,7 @@ enum CommandBarDataSource {
 
         if appliesToPane {
             for (tabIndex, tab) in store.tabs.enumerated() {
-                for paneId in tab.paneIds {
+                for paneId in tab.activePaneIds {
                     guard let pane = store.pane(paneId) else { continue }
                     let targetType: SearchItemType
                     switch pane.source {
@@ -441,7 +441,7 @@ enum CommandBarDataSource {
         repoCache: RepoCacheAtom
     ) -> CommandBarLevel {
         let items: [CommandBarItem] = store.tabs.enumerated().flatMap { tabIndex, tab in
-            tab.paneIds.compactMap { paneId -> CommandBarItem? in
+            tab.activePaneIds.compactMap { paneId -> CommandBarItem? in
                 guard let pane = store.pane(paneId), !pane.isDrawerChild else { return nil }
                 let destinationLevel = buildMovePaneDestinationLevel(
                     for: def,
@@ -481,7 +481,7 @@ enum CommandBarDataSource {
     ) -> CommandBarLevel {
         let items: [CommandBarItem] = store.tabs.enumerated().compactMap { tabIndex, tab -> CommandBarItem? in
             guard tab.id != sourceTabId else { return nil }
-            guard tab.activePaneId ?? tab.paneIds.first != nil else { return nil }
+            guard tab.activePaneId ?? tab.activePaneIds.first != nil else { return nil }
 
             let targetTabId = tab.id
             let tabTitle = tabDisplayTitle(tab: tab, store: store, repoCache: repoCache)
@@ -745,7 +745,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> String {
-        let primaryPaneId = tab.activePaneId ?? tab.paneIds.first
+        let primaryPaneId = tab.activePaneId ?? tab.activePaneIds.first
         guard let paneId = primaryPaneId else { return "Empty Tab" }
 
         let parts = displayParts(for: paneId, store: store, repoCache: repoCache)
