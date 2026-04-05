@@ -11,6 +11,28 @@ struct TrapezoidConnector: Shape {
     }
 }
 
+private struct DrawerHoverTooltip: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: AppStyle.textXs, weight: .medium))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.98))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.white.opacity(AppStyle.fillActive), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
+            .fixedSize()
+    }
+}
+
 // MARK: - DrawerIconBar
 
 /// Icon bar at the bottom of a pane showing drawer controls.
@@ -61,6 +83,12 @@ struct DrawerIconBar: View {
                         isToggleHovered = hovering
                     }
                 }
+                .overlay(alignment: .top) {
+                    if isToggleHovered {
+                        DrawerHoverTooltip(text: isExpanded ? "Collapse drawer" : "Expand drawer")
+                            .offset(y: -28)
+                    }
+                }
                 .help(isExpanded ? "Collapse drawer" : "Expand drawer")
 
                 // Vertical divider
@@ -86,6 +114,12 @@ struct DrawerIconBar: View {
                         isAddHovered = hovering
                     }
                 }
+                .overlay(alignment: .top) {
+                    if isAddHovered {
+                        DrawerHoverTooltip(text: "Add drawer pane")
+                            .offset(y: -28)
+                    }
+                }
                 .help("Add drawer pane")
 
                 Spacer()
@@ -104,6 +138,12 @@ struct DrawerIconBar: View {
                                 isFinderHovered = hovering
                             }
                         }
+                        .overlay(alignment: .top) {
+                            if isFinderHovered {
+                                DrawerHoverTooltip(text: "Open pane location in Finder")
+                                    .offset(y: -28)
+                            }
+                        }
 
                         trailingActionButton(
                             icon: .octicon(name: "octicon-code-square"),
@@ -115,6 +155,12 @@ struct DrawerIconBar: View {
                         .onHover { hovering in
                             withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
                                 isCursorHovered = hovering
+                            }
+                        }
+                        .overlay(alignment: .top) {
+                            if isCursorHovered {
+                                DrawerHoverTooltip(text: "Open pane location in Cursor or VS Code")
+                                    .offset(y: -28)
                             }
                         }
                     }
@@ -190,6 +236,12 @@ struct EmptyDrawerBar: View {
             .onHover { hovering in
                 withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
                     isHovered = hovering
+                }
+            }
+            .overlay(alignment: .top) {
+                if isHovered {
+                    DrawerHoverTooltip(text: "Add drawer pane")
+                        .offset(y: -28)
                 }
             }
             .help("Add drawer pane")
