@@ -20,8 +20,9 @@ struct PaneLeafContainer: View {
     let tabId: UUID
     let isActive: Bool
     let isSplit: Bool
+    let isSplitResizing: Bool
     let store: WorkspaceStore
-    let repoCache: WorkspaceRepoCache
+    let repoCache: RepoCacheAtom
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let onOpenPaneGitHub: (UUID) -> Void
@@ -29,7 +30,9 @@ struct PaneLeafContainer: View {
     let useDrawerFramePreference: Bool
 
     @State private var isHovered: Bool = false
-    @Bindable private var managementMode = ManagementModeMonitor.shared
+    private var managementMode: ManagementModeAtom {
+        atom(\.managementMode)
+    }
     @State private var isMinimizeHovered: Bool = false
     @State private var isCloseHovered: Bool = false
     @State private var isSplitHovered: Bool = false
@@ -40,8 +43,9 @@ struct PaneLeafContainer: View {
         tabId: UUID,
         isActive: Bool,
         isSplit: Bool,
+        isSplitResizing: Bool,
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache,
+        repoCache: RepoCacheAtom,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
@@ -52,6 +56,7 @@ struct PaneLeafContainer: View {
         self.tabId = tabId
         self.isActive = isActive
         self.isSplit = isSplit
+        self.isSplitResizing = isSplitResizing
         self.store = store
         self.repoCache = repoCache
         self.closeTransitionCoordinator = closeTransitionCoordinator
@@ -104,7 +109,7 @@ struct PaneLeafContainer: View {
     private var movePaneDestinations: [(tabId: UUID, title: String)] {
         store.tabs.enumerated().compactMap { index, tab in
             guard tab.id != tabId else { return nil }
-            guard tab.activePaneId ?? tab.paneIds.first != nil else { return nil }
+            guard tab.activePaneId ?? tab.activePaneIds.first != nil else { return nil }
             let title = tabDisplayTitle(tab: tab)
             return (tab.id, "Tab \(index + 1): \(title)")
         }
@@ -124,8 +129,7 @@ struct PaneLeafContainer: View {
         GeometryReader { _ in
             let managementContext = PaneManagementContext.project(
                 paneId: paneHost.id,
-                store: store,
-                repoCache: repoCache
+                store: store
             )
             ZStack(alignment: .topTrailing) {
                 VStack(spacing: 0) {
@@ -178,7 +182,7 @@ struct PaneLeafContainer: View {
                 }
 
                 // Hover border: drag affordance in management mode
-                if managementMode.isActive && isManagementHovered && !store.isSplitResizing {
+                if managementMode.isActive && isManagementHovered && !isSplitResizing {
                     RoundedRectangle(cornerRadius: AppStyle.panelCornerRadius)
                         .strokeBorder(Color.white.opacity(AppStyle.strokeVisible), lineWidth: 1)
                         .allowsHitTesting(false)
@@ -188,7 +192,7 @@ struct PaneLeafContainer: View {
                 // Drag handle: compact centered pill in management mode.
                 // The Color.clear fills the ZStack for centering; allowsHitTesting(false)
                 // ensures only the capsule itself intercepts mouse events.
-                if managementMode.isActive && !store.isSplitResizing {
+                if managementMode.isActive && !isSplitResizing {
                     ZStack {
                         Color.clear
                             .allowsHitTesting(false)
@@ -230,7 +234,7 @@ struct PaneLeafContainer: View {
                 }
 
                 // Pane controls: minimize + close (top-left, management mode)
-                if managementMode.isActive && !store.isSplitResizing {
+                if managementMode.isActive && !isSplitResizing {
                     VStack {
                         HStack(spacing: AppStyle.spacingStandard) {
                             Button {
@@ -303,7 +307,7 @@ struct PaneLeafContainer: View {
                 }
 
                 // Quarter-moon split and browser buttons (top-right, management mode)
-                if managementMode.isActive && !store.isSplitResizing {
+                if managementMode.isActive && !isSplitResizing {
                     VStack {
                         HStack {
                             Spacer()
@@ -363,7 +367,7 @@ struct PaneLeafContainer: View {
                             Button(destination.title) {
                                 guard
                                     let targetTab = store.tab(destination.tabId),
-                                    let targetPaneId = targetTab.activePaneId ?? targetTab.paneIds.first
+                                    let targetPaneId = targetTab.activePaneId ?? targetTab.activePaneIds.first
                                 else { return }
 
                                 actionDispatcher.dispatch(
@@ -422,11 +426,11 @@ struct PaneLeafContainer: View {
     }
 
     private func tabDisplayTitle(tab: Tab) -> String {
-        PaneDisplayProjector.tabDisplayLabel(for: tab, store: store, repoCache: repoCache)
+        atom(\.paneDisplay).tabDisplayLabel(for: tab)
     }
 
     private func paneDisplayTitle(_ paneId: UUID) -> String {
-        PaneDisplayProjector.displayLabel(for: paneId, store: store, repoCache: repoCache)
+        atom(\.paneDisplay).displayLabel(for: paneId)
     }
 
     private func paneEdgeButton(

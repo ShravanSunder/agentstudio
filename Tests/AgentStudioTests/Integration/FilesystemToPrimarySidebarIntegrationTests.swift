@@ -74,7 +74,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
             if let financeGroup {
                 let allFinanceWorktrees = financeGroup.repos.flatMap(\.worktrees)
                 let visibleBranchLabels = allFinanceWorktrees.map {
-                    PaneDisplayProjector.resolvedBranchName(
+                    atom(\.paneDisplay).resolvedBranchName(
                         worktree: $0,
                         enrichment: testSystem.repoCache.worktreeEnrichmentByWorktreeId[$0.id]
                     )
@@ -93,7 +93,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
     private struct IntegratedTestSystem {
         let bus: EventBus<RuntimeEnvelope>
         let workspaceStore: WorkspaceStore
-        let repoCache: WorkspaceRepoCache
+        let repoCache: RepoCacheAtom
         let coordinator: WorkspaceCacheCoordinator
         let pipeline: FilesystemGitPipeline
     }
@@ -108,7 +108,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
     ) -> IntegratedTestSystem {
         let bus = EventBus<RuntimeEnvelope>()
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let pipeline = FilesystemGitPipeline(
             bus: bus,
             gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider.stub { rootPath in

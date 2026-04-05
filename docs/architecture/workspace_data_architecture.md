@@ -23,13 +23,13 @@ TIER A: CANONICAL CONFIG (source of truth, user intent)
 
 TIER B: DERIVED CACHE (rebuildable from Tier A + actors)
   File: ~/.agentstudio/workspaces/<id>/workspace.cache.json
-  Owner: WorkspaceRepoCache (@MainActor, @Observable)
+  Owner: RepoCacheAtom (@MainActor, @Observable)
   Mutated by: WorkspaceCacheCoordinator only (event-driven)
   Contains: repo enrichment, worktree enrichment, PR counts, notification counts
 
 TIER C: UI STATE (preferences, non-structural)
   File: ~/.agentstudio/workspaces/<id>/workspace.ui.json
-  Owner: WorkspaceUIStore (@MainActor, @Observable)
+  Owner: UIStateAtom (@MainActor, @Observable)
   Mutated by: sidebar view actions only
   Contains: expanded groups, checkout colors, filter state
 ```
@@ -72,7 +72,7 @@ struct Worktree: Codable, Identifiable, Hashable {
 **What is NOT canonical** (lives in cache, populated by event bus):
 - `organizationName`, `origin`, `upstream` → `RepoEnrichment`
 - `branch`, git snapshot → `WorktreeEnrichment`
-- PR counts, notification counts → `WorkspaceRepoCache` dictionaries
+- PR counts, notification counts → `RepoCacheAtom` dictionaries
 
 ### Identity Semantics
 
@@ -199,11 +199,11 @@ PaneCoordinator (ordered post-topology effects)
     → syncFilesystemRootsAndActivity() (register new / unregister removed)
       │
       ▼
-WorkspaceRepoCache (@Observable, passive)
+RepoCacheAtom (@Observable, passive)
   → persisted to cache file on debounced schedule
       │
       ▼
-SIDEBAR (pure reader of WorkspaceStore + WorkspaceRepoCache + WorkspaceUIStore)
+SIDEBAR (pure reader of WorkspaceStore + RepoCacheAtom + UIStateAtom)
 ```
 
 ### Actor Responsibilities
@@ -261,10 +261,10 @@ handleTopology_*    — CANONICAL mutations (WorkspaceStore)
   For .repoDiscovered with .notScanned:
     → register/reassociate repo only, skip reconciliation (boot replay)
 
-handleEnrichment_*  — DERIVED cache writes (WorkspaceRepoCache only)
+handleEnrichment_*  — DERIVED cache writes (RepoCacheAtom only)
   Events: .snapshotChanged, .branchChanged, .originChanged, .originUnavailable,
           .pullRequestCountsChanged, .checksUpdated
-  Touches: WorkspaceRepoCache only
+  Touches: RepoCacheAtom only
 
 syncScope_*         — ACTOR registration management
   Operations: register/unregister worktrees with FilesystemActor, ForgeActor
@@ -331,11 +331,11 @@ The sidebar is a pure reader. It reads structure from one store, display data fr
 
 ```
 WorkspaceStore.repos                → canonical repo/worktree structure (what exists)
-WorkspaceRepoCache.repoEnrichment  → org name, display name, groupKey (how to group)
-WorkspaceRepoCache.worktreeEnrichment → branch, git status (how to display)
-WorkspaceRepoCache.pullRequestCounts → PR badges
-WorkspaceRepoCache.notificationCounts → notification bells
-WorkspaceUIStore                    → expanded groups, filter, colors (user prefs)
+RepoCacheAtom.repoEnrichment  → org name, display name, groupKey (how to group)
+RepoCacheAtom.worktreeEnrichment → branch, git status (how to display)
+RepoCacheAtom.pullRequestCounts → PR badges
+RepoCacheAtom.notificationCounts → notification bells
+UIStateAtom                    → expanded groups, filter, colors (user prefs)
 
 ZERO imperative fetches. ZERO mutations. Pure @Observable binding.
 ```
@@ -352,9 +352,9 @@ Branch display: `WorktreeEnrichment.branch` from cache, falling back to `"detach
 
 ```
 1. WorkspaceStore.restore() → load repos, worktrees, panes, tabs from workspace.state.json
-2. WorkspaceRepoCache.loadCache() → warm-start from workspace.cache.json
+2. RepoCacheAtom.loadCache() → warm-start from workspace.cache.json
    - Sidebar renders immediately with cached enrichment data
-3. WorkspaceUIStore.load() → expanded groups, filter, colors from workspace.ui.json
+3. UIStateAtom.load() → expanded groups, filter, colors from workspace.ui.json
 4. Start runtime actors (FilesystemActor, GitProjector, ForgeActor)
 5. Start WorkspaceCacheCoordinator → subscribes to bus
 6. replayBootTopology() — emit .repoDiscovered for each persisted repo
@@ -386,7 +386,7 @@ Boot replay uses the same `.repoDiscovered` event and same coordinator code path
    b. Does NOT emit topology facts directly
 6. WorkspaceCacheCoordinator.handleTopology(.repoDiscovered):
    a. Idempotent check by stableKey — skip if repo already exists
-   b. Seed enrichment to .awaitingOrigin in WorkspaceRepoCache
+   b. Seed enrichment to .awaitingOrigin in RepoCacheAtom
 7. PaneCoordinator reacts from topology facts and syncs registered worktree roots
 8. Actors start producing enrichment events → cache updates → sidebar renders
 ```
@@ -513,7 +513,7 @@ func handleTopology(_ event: TopologyEvent) {
 }
 
 // 6. Later, GitProjector emits .snapshotChanged, .branchChanged
-// 7. WorkspaceCacheCoordinator writes enrichment to WorkspaceRepoCache
+// 7. WorkspaceCacheCoordinator writes enrichment to RepoCacheAtom
 // 8. Sidebar re-renders via @Observable
 ```
 
@@ -585,7 +585,7 @@ FilesystemActor ──► bus.post(.repoDiscovered/.repoRemoved) [reports facts]
 Bus ──► WorkspaceCacheCoordinator                   [single intake]
          │
          ├── idempotent upsert (dedup by stableKey)
-         ├── seed enrichment in WorkspaceRepoCache
+         ├── seed enrichment in RepoCacheAtom
          └── sidebar re-renders via @Observable
 ```
 
@@ -664,7 +664,7 @@ Test the full event flow: emit an event → coordinator processes it → assert 
     @Test func repoDiscovered_seedsEnrichmentInCache() async {
         // Arrange
         let store = WorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             workspaceStore: store,
             repoCache: repoCache
@@ -688,7 +688,7 @@ Test the full event flow: emit an event → coordinator processes it → assert 
     @Test func repoDiscovered_idempotent_doesNotDuplicate() async {
         // Arrange
         let store = WorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             workspaceStore: store,
             repoCache: repoCache
@@ -713,7 +713,7 @@ Test the full event flow: emit an event → coordinator processes it → assert 
 
 Key testing principles:
 - **Test the event path, not the store in isolation.** The coordinator IS the glue — test it with real stores.
-- **Assert on both stores.** A topology event should update both `WorkspaceStore` (canonical) and `WorkspaceRepoCache` (enrichment).
+- **Assert on both stores.** A topology event should update both `WorkspaceStore` (canonical) and `RepoCacheAtom` (enrichment).
 - **Test idempotency.** Emit the same event twice. Assert no duplicates.
 - **Test ordering tolerance.** Emit events in wrong order. Assert no crash.
 

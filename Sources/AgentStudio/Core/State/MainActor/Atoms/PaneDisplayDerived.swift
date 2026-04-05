@@ -9,13 +9,10 @@ struct PaneDisplayParts: Equatable {
 }
 
 @MainActor
-enum PaneDisplayProjector {
-    static func displayParts(
-        for paneId: UUID,
-        store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
-    ) -> PaneDisplayParts {
-        guard let pane = store.pane(paneId) else {
+struct PaneDisplayDerived {
+    func displayParts(for paneId: UUID) -> PaneDisplayParts {
+        let workspacePane = atom(\.workspacePane)
+        guard let pane = workspacePane.pane(paneId) else {
             return PaneDisplayParts(
                 primaryLabel: "Terminal",
                 repoName: nil,
@@ -25,14 +22,13 @@ enum PaneDisplayProjector {
             )
         }
 
-        return displayParts(for: pane, store: store, repoCache: repoCache)
+        return displayParts(for: pane)
     }
 
-    static func displayParts(
-        for pane: Pane,
-        store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
-    ) -> PaneDisplayParts {
+    func displayParts(for pane: Pane) -> PaneDisplayParts {
+        let workspaceRepositoryTopology = atom(\.workspaceRepositoryTopology)
+        let repoCache = atom(\.repoCache)
+
         let rawTitle = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let defaultLabel = rawTitle.isEmpty ? "Terminal" : rawTitle
         let cwdFolderName: String? = {
@@ -42,8 +38,8 @@ enum PaneDisplayProjector {
 
         if let worktreeId = pane.worktreeId,
             let repoId = pane.repoId,
-            let repo = store.repo(repoId),
-            let worktree = store.worktree(worktreeId)
+            let repo = workspaceRepositoryTopology.repo(repoId),
+            let worktree = workspaceRepositoryTopology.worktree(worktreeId)
         {
             let repoName = pane.metadata.repoName ?? repo.name
             let branchName = resolvedBranchName(
@@ -79,39 +75,27 @@ enum PaneDisplayProjector {
         )
     }
 
-    static func displayLabel(
-        for paneId: UUID,
-        store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
-    ) -> String {
-        displayParts(for: paneId, store: store, repoCache: repoCache).primaryLabel
+    func displayLabel(for paneId: UUID) -> String {
+        displayParts(for: paneId).primaryLabel
     }
 
-    static func tabDisplayLabel(
-        for tab: Tab,
-        store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
-    ) -> String {
-        let paneLabels = tab.paneIds.map { displayLabel(for: $0, store: store, repoCache: repoCache) }
+    func tabDisplayLabel(for tab: Tab) -> String {
+        let paneLabels = tab.activePaneIds.map { displayLabel(for: $0) }
         if paneLabels.count > 1 {
             return paneLabels.joined(separator: " | ")
         }
         return paneLabels.first ?? "Terminal"
     }
 
-    static func paneKeywords(
-        for pane: Pane,
-        store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
-    ) -> [String] {
-        let parts = displayParts(for: pane, store: store, repoCache: repoCache)
+    func paneKeywords(for pane: Pane) -> [String] {
+        let parts = displayParts(for: pane)
         return [parts.primaryLabel, parts.repoName, parts.branchName, parts.worktreeFolderName, parts.cwdFolderName]
             .compactMap { $0 }
             .filter { !$0.isEmpty }
     }
 
-    static func resolvedBranchName(
-        worktree: Worktree,
+    func resolvedBranchName(
+        worktree _: Worktree,
         enrichment: WorktreeEnrichment?
     ) -> String {
         let cachedBranch = enrichment?.branch.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

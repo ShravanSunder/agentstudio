@@ -19,7 +19,7 @@ final class CommandBarPanelController {
     // MARK: - Dependencies
 
     private let store: WorkspaceStore
-    private let repoCache: WorkspaceRepoCache
+    private let repoCache: RepoCacheAtom
     private let dispatcher: CommandDispatcher
 
     // MARK: - Panel
@@ -34,7 +34,7 @@ final class CommandBarPanelController {
 
     init(
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache = WorkspaceRepoCache(),
+        repoCache: RepoCacheAtom,
         dispatcher: CommandDispatcher
     ) {
         self.store = store

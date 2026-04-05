@@ -65,15 +65,16 @@ private final class InteractionTrackingPaneHostView: PaneHostView {
 struct ManagementModeDragShieldTests {
 
     init() {
+        installTestAtomScopeIfNeeded()
         // Ensure management mode is off before each test
-        if ManagementModeMonitor.shared.isActive {
-            ManagementModeMonitor.shared.deactivate()
+        if atom(\.managementMode).isActive {
+            atom(\.managementMode).deactivate()
         }
     }
 
     private func ensureManagementModeActive() {
-        if !ManagementModeMonitor.shared.isActive {
-            ManagementModeMonitor.shared.toggle()
+        if !atom(\.managementMode).isActive {
+            atom(\.managementMode).toggle()
         }
     }
 
@@ -81,66 +82,56 @@ struct ManagementModeDragShieldTests {
 
     @Test
     func test_hitTest_alwaysReturnsNil_managementModeOff() async {
-        await withManagementModeTestLock {
-            ManagementModeMonitor.shared.deactivate()
-            let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-            let result = shield.hitTest(NSPoint(x: 100, y: 100))
-            #expect(result == nil)
-        }
+        atom(\.managementMode).deactivate()
+        let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        let result = shield.hitTest(NSPoint(x: 100, y: 100))
+        #expect(result == nil)
     }
 
     @Test
     func test_hitTest_alwaysReturnsNil_managementModeOn() async {
-        await withManagementModeTestLock {
-            let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-            ensureManagementModeActive()
-            let result = shield.hitTest(NSPoint(x: 100, y: 100))
-            #expect(result == nil)
-            ManagementModeMonitor.shared.deactivate()
-        }
+        let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        ensureManagementModeActive()
+        let result = shield.hitTest(NSPoint(x: 100, y: 100))
+        #expect(result == nil)
+        atom(\.managementMode).deactivate()
     }
 
     // MARK: - Dynamic Registration
 
     @Test
     func test_registeredDragTypes_managementModeOff_isEmpty() async {
-        await withManagementModeTestLock {
-            ManagementModeMonitor.shared.deactivate()
-            let shield = ManagementModeDragShield(frame: .zero)
-            let types = shield.registeredDraggedTypes
-            #expect(types.isEmpty)
-        }
+        atom(\.managementMode).deactivate()
+        let shield = ManagementModeDragShield(frame: .zero)
+        let types = shield.registeredDraggedTypes
+        #expect(types.isEmpty)
     }
 
     @Test
     func test_registeredDragTypes_managementModeOn_includesFileTypes() async {
-        await withManagementModeTestLock {
-            ensureManagementModeActive()
-            let shield = ManagementModeDragShield(frame: .zero)
-            let types = shield.registeredDraggedTypes
-            #expect(types.contains(.fileURL))
-            #expect(types.contains(.URL))
-            #expect(types.contains(.tiff))
-            #expect(types.contains(.png))
-            #expect(types.contains(.string))
-            #expect(types.contains(.html))
-            #expect(!types.contains(.agentStudioTabDrop))
-            #expect(!types.contains(.agentStudioPaneDrop))
-            #expect(!types.contains(.agentStudioTabInternal))
-            ManagementModeMonitor.shared.deactivate()
-        }
+        ensureManagementModeActive()
+        let shield = ManagementModeDragShield(frame: .zero)
+        let types = shield.registeredDraggedTypes
+        #expect(types.contains(.fileURL))
+        #expect(types.contains(.URL))
+        #expect(types.contains(.tiff))
+        #expect(types.contains(.png))
+        #expect(types.contains(.string))
+        #expect(types.contains(.html))
+        #expect(!types.contains(.agentStudioTabDrop))
+        #expect(!types.contains(.agentStudioPaneDrop))
+        #expect(!types.contains(.agentStudioTabInternal))
+        atom(\.managementMode).deactivate()
     }
 
     @Test
     func test_registeredDragTypes_excludesBroadSupertypes() async {
-        await withManagementModeTestLock {
-            ensureManagementModeActive()
-            let shield = ManagementModeDragShield(frame: .zero)
-            let types = shield.registeredDraggedTypes
-            #expect(!types.contains(NSPasteboard.PasteboardType("public.data")))
-            #expect(!types.contains(NSPasteboard.PasteboardType("public.content")))
-            ManagementModeMonitor.shared.deactivate()
-        }
+        ensureManagementModeActive()
+        let shield = ManagementModeDragShield(frame: .zero)
+        let types = shield.registeredDraggedTypes
+        #expect(!types.contains(NSPasteboard.PasteboardType("public.data")))
+        #expect(!types.contains(NSPasteboard.PasteboardType("public.content")))
+        atom(\.managementMode).deactivate()
     }
 
     // MARK: - Shield Installation in PaneHostView
@@ -173,104 +164,86 @@ struct ManagementModeDragShieldTests {
 
     @Test
     func test_shieldAttach_appliesCurrentInteractionState_managementModeActive() async {
-        await withManagementModeTestLock {
-            ensureManagementModeActive()
-            let paneView = InteractionTrackingPaneHostView(paneId: UUID())
-            _ = paneView.swiftUIContainer
-            #expect(paneView.interactionEnabledHistory.last == false)
-            ManagementModeMonitor.shared.deactivate()
-        }
+        ensureManagementModeActive()
+        let paneView = InteractionTrackingPaneHostView(paneId: UUID())
+        _ = paneView.swiftUIContainer
+        #expect(paneView.interactionEnabledHistory.last == false)
+        atom(\.managementMode).deactivate()
     }
 
     @Test
     func test_shieldAttach_appliesCurrentInteractionState_managementModeInactive() async {
-        await withManagementModeTestLock {
-            ManagementModeMonitor.shared.deactivate()
-            let paneView = InteractionTrackingPaneHostView(paneId: UUID())
-            _ = paneView.swiftUIContainer
-            #expect(paneView.interactionEnabledHistory.last == true)
-        }
+        atom(\.managementMode).deactivate()
+        let paneView = InteractionTrackingPaneHostView(paneId: UUID())
+        _ = paneView.swiftUIContainer
+        #expect(paneView.interactionEnabledHistory.last == true)
     }
 
     @Test
     func test_paneViewHitTest_managementModeOn_returnsNil() async {
-        await withManagementModeTestLock {
-            let paneView = PaneHostView(paneId: UUID())
-            _ = paneView.swiftUIContainer
-            ensureManagementModeActive()
-            let result = paneView.hitTest(NSPoint(x: 100, y: 100))
-            #expect(result == nil)
-            ManagementModeMonitor.shared.deactivate()
-        }
+        let paneView = PaneHostView(paneId: UUID())
+        _ = paneView.swiftUIContainer
+        ensureManagementModeActive()
+        let result = paneView.hitTest(NSPoint(x: 100, y: 100))
+        #expect(result == nil)
+        atom(\.managementMode).deactivate()
     }
 
     @Test
     func test_paneViewHitTest_managementModeOff_returnsNormally() async {
-        await withManagementModeTestLock {
-            ManagementModeMonitor.shared.deactivate()
-            let paneView = PaneHostView(paneId: UUID())
-            _ = paneView.swiftUIContainer
-            let result = paneView.hitTest(NSPoint(x: 100, y: 100))
-            #expect(result !== paneView.interactionShield || result == nil)
-        }
+        atom(\.managementMode).deactivate()
+        let paneView = PaneHostView(paneId: UUID())
+        _ = paneView.swiftUIContainer
+        let result = paneView.hitTest(NSPoint(x: 100, y: 100))
+        #expect(result !== paneView.interactionShield || result == nil)
     }
 
     @Test
     func test_containerHitTest_managementModeOff_returnsSelf() async {
-        await withManagementModeTestLock {
-            ManagementModeMonitor.shared.deactivate()
-            let container = ManagementModeContainerView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-            let result = container.hitTest(NSPoint(x: 100, y: 100))
-            #expect(result === container)
-        }
+        atom(\.managementMode).deactivate()
+        let container = ManagementModeContainerView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        let result = container.hitTest(NSPoint(x: 100, y: 100))
+        #expect(result === container)
     }
 
     @Test
     func test_containerHitTest_managementModeOn_returnsNil() async {
-        await withManagementModeTestLock {
-            let container = ManagementModeContainerView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-            ensureManagementModeActive()
-            let result = container.hitTest(NSPoint(x: 100, y: 100))
-            #expect(result == nil)
-            ManagementModeMonitor.shared.deactivate()
-        }
+        let container = ManagementModeContainerView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        ensureManagementModeActive()
+        let result = container.hitTest(NSPoint(x: 100, y: 100))
+        #expect(result == nil)
+        atom(\.managementMode).deactivate()
     }
 
     // MARK: - NSDraggingDestination
 
     @Test
     func test_draggingEntered_managementModeActive_returnsGeneric() async {
-        await withManagementModeTestLock {
-            let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-            ensureManagementModeActive()
-            let mockDrag = MockDraggingInfo(pasteboardTypes: [.fileURL])
-            let result = shield.draggingEntered(mockDrag)
-            #expect(result == .generic)
-            ManagementModeMonitor.shared.deactivate()
-        }
+        let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        ensureManagementModeActive()
+        let mockDrag = MockDraggingInfo(pasteboardTypes: [.fileURL])
+        let result = shield.draggingEntered(mockDrag)
+        #expect(result == .generic)
+        atom(\.managementMode).deactivate()
     }
 
     @Test
     func test_draggingEntered_managementModeInactive_returnsEmpty() async {
-        await withManagementModeTestLock {
-            ManagementModeMonitor.shared.deactivate()
-            let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-            let mockDrag = MockDraggingInfo(pasteboardTypes: [.fileURL])
-            let result = shield.draggingEntered(mockDrag)
-            #expect(result.isEmpty)
-        }
+        atom(\.managementMode).deactivate()
+        let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        let mockDrag = MockDraggingInfo(pasteboardTypes: [.fileURL])
+        let result = shield.draggingEntered(mockDrag)
+        #expect(result.isEmpty)
     }
 
     @Test
     func test_draggingUpdated_managementModeActive_returnsGeneric() async {
-        await withManagementModeTestLock {
-            let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-            ensureManagementModeActive()
-            let mockDrag = MockDraggingInfo(pasteboardTypes: [.fileURL])
-            let result = shield.draggingUpdated(mockDrag)
-            #expect(result == .generic)
-            ManagementModeMonitor.shared.deactivate()
-        }
+        let shield = ManagementModeDragShield(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        ensureManagementModeActive()
+        let mockDrag = MockDraggingInfo(pasteboardTypes: [.fileURL])
+        let result = shield.draggingUpdated(mockDrag)
+        #expect(result == .generic)
+        atom(\.managementMode).deactivate()
     }
 
     @Test

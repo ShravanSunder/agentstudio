@@ -116,7 +116,7 @@ Models are split across two stores. See [Workspace Data Architecture](workspace_
 | `isMainWorktree` | `Bool` | Whether this is the main checkout |
 | `stableKey` | `String` | SHA-256 of path, derived |
 
-All enrichment (branch, git status, origin, PR counts) lives in `WorkspaceRepoCache`, populated by the event bus. See the "Three Persistence Tiers" section in workspace_data_architecture.md.
+All enrichment (branch, git status, origin, PR counts) lives in `RepoCacheAtom`, populated by the event bus. See the "Three Persistence Tiers" section in workspace_data_architecture.md.
 
 > **Files:** `Core/Models/Repo.swift`, `Core/Models/Worktree.swift`
 
@@ -329,7 +329,7 @@ interaction state and are intentionally writable by UI bindings. They are not do
 - `activeView`, `activeTabs`, `activeTabId`, `activeSessionIds`
 - `isWorktreeActive()`, `sessionCount(for:)`, `sessions(for:)`
 
-> **File:** `Core/Stores/WorkspaceStore.swift`
+> **File:** `Core/State/MainActor/Persistence/WorkspaceStore.swift`
 
 ### 3.3 SessionRuntime
 
@@ -351,7 +351,7 @@ Manages live session state. Does **not** own sessions — reads the session list
 >
 > **Isolation audit:** `ZmxBackend.isAlive()` shells out to the `zmx` CLI — this is 10-100ms of blocking I/O. Since `SessionRuntime` is `@MainActor`, `isAlive()` must not run synchronously on the main thread. The current implementation dispatches via `ProcessExecutor` (which uses `DispatchQueue.global()`). When the backend protocol is consolidated, `isAlive()` should be `@concurrent nonisolated` (Swift 6.2) to explicitly run on the cooperative pool. Plain `nonisolated async` would inherit MainActor isolation if called from `SessionRuntime` — see [EventBus Design — Swift 6.2 Gotchas](pane_runtime_eventbus_design.md#swift-62-gotchas-quick-reference).
 
-> **File:** `Core/Stores/SessionRuntime.swift`
+> **File:** `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift`
 
 ### 3.4 ViewRegistry
 
@@ -428,7 +428,7 @@ Owned by `WorkspaceStore` as a `private let` member. Pure persistence I/O. No bu
 - `save(state)` / `load()` — JSON serialization to `~/.agentstudio/workspaces/`
 - `ensureDirectory()`, `hasWorkspaceFiles()`, `delete()`
 
-> **File:** `Core/Stores/WorkspacePersistor.swift`
+> **File:** `Core/State/MainActor/Persistence/WorkspacePersistor.swift`
 
 ### 3.9.1 Persistence Domain Segregation (Target)
 
@@ -437,8 +437,8 @@ Owned by `WorkspaceStore` as a `private let` member. Pure persistence I/O. No bu
 To keep Jotai-style store boundaries and Valtio-style source-of-truth guarantees intact, persistence is split by domain responsibility:
 
 - Canonical workspace model (`WorkspaceStore`) stays in `workspace.state.json` — contains `watchedPaths`, `CanonicalRepo[]`, `CanonicalWorktree[]`, panes, tabs, layouts
-- Derived enrichment data (`WorkspaceRepoCache`) in `workspace.cache.json` — contains `RepoEnrichment`, `WorktreeEnrichment`, PR/notification counts. Written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events.
-- Workspace-scoped UI preferences (`WorkspaceUIStore`) in `workspace.ui.json`
+- Derived enrichment data (`RepoCacheAtom`) in `workspace.cache.json` — contains `RepoEnrichment`, `WorktreeEnrichment`, PR/notification counts. Written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events.
+- Workspace-scoped UI preferences (`UIStateAtom`) in `workspace.ui.json`
 - Global app preferences and keybindings are stored separately from workspace state
 
 This prevents derived data from silently becoming canonical truth and aligns each persisted file with exactly one reason to change.
@@ -461,8 +461,8 @@ This prevents derived data from silently becoming canonical truth and aligns eac
 #### Store Ownership
 
 - `WorkspaceStore` → canonical workspace model in `workspace.state.json`
-- `WorkspaceRepoCache` → derived git/wt/gh metadata + status in `workspace.cache.json`
-- `WorkspaceUIStore` → workspace-scoped UI preferences in `workspace.ui.json`
+- `RepoCacheAtom` → derived git/wt/gh metadata + status in `workspace.cache.json`
+- `UIStateAtom` → workspace-scoped UI preferences in `workspace.ui.json`
 - `PreferencesStore` → global app preferences in `preferences.global.json`
 - `KeybindingsStore` → command-to-shortcut overrides in `keybindings.json`
 
@@ -536,10 +536,10 @@ Required cache validity fields:
 #### Load / Refresh Sequencing
 
 1. Load `workspace.state.json` into `WorkspaceStore`
-2. Load `workspace.ui.json` into `WorkspaceUIStore`
+2. Load `workspace.ui.json` into `UIStateAtom`
 3. Load global preferences and keybindings into their stores
 4. Load `workspace.cache.json` only if cache revision matches canonical workspace revision
-5. Trigger async refresh pipeline (`wt`, `git`, `gh`) and patch `WorkspaceRepoCache`
+5. Trigger async refresh pipeline (`wt`, `git`, `gh`) and patch `RepoCacheAtom`
 
 Coordinator owns sequencing, not domain decisions:
 
@@ -590,7 +590,7 @@ Git worktree management via the `wt` CLI tool. Singleton.
 
 > **File:** `Infrastructure/WorktrunkService.swift`
 >
-> Worktree discovery flows through the enrichment pipeline: AppDelegate persists watched scope and triggers the watched-folder command → `FilesystemActor` scans and emits `.repoDiscovered` / `.repoRemoved` → `WorkspaceCacheCoordinator` registers or marks unavailable canonical entries in `WorkspaceStore` and seeds enrichment in `WorkspaceRepoCache`. See [Workspace Data Architecture](workspace_data_architecture.md) for the full pipeline.
+> Worktree discovery flows through the enrichment pipeline: AppDelegate persists watched scope and triggers the watched-folder command → `FilesystemActor` scans and emits `.repoDiscovered` / `.repoRemoved` → `WorkspaceCacheCoordinator` registers or marks unavailable canonical entries in `WorkspaceStore` and seeds enrichment in `RepoCacheAtom`. See [Workspace Data Architecture](workspace_data_architecture.md) for the full pipeline.
 
 ### 3.12 Command Bar System
 
@@ -819,11 +819,11 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `Infrastructure/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
 | `Core/Models/SessionStatus.swift` | 7-state session lifecycle machine (future zmx health) |
 | **Core/Stores** | |
-| `Core/Stores/WorkspaceStore.swift` | Atomic store for workspace structure (tabs, layouts, views) |
-| `Core/Stores/WorkspacePersistor.swift` | JSON persistence I/O |
-| `Core/Stores/SessionRuntime.swift` | Runtime status tracking and health checks |
+| `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper around `WorkspaceCatalogAtom` + `WorkspaceGraphAtom` |
+| `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | JSON persistence I/O |
+| `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` | Runtime status tracking and health checks |
 | `App/Panes/ViewRegistry.swift` | Session ID → NSView mapping |
-| `Core/Stores/ZmxBackend.swift` | zmx CLI wrapper — session create/destroy/health |
+| `Core/RuntimeEventSystem/Runtime/ZmxBackend.swift` | zmx CLI wrapper — session create/destroy/health |
 | **Infrastructure** | |
 | `Infrastructure/WorktrunkService.swift` | Git worktree CLI wrapper |
 | `Infrastructure/WorktreeReconciler.swift` | Pure function: matches existing vs discovered worktrees, preserves UUIDs, returns merged list + `WorktreeTopologyDelta` |

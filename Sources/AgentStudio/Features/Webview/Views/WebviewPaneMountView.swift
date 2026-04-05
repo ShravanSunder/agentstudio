@@ -40,7 +40,7 @@ final class WebviewPaneMountView: NSView, PaneMountedContent {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        setContentInteractionEnabled(!ManagementModeMonitor.shared.isActive)
+        setContentInteractionEnabled(!atom(\.managementMode).isActive)
         syncHostingViewFrame()
     }
 

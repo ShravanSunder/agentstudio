@@ -1092,7 +1092,7 @@ In `Sources/AgentStudio/Features/CommandBar/CommandBarDataSource.swift`, replace
 private static func tabDisplayTitle(
     tab: Tab,
     store: WorkspaceStore,
-    repoCache: WorkspaceRepoCache
+    repoCache: RepoCacheAtom
 ) -> String {
     let primaryPaneId = tab.activePaneId ?? tab.paneIds.first
     guard let paneId = primaryPaneId else { return "Empty Tab" }
@@ -1109,7 +1109,7 @@ In the `tabItems` method, update the subtitle computation:
 ```swift
 private static func tabItems(
     store: WorkspaceStore,
-    repoCache: WorkspaceRepoCache
+    repoCache: RepoCacheAtom
 ) -> [CommandBarItem] {
     store.tabs.enumerated().map { index, tab in
         let title = tabDisplayTitle(tab: tab, store: store, repoCache: repoCache)
@@ -1180,7 +1180,7 @@ Add a new helper in `CommandBarDataSource`. Note: `WebviewState.url` is `URL` (n
 private static func paneDisplayLabel(
     for pane: Pane,
     store: WorkspaceStore,
-    repoCache: WorkspaceRepoCache
+    repoCache: RepoCacheAtom
 ) -> String {
     let parts = PaneDisplayProjector.displayParts(for: pane, store: store, repoCache: repoCache)
 
@@ -1392,7 +1392,7 @@ In `Sources/AgentStudio/Features/CommandBar/CommandBarDataSource.swift`, update 
 private static func keywordsForPane(
     _ pane: Pane,
     store: WorkspaceStore,
-    repoCache: WorkspaceRepoCache
+    repoCache: RepoCacheAtom
 ) -> [String] {
     let parts = PaneDisplayProjector.displayParts(for: pane, store: store, repoCache: repoCache)
     var keywords = ["pane"]

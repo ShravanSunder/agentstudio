@@ -47,9 +47,10 @@ protocol SessionBackendProtocol {
 @Observable
 @MainActor
 final class SessionRuntime {
+    @ObservationIgnored let atom: SessionRuntimeAtom
 
     /// Runtime status for each pane.
-    private(set) var statuses: [UUID: SessionRuntimeStatus] = [:]
+    var statuses: [UUID: SessionRuntimeStatus] { atom.statuses }
 
     /// Registered backends by provider type.
     private var backends: [SessionProvider: any SessionBackendProtocol] = [:]
@@ -67,10 +68,12 @@ final class SessionRuntime {
     private var healthCheckTask: Task<Void, Never>?
 
     init(
+        atom: SessionRuntimeAtom = SessionRuntimeAtom(),
         store: WorkspaceStore? = nil,
         healthCheckInterval: TimeInterval = 30,
         clock: any Clock<Duration> = ContinuousClock()
     ) {
+        self.atom = atom
         self.store = store
         self.healthCheckInterval = healthCheckInterval
         self.clock = clock
@@ -91,42 +94,42 @@ final class SessionRuntime {
 
     /// Get the runtime status of a pane.
     func status(for paneId: UUID) -> SessionRuntimeStatus {
-        statuses[paneId] ?? .initializing
+        atom.status(for: paneId)
     }
 
     /// All panes with a given status.
     func panes(withStatus status: SessionRuntimeStatus) -> [UUID] {
-        statuses.filter { $0.value == status }.map(\.key)
+        atom.panes(withStatus: status)
     }
 
     /// Number of running panes.
     var runningCount: Int {
-        statuses.values.filter { $0 == .running }.count
+        atom.runningCount
     }
 
     // MARK: - Lifecycle
 
     /// Initialize a pane — set to initializing state.
     func initializeSession(_ paneId: UUID) {
-        statuses[paneId] = .initializing
+        atom.initializeSession(paneId)
         runtimeLogger.debug("Pane \(paneId) initialized")
     }
 
     /// Mark a pane as running.
     func markRunning(_ paneId: UUID) {
-        statuses[paneId] = .running
+        atom.markRunning(paneId)
         runtimeLogger.debug("Pane \(paneId) marked running")
     }
 
     /// Mark a pane as exited.
     func markExited(_ paneId: UUID) {
-        statuses[paneId] = .exited
+        atom.markExited(paneId)
         runtimeLogger.debug("Pane \(paneId) marked exited")
     }
 
     /// Remove tracking for a pane.
     func removeSession(_ paneId: UUID) {
-        statuses.removeValue(forKey: paneId)
+        atom.removeSession(paneId)
         runtimeLogger.debug("Pane \(paneId) removed from runtime")
     }
 
@@ -136,19 +139,7 @@ final class SessionRuntime {
     func syncWithStore() {
         guard let store else { return }
         let storePaneIds = Set(store.panes.keys)
-        let trackedIds = Set(statuses.keys)
-
-        // Remove statuses for panes no longer in store
-        for id in trackedIds.subtracting(storePaneIds) {
-            statuses.removeValue(forKey: id)
-            runtimeLogger.debug("Removed stale pane \(id) from runtime")
-        }
-
-        // Add initial status for new panes
-        for id in storePaneIds.subtracting(trackedIds) {
-            statuses[id] = .initializing
-            runtimeLogger.debug("Added new pane \(id) to runtime")
-        }
+        atom.sync(withPaneIds: storePaneIds)
     }
 
     // MARK: - Health Checks
@@ -178,14 +169,14 @@ final class SessionRuntime {
         guard let store else { return }
 
         for (id, pane) in store.panes {
-            guard statuses[id] == .running else { continue }
+            guard atom.status(for: id) == .running else { continue }
             guard let provider = pane.provider,
                 let backend = backends[provider]
             else { continue }
 
             let alive = await backend.isAlive(pane: pane)
             if !alive {
-                statuses[id] = .unhealthy
+                atom.markUnhealthy(id)
                 runtimeLogger.warning("Pane \(id) unhealthy (\(provider.rawValue))")
             }
         }
@@ -203,9 +194,9 @@ final class SessionRuntime {
             return nil
         }
 
-        statuses[pane.id] = .initializing
+        atom.initializeSession(pane.id)
         let handle = try await backend.start(pane: pane)
-        statuses[pane.id] = .running
+        atom.markRunning(pane.id)
         return handle
     }
 
@@ -219,7 +210,11 @@ final class SessionRuntime {
         }
 
         let restored = await backend.restore(pane: pane)
-        statuses[pane.id] = restored ? .running : .exited
+        if restored {
+            atom.markRunning(pane.id)
+        } else {
+            atom.markExited(pane.id)
+        }
         return restored
     }
 
@@ -228,11 +223,11 @@ final class SessionRuntime {
         guard let provider = pane.provider,
             let backend = backends[provider]
         else {
-            statuses[pane.id] = .exited
+            atom.markExited(pane.id)
             return
         }
 
         await backend.terminate(pane: pane)
-        statuses[pane.id] = .exited
+        atom.markExited(pane.id)
     }
 }

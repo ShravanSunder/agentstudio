@@ -19,7 +19,7 @@ struct GitHubWebviewLaunchResolverTests {
     @Test
     func resolvesRepoURL_forWorktreeBackedActivePane() throws {
         let store = makeStore()
-        let cache = WorkspaceRepoCache()
+        let cache = RepoCacheAtom()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
         guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
             Issue.record("Expected main worktree")
@@ -54,7 +54,7 @@ struct GitHubWebviewLaunchResolverTests {
     @Test
     func resolvesPullListURL_whenPullRequestSignalExists() throws {
         let store = makeStore()
-        let cache = WorkspaceRepoCache()
+        let cache = RepoCacheAtom()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
         guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
             Issue.record("Expected main worktree")
@@ -90,7 +90,7 @@ struct GitHubWebviewLaunchResolverTests {
     @Test
     func resolvesRepoURL_forFloatingCwdMappedBackToRepo() {
         let store = makeStore()
-        let cache = WorkspaceRepoCache()
+        let cache = RepoCacheAtom()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
         let cwd = URL(fileURLWithPath: "/tmp/agent-studio/Sources")
         let pane = store.createPane(
@@ -121,7 +121,7 @@ struct GitHubWebviewLaunchResolverTests {
     @Test
     func fallsBackToGitHubHome_whenNoRepoSlugIsAvailable() {
         let store = makeStore()
-        let cache = WorkspaceRepoCache()
+        let cache = RepoCacheAtom()
 
         let url = GitHubWebviewLaunchResolver.urlForActivePane(store: store, repoCache: cache)
 
@@ -131,7 +131,7 @@ struct GitHubWebviewLaunchResolverTests {
     @Test
     func resolvesRepoURL_forSpecificPaneId() {
         let store = makeStore()
-        let cache = WorkspaceRepoCache()
+        let cache = RepoCacheAtom()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
         guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
             Issue.record("Expected main worktree")

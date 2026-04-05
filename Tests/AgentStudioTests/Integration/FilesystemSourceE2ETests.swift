@@ -45,7 +45,7 @@ extension E2ESerializedTests {
                     processExecutor: DefaultProcessExecutor(timeout: 5))
             )
             let paneProjectionStore = PaneFilesystemProjectionStore()
-            let repoCache = WorkspaceRepoCache()
+            let repoCache = RepoCacheAtom()
             let cacheCoordinator = WorkspaceCacheCoordinator(
                 bus: paneEventBus,
                 workspaceStore: store,

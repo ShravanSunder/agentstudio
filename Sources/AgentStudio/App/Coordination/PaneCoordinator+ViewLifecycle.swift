@@ -88,7 +88,7 @@ extension PaneCoordinator {
             let view = WebviewPaneMountView(paneId: pane.id, state: state)
             let paneId = pane.id
             view.controller.onTitleChange = { [weak self] title in
-                self?.store.updatePaneTitle(paneId, title: title)
+                self?.store.paneAtom.updatePaneTitle(paneId, title: title)
             }
             registerHostedView(mountedView: view, for: pane.id)
             registerRuntimeIfNeeded(runtime: view.runtime, for: pane)
@@ -175,7 +175,7 @@ extension PaneCoordinator {
                     "zmx not found; using ephemeral session for \(pane.id) (state will not persist)"
                 )
                 if !pane.metadata.title.localizedCaseInsensitiveContains("ephemeral") {
-                    store.updatePaneTitle(pane.id, title: "\(pane.metadata.title) [ephemeral]")
+                    store.paneAtom.updatePaneTitle(pane.id, title: "\(pane.metadata.title) [ephemeral]")
                 }
                 startupStrategy = .surfaceCommand(shellCommand)
                 showsRestorePresentationDuringStartup = false
@@ -294,7 +294,7 @@ extension PaneCoordinator {
                     "zmx not found; using ephemeral floating session for \(pane.id) (state will not persist)"
                 )
                 if !pane.metadata.title.localizedCaseInsensitiveContains("ephemeral") {
-                    store.updatePaneTitle(pane.id, title: "\(pane.metadata.title) [ephemeral]")
+                    store.paneAtom.updatePaneTitle(pane.id, title: "\(pane.metadata.title) [ephemeral]")
                 }
             }
             startupStrategy = .surfaceCommand(shellCommand)
@@ -576,7 +576,7 @@ extension PaneCoordinator {
             RestoreTrace.log("restoreAllViews inputBounds=nil")
         }
         let orderedPaneIds = TerminalRestoreScheduler.order(
-            Self.orderedUniquePaneIds(store.tabs.flatMap(\.panes)).map(PaneId.init(uuid:)),
+            Self.orderedUniquePaneIds(store.tabs.flatMap(\.allPaneIds)).map(PaneId.init(uuid:)),
             resolver: visibilityTierResolver
         ).map(\.uuid)
         RestoreTrace.log(
@@ -592,7 +592,7 @@ extension PaneCoordinator {
         // Panes already exist in the store from store.restore().
         // SwiftUI body may run before restoreAllViews completes,
         // so slots must exist before the first createViewForContent call.
-        let allPaneIds = store.tabs.flatMap(\.paneIds)
+        let allPaneIds = store.tabs.flatMap(\.activePaneIds)
         for paneId in allPaneIds {
             viewRegistry.ensureSlot(for: paneId)
         }
@@ -761,7 +761,7 @@ extension PaneCoordinator {
     func restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: Bool = false) {
         guard let activeTab = store.activeTab else { return }
         if !windowLifecycleStore.isLaunchLayoutSettled {
-            let hasPreparingPlaceholder = activeTab.paneIds.contains { paneId in
+            let hasPreparingPlaceholder = activeTab.activePaneIds.contains { paneId in
                 viewRegistry.terminalStatusPlaceholderView(for: paneId)?.shouldRetryCreationWhenBoundsChange == true
             }
             guard forceWhenBoundsExist || hasPreparingPlaceholder || windowLifecycleStore.isReadyForLaunchRestore else {
@@ -871,7 +871,7 @@ extension PaneCoordinator {
                 RestoreTrace.log("resolveInitialFramesByTabId noFrames tab=\(tab.id)")
             }
 
-            for paneId in tab.paneIds {
+            for paneId in tab.activePaneIds {
                 guard
                     let parentFrame = resolvedFrames[paneId],
                     let drawer = store.pane(paneId)?.drawer,

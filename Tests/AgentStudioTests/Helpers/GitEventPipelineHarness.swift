@@ -133,7 +133,7 @@ final class ControllableGroupedWatchedFolderScanner: @unchecked Sendable {
 struct GitTopologyPipelineHarness {
     let bus: EventBus<RuntimeEnvelope>
     let workspaceStore: WorkspaceStore
-    let repoCache: WorkspaceRepoCache
+    let repoCache: RepoCacheAtom
     let coordinator: WorkspaceCacheCoordinator
     let paneCoordinator: PaneCoordinator
     let discoveryActor: FilesystemActor
@@ -150,7 +150,7 @@ struct GitTopologyPipelineHarness {
             persistor: WorkspacePersistor(workspacesDir: tempDir)
         )
         workspaceStore.restore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let scanner = ControllableGroupedWatchedFolderScanner()
         let fseventClient = ControllableFSEventStreamClient()
         let discoveryActor = FilesystemActor(
@@ -225,7 +225,7 @@ struct GitTopologyPipelineHarness {
 struct GitEnrichmentPipelineHarness {
     let bus: EventBus<RuntimeEnvelope>
     let workspaceStore: WorkspaceStore
-    let repoCache: WorkspaceRepoCache
+    let repoCache: RepoCacheAtom
     let coordinator: WorkspaceCacheCoordinator
     let projector: GitWorkingDirectoryProjector
     let forgeActor: ForgeActor
@@ -242,7 +242,7 @@ struct GitEnrichmentPipelineHarness {
             persistor: WorkspacePersistor(workspacesDir: tempDir)
         )
         workspaceStore.restore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,
             workspaceStore: workspaceStore,

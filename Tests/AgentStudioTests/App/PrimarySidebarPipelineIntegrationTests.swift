@@ -10,7 +10,7 @@ struct PrimarySidebarPipelineIntegrationTests {
     func twoReposWithSharedRemoteIdentityConverge() async {
         let bus = EventBus<RuntimeEnvelope>()
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let (forgeActor, coordinator, projector) = makePipelineActors(
             bus: bus,
             workspaceStore: workspaceStore,
@@ -60,7 +60,7 @@ struct PrimarySidebarPipelineIntegrationTests {
     func messageDrivenRepoDiscoverySeedsUnresolvedBeforeResolution() async {
         let bus = EventBus<RuntimeEnvelope>()
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let (forgeActor, coordinator, projector) = makePipelineActors(
             bus: bus,
             workspaceStore: workspaceStore,
@@ -118,7 +118,7 @@ struct PrimarySidebarPipelineIntegrationTests {
     func messageDrivenOriginAndBranchEventsDoNotDoubleInvokeForge() async {
         let bus = EventBus<RuntimeEnvelope>()
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let callCounter = ForgeProviderCallCounter()
         let forgeActor = ForgeActor(
             bus: bus,
@@ -176,7 +176,7 @@ struct PrimarySidebarPipelineIntegrationTests {
     @Test("origin change updates resolved identity grouping")
     func originChangeUpdatesResolvedIdentityGrouping() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -240,7 +240,7 @@ struct PrimarySidebarPipelineIntegrationTests {
 
         let bus = EventBus<RuntimeEnvelope>()
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let financeRemote = "git@github.com:askluna/askluna-finance.git"
         let pathStatusByRootPath = makePathStatusByRootPath(
             root: tempRoot,
@@ -328,7 +328,7 @@ struct PrimarySidebarPipelineIntegrationTests {
     private func makePipelineActors(
         bus: EventBus<RuntimeEnvelope>,
         workspaceStore: WorkspaceStore,
-        repoCache: WorkspaceRepoCache,
+        repoCache: RepoCacheAtom,
         gitStatusByRootPath: [String: GitWorkingTreeStatus]? = nil
     ) -> (ForgeActor, WorkspaceCacheCoordinator, GitWorkingDirectoryProjector) {
         let forgeActor = ForgeActor(

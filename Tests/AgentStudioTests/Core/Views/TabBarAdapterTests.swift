@@ -8,11 +8,12 @@ import Testing
 final class TabBarAdapterTests {
 
     private var store: WorkspaceStore!
-    private var repoCache: WorkspaceRepoCache!
+    private var repoCache: RepoCacheAtom!
     private var adapter: TabBarAdapter!
     private var tempDir: URL!
 
     init() {
+        installTestAtomScopeIfNeeded()
         resetFixture()
     }
 
@@ -32,7 +33,7 @@ final class TabBarAdapterTests {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         store = WorkspaceStore(persistor: persistor)
         store.restore()
-        repoCache = WorkspaceRepoCache()
+        repoCache = RepoCacheAtom()
         adapter = TabBarAdapter(store: store, repoCache: repoCache)
     }
 

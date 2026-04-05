@@ -10,10 +10,10 @@ struct PaneManagementContext: Equatable {
 
     static func project(
         paneId: UUID,
-        store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
+        store: WorkspaceStore
     ) -> Self {
-        let parts = PaneDisplayProjector.displayParts(for: paneId, store: store, repoCache: repoCache)
+        let parts = atom(\.paneDisplay).displayParts(for: paneId)
+        let repoCache = atom(\.repoCache)
         let pane = store.pane(paneId)
         let resolvedTargetPath = pane?.metadata.cwd ?? pane?.worktreeId.flatMap { store.worktree($0)?.path }
         let title = parts.worktreeFolderName ?? parts.cwdFolderName ?? parts.repoName ?? parts.primaryLabel

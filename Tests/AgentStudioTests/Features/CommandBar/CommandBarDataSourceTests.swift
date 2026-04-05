@@ -6,14 +6,18 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct CommandBarDataSourceTests {
+    init() {
+        installTestAtomScopeIfNeeded()
+    }
+
     private let dispatcher = CommandDispatcher.shared
 
     private func makeStore() -> WorkspaceStore {
         WorkspaceStore()
     }
 
-    private func makeRepoCache() -> WorkspaceRepoCache {
-        WorkspaceRepoCache()
+    private func makeRepoCache() -> RepoCacheAtom {
+        RepoCacheAtom()
     }
 
     // MARK: - Everything Scope
@@ -23,7 +27,8 @@ struct CommandBarDataSourceTests {
         let store = makeStore()
 
         // Act
-        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
         // Assert — should include command items
         let commandItems = items.filter { $0.id.hasPrefix("cmd-") }
@@ -35,7 +40,8 @@ struct CommandBarDataSourceTests {
         let store = makeStore()
 
         // Act — store has no views/tabs/sessions
-        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
         // Assert
         let tabItems = items.filter { $0.id.hasPrefix("tab-") }
@@ -51,7 +57,8 @@ struct CommandBarDataSourceTests {
         let store = makeStore()
 
         // Act
-        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
         // Assert — all items should be commands
         #expect(items.allSatisfy { $0.id.hasPrefix("cmd-") })
@@ -63,7 +70,8 @@ struct CommandBarDataSourceTests {
         let store = makeStore()
 
         // Act
-        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
         // Assert — selectTab1..9, quickFind, commandBar should be hidden
         let ids = items.map(\.id)
@@ -76,7 +84,8 @@ struct CommandBarDataSourceTests {
     func test_commandsScope_hidesUnsupportedWindowCommands() {
         let store = makeStore()
 
-        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let ids = Set(items.map(\.id))
 
         #expect(!ids.contains("cmd-newWindow"))
@@ -88,7 +97,8 @@ struct CommandBarDataSourceTests {
         let store = makeStore()
 
         // Act
-        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let groups = Set(items.map(\.group))
 
         // Assert — should have named sub-groups
@@ -104,7 +114,8 @@ struct CommandBarDataSourceTests {
         let store = makeStore()
 
         // Act
-        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
         // Assert — commands should have titles, most have icons
         #expect(items.allSatisfy { !$0.title.isEmpty })
@@ -117,7 +128,8 @@ struct CommandBarDataSourceTests {
         let store = makeStore()
 
         // Act
-        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
         // Assert — some commands have keyboard shortcuts
         let withShortcuts = items.filter { $0.shortcutKeys != nil && !$0.shortcutKeys!.isEmpty }
@@ -131,7 +143,8 @@ struct CommandBarDataSourceTests {
         let store = makeStore()
 
         // Act
-        let items = CommandBarDataSource.items(scope: .panes, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .panes, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
         // Assert
         #expect(items.isEmpty)
@@ -192,7 +205,8 @@ struct CommandBarDataSourceTests {
         store.insertPane(paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after)
         store.insertPane(paneC.id, inTab: tab.id, at: paneB.id, direction: .horizontal, position: .after)
 
-        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
 
         #expect(tabItem?.subtitle == "Active · Tab 1 · 3 panes")
@@ -213,7 +227,8 @@ struct CommandBarDataSourceTests {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
-        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
 
         #expect(paneItem?.title == "Webview — localhost")
@@ -238,7 +253,8 @@ struct CommandBarDataSourceTests {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
-        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
 
         #expect(paneItem?.title == "Webview — index.html")
@@ -251,7 +267,8 @@ struct CommandBarDataSourceTests {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
-        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
 
         guard case .dispatchTargeted(let command, let target, let targetType) = tabItem?.action else {
@@ -271,7 +288,8 @@ struct CommandBarDataSourceTests {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
-        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
 
         guard case .dispatchTargeted(let command, let target, let targetType) = paneItem?.action else {
@@ -302,7 +320,8 @@ struct CommandBarDataSourceTests {
         )
         store.appendTab(tab)
 
-        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
 
         #expect(tabItem?.title == "Empty Tab")
@@ -318,7 +337,8 @@ struct CommandBarDataSourceTests {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
-        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
 
         #expect(tabItem?.title == "Scratch Pad")
@@ -334,7 +354,8 @@ struct CommandBarDataSourceTests {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
-        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
 
         #expect(paneItem?.title == "Scratch Pad")
@@ -354,7 +375,8 @@ struct CommandBarDataSourceTests {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
-        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
 
         #expect(paneItem?.title == "Terminal — workspace-demo")
@@ -373,7 +395,8 @@ struct CommandBarDataSourceTests {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
-        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
 
         #expect(paneItem?.title == "Bridge — Panel")
@@ -394,7 +417,8 @@ struct CommandBarDataSourceTests {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
-        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
 
         #expect(paneItem?.title == "Code — Viewer")
@@ -419,7 +443,8 @@ struct CommandBarDataSourceTests {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
-        let items = CommandBarDataSource.items(scope: .everything, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
 
         #expect(paneItem?.title == "unsupported-pane")
@@ -478,7 +503,8 @@ struct CommandBarDataSourceTests {
         let store = makeStore()
 
         // Act
-        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
         // Assert
         let ids = items.map(\.id)
@@ -493,7 +519,8 @@ struct CommandBarDataSourceTests {
         let store = makeStore()
 
         // Act
-        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
         // Assert
         let arrangementItems = items.filter {
@@ -514,7 +541,8 @@ struct CommandBarDataSourceTests {
         store.setActiveTab(tab.id)
 
         // Act
-        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
         // Assert — targetable arrangement commands should show drill-in
         let switchItem = items.first { $0.id == "cmd-switchArrangement" }
@@ -536,7 +564,8 @@ struct CommandBarDataSourceTests {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let newTerminalInTab = items.first { $0.id == "cmd-newTerminalInTab" }
 
         #expect(newTerminalInTab != nil)
@@ -559,7 +588,8 @@ struct CommandBarDataSourceTests {
             ]
         )
 
-        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let removeRepo = items.first { $0.id == "cmd-removeRepo" }
 
         #expect(removeRepo != nil)
@@ -580,7 +610,8 @@ struct CommandBarDataSourceTests {
         store.appendTab(tabB)
         store.setActiveTab(tabA.id)
 
-        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let moveItem = items.first { $0.id == "cmd-movePaneToTab" }
 
         #expect(moveItem != nil)
@@ -600,7 +631,8 @@ struct CommandBarDataSourceTests {
         store.appendTab(tabB)
         store.setActiveTab(tabA.id)
 
-        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let moveItem = items.first { $0.id == "cmd-movePaneToTab" }
         guard case .navigate(let sourceLevel) = moveItem?.action else {
             Issue.record("Expected movePaneToTab command to navigate to source pane level")
@@ -629,7 +661,8 @@ struct CommandBarDataSourceTests {
         let store = makeStore()
 
         // Act
-        let items = CommandBarDataSource.items(scope: .repos, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .repos, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
         // Assert
         #expect(items.isEmpty)
@@ -651,7 +684,8 @@ struct CommandBarDataSourceTests {
             ])
 
         // Act
-        let items = CommandBarDataSource.items(scope: .repos, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .repos, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
         // Assert
         #expect(items.count == 1)
@@ -687,7 +721,8 @@ struct CommandBarDataSourceTests {
             ]
         )
 
-        let items = CommandBarDataSource.items(scope: .repos, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .repos, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let groups = CommandBarDataSource.grouped(items)
 
         #expect(groups.count == 1)
@@ -701,7 +736,8 @@ struct CommandBarDataSourceTests {
         let store = makeStore()
 
         // Act
-        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
         // Assert — all four drawer commands should appear
         let ids = items.map(\.id)
@@ -716,7 +752,8 @@ struct CommandBarDataSourceTests {
         let store = makeStore()
 
         // Act
-        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
         // Assert — all drawer commands should be in the "Pane" group
         let drawerItems = items.filter {
@@ -738,7 +775,8 @@ struct CommandBarDataSourceTests {
         store.addDrawerPane(to: pane.id)
 
         // Act
-        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
         // Assert — navigateDrawerPane should have drill-in (hasChildren: true)
         let navigateItem = items.first { $0.id == "cmd-navigateDrawerPane" }
@@ -761,7 +799,8 @@ struct CommandBarDataSourceTests {
         #expect(drawer2 != nil)
 
         // Act
-        let items = CommandBarDataSource.items(scope: .commands, store: store, dispatcher: dispatcher)
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let navigateItem = items.first { $0.id == "cmd-navigateDrawerPane" }
         #expect(navigateItem != nil)
 

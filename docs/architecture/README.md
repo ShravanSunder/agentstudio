@@ -49,7 +49,7 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 ## Architecture Principles
 
 - **Pane as primary entity** — `Pane` is the stable identity across model, runtime, view registry, surface metadata, and restore flows
-- **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` store: `WorkspaceStore` (canonical associations), `WorkspaceRepoCache` (derived enrichment), `WorkspaceUIStore` (presentation prefs), `SurfaceManager` (Ghostty surfaces), `SessionRuntime` (backends). No god-store. Each store owns one domain and has one reason to change.
+- **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` store: `WorkspaceStore` (canonical associations), `RepoCacheAtom` (derived enrichment), `UIStateAtom` (presentation prefs), `SurfaceManager` (Ghostty surfaces), `SessionRuntime` (backends). No god-store. Each store owns one domain and has one reason to change.
 - **Unidirectional flow (Valtio-style)** — All store state is `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers.
 - **Coordinator for cross-store sequencing** — A coordinator sequences operations across stores for a single user action. Owns no state, contains no domain logic.
 - **Lifecycle ingress stays separate** — `ApplicationLifecycleMonitor` owns AppKit ingress only. It mutates `AppLifecycleStore` and `WindowLifecycleStore`, both `@Observable` atomic stores with `private(set)` mutation surfaces. `WindowLifecycleStore` holds transient window facts only: key/focus state, terminal container bounds, launch-layout-settle state, and derived readiness; none of those readiness properties are persisted.
@@ -88,13 +88,13 @@ WorkspaceStore (canonical associations — workspace.state.json)
     └── layout: Layout                  ← pure value-type split tree
         └── Node: .leaf(paneId) | .split(Split)
 
-WorkspaceRepoCache (derived enrichment — workspace.cache.json, rebuildable)
+RepoCacheAtom (derived enrichment — workspace.cache.json, rebuildable)
 ├── repoEnrichmentByRepoId             ← origin, identity, groupKey, displayName
 ├── worktreeEnrichmentByWorktreeId     ← branch, git snapshot
 ├── pullRequestCountByWorktreeId       ← PR badges
 └── notificationCountByWorktreeId      ← notification bells
 
-WorkspaceUIStore (presentation prefs — workspace.ui.json)
+UIStateAtom (presentation prefs — workspace.ui.json)
 ├── expandedGroups, checkoutColors, filterText, isFilterVisible
 ```
 

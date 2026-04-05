@@ -10,7 +10,7 @@ struct FlatTabStripContainer: View {
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let store: WorkspaceStore
-    let repoCache: WorkspaceRepoCache
+    let repoCache: RepoCacheAtom
     let viewRegistry: ViewRegistry
     let appLifecycleStore: AppLifecycleStore
     let onOpenPaneGitHub: (UUID) -> Void
@@ -19,7 +19,9 @@ struct FlatTabStripContainer: View {
     @State private var iconBarFrame: CGRect = .zero
     @State private var dropTarget: PaneDropTarget?
     @State private var dropTargetWatchdogTask: Task<Void, Never>?
-    @Bindable private var managementMode = ManagementModeMonitor.shared
+    private var managementMode: ManagementModeAtom {
+        atom(\.managementMode)
+    }
 
     var body: some View {
         GeometryReader { tabGeometry in
@@ -54,8 +56,7 @@ struct FlatTabStripContainer: View {
                             CollapsedPaneBar(
                                 paneId: paneId,
                                 tabId: tabId,
-                                title: PaneDisplayProjector.displayLabel(
-                                    for: paneId, store: store, repoCache: repoCache),
+                                title: atom(\.paneDisplay).displayLabel(for: paneId),
                                 closeTransitionCoordinator: closeTransitionCoordinator,
                                 actionDispatcher: actionDispatcher,
                                 dropTargetCoordinateSpace: "tabContainer"
@@ -146,6 +147,7 @@ struct FlatTabStripContainer: View {
             tabId: tabId,
             isActive: true,
             isSplit: false,
+            isSplitResizing: false,
             store: store,
             repoCache: repoCache,
             closeTransitionCoordinator: closeTransitionCoordinator,

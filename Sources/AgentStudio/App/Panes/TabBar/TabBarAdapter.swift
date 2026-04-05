@@ -82,11 +82,11 @@ final class TabBarAdapter {
     // MARK: - Internals
 
     private let store: WorkspaceStore
-    private let repoCache: WorkspaceRepoCache
+    private let repoCache: RepoCacheAtom
     private var isObservingManagementMode = false
     private var isObservingStore = false
 
-    init(store: WorkspaceStore, repoCache: WorkspaceRepoCache = WorkspaceRepoCache()) {
+    init(store: WorkspaceStore, repoCache: RepoCacheAtom) {
         self.store = store
         self.repoCache = repoCache
         observe()
@@ -99,7 +99,7 @@ final class TabBarAdapter {
         // withObservationTracking fires once per registration, so we re-register
         // after each change. Task { @MainActor } satisfies @Sendable and ensures
         // we read new values (onChange has willSet semantics — old values only).
-        isManagementModeActive = ManagementModeMonitor.shared.isActive
+        isManagementModeActive = atom(\.managementMode).isActive
         observeStore()
         observeManagementMode()
 
@@ -134,12 +134,12 @@ final class TabBarAdapter {
         isObservingManagementMode = true
         withObservationTracking {
             // Track only reads; writes stay in onChange.
-            _ = ManagementModeMonitor.shared.isActive
+            _ = atom(\.managementMode).isActive
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isObservingManagementMode = false
-                self.isManagementModeActive = ManagementModeMonitor.shared.isActive
+                self.isManagementModeActive = atom(\.managementMode).isActive
                 self.observeManagementMode()
             }
         }
@@ -149,17 +149,13 @@ final class TabBarAdapter {
         let storeTabs = store.tabs
 
         tabs = storeTabs.map { tab in
-            let paneTitles = tab.paneIds.map { paneDisplayTitle(for: $0) }
-            let displayTitle = PaneDisplayProjector.tabDisplayLabel(
-                for: tab,
-                store: store,
-                repoCache: repoCache
-            )
+            let paneTitles = tab.activePaneIds.map { paneDisplayTitle(for: $0) }
+            let displayTitle = tabDisplayTitle(for: tab)
 
             let activeArrangement = tab.activeArrangement
             let showArrangementName = tab.arrangements.count > 1 && !activeArrangement.isDefault
 
-            let paneInfos: [TabBarPaneInfo] = tab.paneIds.map { paneId in
+            let paneInfos: [TabBarPaneInfo] = tab.activePaneIds.map { paneId in
                 TabBarPaneInfo(
                     id: paneId,
                     title: paneDisplayTitle(for: paneId),
@@ -200,7 +196,41 @@ final class TabBarAdapter {
     }
 
     private func paneDisplayTitle(for paneId: UUID) -> String {
-        PaneDisplayProjector.displayLabel(for: paneId, store: store, repoCache: repoCache)
+        guard let pane = store.pane(paneId) else {
+            return "Terminal"
+        }
+
+        let rawTitle = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let defaultLabel = rawTitle.isEmpty ? "Terminal" : rawTitle
+
+        if let worktreeId = pane.worktreeId,
+            let repoId = pane.repoId,
+            let repo = store.repo(repoId),
+            let worktree = store.worktree(worktreeId)
+        {
+            let repoName = pane.metadata.repoName ?? repo.name
+            let branchName = atom(\.paneDisplay).resolvedBranchName(
+                worktree: worktree,
+                enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
+            )
+            return "\(repoName) | \(branchName) | \(worktree.path.lastPathComponent)"
+        }
+
+        if let cwdFolderName = pane.metadata.cwd?.lastPathComponent,
+            !cwdFolderName.isEmpty
+        {
+            return cwdFolderName
+        }
+
+        return defaultLabel
+    }
+
+    private func tabDisplayTitle(for tab: Tab) -> String {
+        let paneLabels = tab.activePaneIds.map { paneDisplayTitle(for: $0) }
+        if paneLabels.count > 1 {
+            return paneLabels.joined(separator: " | ")
+        }
+        return paneLabels.first ?? "Terminal"
     }
 
     private func updateOverflow() {

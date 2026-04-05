@@ -86,7 +86,7 @@ struct PaneCloseTransitionCoordinatorTests {
             closeTransitionCoordinator: coordinator,
             actionDispatcher: dispatcher,
             store: store,
-            repoCache: WorkspaceRepoCache(),
+            repoCache: RepoCacheAtom(),
             viewRegistry: viewRegistry,
             appLifecycleStore: AppLifecycleStore(),
             onOpenPaneGitHub: { _ in }

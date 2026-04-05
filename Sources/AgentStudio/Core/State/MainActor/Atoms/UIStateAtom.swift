@@ -1,10 +1,9 @@
 import Foundation
 import Observation
 
-/// User-preference UI state for workspace/sidebar presentation.
-@Observable
 @MainActor
-final class WorkspaceUIStore {
+@Observable
+final class UIStateAtom {
     private(set) var expandedGroups: Set<String> = []
     private(set) var checkoutColors: [String: String] = [:]
     private(set) var filterText: String = ""
@@ -36,6 +35,18 @@ final class WorkspaceUIStore {
 
     func setFilterVisible(_ isVisible: Bool) {
         isFilterVisible = isVisible
+    }
+
+    func hydrate(
+        expandedGroups: Set<String>,
+        checkoutColors: [String: String],
+        filterText: String,
+        isFilterVisible: Bool
+    ) {
+        self.expandedGroups = expandedGroups
+        self.checkoutColors = checkoutColors
+        self.filterText = filterText
+        self.isFilterVisible = isFilterVisible
     }
 
     func clear() {
