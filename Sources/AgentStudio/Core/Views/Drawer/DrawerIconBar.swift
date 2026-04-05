@@ -12,6 +12,7 @@ struct TrapezoidConnector: Shape {
 }
 
 private struct DrawerHoverTooltip: View {
+    static let verticalOffset: CGFloat = -28
     let text: String
 
     var body: some View {
@@ -30,6 +31,17 @@ private struct DrawerHoverTooltip: View {
             )
             .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
             .fixedSize()
+    }
+}
+
+extension View {
+    fileprivate func drawerTooltip(_ text: String, isVisible: Bool) -> some View {
+        self.overlay(alignment: .top) {
+            if isVisible {
+                DrawerHoverTooltip(text: text)
+                    .offset(y: DrawerHoverTooltip.verticalOffset)
+            }
+        }
     }
 }
 
@@ -88,12 +100,7 @@ struct DrawerIconBar: View {
                         isToggleHovered = hovering
                     }
                 }
-                .overlay(alignment: .top) {
-                    if isToggleHovered {
-                        DrawerHoverTooltip(text: togglePresentation.helpText)
-                            .offset(y: -28)
-                    }
-                }
+                .drawerTooltip(togglePresentation.helpText, isVisible: isToggleHovered)
                 .help(togglePresentation.helpText)
 
                 // Vertical divider
@@ -119,12 +126,7 @@ struct DrawerIconBar: View {
                         isAddHovered = hovering
                     }
                 }
-                .overlay(alignment: .top) {
-                    if isAddHovered {
-                        DrawerHoverTooltip(text: addPresentation.helpText)
-                            .offset(y: -28)
-                    }
-                }
+                .drawerTooltip(addPresentation.helpText, isVisible: isAddHovered)
                 .help(addPresentation.helpText)
 
                 Spacer()
@@ -143,12 +145,7 @@ struct DrawerIconBar: View {
                                 isFinderHovered = hovering
                             }
                         }
-                        .overlay(alignment: .top) {
-                            if isFinderHovered {
-                                DrawerHoverTooltip(text: finderPresentation.helpText)
-                                    .offset(y: -28)
-                            }
-                        }
+                        .drawerTooltip(finderPresentation.helpText, isVisible: isFinderHovered)
 
                         trailingActionButton(
                             icon: .octicon(name: "octicon-code-square"),
@@ -162,12 +159,7 @@ struct DrawerIconBar: View {
                                 isCursorHovered = hovering
                             }
                         }
-                        .overlay(alignment: .top) {
-                            if isCursorHovered {
-                                DrawerHoverTooltip(text: editorPresentation.helpText)
-                                    .offset(y: -28)
-                            }
-                        }
+                        .drawerTooltip(editorPresentation.helpText, isVisible: isCursorHovered)
                     }
                 }
             }
@@ -244,12 +236,7 @@ struct EmptyDrawerBar: View {
                     isHovered = hovering
                 }
             }
-            .overlay(alignment: .top) {
-                if isHovered {
-                    DrawerHoverTooltip(text: addPresentation.helpText)
-                        .offset(y: -28)
-                }
-            }
+            .drawerTooltip(addPresentation.helpText, isVisible: isHovered)
             .help(addPresentation.helpText)
             Spacer()
         }

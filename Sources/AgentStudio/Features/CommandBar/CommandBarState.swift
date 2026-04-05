@@ -19,7 +19,15 @@ final class CommandBarState {
 
     /// Full raw text including any visible prefix characters (e.g., "> close", "$ main").
     var rawInput: String = "" {
-        didSet { selectedIndex = 0 }
+        didSet {
+            if let normalizedPrefix = Self.normalizedLeadingPrefix(for: rawInput, previousInput: oldValue),
+                rawInput != normalizedPrefix
+            {
+                rawInput = normalizedPrefix
+                return
+            }
+            selectedIndex = 0
+        }
     }
 
     // MARK: - Navigation
@@ -178,6 +186,12 @@ final class CommandBarState {
     // MARK: - Persistence
 
     private static let recentsKey = "CommandBarRecentItemIds"
+
+    private static func normalizedLeadingPrefix(for input: String, previousInput: String) -> String? {
+        guard previousInput.isEmpty else { return nil }
+        guard [">", "$", "#"].contains(input) else { return nil }
+        return input + " "
+    }
 
     func loadRecents() {
         recentItemIds = UserDefaults.standard.stringArray(forKey: Self.recentsKey) ?? []
