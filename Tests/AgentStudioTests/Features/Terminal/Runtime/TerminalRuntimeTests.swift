@@ -221,26 +221,21 @@ struct TerminalRuntimeTests {
             paneEventBus: paneEventBus
         )
         runtime.transitionToReady()
-
-        let busTask: Task<Bool?, Never> = Task {
-            await paneEventBus.waitForFirst(timeout: .milliseconds(100)) { envelope -> Bool? in
-                guard
-                    case .pane(let paneEnvelope) = envelope,
-                    case .terminal(.readOnlyChanged(let isReadOnly)) = paneEnvelope.event
-                else {
-                    return nil
-                }
-                return isReadOnly
-            }
-        }
-        await Task.yield()
+        let stream = await paneEventBus.subscribe()
+        var iterator = stream.makeAsyncIterator()
 
         runtime.handleGhosttyEvent(.readOnlyChanged(true))
 
         #expect(runtime.isReadOnly)
-
-        let busEvent: Bool? = await busTask.value
-        #expect(busEvent == true)
+        guard
+            let busEnvelope = await iterator.next(),
+            case .pane(let paneEnvelope) = busEnvelope,
+            case .terminal(.readOnlyChanged(let isReadOnly)) = paneEnvelope.event
+        else {
+            Issue.record("Expected readOnlyChanged event on pane bus")
+            return
+        }
+        #expect(isReadOnly)
 
         let replay = await runtime.eventsSince(seq: 0)
         #expect(replay.events.count == 1)
@@ -255,24 +250,19 @@ struct TerminalRuntimeTests {
             paneEventBus: paneEventBus
         )
         runtime.transitionToReady()
-
-        let busTask: Task<TitlePromptScope?, Never> = Task {
-            await paneEventBus.waitForFirst(timeout: .milliseconds(100)) { envelope -> TitlePromptScope? in
-                guard
-                    case .pane(let paneEnvelope) = envelope,
-                    case .terminal(.promptTitleRequested(let scope)) = paneEnvelope.event
-                else {
-                    return nil
-                }
-                return scope
-            }
-        }
-        await Task.yield()
+        let stream = await paneEventBus.subscribe()
+        var iterator = stream.makeAsyncIterator()
 
         runtime.handleGhosttyEvent(.promptTitleRequested(scope: .surface))
-
-        let busEvent: TitlePromptScope? = await busTask.value
-        #expect(busEvent == .surface)
+        guard
+            let busEnvelope = await iterator.next(),
+            case .pane(let paneEnvelope) = busEnvelope,
+            case .terminal(.promptTitleRequested(let scope)) = paneEnvelope.event
+        else {
+            Issue.record("Expected promptTitleRequested event on pane bus")
+            return
+        }
+        #expect(scope == .surface)
 
         let replay = await runtime.eventsSince(seq: 0)
         #expect(replay.events.isEmpty)
