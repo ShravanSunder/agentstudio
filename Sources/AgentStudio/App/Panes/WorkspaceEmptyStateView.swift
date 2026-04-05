@@ -1,13 +1,55 @@
 import SwiftUI
 
+enum WorkspaceEmptyStateLayout {
+    static let launcherQuickActionsSectionTitle = "Shortcuts"
+    static let launcherQuickActionsSectionTopPadding: CGFloat = 20
+    static let launcherQuickActionsDividerWidth: CGFloat = 220
+    static let launcherQuickActionsDividerBottomPadding: CGFloat = 20
+    static let launcherQuickActionsLabelBottomPadding: CGFloat = 20
+    static let recentSectionWidthFraction: CGFloat = 0.6
+    static let recentGridSpacing: CGFloat = 16
+    static let recentCardWidth: CGFloat = 300
+    static let minimumRecentColumnCount = 2
+    static let maximumRecentColumnCount = 5
+    static let recentVisibleRowCount = 3
+
+    static func recentSectionWidth(for availableWidth: CGFloat) -> CGFloat {
+        let fractionalWidth = availableWidth * recentSectionWidthFraction
+        let maximumGridWidth =
+            CGFloat(maximumRecentColumnCount) * recentCardWidth
+            + CGFloat(maximumRecentColumnCount - 1) * recentGridSpacing
+        return min(fractionalWidth, maximumGridWidth)
+    }
+
+    static func recentColumnCount(for availableWidth: CGFloat) -> Int {
+        let sectionWidth = recentSectionWidth(for: availableWidth)
+        let fittingColumnCount = Int(
+            (sectionWidth + recentGridSpacing) / (recentCardWidth + recentGridSpacing)
+        )
+        return min(max(fittingColumnCount, minimumRecentColumnCount), maximumRecentColumnCount)
+    }
+
+    static func visibleRecentCardLimit(for availableWidth: CGFloat) -> Int {
+        recentColumnCount(for: availableWidth) * recentVisibleRowCount
+    }
+
+    static func recentGridColumns(for availableWidth: CGFloat) -> [GridItem] {
+        Array(
+            repeating: GridItem(
+                .fixed(recentCardWidth),
+                spacing: recentGridSpacing,
+                alignment: .top
+            ),
+            count: recentColumnCount(for: availableWidth)
+        )
+    }
+}
+
 struct WorkspaceEmptyStateView: View {
     let model: WorkspaceEmptyStateModel
     let onAddFolder: () -> Void
     let onOpenRecent: (RecentWorkspaceTarget) -> Void
     let onOpenAllRecent: () -> Void
-
-    private let contentWidth: CGFloat = 860
-    private let cardMinimumWidth: CGFloat = 250
 
     var body: some View {
         Group {
@@ -31,12 +73,13 @@ struct WorkspaceEmptyStateView: View {
                 .transition(.opacity)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .launcher:
-                ScrollView(.vertical, showsIndicators: false) {
-                    launcherBody
-                        .frame(maxWidth: contentWidth)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 40)
-                        .padding(.vertical, 48)
+                GeometryReader { geometry in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        launcherBody(availableWidth: max(geometry.size.width - 80, 0))
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, 40)
+                            .padding(.vertical, 48)
+                    }
                 }
                 .id("launcher")
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -106,8 +149,13 @@ struct WorkspaceEmptyStateView: View {
         return fullPath
     }
 
-    private var launcherBody: some View {
-        VStack(spacing: 28) {
+    private func launcherBody(availableWidth: CGFloat) -> some View {
+        let recentSectionWidth = WorkspaceEmptyStateLayout.recentSectionWidth(for: availableWidth)
+        let visibleRecentCards = Array(
+            model.recentCards.prefix(WorkspaceEmptyStateLayout.visibleRecentCardLimit(for: availableWidth))
+        )
+
+        return VStack(spacing: 28) {
             WorkspaceHomeHeader(
                 title: "Your workspace",
                 subtitle: "Open a recent worktree, or pick one from the sidebar."
@@ -116,32 +164,56 @@ struct WorkspaceEmptyStateView: View {
             VStack(spacing: 18) {
                 recentSectionHeader
 
-                if model.recentCards.isEmpty {
+                if visibleRecentCards.isEmpty {
                     WorkspaceRecentPlaceholderCard()
-                        .frame(maxWidth: 420)
+                        .frame(width: WorkspaceEmptyStateLayout.recentCardWidth)
+                } else if visibleRecentCards.count == 1,
+                    let card = visibleRecentCards.first
+                {
+                    WorkspaceRecentCardView(
+                        card: card,
+                        onOpen: { onOpenRecent(card.target) }
+                    )
+                    .frame(width: WorkspaceEmptyStateLayout.recentCardWidth)
                 } else {
                     LazyVGrid(
-                        columns: [
-                            GridItem(.adaptive(minimum: cardMinimumWidth, maximum: 320), spacing: 16, alignment: .top)
-                        ],
+                        columns: WorkspaceEmptyStateLayout.recentGridColumns(for: availableWidth),
                         alignment: .center,
-                        spacing: 16
+                        spacing: WorkspaceEmptyStateLayout.recentGridSpacing
                     ) {
-                        ForEach(model.recentCards) { card in
+                        ForEach(visibleRecentCards) { card in
                             WorkspaceRecentCardView(
                                 card: card,
                                 onOpen: { onOpenRecent(card.target) }
                             )
                         }
                     }
+                    .frame(maxWidth: recentSectionWidth)
                 }
             }
             .frame(maxWidth: .infinity)
 
-            QuickActionsCallout()
-                .padding(.top, AppStyle.spacingLoose)
+            launcherQuickActionsSection
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var launcherQuickActionsSection: some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(Color.white.opacity(AppStyle.fillActive))
+                .frame(width: WorkspaceEmptyStateLayout.launcherQuickActionsDividerWidth, height: 1)
+                .padding(.bottom, WorkspaceEmptyStateLayout.launcherQuickActionsDividerBottomPadding)
+
+            Text(WorkspaceEmptyStateLayout.launcherQuickActionsSectionTitle)
+                .font(.system(size: AppStyle.textSm, weight: .medium))
+                .foregroundStyle(.tertiary)
+                .padding(.bottom, WorkspaceEmptyStateLayout.launcherQuickActionsLabelBottomPadding)
+
+            QuickActionsCallout()
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, WorkspaceEmptyStateLayout.launcherQuickActionsSectionTopPadding)
     }
 
     private var recentSectionHeader: some View {
@@ -189,33 +261,11 @@ private struct WorkspaceRecentCardView: View {
 
     var body: some View {
         Button(action: onOpen) {
-            VStack(alignment: .leading, spacing: AppStyle.sidebarRowContentSpacing + 4) {
-                HStack(spacing: AppStyle.spacingTight) {
-                    leadingIcon
-                        .frame(width: AppStyle.sidebarRowLeadingIconColumnWidth, alignment: .leading)
-
-                    Text(card.title)
-                        .font(.system(size: AppStyle.textBase, weight: .medium))
-                        .lineLimit(1)
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                HStack(spacing: AppStyle.spacingTight) {
-                    secondaryLineIcon
-                        .frame(width: AppStyle.sidebarRowLeadingIconColumnWidth, alignment: .leading)
-
-                    Text(card.detail)
-                        .font(.system(size: AppStyle.sidebarBranchFontSize, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                if let statusChips = card.statusChips {
-                    WorkspaceStatusChipRow(model: statusChips, accentColor: .accentColor)
-                        .padding(.leading, AppStyle.sidebarStatusRowLeadingIndent)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            Group {
+                if let worktreeContent {
+                    worktreeContent
+                } else {
+                    cwdOnlyContent
                 }
             }
             .padding(16)
@@ -241,32 +291,53 @@ private struct WorkspaceRecentCardView: View {
             .stroke(Color.white.opacity(AppStyle.fillActive), lineWidth: 1)
     }
 
-    @ViewBuilder
-    private var leadingIcon: some View {
-        switch card.icon {
-        case .mainWorktree:
-            OcticonImage(name: "octicon-star-fill", size: AppStyle.textBase)
-                .foregroundStyle(Color.accentColor)
-        case .gitWorktree:
-            OcticonImage(name: "octicon-git-worktree", size: AppStyle.textBase)
-                .foregroundStyle(Color.accentColor)
-                .rotationEffect(.degrees(180))
-        case .cwdOnly:
-            Image(systemName: "terminal")
-                .font(.system(size: AppStyle.textBase, weight: .medium))
-                .foregroundStyle(Color.accentColor)
+    private var worktreeContent: SidebarWorktreeRowContent? {
+        guard
+            let statusChips = card.statusChips,
+            let checkoutIconKind = card.checkoutIconKind,
+            let iconColorHex = card.iconColorHex
+        else {
+            return nil
         }
+
+        let iconColor = Color(nsColor: NSColor(hex: iconColorHex) ?? .controlAccentColor)
+        return SidebarWorktreeRowContent(
+            checkoutTitle: card.title,
+            branchName: card.detail,
+            checkoutIconKind: checkoutIconKind,
+            iconColor: iconColor,
+            branchStatus: statusChips.branchStatus,
+            notificationCount: statusChips.notificationCount
+        )
     }
 
-    @ViewBuilder
-    private var secondaryLineIcon: some View {
-        if card.icon == .cwdOnly {
-            Image(systemName: "folder")
-                .font(.system(size: AppStyle.sidebarBranchIconSize, weight: .medium))
-                .foregroundStyle(.secondary)
-        } else {
-            OcticonImage(name: "octicon-git-branch", size: AppStyle.sidebarBranchIconSize)
-                .foregroundStyle(.secondary)
+    private var cwdOnlyContent: some View {
+        VStack(alignment: .leading, spacing: AppStyle.sidebarRowContentSpacing + 4) {
+            HStack(spacing: AppStyle.spacingTight) {
+                Image(systemName: "terminal")
+                    .font(.system(size: AppStyle.textBase, weight: .medium))
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: AppStyle.sidebarRowLeadingIconColumnWidth, alignment: .leading)
+
+                Text(card.title)
+                    .font(.system(size: AppStyle.textBase, weight: .medium))
+                    .lineLimit(1)
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            HStack(spacing: AppStyle.spacingTight) {
+                Image(systemName: "folder")
+                    .font(.system(size: AppStyle.sidebarBranchIconSize, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: AppStyle.sidebarRowLeadingIconColumnWidth, alignment: .leading)
+
+                Text(card.detail)
+                    .font(.system(size: AppStyle.sidebarBranchFontSize, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 }
