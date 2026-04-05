@@ -1,5 +1,9 @@
 # swift-dependencies Adoption Spec
 
+> **Superseded:** The atom/state access direction in this document has been replaced by [2026-04-04-actor-bound-atom-store-design.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.atoms-refactor-impl/docs/superpowers/specs/2026-04-04-actor-bound-atom-store-design.md).
+>
+> This document is retained as historical context only. Do not use it as the implementation source of truth for atoms, derived selectors, or test scoping.
+
 ## Decision
 
 Adopt Point-Free's `swift-dependencies` library as part of the atoms/stores refactor. This replaces singletons and constructor-threaded dependency passing with `@Dependency` property wrappers and `withDependencies` test scoping.

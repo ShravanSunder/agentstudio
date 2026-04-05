@@ -1686,7 +1686,7 @@ class ConnectionState: Codable {
 
 ### 8.8 Codable Conformance
 
-All domain types conform to `Codable` for JSON serialization across the bridge. `@Observable` classes use the macro's auto-generated `Codable` conformance. `AnyCodableValue` (existing in `App/Models/PaneContent.swift`) is reused for flexible metadata fields.
+All domain types conform to `Codable` for JSON serialization across the bridge. `@Observable` classes use the macro's auto-generated `Codable` conformance. `AnyCodableValue` (existing in `Core/Models/PaneContent.swift`) is reused for flexible metadata fields.
 
 ---
 
@@ -2844,15 +2844,15 @@ The pane system is fully operational. Webview panes already work as general-purp
 
 | Component | File | Role |
 |---|---|---|
-| `PaneContent.webview(WebviewState)` | `App/Models/PaneContent.swift` | Discriminated union case for webview panes |
-| `WebviewState` | `App/Models/PaneContent.swift` | Serializable state: `url`, `title`, `showNavigation` |
+| `PaneContent.webview(WebviewState)` | `Core/Models/PaneContent.swift` | Discriminated union case for webview panes |
+| `WebviewState` | `Core/Models/PaneContent.swift` | Serializable state: `url`, `title`, `showNavigation` |
 | `WebviewPaneController` | `Features/Webview/WebviewPaneController.swift` | Per-pane `@Observable` controller owning a `WebPage` |
 | `WebviewPaneMountView` | `Features/Webview/Views/WebviewPaneMountView.swift` | AppKit mounted content hosting SwiftUI via `NSHostingView` |
 | `WebviewPaneContentView` | `Features/Webview/Views/WebviewPaneContentView.swift` | SwiftUI view: nav bar + `WebView(controller.page)` |
 | `WebviewNavigationDecider` | `Features/Webview/WebviewNavigationDecider.swift` | Browser-oriented allowlist: `https`, `http`, `about`, `file`, `agentstudio` |
 | `WebviewDialogHandler` | `Features/Webview/WebviewDialogHandler.swift` | JS dialog handler (default implementations) |
-| `PaneCoordinator.createViewForContent` | `App/PaneCoordinator.swift` | Routes `PaneContent` → view creation; webview case at line 101 |
-| `PaneCoordinator.openWebview(url:)` | `App/PaneCoordinator.swift` | Creates browser pane with `WebviewState` + tab |
+| `PaneCoordinator.createViewForContent` | `App/Coordination/PaneCoordinator.swift` | Routes `PaneContent` → view creation; webview case at line 101 |
+| `PaneCoordinator.openWebview(url:)` | `App/Coordination/PaneCoordinator.swift` | Creates browser pane with `WebviewState` + tab |
 
 All webview panes currently share a single static `WebPage.Configuration` (`WebviewPaneController.sharedConfiguration`) with default `websiteDataStore`. The `ViewRegistry` tracks all webview views and supports lookup by pane ID.
 
@@ -3012,7 +3012,7 @@ These were previously open questions or verification spike items, now proven by 
 - ~~**`WebPage.DialogPresenting` protocol**~~ → `WebviewDialogHandler` conforms with default implementations. See `Features/Webview/WebviewDialogHandler.swift:9`.
 - ~~**SwiftUI `WebView` rendering**~~ → `WebView(controller.page)` renders in `WebviewPaneContentView`. See `Features/Webview/Views/WebviewPaneContentView.swift:25`.
 - ~~**Pane system integration**~~ → Full create/teardown/persist/restore lifecycle working. `PaneContent.webview`, `WebviewState`, `PaneCoordinator.createViewForContent`, `PaneCoordinator.openWebview`, `ViewRegistry` — all operational.
-- ~~**`AnyCodableValue` availability**~~ → Exists in `App/Models/PaneContent.swift:112`. Reusable for RPC envelope params.
+- ~~**`AnyCodableValue` availability**~~ → Exists in `Core/Models/PaneContent.swift:112`. Reusable for RPC envelope params.
 - ~~**Pane kind split (browser vs bridge)**~~ → Architecture decided: new `PaneContent.bridgePanel(BridgePaneState)` case with dedicated `BridgePaneController`. See §15.2.
 
 ### Resolved by Verification Spike (Stage 0)

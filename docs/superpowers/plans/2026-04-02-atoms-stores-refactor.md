@@ -1,10 +1,14 @@
 # Atoms & Stores Refactor Implementation Plan
 
+> **Superseded:** This plan was written against the `swift-dependencies`-based atom access model and is no longer the source of truth.
+>
+> Use [2026-04-04-actor-bound-atom-store-refactor.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.atoms-refactor-impl/docs/superpowers/plans/2026-04-04-actor-bound-atom-store-refactor.md) together with [2026-04-04-actor-bound-atom-store-design.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.atoms-refactor-impl/docs/superpowers/specs/2026-04-04-actor-bound-atom-store-design.md) instead.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Align the codebase to the Jotai-inspired state management model: atoms own state with `private(set)`, stores observe atoms via `@Observable` and handle persistence, derived computations are pure functions.
+**Goal:** Align the codebase to the Jotai-inspired + Valtio-inspired state management model: atoms own state with `private(set)`, stores observe atoms via `@Observable` and handle persistence, and derived selectors define their atom dependencies once via `swift-dependencies`.
 
-**Architecture:** Split each fused "store+state" class into an atom (pure `@Observable` state + mutations) and a store (persistence wrapper that observes the atom and saves/restores). Atoms expose a `hydrate()` method for stores to populate state during restore — this preserves the `private(set)` boundary. Stores use `withObservationTracking` to detect changes and schedule debounced saves. Transient state (zoom, minimize) stays on the `Tab` model — it's already excluded from `PersistableState` encoding.
+**Architecture:** Split each fused "store+state" class into an atom (pure `@Observable` state + mutations) and a store (persistence wrapper that observes the atom and saves/restores). Atoms expose a `hydrate()` method for stores to populate state during restore — this preserves the `private(set)` boundary. Derived selectors are read-only dependency-resolved types that know their source atoms internally, so callers do not thread atom arguments manually. Transient state (zoom, minimize) stays on the `Tab` model — it's already excluded from `PersistableState` encoding.
 
 **Tech Stack:** Swift 6.2, `@Observable`, `@MainActor`, `withObservationTracking`
 
@@ -25,11 +29,27 @@ PRIMITIVE ATOMS (Core/Atoms/)
   ManagementModeAtom   ← isActive: Bool
   SessionRuntimeAtom   ← runtime statuses per pane (shared per dependency scope, fresh per test)
 
-DERIVED (Core/Atoms/)
-  Read-only. Pure functions from atoms. No owned state.
+PERSISTED ATOM CONTRACT
+  Persisted atoms conform to a narrow protocol:
+    - snapshot() -> Snapshot
+    - hydrate(from:)
+    - readTrackedProperties()
+  This protocol exists only for persisted atoms. It is NOT a universal base protocol
+  for all atoms or selectors.
 
-  PaneDisplayDerived   ← reads WorkspaceAtom + RepoCacheAtom → display labels
-  DynamicViewDerived   ← reads WorkspaceAtom → tab groupings
+DERIVED SELECTORS (Core/Atoms/)
+  Read-only. Resolved through swift-dependencies.
+  Define atom dependencies once. No owned mutable state. No persistence.
+  Callers do NOT thread source atoms manually.
+  Callers pass only query parameters when needed, or nothing at all.
+
+  PaneDisplayDerived   ← depends on WorkspaceAtom + RepoCacheAtom → display labels
+  DynamicViewDerived   ← depends on WorkspaceAtom → tab groupings
+
+PURE HELPERS
+  Stateless algorithms used underneath atoms/selectors/stores.
+
+  WorktreeReconciler   ← topology diffing, UUID preservation, delta production
 
 STORES (Core/Stores/)
   Persistence wrappers. Compose atoms by holding references.
@@ -50,12 +70,23 @@ BEHAVIOR (stays in App/, Features/)
                           reads/writes SessionRuntimeAtom
 
 NOT TOUCHED
-  WorkspacePersistor   ← shared file I/O mechanics, used by stores
+  WorkspacePersistor   ← shared file I/O mechanics, injected into stores via dependency keys
   SurfaceManager       ← surface types (ManagedSurface, SurfaceHealth) are in Features/Terminal/,
                           Core can't import them. Two count properties don't earn an atom.
   AppLifecycleStore    ← already in-memory only, already in App/
   WindowLifecycleStore ← already in-memory only, already in App/
 ```
+
+### Design guardrails
+
+- No universal `StateAtom` / `DerivedAtom` protocol in this refactor. We are standardizing persistence behavior first, not building a general atom framework up front.
+- Persisted atoms do get a narrow shared protocol: `PersistedAtom` with `snapshot()`, `hydrate(from:)`, and `readTrackedProperties()`.
+- No self-persisting atoms. Persistence remains a separate wrapper layer so atoms keep one reason to change.
+- Derived selectors define dependencies once via `@Dependency`; callers only pass query parameters when needed.
+- Two selector shapes are expected:
+  - zero-input computed selectors: `dynamicViewDerived.tabGroupings`
+  - parameterized selectors: `paneDisplayDerived.displayLabel(for: paneId)`
+- Keep pure helpers separate underneath selectors/stores/atoms where explicit inputs improve clarity or reuse.
 
 ### How stores observe atoms
 
@@ -146,6 +177,10 @@ WorkspaceAtom ──── observed by ──── WorkspaceStore ──── 
 RepoCacheAtom ──── observed by ──── RepoCacheStore ──── saves to .cache.json
 UIStateAtom ────── observed by ──── UIStateStore ────── saves to .ui.json
 
+WorkspaceAtom + RepoCacheAtom ─────► PaneDisplayDerived
+WorkspaceAtom ─────────────────────► DynamicViewDerived
+WorkspaceAtom + discovered topology ─► WorktreeReconciler (pure helper)
+
 ManagementModeAtom ──── no store ──── in-memory, resolved via @Dependency (NOT singleton)
 SessionRuntimeAtom ──── no store ──── in-memory, resolved via @Dependency (shared per scope)
 ```
@@ -160,15 +195,32 @@ SessionRuntimeAtom ──── no store ──── in-memory, resolved via @D
 - Rename `WorkspaceUIStore` → `UIStateAtom`, create `UIStateStore`
 - Extract `ManagementModeAtom` from `ManagementModeMonitor`
 - Extract `SessionRuntimeAtom` from `SessionRuntime`
-- Rename `PaneDisplayProjector` → `PaneDisplayDerived`, `DynamicViewProjector` → `DynamicViewDerived`
-- Move `SessionRuntime` + `ZmxBackend` from `Core/Stores/` to `Core/PaneRuntime/`
+- Rename `PaneDisplayProjector` → `PaneDisplayDerived`, `DynamicViewProjector` → `DynamicViewDerived`, and convert them into dependency-resolved read-only selectors
+- Move `SessionRuntime` + `ZmxBackend` from `Core/Stores/` to `Core/RuntimeEventSystem/`
 - Update CLAUDE.md and architecture docs
 
 ### NOT in scope — do not touch
 - `SurfaceManager` — surface types (`ManagedSurface`, `SurfaceHealth`) live in `Features/Terminal/`, Core can't import them. Two count properties don't earn an atom.
-- `WorkspacePersistor` — shared I/O mechanics, used by stores unchanged
+- `WorkspacePersistor` — shared I/O mechanics, used by stores unchanged aside from dependency injection
 - `AppLifecycleStore`, `WindowLifecycleStore` — already in-memory, already in `App/`
 - Event bus projectors (`GitWorkingDirectoryProjector`, etc.) — real event subscribers, not derived atoms
+- General-purpose atom extensions such as family/cache/loadable/lazy utilities — future work, not part of this plan
+
+### Future work (not this plan)
+
+Future protocol-oriented cleanup may revisit whether persistence becomes a composable protocol extension instead of separate wrapper classes, and may introduce broader marker protocols for selectors or shared atom utilities. That is intentionally deferred. This plan keeps the narrow `PersistedAtom` contract plus concrete atoms + concrete store wrappers so we can land the refactor without expanding scope into a general atom framework.
+
+### Singleton migration inventory
+
+This plan eliminates or replaces the singletons that are directly coupled to the atoms/stores refactor:
+
+| Singleton | Plan status |
+|-----------|-------------|
+| `ManagementModeMonitor.shared` | In scope — replace with dependency-resolved monitor + `ManagementModeAtom` |
+| `ManagementModeTestLock.shared` | In scope — delete after singleton removal |
+| `CommandDispatcher.shared` | Out of scope for this plan — track separately in the broader dependency-adoption pass |
+| `SurfaceManager.shared` | Out of scope — feature/runtime singleton retained for now |
+| `GhosttyAdapter.shared`, `AppEventBus.shared`, `PaneRuntimeEventBus.shared`, `RuntimeRegistry.shared`, `EventChannels.shared` | Out of scope — not changed by this plan unless a task explicitly touches their call sites |
 
 ### Transient state decision
 Transient state (`Tab.zoomedPaneId`, `Tab.minimizedPaneIds`) stays on the `Tab` model. It's already excluded from `PersistableState` encoding. No `WorkspaceTransientAtom` — not worth a separate type when the data is tab-scoped and already handled correctly.
@@ -179,7 +231,7 @@ Transient state (`Tab.zoomedPaneId`, `Tab.minimizedPaneIds`) stays on the `Tab` 
 
 **Phase 0:** Add `swift-dependencies` package (Task 0).
 **Phase 1:** Create `Core/Atoms/`, establish pattern with ManagementModeAtom (Tasks 1-3).
-**Phase 2:** Rename derived computations (Task 4).
+**Phase 2:** Rename derived computations and convert them into dependency-resolved selectors (Task 4).
 **Phase 3:** Split WorkspaceStore, create RepoCacheStore + UIStateStore (Tasks 5-6).
 **Phase 4:** Extract SessionRuntimeAtom, move files (Tasks 7-8).
 **Phase 5:** Bootstrap migration — AppDelegate + coordinator dependency propagation (Task 9).
@@ -212,9 +264,9 @@ Transient state (`Tab.zoomedPaneId`, `Tab.minimizedPaneIds`) stays on the `Tab` 
 | File | Change |
 |------|--------|
 | `Core/Stores/WorkspaceStore.swift` | Becomes persistence wrapper — observes `WorkspaceAtom` |
-| `App/ManagementModeMonitor.swift` | Behavior only — state moves to `ManagementModeAtom` |
-| `Core/Stores/SessionRuntime.swift` | Moves to `Core/PaneRuntime/`, delegates state to `SessionRuntimeAtom` |
-| `Core/Stores/ZmxBackend.swift` | Moves to `Core/PaneRuntime/` (not a store) |
+| `App/Lifecycle/ManagementModeMonitor.swift` | Behavior only — state moves to `ManagementModeAtom` |
+| `Core/Stores/SessionRuntime.swift` | Moves to `Core/RuntimeEventSystem/`, delegates state to `SessionRuntimeAtom` |
+| `Core/Stores/ZmxBackend.swift` | Moves to `Core/RuntimeEventSystem/` (not a store) |
 | ~72 source files | Update type references |
 | ~41 test files | Update type references |
 
@@ -295,7 +347,7 @@ These rules apply to ALL subsequent tasks. Verified against source code at `poin
 
 8. **`ManagementModeTestLock` can be deleted** — the custom serialization actor exists solely because of singleton state sharing. With dependency injection, each test is isolated by construction.
 
-9. **`TestPushClock` can be replaced** — `swift-clocks` (transitive dependency) provides `TestClock` and `ImmediateClock`. Use `ImmediateClock` for simple cases, `TestClock` for precise timing control.
+9. **`TestPushClock` can be replaced in the future** — `swift-clocks` (transitive dependency) provides `TestClock` and `ImmediateClock`. That migration is OUT OF SCOPE for this plan. Keep `TestPushClock` in this refactor because the existing tests and examples already rely on its API (`waitForPendingSleepCount`, `advance`).
 
 **Child object creation (CRITICAL):**
 
@@ -326,6 +378,20 @@ These rules apply to ALL subsequent tasks. Verified against source code at `poin
 13. **`WorkspacePersistor` is a dependency** — register via `DependencyKey`. Tests override with in-memory persistor.
 14. **Clock is a dependency** — use `@Dependency(\.continuousClock)` (built-in). Tests use `ImmediateClock` or `TestClock`.
 
+**Persisted atom contract:**
+
+17. **Persisted atoms conform to `PersistedAtom`.** Use this exact narrow protocol:
+    ```swift
+    protocol PersistedAtom: AnyObject {
+        associatedtype Snapshot: Codable & Sendable
+
+        func snapshot() -> Snapshot
+        func hydrate(from snapshot: Snapshot)
+        func readTrackedProperties()
+    }
+    ```
+    `WorkspaceAtom`, `RepoCacheAtom`, and `UIStateAtom` conform. `ManagementModeAtom`, `SessionRuntimeAtom`, and derived selectors do not.
+
 ---
 
 ## Task 1: Create `Core/Atoms/` and extract `ManagementModeAtom`
@@ -334,7 +400,7 @@ Simplest atom — one `Bool`. Establishes the pattern.
 
 **Files:**
 - Create: `Sources/AgentStudio/Core/Atoms/ManagementModeAtom.swift`
-- Modify: `Sources/AgentStudio/App/ManagementModeMonitor.swift`
+- Modify: `Sources/AgentStudio/App/Lifecycle/ManagementModeMonitor.swift`
 
 - [ ] **Step 1: Create the atom**
 
@@ -379,8 +445,10 @@ final class ManagementModeMonitor {
 
     var isActive: Bool { atom.isActive }
 
-    init() {
-        startKeyboardMonitoring()
+    init(startKeyboardMonitoring: Bool = true) {
+        if startKeyboardMonitoring {
+            self.startKeyboardMonitoring()
+        }
     }
 
     func toggle() {
@@ -398,12 +466,12 @@ final class ManagementModeMonitor {
 }
 ```
 
-**Register ManagementModeMonitor as a dependency** in `DependencyKeys.swift`:
+**Register `ManagementModeMonitor` as a dependency** in `DependencyKeys.swift` with a test-safe construction path:
 
 ```swift
 struct ManagementModeMonitorKey: DependencyKey {
     static let liveValue = ManagementModeMonitor()
-    static let testValue = ManagementModeMonitor()
+    static let testValue = ManagementModeMonitor(startKeyboardMonitoring: false)
 }
 
 extension DependencyValues {
@@ -414,19 +482,44 @@ extension DependencyValues {
 }
 ```
 
-**Migrate all 18 call sites** from `ManagementModeMonitor.shared` to `@Dependency`:
+**Task boundary:** this task establishes the atom, monitor dependency key, and non-SwiftUI call-site migration. SwiftUI view bindings and other `@Bindable` / `withObservationTracking` readers move in Task 10, where their replacement patterns are handled together.
+
+**Task 1 files (non-view / behavior-heavy):**
+- `Sources/AgentStudio/App/Commands/ActionExecutor.swift`
+- `Sources/AgentStudio/App/Commands/AppCommand.swift`
+- `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
+- `Sources/AgentStudio/Features/Bridge/Runtime/BridgePaneController.swift`
+- `Sources/AgentStudio/Features/Webview/WebviewPaneController.swift`
+- matching non-view tests that exercise these paths
+
+**Deferred to Task 10 (views / observation readers):**
+- `Sources/AgentStudio/App/Lifecycle/ManagementModeToolbarButton.swift`
+- `Sources/AgentStudio/App/Panes/Hosting/PaneHostView.swift`
+- `Sources/AgentStudio/Core/Views/Splits/PaneLeafContainer.swift`
+- `Sources/AgentStudio/Core/Views/Splits/FlatTabStripContainer.swift`
+- `Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift`
+- `Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift`
+- `Sources/AgentStudio/App/Panes/TabBar/TabBarAdapter.swift`
+- `Sources/AgentStudio/App/Panes/Hosting/ManagementModeDragShield.swift`
+- `Sources/AgentStudio/App/Panes/TabBar/DraggableTabBarHostingView.swift`
+- `Sources/AgentStudio/Features/CommandBar/Views/CommandBarView.swift`
+- `Sources/AgentStudio/Features/Terminal/Ghostty/GhosttySurfaceView.swift`
+- `Sources/AgentStudio/Features/Webview/Views/WebviewPaneMountView.swift`
+- related view tests
+
+**Migrate all non-view call sites** from `ManagementModeMonitor.shared` to `@Dependency`:
 
 ```bash
 rg -l "ManagementModeMonitor.shared" Sources/ Tests/
 ```
 
-For each file:
+For each non-view file:
 - If it's an `@Observable` class: add `@ObservationIgnored @Dependency(\.managementModeMonitor) var monitor`
 - If it's a non-observable class: add `@Dependency(\.managementModeMonitor) var monitor`
 - Replace `ManagementModeMonitor.shared.isActive` → `monitor.isActive`
 - Replace `ManagementModeMonitor.shared.toggle()` → `monitor.toggle()`
 
-**Delete `ManagementModeTestLock`** — no longer needed. Tests use `@Suite(.dependencies { })` for isolation.
+**Delete `ManagementModeTestLock`** after the remaining Task 10 view/test migration is complete. Tests then use `@Suite(.dependencies { })` for isolation.
 
 Uncomment `ManagementModeAtomKey` and `ManagementModeMonitorKey` in `DependencyKeys.swift`.
 
@@ -437,7 +530,7 @@ Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" sw
 - [ ] **Step 4: Commit**
 
 ```bash
-git add Sources/AgentStudio/Core/Atoms/ManagementModeAtom.swift Sources/AgentStudio/App/ManagementModeMonitor.swift
+git add Sources/AgentStudio/Core/Atoms/ManagementModeAtom.swift Sources/AgentStudio/App/Lifecycle/ManagementModeMonitor.swift
 git commit -m "refactor: extract ManagementModeAtom from ManagementModeMonitor"
 ```
 
@@ -493,7 +586,42 @@ Rename `class WorkspaceRepoCache` → `class RepoCacheAtom`. Doc comment: "Atom:
 
 ---
 
-## Task 4: Rename derived computations → `*Derived`
+## Task 4: Rename derived computations → dependency-resolved `*Derived` selectors
+
+- [ ] **Step 0: Add a validation spike for struct-based selector observation**
+
+Before migrating broad call sites, add a focused test proving that observation flows through a struct-based derived selector that reads `@Observable` atoms via `@Dependency`:
+
+```swift
+@MainActor
+@Test
+func test_paneDisplayDerived_observationFlowsThroughStructSelector() {
+    let workspace = WorkspaceAtom()
+    let repoCache = RepoCacheAtom()
+    let pane = workspace.createPane(source: .floating(launchDirectory: nil, title: "Initial"))
+    workspace.appendTab(Tab(paneId: pane.id))
+
+    let flag = ObservationFlag()
+    let selector = withDependencies {
+        $0.workspaceAtom = workspace
+        $0.repoCacheAtom = repoCache
+    } operation: {
+        PaneDisplayDerived()
+    }
+
+    withObservationTracking {
+        _ = selector.displayLabel(for: pane.id)
+    } onChange: {
+        flag.fired = true
+    }
+
+    workspace.renamePane(pane.id, title: "Updated")
+
+    #expect(flag.fired)
+}
+```
+
+If this fails, stop and promote the selector to a `@MainActor final class` before continuing the broader migration. Do NOT force the struct pattern through without a passing proof.
 
 - [ ] **Step 1: `PaneDisplayProjector` → `PaneDisplayDerived`**
 
@@ -503,13 +631,74 @@ git mv Sources/AgentStudio/Core/Views/PaneDisplayProjector.swift Sources/AgentSt
 
 Rename enum. Update ~14 files.
 
+Convert the static enum pattern into a lightweight read-only selector type that resolves its source atoms through `swift-dependencies`:
+
+```swift
+import Dependencies
+import Observation
+
+@MainActor
+struct PaneDisplayDerived {
+    @ObservationIgnored @Dependency(\.workspaceAtom) private var workspace
+    @ObservationIgnored @Dependency(\.repoCacheAtom) private var repoCache
+
+    func displayLabel(for paneId: UUID) -> String {
+        // existing display logic, now reading workspace/repoCache internally
+    }
+}
+```
+
+Register `\.paneDisplayDerived` in `DependencyKeys.swift`. Update call sites to resolve the selector once rather than passing atoms explicitly:
+
+```swift
+@ObservationIgnored @Dependency(\.paneDisplayDerived) var paneDisplayDerived
+let label = paneDisplayDerived.displayLabel(for: paneId)
+```
+
 - [ ] **Step 2: `DynamicViewProjector` → `DynamicViewDerived`**
 
 ```bash
 git mv Sources/AgentStudio/Core/Stores/DynamicViewProjector.swift Sources/AgentStudio/Core/Atoms/DynamicViewDerived.swift
 ```
 
-Rename enum. Update ~3 files.
+Apply the same pattern: a read-only dependency-resolved selector that knows it reads `WorkspaceAtom` internally. Zero-input computed properties are preferred where the selector is not query-shaped.
+
+The current `DynamicViewProjector.project(...)` takes 6 explicit inputs:
+- `viewType`
+- `panes`
+- `tabs`
+- `repos`
+- `repoEnrichments`
+- `worktreeEnrichments`
+
+After conversion:
+- `panes`, `tabs`, `repos` come from `WorkspaceAtom`
+- `repoEnrichments`, `worktreeEnrichments` come from `RepoCacheAtom`
+- `viewType` is the only caller-provided query parameter when projection varies by view kind
+- zero-input computed properties are preferred when the selector is just exposing the current computed grouping
+
+The resulting surface should look like:
+
+```swift
+@MainActor
+struct DynamicViewDerived {
+    @ObservationIgnored @Dependency(\.workspaceAtom) private var workspace
+    @ObservationIgnored @Dependency(\.repoCacheAtom) private var repoCache
+
+    var tabGroupings: DynamicViewProjection {
+        projection(for: .byRepo) // or current ambient view mode if the caller has already bound it
+    }
+
+    func projection(for viewType: DynamicViewType) -> DynamicViewProjection {
+        // Move the CanonicalRepo flattening and enrichment lookup logic inside
+        // the selector so call sites only pass viewType.
+    }
+}
+```
+
+**Observation note:** views must read selector outputs inside `body` / tracked closures. Observation still flows through to `WorkspaceAtom` / `RepoCacheAtom` because the selector reads those `@Observable` atoms internally at access time.
+
+**Caching note:** `DynamicViewDerived.tabGroupings` is intentionally recomputed on each access in this refactor. That matches the current stateless projector model and keeps the first migration simple. If profiling later shows the selector is hot, graduate it to a cached `@MainActor final class` and extract the cache/invalidation pattern into a reusable helper rather than duplicating it ad hoc.
 
 - [ ] **Step 3: Build and test, commit**
 
@@ -549,7 +738,7 @@ The big task. 1981 lines split into ~1500 line atom + ~400 line store.
 1. Copy `WorkspaceStore.swift` to `Core/Atoms/WorkspaceAtom.swift`
 2. Rename class: `WorkspaceStore` → `WorkspaceAtom`
 3. Delete persistence section: `persistor`, `isDirty`, `debouncedSaveTask`, `clock`, `persistDebounceDuration`, `prePersistHook`, `restore()`, `markDirty()`, `flush()`, `persistNow()`, `tabPersistenceSummary()`, `layoutRatioSummary()`
-4. Delete every `markDirty()` call (49 sites). The 3 methods with `// Do NOT markDirty()` already don't call it — no change needed there.
+4. Delete every `markDirty()` call. Do not trust the old count — grep the file and remove all remaining sites. The 3 methods with `// Do NOT markDirty()` already don't call it — no change needed there.
 5. Simplify init: `init() {}`
 6. Make `pruneInvalidPanes` and `validateTabInvariants` `internal` (not `private`) so store can call them during restore
 7. Add hydrate method:
@@ -589,7 +778,7 @@ func hydrate(
 - [ ] **Step 2: Rewrite `WorkspaceStore.swift` as persistence wrapper**
 
 See the "How stores observe atoms" and "How atoms are hydrated" sections above for the pattern. The implementing agent must:
-1. Read the current `restore()` (lines ~1438-1507) and copy the logic, using `atom.hydrate(...)` instead of direct property assignment
+1. Read the current `restore()` implementation and copy the logic, using `atom.hydrate(...)` instead of direct property assignment
 2. Copy post-restore validation: `atom.pruneInvalidPanes(...)`, `atom.validateTabInvariants()`
 3. Call `startObserving()` AFTER restore — not in init
 4. Read the current `persistNow()` and copy the logic, reading from `atom.*` instead of `self.*`
@@ -643,7 +832,7 @@ For each file, decide: does this code need persistence (`store.restore()`, `stor
 
 **~72 files total.** Most views/services → `WorkspaceAtom`. App-level coordinators → keep `WorkspaceStore`.
 
-- [ ] **Step 4: Build incrementally, fix errors, run full tests, commit**
+- [ ] **Step 5: Build incrementally, fix errors, run full tests, commit**
 
 ---
 
@@ -654,11 +843,17 @@ Both `RepoCacheAtom` and `UIStateAtom` are already persisted today via `Workspac
 **Files:**
 - Create: `Sources/AgentStudio/Core/Stores/RepoCacheStore.swift`
 - Create: `Sources/AgentStudio/Core/Stores/UIStateStore.swift`
-- Modify: `Sources/AgentStudio/App/AppDelegate.swift` — move persistence wiring to stores
+- Modify: `Sources/AgentStudio/App/Boot/AppDelegate.swift` — move persistence wiring to stores
 
 - [ ] **Step 1: Read how AppDelegate currently loads/saves these**
 
-Read `Sources/AgentStudio/App/AppDelegate.swift` lines ~83 and ~513 to understand the current persistence wiring for `WorkspaceRepoCache` and `WorkspaceUIStore`.
+Do not rely on stale line numbers. Find the current persistence wiring first:
+
+```bash
+rg -n "loadCache|saveCache|loadUI|saveUI" Sources/AgentStudio/App/Boot/AppDelegate.swift
+```
+
+Then read the matched sections to understand the current `WorkspaceRepoCache` / `WorkspaceUIStore` load-save flow.
 
 - [ ] **Step 2: Create `RepoCacheStore`**
 
@@ -697,9 +892,29 @@ final class RepoCacheStore {
 - `persistor.loadCache(for: store.workspaceId)` → `{uuid}.workspace.cache.json`
 - `persistor.saveCache(workspaceId: ...)` → same
 
-The implementing agent MUST read `AppDelegate.swift` lines ~83 and ~518 to understand the full load/save wiring before writing the store.
+The implementing agent MUST read the current `AppDelegate.swift` load/save call sites before writing the store.
 
-Add a `hydrate()` method to `RepoCacheAtom` for the `private(set)` boundary.
+Add a `hydrate()` method to `RepoCacheAtom` for the `private(set)` boundary covering ALL persisted fields:
+
+```swift
+func hydrate(
+    repoEnrichmentByRepoId: [UUID: RepoEnrichment],
+    worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment],
+    pullRequestCountByWorktreeId: [UUID: Int],
+    notificationCountByWorktreeId: [UUID: Int],
+    recentTargets: [RecentWorkspaceTarget],
+    sourceRevision: UInt64,
+    lastRebuiltAt: Date?
+) {
+    self.repoEnrichmentByRepoId = repoEnrichmentByRepoId
+    self.worktreeEnrichmentByWorktreeId = worktreeEnrichmentByWorktreeId
+    self.pullRequestCountByWorktreeId = pullRequestCountByWorktreeId
+    self.notificationCountByWorktreeId = notificationCountByWorktreeId
+    self.recentTargets = recentTargets
+    self.sourceRevision = sourceRevision
+    self.lastRebuiltAt = lastRebuiltAt
+}
+```
 
 **Migrate readers:** Views that currently reference `RepoCacheAtom` (formerly `WorkspaceRepoCache`) directly for observation should use `@Dependency(\.repoCacheAtom)` instead. Check:
 ```bash
@@ -709,6 +924,22 @@ rg -l "RepoCacheAtom\|WorkspaceRepoCache" Sources/
 Key files: `RepoSidebarContentView.swift`, `CommandBarDataSource.swift`, `PaneDisplayDerived.swift`.
 
 - [ ] **Step 3: Create `UIStateStore`** — same pattern, same `workspaceId` requirement
+
+Add a `hydrate()` method to `UIStateAtom` covering all persisted fields:
+
+```swift
+func hydrate(
+    expandedGroups: Set<String>,
+    checkoutColors: [String: String],
+    filterText: String,
+    isFilterVisible: Bool
+) {
+    self.expandedGroups = expandedGroups
+    self.checkoutColors = checkoutColors
+    self.filterText = filterText
+    self.isFilterVisible = isFilterVisible
+}
+```
 
 Migrate readers: `MainWindowController.swift`, `MainSplitViewController.swift` reference `UIStateAtom` directly for observation. These should use `@Dependency(\.uiStateAtom)`.
 
@@ -785,15 +1016,15 @@ Tests get fresh atoms via `@Suite(.dependencies { $0.sessionRuntimeAtom = Sessio
 
 ---
 
-## Task 8: Move `SessionRuntime` + `ZmxBackend` to `Core/PaneRuntime/`
+## Task 8: Move `SessionRuntime` + `ZmxBackend` to `Core/RuntimeEventSystem/`
 
 They're behavior/backends, not stores. `Core/Stores/` should only have persistence wrappers after this refactor.
 
 - [ ] **Step 1: Move files**
 
 ```bash
-git mv Sources/AgentStudio/Core/Stores/SessionRuntime.swift Sources/AgentStudio/Core/PaneRuntime/SessionRuntime.swift
-git mv Sources/AgentStudio/Core/Stores/ZmxBackend.swift Sources/AgentStudio/Core/PaneRuntime/ZmxBackend.swift
+git mv Sources/AgentStudio/Core/Stores/SessionRuntime.swift Sources/AgentStudio/Core/RuntimeEventSystem/SessionRuntime.swift
+git mv Sources/AgentStudio/Core/Stores/ZmxBackend.swift Sources/AgentStudio/Core/RuntimeEventSystem/ZmxBackend.swift
 ```
 
 - [ ] **Step 2: Build, test, commit**
@@ -805,11 +1036,27 @@ git mv Sources/AgentStudio/Core/Stores/ZmxBackend.swift Sources/AgentStudio/Core
 AppDelegate creates long-lived objects: `WorkspaceStore`, `SessionRuntime`, `PaneCoordinator`, `MainWindowController`, `CommandBarPanelController`. Today these are created directly. After the refactor, child objects must be created with `withDependencies(from: self)` so they inherit the ambient context.
 
 **Files:**
-- Modify: `Sources/AgentStudio/App/AppDelegate.swift`
+- Modify: `Sources/AgentStudio/App/Boot/AppDelegate.swift`
 
 - [ ] **Step 1: Read current boot flow**
 
-Read `AppDelegate.swift` lines ~128 and ~494 (`bootLoadCanonicalStore()` and object creation). Identify every object created that uses `@Dependency`.
+Find the current boot flow with grep first, then inspect the matched object-creation sections:
+
+```bash
+rg -n "bootLoadCanonicalStore|WorkspaceStore\\(|SessionRuntime\\(|PaneCoordinator\\(|MainWindowController\\(|CommandBarPanelController\\(" Sources/AgentStudio/App/Boot/AppDelegate.swift
+```
+
+This boot is a multi-step `WorkspaceBootSequence`; do not treat it as a trivial one-shot initializer. Identify every object created that uses `@Dependency`, including:
+- `WorkspaceStore`
+- `RepoCacheStore`
+- `UIStateStore`
+- `SessionRuntime`
+- `ViewRegistry`
+- `PaneCoordinator`
+- `WorkspaceCacheCoordinator`
+- `FilesystemGitPipeline`
+- `MainWindowController`
+- `CommandBarPanelController`
 
 - [ ] **Step 2: Wrap child creation with `withDependencies(from: self)`**
 
@@ -846,6 +1093,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 **Every object created from AppDelegate needs `withDependencies(from: self)`.** Without it, child objects resolve `liveValue` defaults independently — they work but lose the ability to be overridden together in tests.
 
+`WorkspaceCacheCoordinator` is especially important here: it is the topology accumulator and bus consumer for the canonical/cache atom path. If it is created outside the intended dependency scope, test isolation breaks on the event-bus path even when direct state mutation paths are isolated.
+
 - [ ] **Step 3: Update PaneCoordinator child creation**
 
 `PaneCoordinator` creates child objects (surface views, runtime instances). Wrap each with `withDependencies(from: self)`:
@@ -861,7 +1110,7 @@ func createSessionRuntime() -> SessionRuntime {
 
 The implementing agent must search for all object creation in `PaneCoordinator`:
 ```bash
-rg -n "= .*Runtime\(\|= .*Controller\(\|= .*Manager\(" Sources/AgentStudio/App/PaneCoordinator*.swift
+rg -n "= .*Runtime\(\|= .*Controller\(\|= .*Manager\(" Sources/AgentStudio/App/Coordination/PaneCoordinator*.swift
 ```
 
 - [ ] **Step 4: Build, test, commit**
@@ -871,6 +1120,8 @@ rg -n "= .*Runtime\(\|= .*Controller\(\|= .*Manager\(" Sources/AgentStudio/App/P
 ## Task 10: SwiftUI view migration for ManagementModeMonitor
 
 Views currently use `@Bindable private var managementMode = ManagementModeMonitor.shared`. After removing `.shared`, views need a replacement pattern.
+
+This task owns all SwiftUI / observation-reader migration that was intentionally left out of Task 1.
 
 **Three patterns for three contexts:**
 
@@ -899,7 +1150,7 @@ Views currently use `@Bindable private var managementMode = ManagementModeMonito
    ```swift
    @Suite(.dependencies {
        $0.managementModeAtom = ManagementModeAtom()
-       $0.managementModeMonitor = ManagementModeMonitor()
+       $0.managementModeMonitor = ManagementModeMonitor(startKeyboardMonitoring: false)
    })
    struct ManagementModeTests { ... }
    ```
@@ -1099,7 +1350,11 @@ Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" sw
 
 - [ ] **Step 2: Run lint**
 
-Run: `mise run lint > /tmp/lint-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
+If `mise` reports the repo config is untrusted, trust it once before lint/build commands:
+
+Run: `mise trust`
+
+Then run: `mise run lint > /tmp/lint-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
 
 - [ ] **Step 3: Verify `Core/Atoms/` contents**
 

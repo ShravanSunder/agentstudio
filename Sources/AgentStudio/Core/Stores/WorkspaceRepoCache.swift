@@ -5,6 +5,8 @@ import Observation
 @Observable
 @MainActor
 final class WorkspaceRepoCache {
+    private static let maximumRecentTargetCount = 15
+
     private(set) var repoEnrichmentByRepoId: [UUID: RepoEnrichment] = [:]
     private(set) var worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment] = [:]
     private(set) var pullRequestCountByWorktreeId: [UUID: Int] = [:]
@@ -32,8 +34,8 @@ final class WorkspaceRepoCache {
     func recordRecentTarget(_ target: RecentWorkspaceTarget) {
         recentTargets.removeAll { $0.id == target.id }
         recentTargets.insert(target, at: 0)
-        if recentTargets.count > 6 {
-            recentTargets = Array(recentTargets.prefix(6))
+        if recentTargets.count > Self.maximumRecentTargetCount {
+            recentTargets = Array(recentTargets.prefix(Self.maximumRecentTargetCount))
         }
     }
 

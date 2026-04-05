@@ -96,22 +96,22 @@ These decisions came from user clarification during planning. Treat them as requ
   - `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
 - Management-mode and pane chrome:
   - `Sources/AgentStudio/Core/Views/Splits/PaneLeafContainer.swift`
-  - `Sources/AgentStudio/App/ManagementModeMonitor.swift`
+  - `Sources/AgentStudio/App/Lifecycle/ManagementModeMonitor.swift`
   - `Sources/AgentStudio/Infrastructure/AppStyle.swift`
 - Sidebar row layout:
   - `Sources/AgentStudio/Features/Sidebar/RepoSidebarContentView.swift`
 - Cache ownership and persistence:
   - `Sources/AgentStudio/Core/Stores/WorkspaceRepoCache.swift`
   - `Sources/AgentStudio/Core/Stores/WorkspacePersistor.swift`
-  - `Sources/AgentStudio/App/WorkspaceCacheCoordinator.swift`
+  - `Sources/AgentStudio/App/Coordination/WorkspaceCacheCoordinator.swift`
 - Runtime cwd semantics:
-  - `Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneMetadata.swift`
-  - `Sources/AgentStudio/App/PaneCoordinator.swift`
+  - `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneMetadata.swift`
+  - `Sources/AgentStudio/App/Coordination/PaneCoordinator.swift`
   - `Sources/AgentStudio/Core/Stores/WorkspaceStore.swift`
 - Arrangement popover:
-  - `Sources/AgentStudio/Core/Views/CustomTabBar.swift`
+  - `Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift`
 - About/version packaging:
-  - `Sources/AgentStudio/App/AppDelegate.swift`
+  - `Sources/AgentStudio/App/Boot/AppDelegate.swift`
   - `Sources/AgentStudio/Resources/Info.plist`
   - `.github/workflows/release.yml`
   - `.mise.toml`
@@ -142,10 +142,10 @@ These decisions came from user clarification during planning. Treat them as requ
 | `Sources/AgentStudio/Core/Models/RecentWorkspaceTarget.swift` | Create | Cache model for recent worktree/CWD launcher entries |
 | `Sources/AgentStudio/Core/Stores/WorkspaceRepoCache.swift` | Modify | Own recent target state and recency mutation methods |
 | `Sources/AgentStudio/Core/Stores/WorkspacePersistor.swift` | Modify | Persist recent target cache entries in `workspace.cache.json` |
-| `Sources/AgentStudio/Core/PaneRuntime/Contracts/WorkspaceActivityEvent.swift` | Create | New system fact type for “recent target opened” |
-| `Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelopeCore.swift` | Modify | Add workspace-activity event namespace |
-| `Sources/AgentStudio/App/WorkspaceCacheCoordinator.swift` | Modify | Consume recent-target facts and update cache |
-| `Sources/AgentStudio/App/PaneCoordinator+ActionExecution.swift` | Modify | Emit recent-target facts after successful open/new-tab actions |
+| `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/WorkspaceActivityEvent.swift` | Create | New system fact type for “recent target opened” |
+| `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift` | Modify | Add workspace-activity event namespace |
+| `Sources/AgentStudio/App/Coordination/WorkspaceCacheCoordinator.swift` | Modify | Consume recent-target facts and update cache |
+| `Sources/AgentStudio/App/Coordination/PaneCoordinator+ActionExecution.swift` | Modify | Emit recent-target facts after successful open/new-tab actions |
 | `Sources/AgentStudio/App/Panes/WorkspaceLauncherProjector.swift` | Create | Derive which empty state to show and which recent entries/actions are available |
 | `Sources/AgentStudio/App/Panes/WorkspaceEmptyStateView.swift` | Create | Native SwiftUI empty-state / launcher content |
 | `Sources/AgentStudio/App/Panes/PaneTabEmptyStateViewFactory.swift` | Modify | Host SwiftUI empty-state view instead of hard-coded AppKit-only welcome |
@@ -155,8 +155,8 @@ These decisions came from user clarification during planning. Treat them as requ
 | `Sources/AgentStudio/Infrastructure/ExternalWorkspaceOpener.swift` | Create | Finder + Cursor (`--reuse-window`) launching helper |
 | `Sources/AgentStudio/Core/Views/Splits/PaneLeafContainer.swift` | Modify | Reserve bottom chrome space, show management footer, wire footer actions |
 | `Sources/AgentStudio/Features/Sidebar/RepoSidebarContentView.swift` | Modify | Fix worktree alignment grid and child indentation |
-| `Sources/AgentStudio/Core/Views/CustomTabBar.swift` | Modify | Left-biased arrangement popover attachment anchor |
-| `Sources/AgentStudio/App/MainWindowController.swift` | Modify | Improve AppKit toolbar/tool button help tag text |
+| `Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift` | Modify | Left-biased arrangement popover attachment anchor |
+| `Sources/AgentStudio/App/Windows/MainWindowController.swift` | Modify | Improve AppKit toolbar/tool button help tag text |
 | `scripts/inject-bundle-version.sh` | Create | Single bundle-version injection script for local and CI packaging |
 | `.github/workflows/release.yml` | Modify | Inject tag-driven marketing/build version into bundled `Info.plist` |
 | `.mise.toml` | Modify | Reuse bundle-version injection script for local release bundle creation |
@@ -306,10 +306,10 @@ git commit -m "feat: persist recent workspace targets in cache"
 ## Task 2: Record Recent Target Opens Through The Event Bus
 
 **Files:**
-- Create: `Sources/AgentStudio/Core/PaneRuntime/Contracts/WorkspaceActivityEvent.swift`
-- Modify: `Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelopeCore.swift`
-- Modify: `Sources/AgentStudio/App/WorkspaceCacheCoordinator.swift`
-- Modify: `Sources/AgentStudio/App/PaneCoordinator+ActionExecution.swift`
+- Create: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/WorkspaceActivityEvent.swift`
+- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift`
+- Modify: `Sources/AgentStudio/App/Coordination/WorkspaceCacheCoordinator.swift`
+- Modify: `Sources/AgentStudio/App/Coordination/PaneCoordinator+ActionExecution.swift`
 - Test: `Tests/AgentStudioTests/App/WorkspaceCacheCoordinatorTests.swift`
 
 - [ ] **Step 1: Write a failing coordinator test for recent-target facts**
@@ -438,10 +438,10 @@ Expected: PASS, with recent-target facts stored without violating cache ownershi
 - [ ] **Step 7: Commit**
 
 ```bash
-git add Sources/AgentStudio/Core/PaneRuntime/Contracts/WorkspaceActivityEvent.swift \
-  Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelopeCore.swift \
-  Sources/AgentStudio/App/WorkspaceCacheCoordinator.swift \
-  Sources/AgentStudio/App/PaneCoordinator+ActionExecution.swift \
+git add Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/WorkspaceActivityEvent.swift \
+  Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift \
+  Sources/AgentStudio/App/Coordination/WorkspaceCacheCoordinator.swift \
+  Sources/AgentStudio/App/Coordination/PaneCoordinator+ActionExecution.swift \
   Tests/AgentStudioTests/App/WorkspaceCacheCoordinatorTests.swift
 git commit -m "feat: record recent workspace opens through cache coordinator"
 ```
@@ -783,8 +783,8 @@ git commit -m "feat: add management pane footer and external open actions"
 
 **Files:**
 - Modify: `Sources/AgentStudio/Features/Sidebar/RepoSidebarContentView.swift`
-- Modify: `Sources/AgentStudio/Core/Views/CustomTabBar.swift`
-- Modify: `Sources/AgentStudio/App/MainWindowController.swift`
+- Modify: `Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift`
+- Modify: `Sources/AgentStudio/App/Windows/MainWindowController.swift`
 - Test: `Tests/AgentStudioTests/Features/Sidebar/RepoSidebarContentViewTests.swift`
 
 - [ ] **Step 1: Write a failing sidebar row-layout test for the worktree leading grid**
@@ -870,8 +870,8 @@ Expected: PASS for sidebar and tab-bar non-regression coverage.
 
 ```bash
 git add Sources/AgentStudio/Features/Sidebar/RepoSidebarContentView.swift \
-  Sources/AgentStudio/Core/Views/CustomTabBar.swift \
-  Sources/AgentStudio/App/MainWindowController.swift \
+  Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift \
+  Sources/AgentStudio/App/Windows/MainWindowController.swift \
   Tests/AgentStudioTests/Features/Sidebar/RepoSidebarContentViewTests.swift
 git commit -m "fix: polish sidebar alignment tooltips and popover anchor"
 ```

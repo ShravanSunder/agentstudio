@@ -167,7 +167,7 @@ The relationship is:
 | `ViewRegistry` (sessionId → NSView) | Coexists with `RuntimeRegistry` (paneId → PaneRuntime) | ViewRegistry maps to NSViews; RuntimeRegistry maps to runtime protocol instances. Both keyed by the same UUID. |
 | `SurfaceManager` | Internal to `GhosttyAdapter` / terminal feature | Surface lifecycle is terminal-specific, not generic to all pane types |
 
-This is an evolutionary relationship, not a replacement. `TerminalSession` and `SessionRuntime` continue to exist in the current code. As non-terminal pane types are implemented (LUNA-349), the pane-centric contracts in `Core/PaneRuntime/` become the shared abstraction layer, and terminal-specific models specialize under `Features/Terminal/`.
+This is an evolutionary relationship, not a replacement. `TerminalSession` and `SessionRuntime` continue to exist in the current code. As non-terminal pane types are implemented (LUNA-349), the pane-centric contracts in `Core/RuntimeEventSystem/` become the shared abstraction layer, and terminal-specific models specialize under `Features/Terminal/`.
 
 ### 2.4 ViewDefinition & ViewKind
 
@@ -284,7 +284,7 @@ AppDelegate (creates all services in dependency order)
             ├── DraggableTabBarHostingView (SwiftUI)
             └── terminalContainer (dynamic split hierarchy)
 
-Core/PaneRuntime/ (shared pane-runtime domain):
+Core/RuntimeEventSystem/ (shared pane-runtime domain):
 ├── PaneRuntime protocol     ← per-pane runtime contract
 ├── RuntimeRegistry          ← paneId → runtime lookup (owned by PaneCoordinator)
 ├── NotificationReducer      ← priority-aware event delivery
@@ -345,7 +345,7 @@ Manages live session state. Does **not** own sessions — reads the session list
 - `startHealthChecks()` / `runHealthCheck()` — Periodic backend liveness checks
 - `startSession()` / `restoreSession()` / `terminateSession()` — Backend lifecycle
 
-> **Note:** A full `SessionStatus` state machine (7 states: unknown, verifying, alive, dead, missing, recovering, failed) exists in `Models/StateMachine/SessionStatus.swift` for future zmx health integration but is not yet wired into `SessionRuntime`. See [Session Lifecycle](session_lifecycle.md) for details.
+> **Note:** A full `SessionStatus` state machine (7 states: unknown, verifying, alive, dead, missing, recovering, failed) exists in `Core/Models/SessionStatus.swift` for future zmx health integration but is not yet wired into `SessionRuntime`. See [Session Lifecycle](session_lifecycle.md) for details.
 >
 > `ZmxBackend` conforms to a separate `SessionBackend` protocol (defined in `ZmxBackend.swift`) with its own method signatures. A future phase will wire `SessionRuntime` → `ZmxBackend` and consolidate the two protocols.
 >
@@ -392,7 +392,7 @@ The `PaneCoordinator` is the canonical orchestration boundary for action executi
 
 **Two action layers flow through the coordinator:**
 - **Workspace actions** (`PaneActionCommand` from `Core/Actions/`): workspace structure mutations (selectTab, closePane, insertPane, etc.) → resolved by `ActionResolver`, validated by `ActionValidator`, executed against `WorkspaceStore`.
-- **Runtime commands** (`RuntimeCommand` from `Core/PaneRuntime/Contracts/`): commands to individual runtimes (sendInput, navigate, approveHunk, etc.) → dispatched via `RuntimeRegistry.runtime(for:).handleCommand(envelope)`.
+- **Runtime commands** (`RuntimeCommand` from `Core/RuntimeEventSystem/Contracts/`): commands to individual runtimes (sendInput, navigate, approveHunk, etc.) → dispatched via `RuntimeRegistry.runtime(for:).handleCommand(envelope)`.
 
 **Key operations:**
 - `execute(_ action: PaneActionCommand)` — dispatch workspace actions (selectTab, closeTab, closePane, insertPane, extractPaneToTab, resizePane, equalizePanes, mergeTab, breakUpTab, focusPane, repair)
@@ -412,13 +412,13 @@ The `PaneCoordinator` is the canonical orchestration boundary for action executi
 
 **Reentrant-safety invariant:** The coordinator has both synchronous mutation methods (e.g., `execute(_ action: PaneActionCommand)`, `closeTab()`) and an async `for await` event loop consuming from the EventBus. Since both are `@MainActor`, synchronous methods can interleave between event loop iterations — the `for await` yields at each iteration, and synchronous calls execute during the yield. This is correct and expected (same model as Python asyncio). The multiplexing rule guarantees safety: `@Observable` mutation happens synchronously on MainActor **before** `bus.post()`, so by the time the coordinator's event loop picks up an envelope, all store state is already consistent. The coordinator never sees an envelope whose corresponding `@Observable` state hasn't been applied yet. Frame-level interleaving between synchronous UI mutations and async event processing is expected and safe — UI sees updates immediately (synchronous `@Observable`), coordination consumers see complete envelopes within one frame (~16ms). This is not a race; it's the intended scheduling model.
 
-> **File:** `App/PaneCoordinator.swift`
+> **File:** `App/Coordination/PaneCoordinator.swift`
 
 ### 3.7 TabBarAdapter
 
 Derived state bridge between `WorkspaceStore` and the tab bar SwiftUI view. Bridges `@Observable` store state via `withObservationTracking` and transforms it into tab bar display items.
 
-> **File:** `Core/Views/TabBarAdapter.swift`
+> **File:** `App/Panes/TabBar/TabBarAdapter.swift`
 
 ### 3.9 WorkspacePersistor
 
@@ -829,28 +829,28 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `Infrastructure/WorktreeReconciler.swift` | Pure function: matches existing vs discovered worktrees, preserves UUIDs, returns merged list + `WorktreeTopologyDelta` |
 | `Infrastructure/ProcessExecutor.swift` | Protocol + default impl for CLI execution |
 | **App** | |
-| `App/PaneCoordinator.swift` | Action dispatch, orchestration, undo sequencing, and `TopologyEffectHandler` conformance (orphan panes + filesystem root sync after topology changes) |
-| `App/MainWindowController.swift` | Primary window management |
-| `App/MainSplitViewController.swift` | Split view: sidebar + terminal panes |
+| `App/Coordination/PaneCoordinator.swift` | Action dispatch, orchestration, undo sequencing, and `TopologyEffectHandler` conformance (orphan panes + filesystem root sync after topology changes) |
+| `App/Windows/MainWindowController.swift` | Primary window management |
+| `App/Windows/MainSplitViewController.swift` | Split view: sidebar + terminal panes |
 | `App/Panes/PaneTabViewController.swift` | Tab controller, observes store via @Observable |
 | **Core/Actions** (workspace mutations) | |
 | `Core/Actions/PaneActionCommand.swift` | Workspace-level action enum (selectTab, closePane, insertPane, etc.) |
 | `Core/Actions/ActionResolver.swift` | Resolves user input → PaneActionCommand |
 | `Core/Actions/ActionValidator.swift` | Validates actions before execution |
 | `Core/Actions/ActionStateSnapshot.swift` | Captures state for validation |
-| **Core/PaneRuntime/** (LUNA-325) | |
-| `Core/PaneRuntime/Contracts/PaneRuntime.swift` | Per-pane runtime protocol |
-| `Core/PaneRuntime/Contracts/PaneRuntimeEvent.swift` | Typed event discriminated union + per-kind enums |
-| `Core/PaneRuntime/Contracts/RuntimeEnvelopeCore.swift` | 3-tier event envelope (SystemEnvelope, WorktreeEnvelope, PaneEnvelope) |
-| `Core/PaneRuntime/Contracts/RuntimeCommand.swift` | Runtime-level command enum + per-kind command enums |
-| `Core/PaneRuntime/Contracts/RuntimeCommandEnvelope.swift` | Inbound command envelope with idempotency/correlation |
-| `Core/PaneRuntime/Contracts/PaneMetadata.swift` | Rich pane identity (contentType, source, execution backend) |
-| `Core/PaneRuntime/Contracts/PaneLifecycle.swift` | Lifecycle state machine (created→ready→draining→terminated) |
-| `Core/PaneRuntime/Contracts/ActionPolicy.swift` | Critical/lossy event classification |
-| `Core/PaneRuntime/Registry/RuntimeRegistry.swift` | paneId → runtime lookup (owned by PaneCoordinator) |
-| `Core/PaneRuntime/Reduction/NotificationReducer.swift` | Priority-aware event delivery (critical + lossy queues) |
-| `Core/PaneRuntime/Reduction/VisibilityTier.swift` | p0→p3 delivery scheduling by pane visibility |
-| `Core/PaneRuntime/Replay/EventReplayBuffer.swift` | Bounded ring buffer for late-joining consumers |
+| **Core/RuntimeEventSystem/** (LUNA-325) | |
+| `Core/RuntimeEventSystem/Contracts/PaneRuntime.swift` | Per-pane runtime protocol |
+| `Core/RuntimeEventSystem/Contracts/PaneRuntimeEvent.swift` | Typed event discriminated union + per-kind enums |
+| `Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift` | 3-tier event envelope (SystemEnvelope, WorktreeEnvelope, PaneEnvelope) |
+| `Core/RuntimeEventSystem/Contracts/RuntimeCommand.swift` | Runtime-level command enum + per-kind command enums |
+| `Core/RuntimeEventSystem/Contracts/RuntimeCommandEnvelope.swift` | Inbound command envelope with idempotency/correlation |
+| `Core/RuntimeEventSystem/Contracts/PaneMetadata.swift` | Rich pane identity (contentType, source, execution backend) |
+| `Core/RuntimeEventSystem/Contracts/PaneLifecycle.swift` | Lifecycle state machine (created→ready→draining→terminated) |
+| `Core/RuntimeEventSystem/Contracts/ActionPolicy.swift` | Critical/lossy event classification |
+| `Core/RuntimeEventSystem/Registry/RuntimeRegistry.swift` | paneId → runtime lookup (owned by PaneCoordinator) |
+| `Core/RuntimeEventSystem/Reduction/NotificationReducer.swift` | Priority-aware event delivery (critical + lossy queues) |
+| `Core/RuntimeEventSystem/Reduction/VisibilityTier.swift` | p0→p3 delivery scheduling by pane visibility |
+| `Core/RuntimeEventSystem/Replay/EventReplayBuffer.swift` | Bounded ring buffer for late-joining consumers |
 | **Features/CommandBar** | |
 | `Features/CommandBar/CommandBarPanelController.swift` | Panel lifecycle: show/dismiss/toggle, backdrop, animation |
 | `Features/CommandBar/CommandBarState.swift` | Observable state: prefix parsing, navigation, selection, recents |

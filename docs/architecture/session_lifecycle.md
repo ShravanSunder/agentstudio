@@ -431,7 +431,7 @@ This must stay aligned with:
 
 ## SessionStatus State Machine (Dormant)
 
-A full 7-state machine exists in `Models/StateMachine/SessionStatus.swift` for future integration with zmx backend health monitoring. It is **not yet wired** into `SessionRuntime` (which uses the simpler `SessionRuntimeStatus` enum above).
+A full 7-state machine exists in `Core/Models/SessionStatus.swift` for future integration with zmx backend health monitoring. It is **not yet wired** into `SessionRuntime` (which uses the simpler `SessionRuntimeStatus` enum above).
 
 ```mermaid
 stateDiagram-v2
@@ -466,19 +466,19 @@ stateDiagram-v2
 | `Core/Stores/WorkspaceStore.swift` | Atomic store — workspace structure (panes, tabs, layouts, persistence) |
 | `Core/Stores/WorkspacePersistor.swift` | JSON serialization/deserialization |
 | `Core/Stores/SessionRuntime.swift` | Runtime health monitoring and status tracking |
-| `App/PaneCoordinator.swift` | Dispatches actions (open, close, split, undo, etc.) and is the sole intermediary for view/surface orchestration |
+| `App/Coordination/PaneCoordinator.swift` | Dispatches actions (open, close, split, undo, etc.) and is the sole intermediary for view/surface orchestration |
 | `Core/Models/Pane.swift` | Pane identity and content metadata |
 | `Core/Models/SessionLifetime.swift` | `.persistent` / `.temporary` enum |
 | `Core/Models/SessionResidency.swift` | `.active` / `.pendingUndo` / `.backgrounded` enum |
 | `Core/Models/Layout.swift` | Value-type split layout tree (Codable for persistence) |
 | `Core/Models/Tab.swift` | Tab with layout and active pane |
 | `Core/Models/SessionConfiguration.swift` | Config detection from env vars |
-| `Core/Models/StateMachine/SessionStatus.swift` | 7-state machine definition for future zmx health |
+| `Core/Models/SessionStatus.swift` | 7-state machine definition for future zmx health |
 | `Infrastructure/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
 | `Infrastructure/ProcessExecutor.swift` | Protocol + `DefaultProcessExecutor` for CLI execution |
 | `Core/Stores/ZmxBackend.swift` | zmx CLI wrapper — session ID gen, create/destroy/healthCheck |
 | `Features/Terminal/Hosting/TerminalPaneMountView.swift` | Terminal mounted content (displays surfaces, does not own them) |
-| `App/AppDelegate.swift` | Launch flow — restore workspace, create window |
+| `App/Boot/AppDelegate.swift` | Launch flow — restore workspace, create window |
 
 ## Related Documentation
 

@@ -319,8 +319,8 @@ The filesystem watcher is the first system-level source to implement. It's a pre
 │            Independent of pane lifecycle.                                   │
 │                                                                              │
 │ Location:                                                                    │
-│   Core/PaneRuntime/Sources/FilesystemActor.swift                            │
-│   Core/PaneRuntime/Sources/GitWorkingDirectoryProjector.swift               │
+│   Core/RuntimeEventSystem/Filesystem/FilesystemActor.swift                         │
+│   Core/RuntimeEventSystem/Git/GitWorkingDirectoryProjector.swift                   │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -509,45 +509,37 @@ The reference implementation. Fully conforms to `PaneRuntime`. One instance per 
 - **Command handling:** `TerminalRuntime.handleCommand()` validates lifecycle + capability, then dispatches `.sendInput`, `.resize`, `.search` to the Ghostty surface via `SurfaceManager`.
 - **@Observable state:** `title`, `cwd`, `searchState`, `scrollbarState` — bound directly by SwiftUI views.
 
-#### BridgeRuntime (to be extracted from BridgePaneController)
+#### BridgeRuntime (implemented)
 
 Serves ALL React-based pane types. The content-specific behavior lives in the React app (loaded via `agentstudio://` custom scheme), not in the Swift runtime. The runtime handles lifecycle, event transport, and command dispatch generically.
 
 - **Adapter:** `RPCRouter` (per-pane, owned by `BridgePaneController`). Routes incoming JSON-RPC messages to registered method handlers. Outgoing events are pushed via `PushTransport` to the React app.
 - **Controller:** `BridgePaneController` (per-pane). Owns the `WebPage` instance, RPC router configuration, push plan pipeline, bridge handshake state, and dedup cache. The controller handles the WebKit lifecycle — loading the React app, managing `bridge.ready` handshake, and push plan activation.
-- **Extraction strategy:** `BridgeRuntime` will be extracted as a new class that:
-  1. Conforms to `PaneRuntime` (lifecycle, subscribe, handleCommand, snapshot, eventsSince, shutdown)
-  2. Holds a reference to its `BridgePaneController` for transport operations
-  3. Produces `PaneEventEnvelope` from incoming RPC events (bridge → Swift direction)
-  4. Translates `RuntimeCommand` to outgoing RPC calls (Swift → bridge direction)
-  5. Manages its own lifecycle state machine independently of the controller's WebKit state
-- **Event production:** Bridge events arrive as JSON-RPC messages from the React app. The RPC router dispatches them. `BridgeRuntime` wraps them as `PaneRuntimeEvent.diff(...)`, `.editor(...)`, or `.browser(...)` in envelopes with proper seq/source.
+- **Current implementation:** `BridgeRuntime` is a concrete `BusPostingPaneRuntime` in `Features/Bridge/Runtime/BridgeRuntime.swift`. It owns the lifecycle state machine, `PaneRuntimeEventChannel`, replay support, and capability gating. `BridgePaneController` remains the per-pane WebKit/controller owner and acts as the runtime's command/event bridge.
+- **Event production:** Bridge events arrive as JSON-RPC messages from the React app. The RPC router dispatches them, and `BridgePaneController` forwards typed events into `BridgeRuntime.ingestBridgeEvent(...)`, which emits `PaneRuntimeEvent.diff(...)`, `.editor(...)`, `.review(...)`, `.agent(...)`, or `.plugin(...)` envelopes with proper seq/source metadata.
 - **Content type dispatch:** `BridgeRuntime` uses `metadata.contentType` to determine:
   - Which React route to load (e.g., `/diff`, `/editor`, `/review`)
   - Which RPC methods to register on the router
   - Which `PaneRuntimeEvent` case to use for outgoing events
   - Which `PaneCapability` set to expose
 
-#### WebviewRuntime (to be extracted from WebviewPaneController)
+#### WebviewRuntime (implemented)
 
 Serves plain browser panes. Simpler than BridgeRuntime — no JSON-RPC bridge, no push plans, no React app. Just WebKit navigation events.
 
 - **Adapter:** WebKit navigation delegate (per-pane, owned by `WebviewPaneController`). Translates `WKNavigationDelegate` callbacks to typed `BrowserEvent` cases.
 - **Controller:** `WebviewPaneController` (per-pane). Owns the `WebPage` instance, navigation state (URL, title, loading, back/forward lists), and navigation methods (`goBack`, `goForward`, `reload`, `navigate`).
-- **Extraction strategy:** `WebviewRuntime` will be extracted as a new class that:
-  1. Conforms to `PaneRuntime`
-  2. Holds a reference to `WebviewPaneController` for navigation operations
-  3. Produces `PaneEventEnvelope` from WebKit navigation delegate events
-  4. Translates `.navigation` commands to controller navigation methods
-- **Event production:** `BrowserEvent.navigationCompleted`, `.pageLoaded`, `.consoleMessage` wrapped in `PaneRuntimeEvent.browser(...)` envelopes.
+- **Current implementation:** `WebviewRuntime` is a concrete `BusPostingPaneRuntime` in `Features/Webview/Runtime/WebviewRuntime.swift`. It owns lifecycle, replay, and `.navigation` command handling while delegating browser actions to `WebviewPaneController` through `WebviewRuntimeCommandHandling`.
+- **Event production:** `WebviewPaneController` forwards navigation facts into `WebviewRuntime.ingestBrowserEvent(...)`, which emits `PaneRuntimeEvent.browser(...)` envelopes.
 - **@Observable state:** `url`, `title`, `isLoading`, `canGoBack`, `canGoForward` — bound directly by `WebviewNavigationBar`.
 
-#### SwiftPaneRuntime (future — new class)
+#### SwiftPaneRuntime (implemented)
 
 Serves native AppKit/SwiftUI panes that have no WebView. The simplest runtime — no adapter, no controller, direct Swift calls.
 
 - **Adapter:** None. Swift panes produce events directly — no FFI boundary, no message translation.
-- **Controller:** None. The view IS the content — no separate resource to manage.
+- **Controller:** None required for the runtime itself. Native views such as `Features/CodeViewer/Views/CodeViewerPaneMountView.swift` render directly and can pair with `SwiftPaneRuntime` when they need pane-runtime semantics.
+- **Current implementation:** `SwiftPaneRuntime` lives in `Core/RuntimeEventSystem/Runtime/SwiftPaneRuntime.swift`. It is a lightweight native-pane runtime that owns lifecycle, replay, and editor-command handling for `.codeViewer` panes without introducing a WebKit or Ghostty-specific controller layer.
 - **Event production:** Direct `continuation.yield()` calls from the Swift view layer. No translation step.
 - **Use cases:** `.codeViewer` panes showing syntax-highlighted file content, future native editor panes, settings/configuration panels that need runtime lifecycle tracking.
 - **Implementation:** Minimal — lifecycle state machine + event stream + command dispatch. Most of the implementation is the `PaneRuntime` protocol surface itself. Content-specific behavior lives in the SwiftUI views.
@@ -565,31 +557,25 @@ Each pane type follows a layered pattern. The layers have distinct responsibilit
 │  Runtime:     TerminalRuntime             ← PaneRuntime conformer           │
 │  Adapter:     GhosttyAdapter (shared)     ← C FFI → GhosttyEvent           │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                         BRIDGE STACK (extraction needed)                    │
+│                         BRIDGE STACK (current implementation)               │
 │                                                                             │
 │  View:        BridgePaneMountView         ← hosts WKWebView                 │
 │  Controller:  BridgePaneController        ← WebKit page, RPC, push plans    │
-│  Runtime:     BridgeRuntime (future)      ← PaneRuntime conformer           │
+│  Runtime:     BridgeRuntime               ← PaneRuntime conformer           │
 │  Adapter:     RPCRouter (per-pane)        ← JSON-RPC → typed events         │
-│                                                                             │
-│  Current state: Controller and runtime concerns are fused in                │
-│  BridgePaneController. BridgeRuntime needs to be extracted.                 │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                         WEBVIEW STACK (extraction needed)                   │
+│                         WEBVIEW STACK (current implementation)              │
 │                                                                             │
 │  View:        WebviewPaneMountView        ← hosts WKWebView                 │
 │  Controller:  WebviewPaneController       ← WebKit page, navigation state   │
-│  Runtime:     WebviewRuntime (future)     ← PaneRuntime conformer           │
+│  Runtime:     WebviewRuntime              ← PaneRuntime conformer           │
 │  Adapter:     WebKit delegate (per-pane)  ← navigation events → typed       │
-│                                                                             │
-│  Current state: Controller and runtime concerns are fused in                │
-│  WebviewPaneController. WebviewRuntime needs to be extracted.               │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│                         SWIFT PANE STACK (future)                           │
+│                         SWIFT PANE STACK (current implementation)           │
 │                                                                             │
-│  View:        SwiftPaneView (future)      ← native AppKit/SwiftUI           │
+│  View:        CodeViewerPaneMountView     ← native AppKit/SwiftUI host      │
 │  Controller:  (none — direct Swift)       ← no WebView, no FFI              │
-│  Runtime:     SwiftPaneRuntime (future)   ← PaneRuntime conformer           │
+│  Runtime:     SwiftPaneRuntime            ← PaneRuntime conformer           │
 │  Adapter:     (none — direct calls)       ← no translation layer needed     │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -743,15 +729,15 @@ Sources are categorized by scope. Topology sources use `SystemEnvelope`; worktre
 | Scope | Source | Tier | Envelope | Events produced | Status |
 |-------|--------|------|----------|-----------------|--------|
 | **Pane** | TerminalRuntime | — | `PaneEnvelope` | `.terminal(GhosttyEvent)` | ✅ Implemented |
-| **Pane** | BridgeRuntime | — | `PaneEnvelope` | `.diff(...)`, `.editor(...)`, `.review(...)`, `.agent(...)`, `.plugin(...)` | Future (LUNA-349) |
-| **Pane** | WebviewRuntime | — | `PaneEnvelope` | `.browser(BrowserEvent)` | Future (LUNA-349) |
-| **Pane** | SwiftPaneRuntime | — | `PaneEnvelope` | Content-dependent | Future (LUNA-349) |
+| **Pane** | BridgeRuntime | — | `PaneEnvelope` | `.diff(...)`, `.editor(...)`, `.review(...)`, `.agent(...)`, `.plugin(...)` | ✅ Implemented |
+| **Pane** | WebviewRuntime | — | `PaneEnvelope` | `.browser(BrowserEvent)` | ✅ Implemented |
+| **Pane** | SwiftPaneRuntime | — | `PaneEnvelope` | Content-dependent | ✅ Implemented |
 | **App** | AppDelegate | Built-in | `SystemEnvelope` | `TopologyEvent` (.repoDiscovered — boot replay) | Via bus |
 | **App** | FilesystemActor | Built-in | `SystemEnvelope` | `TopologyEvent` (.repoDiscovered — watched-folder diff, .repoRemoved — watched-folder diff, .worktreeRegistered, .worktreeUnregistered) | Via bus |
-| **Worktree** | FilesystemActor | Built-in | `WorktreeEnvelope` | `FilesystemEvent` (.filesChanged, .worktreeRegistered, .worktreeUnregistered) | Future (LUNA-349, Contract 6) |
-| **Worktree** | GitWorkingDirectoryProjector | Built-in | `WorktreeEnvelope` | `GitWorkingDirectoryEvent` (.snapshotChanged, .branchChanged, .originChanged, .worktreeDiscovered, .worktreeRemoved) | Future (LUNA-349) |
+| **Worktree** | FilesystemActor | Built-in | `WorktreeEnvelope` | `FilesystemEvent` (.filesChanged, .worktreeRegistered, .worktreeUnregistered) | ✅ Implemented |
+| **Worktree** | GitWorkingDirectoryProjector | Built-in | `WorktreeEnvelope` | `GitWorkingDirectoryEvent` (.snapshotChanged, .branchChanged, .originChanged, .worktreeDiscovered, .worktreeRemoved) | ✅ Implemented |
 | **App** | PaneCoordinator | Built-in | `SystemEnvelope` | `.lifecycle(.tabSwitched)` | ✅ Implemented |
-| **Repo** | ForgeActor | Service | `WorktreeEnvelope` | `ForgeEvent` (.pullRequestCountsChanged, .checksUpdated, .refreshFailed) | Future (LUNA-350) |
+| **Repo** | ForgeActor | Service | `WorktreeEnvelope` | `ForgeEvent` (.pullRequestCountsChanged, .checksUpdated, .refreshFailed) | ✅ Implemented |
 | **App** | Container service | Service | `WorktreeEnvelope` | Future: `ContainerEvent` | Future (plugin-based) |
 | **Pane** | Agent RPC channel | — | `PaneEnvelope` | Future: Contract 15 events | Deferred (LUNA-344) |
 
@@ -1164,7 +1150,7 @@ enum RuntimeErrorEvent: Error, Sendable {
 
 > **Role:** Structural (envelope shape). Carried by all sources, projections, and sinks.
 
-> **File:** `Core/PaneRuntime/Contracts/RuntimeEnvelopeCore.swift`
+> **File:** `Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift`
 
 > **Extensibility:** `SystemSource` uses a three-tier hierarchy: `BuiltinSource` (closed, core-only), `ServiceSource` (discriminated union — new categories need a core code change with typed event protocol, new providers are a String), and `.plugin(String)` (fully open, schema-free). Per-source isolation guarantees (A4: independent `seq`, A10: independent replay buffer) mean new sources at any tier cannot break ordering or replay for existing sources. No shared state to corrupt.
 
@@ -2976,7 +2962,7 @@ enum PaneFilesystemContextEvent: PaneKindEvent {
 
 ## Migration: NotificationCenter/DispatchQueue → AsyncStream/Event Bus
 
-The current codebase uses `NotificationCenter` and `DispatchQueue.main.async` for Ghostty C callback dispatch. This architecture replaces those mechanisms. This section documents the migration path — what changes, what stays, and what order.
+The historical codebase used `NotificationCenter` and `DispatchQueue.main.async` for Ghostty C callback dispatch. The current implementation has already moved the core routing path onto typed runtime events and `Task { @MainActor in ... }` hops; this section is retained as migration history so the old-to-new boundary stays inspectable.
 
 ### What Gets Replaced
 
@@ -3156,29 +3142,29 @@ You **accept** the discipline of classifying every event kind (critical vs lossy
 
 ## Directory Placement
 
-Contract types are shared pane-system domain infrastructure — used by all features, not owned by any single feature. They live in `Core/PaneRuntime/`. Feature-specific implementations (adapters, concrete runtimes) live in each `Features/X/` directory. The coordinator stays in `App/` as the composition root.
+Contract types are shared pane-system domain infrastructure — used by all features, not owned by any single feature. They live in `Core/RuntimeEventSystem/`. Feature-specific implementations (adapters, concrete runtimes) live in each `Features/X/` directory. The coordinator stays in `App/` as the composition root.
 
 See [Directory Structure](directory_structure.md) for the full decision process and import rules.
 
 | Type | Directory | Rationale |
 |------|-----------|-----------|
-| **Contracts** (PaneRuntime protocol, PaneRuntimeEvent, PaneEventEnvelope, RuntimeCommand, RuntimeCommandEnvelope, PaneLifecycle, PaneMetadata, ActionPolicy, PaneCapability, per-kind event/command enums) | `Core/PaneRuntime/Contracts/` | Imported by all features and App; change driver is pane system contract, not any specific feature |
-| **RuntimeRegistry** | `Core/PaneRuntime/Registry/` | Feature-agnostic lookup; consumed by PaneCoordinator in App/ |
-| **NotificationReducer**, VisibilityTier types | `Core/PaneRuntime/Reduction/` | Feature-agnostic event processing; consumed by PaneCoordinator |
-| **EventReplayBuffer** | `Core/PaneRuntime/Replay/` | Feature-agnostic buffering; consumed by PaneCoordinator |
+| **Contracts** (PaneRuntime protocol, PaneRuntimeEvent, PaneEventEnvelope, RuntimeCommand, RuntimeCommandEnvelope, PaneLifecycle, PaneMetadata, ActionPolicy, PaneCapability, per-kind event/command enums) | `Core/RuntimeEventSystem/Contracts/` | Imported by all features and App; change driver is pane system contract, not any specific feature |
+| **RuntimeRegistry** | `Core/RuntimeEventSystem/Registry/` | Feature-agnostic lookup; consumed by PaneCoordinator in App/ |
+| **NotificationReducer**, VisibilityTier types | `Core/RuntimeEventSystem/Reduction/` | Feature-agnostic event processing; consumed by PaneCoordinator |
+| **EventReplayBuffer** | `Core/RuntimeEventSystem/Replay/` | Feature-agnostic buffering; consumed by PaneCoordinator |
 | **GhosttyAdapter** | `Features/Terminal/Ghostty/` | FFI-specific; translates C callbacks into Core event types |
 | **TerminalRuntime** | `Features/Terminal/Runtime/` | Terminal-specific `PaneRuntime` conformance |
-| **BridgeRuntime** (future) | `Features/Bridge/Runtime/` | Bridge-specific `PaneRuntime` conformance (serves .diff, .editor, .review, .agent, .plugin) |
+| **BridgeRuntime** | `Features/Bridge/Runtime/` | Bridge-specific `PaneRuntime` conformance (serves .diff, .editor, .review, .agent, .plugin) |
 | **BridgePaneController** | `Features/Bridge/Runtime/` | Per-pane WebKit page, RPC router, push plans (transport/view-side lifecycle) |
-| **WebviewRuntime** (future) | `Features/Webview/Runtime/` | Webview-specific `PaneRuntime` conformance (serves .browser) |
+| **WebviewRuntime** | `Features/Webview/Runtime/` | Webview-specific `PaneRuntime` conformance (serves .browser) |
 | **WebviewPaneController** | `Features/Webview/` | Per-pane WebKit page, navigation state (transport/view-side lifecycle) |
-| **SwiftPaneRuntime** (future) | `Features/SwiftPane/Runtime/` | Native AppKit/SwiftUI `PaneRuntime` conformance (serves .codeViewer) |
-| **FSEventsWatcher** (future) | `Core/PaneRuntime/Sources/` | System-level filesystem watcher; produces FilesystemEvent envelopes |
-| **PaneCoordinator** | `App/` | Imports from multiple features; composition root |
+| **SwiftPaneRuntime** | `Core/RuntimeEventSystem/Runtime/` | Native-pane `PaneRuntime` shared by direct AppKit/SwiftUI panes such as `.codeViewer`; kept in Core because it has no feature-specific transport/controller dependency |
+| **FSEventsWatcher** (future) | `Core/RuntimeEventSystem/Filesystem/` | System-level filesystem watcher; produces FilesystemEvent envelopes |
+| **PaneCoordinator** | `App/Coordination/` | Imports from multiple features; composition root |
 
 ### Why per-kind event enums live in Core
 
-`GhosttyEvent`, `BrowserEvent`, `DiffEvent`, `EditorEvent` are cases in the `PaneRuntimeEvent` discriminated union (Contract 2). Since `PaneRuntimeEvent` is in `Core/PaneRuntime/Contracts/` and Core cannot import Features, all per-kind event enums must also be in Core. These enums define the **domain event vocabulary** — what the system says about terminal/browser/diff/editor events. The adapters that *produce* these events from platform APIs live in Features.
+`GhosttyEvent`, `BrowserEvent`, `DiffEvent`, `EditorEvent` are cases in the `PaneRuntimeEvent` discriminated union (Contract 2). Since `PaneRuntimeEvent` is in `Core/RuntimeEventSystem/Contracts/` and Core cannot import Features, all per-kind event enums must also be in Core. These enums define the **domain event vocabulary** — what the system says about terminal/browser/diff/editor events. The adapters that *produce* these events from platform APIs live in Features.
 
 ### Naming: RuntimeCommand vs PaneActionCommand
 
@@ -3187,7 +3173,7 @@ Two distinct action layers exist with different scopes:
 | Layer | Type | Location | Purpose |
 |-------|------|----------|---------|
 | **Workspace** | `PaneActionCommand` | `Core/Actions/` | Workspace structure mutations — selectTab, closePane, insertPane, toggleDrawer |
-| **Runtime** | `RuntimeCommand` | `Core/PaneRuntime/Contracts/` | Commands to individual runtimes — sendInput, navigate, approveHunk |
+| **Runtime** | `RuntimeCommand` | `Core/RuntimeEventSystem/Contracts/` | Commands to individual runtimes — sendInput, navigate, approveHunk |
 
 `PaneActionCommand` flows: User → ActionResolver → ActionValidator → PaneCoordinator → WorkspaceStore.
 `RuntimeCommand` flows: PaneCoordinator → RuntimeRegistry → `runtime.handleCommand(envelope)`.

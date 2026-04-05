@@ -103,7 +103,7 @@ The app has two separate event buses. They serve different purposes and carry di
 
 All topology events (`.repoDiscovered`, `.repoRemoved`) and enrichment events (`.snapshotChanged`, `.branchChanged`) flow through `PaneRuntimeEventBus`. The coordinator's bus subscription is the single intake. AppDelegate posts `.repoDiscovered` on the bus for boot replay; `FilesystemActor` posts `.repoDiscovered` and `.repoRemoved` on the bus when diffing watched-folder refreshes.
 
-> **Files:** `Core/PaneRuntime/Events/EventChannels.swift` defines `PaneRuntimeEventBus`. `App/Events/` defines `AppEvent` and `AppEventBus`.
+> **Files:** `Core/RuntimeEventSystem/Events/EventChannels.swift` defines `PaneRuntimeEventBus`. `App/Events/` defines `AppEvent` and `AppEventBus`.
 
 ## Direct Commands Use Capability Protocols
 
@@ -1327,13 +1327,13 @@ Current codebase patterns that need migration to align with this design. Audited
 | Historical File | Historical Pattern | Historical Events | Severity |
 |------|---------|--------|----------|
 | `App/Panes/PaneTabViewController.swift` | 8 `for await` consumers, 3 `.post()` producers | selectTabById, extractPane, repairSurface, processTerminated, undoClose, refocusTerminal, webviewOpen, addRepo, filterSidebar, signIn | HIGH |
-| `App/MainSplitViewController.swift` | 6 `for await` consumers, 1 `addObserver` | openWorktree, tabClose, selectTab, sidebarToggle, newTerminal, sidebarFilter, willTerminate | HIGH |
+| `App/Windows/MainSplitViewController.swift` | 6 `for await` consumers, 1 `addObserver` | openWorktree, tabClose, selectTab, sidebarToggle, newTerminal, sidebarFilter, willTerminate | HIGH |
 | `Features/CommandBar/CommandBarDataSource.swift` | 5 `.post()` producers | selectTabById, openWorktreeRequested | HIGH |
 | `Features/Terminal/Ghostty/GhosttySurfaceView.swift` | 2 `.post()` producers | didUpdateWorkingDirectory, didUpdateRendererHealth | MEDIUM |
 | `Features/Terminal/Ghostty/Ghostty.swift` | 2 `for await` consumers, 2 `.post()` | ghosttyNewWindow, ghosttyCloseSurface, didBecomeActive, didResignActive | MEDIUM |
 | `Features/Terminal/Hosting/TerminalPaneMountView.swift` | 2 `addObserver`, 2 `.post()` | surfaceClose, repairSurfaceRequested, terminalProcessTerminated | MEDIUM |
-| `App/MainWindowController.swift` | 2 `.post()` | filterSidebarRequested, addRepoRequested | LOW |
-| `App/AppDelegate.swift` | 1 `addObserver` | signIn OAuth callback | LOW |
+| `App/Windows/MainWindowController.swift` | 2 `.post()` | filterSidebarRequested, addRepoRequested | LOW |
+| `App/Boot/AppDelegate.swift` | 1 `addObserver` | signIn OAuth callback | LOW |
 | `Features/Terminal/Ghostty/SurfaceManager.swift` | 1 `addObserver`, 1 `removeObserver` | Health notifications | LOW |
 
 This table is a historical inventory from the pre-hardening state. The current codebase has already removed the Ghostty mixed bus and the command-shaped `repairSurfaceRequested` app event path.
@@ -1361,7 +1361,7 @@ These methods don't need MainActor isolation — they take immutable input and r
 
 ### Phase 2: UI — Combine bridge patterns
 
-3 `.onReceive(NotificationCenter.default.publisher(...))` in `MainSplitViewController.swift` (lines 395-404). These bridge NotificationCenter to SwiftUI. They can migrate to EventBus subscriptions or direct store method calls when Phase 1 completes.
+3 `.onReceive(NotificationCenter.default.publisher(...))` in `App/Windows/MainSplitViewController.swift` (lines 395-404). These bridge NotificationCenter to SwiftUI. They can migrate to EventBus subscriptions or direct store method calls when Phase 1 completes.
 
 ### Phase 3: Polish — URLHistoryService JSON I/O
 

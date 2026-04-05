@@ -123,10 +123,10 @@ struct TerminalSizeConstraints: Sendable, Equatable {
 - Modify: `Sources/AgentStudio/Features/Terminal/Ghostty/Ghostty.swift` (or `GhosttyActionRouter.swift` post-isolation-split) — route new actions with typed payloads
 - Modify: `Sources/AgentStudio/Features/Terminal/Ghostty/GhosttyActionTag.swift` — verify all tags have cases
 - Modify: `Sources/AgentStudio/Features/Terminal/Runtime/TerminalRuntime.swift` — handle new events, add properties
-- Modify: `Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneKindEvent.swift` — add new GhosttyEvent cases
-- Modify: `Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneRuntimeEvent.swift` — add new terminal event cases
-- Modify: `Sources/AgentStudio/Core/PaneRuntime/Replay/EventReplayBuffer.swift` — replay decisions for new events
-- Modify: `Sources/AgentStudio/App/PaneCoordinator.swift` — handle new bus events (promptTitle, desktopNotification)
+- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneKindEvent.swift` — add new GhosttyEvent cases
+- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntimeEvent.swift` — add new terminal event cases
+- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Replay/EventReplayBuffer.swift` — replay decisions for new events
+- Modify: `Sources/AgentStudio/App/Coordination/PaneCoordinator.swift` — handle new bus events (promptTitle, desktopNotification)
 
 ### Test files
 
@@ -141,7 +141,7 @@ struct TerminalSizeConstraints: Sendable, Equatable {
 **Files:**
 - Modify: `Sources/AgentStudio/Features/Terminal/Ghostty/GhosttyAdapter.swift`
 - Modify: `Sources/AgentStudio/Features/Terminal/Ghostty/GhosttyActionTag.swift`
-- Modify: `Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneKindEvent.swift`
+- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneKindEvent.swift`
 - Test: `Tests/AgentStudioTests/Features/Terminal/Ghostty/GhosttyAdapterTests.swift`
 
 - [ ] **Step 1: Write failing translation tests for new payload variants**
@@ -225,7 +225,7 @@ Expected: PASS
 ```bash
 git add Sources/AgentStudio/Features/Terminal/Ghostty/GhosttyAdapter.swift \
   Sources/AgentStudio/Features/Terminal/Ghostty/GhosttyActionTag.swift \
-  Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneKindEvent.swift \
+  Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneKindEvent.swift \
   Tests/AgentStudioTests/Features/Terminal/Ghostty/GhosttyAdapterTests.swift
 git commit -m "feat: expand ghostty adapter with typed payloads for domain-significant events"
 ```
@@ -290,8 +290,8 @@ git commit -m "feat: explicit routing decision for every ghostty action tag"
 
 **Files:**
 - Modify: `Sources/AgentStudio/Features/Terminal/Runtime/TerminalRuntime.swift`
-- Modify: `Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneRuntimeEvent.swift`
-- Modify: `Sources/AgentStudio/Core/PaneRuntime/Replay/EventReplayBuffer.swift`
+- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntimeEvent.swift`
+- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Replay/EventReplayBuffer.swift`
 - Test: `Tests/AgentStudioTests/Features/Terminal/Runtime/TerminalRuntimeTests.swift`
 
 - [ ] **Step 1: Write failing runtime handling tests**
@@ -382,8 +382,8 @@ Expected: PASS
 
 ```bash
 git add Sources/AgentStudio/Features/Terminal/Runtime/TerminalRuntime.swift \
-  Sources/AgentStudio/Core/PaneRuntime/Contracts/PaneRuntimeEvent.swift \
-  Sources/AgentStudio/Core/PaneRuntime/Replay/EventReplayBuffer.swift \
+  Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntimeEvent.swift \
+  Sources/AgentStudio/Core/RuntimeEventSystem/Replay/EventReplayBuffer.swift \
   Tests/AgentStudioTests/Features/Terminal/Runtime/TerminalRuntimeTests.swift
 git commit -m "feat: terminal runtime handles domain-significant ghostty events with multiplexing"
 ```
@@ -393,7 +393,7 @@ git commit -m "feat: terminal runtime handles domain-significant ghostty events 
 ### Task 4: Wire Bus Consumers For New Events
 
 **Files:**
-- Modify: `Sources/AgentStudio/App/PaneCoordinator.swift`
+- Modify: `Sources/AgentStudio/App/Coordination/PaneCoordinator.swift`
 - Modify: existing bus consumer code (NotificationReducer, etc.)
 
 - [ ] **Step 1: Wire coordinator handling for promptTitle**
@@ -458,8 +458,8 @@ Expected: PASS
 - [ ] **Step 4: Commit**
 
 ```bash
-git add Sources/AgentStudio/App/PaneCoordinator.swift \
-  Sources/AgentStudio/Core/PaneRuntime/Replay/EventReplayBuffer.swift
+git add Sources/AgentStudio/App/Coordination/PaneCoordinator.swift \
+  Sources/AgentStudio/Core/RuntimeEventSystem/Replay/EventReplayBuffer.swift
 git commit -m "feat: bus consumers handle new ghostty terminal events"
 ```
 

@@ -7,8 +7,8 @@ The main trace source is `/tmp/agentstudio_debug.log`.
 Every `##` header in this document is a debugging epoch with an explicit timestamp or time window so later readers can match observations, code changes, and trace evidence to a concrete phase of the investigation.
 
 Relevant code paths:
-- `Sources/AgentStudio/App/PaneCoordinator+ViewLifecycle.swift`
-- `Sources/AgentStudio/App/AppDelegate+LaunchRestore.swift`
+- `Sources/AgentStudio/App/Coordination/PaneCoordinator+ViewLifecycle.swift`
+- `Sources/AgentStudio/App/Boot/AppDelegate+LaunchRestore.swift`
 - `Sources/AgentStudio/Core/Views/Splits/TerminalSplitContainer.swift`
 - `Sources/AgentStudio/Core/Views/Splits/SplitView.swift`
 - `Sources/AgentStudio/Core/Stores/WorkspaceStore.swift`
@@ -2317,7 +2317,7 @@ The order was reversed:
 
 Files:
 
-- `Sources/AgentStudio/App/MainWindowController.swift`
+- `Sources/AgentStudio/App/Windows/MainWindowController.swift`
 
 ### Verification
 
@@ -2638,7 +2638,7 @@ The dismantle→recreate cycle is not caused by geometry changes. It's caused by
    → Sources/AgentStudio/Core/Views/Splits/ActiveTabContent.swift:42
 
 3. bumpViewRevision fires during restore after creating views
-   → Sources/AgentStudio/App/PaneCoordinator+ViewLifecycle.swift
+   → Sources/AgentStudio/App/Coordination/PaneCoordinator+ViewLifecycle.swift
 
 4. Logs confirm dismantle→recreate at same geoSize after viewRevision bump
    → /tmp/agentstudio_debug.log at 20:33:36

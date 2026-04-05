@@ -529,11 +529,11 @@ Pure function tests on static methods. No bus, no actors.
 | `Sources/.../Infrastructure/RepoScanner.swift` | Modify | Add `GitEntryKind`, `classifyGitEntry()`, `parseParentClonePath()`, `groupClassifiedPaths()`, `scanForGitReposGrouped()` |
 | `Sources/.../Infrastructure/WorktreeReconciler.swift` | **Create** | Pure function: `reconcile(existing, discovered) → (merged, delta)`. Extracted from `WorkspaceStore.reconcileDiscoveredWorktrees` |
 | `Sources/.../Contracts/RuntimeEnvelopeCore.swift:22` | Modify | Add `LinkedWorktreeInfo` enum, widen `.repoDiscovered` with `linkedWorktrees: LinkedWorktreeInfo = .notScanned` |
-| `Sources/.../Sources/FilesystemActor.swift` | Modify | Use grouped scanner, track `[ScannedRepoGroup]` per folder, grouped diff, global dedup for removes |
-| `Sources/.../App/WorkspaceCacheCoordinator.swift` | Modify | Use `WorktreeReconciler`, inject `TopologyEffectHandler`, call handler with delta |
-| `Sources/.../App/PaneCoordinator+FilesystemSource.swift` | Modify | Remove topology bus subscription, conform to `TopologyEffectHandler` |
-| `Sources/.../App/PaneCoordinator.swift` | Modify | Add `TopologyEffectHandler` conformance |
-| `Sources/.../App/AppDelegate.swift` | Modify | Wire `topologyEffectHandler: paneCoordinator` into coordinator |
+| `Sources/.../Filesystem/FilesystemActor.swift` | Modify | Use grouped scanner, track `[ScannedRepoGroup]` per folder, grouped diff, global dedup for removes |
+| `Sources/.../App/Coordination/WorkspaceCacheCoordinator.swift` | Modify | Use `WorktreeReconciler`, inject `TopologyEffectHandler`, call handler with delta |
+| `Sources/.../App/Coordination/PaneCoordinator+FilesystemSource.swift` | Modify | Remove topology bus subscription, conform to `TopologyEffectHandler` |
+| `Sources/.../App/Coordination/PaneCoordinator.swift` | Modify | Add `TopologyEffectHandler` conformance |
+| `Sources/.../App/Boot/AppDelegate.swift` | Modify | Wire `topologyEffectHandler: paneCoordinator` into coordinator |
 | `Sources/.../Replay/EventReplayBuffer.swift` | Modify | Update `.repoDiscovered` pattern match and sizing |
 | `Sources/.../Sidebar/RepoSidebarContentView.swift` | Modify | Simplify `checkoutIconKind`, remove `standaloneCheckout` enum case, star for main |
 | `Tests/.../Infrastructure/RepoScannerTests.swift` | **Create** | Classification + grouping tests |
@@ -548,7 +548,7 @@ Pure function tests on static methods. No bus, no actors.
 ## Task 1: Contract and Infrastructure
 
 **Files:**
-- Modify: `Sources/AgentStudio/Core/PaneRuntime/Contracts/RuntimeEnvelopeCore.swift`
+- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift`
 - Create: `Sources/AgentStudio/Infrastructure/WorktreeReconciler.swift`
 - Modify: `Sources/AgentStudio/Infrastructure/RepoScanner.swift`
 - Create: `Tests/AgentStudioTests/Infrastructure/WorktreeReconcilerTests.swift`
@@ -849,7 +849,7 @@ git commit -m "feat: WorktreeReconciler, scanner classification, widen .repoDisc
 ## Task 2: FilesystemActor Grouped Diff
 
 **Files:**
-- Modify: `Sources/AgentStudio/Core/PaneRuntime/Sources/FilesystemActor.swift`
+- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Filesystem/FilesystemActor.swift`
 
 - [ ] **Step 1: Add grouped scanner injection and state**
 
@@ -878,10 +878,10 @@ git commit -m "feat: FilesystemActor emits grouped .repoDiscovered with linked w
 ## Task 3: Coordinator Uses Reconciler + Effect Handler
 
 **Files:**
-- Modify: `Sources/AgentStudio/App/WorkspaceCacheCoordinator.swift`
-- Modify: `Sources/AgentStudio/App/PaneCoordinator+FilesystemSource.swift`
-- Modify: `Sources/AgentStudio/App/PaneCoordinator.swift`
-- Modify: `Sources/AgentStudio/App/AppDelegate.swift`
+- Modify: `Sources/AgentStudio/App/Coordination/WorkspaceCacheCoordinator.swift`
+- Modify: `Sources/AgentStudio/App/Coordination/PaneCoordinator+FilesystemSource.swift`
+- Modify: `Sources/AgentStudio/App/Coordination/PaneCoordinator.swift`
+- Modify: `Sources/AgentStudio/App/Boot/AppDelegate.swift`
 - Modify: `Tests/AgentStudioTests/App/WorkspaceCacheCoordinatorIntegrationTests.swift`
 
 - [ ] **Step 1: Define `TopologyEffectHandler` protocol**

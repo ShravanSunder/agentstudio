@@ -2,13 +2,13 @@
 
 ## TL;DR
 
-Agent Studio uses a **hybrid** directory structure: infrastructure stays layer-based (`App/`, `Ghostty/`, `Core/`, `Infrastructure/`) while user-facing capabilities live in feature directories (`Features/Terminal/`, `Features/Bridge/`, etc.). Swift imports are by module, not file path — moving files between directories has **zero impact on import statements** and causes no merge conflicts. The structure is enforced by a one-way import rule: `Core` never imports `Features`.
+Agent Studio uses a **hybrid** directory structure: shared composition and domain infrastructure stay layer-based (`App/`, `Core/`, `Infrastructure/`), while pane implementations and user-facing capabilities live in feature directories (`Features/Terminal/`, `Features/Bridge/`, `Features/Webview/`, etc.). Swift imports are by module, not file path — moving files between directories has **zero impact on import statements** and causes no merge conflicts. The structure is enforced by a one-way import rule: `Core` never imports `Features`.
 
 ---
 
 ## Why Hybrid
 
-Pure layer-based (the current `Models/`, `Services/`, `Views/`) spreads a single feature across many directories. Adding a terminal behavior means touching `Models/`, `Services/`, `Views/`, and `Actions/` — four directories for one concept. Pure feature-based loses the "shared infrastructure" story — where does `WorkspaceStore` live if three features need it?
+Pure layer-based organization (`Models/`, `Stores/`, `Views/`, `Actions/`) spreads a single feature across many directories. Adding a terminal behavior means touching models, stores, views, and actions — four directories for one concept. Pure feature-based loses the "shared infrastructure" story — where does `WorkspaceStore` live if three features need it?
 
 The hybrid approach (inspired by Ghostty's own codebase structure) keeps infrastructure layers for shared concerns and groups feature-specific code by capability.
 
@@ -19,26 +19,25 @@ The hybrid approach (inspired by Ghostty's own codebase structure) keeps infrast
 ```
 Sources/AgentStudio/
 ├── App/                              # Composition root — wires everything together
-│   ├── AppDelegate.swift             # App lifecycle, restore, zmx cleanup
-│   ├── MainWindowController.swift    # Window management
-│   ├── MainSplitViewController.swift # Top-level split (sidebar/content)
-│   ├── Panes/
-│   │   ├── PaneTabViewController.swift # Tab container (manages any pane type)
-│   │   └── ViewRegistry.swift        # PaneId → NSView mapping (type-agnostic)
-│   └── PaneCoordinator.swift         # Cross-feature sequencing (imports from all)
+│   ├── Boot/                         # Launch restore, lifecycle routing, boot sequencing
+│   ├── Commands/                     # App-owned command entry points
+│   ├── Coordination/                 # Cross-store / cross-feature sequencing
+│   ├── Events/                       # App-scoped notification bus types
+│   ├── Lifecycle/                    # App/window lifecycle stores and monitors
+│   ├── Panes/                        # App-owned pane hosting, tab management, empty states
+│   │   ├── Hosting/                  # PaneHostView, management-mode drag shield
+│   │   ├── Status/                   # Workspace status chips
+│   │   └── TabBar/                   # Tab bar arrangement + adapter views
+│   └── Windows/                      # Main window / split-window controllers and settings
 │
 ├── Core/                             # Shared domain — pane system, models, stores
-│   ├── Models/                       # Pane, Layout, Tab, ViewDefinition
-│   ├── Stores/                       # WorkspaceStore, SessionRuntime
 │   ├── Actions/                      # PaneActionCommand, ActionResolver, ActionValidator
+│   ├── Models/                       # Pane, Layout, Tab, ViewDefinition
+│   ├── RuntimeEventSystem/           # Shared pane-runtime contracts, buses, projectors
+│   ├── Stores/                       # WorkspaceStore, SessionRuntime
+│   └── Views/                        # Shared split/tree/drawer primitives
 │
 ├── Features/
-│   ├── Terminal/                     # Everything Ghostty-specific
-│   │   ├── Ghostty/                  # C API bridge, SurfaceManager, SurfaceTypes
-│   │   ├── Hosting/                  # TerminalPaneMountView, GhosttyMountView, placeholder hosting
-│   │   ├── Views/                    # SurfaceErrorOverlay, SurfaceStartupOverlay
-│   │   └── GhosttyBridge.swift       # PaneBridge conformance for terminal surfaces
-│   │
 │   ├── Bridge/                       # React/WebView pane system
 │   │   ├── Transport/                # JSON-RPC transport and bootstrap wiring
 │   │   │   ├── RPCRouter.swift
@@ -55,15 +54,17 @@ Sources/AgentStudio/
 │   │   ├── Views/                    # BridgePaneMountView, BridgePaneContentView
 │   │   └── BridgeNavigationDecider.swift
 │   │
+│   ├── CodeViewer/                   # Native code-viewer pane mount view
 │   ├── CommandBar/                   # ⌘P command palette
-│   │   ├── CommandBarState.swift
-│   │   ├── CommandBarPanel.swift
-│   │   ├── CommandDispatcher.swift
-│   │   └── Commands/                 # Individual command handlers
+│   ├── Sidebar/                      # Sidebar content and row/group rendering
+│   ├── Terminal/                     # Everything Ghostty-specific
+│   │   ├── Ghostty/                  # C API bridge, SurfaceManager, SurfaceTypes
+│   │   ├── Hosting/                  # TerminalPaneMountView, GhosttyMountView, placeholder hosting
+│   │   ├── Restore/                  # Terminal restore scheduling/runtime
+│   │   ├── Runtime/                  # TerminalRuntime
+│   │   └── Views/                    # SurfaceErrorOverlay, SurfaceStartupOverlay
 │   │
-│   └── Sidebar/                      # Sidebar content (repo list, worktree tree)
-│       ├── SidebarViewController.swift
-│       └── SidebarViews/
+│   └── Webview/                      # Plain browser pane controller/runtime/views
 │
 ├── Infrastructure/                   # Utilities used by anyone, domain-agnostic
 │   ├── ProcessExecutor.swift         # CLI execution protocol
@@ -72,7 +73,6 @@ Sources/AgentStudio/
 │   └── Extensions/                   # Foundation/AppKit extensions
 │
 ├── Resources/                        # Assets, xib, storyboard
-├── AppDelegate.swift → App/
 ├── main.swift
 └── Package.swift
 ```
@@ -187,11 +187,11 @@ Q4: Is it a domain model, store, or service
 
 These are the resolved placements for components that could reasonably go multiple places:
 
-### PaneCoordinator → `App/`
+### PaneCoordinator → `App/Coordination/`
 
 Today's cross-feature coordinator is `PaneCoordinator`. It sequences operations across `SurfaceManager` (Terminal feature), `WorkspaceStore` (Core), `SessionRuntime` (Core), and `BridgePaneController` (Bridge feature).
 
-**Import test:** imports from multiple features → can't be `Core/`. Lives in `App/` as the composition root — this is where Ghostty puts its coordination too (`AppDelegate` delegates to feature controllers).
+**Import test:** imports from multiple features → can't be `Core/`. Lives under `App/Coordination/` in the composition root — this is where Ghostty puts its coordination too (`AppDelegate` delegates to feature controllers).
 
 **Alternative considered:** Protocol-based `Core/` — define `PaneLifecycleHandler` protocol in Core, features implement it, coordinator dispatches through protocols without importing features. Cleaner dependency graph but more abstraction upfront. We chose `App/` for now (simpler, matches Ghostty's pattern). Can revisit when a third pane type arrives.
 
@@ -216,7 +216,7 @@ belong in `Core/Views/Splits/` because they are pane-type-agnostic split-system 
 - They are reused by any pane feature rendered inside split trees.
 - Their change driver is split interaction behavior, not any individual feature implementation.
 
-### MainSplitViewController → `App/`
+### MainSplitViewController → `App/Windows/`
 
 Manages the top-level split between sidebar and content area. Feature-agnostic but app-lifecycle-coupled.
 

@@ -61,6 +61,8 @@ struct WorkspaceLauncherProjectorTests {
         #expect(result.recentCards.count == 1)
         #expect(result.recentCards[0].title == worktree.name)
         #expect(result.recentCards[0].detail == "main")
+        #expect(result.recentCards[0].checkoutIconKind == .mainCheckout)
+        #expect(result.recentCards[0].iconColorHex == SidebarRepoGrouping.automaticPaletteHexes[0])
         #expect(result.recentCards[0].statusChips?.branchStatus.prCount == 3)
         #expect(result.recentCards[0].statusChips?.notificationCount == 2)
         #expect(result.showsOpenAll == false)
@@ -94,12 +96,12 @@ struct WorkspaceLauncherProjectorTests {
     }
 
     @Test
-    func project_launcherCapsAtSixAndShowsOpenAllForTwoOrMoreTargets() {
+    func project_launcherCapsAtFifteenAndShowsOpenAllForTwoOrMoreTargets() {
         let store = makeStore()
         let cache = WorkspaceRepoCache()
         _ = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
 
-        for index in 0..<8 {
+        for index in 0..<20 {
             cache.recordRecentTarget(
                 .forCwd(URL(fileURLWithPath: "/tmp/project-\(index)"))
             )
@@ -110,7 +112,7 @@ struct WorkspaceLauncherProjectorTests {
             repoCache: cache
         )
 
-        #expect(result.recentCards.count == 6)
+        #expect(result.recentCards.count == 15)
         #expect(result.showsOpenAll == true)
     }
 }

@@ -462,7 +462,7 @@ Replace current flaky E2E tests that shell out to `zmx` CLI.
 | `ZmxIPCIntegrationTests.swift` | `Tests/.../Infrastructure/ZmxIPC/` | Real daemon tests |
 | `ZmxBackend.swift` | `Core/Stores/` | Modified — swap transport |
 | `SessionRuntime.swift` | `Core/Stores/` | Modified — richer health, event emission |
-| `PaneRuntimeEvent.swift` | `Core/PaneRuntime/Contracts/` | Modified — add `.session(SessionBackendEvent)` |
+| `PaneRuntimeEvent.swift` | `Core/RuntimeEventSystem/Contracts/` | Modified — add `.session(SessionBackendEvent)` |
 
 ## Constraints
 
