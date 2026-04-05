@@ -167,7 +167,9 @@ extension Ghostty {
                 .checkForUpdates, .showChildExited, .showOnScreenKeyboard:
                 return true
             default:
-                return false
+                preconditionFailure(
+                    "Ghostty action tag \(actionTag) is in interceptedTags but not handled explicitly"
+                )
             }
         }
 
