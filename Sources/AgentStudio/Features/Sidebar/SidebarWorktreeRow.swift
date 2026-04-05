@@ -183,10 +183,28 @@ struct SidebarWorktreeRow: View {
                 Label("Go to Terminal", systemImage: "terminal")
             }
 
-            Button {
-                openInCursor()
-            } label: {
-                Label("Open in Cursor", systemImage: "cursorarrow.rays")
+            Menu("Open in...") {
+                Button {
+                    openInCursor()
+                } label: {
+                    Label {
+                        Text("Cursor")
+                    } icon: {
+                        Image("octicon-code-square", bundle: .appResources)
+                            .renderingMode(.template)
+                    }
+                }
+
+                Button {
+                    openInVSCode()
+                } label: {
+                    Label {
+                        Text("VS Code")
+                    } icon: {
+                        Image("octicon-vscode", bundle: .appResources)
+                            .renderingMode(.template)
+                    }
+                }
             }
 
             Divider()
@@ -222,5 +240,9 @@ struct SidebarWorktreeRow: View {
 
     private func openInCursor() {
         ExternalWorkspaceOpener.openInCursor(worktree.path)
+    }
+
+    private func openInVSCode() {
+        ExternalWorkspaceOpener.openInVSCode(worktree.path)
     }
 }

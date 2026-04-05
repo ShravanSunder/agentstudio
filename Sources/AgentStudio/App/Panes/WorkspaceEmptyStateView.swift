@@ -261,17 +261,11 @@ private struct WorkspaceRecentCardView: View {
 
     var body: some View {
         Button(action: onOpen) {
-            Group {
-                if let worktreeContent {
-                    worktreeContent
-                } else {
-                    cwdOnlyContent
-                }
-            }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(cardBackground)
-            .overlay(cardBorder)
+            worktreeContent
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(cardBackground)
+                .overlay(cardBorder)
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
@@ -291,15 +285,21 @@ private struct WorkspaceRecentCardView: View {
             .stroke(Color.white.opacity(AppStyle.fillActive), lineWidth: 1)
     }
 
-    private var worktreeContent: SidebarWorktreeRowContent? {
-        guard
-            let statusChips = card.statusChips,
-            let checkoutIconKind = card.checkoutIconKind,
-            let iconColorHex = card.iconColorHex
-        else {
-            return nil
-        }
-
+    private var worktreeContent: SidebarWorktreeRowContent {
+        let statusChips =
+            card.statusChips
+            ?? .init(
+                branchStatus: .init(
+                    isDirty: false,
+                    syncState: .unknown,
+                    prCount: nil,
+                    linesAdded: 0,
+                    linesDeleted: 0
+                ),
+                notificationCount: 0
+            )
+        let checkoutIconKind = card.checkoutIconKind ?? .gitWorktree
+        let iconColorHex = card.iconColorHex ?? ""
         let iconColor = Color(nsColor: NSColor(hex: iconColorHex) ?? .controlAccentColor)
         return SidebarWorktreeRowContent(
             checkoutTitle: card.title,
@@ -309,36 +309,6 @@ private struct WorkspaceRecentCardView: View {
             branchStatus: statusChips.branchStatus,
             notificationCount: statusChips.notificationCount
         )
-    }
-
-    private var cwdOnlyContent: some View {
-        VStack(alignment: .leading, spacing: AppStyle.sidebarRowContentSpacing + 4) {
-            HStack(spacing: AppStyle.spacingTight) {
-                Image(systemName: "terminal")
-                    .font(.system(size: AppStyle.textBase, weight: .medium))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: AppStyle.sidebarRowLeadingIconColumnWidth, alignment: .leading)
-
-                Text(card.title)
-                    .font(.system(size: AppStyle.textBase, weight: .medium))
-                    .lineLimit(1)
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            HStack(spacing: AppStyle.spacingTight) {
-                Image(systemName: "folder")
-                    .font(.system(size: AppStyle.sidebarBranchIconSize, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .frame(width: AppStyle.sidebarRowLeadingIconColumnWidth, alignment: .leading)
-
-                Text(card.detail)
-                    .font(.system(size: AppStyle.sidebarBranchFontSize, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-        }
     }
 }
 
