@@ -101,7 +101,7 @@ final class BridgePaneController {
             paneId: runtimePaneId,
             metadata: resolvedMetadata
         )
-        let blockInteraction = ManagementModeMonitor.shared.isActive
+        let blockInteraction = atom(\.managementMode).isActive
         let initialManagementScript = WebInteractionManagementScript.makeUserScript(
             blockInteraction: blockInteraction
         )

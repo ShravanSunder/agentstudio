@@ -4,11 +4,11 @@ import Testing
 
 @Suite(.serialized)
 @MainActor
-final class WorkspaceUIStoreTests {
+final class UIStateAtomTests {
 
     @Test
     func groupExpansion_updatesExpandedSet() {
-        let store = WorkspaceUIStore()
+        let store = UIStateAtom()
 
         store.setGroupExpanded("askluna", isExpanded: true)
         store.setGroupExpanded("personal", isExpanded: true)
@@ -20,7 +20,7 @@ final class WorkspaceUIStoreTests {
 
     @Test
     func checkoutColor_setAndClear() {
-        let store = WorkspaceUIStore()
+        let store = UIStateAtom()
 
         store.setCheckoutColor("#22cc88", for: "repoKey")
         #expect(store.checkoutColors["repoKey"] == "#22cc88")
@@ -31,7 +31,7 @@ final class WorkspaceUIStoreTests {
 
     @Test
     func filterState_settersUpdateFields() {
-        let store = WorkspaceUIStore()
+        let store = UIStateAtom()
 
         store.setFilterText("forge")
         store.setFilterVisible(true)

@@ -7,6 +7,10 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct PaneCoordinatorTests {
+    init() {
+        installTestAtomScopeIfNeeded()
+    }
+
     private struct PaneCoordinatorHarness {
         let store: WorkspaceStore
         let viewRegistry: ViewRegistry

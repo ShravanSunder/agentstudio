@@ -7,6 +7,9 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct WebviewPaneControllerTests {
+    init() {
+        installTestAtomScopeIfNeeded()
+    }
 
     private func settleEventLoop(turns: Int = 8) async {
         for _ in 0..<turns {
@@ -17,15 +20,15 @@ struct WebviewPaneControllerTests {
     private func setManagementMode(active: Bool) async {
         for _ in 0..<6 {
             if active {
-                if !ManagementModeMonitor.shared.isActive {
-                    ManagementModeMonitor.shared.toggle()
+                if !atom(\.managementMode).isActive {
+                    atom(\.managementMode).toggle()
                 }
-            } else if ManagementModeMonitor.shared.isActive {
-                ManagementModeMonitor.shared.deactivate()
+            } else if atom(\.managementMode).isActive {
+                atom(\.managementMode).deactivate()
             }
 
             await settleEventLoop(turns: 10)
-            if ManagementModeMonitor.shared.isActive == active {
+            if atom(\.managementMode).isActive == active {
                 return
             }
         }
@@ -157,26 +160,24 @@ struct WebviewPaneControllerTests {
 
     @Test
     func test_managementModeToggle_updatesWebviewControllerInteractionState() async {
-        await withManagementModeTestLock {
-            await setManagementMode(active: false)
-            let mountedView = WebviewPaneMountView(
-                paneId: UUIDv7.generate(),
-                state: WebviewState(url: URL(string: "about:blank")!)
-            )
-            let host = PaneHostView(paneId: mountedView.paneId)
-            host.mountContentView(mountedView)
-            _ = host.swiftUIContainer
-            await settleEventLoop()
-            #expect(mountedView.controller.isContentInteractionEnabled)
+        await setManagementMode(active: false)
+        let mountedView = WebviewPaneMountView(
+            paneId: UUIDv7.generate(),
+            state: WebviewState(url: URL(string: "about:blank")!)
+        )
+        let host = PaneHostView(paneId: mountedView.paneId)
+        host.mountContentView(mountedView)
+        _ = host.swiftUIContainer
+        await settleEventLoop()
+        #expect(mountedView.controller.isContentInteractionEnabled)
 
-            await setManagementMode(active: true)
-            #expect(ManagementModeMonitor.shared.isActive)
-            #expect(!mountedView.controller.isContentInteractionEnabled)
+        await setManagementMode(active: true)
+        #expect(atom(\.managementMode).isActive)
+        #expect(!mountedView.controller.isContentInteractionEnabled)
 
-            await setManagementMode(active: false)
-            #expect(!ManagementModeMonitor.shared.isActive)
-            #expect(mountedView.controller.isContentInteractionEnabled)
-        }
+        await setManagementMode(active: false)
+        #expect(!atom(\.managementMode).isActive)
+        #expect(mountedView.controller.isContentInteractionEnabled)
     }
 
     @Test

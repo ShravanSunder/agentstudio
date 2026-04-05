@@ -38,12 +38,12 @@ It does **not** cover:
 | File | Responsibility |
 |------|----------------|
 | `Sources/AgentStudio/Core/State/MainActor/Atoms/ManagementModeAtom.swift` | Pure state atom for management mode |
-| `Sources/AgentStudio/App/State/AtomStore.swift` | App-scope actor-bound store owning live atom instances |
-| `Sources/AgentStudio/App/State/AtomScope.swift` | Production store binding + test-scoped override access |
-| `Sources/AgentStudio/App/State/Atom.swift` | `atom(\.foo)` function plus optional `@Atom(\.foo)` convenience sugar |
-| `Sources/AgentStudio/App/State/AtomReader.swift` | Jotai-like `get` primitive over the current atom scope |
-| `Sources/AgentStudio/App/State/Derived.swift` | Zero-input derived primitive |
-| `Sources/AgentStudio/App/State/DerivedSelector.swift` | Parameterized derived primitive |
+| `Sources/AgentStudio/Infrastructure/AtomLib/AtomStore.swift` | App-scope actor-bound store owning live atom instances |
+| `Sources/AgentStudio/Infrastructure/AtomLib/AtomScope.swift` | Production store binding + test-scoped override access |
+| `Sources/AgentStudio/Infrastructure/AtomLib/Atom.swift` | `atom(\.foo)` function plus optional `@Atom(\.foo)` convenience sugar |
+| `Sources/AgentStudio/Infrastructure/AtomLib/AtomReader.swift` | Jotai-like `get` primitive over the current atom scope |
+| `Sources/AgentStudio/Infrastructure/AtomLib/Derived.swift` | Zero-input derived primitive |
+| `Sources/AgentStudio/Infrastructure/AtomLib/DerivedSelector.swift` | Parameterized derived primitive |
 | `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceAtom.swift` | Canonical workspace state + mutations extracted from `WorkspaceStore` |
 | `Sources/AgentStudio/Core/State/MainActor/Atoms/RepoCacheAtom.swift` | Renamed workspace repo cache atom |
 | `Sources/AgentStudio/Core/State/MainActor/Atoms/UIStateAtom.swift` | Renamed UI state atom |
@@ -100,12 +100,12 @@ Tests inject `TestPushClock` directly through those constructors. Keep `TestPush
 **Files:**
 - Modify: `Package.swift` only if `swift-dependencies` is actually present
 - Modify: `Package.resolved` only if `swift-dependencies` is actually present
-- Create: `Sources/AgentStudio/App/State/AtomStore.swift`
-- Create: `Sources/AgentStudio/App/State/AtomScope.swift`
-- Create: `Sources/AgentStudio/App/State/Atom.swift`
-- Create: `Sources/AgentStudio/App/State/AtomReader.swift`
-- Create: `Sources/AgentStudio/App/State/Derived.swift`
-- Create: `Sources/AgentStudio/App/State/DerivedSelector.swift`
+- Create: `Sources/AgentStudio/Infrastructure/AtomLib/AtomStore.swift`
+- Create: `Sources/AgentStudio/Infrastructure/AtomLib/AtomScope.swift`
+- Create: `Sources/AgentStudio/Infrastructure/AtomLib/Atom.swift`
+- Create: `Sources/AgentStudio/Infrastructure/AtomLib/AtomReader.swift`
+- Create: `Sources/AgentStudio/Infrastructure/AtomLib/Derived.swift`
+- Create: `Sources/AgentStudio/Infrastructure/AtomLib/DerivedSelector.swift`
 - Create: `Tests/AgentStudioTests/Helpers/TestAtomStore.swift`
 - Test: `Tests/AgentStudioTests/App/State/AtomScopeTests.swift`
 
@@ -398,17 +398,17 @@ Once `ManagementModeMonitor` no longer relies on `.shared`, the lock is dead cod
 ## Task 3: Rename Existing Small Stores Into Atoms
 
 **Files:**
-- Rename: `Sources/AgentStudio/Core/Stores/WorkspaceUIStore.swift` → `Sources/AgentStudio/Core/State/MainActor/Atoms/UIStateAtom.swift`
-- Rename: `Sources/AgentStudio/Core/Stores/WorkspaceRepoCache.swift` → `Sources/AgentStudio/Core/State/MainActor/Atoms/RepoCacheAtom.swift`
+- Rename: `Sources/AgentStudio/Core/Stores/UIStateAtom.swift` → `Sources/AgentStudio/Core/State/MainActor/Atoms/UIStateAtom.swift`
+- Rename: `Sources/AgentStudio/Core/Stores/RepoCacheAtom.swift` → `Sources/AgentStudio/Core/State/MainActor/Atoms/RepoCacheAtom.swift`
 - Modify: all references
 
-- [ ] **Step 1: Rename `WorkspaceUIStore` to `UIStateAtom`**
-- [ ] **Step 2: Rename `WorkspaceRepoCache` to `RepoCacheAtom`**
+- [ ] **Step 1: Rename `UIStateAtom` to `UIStateAtom`**
+- [ ] **Step 2: Rename `RepoCacheAtom` to `RepoCacheAtom`**
 - [ ] **Step 3: Update references and filtered tests**
 
 Run:
-- `BUILD_PATH=.build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8); swift test --build-path "$BUILD_PATH" --filter WorkspaceUIStoreTests`
-- `BUILD_PATH=.build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8); swift test --build-path "$BUILD_PATH" --filter WorkspaceRepoCacheTests`
+- `BUILD_PATH=.build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8); swift test --build-path "$BUILD_PATH" --filter UIStateAtomTests`
+- `BUILD_PATH=.build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8); swift test --build-path "$BUILD_PATH" --filter RepoCacheAtomTests`
 
 Expected: PASS after reference updates.
 
@@ -418,7 +418,7 @@ Expected: PASS after reference updates.
 
 **Files:**
 - Rename: `Sources/AgentStudio/Core/Views/PaneDisplayProjector.swift` → `Sources/AgentStudio/Core/State/MainActor/Atoms/PaneDisplayDerived.swift`
-- Rename: `Sources/AgentStudio/Core/Stores/DynamicViewProjector.swift` → `Sources/AgentStudio/Core/State/MainActor/Atoms/DynamicViewDerived.swift`
+- Rename: `Sources/AgentStudio/Core/Stores/DynamicViewDerived.swift` → `Sources/AgentStudio/Core/State/MainActor/Atoms/DynamicViewDerived.swift`
 - Modify: selector call sites
 
 - [ ] **Step 1: Convert `PaneDisplayProjector` to `PaneDisplayDerived`**
@@ -436,7 +436,7 @@ struct PaneDisplayDerived {
 }
 ```
 
-- [ ] **Step 2: Convert `DynamicViewProjector` to `DynamicViewDerived`**
+- [ ] **Step 2: Convert `DynamicViewDerived` to `DynamicViewDerived`**
 
 Use either:
 
@@ -663,9 +663,9 @@ Expected: PASS with new store wrappers in place.
 
 **Files:**
 - Create: `Sources/AgentStudio/Core/State/MainActor/Atoms/SessionRuntimeAtom.swift`
-- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/SessionRuntime.swift`
-- Move: `Sources/AgentStudio/Core/Stores/SessionRuntime.swift` → `Sources/AgentStudio/Core/RuntimeEventSystem/SessionRuntime.swift`
-- Move: `Sources/AgentStudio/Core/Stores/ZmxBackend.swift` → `Sources/AgentStudio/Core/RuntimeEventSystem/ZmxBackend.swift`
+- Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/SessionRuntime.swift`
+- Move: `Sources/AgentStudio/Core/Stores/SessionRuntime.swift` → `Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/SessionRuntime.swift`
+- Move: `Sources/AgentStudio/Core/Stores/ZmxBackend.swift` → `Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/ZmxBackend.swift`
 
 - [ ] **Step 1: Write/update focused `SessionRuntimeTests`**
 - [ ] **Step 2: Extract `SessionRuntimeAtom`**
@@ -703,7 +703,7 @@ Use these grep commands to drive the migration:
 
 ```bash
 rg -l "ManagementModeMonitor.shared" Sources/ Tests/
-rg -l "WorkspaceStore|WorkspaceRepoCache|WorkspaceUIStore|PaneDisplayProjector|DynamicViewProjector" Sources/ Tests/
+rg -l "WorkspaceStore|RepoCacheAtom|UIStateAtom|PaneDisplayProjector|DynamicViewDerived" Sources/ Tests/
 ```
 
 ### Call-site migration rules

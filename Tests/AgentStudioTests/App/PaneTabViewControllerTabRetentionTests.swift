@@ -7,6 +7,9 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct PaneTabViewControllerTabRetentionTests {
+    init() {
+        installTestAtomScopeIfNeeded()
+    }
     private struct Harness {
         let store: WorkspaceStore
         let viewRegistry: ViewRegistry
@@ -37,11 +40,11 @@ struct PaneTabViewControllerTabRetentionTests {
         )
         let controller = PaneTabViewController(
             store: store,
-            repoCache: WorkspaceRepoCache(),
+            repoCache: RepoCacheAtom(),
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
             executor: ActionExecutor(coordinator: coordinator, store: store),
-            tabBarAdapter: TabBarAdapter(store: store, repoCache: WorkspaceRepoCache()),
+            tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry
         )
         PaneViewRepresentable.onDismantleForTesting = { [weak controller] in

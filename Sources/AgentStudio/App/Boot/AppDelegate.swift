@@ -8,9 +8,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var mainWindowController: MainWindowController?
     // MARK: - Shared Services (created once at launch)
     // Module-internal to support focused same-type AppDelegate extensions.
+    var atomStore: AtomStore!
     var store: WorkspaceStore!
-    var workspaceRepoCache: WorkspaceRepoCache!
-    var workspaceUIStore: WorkspaceUIStore!
+    var repoCache: RepoCacheAtom! { atomStore.repoCache }
+    var uiState: UIStateAtom! { atomStore.uiState }
+    var repoCacheStore: RepoCacheStore!
+    var uiStateStore: UIStateStore!
     var workspaceCacheCoordinator: WorkspaceCacheCoordinator!
     var watchedFolderCommands: (any WatchedFolderCommandHandling)!
     var viewRegistry: ViewRegistry!
@@ -21,6 +24,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var appLifecycleStore: AppLifecycleStore!
     var windowLifecycleStore: WindowLifecycleStore!
     var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
+    var managementModeMonitor: ManagementModeMonitor!
     // MARK: - Command Bar
     private(set) var commandBarController: CommandBarPanelController!
     // MARK: - OAuth
@@ -67,8 +71,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Boot Step Implementations
 
     private func bootLoadCanonicalStore() {
-        store = WorkspaceStore()
+        atomStore = AtomStore()
+        AtomScope.setUp(atomStore)
+        store = WorkspaceStore(
+            metadataAtom: atomStore.workspaceMetadata,
+            repositoryTopologyAtom: atomStore.workspaceRepositoryTopology,
+            paneAtom: atomStore.workspacePane,
+            tabLayoutAtom: atomStore.workspaceTabLayout,
+            mutationCoordinator: atomStore.workspaceMutationCoordinator
+        )
+        repoCacheStore = RepoCacheStore(atom: atomStore.repoCache)
+        uiStateStore = UIStateStore(atom: atomStore.uiState)
         store.restore()
+        managementModeMonitor = ManagementModeMonitor()
         appLifecycleStore = AppLifecycleStore()
         windowLifecycleStore = WindowLifecycleStore()
         applicationLifecycleMonitor = ApplicationLifecycleMonitor(
@@ -81,58 +96,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func bootLoadCacheStore(persistor: WorkspacePersistor) {
-        workspaceRepoCache = WorkspaceRepoCache()
-        switch persistor.loadCache(for: store.workspaceId) {
-        case .loaded(let cacheState):
-            for enrichment in cacheState.repoEnrichmentByRepoId.values {
-                workspaceRepoCache.setRepoEnrichment(enrichment)
-            }
-            for enrichment in cacheState.worktreeEnrichmentByWorktreeId.values {
-                workspaceRepoCache.setWorktreeEnrichment(enrichment)
-            }
-            for (worktreeId, count) in cacheState.pullRequestCountByWorktreeId {
-                workspaceRepoCache.setPullRequestCount(count, for: worktreeId)
-            }
-            for (worktreeId, count) in cacheState.notificationCountByWorktreeId {
-                workspaceRepoCache.setNotificationCount(count, for: worktreeId)
-            }
-            for target in cacheState.recentTargets {
-                workspaceRepoCache.recordRecentTarget(target)
-            }
-            workspaceRepoCache.markRebuilt(
-                sourceRevision: cacheState.sourceRevision,
-                at: cacheState.lastRebuiltAt ?? Date()
-            )
-        case .corrupt(let error):
-            appLogger.warning("Cache file corrupt, will rebuild from events: \(error)")
-        case .missing:
-            break
-        }
-        pruneStaleCache(store: store, repoCache: workspaceRepoCache)
+        _ = persistor
+        repoCacheStore.restore(for: store.workspaceId)
+        pruneStaleCache(store: store, repoCache: repoCache)
     }
 
     private func bootLoadUIStore(persistor: WorkspacePersistor) {
-        workspaceUIStore = WorkspaceUIStore()
-        switch persistor.loadUI(for: store.workspaceId) {
-        case .loaded(let uiState):
-            workspaceUIStore.setExpandedGroups(uiState.expandedGroups)
-            for (stableKey, colorHex) in uiState.checkoutColors {
-                workspaceUIStore.setCheckoutColor(colorHex, for: stableKey)
-            }
-            workspaceUIStore.setFilterText(uiState.filterText)
-            workspaceUIStore.setFilterVisible(uiState.isFilterVisible)
-        case .corrupt(let error):
-            appLogger.warning("UI state file corrupt, using defaults: \(error)")
-        case .missing:
-            break
-        }
+        _ = persistor
+        uiStateStore.restore(for: store.workspaceId)
     }
 
     private func bootEstablishRuntimeBus(
         paneRuntimeBus: EventBus<RuntimeEnvelope>,
         filesystemSource: inout FilesystemGitPipeline?
     ) {
-        runtime = SessionRuntime(store: store)
+        runtime = SessionRuntime(atom: atomStore.sessionRuntime, store: store)
         cleanupOrphanZmxSessions()
         viewRegistry = ViewRegistry()
         seedSlotsForRestoredPanes()
@@ -155,7 +133,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         workspaceCacheCoordinator = WorkspaceCacheCoordinator(
             bus: paneRuntimeBus,
             workspaceStore: store,
-            repoCache: workspaceRepoCache,
+            repoCache: repoCache,
             topologyEffectHandler: paneCoordinator,
             scopeSyncHandler: { [weak pipeline] change in
                 guard let pipeline else { return }
@@ -167,10 +145,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.paneCoordinator.syncFilesystemRootsAndActivity()
         }
         executor = ActionExecutor(coordinator: paneCoordinator, store: store)
-        tabBarAdapter = TabBarAdapter(store: store, repoCache: workspaceRepoCache)
+        tabBarAdapter = TabBarAdapter(store: store, repoCache: repoCache)
         commandBarController = CommandBarPanelController(
             store: store,
-            repoCache: workspaceRepoCache,
+            repoCache: repoCache,
             dispatcher: .shared
         )
         CommandDispatcher.shared.appCommandRouter = self
@@ -204,7 +182,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Boot Helpers
 
-    private func pruneStaleCache(store: WorkspaceStore, repoCache: WorkspaceRepoCache) {
+    private func pruneStaleCache(store: WorkspaceStore, repoCache: RepoCacheAtom) {
         let validRepoIds = Set(store.repos.map(\.id))
         let validWorktreeIds = Set(store.repos.flatMap(\.worktrees).map(\.id))
         for repoId in Array(repoCache.repoEnrichmentByRepoId.keys) where !validRepoIds.contains(repoId) {
@@ -219,7 +197,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func replayBootTopology(store: WorkspaceStore, coordinator: WorkspaceCacheCoordinator) async {
         let activePaneRepoIds: Set<UUID> = {
             guard let activeTab = store.activeTab else { return [] }
-            let repoIds = activeTab.paneIds.compactMap { store.panes[$0]?.repoId }
+            let repoIds = activeTab.activePaneIds.compactMap { store.panes[$0]?.repoId }
             return Set(repoIds)
         }()
         let prioritizedRepos = store.repos.sorted { a, b in
@@ -321,8 +299,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Create main window
         mainWindowController = MainWindowController(
             store: store,
-            repoCache: workspaceRepoCache,
-            uiStore: workspaceUIStore,
             actionExecutor: executor,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
@@ -501,8 +477,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             mainWindowController = MainWindowController(
                 store: store,
-                repoCache: workspaceRepoCache,
-                uiStore: workspaceUIStore,
                 actionExecutor: executor,
                 applicationLifecycleMonitor: applicationLifecycleMonitor,
                 appLifecycleStore: appLifecycleStore,
@@ -516,35 +490,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let store else { return .terminateNow }
-        let persistor = WorkspacePersistor()
 
         do {
-            try persistor.saveCache(
-                .init(
-                    workspaceId: store.workspaceId,
-                    repoEnrichmentByRepoId: workspaceRepoCache.repoEnrichmentByRepoId,
-                    worktreeEnrichmentByWorktreeId: workspaceRepoCache.worktreeEnrichmentByWorktreeId,
-                    pullRequestCountByWorktreeId: workspaceRepoCache.pullRequestCountByWorktreeId,
-                    notificationCountByWorktreeId: workspaceRepoCache.notificationCountByWorktreeId,
-                    recentTargets: workspaceRepoCache.recentTargets,
-                    sourceRevision: workspaceRepoCache.sourceRevision,
-                    lastRebuiltAt: workspaceRepoCache.lastRebuiltAt
-                )
-            )
+            try repoCacheStore.flush(for: store.workspaceId)
         } catch {
             appLogger.warning("Workspace cache flush failed at termination: \(error.localizedDescription)")
         }
 
         do {
-            try persistor.saveUI(
-                .init(
-                    workspaceId: store.workspaceId,
-                    expandedGroups: workspaceUIStore.expandedGroups,
-                    checkoutColors: workspaceUIStore.checkoutColors,
-                    filterText: workspaceUIStore.filterText,
-                    isFilterVisible: workspaceUIStore.isFilterVisible
-                )
-            )
+            try uiStateStore.flush(for: store.workspaceId)
         } catch {
             appLogger.warning("Workspace UI flush failed at termination: \(error.localizedDescription)")
         }
@@ -807,7 +761,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // 1. Persist the watched path (direct store mutation)
-        store.addWatchedPath(rootURL)
+        _ = store.repositoryTopologyAtom.addWatchedPath(rootURL)
 
         // 2. Signal scanning state for UI. Sidebar stays collapsed until
         //    the first repo is discovered — never show an empty sidebar.
@@ -859,7 +813,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Skip if the path is already a known worktree of an available repo.
         // Unavailable repos are excluded so re-adding the same path can reassociate them.
         let isKnownWorktree = store.repos.contains { repo in
-            !store.isRepoUnavailable(repo.id)
+            !store.repositoryTopologyAtom.isRepoUnavailable(repo.id)
                 && repo.worktrees.contains { $0.path.standardizedFileURL == normalizedPath }
         }
         if isKnownWorktree { return }

@@ -191,11 +191,11 @@ SessionRuntimeAtom ──── no store ──── in-memory, resolved via @D
 
 ### In scope
 - Split `WorkspaceStore` → `WorkspaceAtom` + `WorkspaceStore`
-- Rename `WorkspaceRepoCache` → `RepoCacheAtom`, create `RepoCacheStore`
-- Rename `WorkspaceUIStore` → `UIStateAtom`, create `UIStateStore`
+- Rename `RepoCacheAtom` → `RepoCacheAtom`, create `RepoCacheStore`
+- Rename `UIStateAtom` → `UIStateAtom`, create `UIStateStore`
 - Extract `ManagementModeAtom` from `ManagementModeMonitor`
 - Extract `SessionRuntimeAtom` from `SessionRuntime`
-- Rename `PaneDisplayProjector` → `PaneDisplayDerived`, `DynamicViewProjector` → `DynamicViewDerived`, and convert them into dependency-resolved read-only selectors
+- Rename `PaneDisplayProjector` → `PaneDisplayDerived`, `DynamicViewDerived` → `DynamicViewDerived`, and convert them into dependency-resolved read-only selectors
 - Move `SessionRuntime` + `ZmxBackend` from `Core/Stores/` to `Core/RuntimeEventSystem/`
 - Update CLAUDE.md and architecture docs
 
@@ -249,13 +249,13 @@ Transient state (`Tab.zoomedPaneId`, `Tab.minimizedPaneIds`) stays on the `Tab` 
 | File | What it is |
 |------|-----------|
 | `Core/Atoms/ManagementModeAtom.swift` | `isActive: Bool`, `toggle()`, `deactivate()` |
-| `Core/Atoms/UIStateAtom.swift` | Renamed from `WorkspaceUIStore` |
-| `Core/Atoms/RepoCacheAtom.swift` | Renamed from `WorkspaceRepoCache` |
+| `Core/Atoms/UIStateAtom.swift` | Renamed from `UIStateAtom` |
+| `Core/Atoms/RepoCacheAtom.swift` | Renamed from `RepoCacheAtom` |
 | `Core/Atoms/WorkspaceAtom.swift` | State + mutations from `WorkspaceStore`, with `hydrate()` |
 | `Core/Atoms/SessionRuntimeAtom.swift` | Runtime statuses from `SessionRuntime` |
 | `Infrastructure/DependencyKeys.swift` | All atom dependency key registrations |
 | `Core/Atoms/PaneDisplayDerived.swift` | Renamed from `PaneDisplayProjector` |
-| `Core/Atoms/DynamicViewDerived.swift` | Renamed from `DynamicViewProjector` |
+| `Core/Atoms/DynamicViewDerived.swift` | Renamed from `DynamicViewDerived` |
 | `Core/Stores/RepoCacheStore.swift` | Persistence wrapper for `RepoCacheAtom` |
 | `Core/Stores/UIStateStore.swift` | Persistence wrapper for `UIStateAtom` |
 
@@ -536,49 +536,49 @@ git commit -m "refactor: extract ManagementModeAtom from ManagementModeMonitor"
 
 ---
 
-## Task 2: Rename `WorkspaceUIStore` → `UIStateAtom`
+## Task 2: Rename `UIStateAtom` → `UIStateAtom`
 
 47 lines. Rename + move.
 
 **Files:**
-- Rename: `Core/Stores/WorkspaceUIStore.swift` → `Core/Atoms/UIStateAtom.swift`
+- Rename: `Core/Stores/UIStateAtom.swift` → `Core/Atoms/UIStateAtom.swift`
 - Modify: ~5 files
 
 - [ ] **Step 1: Rename file and class**
 
 ```bash
-git mv Sources/AgentStudio/Core/Stores/WorkspaceUIStore.swift Sources/AgentStudio/Core/Atoms/UIStateAtom.swift
+git mv Sources/AgentStudio/Core/Stores/UIStateAtom.swift Sources/AgentStudio/Core/Atoms/UIStateAtom.swift
 ```
 
-Rename `class WorkspaceUIStore` → `class UIStateAtom`. Doc comment: "Atom: UI preferences state. Persisted by UIStateStore."
+Rename `class UIStateAtom` → `class UIStateAtom`. Doc comment: "Atom: UI preferences state. Persisted by UIStateStore."
 
 - [ ] **Step 2: Update all references**
 
 ```bash
-rg -l "WorkspaceUIStore" Sources/ Tests/
+rg -l "UIStateAtom" Sources/ Tests/
 ```
 
-Find and replace `WorkspaceUIStore` → `UIStateAtom`.
+Find and replace `UIStateAtom` → `UIStateAtom`.
 
 - [ ] **Step 3: Build and test, commit**
 
 ---
 
-## Task 3: Rename `WorkspaceRepoCache` → `RepoCacheAtom`
+## Task 3: Rename `RepoCacheAtom` → `RepoCacheAtom`
 
 60 lines. Same pattern.
 
 **Files:**
-- Rename: `Core/Stores/WorkspaceRepoCache.swift` → `Core/Atoms/RepoCacheAtom.swift`
+- Rename: `Core/Stores/RepoCacheAtom.swift` → `Core/Atoms/RepoCacheAtom.swift`
 - Modify: ~20 files
 
 - [ ] **Step 1: Rename file and class**
 
 ```bash
-git mv Sources/AgentStudio/Core/Stores/WorkspaceRepoCache.swift Sources/AgentStudio/Core/Atoms/RepoCacheAtom.swift
+git mv Sources/AgentStudio/Core/Stores/RepoCacheAtom.swift Sources/AgentStudio/Core/Atoms/RepoCacheAtom.swift
 ```
 
-Rename `class WorkspaceRepoCache` → `class RepoCacheAtom`. Doc comment: "Atom: repo enrichment cache. Persisted by RepoCacheStore."
+Rename `class RepoCacheAtom` → `class RepoCacheAtom`. Doc comment: "Atom: repo enrichment cache. Persisted by RepoCacheStore."
 
 - [ ] **Step 2: Update all references** (~20 files)
 
@@ -655,15 +655,15 @@ Register `\.paneDisplayDerived` in `DependencyKeys.swift`. Update call sites to 
 let label = paneDisplayDerived.displayLabel(for: paneId)
 ```
 
-- [ ] **Step 2: `DynamicViewProjector` → `DynamicViewDerived`**
+- [ ] **Step 2: `DynamicViewDerived` → `DynamicViewDerived`**
 
 ```bash
-git mv Sources/AgentStudio/Core/Stores/DynamicViewProjector.swift Sources/AgentStudio/Core/Atoms/DynamicViewDerived.swift
+git mv Sources/AgentStudio/Core/Stores/DynamicViewDerived.swift Sources/AgentStudio/Core/Atoms/DynamicViewDerived.swift
 ```
 
 Apply the same pattern: a read-only dependency-resolved selector that knows it reads `WorkspaceAtom` internally. Zero-input computed properties are preferred where the selector is not query-shaped.
 
-The current `DynamicViewProjector.project(...)` takes 6 explicit inputs:
+The current `DynamicViewDerived.project(...)` takes 6 explicit inputs:
 - `viewType`
 - `panes`
 - `tabs`
@@ -853,7 +853,7 @@ Do not rely on stale line numbers. Find the current persistence wiring first:
 rg -n "loadCache|saveCache|loadUI|saveUI" Sources/AgentStudio/App/Boot/AppDelegate.swift
 ```
 
-Then read the matched sections to understand the current `WorkspaceRepoCache` / `WorkspaceUIStore` load-save flow.
+Then read the matched sections to understand the current `RepoCacheAtom` / `UIStateAtom` load-save flow.
 
 - [ ] **Step 2: Create `RepoCacheStore`**
 
@@ -916,9 +916,9 @@ func hydrate(
 }
 ```
 
-**Migrate readers:** Views that currently reference `RepoCacheAtom` (formerly `WorkspaceRepoCache`) directly for observation should use `@Dependency(\.repoCacheAtom)` instead. Check:
+**Migrate readers:** Views that currently reference `RepoCacheAtom` (formerly `RepoCacheAtom`) directly for observation should use `@Dependency(\.repoCacheAtom)` instead. Check:
 ```bash
-rg -l "RepoCacheAtom\|WorkspaceRepoCache" Sources/
+rg -l "RepoCacheAtom\|RepoCacheAtom" Sources/
 ```
 
 Key files: `RepoSidebarContentView.swift`, `CommandBarDataSource.swift`, `PaneDisplayDerived.swift`.

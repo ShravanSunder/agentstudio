@@ -6,7 +6,7 @@ import AppKit
 @MainActor
 final class ManagementModeContainerView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !ManagementModeMonitor.shared.isActive else { return nil }
+        guard !atom(\.managementMode).isActive else { return nil }
         return super.hitTest(point)
     }
 
@@ -62,7 +62,7 @@ class PaneHostView: NSView, Identifiable {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !ManagementModeMonitor.shared.isActive else { return nil }
+        guard !atom(\.managementMode).isActive else { return nil }
         return super.hitTest(point)
     }
 

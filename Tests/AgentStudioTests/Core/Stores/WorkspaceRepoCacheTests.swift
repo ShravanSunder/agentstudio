@@ -5,11 +5,11 @@ import Testing
 
 @Suite(.serialized)
 @MainActor
-final class WorkspaceRepoCacheTests {
+final class RepoCacheAtomTests {
 
     @Test
     func setRepoAndWorktreeEnrichment_persistsInMemoryState() {
-        let store = WorkspaceRepoCache()
+        let store = RepoCacheAtom()
         let repoId = UUID()
         let worktreeId = UUID()
 
@@ -39,7 +39,7 @@ final class WorkspaceRepoCacheTests {
 
     @Test
     func removeRepo_prunesWorktreeAndCounters() {
-        let store = WorkspaceRepoCache()
+        let store = RepoCacheAtom()
         let repoId = UUID()
         let worktreeId = UUID()
 
@@ -58,7 +58,7 @@ final class WorkspaceRepoCacheTests {
 
     @Test
     func markRebuilt_updatesRevisionAndTimestamp() {
-        let store = WorkspaceRepoCache()
+        let store = RepoCacheAtom()
         let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
 
         store.markRebuilt(sourceRevision: 42, at: timestamp)
@@ -69,7 +69,7 @@ final class WorkspaceRepoCacheTests {
 
     @Test
     func recordRecentTarget_movesExistingEntryToFront_andCapsAtFifteen() {
-        let store = WorkspaceRepoCache()
+        let store = RepoCacheAtom()
         let targets = (0..<16).map { index in
             RecentWorkspaceTarget.forCwd(
                 URL(fileURLWithPath: "/tmp/project-\(index)"),
@@ -90,7 +90,7 @@ final class WorkspaceRepoCacheTests {
 
     @Test
     func removeRecentTarget_removesMatchingId_andMissingIdIsNoOp() {
-        let store = WorkspaceRepoCache()
+        let store = RepoCacheAtom()
         let first = RecentWorkspaceTarget.forCwd(URL(fileURLWithPath: "/tmp/first"))
         let second = RecentWorkspaceTarget.forCwd(URL(fileURLWithPath: "/tmp/second"))
 

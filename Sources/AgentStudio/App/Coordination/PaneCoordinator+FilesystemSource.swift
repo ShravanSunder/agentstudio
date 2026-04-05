@@ -139,7 +139,7 @@ extension PaneCoordinator {
 
     private func workspaceWorktreeContextsById() -> [UUID: WorktreeFilesystemContext] {
         var contextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
-        for repo in store.repos where !store.isRepoUnavailable(repo.id) {
+        for repo in store.repos where !store.repositoryTopologyAtom.isRepoUnavailable(repo.id) {
             for worktree in repo.worktrees {
                 contextsByWorktreeId[worktree.id] = WorktreeFilesystemContext(
                     repoId: repo.id,

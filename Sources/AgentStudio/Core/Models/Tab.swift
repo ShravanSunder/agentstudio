@@ -12,7 +12,7 @@ struct Tab: Codable, Identifiable, Hashable {
     /// Display name for this tab.
     var name: String
     /// All pane IDs owned by this tab.
-    var panes: [UUID]
+    var allPaneIds: [UUID]
     /// Layout arrangements for this tab. Always has at least one default arrangement.
     var arrangements: [PaneArrangement]
     /// The currently active arrangement ID.
@@ -24,8 +24,13 @@ struct Tab: Codable, Identifiable, Hashable {
     /// Panes currently minimized (collapsed to a narrow bar). Transient — NOT persisted.
     var minimizedPaneIds: Set<UUID> = []
 
-    enum CodingKeys: CodingKey {
-        case id, name, panes, arrangements, activeArrangementId, activePaneId
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case allPaneIds = "panes"
+        case arrangements
+        case activeArrangementId
+        case activePaneId
         // zoomedPaneId, minimizedPaneIds excluded — transient, not persisted
     }
 
@@ -33,7 +38,7 @@ struct Tab: Codable, Identifiable, Hashable {
     init(id: UUID = UUID(), paneId: UUID, name: String = "Tab") {
         self.id = id
         self.name = name
-        self.panes = [paneId]
+        self.allPaneIds = [paneId]
         let layout = Layout(paneId: paneId)
         let defaultArrangement = PaneArrangement(
             name: "Default",
@@ -52,7 +57,7 @@ struct Tab: Codable, Identifiable, Hashable {
     init(
         id: UUID = UUID(),
         name: String = "Tab",
-        panes: [UUID],
+        allPaneIds: [UUID],
         arrangements: [PaneArrangement],
         activeArrangementId: UUID,
         activePaneId: UUID?,
@@ -63,12 +68,34 @@ struct Tab: Codable, Identifiable, Hashable {
         precondition(arrangements.filter(\.isDefault).count == 1, "Tab must have exactly one default arrangement")
         self.id = id
         self.name = name
-        self.panes = panes
+        self.allPaneIds = allPaneIds
         self.arrangements = arrangements
         self.activeArrangementId = activeArrangementId
         self.activePaneId = activePaneId
         self.zoomedPaneId = zoomedPaneId
         self.minimizedPaneIds = minimizedPaneIds
+    }
+
+    init(
+        id: UUID = UUID(),
+        name: String = "Tab",
+        panes: [UUID],
+        arrangements: [PaneArrangement],
+        activeArrangementId: UUID,
+        activePaneId: UUID?,
+        zoomedPaneId: UUID? = nil,
+        minimizedPaneIds: Set<UUID> = []
+    ) {
+        self.init(
+            id: id,
+            name: name,
+            allPaneIds: panes,
+            arrangements: arrangements,
+            activeArrangementId: activeArrangementId,
+            activePaneId: activePaneId,
+            zoomedPaneId: zoomedPaneId,
+            minimizedPaneIds: minimizedPaneIds
+        )
     }
 
     // MARK: - Derived
@@ -87,14 +114,24 @@ struct Tab: Codable, Identifiable, Hashable {
         arrangements.first { $0.id == activeArrangementId } ?? defaultArrangement
     }
 
-    /// All pane IDs in the active arrangement's layout (left-to-right traversal).
-    var paneIds: [UUID] { activeArrangement.layout.paneIds }
+    /// Pane IDs in the active arrangement's layout (left-to-right traversal).
+    var activePaneIds: [UUID] { activeArrangement.layout.paneIds }
 
     /// Whether the active arrangement has a split layout (more than one pane).
     var isSplit: Bool { activeArrangement.layout.isSplit }
 
     /// The layout of the active arrangement (convenience accessor).
     var layout: Layout { activeArrangement.layout }
+
+    // Transitional compatibility aliases while the naming cut propagates.
+    var panes: [UUID] {
+        get { allPaneIds }
+        set { allPaneIds = newValue }
+    }
+
+    var paneIds: [UUID] {
+        activePaneIds
+    }
 
     // MARK: - Arrangement Mutation Helpers
 

@@ -64,7 +64,7 @@ final class PaneCoordinator {
     /// NOTE: Undo stack owned here (not in a store) because undo is fundamentally
     /// orchestration logic: it coordinates across WorkspaceStore, ViewRegistry, and
     /// SessionRuntime. Future: extract to UndoEngine when undo requirements grow.
-    private(set) var undoStack: [WorkspaceStore.CloseEntry] = []
+    private(set) var undoStack: [WorkspaceMutationCoordinator.CloseEntry] = []
 
     /// Maximum undo stack entries before oldest are garbage-collected.
     let maxUndoStackSize = 10
@@ -190,17 +190,17 @@ final class PaneCoordinator {
         await filesystemSource.shutdown()
     }
 
-    func appendUndoEntry(_ entry: WorkspaceStore.CloseEntry) {
+    func appendUndoEntry(_ entry: WorkspaceMutationCoordinator.CloseEntry) {
         undoStack.append(entry)
     }
 
     @discardableResult
-    func popLastUndoEntry() -> WorkspaceStore.CloseEntry? {
+    func popLastUndoEntry() -> WorkspaceMutationCoordinator.CloseEntry? {
         undoStack.popLast()
     }
 
     @discardableResult
-    func removeFirstUndoEntry() -> WorkspaceStore.CloseEntry {
+    func removeFirstUndoEntry() -> WorkspaceMutationCoordinator.CloseEntry {
         undoStack.removeFirst()
     }
 
@@ -218,7 +218,7 @@ final class PaneCoordinator {
 
     private func onSurfaceCWDChanged(_ event: SurfaceManager.SurfaceCWDChangeEvent) {
         guard let paneId = event.paneId else { return }
-        store.updatePaneCWD(paneId, cwd: event.cwd)
+        store.paneAtom.updatePaneCWD(paneId, cwd: event.cwd)
     }
 
     // MARK: - Webview State Sync
@@ -234,7 +234,7 @@ final class PaneCoordinator {
     /// marking dirty during an in-flight persist, which would cause a save-loop.
     func syncWebviewStates() {
         for (paneId, webviewView) in viewRegistry.allWebviewViews {
-            store.syncPaneWebviewState(paneId, state: webviewView.currentState())
+            store.paneAtom.syncPaneWebviewState(paneId, state: webviewView.currentState())
         }
     }
 
@@ -345,7 +345,7 @@ final class PaneCoordinator {
 
     private func handleTerminalRuntimeEvent(_ event: GhosttyEvent, sourcePaneId: PaneId) {
         let sourcePaneUUID = sourcePaneId.uuid
-        guard let sourceTabId = store.tabs.first(where: { $0.paneIds.contains(sourcePaneUUID) })?.id else {
+        guard let sourceTabId = store.tabs.first(where: { $0.activePaneIds.contains(sourcePaneUUID) })?.id else {
             Self.logger.warning(
                 "Terminal runtime event dropped: source pane \(sourcePaneUUID.uuidString, privacy: .public) is not present in any tab. event=\(String(describing: event), privacy: .public)"
             )
@@ -395,9 +395,9 @@ final class PaneCoordinator {
         case .moveTab(let amount):
             execute(.moveTab(tabId: sourceTabId, delta: amount))
         case .titleChanged(let title):
-            store.updatePaneTitle(sourcePaneUUID, title: title)
+            store.paneAtom.updatePaneTitle(sourcePaneUUID, title: title)
         case .cwdChanged(let cwdPath):
-            store.updatePaneCWD(sourcePaneUUID, cwd: URL(fileURLWithPath: cwdPath))
+            store.paneAtom.updatePaneCWD(sourcePaneUUID, cwd: URL(fileURLWithPath: cwdPath))
         case .commandFinished(let exitCode, _):
             Self.logger.debug(
                 "Terminal commandFinished event received for pane \(sourcePaneUUID.uuidString, privacy: .public) exitCode=\(exitCode, privacy: .public)"
@@ -407,7 +407,10 @@ final class PaneCoordinator {
             Self.logger.debug(
                 "Terminal bell event received for pane \(sourcePaneUUID.uuidString, privacy: .public)"
             )
-        case .scrollbarChanged, .unhandled:
+        case .progressReportUpdated, .readOnlyChanged, .secureInputRequested, .secureInputChanged,
+            .rendererHealthChanged, .cellSizeChanged, .initialSizeChanged, .sizeLimitChanged,
+            .promptTitleRequested, .desktopNotificationRequested, .openURLRequested, .undoRequested,
+            .redoRequested, .copyTitleToClipboardRequested, .scrollbarChanged, .deferred, .unhandled:
             Self.logger.debug(
                 "Terminal runtime event ignored by coordinator for pane \(sourcePaneUUID.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
             )
@@ -521,7 +524,7 @@ final class PaneCoordinator {
 extension PaneCoordinator: TopologyEffectHandler {
     func topologyDidChange(_ delta: WorktreeTopologyDelta) {
         for entry in delta.removedWorktrees {
-            let orphanedPaneIds = store.orphanPanesForWorktree(entry.id, path: entry.path.path)
+            let orphanedPaneIds = store.paneAtom.orphanPanesForWorktree(entry.id, path: entry.path.path)
             if !orphanedPaneIds.isEmpty {
                 Self.logger.info(
                     "Worktree removed id=\(entry.id.uuidString, privacy: .public) path=\(entry.path.path, privacy: .public); orphaned \(orphanedPaneIds.count, privacy: .public) pane(s)"

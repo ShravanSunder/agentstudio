@@ -18,7 +18,7 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func topology_repoDiscovered_addsRepoToWorkspaceStore() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -43,7 +43,7 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func topology_worktreeRegistered_unknownRepo_isIgnored() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -70,7 +70,7 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func topology_repoDiscovered_duplicatePath_doesNotDuplicateRepo() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -92,7 +92,7 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func topology_worktreeUnregistered_unknownRepo_isIgnored() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -117,7 +117,7 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func topology_worktreeUnregistered_prunesWorktreeCaches() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -158,7 +158,7 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func workspaceActivity_recentTargetOpened_recordsRecentTargetInCache() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -201,7 +201,7 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func enrichment_snapshotChanged_updatesWorktreeCache() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -235,7 +235,7 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func enrichment_branchChanged_preservesExistingSnapshot() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -279,7 +279,7 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func enrichment_pullRequestCountsChanged_mapsByBranch() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -322,7 +322,7 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func enrichment_originChanged_validRemoteDerivesResolvedIdentity() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -361,7 +361,7 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func enrichment_originChanged_emptyOriginDoesNotResolveLocalIdentity() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -392,7 +392,7 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func enrichment_originUnavailableDerivesLocalIdentity() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -424,7 +424,7 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func scopeSync_originAndBranchDoNotInvokeForgeCommands_repoRemoved_unregisters() async {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let recordedScopeChanges = RecordedScopeChanges()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),

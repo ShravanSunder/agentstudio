@@ -4,7 +4,7 @@ import Testing
 @testable import AgentStudio
 
 @Suite(.serialized)
-final class DynamicViewProjectorTests {
+final class DynamicViewDerivedTests {
 
     // MARK: - Helpers
 
@@ -107,7 +107,7 @@ final class DynamicViewProjectorTests {
         let agentStudioPanes = paneList.filter { $0.repoId == repos[0].id }
         let asklunaPanes = paneList.filter { $0.repoId == repos[1].id }
 
-        let result = DynamicViewProjector.project(
+        let result = DynamicViewDerived.project(
             viewType: .byRepo,
             panes: panes,
             tabs: tabs,
@@ -141,7 +141,7 @@ final class DynamicViewProjectorTests {
     func test_byRepo_sortedAlphabetically() {
         let (panes, repos, repoEnrichments, worktreeEnrichments, tabs) = makeTestPanes()
 
-        let result = DynamicViewProjector.project(
+        let result = DynamicViewDerived.project(
             viewType: .byRepo,
             panes: panes,
             tabs: tabs,
@@ -161,7 +161,7 @@ final class DynamicViewProjectorTests {
     func test_byWorktree_groupsByWorktree() {
         let (panes, repos, repoEnrichments, worktreeEnrichments, tabs) = makeTestPanes()
 
-        let result = DynamicViewProjector.project(
+        let result = DynamicViewDerived.project(
             viewType: .byWorktree,
             panes: panes,
             tabs: tabs,
@@ -186,7 +186,7 @@ final class DynamicViewProjectorTests {
     func test_byCWD_groupsByCWD() {
         let (panes, repos, repoEnrichments, worktreeEnrichments, tabs) = makeTestPanes()
 
-        let result = DynamicViewProjector.project(
+        let result = DynamicViewDerived.project(
             viewType: .byCWD,
             panes: panes,
             tabs: tabs,
@@ -210,7 +210,7 @@ final class DynamicViewProjectorTests {
     func test_byParentFolder_groupsByRepoParent() {
         let (panes, repos, repoEnrichments, worktreeEnrichments, tabs) = makeTestPanes()
 
-        let result = DynamicViewProjector.project(
+        let result = DynamicViewDerived.project(
             viewType: .byParentFolder,
             panes: panes,
             tabs: tabs,
@@ -236,7 +236,7 @@ final class DynamicViewProjectorTests {
     @Test
 
     func test_emptyPanes_producesEmptyGroups() {
-        let result = DynamicViewProjector.project(
+        let result = DynamicViewDerived.project(
             viewType: .byRepo,
             panes: [:],
             tabs: [],
@@ -259,7 +259,7 @@ final class DynamicViewProjectorTests {
             tabs[i].panes.removeAll { $0 == backgroundedId }
         }
 
-        let result = DynamicViewProjector.project(
+        let result = DynamicViewDerived.project(
             viewType: .byRepo,
             panes: panes,
             tabs: tabs,
@@ -284,7 +284,7 @@ final class DynamicViewProjectorTests {
         )
         panes[orphan.id] = orphan
 
-        let result = DynamicViewProjector.project(
+        let result = DynamicViewDerived.project(
             viewType: .byRepo,
             panes: panes,
             tabs: tabs,
@@ -302,7 +302,7 @@ final class DynamicViewProjectorTests {
     func test_autoTiledLayouts_containAllPanes() {
         let (panes, repos, repoEnrichments, worktreeEnrichments, tabs) = makeTestPanes()
 
-        let result = DynamicViewProjector.project(
+        let result = DynamicViewDerived.project(
             viewType: .byRepo,
             panes: panes,
             tabs: tabs,

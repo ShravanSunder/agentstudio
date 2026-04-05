@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// Discriminated union for all pane-scoped runtime-plane events carried on `RuntimeEnvelope.pane`.
@@ -236,6 +237,42 @@ enum GhosttyResizeSplitDirection: Sendable, Equatable {
     case down
 }
 
+struct ProgressState: Sendable, Equatable {
+    enum Kind: Sendable, Equatable {
+        case set
+        case error
+        case indeterminate
+        case paused
+    }
+
+    let kind: Kind
+    let percent: UInt8?
+}
+
+struct TerminalSizeConstraints: Sendable, Equatable {
+    let minWidth: UInt32
+    let minHeight: UInt32
+    let maxWidth: UInt32
+    let maxHeight: UInt32
+}
+
+enum TitlePromptScope: Sendable, Equatable {
+    case surface
+    case tab
+}
+
+enum OpenURLKind: Sendable, Equatable {
+    case unknown
+    case text
+    case html
+}
+
+enum SecureInputMode: Sendable, Equatable {
+    case on
+    case off
+    case toggle
+}
+
 enum GhosttyEvent: PaneKindEvent, Sendable, Equatable {
     case newTab
     case closeTab(mode: GhosttyCloseTabMode)
@@ -249,8 +286,23 @@ enum GhosttyEvent: PaneKindEvent, Sendable, Equatable {
     case titleChanged(String)
     case cwdChanged(String)
     case commandFinished(exitCode: Int, duration: UInt64)
+    case progressReportUpdated(ProgressState?)
+    case readOnlyChanged(Bool)
+    case secureInputRequested(SecureInputMode)
+    case secureInputChanged(Bool)
+    case rendererHealthChanged(healthy: Bool)
+    case cellSizeChanged(NSSize)
+    case initialSizeChanged(NSSize)
+    case sizeLimitChanged(TerminalSizeConstraints)
+    case promptTitleRequested(scope: TitlePromptScope)
+    case desktopNotificationRequested(title: String, body: String)
+    case openURLRequested(url: String, kind: OpenURLKind)
+    case undoRequested
+    case redoRequested
+    case copyTitleToClipboardRequested
     case bellRang
     case scrollbarChanged(ScrollbarState)
+    case deferred(tag: UInt32)
     case unhandled(tag: UInt32)
 
     var actionPolicy: ActionPolicy {
@@ -258,7 +310,11 @@ enum GhosttyEvent: PaneKindEvent, Sendable, Equatable {
         case .scrollbarChanged:
             return .lossy(consolidationKey: "scroll")
         case .newTab, .closeTab, .gotoTab, .moveTab, .newSplit, .gotoSplit, .resizeSplit, .equalizeSplits,
-            .toggleSplitZoom, .titleChanged, .cwdChanged, .commandFinished, .bellRang, .unhandled:
+            .toggleSplitZoom, .titleChanged, .cwdChanged, .commandFinished, .progressReportUpdated,
+            .readOnlyChanged, .secureInputRequested, .secureInputChanged, .rendererHealthChanged,
+            .cellSizeChanged, .initialSizeChanged, .sizeLimitChanged, .promptTitleRequested,
+            .desktopNotificationRequested, .openURLRequested, .undoRequested, .redoRequested,
+            .copyTitleToClipboardRequested, .bellRang, .deferred, .unhandled:
             return .critical
         }
     }
@@ -277,8 +333,22 @@ enum GhosttyEvent: PaneKindEvent, Sendable, Equatable {
         case .titleChanged: return .titleChanged
         case .cwdChanged: return .cwdChanged
         case .commandFinished: return .commandFinished
+        case .progressReportUpdated: return .progressReportUpdated
+        case .readOnlyChanged: return .readOnlyChanged
+        case .secureInputRequested, .secureInputChanged: return .secureInputChanged
+        case .rendererHealthChanged: return .rendererHealthChanged
+        case .cellSizeChanged: return .cellSizeChanged
+        case .initialSizeChanged: return .initialSizeChanged
+        case .sizeLimitChanged: return .sizeLimitChanged
+        case .promptTitleRequested: return .promptTitleRequested
+        case .desktopNotificationRequested: return .desktopNotificationRequested
+        case .openURLRequested: return .openURLRequested
+        case .undoRequested: return .undoRequested
+        case .redoRequested: return .redoRequested
+        case .copyTitleToClipboardRequested: return .copyTitleToClipboardRequested
         case .bellRang: return .bellRang
         case .scrollbarChanged: return .scrollbarChanged
+        case .deferred: return .deferred
         case .unhandled: return .unhandled
         }
     }

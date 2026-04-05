@@ -4,7 +4,7 @@ import os.log
 private let persistorLogger = Logger(subsystem: "com.agentstudio", category: "WorkspacePersistor")
 
 /// Pure persistence I/O for workspace state.
-/// Collaborator of WorkspaceStore — not a public peer.
+/// Collaborator of the main-actor persistence wrappers — not a public peer.
 struct WorkspacePersistor {
 
     /// Distinguishes "no file found" from "file exists but is corrupt" on load.
@@ -194,16 +194,19 @@ struct WorkspacePersistor {
     }
 
     /// Ensure the storage directory exists.
-    func ensureDirectory() {
+    @discardableResult
+    func ensureDirectory() -> Bool {
         do {
             try FileManager.default.createDirectory(
                 at: workspacesDir,
                 withIntermediateDirectories: true
             )
+            return true
         } catch {
             persistorLogger.error(
                 "Failed to create workspaces directory \(self.workspacesDir.path): \(error)"
             )
+            return false
         }
     }
 

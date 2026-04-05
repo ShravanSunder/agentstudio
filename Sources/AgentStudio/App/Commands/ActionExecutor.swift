@@ -29,7 +29,7 @@ final class ActionExecutor {
         )
     }
 
-    var undoStack: [WorkspaceStore.CloseEntry] {
+    var undoStack: [WorkspaceMutationCoordinator.CloseEntry] {
         coordinator.undoStack
     }
 
@@ -84,7 +84,7 @@ final class ActionExecutor {
         let snapshot = ActionResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
-            isManagementModeActive: ManagementModeMonitor.shared.isActive,
+            isManagementModeActive: atom(\.managementMode).isActive,
             knownRepoIds: Set(store.repos.map(\.id)),
             knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
         )

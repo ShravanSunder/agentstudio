@@ -6,6 +6,9 @@ import Testing
 @MainActor
 @Suite("RepoSidebarContentView")
 struct RepoSidebarContentViewTests {
+    init() {
+        installTestAtomScopeIfNeeded()
+    }
     @Test("flat list entries expand a resolved group into header and child rows")
     func flatListEntriesExpandResolvedGroupIntoHeaderAndChildRows() {
         let repoId = UUID()
@@ -713,7 +716,7 @@ struct RepoSidebarContentViewTests {
             snapshot: nil
         )
 
-        let label = PaneDisplayProjector.resolvedBranchName(
+        let label = atom(\.paneDisplay).resolvedBranchName(
             worktree: worktree,
             enrichment: enrichment
         )
@@ -730,7 +733,7 @@ struct RepoSidebarContentViewTests {
             isMainWorktree: false
         )
 
-        let label = PaneDisplayProjector.resolvedBranchName(
+        let label = atom(\.paneDisplay).resolvedBranchName(
             worktree: worktree,
             enrichment: nil
         )

@@ -42,11 +42,9 @@ struct WorkspaceEmptyStateModel: Equatable {
 
 @MainActor
 enum WorkspaceLauncherProjector {
-    static func project(
-        store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
-    ) -> WorkspaceEmptyStateModel {
-        // Scanning takes priority when no repos exist yet
+    static func project(store: WorkspaceStore) -> WorkspaceEmptyStateModel {
+        let repoCache = atom(\.repoCache)
+
         if let scanningPath = store.scanningPath, store.repos.isEmpty {
             return WorkspaceEmptyStateModel(kind: .scanning(scanningPath), recentCards: [])
         }
@@ -69,6 +67,7 @@ enum WorkspaceLauncherProjector {
                 )
                 .prefix(15)
             )
+
             return WorkspaceEmptyStateModel(
                 kind: .launcher,
                 recentCards: visibleCards
@@ -81,7 +80,7 @@ enum WorkspaceLauncherProjector {
     private static func projectRecentCards(
         recentTargets: [RecentWorkspaceTarget],
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache,
+        repoCache: RepoCacheAtom,
         checkoutColorHexByRepoId: [UUID: String]
     ) -> [WorkspaceRecentCardModel] {
         recentTargets.compactMap { target in
@@ -97,7 +96,7 @@ enum WorkspaceLauncherProjector {
     private static func projectCard(
         target: RecentWorkspaceTarget,
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache,
+        repoCache: RepoCacheAtom,
         checkoutColorHexByRepoId: [UUID: String]
     ) -> WorkspaceRecentCardModel? {
         if let worktreeId = target.worktreeId,
@@ -130,7 +129,7 @@ enum WorkspaceLauncherProjector {
         target: RecentWorkspaceTarget,
         worktree: Worktree,
         repo: Repo,
-        repoCache: WorkspaceRepoCache,
+        repoCache: RepoCacheAtom,
         iconColorHex: String?
     ) -> WorkspaceRecentCardModel {
         let branchStatus = RepoSidebarContentView.branchStatus(
@@ -141,7 +140,7 @@ enum WorkspaceLauncherProjector {
             branchStatus: branchStatus,
             notificationCount: repoCache.notificationCountByWorktreeId[worktree.id, default: 0]
         )
-        let branchName = PaneDisplayProjector.resolvedBranchName(
+        let branchName = atom(\.paneDisplay).resolvedBranchName(
             worktree: worktree,
             enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
         )
@@ -160,7 +159,7 @@ enum WorkspaceLauncherProjector {
 
     private static func projectCheckoutColorHexByRepoId(
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
+        repoCache: RepoCacheAtom
     ) -> [UUID: String] {
         let sidebarRepos = RepoSidebarContentView.resolvedRepos(
             store.repos.map(SidebarRepo.init(repo:)),

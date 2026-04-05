@@ -7,6 +7,9 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct PaneTabViewControllerCommandTests {
+    init() {
+        installTestAtomScopeIfNeeded()
+    }
     private struct Harness {
         let store: WorkspaceStore
         let coordinator: PaneCoordinator
@@ -46,11 +49,11 @@ struct PaneTabViewControllerCommandTests {
         let executor = ActionExecutor(coordinator: coordinator, store: store)
         let controller = PaneTabViewController(
             store: store,
-            repoCache: WorkspaceRepoCache(),
+            repoCache: RepoCacheAtom(),
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
             executor: executor,
-            tabBarAdapter: TabBarAdapter(store: store, repoCache: WorkspaceRepoCache()),
+            tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry
         )
         return Harness(

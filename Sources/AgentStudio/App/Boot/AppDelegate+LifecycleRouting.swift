@@ -14,6 +14,7 @@ extension AppDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        managementModeMonitor?.stopMonitoring()
         applicationLifecycleMonitor.handleApplicationWillTerminate { [weak self] in
             guard
                 let splitViewController = self?.mainWindowController?.window?.contentViewController

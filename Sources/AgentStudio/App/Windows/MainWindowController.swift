@@ -15,8 +15,6 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     convenience init(
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache,
-        uiStore: WorkspaceUIStore,
         actionExecutor: ActionExecutor,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         appLifecycleStore: AppLifecycleStore,
@@ -50,8 +48,6 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         // Create and set content view controller
         let splitVC = MainSplitViewController(
             store: store,
-            repoCache: repoCache,
-            uiStore: uiStore,
             actionExecutor: actionExecutor,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,

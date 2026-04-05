@@ -20,31 +20,33 @@ import Observation
 @MainActor
 @Observable
 final class ManagementModeMonitor {
-    static let shared = ManagementModeMonitor()
-
     /// Whether management mode is currently active
-    private(set) var isActive: Bool = false
+    private var managementMode: ManagementModeAtom { atom(\.managementMode) }
+
+    var isActive: Bool { managementMode.isActive }
 
     private var keyboardMonitor: Any?
 
-    private init() {
-        startKeyboardMonitoring()
+    init(startKeyboardMonitoring: Bool = true) {
+        if startKeyboardMonitoring {
+            self.startKeyboardMonitoring()
+        }
     }
 
     // MARK: - Public API
 
     /// Toggle management mode on/off.
     func toggle() {
-        isActive.toggle()
-        if isActive {
+        managementMode.toggle()
+        if managementMode.isActive {
             resignPaneFirstResponder()
         }
     }
 
     /// Explicitly deactivate management mode (e.g., from Escape key).
     func deactivate() {
-        let wasActive = isActive
-        isActive = false
+        let wasActive = managementMode.isActive
+        managementMode.deactivate()
         guard wasActive else { return }
     }
 

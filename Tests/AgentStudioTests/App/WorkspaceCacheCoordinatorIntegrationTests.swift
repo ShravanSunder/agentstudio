@@ -21,7 +21,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
     func integration_addFolderTopologyConvergesToResolvedRemoteIdentity() async {
         let bus = EventBus<RuntimeEnvelope>()
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let recordedScopeChanges = RecordedScopeChanges()
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,
@@ -80,7 +80,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
     func integration_addFolderTopologyConvergesToResolvedLocalIdentityWhenRemoteMissing() async {
         let bus = EventBus<RuntimeEnvelope>()
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let recordedScopeChanges = RecordedScopeChanges()
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,
@@ -139,7 +139,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
     @Test
     func removeRepo_cleansUpCacheAndForgeScope() async {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let recordedScopeChanges = RecordedScopeChanges()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
@@ -189,7 +189,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
     func integration_fullRepoLifecycle_addEnrichRemove() async {
         let bus = EventBus<RuntimeEnvelope>()
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let recordedScopeChanges = RecordedScopeChanges()
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,
@@ -272,7 +272,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
     @Test
     func integration_unavailableRepoReAdd_clearsUnavailableState() async {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -307,7 +307,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
     @Test
     func scopeSync_updateWatchedFolders_forwardsToHandler() async {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let recordedScopeChanges = RecordedScopeChanges()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
@@ -338,7 +338,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
     func topology_repoDiscoveredViaBus_processedBySubscription() async {
         let bus = EventBus<RuntimeEnvelope>()
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,
             workspaceStore: workspaceStore,
@@ -376,7 +376,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
     func topology_bootReplayAndRescan_idempotentViaBus() async {
         let bus = EventBus<RuntimeEnvelope>()
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,
             workspaceStore: workspaceStore,
@@ -428,7 +428,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
     @Test
     func topology_repoDiscoveredScannedLinkedWorktrees_createsGroupedWorktrees() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -460,7 +460,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
     @Test
     func topology_repoDiscoveredScannedUpdate_removesMissingWorktreeAndPrunesCache() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let effectHandler = RecordingTopologyEffectHandler()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
@@ -523,7 +523,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
     @Test
     func topology_repoDiscoveredScannedEmpty_removesAllLinkedWorktrees() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -566,7 +566,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
     @Test
     func topology_repoDiscoveredNotScanned_preservesExistingLinkedWorktrees() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -614,7 +614,7 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,
             workspaceStore: makeWorkspaceStore(),
-            repoCache: WorkspaceRepoCache(),
+            repoCache: RepoCacheAtom(),
             scopeSyncHandler: { _ in }
         )
 

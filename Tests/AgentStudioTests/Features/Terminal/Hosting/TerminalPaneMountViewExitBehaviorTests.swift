@@ -7,6 +7,9 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct TerminalPaneMountViewExitBehaviorTests {
+    init() {
+        installTestAtomScopeIfNeeded()
+    }
     private struct PaneTabControllerHarness {
         let store: WorkspaceStore
         let controller: PaneTabViewController
@@ -45,11 +48,11 @@ struct TerminalPaneMountViewExitBehaviorTests {
         )
         let controller = PaneTabViewController(
             store: store,
-            repoCache: WorkspaceRepoCache(),
+            repoCache: RepoCacheAtom(),
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
             executor: executor,
-            tabBarAdapter: TabBarAdapter(store: store, repoCache: WorkspaceRepoCache()),
+            tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry
         )
         return PaneTabControllerHarness(

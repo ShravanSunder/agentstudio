@@ -7,7 +7,7 @@ import SwiftUI
 struct CommandBarView: View {
     @Bindable var state: CommandBarState
     let store: WorkspaceStore
-    let repoCache: WorkspaceRepoCache
+    let repoCache: RepoCacheAtom
     let dispatcher: CommandDispatcher
     let onDismiss: () -> Void
 
@@ -58,7 +58,7 @@ struct CommandBarView: View {
     // MARK: - Data
 
     private var currentMode: CommandBarAppMode {
-        ManagementModeMonitor.shared.isActive ? .management : .normal
+        atom(\.managementMode).isActive ? .management : .normal
     }
 
     private var currentContext: CommandBarAppContext {

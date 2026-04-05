@@ -8,11 +8,12 @@ struct FlatPaneStripContent: View {
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let store: WorkspaceStore
-    let repoCache: WorkspaceRepoCache
+    let repoCache: RepoCacheAtom
     let viewRegistry: ViewRegistry
     let coordinateSpaceName: String?
     let useDrawerFramePreference: Bool
     let onOpenPaneGitHub: (UUID) -> Void
+    @State private var isSplitResizing = false
 
     var body: some View {
         GeometryReader { geometry in
@@ -34,7 +35,7 @@ struct FlatPaneStripContent: View {
                         CollapsedPaneBar(
                             paneId: paneId,
                             tabId: tabId,
-                            title: PaneDisplayProjector.displayLabel(for: paneId, store: store, repoCache: repoCache),
+                            title: atom(\.paneDisplay).displayLabel(for: paneId),
                             closeTransitionCoordinator: closeTransitionCoordinator,
                             actionDispatcher: actionDispatcher,
                             dropTargetCoordinateSpace: coordinateSpaceName,
@@ -57,6 +58,7 @@ struct FlatPaneStripContent: View {
                             actionDispatcher: actionDispatcher,
                             store: store,
                             repoCache: repoCache,
+                            isSplitResizing: isSplitResizing,
                             coordinateSpaceName: coordinateSpaceName,
                             useDrawerFramePreference: useDrawerFramePreference,
                             onOpenPaneGitHub: onOpenPaneGitHub,
@@ -74,7 +76,7 @@ struct FlatPaneStripContent: View {
                             leftPaneWidth: divider.leftPaneWidth,
                             rightPaneWidth: divider.rightPaneWidth,
                             layout: layout,
-                            store: store,
+                            isSplitResizing: $isSplitResizing,
                             tabId: tabId,
                             actionDispatcher: actionDispatcher
                         )
@@ -93,7 +95,8 @@ private struct PaneSegmentSlotView: View {
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let store: WorkspaceStore
-    let repoCache: WorkspaceRepoCache
+    let repoCache: RepoCacheAtom
+    let isSplitResizing: Bool
     let coordinateSpaceName: String?
     let useDrawerFramePreference: Bool
     let onOpenPaneGitHub: (UUID) -> Void
@@ -104,7 +107,7 @@ private struct PaneSegmentSlotView: View {
             CollapsedPaneBar(
                 paneId: segment.paneId,
                 tabId: tabId,
-                title: PaneDisplayProjector.displayLabel(for: segment.paneId, store: store, repoCache: repoCache),
+                title: atom(\.paneDisplay).displayLabel(for: segment.paneId),
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 actionDispatcher: actionDispatcher,
                 dropTargetCoordinateSpace: coordinateSpaceName,
@@ -116,6 +119,7 @@ private struct PaneSegmentSlotView: View {
                 tabId: tabId,
                 isActive: segment.paneId == activePaneId,
                 isSplit: layout.isSplit,
+                isSplitResizing: isSplitResizing,
                 store: store,
                 repoCache: repoCache,
                 closeTransitionCoordinator: closeTransitionCoordinator,
@@ -137,7 +141,7 @@ struct FlatPaneDivider: View {
     let leftPaneWidth: CGFloat
     let rightPaneWidth: CGFloat
     let layout: Layout
-    let store: WorkspaceStore
+    @Binding var isSplitResizing: Bool
     let tabId: UUID
     let actionDispatcher: PaneActionDispatching
 
@@ -178,7 +182,7 @@ struct FlatPaneDivider: View {
                             hasStartedResize = true
                             initialLeftWidth = leftPaneWidth
                             initialRightWidth = rightPaneWidth
-                            store.isSplitResizing = true
+                            isSplitResizing = true
                         }
 
                         let localRatio = Self.computeResizeRatio(
@@ -191,7 +195,7 @@ struct FlatPaneDivider: View {
                     }
                     .onEnded { _ in
                         hasStartedResize = false
-                        store.isSplitResizing = false
+                        isSplitResizing = false
                     }
             )
     }

@@ -12,7 +12,7 @@ final class WorkspaceCacheCoordinator {
 
     private let bus: EventBus<RuntimeEnvelope>
     private let workspaceStore: WorkspaceStore
-    private let repoCache: WorkspaceRepoCache
+    private let repoCache: RepoCacheAtom
     private let topologyEffectHandler: (any TopologyEffectHandler)?
     private let scopeSyncHandler: @Sendable (ScopeChange) async -> Void
     private var consumeTask: Task<Void, Never>?
@@ -20,7 +20,7 @@ final class WorkspaceCacheCoordinator {
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         workspaceStore: WorkspaceStore,
-        repoCache: WorkspaceRepoCache,
+        repoCache: RepoCacheAtom,
         topologyEffectHandler: (any TopologyEffectHandler)? = nil,
         scopeSyncHandler: @escaping @Sendable (ScopeChange) async -> Void
     ) {
@@ -88,8 +88,8 @@ final class WorkspaceCacheCoordinator {
                 if repoCache.repoEnrichmentByRepoId[repo.id] == nil {
                     repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
                 }
-                if workspaceStore.isRepoUnavailable(repo.id) {
-                    _ = workspaceStore.reassociateRepo(
+                if workspaceStore.repositoryTopologyAtom.isRepoUnavailable(repo.id) {
+                    _ = workspaceStore.mutationCoordinator.reassociateRepo(
                         repo.id,
                         to: normalizedRepoPath,
                         discoveredWorktrees: repo.worktrees
@@ -97,7 +97,7 @@ final class WorkspaceCacheCoordinator {
                 }
                 repoId = repo.id
             } else {
-                let repo = workspaceStore.addRepo(at: normalizedRepoPath)
+                let repo = workspaceStore.repositoryTopologyAtom.addRepo(at: normalizedRepoPath)
                 repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
                 repoId = repo.id
             }
@@ -123,7 +123,7 @@ final class WorkspaceCacheCoordinator {
             )
             guard delta.didChange else { return }
 
-            workspaceStore.reconcileDiscoveredWorktrees(repo.id, worktrees: mergedWorktrees)
+            workspaceStore.repositoryTopologyAtom.reconcileDiscoveredWorktrees(repo.id, worktrees: mergedWorktrees)
             for entry in delta.removedWorktrees {
                 repoCache.removeWorktree(entry.id)
             }
@@ -135,8 +135,13 @@ final class WorkspaceCacheCoordinator {
             topologyEffectHandler?.topologyDidChange(delta)
         case .repoRemoved(let repoPath):
             if let repo = workspaceStore.repos.first(where: { $0.repoPath == repoPath }) {
-                workspaceStore.markRepoUnavailable(repo.id)
-                let orphanedPaneIds = workspaceStore.orphanPanesForRepo(repo.id)
+                workspaceStore.repositoryTopologyAtom.markRepoUnavailable(repo.id)
+                let unavailablePathByWorktreeId = Dictionary(
+                    uniqueKeysWithValues: repo.worktrees.map { ($0.id, $0.path.path) }
+                )
+                let orphanedPaneIds = workspaceStore.paneAtom.orphanPanes(
+                    forUnavailableWorktreePathsById: unavailablePathByWorktreeId
+                )
                 if !orphanedPaneIds.isEmpty {
                     Self.logger.info(
                         "Repo removed at path=\(repoPath.path, privacy: .public); orphaned \(orphanedPaneIds.count, privacy: .public) pane(s)"
@@ -165,12 +170,12 @@ final class WorkspaceCacheCoordinator {
                         isMainWorktree: false
                     )
                 )
-                workspaceStore.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
+                workspaceStore.repositoryTopologyAtom.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
             }
         case .worktreeUnregistered(let worktreeId, let repoId):
             guard let repo = workspaceStore.repos.first(where: { $0.id == repoId }) else { return }
             let worktrees = repo.worktrees.filter { $0.id != worktreeId }
-            workspaceStore.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
+            workspaceStore.repositoryTopologyAtom.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
             repoCache.removeWorktree(worktreeId)
         }
     }
@@ -318,7 +323,7 @@ final class WorkspaceCacheCoordinator {
         }
 
         // 4. Hard-delete from store (removes from repos array + persistence)
-        workspaceStore.removeRepo(repoId)
+        workspaceStore.repositoryTopologyAtom.removeRepo(repoId)
     }
 
     func syncScope(_ change: ScopeChange) async {
@@ -331,7 +336,11 @@ final class WorkspaceCacheCoordinator {
         to newPath: URL,
         discoveredWorktrees: [Worktree]
     ) -> Bool {
-        let updated = workspaceStore.reassociateRepo(repoId, to: newPath, discoveredWorktrees: discoveredWorktrees)
+        let updated = workspaceStore.mutationCoordinator.reassociateRepo(
+            repoId,
+            to: newPath,
+            discoveredWorktrees: discoveredWorktrees
+        )
         guard updated else { return false }
         return true
     }

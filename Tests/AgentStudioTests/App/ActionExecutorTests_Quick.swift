@@ -6,6 +6,10 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ActionExecutorTestsQuick {
+    init() {
+        installTestAtomScopeIfNeeded()
+    }
+
     private struct ActionExecutorHarness {
         let store: WorkspaceStore
         let viewRegistry: ViewRegistry

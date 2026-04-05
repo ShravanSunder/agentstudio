@@ -23,6 +23,7 @@ final class ObservableStoreTests {
     private var store: WorkspaceStore!
 
     init() {
+        installTestAtomScopeIfNeeded()
         let persistor = WorkspacePersistor(
             workspacesDir: FileManager.default.temporaryDirectory
                 .appending(path: "obs-tests-\(UUID().uuidString)")
@@ -209,7 +210,7 @@ final class ObservableStoreTests {
     @Test
     func test_tabBarAdapter_bridgeAutoRefreshes_onStoreTabChange() async throws {
         // Arrange
-        let adapter = TabBarAdapter(store: store)
+        let adapter = TabBarAdapter(store: store, repoCache: RepoCacheAtom())
         #expect(adapter.tabs.isEmpty)
 
         let pane = store.createPane(
@@ -235,7 +236,7 @@ final class ObservableStoreTests {
 
     func test_tabBarAdapter_bridgeAutoRefreshes_onDrawerChange() async {
         // Arrange
-        let adapter = TabBarAdapter(store: store)
+        let adapter = TabBarAdapter(store: store, repoCache: RepoCacheAtom())
         let pane = store.createPane(
             source: .floating(launchDirectory: nil, title: "WithDrawer"),
             title: "WithDrawer"

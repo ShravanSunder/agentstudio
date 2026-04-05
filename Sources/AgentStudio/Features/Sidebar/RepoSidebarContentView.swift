@@ -14,8 +14,14 @@ struct RepoSidebarContentView: View {
     }
 
     let store: WorkspaceStore
-    let repoCache: WorkspaceRepoCache
-    let uiStore: WorkspaceUIStore
+
+    private var repoCache: RepoCacheAtom {
+        atom(\.repoCache)
+    }
+
+    private var uiState: UIStateAtom {
+        atom(\.uiState)
+    }
 
     @State private var expandedGroups: Set<String> = []
     @State private var filterText: String = ""
@@ -28,16 +34,6 @@ struct RepoSidebarContentView: View {
     @State private var debounceTask: Task<Void, Never>?
 
     private static let filterDebounceMilliseconds = 25
-
-    init(
-        store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache = WorkspaceRepoCache(),
-        uiStore: WorkspaceUIStore = WorkspaceUIStore()
-    ) {
-        self.store = store
-        self.repoCache = repoCache
-        self.uiStore = uiStore
-    }
 
     private var sidebarRepos: [SidebarRepo] {
         store.repos.map(SidebarRepo.init(repo:))
@@ -84,7 +80,7 @@ struct RepoSidebarContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if uiStore.isFilterVisible {
+            if uiState.isFilterVisible {
                 filterBar
             }
 
@@ -97,12 +93,12 @@ struct RepoSidebarContentView: View {
         .frame(minWidth: 200)
         .background(Color(nsColor: .windowBackgroundColor))
         .shadow(color: .black.opacity(0.2), radius: 4, x: 2, y: 0)
-        .animation(.easeOut(duration: 0.15), value: uiStore.isFilterVisible)
+        .animation(.easeOut(duration: 0.15), value: uiState.isFilterVisible)
         .task {
-            expandedGroups = uiStore.expandedGroups
-            filterText = uiStore.filterText
-            debouncedQuery = uiStore.filterText
-            checkoutColorByRepoId = uiStore.checkoutColors
+            expandedGroups = uiState.expandedGroups
+            filterText = uiState.filterText
+            debouncedQuery = uiState.filterText
+            checkoutColorByRepoId = uiState.checkoutColors
             notificationCountsByWorktreeId = repoCache.notificationCountByWorktreeId
         }
         .task {
@@ -123,7 +119,7 @@ struct RepoSidebarContentView: View {
         .onDisappear {
             debounceTask?.cancel()
         }
-        .onChange(of: uiStore.isFilterVisible) { _, isVisible in
+        .onChange(of: uiState.isFilterVisible) { _, isVisible in
             if isVisible {
                 Task { @MainActor in
                     await Task.yield()
@@ -134,13 +130,13 @@ struct RepoSidebarContentView: View {
                 if !filterText.isEmpty || !debouncedQuery.isEmpty {
                     filterText = ""
                     debouncedQuery = ""
-                    uiStore.setFilterText("")
+                    uiState.setFilterText("")
                 }
             }
         }
         .onChange(of: filterText) { _, newValue in
             let trimmed = newValue.trimmingCharacters(in: .whitespaces)
-            uiStore.setFilterText(trimmed)
+            uiState.setFilterText(trimmed)
             debounceTask?.cancel()
             if trimmed.isEmpty {
                 withAnimation(.easeOut(duration: 0.12)) {
@@ -315,7 +311,7 @@ struct RepoSidebarContentView: View {
                                 } else {
                                     checkoutColorByRepoId.removeValue(forKey: key)
                                 }
-                                uiStore.setCheckoutColor(colorHex, for: key)
+                                uiState.setCheckoutColor(colorHex, for: key)
                             }
                         )
                         .listRowInsets(
@@ -406,7 +402,7 @@ struct RepoSidebarContentView: View {
         } else {
             expandedGroups.insert(groupId)
         }
-        uiStore.setExpandedGroups(expandedGroups)
+        uiState.setExpandedGroups(expandedGroups)
     }
 
     private func resolvedWorktreeContext(
@@ -449,7 +445,7 @@ struct RepoSidebarContentView: View {
     }
 
     private func branchName(for worktree: Worktree) -> String {
-        PaneDisplayProjector.resolvedBranchName(
+        atom(\.paneDisplay).resolvedBranchName(
             worktree: worktree,
             enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
         )
@@ -459,8 +455,8 @@ struct RepoSidebarContentView: View {
         filterText = ""
         debouncedQuery = ""
         isFilterFocused = false
-        uiStore.setFilterText("")
-        uiStore.setFilterVisible(false)
+        uiState.setFilterText("")
+        uiState.setFilterVisible(false)
         CommandDispatcher.shared.appCommandRouter?.refocusActivePane()
     }
 

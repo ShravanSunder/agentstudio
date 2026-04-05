@@ -35,7 +35,7 @@ struct FilesystemGitPipelineIntegrationTests {
         defer { try? FileManager.default.removeItem(at: workspaceDir) }
         let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: workspaceDir))
         store.restore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let cacheCoordinator = WorkspaceCacheCoordinator(
             bus: bus,
             workspaceStore: store,
@@ -120,7 +120,7 @@ struct FilesystemGitPipelineIntegrationTests {
         let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: workspaceDir))
         store.restore()
 
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let cacheCoordinator = WorkspaceCacheCoordinator(
             bus: bus,
             workspaceStore: store,
@@ -235,7 +235,7 @@ struct FilesystemGitPipelineIntegrationTests {
             return
         }
 
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,
             workspaceStore: workspaceStore,

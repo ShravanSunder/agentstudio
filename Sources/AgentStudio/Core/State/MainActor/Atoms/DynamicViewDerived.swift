@@ -4,7 +4,7 @@ import Foundation
 /// Pure function — no side effects, no mutation of owned state.
 /// Called on demand when the user enters a dynamic view or when workspace state changes
 /// while in a dynamic view.
-enum DynamicViewProjector {
+struct DynamicViewDerived {
 
     /// Project all active panes through the given view type.
     /// Only includes panes with `.active` residency that are in a tab layout.
