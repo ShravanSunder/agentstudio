@@ -73,7 +73,8 @@ struct CommandBarView: View {
             scope: state.activeScope,
             store: store,
             repoCache: repoCache,
-            dispatcher: dispatcher
+            dispatcher: dispatcher,
+            focus: currentContext
         )
     }
 

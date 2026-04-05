@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import AgentStudio
@@ -27,6 +28,42 @@ struct CommandBarAppModeTests {
 @MainActor
 @Suite("WorkspaceFocus")
 struct WorkspaceFocusTests {
+    @Test
+    func visibilityIgnoresMissingRequirementsOnlyWhenDefinitionHasNoRequirements() {
+        let alwaysVisible = CommandDefinition(command: .newTab, label: "New Tab", helpText: "Create a new tab")
+        let tabOnly = CommandDefinition(
+            command: .closeTab,
+            label: "Close Tab",
+            helpText: "Close the active tab",
+            visibleWhen: [.hasActiveTab]
+        )
+        let focus = WorkspaceFocus(paneContentType: .noActivePane, satisfiedRequirements: [])
+
+        #expect(alwaysVisible.isVisible(in: focus))
+        #expect(!tabOnly.isVisible(in: focus))
+    }
+
+    @Test
+    func visibilityRequiresAllRequestedFocusFlags() {
+        let definition = CommandDefinition(
+            command: .navigateDrawerPane,
+            label: "Switch Drawer Pane",
+            helpText: "Switch to a pane inside the active drawer",
+            visibleWhen: [.hasActivePane, .hasDrawerPanes]
+        )
+        let missingDrawer = WorkspaceFocus(
+            paneContentType: .terminal,
+            satisfiedRequirements: [.hasActivePane]
+        )
+        let ready = WorkspaceFocus(
+            paneContentType: .terminal,
+            satisfiedRequirements: [.hasActivePane, .hasDrawerPanes]
+        )
+
+        #expect(!definition.isVisible(in: missingDrawer))
+        #expect(definition.isVisible(in: ready))
+    }
+
     @Test
     func terminalContextMetadata() {
         let focus = WorkspaceFocus(
@@ -107,6 +144,61 @@ struct WorkspaceFocusComputerTests {
         #expect(focus.satisfiedRequirements.contains(.hasActiveTab))
         #expect(focus.satisfiedRequirements.contains(.hasActivePane))
         #expect(focus.satisfiedRequirements.contains(.paneIsTerminal))
+        #expect(!focus.satisfiedRequirements.contains(.hasDrawerPanes))
+        #expect(!focus.satisfiedRequirements.contains(.hasMultiplePanes))
+        #expect(!focus.satisfiedRequirements.contains(.hasArrangements))
+    }
+
+    @Test
+    func activeTabWithoutActivePaneKeepsTabFocusButNoPaneFocus() {
+        let pane = UUID()
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: pane)
+        )
+        let tab = Tab(
+            name: "Detached",
+            allPaneIds: [pane],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id,
+            activePaneId: nil
+        )
+        let store = WorkspaceStore()
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let focus = WorkspaceFocusComputer.compute(store: store)
+
+        #expect(focus.paneContentType == .noActivePane)
+        #expect(focus.satisfiedRequirements.contains(.hasActiveTab))
+        #expect(!focus.satisfiedRequirements.contains(.hasActivePane))
+    }
+
+    @Test
+    func staleActivePaneIdDoesNotReportPaneFocus() {
+        let pane = UUID()
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: pane)
+        )
+        let tab = Tab(
+            name: "Stale",
+            allPaneIds: [],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id,
+            activePaneId: pane
+        )
+        let store = WorkspaceStore()
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let focus = WorkspaceFocusComputer.compute(store: store)
+
+        #expect(focus.paneContentType == .noActivePane)
+        #expect(focus.satisfiedRequirements.contains(.hasActiveTab))
+        #expect(!focus.satisfiedRequirements.contains(.hasActivePane))
     }
 
     @Test

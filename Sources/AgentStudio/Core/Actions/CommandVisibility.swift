@@ -1,4 +1,7 @@
 import Foundation
+import os.log
+
+private let commandVisibilityLogger = Logger(subsystem: "com.agentstudio", category: "CommandVisibility")
 
 /// Workspace state requirements that determine whether a command should be visible.
 enum FocusRequirement: Hashable, CaseIterable, Sendable {
@@ -24,10 +27,42 @@ struct WorkspaceFocus: Equatable, Sendable {
         case codeViewer
         case unsupported
         case noActivePane
+
+        fileprivate var visibilityRequirement: FocusRequirement? {
+            switch self {
+            case .terminal:
+                return .paneIsTerminal
+            case .webview:
+                return .paneIsWebview
+            case .bridge:
+                return .paneIsBridge
+            case .codeViewer:
+                return .paneIsCodeViewer
+            case .unsupported, .noActivePane:
+                return nil
+            }
+        }
     }
+
+    private static let contentRequirements: Set<FocusRequirement> = [
+        .paneIsTerminal,
+        .paneIsWebview,
+        .paneIsBridge,
+        .paneIsCodeViewer,
+    ]
 
     let paneContentType: ContentType
     let satisfiedRequirements: Set<FocusRequirement>
+
+    init(paneContentType: ContentType, satisfiedRequirements: Set<FocusRequirement>) {
+        var normalizedRequirements = satisfiedRequirements.subtracting(Self.contentRequirements)
+        if let contentRequirement = paneContentType.visibilityRequirement {
+            normalizedRequirements.insert(contentRequirement)
+        }
+
+        self.paneContentType = paneContentType
+        self.satisfiedRequirements = normalizedRequirements
+    }
 
     var label: String? {
         switch paneContentType {
@@ -72,9 +107,7 @@ extension CommandDefinition {
 
 @MainActor
 enum WorkspaceFocusComputer {
-    static func compute(
-        store: WorkspaceStore
-    ) -> WorkspaceFocus {
+    static func compute(store: WorkspaceStore) -> WorkspaceFocus {
         var satisfiedRequirements: Set<FocusRequirement> = []
 
         guard
@@ -97,14 +130,22 @@ enum WorkspaceFocusComputer {
             satisfiedRequirements.insert(.hasMultiplePanes)
         }
 
+        // The default arrangement is always present, so > 1 means the tab has at least one saved custom arrangement.
         if tab.arrangements.count > 1 {
             satisfiedRequirements.insert(.hasArrangements)
         }
 
-        guard
-            let activePaneId = tab.activePaneId,
-            let pane = store.pane(activePaneId)
-        else {
+        guard let activePaneId = tab.activePaneId else {
+            return WorkspaceFocus(
+                paneContentType: .noActivePane,
+                satisfiedRequirements: satisfiedRequirements
+            )
+        }
+
+        guard let pane = store.pane(activePaneId) else {
+            commandVisibilityLogger.warning(
+                "Workspace focus dropped invalid activePaneId=\(activePaneId.uuidString, privacy: .public) for tab=\(tab.id.uuidString, privacy: .public)"
+            )
             return WorkspaceFocus(
                 paneContentType: .noActivePane,
                 satisfiedRequirements: satisfiedRequirements
@@ -124,16 +165,12 @@ enum WorkspaceFocusComputer {
         switch pane.content {
         case .terminal:
             paneContentType = .terminal
-            satisfiedRequirements.insert(.paneIsTerminal)
         case .webview:
             paneContentType = .webview
-            satisfiedRequirements.insert(.paneIsWebview)
         case .bridgePanel:
             paneContentType = .bridge
-            satisfiedRequirements.insert(.paneIsBridge)
         case .codeViewer:
             paneContentType = .codeViewer
-            satisfiedRequirements.insert(.paneIsCodeViewer)
         case .unsupported:
             paneContentType = .unsupported
         }

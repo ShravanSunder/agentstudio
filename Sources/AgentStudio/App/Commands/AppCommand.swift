@@ -129,7 +129,7 @@ extension KeyBinding {
 /// Full command definition tying command identity, shortcut, display info, and context together.
 struct CommandDefinition {
     let command: AppCommand
-    var keyBinding: KeyBinding?
+    let keyBinding: KeyBinding?
     let label: String
     let icon: String?
     let helpText: String
@@ -572,6 +572,7 @@ extension AppCommand {
                 helpText: "Switch the active tab to a saved arrangement"
             )
         case .saveArrangement:
+            // Save Arrangement must stay visible with only the default arrangement so users can create their first custom layout.
             return CommandDefinition(
                 command: self,
                 label: "Save Arrangement As...",

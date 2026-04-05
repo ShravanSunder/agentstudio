@@ -45,6 +45,22 @@ enum CommandBarDataSource {
         dispatcher: CommandDispatcher
     ) -> [CommandBarItem] {
         let focus = WorkspaceFocusComputer.compute(store: store)
+        return items(
+            scope: scope,
+            store: store,
+            repoCache: repoCache,
+            dispatcher: dispatcher,
+            focus: focus
+        )
+    }
+
+    static func items(
+        scope: CommandBarScope,
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom,
+        dispatcher: CommandDispatcher,
+        focus: WorkspaceFocus
+    ) -> [CommandBarItem] {
         switch scope {
         case .everything:
             return everythingItems(store: store, repoCache: repoCache, dispatcher: dispatcher, focus: focus)
