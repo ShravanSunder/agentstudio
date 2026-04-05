@@ -623,6 +623,77 @@ Also builds `CommandBarLevel` targets for drill-in commands (e.g., "Close Tab...
 
 > **Files:** `Features/CommandBar/CommandBarPanelController.swift`, `Features/CommandBar/CommandBarState.swift`, `Features/CommandBar/CommandBarDataSource.swift`, `Features/CommandBar/CommandBarSearch.swift`, `Features/CommandBar/CommandBarPanel.swift`, `Features/CommandBar/CommandBarItem.swift`, `Features/CommandBar/Views/*.swift`
 
+### 3.8 Command Metadata & UI Action Presentation
+
+Agent Studio has two typed presentation layers for user-triggerable UI:
+
+- **`AppCommand` + `CommandDefinition`** for dispatchable app commands
+- **`LocalActionPresentation` / `ActionPresentation`** for local UI actions that do not route through `CommandDispatcher`
+
+`AppCommand` is still the authoritative command ID. The metadata lives in an exhaustive
+`AppCommand.definition` switch, so adding a new command case forces metadata completion at compile time.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ AppCommand                                                  │
+│ authoritative dispatchable command id                       │
+└──────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│ CommandDefinition                                            │
+│ authoritative metadata for dispatchable commands             │
+│                                                              │
+│ - command                                                    │
+│ - label                                                      │
+│ - icon                                                       │
+│ - helpText                                                   │
+│ - keyBinding                                                 │
+│ - appliesTo                                                  │
+│ - requiresManagementMode                                     │
+│ - visibleWhen                                                │
+│ - command bar group / priority                               │
+└──────────────────────────────────────────────────────────────┘
+                           │
+            ┌──────────────┼───────────────┬──────────────────┐
+            ▼              ▼               ▼                  ▼
+┌─────────────────┐ ┌───────────────┐ ┌──────────────┐ ┌──────────────┐
+│ menus/toolbars  │ │ command bar   │ │ titlebar     │ │ app surfaces │
+│ read metadata   │ │ reads metadata│ │ reads metadata│ │ read metadata│
+└─────────────────┘ └───────────────┘ └──────────────┘ └──────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│ CommandDispatcher                                             │
+│ - lookup definition by AppCommand                            │
+│ - route execution                                             │
+│ - canDispatch gate                                            │
+└──────────────────────────────────────────────────────────────┘
+                           │
+                 ┌─────────┴─────────┐
+                 ▼                   ▼
+┌──────────────────────────┐   ┌──────────────────────────────┐
+│ AppCommandRouting        │   │ CommandHandler               │
+│ app/window/sidebar shell │   │ tab/pane/workspace handling  │
+└──────────────────────────┘   └──────────────────────────────┘
+                                          │
+                                          ▼
+┌──────────────────────────────────────────────────────────────┐
+│ ActionResolver → ActionValidator → PaneCoordinator          │
+└──────────────────────────────────────────────────────────────┘
+```
+
+For UI actions that are *not* `AppCommand`s — for example drawer hover tooltips, sidebar
+editor menus, settings buttons, and command-bar mode entries — the app uses
+`ActionPresentation` and `LocalActionPresentation` in `Core/Actions/UIActionPresentation.swift`.
+This keeps labels, help text, and icons centralized even when an action is not a dispatcher-backed command.
+
+**Why two metadata layers?**
+- `CommandDefinition` owns anything that must dispatch through the validated command pipeline.
+- `LocalActionPresentation` owns UI-only actions that do not have an `AppCommand` identity.
+
+This keeps `AppCommand` as the single command ID while still removing duplicated labels/tooltips across the UI.
+
 ---
 
 ## 4. Data Flow

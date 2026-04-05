@@ -519,14 +519,38 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     /// Create an NSMenuItem whose shortcut is read from CommandDispatcher (single source of truth).
     /// Called from setupMainMenu() which runs on the main thread during app launch.
-    private func menuItem(_ title: String, command: AppCommand, action: Selector) -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+    private func menuItem(command: AppCommand, action: Selector) -> NSMenuItem {
+        let definition = CommandDispatcher.shared.definition(for: command)
+        let item = NSMenuItem(title: definition.presentation.label, action: action, keyEquivalent: "")
         item.target = self
         item.representedObject = command.rawValue
-        if let binding = CommandDispatcher.shared.definitions[command]?.keyBinding {
+        if let binding = definition.keyBinding {
             binding.apply(to: item)
         }
         return item
+    }
+
+    private func makeCommandBarMenuItems() -> [NSMenuItem] {
+        let quickOpenItem = NSMenuItem(
+            title: LocalActionPresentation.quickOpen.presentation.label,
+            action: #selector(showCommandBar),
+            keyEquivalent: "p"
+        )
+        let commandModeItem = NSMenuItem(
+            title: LocalActionPresentation.commandPalette.presentation.label,
+            action: #selector(showCommandBarCommands),
+            keyEquivalent: "p"
+        )
+        commandModeItem.keyEquivalentModifierMask = [.command, .shift]
+
+        let paneModeItem = NSMenuItem(
+            title: LocalActionPresentation.goToPane.presentation.label,
+            action: #selector(showCommandBarPanes),
+            keyEquivalent: "p"
+        )
+        paneModeItem.keyEquivalentModifierMask = [.command, .option]
+
+        return [quickOpenItem, commandModeItem, paneModeItem]
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
@@ -576,14 +600,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         // File menu
         let fileMenu = NSMenu(title: "File")
-        fileMenu.addItem(menuItem("New Window", command: .newWindow, action: #selector(newWindow)))
-        fileMenu.addItem(menuItem("New Tab", command: .newTab, action: #selector(newTab)))
+        fileMenu.addItem(menuItem(command: .newWindow, action: #selector(newWindow)))
+        fileMenu.addItem(menuItem(command: .newTab, action: #selector(newTab)))
         fileMenu.addItem(NSMenuItem.separator())
-        fileMenu.addItem(menuItem("Close Tab", command: .closeTab, action: #selector(closeTab)))
-        fileMenu.addItem(menuItem("Close Window", command: .closeWindow, action: #selector(closeWindow)))
+        fileMenu.addItem(menuItem(command: .closeTab, action: #selector(closeTab)))
+        fileMenu.addItem(menuItem(command: .closeWindow, action: #selector(closeWindow)))
         fileMenu.addItem(NSMenuItem.separator())
-        fileMenu.addItem(menuItem("Add Repo...", command: .addRepo, action: #selector(addRepo)))
-        fileMenu.addItem(menuItem("Add Folder...", command: .addFolder, action: #selector(addFolder)))
+        fileMenu.addItem(menuItem(command: .addRepo, action: #selector(addRepo)))
+        fileMenu.addItem(menuItem(command: .addFolder, action: #selector(addFolder)))
 
         let fileMenuItem = NSMenuItem()
         fileMenuItem.submenu = fileMenu
@@ -594,7 +618,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         editMenu.addItem(NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z"))
         editMenu.addItem(NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "Z"))
         editMenu.addItem(NSMenuItem.separator())
-        editMenu.addItem(menuItem("Undo Close Tab", command: .undoCloseTab, action: #selector(undoCloseTab)))
+        editMenu.addItem(menuItem(command: .undoCloseTab, action: #selector(undoCloseTab)))
         editMenu.addItem(NSMenuItem.separator())
         editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
         editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
@@ -607,22 +631,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         // View menu
         let viewMenu = NSMenu(title: "View")
-        viewMenu.addItem(menuItem("Toggle Sidebar", command: .toggleSidebar, action: #selector(toggleSidebar)))
-        viewMenu.addItem(menuItem("Filter Sidebar", command: .filterSidebar, action: #selector(filterSidebar)))
+        viewMenu.addItem(menuItem(command: .toggleSidebar, action: #selector(toggleSidebar)))
+        viewMenu.addItem(menuItem(command: .filterSidebar, action: #selector(filterSidebar)))
         viewMenu.addItem(NSMenuItem.separator())
 
-        // Command bar shortcuts
-        viewMenu.addItem(NSMenuItem(title: "Quick Open", action: #selector(showCommandBar), keyEquivalent: "p"))
-        let commandModeItem = NSMenuItem(
-            title: "Command Palette", action: #selector(showCommandBarCommands), keyEquivalent: "p")
-        commandModeItem.keyEquivalentModifierMask = [.command, .shift]
-        viewMenu.addItem(commandModeItem)
-        let paneModeItem = NSMenuItem(title: "Go to Pane", action: #selector(showCommandBarPanes), keyEquivalent: "p")
-        paneModeItem.keyEquivalentModifierMask = [.command, .option]
-        viewMenu.addItem(paneModeItem)
+        for item in makeCommandBarMenuItems() {
+            viewMenu.addItem(item)
+        }
         viewMenu.addItem(NSMenuItem.separator())
 
-        viewMenu.addItem(menuItem("Open New Webview Tab", command: .openWebview, action: #selector(openWebviewAction)))
+        viewMenu.addItem(menuItem(command: .openWebview, action: #selector(openWebviewAction)))
 
         viewMenu.addItem(NSMenuItem.separator())
 
@@ -649,7 +667,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Tab switching shortcuts (⌘1 through ⌘9)
         windowMenu.addItem(NSMenuItem.separator())
         for (i, command) in AppCommand.selectTabCommands.enumerated() {
-            let item = menuItem("Select Tab \(i + 1)", command: command, action: #selector(selectTab(_:)))
+            let item = menuItem(command: command, action: #selector(selectTab(_:)))
             item.tag = i  // 0-indexed
             windowMenu.addItem(item)
         }

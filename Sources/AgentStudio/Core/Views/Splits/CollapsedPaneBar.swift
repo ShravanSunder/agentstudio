@@ -53,14 +53,14 @@ struct CollapsedPaneBar: View {
                     .frame(width: 22, height: 22)
             }
             .buttonStyle(.plain)
-            .help("Expand pane")
+            .help(AppCommand.expandPane.definition.helpText)
 
             // Hamburger menu
             Menu {
                 Button {
                     actionDispatcher.dispatch(.expandPane(tabId: tabId, paneId: paneId))
                 } label: {
-                    Label("Expand", systemImage: "arrow.up.left.and.arrow.down.right")
+                    Label(AppCommand.expandPane.definition.label, systemImage: "arrow.up.left.and.arrow.down.right")
                 }
 
                 Divider()
@@ -68,7 +68,7 @@ struct CollapsedPaneBar: View {
                 Button(role: .destructive) {
                     beginCloseTransition()
                 } label: {
-                    Label("Close", systemImage: "xmark")
+                    Label(AppCommand.closePane.definition.label, systemImage: "xmark")
                 }
             } label: {
                 Image(systemName: "line.3.horizontal")

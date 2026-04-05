@@ -191,7 +191,7 @@ struct DrawerPanel: View {
                 )
         }
         .buttonStyle(.plain)
-        .help("Add a drawer terminal")
+        .help(LocalActionPresentation.addDrawerTerminal.presentation.helpText)
     }
 
     var body: some View {
