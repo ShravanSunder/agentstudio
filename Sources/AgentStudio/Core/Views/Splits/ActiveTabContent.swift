@@ -8,7 +8,7 @@ import SwiftUI
 @available(*, deprecated, message: "PaneTabViewController now uses per-tab SingleTabContent hosts")
 struct ActiveTabContent: View {
     let store: WorkspaceStore
-    let repoCache: WorkspaceRepoCache
+    let repoCache: RepoCacheAtom
     let viewRegistry: ViewRegistry
     let appLifecycleStore: AppLifecycleStore
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator

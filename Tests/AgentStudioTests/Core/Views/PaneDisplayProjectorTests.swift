@@ -9,7 +9,7 @@ struct PaneDisplayProjectorTests {
     @Test
     func worktreeBackedPane_usesRepoBranchAndFolderLabel() {
         let store = WorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio"))
         let worktree = makeWorktree(
             repoId: repo.id,
@@ -41,7 +41,7 @@ struct PaneDisplayProjectorTests {
     @Test
     func floatingPane_usesCwdFolderFallback() {
         let store = WorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let pane = store.createPane(
             source: .floating(launchDirectory: URL(fileURLWithPath: "/tmp/project-dev"), title: "ignored"),
             title: "ignored",

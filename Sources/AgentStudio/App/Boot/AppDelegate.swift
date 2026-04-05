@@ -8,9 +8,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var mainWindowController: MainWindowController?
     // MARK: - Shared Services (created once at launch)
     // Module-internal to support focused same-type AppDelegate extensions.
+    var atomStore: AtomStore!
     var store: WorkspaceStore!
-    var workspaceRepoCache: WorkspaceRepoCache!
-    var workspaceUIStore: WorkspaceUIStore!
+    var repoCache: RepoCacheAtom! { atomStore.repoCache }
+    var uiState: UIStateAtom! { atomStore.uiState }
     var workspaceCacheCoordinator: WorkspaceCacheCoordinator!
     var watchedFolderCommands: (any WatchedFolderCommandHandling)!
     var viewRegistry: ViewRegistry!
@@ -67,6 +68,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Boot Step Implementations
 
     private func bootLoadCanonicalStore() {
+        atomStore = AtomStore()
+        AtomScope.setUp(atomStore)
         store = WorkspaceStore()
         store.restore()
         appLifecycleStore = AppLifecycleStore()
@@ -81,25 +84,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func bootLoadCacheStore(persistor: WorkspacePersistor) {
-        workspaceRepoCache = WorkspaceRepoCache()
         switch persistor.loadCache(for: store.workspaceId) {
         case .loaded(let cacheState):
             for enrichment in cacheState.repoEnrichmentByRepoId.values {
-                workspaceRepoCache.setRepoEnrichment(enrichment)
+                repoCache.setRepoEnrichment(enrichment)
             }
             for enrichment in cacheState.worktreeEnrichmentByWorktreeId.values {
-                workspaceRepoCache.setWorktreeEnrichment(enrichment)
+                repoCache.setWorktreeEnrichment(enrichment)
             }
             for (worktreeId, count) in cacheState.pullRequestCountByWorktreeId {
-                workspaceRepoCache.setPullRequestCount(count, for: worktreeId)
+                repoCache.setPullRequestCount(count, for: worktreeId)
             }
             for (worktreeId, count) in cacheState.notificationCountByWorktreeId {
-                workspaceRepoCache.setNotificationCount(count, for: worktreeId)
+                repoCache.setNotificationCount(count, for: worktreeId)
             }
             for target in cacheState.recentTargets {
-                workspaceRepoCache.recordRecentTarget(target)
+                repoCache.recordRecentTarget(target)
             }
-            workspaceRepoCache.markRebuilt(
+            repoCache.markRebuilt(
                 sourceRevision: cacheState.sourceRevision,
                 at: cacheState.lastRebuiltAt ?? Date()
             )
@@ -108,19 +110,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case .missing:
             break
         }
-        pruneStaleCache(store: store, repoCache: workspaceRepoCache)
+        pruneStaleCache(store: store, repoCache: repoCache)
     }
 
     private func bootLoadUIStore(persistor: WorkspacePersistor) {
-        workspaceUIStore = WorkspaceUIStore()
         switch persistor.loadUI(for: store.workspaceId) {
         case .loaded(let uiState):
-            workspaceUIStore.setExpandedGroups(uiState.expandedGroups)
+            self.uiState.setExpandedGroups(uiState.expandedGroups)
             for (stableKey, colorHex) in uiState.checkoutColors {
-                workspaceUIStore.setCheckoutColor(colorHex, for: stableKey)
+                self.uiState.setCheckoutColor(colorHex, for: stableKey)
             }
-            workspaceUIStore.setFilterText(uiState.filterText)
-            workspaceUIStore.setFilterVisible(uiState.isFilterVisible)
+            self.uiState.setFilterText(uiState.filterText)
+            self.uiState.setFilterVisible(uiState.isFilterVisible)
         case .corrupt(let error):
             appLogger.warning("UI state file corrupt, using defaults: \(error)")
         case .missing:
@@ -155,7 +156,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         workspaceCacheCoordinator = WorkspaceCacheCoordinator(
             bus: paneRuntimeBus,
             workspaceStore: store,
-            repoCache: workspaceRepoCache,
+            repoCache: repoCache,
             topologyEffectHandler: paneCoordinator,
             scopeSyncHandler: { [weak pipeline] change in
                 guard let pipeline else { return }
@@ -167,10 +168,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self?.paneCoordinator.syncFilesystemRootsAndActivity()
         }
         executor = ActionExecutor(coordinator: paneCoordinator, store: store)
-        tabBarAdapter = TabBarAdapter(store: store, repoCache: workspaceRepoCache)
+        tabBarAdapter = TabBarAdapter(store: store, repoCache: repoCache)
         commandBarController = CommandBarPanelController(
             store: store,
-            repoCache: workspaceRepoCache,
+            repoCache: repoCache,
             dispatcher: .shared
         )
         CommandDispatcher.shared.appCommandRouter = self
@@ -204,7 +205,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Boot Helpers
 
-    private func pruneStaleCache(store: WorkspaceStore, repoCache: WorkspaceRepoCache) {
+    private func pruneStaleCache(store: WorkspaceStore, repoCache: RepoCacheAtom) {
         let validRepoIds = Set(store.repos.map(\.id))
         let validWorktreeIds = Set(store.repos.flatMap(\.worktrees).map(\.id))
         for repoId in Array(repoCache.repoEnrichmentByRepoId.keys) where !validRepoIds.contains(repoId) {
@@ -321,8 +322,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Create main window
         mainWindowController = MainWindowController(
             store: store,
-            repoCache: workspaceRepoCache,
-            uiStore: workspaceUIStore,
             actionExecutor: executor,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
@@ -501,8 +500,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             mainWindowController = MainWindowController(
                 store: store,
-                repoCache: workspaceRepoCache,
-                uiStore: workspaceUIStore,
                 actionExecutor: executor,
                 applicationLifecycleMonitor: applicationLifecycleMonitor,
                 appLifecycleStore: appLifecycleStore,
@@ -522,13 +519,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             try persistor.saveCache(
                 .init(
                     workspaceId: store.workspaceId,
-                    repoEnrichmentByRepoId: workspaceRepoCache.repoEnrichmentByRepoId,
-                    worktreeEnrichmentByWorktreeId: workspaceRepoCache.worktreeEnrichmentByWorktreeId,
-                    pullRequestCountByWorktreeId: workspaceRepoCache.pullRequestCountByWorktreeId,
-                    notificationCountByWorktreeId: workspaceRepoCache.notificationCountByWorktreeId,
-                    recentTargets: workspaceRepoCache.recentTargets,
-                    sourceRevision: workspaceRepoCache.sourceRevision,
-                    lastRebuiltAt: workspaceRepoCache.lastRebuiltAt
+                    repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId,
+                    worktreeEnrichmentByWorktreeId: repoCache.worktreeEnrichmentByWorktreeId,
+                    pullRequestCountByWorktreeId: repoCache.pullRequestCountByWorktreeId,
+                    notificationCountByWorktreeId: repoCache.notificationCountByWorktreeId,
+                    recentTargets: repoCache.recentTargets,
+                    sourceRevision: repoCache.sourceRevision,
+                    lastRebuiltAt: repoCache.lastRebuiltAt
                 )
             )
         } catch {
@@ -539,10 +536,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             try persistor.saveUI(
                 .init(
                     workspaceId: store.workspaceId,
-                    expandedGroups: workspaceUIStore.expandedGroups,
-                    checkoutColors: workspaceUIStore.checkoutColors,
-                    filterText: workspaceUIStore.filterText,
-                    isFilterVisible: workspaceUIStore.isFilterVisible
+                    expandedGroups: uiState.expandedGroups,
+                    checkoutColors: uiState.checkoutColors,
+                    filterText: uiState.filterText,
+                    isFilterVisible: uiState.isFilterVisible
                 )
             )
         } catch {

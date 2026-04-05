@@ -61,7 +61,7 @@ final class WebviewPaneController {
             metadata: runtimeMetadata
         )
         self.showNavigation = state.showNavigation
-        let blockInteraction = ManagementModeMonitor.shared.isActive
+        let blockInteraction = atom(\.managementMode).isActive
         let initialManagementScript = WebInteractionManagementScript.makeUserScript(
             blockInteraction: blockInteraction
         )

@@ -449,21 +449,23 @@ private struct TabBarArrangementButton: View {
 
 /// Management mode toggle in the tab bar. Blue accent when active, standard hover otherwise.
 private struct TabBarManagementModeButton: View {
-    @Bindable private var managementMode = ManagementModeMonitor.shared
+    private var isManagementModeActive: Bool {
+        atom(\.managementMode).isActive
+    }
     @State private var isHovered = false
 
     var body: some View {
         Button {
-            managementMode.toggle()
+            ManagementModeMonitor.shared.toggle()
         } label: {
             Image(
-                systemName: managementMode.isActive
+                systemName: isManagementModeActive
                     ? "rectangle.split.2x2.fill"
                     : "rectangle.split.2x2"
             )
             .font(.system(size: AppStyle.compactIconSize, weight: .medium))
             .foregroundStyle(
-                managementMode.isActive
+                isManagementModeActive
                     ? Color.accentColor
                     : (isHovered ? .primary : .secondary)
             )
@@ -471,7 +473,7 @@ private struct TabBarManagementModeButton: View {
             .background(
                 Circle()
                     .fill(
-                        managementMode.isActive
+                        isManagementModeActive
                             ? Color.accentColor.opacity(AppStyle.fillActive)
                             : Color.white.opacity(
                                 isHovered ? AppStyle.fillPressed : AppStyle.fillMuted)
@@ -736,7 +738,7 @@ struct TabBarEmptyState: View {
             let persistor = WorkspacePersistor(workspacesDir: tempDir)
             let store = WorkspaceStore(persistor: persistor)
             store.restore()
-            let adapter = TabBarAdapter(store: store)
+            let adapter = TabBarAdapter(store: store, repoCache: RepoCacheAtom())
 
             return VStack(spacing: 0) {
                 CustomTabBar(

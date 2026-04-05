@@ -1,10 +1,9 @@
 import Foundation
 import Observation
 
-/// User-preference UI state for workspace/sidebar presentation.
-@Observable
 @MainActor
-final class WorkspaceUIStore {
+@Observable
+final class UIStateAtom {
     private(set) var expandedGroups: Set<String> = []
     private(set) var checkoutColors: [String: String] = [:]
     private(set) var filterText: String = ""

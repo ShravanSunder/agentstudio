@@ -70,7 +70,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         // on tab pills, which was causing intermittent missed clicks.
         panGesture = NSPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         panGesture.delaysPrimaryMouseButtonEvents = false
-        panGesture.isEnabled = ManagementModeMonitor.shared.isActive
+        panGesture.isEnabled = atom(\.managementMode).isActive
         addGestureRecognizer(panGesture)
         observeManagementMode()
     }
@@ -83,7 +83,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         managementModeObservation?.cancel()
         managementModeObservation = Task { @MainActor [weak self] in
             withObservationTracking {
-                _ = ManagementModeMonitor.shared.isActive
+                _ = atom(\.managementMode).isActive
             } onChange: { [weak self] in
                 Task { @MainActor [weak self] in
                     self?.updateManagementModeState()
@@ -95,8 +95,8 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     }
 
     private func updateManagementModeState() {
-        panGesture.isEnabled = ManagementModeMonitor.shared.isActive
-        if !ManagementModeMonitor.shared.isActive {
+        panGesture.isEnabled = atom(\.managementMode).isActive
+        if !atom(\.managementMode).isActive {
             // Clean up any in-flight drag state when leaving management mode
             panStartTabId = nil
             panStartEvent = nil
@@ -353,7 +353,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         // Reject drags when management mode exited mid-drag.
         // Pane drags start only from management mode affordances.
         if (types.contains(.agentStudioTabInternal) || types.contains(.agentStudioPaneDrop))
-            && !ManagementModeMonitor.shared.isActive
+            && !atom(\.managementMode).isActive
         {
             return []
         }
@@ -374,7 +374,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
         // Reject drags when management mode exited mid-drag
         if (types.contains(.agentStudioTabInternal) || types.contains(.agentStudioPaneDrop))
-            && !ManagementModeMonitor.shared.isActive
+            && !atom(\.managementMode).isActive
         {
             Task { @MainActor [weak self] in
                 self?.tabBarAdapter?.dropTargetIndex = nil
@@ -408,7 +408,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         if let idString = pasteboard.string(forType: .agentStudioTabInternal),
             let tabId = UUID(uuidString: idString),
             let targetIndex = tabBarAdapter?.dropTargetIndex,
-            ManagementModeMonitor.shared.isActive
+            atom(\.managementMode).isActive
         {
             onReorder?(tabId, targetIndex)
             return true

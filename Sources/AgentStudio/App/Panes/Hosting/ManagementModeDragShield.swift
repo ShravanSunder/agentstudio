@@ -93,13 +93,13 @@ final class ManagementModeDragShield: NSView {
     // MARK: - NSDraggingDestination
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard ManagementModeMonitor.shared.isActive else { return [] }
+        guard atom(\.managementMode).isActive else { return [] }
         // Accept the drag to prevent WKWebView from seeing it.
         return .generic
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard ManagementModeMonitor.shared.isActive else { return [] }
+        guard atom(\.managementMode).isActive else { return [] }
         return .generic
     }
 
@@ -116,7 +116,7 @@ final class ManagementModeDragShield: NSView {
 
     private func observeManagementMode() {
         withObservationTracking {
-            _ = ManagementModeMonitor.shared.isActive
+            _ = atom(\.managementMode).isActive
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -129,7 +129,7 @@ final class ManagementModeDragShield: NSView {
     /// Dynamically register/unregister drag types based on management mode.
     /// Also notifies the parent PaneHostView to apply content-level interaction changes.
     private func updateRegistration() {
-        let isActive = ManagementModeMonitor.shared.isActive
+        let isActive = atom(\.managementMode).isActive
         if isActive {
             registerForDraggedTypes(DragPolicy.suppressedTypes)
         } else {

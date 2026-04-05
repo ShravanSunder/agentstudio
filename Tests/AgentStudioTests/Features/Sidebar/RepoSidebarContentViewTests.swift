@@ -6,6 +6,9 @@ import Testing
 @MainActor
 @Suite("RepoSidebarContentView")
 struct RepoSidebarContentViewTests {
+    init() {
+        installTestAtomScopeIfNeeded()
+    }
     @Test("flat list entries expand a resolved group into header and child rows")
     func flatListEntriesExpandResolvedGroupIntoHeaderAndChildRows() {
         let repoId = UUID()

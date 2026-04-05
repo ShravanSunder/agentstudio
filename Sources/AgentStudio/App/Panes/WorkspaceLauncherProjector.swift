@@ -37,7 +37,7 @@ struct WorkspaceEmptyStateModel: Equatable {
 enum WorkspaceLauncherProjector {
     static func project(
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
+        repoCache: RepoCacheAtom
     ) -> WorkspaceEmptyStateModel {
         if store.repos.isEmpty {
             return WorkspaceEmptyStateModel(kind: .noFolders, recentCards: [])
@@ -64,7 +64,7 @@ enum WorkspaceLauncherProjector {
     private static func projectRecentCards(
         recentTargets: [RecentWorkspaceTarget],
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
+        repoCache: RepoCacheAtom
     ) -> [WorkspaceRecentCardModel] {
         recentTargets.compactMap { target in
             projectCard(
@@ -78,7 +78,7 @@ enum WorkspaceLauncherProjector {
     private static func projectCard(
         target: RecentWorkspaceTarget,
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
+        repoCache: RepoCacheAtom
     ) -> WorkspaceRecentCardModel? {
         if let worktreeId = target.worktreeId,
             let worktree = store.worktree(worktreeId)
@@ -111,7 +111,7 @@ enum WorkspaceLauncherProjector {
     private static func makeWorktreeCard(
         target: RecentWorkspaceTarget,
         worktree: Worktree,
-        repoCache: WorkspaceRepoCache
+        repoCache: RepoCacheAtom
     ) -> WorkspaceRecentCardModel {
         let branchStatus = RepoSidebarContentView.branchStatus(
             enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id],

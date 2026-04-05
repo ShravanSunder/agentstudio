@@ -253,7 +253,7 @@ final class CommandDispatcher {
     func canDispatch(_ command: AppCommand) -> Bool {
         if let definition = definitions[command],
             definition.requiresManagementMode,
-            !ManagementModeMonitor.shared.isActive
+            !atom(\.managementMode).isActive
         {
             return false
         }

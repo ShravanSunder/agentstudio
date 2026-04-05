@@ -12,7 +12,7 @@ final class WorkspaceCacheCoordinator {
 
     private let bus: EventBus<RuntimeEnvelope>
     private let workspaceStore: WorkspaceStore
-    private let repoCache: WorkspaceRepoCache
+    private let repoCache: RepoCacheAtom
     private let topologyEffectHandler: (any TopologyEffectHandler)?
     private let scopeSyncHandler: @Sendable (ScopeChange) async -> Void
     private var consumeTask: Task<Void, Never>?
@@ -20,7 +20,7 @@ final class WorkspaceCacheCoordinator {
     init(
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         workspaceStore: WorkspaceStore,
-        repoCache: WorkspaceRepoCache,
+        repoCache: RepoCacheAtom,
         topologyEffectHandler: (any TopologyEffectHandler)? = nil,
         scopeSyncHandler: @escaping @Sendable (ScopeChange) async -> Void
     ) {

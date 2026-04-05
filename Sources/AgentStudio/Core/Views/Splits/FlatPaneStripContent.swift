@@ -8,7 +8,7 @@ struct FlatPaneStripContent: View {
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let store: WorkspaceStore
-    let repoCache: WorkspaceRepoCache
+    let repoCache: RepoCacheAtom
     let viewRegistry: ViewRegistry
     let coordinateSpaceName: String?
     let useDrawerFramePreference: Bool
@@ -93,7 +93,7 @@ private struct PaneSegmentSlotView: View {
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let store: WorkspaceStore
-    let repoCache: WorkspaceRepoCache
+    let repoCache: RepoCacheAtom
     let coordinateSpaceName: String?
     let useDrawerFramePreference: Bool
     let onOpenPaneGitHub: (UUID) -> Void

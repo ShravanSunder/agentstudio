@@ -14,7 +14,7 @@ struct PaneManagementContextTests {
         )
         persistor.ensureDirectory()
         let store = WorkspaceStore(persistor: persistor)
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
 
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
         guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
@@ -54,7 +54,7 @@ struct PaneManagementContextTests {
         )
         persistor.ensureDirectory()
         let store = WorkspaceStore(persistor: persistor)
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
 
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
         guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
@@ -81,7 +81,7 @@ struct PaneManagementContextTests {
         )
         persistor.ensureDirectory()
         let store = WorkspaceStore(persistor: persistor)
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
 
         let pane = store.createPane(
             source: .floating(launchDirectory: nil, title: "Floating"),
@@ -104,7 +104,7 @@ struct PaneManagementContextTests {
         )
         persistor.ensureDirectory()
         let store = WorkspaceStore(persistor: persistor)
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
 
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://github.com")!)),
@@ -128,7 +128,7 @@ struct PaneManagementContextTests {
         )
         persistor.ensureDirectory()
         let store = WorkspaceStore(persistor: persistor)
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
 
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
         guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {

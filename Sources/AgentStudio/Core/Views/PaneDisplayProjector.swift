@@ -13,7 +13,7 @@ enum PaneDisplayProjector {
     static func displayParts(
         for paneId: UUID,
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
+        repoCache: RepoCacheAtom
     ) -> PaneDisplayParts {
         guard let pane = store.pane(paneId) else {
             return PaneDisplayParts(
@@ -31,7 +31,7 @@ enum PaneDisplayProjector {
     static func displayParts(
         for pane: Pane,
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
+        repoCache: RepoCacheAtom
     ) -> PaneDisplayParts {
         let rawTitle = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let defaultLabel = rawTitle.isEmpty ? "Terminal" : rawTitle
@@ -82,7 +82,7 @@ enum PaneDisplayProjector {
     static func displayLabel(
         for paneId: UUID,
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
+        repoCache: RepoCacheAtom
     ) -> String {
         displayParts(for: paneId, store: store, repoCache: repoCache).primaryLabel
     }
@@ -90,7 +90,7 @@ enum PaneDisplayProjector {
     static func tabDisplayLabel(
         for tab: Tab,
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
+        repoCache: RepoCacheAtom
     ) -> String {
         let paneLabels = tab.paneIds.map { displayLabel(for: $0, store: store, repoCache: repoCache) }
         if paneLabels.count > 1 {
@@ -102,7 +102,7 @@ enum PaneDisplayProjector {
     static func paneKeywords(
         for pane: Pane,
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
+        repoCache: RepoCacheAtom
     ) -> [String] {
         let parts = displayParts(for: pane, store: store, repoCache: repoCache)
         return [parts.primaryLabel, parts.repoName, parts.branchName, parts.worktreeFolderName, parts.cwdFolderName]

@@ -4,7 +4,7 @@
 
 **Goal:** Ship the requested workspace UX fixes: two empty states, cache-backed recent worktree/CWD launcher actions, management-mode pane footer actions, drawer/footer layout fixes, sidebar alignment and tooltip polish, arrangement popover alignment, and release-version propagation into the macOS About panel.
 
-**Architecture:** Keep structural state in `WorkspaceStore`, keep rebuildable activity metadata in `WorkspaceRepoCache`, and record “recent target opened” as an event-bus fact consumed by `WorkspaceCacheCoordinator` so cache ownership stays intact. Implement the new empty states and management footer as focused UI units instead of growing `PaneTabViewController` and `PaneLeafContainer` further, and centralize external-app launching plus bundle-version injection behind small helpers/scripts.
+**Architecture:** Keep structural state in `WorkspaceStore`, keep rebuildable activity metadata in `RepoCacheAtom`, and record “recent target opened” as an event-bus fact consumed by `WorkspaceCacheCoordinator` so cache ownership stays intact. Implement the new empty states and management footer as focused UI units instead of growing `PaneTabViewController` and `PaneLeafContainer` further, and centralize external-app launching plus bundle-version injection behind small helpers/scripts.
 
 **Tech Stack:** Swift 6.2, AppKit, SwiftUI, `@Observable`, Agent Studio EventBus/WorkspaceCacheCoordinator, macOS help tags (`.help` / `toolTip`), GitHub Actions, `PlistBuddy`, `mise`
 
@@ -21,7 +21,7 @@
 
 2. **There is no workspace-scoped recent target model for the second launcher screen yet.**
    - Existing “recents” in the repo are command-bar specific `UserDefaults` state, not worktree/CWD launch recency.
-   - The workspace architecture docs define `workspace.cache.json` as the home for rebuildable, event-driven enrichment owned by `WorkspaceRepoCache`.
+   - The workspace architecture docs define `workspace.cache.json` as the home for rebuildable, event-driven enrichment owned by `RepoCacheAtom`.
    - Result: the requested “latest 5 worktrees/CWDs” launcher cannot be built cleanly without adding cache-backed activity metadata.
 
 3. **About shows stale version text because the release pipeline computes a version but never injects it into the bundled `Info.plist`.**
@@ -61,7 +61,7 @@
 
 ### Why The Proposed Ownership Is Correct
 
-- **Recent launcher metadata belongs in `WorkspaceRepoCache`, not `WorkspaceStore` or `WorkspaceUIStore`.**
+- **Recent launcher metadata belongs in `RepoCacheAtom`, not `WorkspaceStore` or `UIStateAtom`.**
   - It is workspace-scoped and useful to UI, but it is still derived activity metadata rather than structural truth or pure presentation preference.
   - The architecture docs define cache as rebuildable, event-driven, and coordinator-owned, which matches “recent target opened” facts.
 
@@ -101,7 +101,7 @@ These decisions came from user clarification during planning. Treat them as requ
 - Sidebar row layout:
   - `Sources/AgentStudio/Features/Sidebar/RepoSidebarContentView.swift`
 - Cache ownership and persistence:
-  - `Sources/AgentStudio/Core/Stores/WorkspaceRepoCache.swift`
+  - `Sources/AgentStudio/Core/Stores/RepoCacheAtom.swift`
   - `Sources/AgentStudio/Core/Stores/WorkspacePersistor.swift`
   - `Sources/AgentStudio/App/Coordination/WorkspaceCacheCoordinator.swift`
 - Runtime cwd semantics:
@@ -140,7 +140,7 @@ These decisions came from user clarification during planning. Treat them as requ
 | Path | Action | Responsibility |
 |---|---|---|
 | `Sources/AgentStudio/Core/Models/RecentWorkspaceTarget.swift` | Create | Cache model for recent worktree/CWD launcher entries |
-| `Sources/AgentStudio/Core/Stores/WorkspaceRepoCache.swift` | Modify | Own recent target state and recency mutation methods |
+| `Sources/AgentStudio/Core/Stores/RepoCacheAtom.swift` | Modify | Own recent target state and recency mutation methods |
 | `Sources/AgentStudio/Core/Stores/WorkspacePersistor.swift` | Modify | Persist recent target cache entries in `workspace.cache.json` |
 | `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/WorkspaceActivityEvent.swift` | Create | New system fact type for “recent target opened” |
 | `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/RuntimeEnvelopeCore.swift` | Modify | Add workspace-activity event namespace |
@@ -160,7 +160,7 @@ These decisions came from user clarification during planning. Treat them as requ
 | `scripts/inject-bundle-version.sh` | Create | Single bundle-version injection script for local and CI packaging |
 | `.github/workflows/release.yml` | Modify | Inject tag-driven marketing/build version into bundled `Info.plist` |
 | `.mise.toml` | Modify | Reuse bundle-version injection script for local release bundle creation |
-| `Tests/AgentStudioTests/Core/Stores/WorkspaceRepoCacheTests.swift` | Modify | Recent-target ordering/cap tests |
+| `Tests/AgentStudioTests/Core/Stores/RepoCacheAtomTests.swift` | Modify | Recent-target ordering/cap tests |
 | `Tests/AgentStudioTests/Core/Stores/WorkspacePersistorTests.swift` | Modify | Recent-target cache persistence round-trip tests |
 | `Tests/AgentStudioTests/App/WorkspaceCacheCoordinatorTests.swift` | Modify | Coordinator recent-target fact consumption tests |
 | `Tests/AgentStudioTests/App/WorkspaceLauncherProjectorTests.swift` | Create | Empty-state/launcher derivation tests |
@@ -171,9 +171,9 @@ These decisions came from user clarification during planning. Treat them as requ
 
 **Files:**
 - Create: `Sources/AgentStudio/Core/Models/RecentWorkspaceTarget.swift`
-- Modify: `Sources/AgentStudio/Core/Stores/WorkspaceRepoCache.swift`
+- Modify: `Sources/AgentStudio/Core/Stores/RepoCacheAtom.swift`
 - Modify: `Sources/AgentStudio/Core/Stores/WorkspacePersistor.swift`
-- Test: `Tests/AgentStudioTests/Core/Stores/WorkspaceRepoCacheTests.swift`
+- Test: `Tests/AgentStudioTests/Core/Stores/RepoCacheAtomTests.swift`
 - Test: `Tests/AgentStudioTests/Core/Stores/WorkspacePersistorTests.swift`
 
 - [ ] **Step 1: Write failing cache-store tests**
@@ -181,7 +181,7 @@ These decisions came from user clarification during planning. Treat them as requ
 ```swift
 @Test
 func recordRecentTarget_movesExistingEntryToFront_andCapsAtFive() {
-    let cache = WorkspaceRepoCache()
+    let cache = RepoCacheAtom()
     let targets = (0..<6).map { index in
         RecentWorkspaceTarget(
             id: "target-\(index)",
@@ -204,7 +204,7 @@ func recordRecentTarget_movesExistingEntryToFront_andCapsAtFive() {
 
 - [ ] **Step 2: Run the focused cache-store tests and confirm failure**
 
-Run: `SWIFT_BUILD_DIR=.build-agent-plan-cache swift test --filter WorkspaceRepoCacheTests --filter WorkspacePersistorTests`
+Run: `SWIFT_BUILD_DIR=.build-agent-plan-cache swift test --filter RepoCacheAtomTests --filter WorkspacePersistorTests`
 
 Expected: compile failure for missing `RecentWorkspaceTarget` / `recordRecentTarget` / `recentTargets`.
 
@@ -229,7 +229,7 @@ struct RecentWorkspaceTarget: Codable, Hashable, Sendable, Identifiable {
 
 @Observable
 @MainActor
-final class WorkspaceRepoCache {
+final class RepoCacheAtom {
     private(set) var recentTargets: [RecentWorkspaceTarget] = []
 
     func recordRecentTarget(_ target: RecentWorkspaceTarget) {
@@ -288,7 +288,7 @@ func test_saveAndLoad_cacheState_roundTripsRecentTargets() throws {
 
 - [ ] **Step 6: Re-run the focused tests and confirm pass**
 
-Run: `SWIFT_BUILD_DIR=.build-agent-plan-cache swift test --filter WorkspaceRepoCacheTests --filter WorkspacePersistorTests`
+Run: `SWIFT_BUILD_DIR=.build-agent-plan-cache swift test --filter RepoCacheAtomTests --filter WorkspacePersistorTests`
 
 Expected: PASS for recent-target store + persistence coverage.
 
@@ -296,9 +296,9 @@ Expected: PASS for recent-target store + persistence coverage.
 
 ```bash
 git add Sources/AgentStudio/Core/Models/RecentWorkspaceTarget.swift \
-  Sources/AgentStudio/Core/Stores/WorkspaceRepoCache.swift \
+  Sources/AgentStudio/Core/Stores/RepoCacheAtom.swift \
   Sources/AgentStudio/Core/Stores/WorkspacePersistor.swift \
-  Tests/AgentStudioTests/Core/Stores/WorkspaceRepoCacheTests.swift \
+  Tests/AgentStudioTests/Core/Stores/RepoCacheAtomTests.swift \
   Tests/AgentStudioTests/Core/Stores/WorkspacePersistorTests.swift
 git commit -m "feat: persist recent workspace targets in cache"
 ```
@@ -318,7 +318,7 @@ git commit -m "feat: persist recent workspace targets in cache"
 @Test
 func recentTargetOpened_recordsRecentTargetInCache() {
     let store = WorkspaceStore()
-    let repoCache = WorkspaceRepoCache()
+    let repoCache = RepoCacheAtom()
     let coordinator = WorkspaceCacheCoordinator(
         workspaceStore: store,
         repoCache: repoCache,
@@ -663,7 +663,7 @@ struct PaneManagementContext: Equatable {
     static func project(
         paneId: UUID,
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
+        repoCache: RepoCacheAtom
     ) -> Self {
         let paneTitle = PaneDisplayProjector.displayLabel(for: paneId, store: store, repoCache: repoCache)
         let pane = store.pane(paneId)

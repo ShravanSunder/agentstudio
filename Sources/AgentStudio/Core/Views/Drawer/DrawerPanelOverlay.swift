@@ -96,7 +96,7 @@ private struct OutsideDismissShape: Shape {
 /// hit-testing, so only clicks genuinely outside the drawer dismiss it.
 struct DrawerPanelOverlay: View {
     let store: WorkspaceStore
-    let repoCache: WorkspaceRepoCache
+    let repoCache: RepoCacheAtom
     let viewRegistry: ViewRegistry
     let appLifecycleStore: AppLifecycleStore
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator

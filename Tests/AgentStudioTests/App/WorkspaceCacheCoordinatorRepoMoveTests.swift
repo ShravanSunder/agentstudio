@@ -17,7 +17,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
     @Test("repoRemoved marks panes orphaned and prunes cache while preserving canonical identities")
     func repoRemovedOrphansPanesAndPreservesRepoIdentity() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -87,7 +87,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
     @Test("re-association preserves UUID links and restores orphaned pane residency")
     func relocateRepoPreservesIdentity() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -148,7 +148,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
     @Test("repo rediscovery at same path clears unavailable state and restores orphaned panes")
     func rediscoveryAtSamePathRestoresRepoAvailability() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -197,7 +197,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
     @Test("re-association restores non-layout orphaned panes as backgrounded")
     func reassociationRestoresBackgroundedResidencyForNonLayoutPanes() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -255,7 +255,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
     @Test("repoRemoved does not overwrite pendingUndo residency")
     func repoRemovedPreservesPendingUndoResidency() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,

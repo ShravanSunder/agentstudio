@@ -11,7 +11,7 @@ struct PaneManagementContext: Equatable {
     static func project(
         paneId: UUID,
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
+        repoCache: RepoCacheAtom
     ) -> Self {
         let parts = PaneDisplayProjector.displayParts(for: paneId, store: store, repoCache: repoCache)
         let pane = store.pane(paneId)

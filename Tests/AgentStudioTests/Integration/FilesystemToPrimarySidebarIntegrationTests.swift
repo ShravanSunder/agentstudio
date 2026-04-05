@@ -93,7 +93,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
     private struct IntegratedTestSystem {
         let bus: EventBus<RuntimeEnvelope>
         let workspaceStore: WorkspaceStore
-        let repoCache: WorkspaceRepoCache
+        let repoCache: RepoCacheAtom
         let coordinator: WorkspaceCacheCoordinator
         let pipeline: FilesystemGitPipeline
     }
@@ -108,7 +108,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
     ) -> IntegratedTestSystem {
         let bus = EventBus<RuntimeEnvelope>()
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let pipeline = FilesystemGitPipeline(
             bus: bus,
             gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider.stub { rootPath in

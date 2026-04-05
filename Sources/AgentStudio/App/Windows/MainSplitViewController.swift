@@ -9,8 +9,8 @@ class MainSplitViewController: NSSplitViewController {
     // MARK: - Dependencies (injected)
 
     private let store: WorkspaceStore
-    private let repoCache: WorkspaceRepoCache
-    private let uiStore: WorkspaceUIStore
+    private var repoCache: RepoCacheAtom { atom(\.repoCache) }
+    private var uiState: UIStateAtom { atom(\.uiState) }
     private let actionExecutor: ActionExecutor
     private let applicationLifecycleMonitor: ApplicationLifecycleMonitor
     private let appLifecycleStore: AppLifecycleStore
@@ -23,8 +23,6 @@ class MainSplitViewController: NSSplitViewController {
 
     init(
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache,
-        uiStore: WorkspaceUIStore,
         actionExecutor: ActionExecutor,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         appLifecycleStore: AppLifecycleStore,
@@ -32,8 +30,6 @@ class MainSplitViewController: NSSplitViewController {
         viewRegistry: ViewRegistry
     ) {
         self.store = store
-        self.repoCache = repoCache
-        self.uiStore = uiStore
         self.actionExecutor = actionExecutor
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
         self.appLifecycleStore = appLifecycleStore
@@ -58,9 +54,7 @@ class MainSplitViewController: NSSplitViewController {
 
         // Create sidebar (SwiftUI via NSHostingController)
         let sidebarView = SidebarViewWrapper(
-            store: store,
-            repoCache: repoCache,
-            uiStore: uiStore
+            store: store
         )
         let sidebarHosting = NSHostingController(rootView: AnyView(sidebarView))
         sidebarHosting.sizingOptions = []
@@ -136,14 +130,14 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     func showSidebarFilter() {
-        if uiStore.isFilterVisible {
-            uiStore.setFilterVisible(false)
+        if uiState.isFilterVisible {
+            uiState.setFilterVisible(false)
             refocusActivePane()
             return
         }
 
         expandSidebar()
-        uiStore.setFilterVisible(true)
+        uiState.setFilterVisible(true)
     }
 
     func refocusActivePane() {
@@ -176,14 +170,8 @@ class MainSplitViewController: NSSplitViewController {
 /// Uses WorkspaceStore instead of SessionManager.
 struct SidebarViewWrapper: View {
     let store: WorkspaceStore
-    let repoCache: WorkspaceRepoCache
-    let uiStore: WorkspaceUIStore
 
     var body: some View {
-        RepoSidebarContentView(
-            store: store,
-            repoCache: repoCache,
-            uiStore: uiStore
-        )
+        RepoSidebarContentView(store: store)
     }
 }

@@ -11,6 +11,8 @@ struct CommandBarPanelControllerTests {
     private let window: NSWindow
 
     init() {
+        installTestAtomScopeIfNeeded()
+        installTestAtomScopeIfNeeded()
         // Offscreen window — never displayed, lightweight test double
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
@@ -22,7 +24,8 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_init_stateIsNotVisible() {
-        let controller = CommandBarPanelController(store: WorkspaceStore(), dispatcher: .shared)
+        let controller = CommandBarPanelController(
+            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
 
         // Assert
         #expect(!controller.state.isVisible)
@@ -34,7 +37,8 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_show_noPrefix_setsStateVisible() {
-        let controller = CommandBarPanelController(store: WorkspaceStore(), dispatcher: .shared)
+        let controller = CommandBarPanelController(
+            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
 
         // Act
         controller.show(parentWindow: window)
@@ -47,7 +51,8 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_show_withCommandPrefix_setsCommandScope() {
-        let controller = CommandBarPanelController(store: WorkspaceStore(), dispatcher: .shared)
+        let controller = CommandBarPanelController(
+            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
 
         // Act
         controller.show(prefix: ">", parentWindow: window)
@@ -60,7 +65,8 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_show_withPanePrefix_setsPaneScope() {
-        let controller = CommandBarPanelController(store: WorkspaceStore(), dispatcher: .shared)
+        let controller = CommandBarPanelController(
+            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
 
         // Act
         controller.show(prefix: "$", parentWindow: window)
@@ -75,7 +81,8 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_dismiss_afterShow_resetsState() {
-        let controller = CommandBarPanelController(store: WorkspaceStore(), dispatcher: .shared)
+        let controller = CommandBarPanelController(
+            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
         #expect(!controller.state.isVisible)
 
         // Arrange
@@ -92,7 +99,8 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_dismiss_whenNotVisible_noOp() {
-        let controller = CommandBarPanelController(store: WorkspaceStore(), dispatcher: .shared)
+        let controller = CommandBarPanelController(
+            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
 
         // Arrange — not visible
         #expect(!controller.state.isVisible)
@@ -108,7 +116,8 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_show_samePrefixTwice_togglesOff() {
-        let controller = CommandBarPanelController(store: WorkspaceStore(), dispatcher: .shared)
+        let controller = CommandBarPanelController(
+            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
 
         // Arrange — show with no prefix
         controller.show(parentWindow: window)
@@ -123,7 +132,8 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_show_sameCommandPrefixTwice_togglesOff() {
-        let controller = CommandBarPanelController(store: WorkspaceStore(), dispatcher: .shared)
+        let controller = CommandBarPanelController(
+            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
 
         // Arrange
         controller.show(prefix: ">", parentWindow: window)
@@ -140,7 +150,8 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_show_differentPrefix_switchesInPlace() {
-        let controller = CommandBarPanelController(store: WorkspaceStore(), dispatcher: .shared)
+        let controller = CommandBarPanelController(
+            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
 
         // Arrange — open with no prefix
         controller.show(parentWindow: window)
@@ -157,7 +168,8 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_show_switchFromCommandToPane_switchesInPlace() {
-        let controller = CommandBarPanelController(store: WorkspaceStore(), dispatcher: .shared)
+        let controller = CommandBarPanelController(
+            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
 
         // Arrange — open with ">"
         controller.show(prefix: ">", parentWindow: window)
@@ -176,7 +188,8 @@ struct CommandBarPanelControllerTests {
 
     @Test
     func test_fullLifecycle_showQueryPushDismiss() {
-        let controller = CommandBarPanelController(store: WorkspaceStore(), dispatcher: .shared)
+        let controller = CommandBarPanelController(
+            store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
 
         // Act — show
         controller.show(prefix: ">", parentWindow: window)

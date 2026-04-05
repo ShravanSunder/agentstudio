@@ -63,8 +63,12 @@ final class MockAppCommandRouter: AppCommandRouting {
 
 // MARK: - AppCommand Tests
 
+@MainActor
 @Suite(.serialized)
 final class AppCommandTests {
+    init() {
+        installTestAtomScopeIfNeeded()
+    }
 
     // MARK: - AppCommand Enum
 

@@ -19,7 +19,7 @@ struct WorkspaceLauncherProjectorTests {
     @Test
     func project_noRepos_returnsFolderIntakeState() {
         let store = makeStore()
-        let cache = WorkspaceRepoCache()
+        let cache = RepoCacheAtom()
 
         let result = WorkspaceLauncherProjector.project(
             store: store,
@@ -34,7 +34,7 @@ struct WorkspaceLauncherProjectorTests {
     @Test
     func project_reposButNoTabs_returnsLauncherStateWithEnrichedCards() {
         let store = makeStore()
-        let cache = WorkspaceRepoCache()
+        let cache = RepoCacheAtom()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
         guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
             Issue.record("Expected main worktree")
@@ -69,7 +69,7 @@ struct WorkspaceLauncherProjectorTests {
     @Test
     func project_reposAndTabsPresent_returnsEmptyLauncherModel() {
         let store = makeStore()
-        let cache = WorkspaceRepoCache()
+        let cache = RepoCacheAtom()
         let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
         guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
             Issue.record("Expected main worktree")
@@ -96,7 +96,7 @@ struct WorkspaceLauncherProjectorTests {
     @Test
     func project_launcherCapsAtSixAndShowsOpenAllForTwoOrMoreTargets() {
         let store = makeStore()
-        let cache = WorkspaceRepoCache()
+        let cache = RepoCacheAtom()
         _ = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
 
         for index in 0..<8 {

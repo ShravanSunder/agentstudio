@@ -21,7 +21,7 @@ struct PaneLeafContainer: View {
     let isActive: Bool
     let isSplit: Bool
     let store: WorkspaceStore
-    let repoCache: WorkspaceRepoCache
+    let repoCache: RepoCacheAtom
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let onOpenPaneGitHub: (UUID) -> Void
@@ -41,7 +41,7 @@ struct PaneLeafContainer: View {
         isActive: Bool,
         isSplit: Bool,
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache,
+        repoCache: RepoCacheAtom,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
         onOpenPaneGitHub: @escaping (UUID) -> Void,

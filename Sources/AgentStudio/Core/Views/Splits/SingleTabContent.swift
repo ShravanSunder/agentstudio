@@ -3,7 +3,7 @@ import SwiftUI
 struct SingleTabContent: View {
     let tabId: UUID
     let store: WorkspaceStore
-    let repoCache: WorkspaceRepoCache
+    let repoCache: RepoCacheAtom
     let viewRegistry: ViewRegistry
     let appLifecycleStore: AppLifecycleStore
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator

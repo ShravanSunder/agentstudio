@@ -123,8 +123,8 @@ The shared app-wide main-actor state system lives under:
 
 ```text
 Sources/AgentStudio/
-├── App/
-│   └── State/
+├── Infrastructure/
+│   └── AtomLib/
 │       ├── AtomStore.swift
 │       ├── AtomScope.swift
 │       ├── Atom.swift

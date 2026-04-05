@@ -7,6 +7,9 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct WebviewPaneControllerTests {
+    init() {
+        installTestAtomScopeIfNeeded()
+    }
 
     private func settleEventLoop(turns: Int = 8) async {
         for _ in 0..<turns {

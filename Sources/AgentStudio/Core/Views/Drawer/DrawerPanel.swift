@@ -53,7 +53,7 @@ struct DrawerPanel: View {
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let height: CGFloat
     let store: WorkspaceStore
-    let repoCache: WorkspaceRepoCache
+    let repoCache: RepoCacheAtom
     let viewRegistry: ViewRegistry
     let action: (PaneActionCommand) -> Void
     let onResize: (CGFloat) -> Void
@@ -65,7 +65,9 @@ struct DrawerPanel: View {
     @State private var dropTarget: PaneDropTarget?
     @State private var dropTargetWatchdogTask: Task<Void, Never>?
     @State private var drawerActionDispatcher: PaneTabActionDispatcher
-    @Bindable private var managementMode = ManagementModeMonitor.shared
+    private var managementMode: ManagementModeAtom {
+        atom(\.managementMode)
+    }
 
     init(
         layout: Layout,
@@ -76,7 +78,7 @@ struct DrawerPanel: View {
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         height: CGFloat,
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache,
+        repoCache: RepoCacheAtom,
         viewRegistry: ViewRegistry,
         action: @escaping (PaneActionCommand) -> Void,
         onResize: @escaping (CGFloat) -> Void,
@@ -138,7 +140,7 @@ struct DrawerPanel: View {
                     let snapshot = ActionResolver.snapshot(
                         from: store.tabs,
                         activeTabId: store.activeTabId,
-                        isManagementModeActive: ManagementModeMonitor.shared.isActive,
+                        isManagementModeActive: atom(\.managementMode).isActive,
                         knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
                     )
                     let moveAction = PaneActionCommand.moveDrawerPane(
@@ -325,7 +327,7 @@ struct DrawerPanel: View {
                     height: 200,
                     store: WorkspaceStore(
                         persistor: WorkspacePersistor(workspacesDir: FileManager.default.temporaryDirectory)),
-                    repoCache: WorkspaceRepoCache(),
+                    repoCache: RepoCacheAtom(),
                     viewRegistry: ViewRegistry(),
                     action: { _ in },
                     onResize: { _ in },

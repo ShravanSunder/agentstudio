@@ -58,7 +58,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
     // MARK: - Dependencies (injected)
 
     private let store: WorkspaceStore
-    private let repoCache: WorkspaceRepoCache
+    private let repoCache: RepoCacheAtom
     private let applicationLifecycleMonitor: ApplicationLifecycleMonitor
     private let appLifecycleStore: AppLifecycleStore
     private let executor: ActionExecutor
@@ -119,7 +119,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     init(
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache = WorkspaceRepoCache(),
+        repoCache: RepoCacheAtom,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         appLifecycleStore: AppLifecycleStore,
         executor: ActionExecutor,
@@ -328,7 +328,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
             _ = self.store.activeTabId
             _ = self.store.repos
             _ = self.repoCache.recentTargets
-            _ = ManagementModeMonitor.shared.isActive
+            _ = atom(\.managementMode).isActive
         } onChange: {
             Task { @MainActor [weak self] in
                 self?.handleAppKitStateChange()
@@ -343,7 +343,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         rebuildEmptyStateView()
         updateEmptyState()
 
-        let isManagementModeActive = ManagementModeMonitor.shared.isActive
+        let isManagementModeActive = atom(\.managementMode).isActive
         if lastManagementModeActive && !isManagementModeActive {
             refocusActivePane()
         }
@@ -532,7 +532,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         return ActionResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
-            isManagementModeActive: ManagementModeMonitor.shared.isActive,
+            isManagementModeActive: atom(\.managementMode).isActive,
             knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id)),
             drawerParentByPaneId: drawerParentByPaneId
         )
@@ -818,7 +818,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
         let snapshot = ActionResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
-            isManagementModeActive: ManagementModeMonitor.shared.isActive,
+            isManagementModeActive: atom(\.managementMode).isActive,
             knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
         )
 
@@ -1228,7 +1228,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
             let snapshot = ActionResolver.snapshot(
                 from: store.tabs,
                 activeTabId: store.activeTabId,
-                isManagementModeActive: ManagementModeMonitor.shared.isActive,
+                isManagementModeActive: atom(\.managementMode).isActive,
                 knownRepoIds: Set(store.repos.map(\.id)),
                 knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
             )

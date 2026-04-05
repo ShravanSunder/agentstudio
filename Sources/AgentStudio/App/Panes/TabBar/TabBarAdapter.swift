@@ -82,11 +82,11 @@ final class TabBarAdapter {
     // MARK: - Internals
 
     private let store: WorkspaceStore
-    private let repoCache: WorkspaceRepoCache
+    private let repoCache: RepoCacheAtom
     private var isObservingManagementMode = false
     private var isObservingStore = false
 
-    init(store: WorkspaceStore, repoCache: WorkspaceRepoCache = WorkspaceRepoCache()) {
+    init(store: WorkspaceStore, repoCache: RepoCacheAtom) {
         self.store = store
         self.repoCache = repoCache
         observe()
@@ -99,7 +99,7 @@ final class TabBarAdapter {
         // withObservationTracking fires once per registration, so we re-register
         // after each change. Task { @MainActor } satisfies @Sendable and ensures
         // we read new values (onChange has willSet semantics — old values only).
-        isManagementModeActive = ManagementModeMonitor.shared.isActive
+        isManagementModeActive = atom(\.managementMode).isActive
         observeStore()
         observeManagementMode()
 
@@ -134,12 +134,12 @@ final class TabBarAdapter {
         isObservingManagementMode = true
         withObservationTracking {
             // Track only reads; writes stay in onChange.
-            _ = ManagementModeMonitor.shared.isActive
+            _ = atom(\.managementMode).isActive
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isObservingManagementMode = false
-                self.isManagementModeActive = ManagementModeMonitor.shared.isActive
+                self.isManagementModeActive = atom(\.managementMode).isActive
                 self.observeManagementMode()
             }
         }

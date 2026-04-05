@@ -19,6 +19,9 @@ extension WebKitSerializedTests {
     @MainActor
     @Suite(.serialized)
     final class BridgeTransportIntegrationTests {
+        init() {
+            installTestAtomScopeIfNeeded()
+        }
 
         // MARK: - Test 1: Bridge.ready handshake gating
 

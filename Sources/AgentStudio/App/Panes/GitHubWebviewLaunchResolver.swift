@@ -9,7 +9,7 @@ enum GitHubWebviewLaunchResolver {
     static func url(
         for paneId: UUID,
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
+        repoCache: RepoCacheAtom
     ) -> URL {
         guard let pane = store.pane(paneId) else {
             logger.debug("Falling back to GitHub home because paneId=\(paneId.uuidString, privacy: .public) is missing")
@@ -21,7 +21,7 @@ enum GitHubWebviewLaunchResolver {
 
     static func urlForActivePane(
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
+        repoCache: RepoCacheAtom
     ) -> URL {
         guard
             let activeTabId = store.activeTabId,
@@ -37,7 +37,7 @@ enum GitHubWebviewLaunchResolver {
     private static func url(
         for pane: Pane,
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache
+        repoCache: RepoCacheAtom
     ) -> URL {
         guard let context = repoContext(for: pane, store: store) else {
             logger.debug("Falling back to GitHub home because no repo resolved for active pane")
