@@ -302,6 +302,17 @@ final class CommandDispatcher {
 // MARK: - AppCommand Helpers
 
 extension AppCommand {
+    private enum CommandBarGroupPriority {
+        static let pane = 0
+        static let focus = 1
+        static let tab = 2
+        static let repo = 3
+        static let window = 4
+        static let webview = 5
+        static let auth = 6
+        static let miscellaneous = 7
+    }
+
     /// Ordered array of tab selection commands (⌘1 through ⌘9)
     static let selectTabCommands: [AppCommand] = [
         .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
@@ -320,7 +331,7 @@ extension AppCommand {
                 appliesTo: [.tab],
                 visibleWhen: [.hasActiveTab],
                 commandBarGroupName: "Tab",
-                commandBarGroupPriority: 2
+                commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .breakUpTab:
             return CommandDefinition(
@@ -331,7 +342,7 @@ extension AppCommand {
                 appliesTo: [.tab],
                 visibleWhen: [.hasActiveTab, .hasMultiplePanes],
                 commandBarGroupName: "Tab",
-                commandBarGroupPriority: 2
+                commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .newTerminalInTab:
             return CommandDefinition(
@@ -342,7 +353,7 @@ extension AppCommand {
                 appliesTo: [.tab],
                 visibleWhen: [.hasActiveTab],
                 commandBarGroupName: "Tab",
-                commandBarGroupPriority: 2
+                commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .newTab:
             return CommandDefinition(
@@ -352,7 +363,7 @@ extension AppCommand {
                 icon: "plus.square",
                 helpText: "Create a new tab",
                 commandBarGroupName: "Window",
-                commandBarGroupPriority: 4
+                commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .undoCloseTab:
             return CommandDefinition(
@@ -362,7 +373,7 @@ extension AppCommand {
                 icon: "arrow.uturn.backward",
                 helpText: "Restore the most recently closed tab",
                 commandBarGroupName: "Window",
-                commandBarGroupPriority: 4
+                commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .selectTab:
             return CommandDefinition(
@@ -373,7 +384,7 @@ extension AppCommand {
                 appliesTo: [.tab],
                 visibleWhen: [.hasActiveTab],
                 commandBarGroupName: "Tab",
-                commandBarGroupPriority: 2,
+                commandBarGroupPriority: CommandBarGroupPriority.tab,
                 isHiddenInCommandBar: true
             )
         case .nextTab:
@@ -385,7 +396,7 @@ extension AppCommand {
                 helpText: "Move to the next tab",
                 visibleWhen: [.hasActiveTab],
                 commandBarGroupName: "Tab",
-                commandBarGroupPriority: 2
+                commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .prevTab:
             return CommandDefinition(
@@ -396,7 +407,7 @@ extension AppCommand {
                 helpText: "Move to the previous tab",
                 visibleWhen: [.hasActiveTab],
                 commandBarGroupName: "Tab",
-                commandBarGroupPriority: 2
+                commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .selectTab1:
             return hiddenTabSelectionDefinition(index: 1)
@@ -426,7 +437,7 @@ extension AppCommand {
                 requiresManagementMode: true,
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
-                commandBarGroupPriority: 0
+                commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .extractPaneToTab:
             return CommandDefinition(
@@ -437,7 +448,7 @@ extension AppCommand {
                 appliesTo: [.pane, .floatingTerminal],
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
-                commandBarGroupPriority: 0
+                commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .movePaneToTab:
             return CommandDefinition(
@@ -449,7 +460,7 @@ extension AppCommand {
                 requiresManagementMode: true,
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
-                commandBarGroupPriority: 0
+                commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .focusPane:
             return CommandDefinition(
@@ -460,7 +471,7 @@ extension AppCommand {
                 appliesTo: [.pane, .floatingTerminal],
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
-                commandBarGroupPriority: 0,
+                commandBarGroupPriority: CommandBarGroupPriority.pane,
                 isHiddenInCommandBar: true
             )
         case .splitRight:
@@ -472,7 +483,7 @@ extension AppCommand {
                 appliesTo: [.pane, .tab],
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
-                commandBarGroupPriority: 0
+                commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .splitLeft:
             return CommandDefinition(
@@ -483,7 +494,7 @@ extension AppCommand {
                 appliesTo: [.pane, .tab],
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
-                commandBarGroupPriority: 0
+                commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .equalizePanes:
             return CommandDefinition(
@@ -492,9 +503,9 @@ extension AppCommand {
                 icon: "equal.square",
                 helpText: "Reset all pane sizes in the active tab to equal widths",
                 appliesTo: [.tab],
-                visibleWhen: [.hasActiveTab],
+                visibleWhen: [.hasActiveTab, .hasMultiplePanes],
                 commandBarGroupName: "Pane",
-                commandBarGroupPriority: 0
+                commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .focusPaneLeft:
             return focusDefinition(
@@ -541,7 +552,7 @@ extension AppCommand {
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane, .hasMultiplePanes],
                 commandBarGroupName: "Pane",
-                commandBarGroupPriority: 0
+                commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .minimizePane:
             return CommandDefinition(
@@ -552,7 +563,7 @@ extension AppCommand {
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
-                commandBarGroupPriority: 0
+                commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .expandPane:
             return CommandDefinition(
@@ -563,7 +574,7 @@ extension AppCommand {
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
-                commandBarGroupPriority: 0
+                commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .switchArrangement:
             return arrangementDefinition(
@@ -581,7 +592,7 @@ extension AppCommand {
                 appliesTo: [.tab],
                 visibleWhen: [.hasActiveTab],
                 commandBarGroupName: "Tab",
-                commandBarGroupPriority: 2
+                commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .deleteArrangement:
             return arrangementDefinition(
@@ -604,7 +615,7 @@ extension AppCommand {
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
-                commandBarGroupPriority: 0
+                commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .toggleDrawer:
             return CommandDefinition(
@@ -615,7 +626,7 @@ extension AppCommand {
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
-                commandBarGroupPriority: 0
+                commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .navigateDrawerPane:
             return CommandDefinition(
@@ -626,7 +637,7 @@ extension AppCommand {
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane, .hasDrawerPanes],
                 commandBarGroupName: "Pane",
-                commandBarGroupPriority: 0
+                commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .closeDrawerPane:
             return CommandDefinition(
@@ -637,7 +648,7 @@ extension AppCommand {
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane, .hasDrawerPanes],
                 commandBarGroupName: "Pane",
-                commandBarGroupPriority: 0
+                commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .addRepo:
             return CommandDefinition(
@@ -648,7 +659,7 @@ extension AppCommand {
                 helpText: "Add a repository directly to the workspace",
                 appliesTo: [.repo],
                 commandBarGroupName: "Repo",
-                commandBarGroupPriority: 3
+                commandBarGroupPriority: CommandBarGroupPriority.repo
             )
         case .addFolder:
             return CommandDefinition(
@@ -658,7 +669,7 @@ extension AppCommand {
                 icon: "folder.badge.questionmark",
                 helpText: "Add a folder to scan for repositories",
                 commandBarGroupName: "Repo",
-                commandBarGroupPriority: 3
+                commandBarGroupPriority: CommandBarGroupPriority.repo
             )
         case .removeRepo:
             return CommandDefinition(
@@ -668,7 +679,7 @@ extension AppCommand {
                 helpText: "Remove a repository from the workspace",
                 appliesTo: [.repo],
                 commandBarGroupName: "Repo",
-                commandBarGroupPriority: 3
+                commandBarGroupPriority: CommandBarGroupPriority.repo
             )
         case .openWorktree:
             return worktreeDefinition(
@@ -690,7 +701,7 @@ extension AppCommand {
                 icon: "rectangle.split.2x2",
                 helpText: "Toggle workspace management mode",
                 commandBarGroupName: "Window",
-                commandBarGroupPriority: 4
+                commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .toggleSidebar:
             return CommandDefinition(
@@ -700,7 +711,7 @@ extension AppCommand {
                 icon: "sidebar.left",
                 helpText: "Show or hide the sidebar",
                 commandBarGroupName: "Window",
-                commandBarGroupPriority: 4
+                commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .newFloatingTerminal:
             return CommandDefinition(
@@ -709,7 +720,7 @@ extension AppCommand {
                 icon: "terminal.fill",
                 helpText: "Open a new floating terminal",
                 commandBarGroupName: "Window",
-                commandBarGroupPriority: 4
+                commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .newWindow:
             return CommandDefinition(
@@ -719,7 +730,7 @@ extension AppCommand {
                 icon: "macwindow.badge.plus",
                 helpText: "Open a new application window",
                 commandBarGroupName: "Window",
-                commandBarGroupPriority: 4,
+                commandBarGroupPriority: CommandBarGroupPriority.window,
                 isHiddenInCommandBar: true
             )
         case .closeWindow:
@@ -730,7 +741,7 @@ extension AppCommand {
                 icon: "xmark.rectangle",
                 helpText: "Close the current application window",
                 commandBarGroupName: "Window",
-                commandBarGroupPriority: 4,
+                commandBarGroupPriority: CommandBarGroupPriority.window,
                 isHiddenInCommandBar: true
             )
         case .quickFind:
@@ -740,7 +751,7 @@ extension AppCommand {
                 icon: "magnifyingglass",
                 helpText: "Open quick find",
                 commandBarGroupName: "Commands",
-                commandBarGroupPriority: 7,
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
                 isHiddenInCommandBar: true
             )
         case .commandBar:
@@ -750,7 +761,7 @@ extension AppCommand {
                 icon: "command",
                 helpText: "Open the command palette",
                 commandBarGroupName: "Commands",
-                commandBarGroupPriority: 7,
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
                 isHiddenInCommandBar: true
             )
         case .openWebview:
@@ -760,7 +771,7 @@ extension AppCommand {
                 icon: "globe",
                 helpText: "Open a new webview tab",
                 commandBarGroupName: "Webview",
-                commandBarGroupPriority: 5
+                commandBarGroupPriority: CommandBarGroupPriority.webview
             )
         case .signInGitHub:
             return CommandDefinition(
@@ -769,7 +780,7 @@ extension AppCommand {
                 icon: "person.badge.key",
                 helpText: "Start GitHub sign-in",
                 commandBarGroupName: "Auth",
-                commandBarGroupPriority: 6,
+                commandBarGroupPriority: CommandBarGroupPriority.auth,
                 isHiddenInCommandBar: true
             )
         case .signInGoogle:
@@ -779,7 +790,7 @@ extension AppCommand {
                 icon: "person.badge.key",
                 helpText: "Start Google sign-in",
                 commandBarGroupName: "Auth",
-                commandBarGroupPriority: 6,
+                commandBarGroupPriority: CommandBarGroupPriority.auth,
                 isHiddenInCommandBar: true
             )
         case .filterSidebar:
@@ -790,7 +801,7 @@ extension AppCommand {
                 icon: "magnifyingglass",
                 helpText: "Filter items in the sidebar",
                 commandBarGroupName: "Window",
-                commandBarGroupPriority: 4
+                commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .openNewTerminalInTab:
             return worktreeDefinition(
@@ -808,6 +819,7 @@ extension AppCommand {
             label: "Select Tab \(index)",
             helpText: "Select tab \(index)",
             visibleWhen: [.hasActiveTab],
+            commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
             isHiddenInCommandBar: true
         )
     }
@@ -820,7 +832,7 @@ extension AppCommand {
             helpText: helpText,
             visibleWhen: [.hasActiveTab, .hasMultiplePanes],
             commandBarGroupName: "Focus",
-            commandBarGroupPriority: 1
+            commandBarGroupPriority: CommandBarGroupPriority.focus
         )
     }
 
@@ -833,7 +845,7 @@ extension AppCommand {
             appliesTo: [.tab],
             visibleWhen: [.hasActiveTab, .hasArrangements],
             commandBarGroupName: "Tab",
-            commandBarGroupPriority: 2
+            commandBarGroupPriority: CommandBarGroupPriority.tab
         )
     }
 
@@ -845,7 +857,7 @@ extension AppCommand {
             helpText: helpText,
             appliesTo: [.worktree],
             commandBarGroupName: "Repo",
-            commandBarGroupPriority: 3
+            commandBarGroupPriority: CommandBarGroupPriority.repo
         )
     }
 }
