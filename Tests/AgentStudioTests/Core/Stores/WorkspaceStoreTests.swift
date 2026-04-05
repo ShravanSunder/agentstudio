@@ -907,6 +907,32 @@ final class WorkspaceStoreTests {
         #expect(!(fastStore.isDirty))
     }
 
+    @Test
+    func test_isDirty_setOnDirectPaneAtomMutation() async {
+        #expect(!(store.isDirty))
+
+        _ = store.paneAtom.createPane(source: .floating(launchDirectory: nil, title: nil))
+
+        for _ in 0..<10 where !store.isDirty {
+            await Task.yield()
+        }
+
+        #expect(store.isDirty)
+    }
+
+    @Test
+    func test_isDirty_setOnDirectTopologyAtomMutation() async {
+        #expect(!(store.isDirty))
+
+        _ = store.repositoryTopologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/direct-topology"))
+
+        for _ in 0..<10 where !store.isDirty {
+            await Task.yield()
+        }
+
+        #expect(store.isDirty)
+    }
+
     // MARK: - Undo
 
     @Test

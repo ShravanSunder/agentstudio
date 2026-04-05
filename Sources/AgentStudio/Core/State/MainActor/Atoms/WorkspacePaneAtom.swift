@@ -142,7 +142,10 @@ final class WorkspacePaneAtom {
     }
 
     func syncPaneWebviewState(_ paneId: UUID, state: WebviewState) {
-        guard panes[paneId] != nil else { return }
+        guard panes[paneId] != nil else {
+            workspacePaneLogger.warning("syncPaneWebviewState: pane \(paneId) not found")
+            return
+        }
         panes[paneId]!.content = .webview(state)
     }
 
@@ -456,9 +459,19 @@ final class WorkspacePaneAtom {
         ids.compactMap { panes[$0] }
     }
 
-    func restoreDrawerPane(_ drawerPane: Pane, to parentPaneId: UUID) {
+    @discardableResult
+    func restoreDrawerPane(_ drawerPane: Pane, to parentPaneId: UUID) -> Bool {
+        guard panes[parentPaneId] != nil else {
+            workspacePaneLogger.warning("restoreDrawerPane: parent pane \(parentPaneId) not found")
+            return false
+        }
+        guard panes[parentPaneId]?.drawer != nil else {
+            workspacePaneLogger.warning("restoreDrawerPane: parent pane \(parentPaneId) has no drawer")
+            return false
+        }
+
         panes[drawerPane.id] = drawerPane
-        panes[parentPaneId]?.withDrawer { drawer in
+        panes[parentPaneId]!.withDrawer { drawer in
             drawer.paneIds.append(drawerPane.id)
             if let existingLeaf = drawer.layout.paneIds.last {
                 drawer.layout = drawer.layout.inserting(
@@ -473,5 +486,6 @@ final class WorkspacePaneAtom {
             drawer.activePaneId = drawerPane.id
             drawer.isExpanded = true
         }
+        return true
     }
 }

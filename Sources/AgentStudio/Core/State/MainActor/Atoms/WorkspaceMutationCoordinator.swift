@@ -1,7 +1,14 @@
 import Foundation
+import os.log
 
 @MainActor
 final class WorkspaceMutationCoordinator {
+    enum RestorePaneResult: Equatable {
+        case restored
+        case failedMissingDrawerParent(UUID?)
+        case failedLayoutInsertion(tabId: UUID, anchorPaneId: UUID?)
+    }
+
     enum CloseEntry {
         case tab(TabCloseSnapshot)
         case pane(PaneCloseSnapshot)
@@ -21,9 +28,9 @@ final class WorkspaceMutationCoordinator {
         let direction: Layout.SplitDirection
     }
 
-    let repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom
-    let workspacePaneAtom: WorkspacePaneAtom
-    let workspaceTabLayoutAtom: WorkspaceTabLayoutAtom
+    private let repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom
+    private let workspacePaneAtom: WorkspacePaneAtom
+    private let workspaceTabLayoutAtom: WorkspaceTabLayoutAtom
 
     init(
         repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
@@ -35,29 +42,44 @@ final class WorkspaceMutationCoordinator {
         self.workspaceTabLayoutAtom = workspaceTabLayoutAtom
     }
 
-    func removePane(_ paneId: UUID) {
-        guard workspacePaneAtom.deletePaneAndOwnedDrawerChildren(paneId) else { return }
+    @discardableResult
+    func removePane(_ paneId: UUID) -> Bool {
+        guard workspacePaneAtom.deletePaneAndOwnedDrawerChildren(paneId) else {
+            Logger(subsystem: "com.agentstudio", category: "WorkspaceMutationCoordinator")
+                .warning("removePane: pane \(paneId) not found")
+            return false
+        }
         workspaceTabLayoutAtom.removePaneReferences(paneId)
+        return true
     }
 
-    func backgroundPane(_ paneId: UUID) {
-        guard workspacePaneAtom.pane(paneId) != nil else { return }
+    @discardableResult
+    func backgroundPane(_ paneId: UUID) -> Bool {
+        guard workspacePaneAtom.pane(paneId) != nil else {
+            Logger(subsystem: "com.agentstudio", category: "WorkspaceMutationCoordinator")
+                .warning("backgroundPane: pane \(paneId) not found")
+            return false
+        }
         workspaceTabLayoutAtom.removePaneReferences(paneId)
         workspacePaneAtom.setResidency(.backgrounded, for: paneId)
+        return true
     }
 
+    @discardableResult
     func reactivatePane(
         _ paneId: UUID,
         inTab tabId: UUID,
         at targetPaneId: UUID,
         direction: Layout.SplitDirection,
         position: Layout.Position
-    ) {
+    ) -> Bool {
         guard
             let pane = workspacePaneAtom.pane(paneId),
             pane.residency == .backgrounded
         else {
-            return
+            Logger(subsystem: "com.agentstudio", category: "WorkspaceMutationCoordinator")
+                .warning("reactivatePane: pane \(paneId) not found or not backgrounded")
+            return false
         }
 
         guard
@@ -69,9 +91,12 @@ final class WorkspaceMutationCoordinator {
                 position: position
             )
         else {
-            return
+            Logger(subsystem: "com.agentstudio", category: "WorkspaceMutationCoordinator")
+                .warning("reactivatePane: failed inserting pane \(paneId) into tab \(tabId) at anchor \(targetPaneId)")
+            return false
         }
         workspacePaneAtom.setResidency(.active, for: paneId)
+        return true
     }
 
     @discardableResult
@@ -142,7 +167,8 @@ final class WorkspaceMutationCoordinator {
         workspaceTabLayoutAtom.setActiveTab(snapshot.tab.id)
     }
 
-    func restoreFromPaneSnapshot(_ snapshot: PaneCloseSnapshot) {
+    @discardableResult
+    func restoreFromPaneSnapshot(_ snapshot: PaneCloseSnapshot) -> RestorePaneResult {
         _ = workspacePaneAtom.insertRestoredPane(snapshot.pane)
         for child in snapshot.drawerChildPanes {
             _ = workspacePaneAtom.insertRestoredPane(child)
@@ -150,17 +176,31 @@ final class WorkspaceMutationCoordinator {
 
         if snapshot.pane.isDrawerChild {
             if let parentId = snapshot.anchorPaneId {
-                workspacePaneAtom.restoreDrawerPane(snapshot.pane, to: parentId)
+                guard workspacePaneAtom.restoreDrawerPane(snapshot.pane, to: parentId) else {
+                    _ = workspacePaneAtom.deletePaneAndOwnedDrawerChildren(snapshot.pane.id)
+                    return .failedMissingDrawerParent(parentId)
+                }
+                return .restored
             }
+            _ = workspacePaneAtom.deletePaneAndOwnedDrawerChildren(snapshot.pane.id)
+            return .failedMissingDrawerParent(nil)
         } else if let anchor = snapshot.anchorPaneId {
-            _ = workspaceTabLayoutAtom.insertPane(
-                snapshot.pane.id,
-                inTab: snapshot.tabId,
-                at: anchor,
-                direction: snapshot.direction,
-                position: .after
-            )
+            guard
+                workspaceTabLayoutAtom.insertPane(
+                    snapshot.pane.id,
+                    inTab: snapshot.tabId,
+                    at: anchor,
+                    direction: snapshot.direction,
+                    position: .after
+                )
+            else {
+                _ = workspacePaneAtom.deletePaneAndOwnedDrawerChildren(snapshot.pane.id)
+                return .failedLayoutInsertion(tabId: snapshot.tabId, anchorPaneId: anchor)
+            }
             workspaceTabLayoutAtom.setActivePane(snapshot.pane.id, inTab: snapshot.tabId)
+            return .restored
         }
+        _ = workspacePaneAtom.deletePaneAndOwnedDrawerChildren(snapshot.pane.id)
+        return .failedLayoutInsertion(tabId: snapshot.tabId, anchorPaneId: snapshot.anchorPaneId)
     }
 }

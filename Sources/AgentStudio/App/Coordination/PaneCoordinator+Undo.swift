@@ -78,7 +78,12 @@ extension PaneCoordinator {
     }
 
     private func undoPaneClose(_ snapshot: WorkspaceMutationCoordinator.PaneCloseSnapshot) {
-        store.mutationCoordinator.restoreFromPaneSnapshot(snapshot)
+        let restoreResult = store.mutationCoordinator.restoreFromPaneSnapshot(snapshot)
+        guard restoreResult == .restored else {
+            Self.logger.error("undoPaneClose: failed restoring pane snapshot \(String(describing: restoreResult))")
+            return
+        }
+
         for pane in [snapshot.pane] + snapshot.drawerChildPanes {
             viewRegistry.ensureSlot(for: pane.id)
         }

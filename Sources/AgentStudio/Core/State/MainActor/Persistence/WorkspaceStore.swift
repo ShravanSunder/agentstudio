@@ -541,8 +541,12 @@ final class WorkspaceStore {
                 workspaceTabLayoutAtom: tabLayoutAtom
             )
             isRestoringState = false
+            let hydratedPaneCount = paneAtom.panes.count
+            let hydratedTabCount = tabLayoutAtom.tabs.count
+            let droppedPaneCount = max(0, state.panes.count - hydratedPaneCount)
+            let droppedTabCount = max(0, state.tabs.count - hydratedTabCount)
             workspaceStoreLogger.info(
-                "Restored workspace '\(state.name)' with \(state.panes.count) pane(s), \(state.tabs.count) tab(s)"
+                "Restored workspace '\(state.name)' with \(hydratedPaneCount) pane(s), \(hydratedTabCount) tab(s), dropped \(droppedPaneCount) pane(s), dropped \(droppedTabCount) tab(s)"
             )
         case .corrupt(let error):
             workspaceStoreLogger.error(
