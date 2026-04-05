@@ -1,4 +1,3 @@
-// swiftlint:disable function_body_length
 import AppKit
 import Foundation
 import Observation
@@ -26,14 +25,13 @@ enum AppCommand: String, CaseIterable {
     case extractPaneToTab
     case movePaneToTab
     case focusPane
-    case splitRight, splitBelow, splitLeft, splitAbove
+    case splitRight, splitLeft
     case equalizePanes
     case focusPaneLeft, focusPaneRight, focusPaneUp, focusPaneDown
     case focusNextPane, focusPrevPane
     case toggleSplitZoom
     case minimizePane
     case expandPane
-    case duplicatePane
 
     // Arrangement commands
     case switchArrangement
@@ -134,23 +132,38 @@ struct CommandDefinition {
     var keyBinding: KeyBinding?
     let label: String
     let icon: String?
+    let helpText: String
     let appliesTo: Set<SearchItemType>
     let requiresManagementMode: Bool
+    let visibleWhen: Set<FocusRequirement>
+    let commandBarGroupName: String
+    let commandBarGroupPriority: Int
+    let isHiddenInCommandBar: Bool
 
     init(
         command: AppCommand,
         keyBinding: KeyBinding? = nil,
         label: String,
         icon: String? = nil,
+        helpText: String,
         appliesTo: Set<SearchItemType> = [],
-        requiresManagementMode: Bool = false
+        requiresManagementMode: Bool = false,
+        visibleWhen: Set<FocusRequirement> = [],
+        commandBarGroupName: String = "Commands",
+        commandBarGroupPriority: Int = 7,
+        isHiddenInCommandBar: Bool = false
     ) {
         self.command = command
         self.keyBinding = keyBinding
         self.label = label
         self.icon = icon
+        self.helpText = helpText
         self.appliesTo = appliesTo
         self.requiresManagementMode = requiresManagementMode
+        self.visibleWhen = visibleWhen
+        self.commandBarGroupName = commandBarGroupName
+        self.commandBarGroupPriority = commandBarGroupPriority
+        self.isHiddenInCommandBar = isHiddenInCommandBar
     }
 }
 
@@ -265,8 +278,11 @@ final class CommandDispatcher {
     // MARK: - Lookup
 
     /// Get the definition for a command
-    func definition(for command: AppCommand) -> CommandDefinition? {
-        definitions[command]
+    func definition(for command: AppCommand) -> CommandDefinition {
+        guard let definition = definitions[command] else {
+            preconditionFailure("Missing command definition for \(command.rawValue)")
+        }
+        return definition
     }
 
     /// Get commands available for a given item type
@@ -277,322 +293,7 @@ final class CommandDispatcher {
     // MARK: - Registration
 
     private func registerDefaults() {
-        let defs: [CommandDefinition] = [
-            // Tab commands
-            CommandDefinition(
-                command: .closeTab,
-                keyBinding: KeyBinding(key: "w", modifiers: [.command]),
-                label: "Close Tab",
-                icon: "xmark",
-                appliesTo: [.tab]
-            ),
-            CommandDefinition(
-                command: .breakUpTab,
-                label: "Break Up Tab",
-                icon: "rectangle.split.3x1",
-                appliesTo: [.tab]
-            ),
-            CommandDefinition(
-                command: .newTerminalInTab,
-                label: "New Terminal in Tab",
-                icon: "terminal",
-                appliesTo: [.tab]
-            ),
-            CommandDefinition(
-                command: .selectTab,
-                label: "Select Tab",
-                icon: "rectangle.stack",
-                appliesTo: [.tab]
-            ),
-            CommandDefinition(
-                command: .nextTab,
-                keyBinding: KeyBinding(key: "]", modifiers: [.command, .shift]),
-                label: "Next Tab",
-                icon: "chevron.right"
-            ),
-            CommandDefinition(
-                command: .prevTab,
-                keyBinding: KeyBinding(key: "[", modifiers: [.command, .shift]),
-                label: "Previous Tab",
-                icon: "chevron.left"
-            ),
-
-            // Pane commands
-            CommandDefinition(
-                command: .closePane,
-                label: "Close Pane",
-                icon: "xmark.square",
-                appliesTo: [.pane, .floatingTerminal],
-                requiresManagementMode: true
-            ),
-            CommandDefinition(
-                command: .extractPaneToTab,
-                label: "Extract Pane to Tab",
-                icon: "arrow.up.right.square",
-                appliesTo: [.pane, .floatingTerminal]
-            ),
-            CommandDefinition(
-                command: .movePaneToTab,
-                label: "Move Pane to Tab",
-                icon: "arrow.left.and.right.square",
-                appliesTo: [.pane],
-                requiresManagementMode: true
-            ),
-            CommandDefinition(
-                command: .focusPane,
-                label: "Focus Pane",
-                icon: "scope",
-                appliesTo: [.pane, .floatingTerminal]
-            ),
-            CommandDefinition(
-                command: .splitRight,
-                label: "Split Right",
-                icon: "rectangle.split.1x2",
-                appliesTo: [.pane, .tab]
-            ),
-            CommandDefinition(
-                command: .splitLeft,
-                label: "Split Left",
-                icon: "rectangle.split.1x2",
-                appliesTo: [.pane, .tab]
-            ),
-            CommandDefinition(
-                command: .equalizePanes,
-                label: "Equalize Panes",
-                icon: "equal.square",
-                appliesTo: [.tab]
-            ),
-            CommandDefinition(
-                command: .focusPaneLeft,
-                label: "Focus Pane Left",
-                icon: "arrow.left"
-            ),
-            CommandDefinition(
-                command: .focusPaneRight,
-                label: "Focus Pane Right",
-                icon: "arrow.right"
-            ),
-            CommandDefinition(
-                command: .focusPaneUp,
-                label: "Focus Pane Up",
-                icon: "arrow.up"
-            ),
-            CommandDefinition(
-                command: .focusPaneDown,
-                label: "Focus Pane Down",
-                icon: "arrow.down"
-            ),
-            CommandDefinition(
-                command: .focusNextPane,
-                label: "Focus Next Pane",
-                icon: "arrow.right.circle"
-            ),
-            CommandDefinition(
-                command: .focusPrevPane,
-                label: "Focus Previous Pane",
-                icon: "arrow.left.circle"
-            ),
-
-            // Minimize / Expand
-            CommandDefinition(
-                command: .minimizePane,
-                label: "Minimize Pane",
-                icon: "minus.circle",
-                appliesTo: [.pane]
-            ),
-            CommandDefinition(
-                command: .expandPane,
-                label: "Expand Pane",
-                icon: "arrow.up.left.and.arrow.down.right",
-                appliesTo: [.pane]
-            ),
-            // Duplicate actions are intentionally hidden until behavior is implemented.
-
-            // Arrangement commands
-            CommandDefinition(
-                command: .switchArrangement,
-                label: "Switch Arrangement",
-                icon: "rectangle.3.group",
-                appliesTo: [.tab]
-            ),
-            CommandDefinition(
-                command: .saveArrangement,
-                label: "Save Arrangement As...",
-                icon: "rectangle.3.group.fill",
-                appliesTo: [.tab]
-            ),
-            CommandDefinition(
-                command: .deleteArrangement,
-                label: "Delete Arrangement",
-                icon: "rectangle.3.group.bubble",
-                appliesTo: [.tab]
-            ),
-            CommandDefinition(
-                command: .renameArrangement,
-                label: "Rename Arrangement",
-                icon: "pencil",
-                appliesTo: [.tab]
-            ),
-
-            // Drawer commands
-            CommandDefinition(
-                command: .addDrawerPane,
-                label: "Add Drawer Pane",
-                icon: "rectangle.bottomhalf.inset.filled",
-                appliesTo: [.pane]
-            ),
-            CommandDefinition(
-                command: .toggleDrawer,
-                label: "Toggle Drawer",
-                icon: "rectangle.expand.vertical",
-                appliesTo: [.pane]
-            ),
-            CommandDefinition(
-                command: .navigateDrawerPane,
-                label: "Navigate to Drawer Pane",
-                icon: "arrow.down.to.line",
-                appliesTo: [.pane]
-            ),
-            CommandDefinition(
-                command: .closeDrawerPane,
-                label: "Close Drawer Pane",
-                icon: "xmark.rectangle.portrait",
-                appliesTo: [.pane]
-            ),
-
-            // Repo commands
-            CommandDefinition(
-                command: .addRepo,
-                keyBinding: KeyBinding(key: "O", modifiers: [.command, .shift]),
-                label: "Add Repo",
-                icon: "folder.badge.plus",
-                appliesTo: [.repo]
-            ),
-            CommandDefinition(
-                command: .addFolder,
-                keyBinding: KeyBinding(key: "O", modifiers: [.command, .shift, .option]),
-                label: "Add Folder",
-                icon: "folder.badge.questionmark"
-            ),
-            CommandDefinition(
-                command: .removeRepo,
-                label: "Remove Repo",
-                icon: "folder.badge.minus",
-                appliesTo: [.repo]
-            ),
-            CommandDefinition(
-                command: .openWorktree,
-                label: "Open Worktree",
-                icon: "terminal",
-                appliesTo: [.worktree]
-            ),
-            CommandDefinition(
-                command: .openWorktreeInPane,
-                label: "Open Worktree in Pane",
-                icon: "rectangle.split.2x1",
-                appliesTo: [.worktree]
-            ),
-
-            // Management mode
-            CommandDefinition(
-                command: .toggleManagementMode,
-                keyBinding: KeyBinding(key: "e", modifiers: [.command]),
-                label: "Toggle Management Mode",
-                icon: "rectangle.split.2x2"
-            ),
-
-            // Workspace commands
-            CommandDefinition(
-                command: .toggleSidebar,
-                keyBinding: KeyBinding(key: "s", modifiers: [.command, .shift]),
-                label: "Toggle Sidebar",
-                icon: "sidebar.left"
-            ),
-            CommandDefinition(
-                command: .newFloatingTerminal,
-                label: "New Floating Terminal",
-                icon: "terminal.fill"
-            ),
-
-            // Webview commands
-            CommandDefinition(
-                command: .openWebview,
-                label: "Open New Webview Tab",
-                icon: "globe"
-            ),
-            CommandDefinition(
-                command: .signInGitHub,
-                label: "Sign in to GitHub",
-                icon: "person.badge.key"
-            ),
-            CommandDefinition(
-                command: .signInGoogle,
-                label: "Sign in to Google",
-                icon: "person.badge.key"
-            ),
-
-            // Sidebar commands
-            CommandDefinition(
-                command: .filterSidebar,
-                keyBinding: KeyBinding(key: "f", modifiers: [.command, .shift]),
-                label: "Filter Sidebar",
-                icon: "magnifyingglass"
-            ),
-            CommandDefinition(
-                command: .openNewTerminalInTab,
-                label: "Open New Terminal in Tab",
-                icon: "terminal.fill",
-                appliesTo: [.worktree]
-            ),
-
-            // Window commands
-            CommandDefinition(
-                command: .newWindow,
-                keyBinding: KeyBinding(key: "n", modifiers: [.command]),
-                label: "New Window",
-                icon: "macwindow.badge.plus"
-            ),
-            CommandDefinition(
-                command: .newTab,
-                keyBinding: KeyBinding(key: "t", modifiers: [.command]),
-                label: "New Tab",
-                icon: "plus.square"
-            ),
-            CommandDefinition(
-                command: .undoCloseTab,
-                keyBinding: KeyBinding(key: "t", modifiers: [.command, .shift]),
-                label: "Undo Close Tab",
-                icon: "arrow.uturn.backward"
-            ),
-            CommandDefinition(
-                command: .closeWindow,
-                keyBinding: KeyBinding(key: "W", modifiers: [.command, .shift]),
-                label: "Close Window",
-                icon: "xmark.rectangle"
-            ),
-
-            // Tab selection commands (⌘1 through ⌘9)
-            CommandDefinition(
-                command: .selectTab1, keyBinding: KeyBinding(key: "1", modifiers: [.command]), label: "Select Tab 1"),
-            CommandDefinition(
-                command: .selectTab2, keyBinding: KeyBinding(key: "2", modifiers: [.command]), label: "Select Tab 2"),
-            CommandDefinition(
-                command: .selectTab3, keyBinding: KeyBinding(key: "3", modifiers: [.command]), label: "Select Tab 3"),
-            CommandDefinition(
-                command: .selectTab4, keyBinding: KeyBinding(key: "4", modifiers: [.command]), label: "Select Tab 4"),
-            CommandDefinition(
-                command: .selectTab5, keyBinding: KeyBinding(key: "5", modifiers: [.command]), label: "Select Tab 5"),
-            CommandDefinition(
-                command: .selectTab6, keyBinding: KeyBinding(key: "6", modifiers: [.command]), label: "Select Tab 6"),
-            CommandDefinition(
-                command: .selectTab7, keyBinding: KeyBinding(key: "7", modifiers: [.command]), label: "Select Tab 7"),
-            CommandDefinition(
-                command: .selectTab8, keyBinding: KeyBinding(key: "8", modifiers: [.command]), label: "Select Tab 8"),
-            CommandDefinition(
-                command: .selectTab9, keyBinding: KeyBinding(key: "9", modifiers: [.command]), label: "Select Tab 9"),
-        ]
-
-        for def in defs {
+        for def in AppCommand.allCases.map(\.definition) {
             definitions[def.command] = def
         }
     }
@@ -606,4 +307,544 @@ extension AppCommand {
         .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
         .selectTab6, .selectTab7, .selectTab8, .selectTab9,
     ]
+
+    var definition: CommandDefinition {
+        switch self {
+        case .closeTab:
+            return CommandDefinition(
+                command: self,
+                keyBinding: KeyBinding(key: "w", modifiers: [.command]),
+                label: "Close Tab",
+                icon: "xmark",
+                helpText: "Close the active tab",
+                appliesTo: [.tab],
+                visibleWhen: [.hasActiveTab],
+                commandBarGroupName: "Tab",
+                commandBarGroupPriority: 2
+            )
+        case .breakUpTab:
+            return CommandDefinition(
+                command: self,
+                label: "Split Tab Into Individuals",
+                icon: "rectangle.split.3x1",
+                helpText: "Split each visible pane in the active tab into its own tab",
+                appliesTo: [.tab],
+                visibleWhen: [.hasActiveTab, .hasMultiplePanes],
+                commandBarGroupName: "Tab",
+                commandBarGroupPriority: 2
+            )
+        case .newTerminalInTab:
+            return CommandDefinition(
+                command: self,
+                label: "Add Terminal to Tab",
+                icon: "terminal",
+                helpText: "Add a new terminal to the active tab",
+                appliesTo: [.tab],
+                visibleWhen: [.hasActiveTab],
+                commandBarGroupName: "Tab",
+                commandBarGroupPriority: 2
+            )
+        case .newTab:
+            return CommandDefinition(
+                command: self,
+                keyBinding: KeyBinding(key: "t", modifiers: [.command]),
+                label: "New Tab",
+                icon: "plus.square",
+                helpText: "Create a new tab",
+                commandBarGroupName: "Window",
+                commandBarGroupPriority: 4
+            )
+        case .undoCloseTab:
+            return CommandDefinition(
+                command: self,
+                keyBinding: KeyBinding(key: "t", modifiers: [.command, .shift]),
+                label: "Undo Close Tab",
+                icon: "arrow.uturn.backward",
+                helpText: "Restore the most recently closed tab",
+                commandBarGroupName: "Window",
+                commandBarGroupPriority: 4
+            )
+        case .selectTab:
+            return CommandDefinition(
+                command: self,
+                label: "Select Tab",
+                icon: "rectangle.stack",
+                helpText: "Select a specific tab",
+                appliesTo: [.tab],
+                visibleWhen: [.hasActiveTab],
+                commandBarGroupName: "Tab",
+                commandBarGroupPriority: 2,
+                isHiddenInCommandBar: true
+            )
+        case .nextTab:
+            return CommandDefinition(
+                command: self,
+                keyBinding: KeyBinding(key: "]", modifiers: [.command, .shift]),
+                label: "Next Tab",
+                icon: "chevron.right",
+                helpText: "Move to the next tab",
+                visibleWhen: [.hasActiveTab],
+                commandBarGroupName: "Tab",
+                commandBarGroupPriority: 2
+            )
+        case .prevTab:
+            return CommandDefinition(
+                command: self,
+                keyBinding: KeyBinding(key: "[", modifiers: [.command, .shift]),
+                label: "Previous Tab",
+                icon: "chevron.left",
+                helpText: "Move to the previous tab",
+                visibleWhen: [.hasActiveTab],
+                commandBarGroupName: "Tab",
+                commandBarGroupPriority: 2
+            )
+        case .selectTab1:
+            return hiddenTabSelectionDefinition(index: 1)
+        case .selectTab2:
+            return hiddenTabSelectionDefinition(index: 2)
+        case .selectTab3:
+            return hiddenTabSelectionDefinition(index: 3)
+        case .selectTab4:
+            return hiddenTabSelectionDefinition(index: 4)
+        case .selectTab5:
+            return hiddenTabSelectionDefinition(index: 5)
+        case .selectTab6:
+            return hiddenTabSelectionDefinition(index: 6)
+        case .selectTab7:
+            return hiddenTabSelectionDefinition(index: 7)
+        case .selectTab8:
+            return hiddenTabSelectionDefinition(index: 8)
+        case .selectTab9:
+            return hiddenTabSelectionDefinition(index: 9)
+        case .closePane:
+            return CommandDefinition(
+                command: self,
+                label: "Close Pane",
+                icon: "xmark.square",
+                helpText: "Close the active pane",
+                appliesTo: [.pane, .floatingTerminal],
+                requiresManagementMode: true,
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: 0
+            )
+        case .extractPaneToTab:
+            return CommandDefinition(
+                command: self,
+                label: "Move Pane to New Tab",
+                icon: "arrow.up.right.square",
+                helpText: "Move the active pane into a new tab",
+                appliesTo: [.pane, .floatingTerminal],
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: 0
+            )
+        case .movePaneToTab:
+            return CommandDefinition(
+                command: self,
+                label: "Move Pane to Existing Tab",
+                icon: "arrow.left.and.right.square",
+                helpText: "Move the active pane into another existing tab",
+                appliesTo: [.pane],
+                requiresManagementMode: true,
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: 0
+            )
+        case .focusPane:
+            return CommandDefinition(
+                command: self,
+                label: "Focus Pane",
+                icon: "scope",
+                helpText: "Focus a specific pane",
+                appliesTo: [.pane, .floatingTerminal],
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: 0,
+                isHiddenInCommandBar: true
+            )
+        case .splitRight:
+            return CommandDefinition(
+                command: self,
+                label: "Split Right",
+                icon: "rectangle.split.1x2",
+                helpText: "Split the active pane to the right",
+                appliesTo: [.pane, .tab],
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: 0
+            )
+        case .splitLeft:
+            return CommandDefinition(
+                command: self,
+                label: "Split Left",
+                icon: "rectangle.split.1x2",
+                helpText: "Split the active pane to the left",
+                appliesTo: [.pane, .tab],
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: 0
+            )
+        case .equalizePanes:
+            return CommandDefinition(
+                command: self,
+                label: "Equalize Panes",
+                icon: "equal.square",
+                helpText: "Reset all pane sizes in the active tab to equal widths",
+                appliesTo: [.tab],
+                visibleWhen: [.hasActiveTab],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: 0
+            )
+        case .focusPaneLeft:
+            return focusDefinition(
+                label: "Focus Pane Left",
+                icon: "arrow.left",
+                helpText: "Move focus to the pane on the left"
+            )
+        case .focusPaneRight:
+            return focusDefinition(
+                label: "Focus Pane Right",
+                icon: "arrow.right",
+                helpText: "Move focus to the pane on the right"
+            )
+        case .focusPaneUp:
+            return focusDefinition(
+                label: "Focus Pane Up",
+                icon: "arrow.up",
+                helpText: "Move focus to the pane above"
+            )
+        case .focusPaneDown:
+            return focusDefinition(
+                label: "Focus Pane Down",
+                icon: "arrow.down",
+                helpText: "Move focus to the pane below"
+            )
+        case .focusNextPane:
+            return focusDefinition(
+                label: "Focus Next Pane",
+                icon: "arrow.right.circle",
+                helpText: "Move focus to the next pane"
+            )
+        case .focusPrevPane:
+            return focusDefinition(
+                label: "Focus Previous Pane",
+                icon: "arrow.left.circle",
+                helpText: "Move focus to the previous pane"
+            )
+        case .toggleSplitZoom:
+            return CommandDefinition(
+                command: self,
+                label: "Toggle Split Zoom",
+                icon: "arrow.up.left.and.arrow.down.right.magnifyingglass",
+                helpText: "Toggle zoom for the active pane",
+                appliesTo: [.pane],
+                visibleWhen: [.hasActivePane, .hasMultiplePanes],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: 0
+            )
+        case .minimizePane:
+            return CommandDefinition(
+                command: self,
+                label: "Minimize Pane",
+                icon: "minus.circle",
+                helpText: "Minimize the active pane",
+                appliesTo: [.pane],
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: 0
+            )
+        case .expandPane:
+            return CommandDefinition(
+                command: self,
+                label: "Expand Pane",
+                icon: "arrow.up.left.and.arrow.down.right",
+                helpText: "Expand a minimized pane back into the layout",
+                appliesTo: [.pane],
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: 0
+            )
+        case .switchArrangement:
+            return arrangementDefinition(
+                label: "Switch Arrangement",
+                icon: "rectangle.3.group",
+                helpText: "Switch the active tab to a saved arrangement"
+            )
+        case .saveArrangement:
+            return CommandDefinition(
+                command: self,
+                label: "Save Arrangement As...",
+                icon: "rectangle.3.group.fill",
+                helpText: "Save the current tab layout as a named arrangement",
+                appliesTo: [.tab],
+                visibleWhen: [.hasActiveTab],
+                commandBarGroupName: "Tab",
+                commandBarGroupPriority: 2
+            )
+        case .deleteArrangement:
+            return arrangementDefinition(
+                label: "Delete Arrangement",
+                icon: "rectangle.3.group.bubble",
+                helpText: "Delete a saved arrangement from the active tab"
+            )
+        case .renameArrangement:
+            return arrangementDefinition(
+                label: "Rename Arrangement",
+                icon: "pencil",
+                helpText: "Rename a saved arrangement in the active tab"
+            )
+        case .addDrawerPane:
+            return CommandDefinition(
+                command: self,
+                label: "Add Drawer Pane",
+                icon: "rectangle.bottomhalf.inset.filled",
+                helpText: "Add a drawer pane to the active pane",
+                appliesTo: [.pane],
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: 0
+            )
+        case .toggleDrawer:
+            return CommandDefinition(
+                command: self,
+                label: "Toggle Drawer",
+                icon: "rectangle.expand.vertical",
+                helpText: "Expand or collapse the active pane drawer",
+                appliesTo: [.pane],
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: 0
+            )
+        case .navigateDrawerPane:
+            return CommandDefinition(
+                command: self,
+                label: "Switch Drawer Pane",
+                icon: "arrow.down.to.line",
+                helpText: "Switch to a pane inside the active drawer",
+                appliesTo: [.pane],
+                visibleWhen: [.hasActivePane, .hasDrawerPanes],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: 0
+            )
+        case .closeDrawerPane:
+            return CommandDefinition(
+                command: self,
+                label: "Close Drawer Pane",
+                icon: "xmark.rectangle.portrait",
+                helpText: "Close a pane inside the active drawer",
+                appliesTo: [.pane],
+                visibleWhen: [.hasActivePane, .hasDrawerPanes],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: 0
+            )
+        case .addRepo:
+            return CommandDefinition(
+                command: self,
+                keyBinding: KeyBinding(key: "O", modifiers: [.command, .shift]),
+                label: "Add Repo",
+                icon: "folder.badge.plus",
+                helpText: "Add a repository directly to the workspace",
+                appliesTo: [.repo],
+                commandBarGroupName: "Repo",
+                commandBarGroupPriority: 3
+            )
+        case .addFolder:
+            return CommandDefinition(
+                command: self,
+                keyBinding: KeyBinding(key: "O", modifiers: [.command, .shift, .option]),
+                label: "Add Folder",
+                icon: "folder.badge.questionmark",
+                helpText: "Add a folder to scan for repositories",
+                commandBarGroupName: "Repo",
+                commandBarGroupPriority: 3
+            )
+        case .removeRepo:
+            return CommandDefinition(
+                command: self,
+                label: "Remove Repo",
+                icon: "folder.badge.minus",
+                helpText: "Remove a repository from the workspace",
+                appliesTo: [.repo],
+                commandBarGroupName: "Repo",
+                commandBarGroupPriority: 3
+            )
+        case .openWorktree:
+            return worktreeDefinition(
+                label: "Open Worktree",
+                icon: "terminal",
+                helpText: "Open a worktree in a tab"
+            )
+        case .openWorktreeInPane:
+            return worktreeDefinition(
+                label: "Open Worktree in Pane",
+                icon: "rectangle.split.2x1",
+                helpText: "Open a worktree in a split pane"
+            )
+        case .toggleManagementMode:
+            return CommandDefinition(
+                command: self,
+                keyBinding: KeyBinding(key: "e", modifiers: [.command]),
+                label: "Manage Workspace",
+                icon: "rectangle.split.2x2",
+                helpText: "Toggle workspace management mode",
+                commandBarGroupName: "Window",
+                commandBarGroupPriority: 4
+            )
+        case .toggleSidebar:
+            return CommandDefinition(
+                command: self,
+                keyBinding: KeyBinding(key: "s", modifiers: [.command, .shift]),
+                label: "Toggle Sidebar",
+                icon: "sidebar.left",
+                helpText: "Show or hide the sidebar",
+                commandBarGroupName: "Window",
+                commandBarGroupPriority: 4
+            )
+        case .newFloatingTerminal:
+            return CommandDefinition(
+                command: self,
+                label: "New Floating Terminal",
+                icon: "terminal.fill",
+                helpText: "Open a new floating terminal",
+                commandBarGroupName: "Window",
+                commandBarGroupPriority: 4
+            )
+        case .newWindow:
+            return CommandDefinition(
+                command: self,
+                keyBinding: KeyBinding(key: "n", modifiers: [.command]),
+                label: "New Window",
+                icon: "macwindow.badge.plus",
+                helpText: "Open a new application window",
+                commandBarGroupName: "Window",
+                commandBarGroupPriority: 4,
+                isHiddenInCommandBar: true
+            )
+        case .closeWindow:
+            return CommandDefinition(
+                command: self,
+                keyBinding: KeyBinding(key: "W", modifiers: [.command, .shift]),
+                label: "Close Window",
+                icon: "xmark.rectangle",
+                helpText: "Close the current application window",
+                commandBarGroupName: "Window",
+                commandBarGroupPriority: 4,
+                isHiddenInCommandBar: true
+            )
+        case .quickFind:
+            return CommandDefinition(
+                command: self,
+                label: "Quick Find",
+                icon: "magnifyingglass",
+                helpText: "Open quick find",
+                commandBarGroupName: "Commands",
+                commandBarGroupPriority: 7,
+                isHiddenInCommandBar: true
+            )
+        case .commandBar:
+            return CommandDefinition(
+                command: self,
+                label: "Command Palette",
+                icon: "command",
+                helpText: "Open the command palette",
+                commandBarGroupName: "Commands",
+                commandBarGroupPriority: 7,
+                isHiddenInCommandBar: true
+            )
+        case .openWebview:
+            return CommandDefinition(
+                command: self,
+                label: "Open New Webview Tab",
+                icon: "globe",
+                helpText: "Open a new webview tab",
+                commandBarGroupName: "Webview",
+                commandBarGroupPriority: 5
+            )
+        case .signInGitHub:
+            return CommandDefinition(
+                command: self,
+                label: "Sign in to GitHub",
+                icon: "person.badge.key",
+                helpText: "Start GitHub sign-in",
+                commandBarGroupName: "Auth",
+                commandBarGroupPriority: 6,
+                isHiddenInCommandBar: true
+            )
+        case .signInGoogle:
+            return CommandDefinition(
+                command: self,
+                label: "Sign in to Google",
+                icon: "person.badge.key",
+                helpText: "Start Google sign-in",
+                commandBarGroupName: "Auth",
+                commandBarGroupPriority: 6,
+                isHiddenInCommandBar: true
+            )
+        case .filterSidebar:
+            return CommandDefinition(
+                command: self,
+                keyBinding: KeyBinding(key: "f", modifiers: [.command, .shift]),
+                label: "Filter Sidebar",
+                icon: "magnifyingglass",
+                helpText: "Filter items in the sidebar",
+                commandBarGroupName: "Window",
+                commandBarGroupPriority: 4
+            )
+        case .openNewTerminalInTab:
+            return worktreeDefinition(
+                label: "Open Terminal in New Tab",
+                icon: "terminal.fill",
+                helpText: "Open a worktree in a fresh terminal tab"
+            )
+        }
+    }
+
+    private func hiddenTabSelectionDefinition(index: Int) -> CommandDefinition {
+        CommandDefinition(
+            command: self,
+            keyBinding: KeyBinding(key: "\(index)", modifiers: [.command]),
+            label: "Select Tab \(index)",
+            helpText: "Select tab \(index)",
+            visibleWhen: [.hasActiveTab],
+            isHiddenInCommandBar: true
+        )
+    }
+
+    private func focusDefinition(label: String, icon: String, helpText: String) -> CommandDefinition {
+        CommandDefinition(
+            command: self,
+            label: label,
+            icon: icon,
+            helpText: helpText,
+            visibleWhen: [.hasActiveTab, .hasMultiplePanes],
+            commandBarGroupName: "Focus",
+            commandBarGroupPriority: 1
+        )
+    }
+
+    private func arrangementDefinition(label: String, icon: String, helpText: String) -> CommandDefinition {
+        CommandDefinition(
+            command: self,
+            label: label,
+            icon: icon,
+            helpText: helpText,
+            appliesTo: [.tab],
+            visibleWhen: [.hasActiveTab, .hasArrangements],
+            commandBarGroupName: "Tab",
+            commandBarGroupPriority: 2
+        )
+    }
+
+    private func worktreeDefinition(label: String, icon: String, helpText: String) -> CommandDefinition {
+        CommandDefinition(
+            command: self,
+            label: label,
+            icon: icon,
+            helpText: helpText,
+            appliesTo: [.worktree],
+            commandBarGroupName: "Repo",
+            commandBarGroupPriority: 3
+        )
+    }
 }

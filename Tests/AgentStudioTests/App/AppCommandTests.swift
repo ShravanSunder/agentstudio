@@ -156,15 +156,20 @@ final class AppCommandTests {
     @Test
     func test_commandDefinition_init_defaults() {
         // Act
-        let def = CommandDefinition(command: .closeTab, label: "Close Tab")
+        let def = CommandDefinition(command: .closeTab, label: "Close Tab", helpText: "Close the active tab")
 
         // Assert
-        #expect(def.command == .closeTab)
+        #expect(def.command == AppCommand.closeTab)
         #expect(def.label == "Close Tab")
+        #expect(def.helpText == "Close the active tab")
         #expect(def.keyBinding == nil)
         #expect(def.icon == nil)
         #expect(def.appliesTo.isEmpty)
         #expect(!(def.requiresManagementMode))
+        #expect(def.visibleWhen.isEmpty)
+        #expect(def.commandBarGroupName == "Commands")
+        #expect(def.commandBarGroupPriority == 7)
+        #expect(!def.isHiddenInCommandBar)
     }
 
     @Test
@@ -175,16 +180,18 @@ final class AppCommandTests {
             keyBinding: KeyBinding(key: "w", modifiers: [.command, .shift]),
             label: "Close Pane",
             icon: "xmark",
+            helpText: "Close the active pane",
             appliesTo: [.pane, .floatingTerminal],
             requiresManagementMode: true
         )
 
         // Assert
-        #expect(def.command == .closePane)
+        #expect(def.command == AppCommand.closePane)
         #expect(def.keyBinding != nil)
         #expect(def.icon == "xmark")
-        #expect(def.appliesTo.contains(.pane))
-        #expect(def.appliesTo.contains(.floatingTerminal))
+        #expect(def.helpText == "Close the active pane")
+        #expect(def.appliesTo.contains(SearchItemType.pane))
+        #expect(def.appliesTo.contains(SearchItemType.floatingTerminal))
         #expect(def.requiresManagementMode)
     }
 
@@ -198,10 +205,31 @@ final class AppCommandTests {
         let dispatcher = CommandDispatcher.shared
 
         // Assert
-        #expect(dispatcher.definition(for: .closeTab) != nil)
-        #expect(dispatcher.definition(for: .closePane) != nil)
-        #expect(dispatcher.definition(for: .addRepo) != nil)
-        #expect(dispatcher.definition(for: .toggleSidebar) != nil)
+        #expect(dispatcher.definitions.count == AppCommand.allCases.count)
+        #expect(dispatcher.definition(for: .closeTab).command == .closeTab)
+        #expect(dispatcher.definition(for: .closePane).command == .closePane)
+        #expect(dispatcher.definition(for: .addRepo).command == .addRepo)
+        #expect(dispatcher.definition(for: .toggleSidebar).command == .toggleSidebar)
+    }
+
+    @Test
+    func test_dispatcher_registersDefinitionForEveryCommand() {
+        let dispatcher = CommandDispatcher.shared
+
+        for command in AppCommand.allCases {
+            let definition = dispatcher.definition(for: command)
+            #expect(definition.command == command)
+        }
+    }
+
+    @Test
+    func test_dispatcher_allCommandsHaveHelpText() throws {
+        let dispatcher = CommandDispatcher.shared
+
+        for command in AppCommand.allCases {
+            let definition = dispatcher.definition(for: command)
+            #expect(!definition.helpText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
     }
 
     @MainActor
@@ -212,8 +240,8 @@ final class AppCommandTests {
         let def = CommandDispatcher.shared.definition(for: .closeTab)
 
         // Assert
-        #expect(def?.keyBinding?.key == "w")
-        #expect(def?.keyBinding?.modifiers == [.command])
+        #expect(def.keyBinding?.key == "w")
+        #expect(def.keyBinding?.modifiers == [.command])
     }
 
     @MainActor
@@ -454,7 +482,7 @@ final class AppCommandTests {
         let def = CommandDispatcher.shared.definition(for: .closePane)
 
         // Assert
-        #expect(def?.requiresManagementMode ?? false)
+        #expect(def.requiresManagementMode)
     }
 
     @MainActor
@@ -465,8 +493,8 @@ final class AppCommandTests {
         let def = CommandDispatcher.shared.definition(for: .movePaneToTab)
 
         // Assert
-        #expect(def?.requiresManagementMode ?? false)
-        #expect(def?.appliesTo.contains(.pane) ?? false)
+        #expect(def.requiresManagementMode)
+        #expect(def.appliesTo.contains(.pane))
     }
 
     @MainActor
@@ -477,7 +505,7 @@ final class AppCommandTests {
         let def = CommandDispatcher.shared.definition(for: .closeTab)
 
         // Assert
-        #expect(!(def?.requiresManagementMode ?? true))
+        #expect(!def.requiresManagementMode)
     }
 
     @MainActor
@@ -525,9 +553,8 @@ final class AppCommandTests {
         let def = CommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Assert
-        #expect(def != nil)
-        #expect(def?.label == "Filter Sidebar")
-        #expect(def?.icon == "magnifyingglass")
+        #expect(def.label == "Filter Sidebar")
+        #expect(def.icon == "magnifyingglass")
     }
 
     @MainActor
@@ -538,9 +565,9 @@ final class AppCommandTests {
         let def = CommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Assert
-        #expect(def?.keyBinding?.key == "f")
-        #expect(def?.keyBinding?.modifiers.contains(.command) ?? false)
-        #expect(def?.keyBinding?.modifiers.contains(.shift) ?? false)
+        #expect(def.keyBinding?.key == "f")
+        #expect(def.keyBinding?.modifiers.contains(.command) ?? false)
+        #expect(def.keyBinding?.modifiers.contains(.shift) ?? false)
     }
 
     @MainActor
@@ -551,9 +578,9 @@ final class AppCommandTests {
         let def = CommandDispatcher.shared.definition(for: .openNewTerminalInTab)
 
         // Assert
-        #expect(def != nil)
-        #expect(def?.label == "Open New Terminal in Tab")
-        #expect(def?.icon == "terminal.fill")
+        #expect(def.label == "Open Terminal in New Tab")
+        #expect(def.icon == "terminal.fill")
+        #expect(def.helpText == "Open a worktree in a fresh terminal tab")
     }
 
     @MainActor
@@ -564,7 +591,7 @@ final class AppCommandTests {
         let def = CommandDispatcher.shared.definition(for: .openNewTerminalInTab)
 
         // Assert
-        #expect(def?.appliesTo.contains(.worktree) ?? false)
+        #expect(def.appliesTo.contains(.worktree))
     }
 
     @MainActor
@@ -587,7 +614,7 @@ final class AppCommandTests {
         let def = CommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Assert
-        #expect(!(def?.requiresManagementMode ?? true))
+        #expect(!def.requiresManagementMode)
     }
 
     @MainActor
@@ -598,7 +625,7 @@ final class AppCommandTests {
         let def = CommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Assert
-        #expect(def?.appliesTo.isEmpty ?? false)
+        #expect(def.appliesTo.isEmpty)
     }
 
     // MARK: - Webview Commands
@@ -608,9 +635,8 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_openWebview_registered() {
         let def = CommandDispatcher.shared.definition(for: .openWebview)
-        #expect(def != nil)
-        #expect(def?.label == "Open New Webview Tab")
-        #expect(def?.icon == "globe")
+        #expect(def.label == "Open New Webview Tab")
+        #expect(def.icon == "globe")
     }
 
     @MainActor
@@ -618,7 +644,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_openWebview_noKeyBinding() {
         let def = CommandDispatcher.shared.definition(for: .openWebview)
-        #expect(def?.keyBinding == nil)
+        #expect(def.keyBinding == nil)
     }
 
     @MainActor
@@ -626,9 +652,8 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_signInGitHub_registered() {
         let def = CommandDispatcher.shared.definition(for: .signInGitHub)
-        #expect(def != nil)
-        #expect(def?.label == "Sign in to GitHub")
-        #expect(def?.icon == "person.badge.key")
+        #expect(def.label == "Sign in to GitHub")
+        #expect(def.icon == "person.badge.key")
     }
 
     @MainActor
@@ -636,9 +661,8 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_signInGoogle_registered() {
         let def = CommandDispatcher.shared.definition(for: .signInGoogle)
-        #expect(def != nil)
-        #expect(def?.label == "Sign in to Google")
-        #expect(def?.icon == "person.badge.key")
+        #expect(def.label == "Sign in to Google")
+        #expect(def.icon == "person.badge.key")
     }
 
     @MainActor
@@ -646,7 +670,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_signIn_noKeyBindings() {
         // Sign-in commands are invoked from command bar, no global shortcuts
-        #expect(CommandDispatcher.shared.definition(for: .signInGitHub)?.keyBinding == nil)
-        #expect(CommandDispatcher.shared.definition(for: .signInGoogle)?.keyBinding == nil)
+        #expect(CommandDispatcher.shared.definition(for: .signInGitHub).keyBinding == nil)
+        #expect(CommandDispatcher.shared.definition(for: .signInGoogle).keyBinding == nil)
     }
 }

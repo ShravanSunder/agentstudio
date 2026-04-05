@@ -147,15 +147,6 @@ enum ActionValidator {
             }
             return .success(ValidatedAction(action))
 
-        case .duplicatePane(let tabId, let paneId, _):
-            guard let tab = state.tab(tabId) else {
-                return .failure(.tabNotFound(tabId: tabId))
-            }
-            guard tab.showsPane(paneId.uuid) else {
-                return .failure(.paneNotFound(paneId: paneId.uuid, tabId: tabId))
-            }
-            return .success(ValidatedAction(action))
-
         case .removeRepo(let repoId):
             guard state.knownRepoIds.contains(repoId) else {
                 return .failure(.repoNotFound(repoId: repoId))

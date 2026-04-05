@@ -428,11 +428,6 @@ extension PaneCoordinator {
                 surfaceManager.syncFocus(activeSurfaceId: terminalView.surfaceId)
             }
 
-        case .duplicatePane(let tabId, let paneId, _):
-            Self.logger.info(
-                "duplicatePane: pane \(paneId) in tab \(tabId) — not yet implemented"
-            )
-
         case .expireUndoEntry:
             Self.logger.warning(
                 "expireUndoEntry: explicit per-pane expiry is currently unsupported; undo GC is handled by expireOldUndoEntries()"

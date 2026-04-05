@@ -103,8 +103,6 @@ enum ActionResolver {
             return resolveSplit(.right, tabs: tabs, activeTabId: activeTabId)
         case .splitLeft:
             return resolveSplit(.left, tabs: tabs, activeTabId: activeTabId)
-        case .splitBelow, .splitAbove:
-            return nil
 
         case .toggleSplitZoom:
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
@@ -120,11 +118,6 @@ enum ActionResolver {
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
             else { return nil }
             return .expandPane(tabId: tab.id, paneId: paneId)
-
-        case .duplicatePane:
-            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
-            else { return nil }
-            return .duplicatePane(tabId: tab.id, paneId: PaneId(uuid: paneId), direction: .right)
 
         // Non-pane commands: not resolved to PaneActionCommand
         case .addRepo, .addFolder, .removeRepo,

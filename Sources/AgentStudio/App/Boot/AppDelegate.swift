@@ -4,7 +4,7 @@ import os.log
 
 private let appLogger = Logger(subsystem: "com.agentstudio", category: "AppDelegate")
 @MainActor
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var mainWindowController: MainWindowController?
     // MARK: - Shared Services (created once at launch)
     // Module-internal to support focused same-type AppDelegate extensions.
@@ -521,10 +521,28 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Called from setupMainMenu() which runs on the main thread during app launch.
     private func menuItem(_ title: String, command: AppCommand, action: Selector) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = self
+        item.representedObject = command.rawValue
         if let binding = CommandDispatcher.shared.definitions[command]?.keyBinding {
             binding.apply(to: item)
         }
         return item
+    }
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        guard
+            let rawValue = menuItem.representedObject as? String,
+            let command = AppCommand(rawValue: rawValue)
+        else {
+            return true
+        }
+
+        let definition = CommandDispatcher.shared.definition(for: command)
+        let focus = WorkspaceFocusComputer.compute(store: store)
+        let isVisible = definition.isVisible(in: focus)
+        menuItem.isHidden = !isVisible
+        guard isVisible else { return false }
+        return CommandDispatcher.shared.canDispatch(command)
     }
 
     private func setupMainMenu() {

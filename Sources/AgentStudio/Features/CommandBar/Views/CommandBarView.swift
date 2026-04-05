@@ -61,30 +61,8 @@ struct CommandBarView: View {
         atom(\.managementMode).isActive ? .management : .normal
     }
 
-    private var currentContext: CommandBarAppContext {
-        guard let activeTabId = store.activeTabId,
-            let tab = store.tab(activeTabId),
-            let activePaneId = tab.activePaneId,
-            let pane = store.pane(activePaneId)
-        else {
-            return CommandBarAppContext(paneContentType: nil)
-        }
-
-        let contentType: CommandBarAppContext.ContentType =
-            switch pane.content {
-            case .terminal:
-                .terminal
-            case .webview:
-                .webview
-            case .bridgePanel:
-                .bridge
-            case .codeViewer:
-                .codeViewer
-            case .unsupported:
-                .unknown
-            }
-
-        return CommandBarAppContext(paneContentType: contentType)
+    private var currentContext: WorkspaceFocus {
+        WorkspaceFocusComputer.compute(store: store)
     }
 
     private var allItems: [CommandBarItem] {
