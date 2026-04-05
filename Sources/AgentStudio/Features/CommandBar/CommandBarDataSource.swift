@@ -44,11 +44,28 @@ enum CommandBarDataSource {
         repoCache: RepoCacheAtom,
         dispatcher: CommandDispatcher
     ) -> [CommandBarItem] {
+        let focus = WorkspaceFocusComputer.compute(store: store)
+        return items(
+            scope: scope,
+            store: store,
+            repoCache: repoCache,
+            dispatcher: dispatcher,
+            focus: focus
+        )
+    }
+
+    static func items(
+        scope: CommandBarScope,
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom,
+        dispatcher: CommandDispatcher,
+        focus: WorkspaceFocus
+    ) -> [CommandBarItem] {
         switch scope {
         case .everything:
-            return everythingItems(store: store, repoCache: repoCache, dispatcher: dispatcher)
+            return everythingItems(store: store, repoCache: repoCache, dispatcher: dispatcher, focus: focus)
         case .commands:
-            return commandItems(dispatcher: dispatcher, store: store, repoCache: repoCache)
+            return commandItems(dispatcher: dispatcher, store: store, repoCache: repoCache, focus: focus)
         case .panes:
             return paneAndTabItems(store: store, repoCache: repoCache)
         case .repos:
@@ -78,7 +95,8 @@ enum CommandBarDataSource {
     private static func everythingItems(
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        dispatcher: CommandDispatcher
+        dispatcher: CommandDispatcher,
+        focus: WorkspaceFocus
     ) -> [CommandBarItem] {
         var items: [CommandBarItem] = []
         items.append(contentsOf: tabItems(store: store, repoCache: repoCache))
@@ -88,6 +106,7 @@ enum CommandBarDataSource {
                 dispatcher: dispatcher,
                 store: store,
                 repoCache: repoCache,
+                focus: focus,
                 groupName: Group.commands,
                 priority: Priority.commands))
         items.append(contentsOf: worktreeItems(store: store))
@@ -228,24 +247,29 @@ enum CommandBarDataSource {
     // MARK: - Command Items
 
     /// Visible command definitions, filtered once.
-    private static func visibleCommands(dispatcher: CommandDispatcher) -> [CommandDefinition] {
-        dispatcher.definitions.values.filter { !isHiddenCommand($0.command) }
+    private static func visibleCommands(
+        dispatcher: CommandDispatcher,
+        focus: WorkspaceFocus
+    ) -> [CommandDefinition] {
+        dispatcher.definitions.values.filter {
+            !$0.isHiddenInCommandBar && $0.isVisible(in: focus)
+        }
     }
 
     /// Commands grouped by category (for `.commands` scope).
     private static func commandItems(
         dispatcher: CommandDispatcher,
         store: WorkspaceStore,
-        repoCache: RepoCacheAtom
+        repoCache: RepoCacheAtom,
+        focus: WorkspaceFocus
     ) -> [CommandBarItem] {
-        visibleCommands(dispatcher: dispatcher)
+        visibleCommands(dispatcher: dispatcher, focus: focus)
             .sorted { $0.command.rawValue < $1.command.rawValue }
             .map { def in
-                let (groupName, groupPriority) = commandGroup(for: def.command)
-                return commandItem(
+                commandItem(
                     from: def,
-                    groupName: groupName,
-                    groupPriority: groupPriority,
+                    groupName: def.commandBarGroupName,
+                    groupPriority: def.commandBarGroupPriority,
                     store: store,
                     repoCache: repoCache
                 )
@@ -257,10 +281,11 @@ enum CommandBarDataSource {
         dispatcher: CommandDispatcher,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
+        focus: WorkspaceFocus,
         groupName: String,
         priority: Int
     ) -> [CommandBarItem] {
-        visibleCommands(dispatcher: dispatcher)
+        visibleCommands(dispatcher: dispatcher, focus: focus)
             .sorted { $0.label < $1.label }
             .map {
                 commandItem(
@@ -821,53 +846,11 @@ enum CommandBarDataSource {
         )
     }
 
-    private static func isHiddenCommand(_ command: AppCommand) -> Bool {
-        switch command {
-        case .selectTab, .focusPane:
-            return true
-        case .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
-            .selectTab6, .selectTab7, .selectTab8, .selectTab9,
-            .quickFind, .commandBar,
-            .newWindow, .closeWindow,
-            // OAuth sign-in commands hidden until real client IDs are configured.
-            // These will use ASWebAuthenticationSession to authenticate in Safari
-            // (where 1Password works), then inject session cookies into WKWebView.
-            .signInGitHub, .signInGoogle:
-            return true
-        default:
-            return false
-        }
-    }
-
-    private static func commandGroup(for command: AppCommand) -> (name: String, priority: Int) {
-        switch command {
-        case .closePane, .extractPaneToTab, .movePaneToTab, .splitRight, .splitBelow, .splitLeft, .splitAbove,
-            .equalizePanes, .toggleSplitZoom,
-            .addDrawerPane, .toggleDrawer, .navigateDrawerPane, .closeDrawerPane:
-            return (Group.paneCommands, 0)
-        case .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
-            .focusNextPane, .focusPrevPane:
-            return (Group.focusCommands, 1)
-        case .closeTab, .breakUpTab, .newTerminalInTab, .nextTab, .prevTab,
-            .switchArrangement, .saveArrangement, .deleteArrangement, .renameArrangement:
-            return (Group.tabCommands, 2)
-        case .addRepo, .addFolder, .removeRepo, .openWorktree, .openWorktreeInPane, .openNewTerminalInTab:
-            return (Group.repoCommands, 3)
-        case .toggleSidebar, .newFloatingTerminal, .filterSidebar:
-            return (Group.windowCommands, 4)
-        case .openWebview:
-            return (Group.webviewCommands, 5)
-        case .signInGitHub, .signInGoogle:
-            return (Group.authCommands, 6)
-        default:
-            return (Group.commands, 7)
-        }
-    }
-
     private static func commandKeywords(for def: CommandDefinition) -> [String] {
         var keywords: [String] = []
         // Split label into words for broader matching
         keywords.append(contentsOf: def.label.split(separator: " ").map(String.init))
+        keywords.append(contentsOf: def.helpText.split(separator: " ").map(String.init))
         keywords.append(def.command.rawValue)
         return keywords
     }

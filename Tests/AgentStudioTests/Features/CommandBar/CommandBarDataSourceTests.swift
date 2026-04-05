@@ -20,6 +20,37 @@ struct CommandBarDataSourceTests {
         RepoCacheAtom()
     }
 
+    private func makeRichCommandStore() -> WorkspaceStore {
+        let store = makeStore()
+        let repo = store.addRepo(at: URL(filePath: "/tmp/command-bar-rich-state"))
+        let worktree = Worktree(
+            repoId: repo.id,
+            name: "feature-rich",
+            path: URL(filePath: "/tmp/command-bar-rich-state/feature-rich")
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+
+        let paneA = store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Primary"
+        )
+        let paneB = store.createPane(source: .floating(launchDirectory: nil, title: "Secondary"))
+        var tab = Tab(paneId: paneA.id)
+        let namedArrangement = PaneArrangement(
+            name: "Review",
+            isDefault: false,
+            layout: tab.layout,
+            visiblePaneIds: Set(tab.activePaneIds)
+        )
+        tab.arrangements.append(namedArrangement)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+        store.insertPane(paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after)
+        _ = store.addDrawerPane(to: paneA.id)
+
+        return store
+    }
+
     // MARK: - Everything Scope
 
     @Test
@@ -94,7 +125,7 @@ struct CommandBarDataSourceTests {
 
     @Test
     func test_commandsScope_hasCorrectSubgroups() {
-        let store = makeStore()
+        let store = makeRichCommandStore()
 
         // Act
         let items = CommandBarDataSource.items(
@@ -107,6 +138,26 @@ struct CommandBarDataSourceTests {
         #expect(groups.contains("Tab"))
         #expect(groups.contains("Repo"))
         #expect(groups.contains("Window"))
+        #expect(groups.contains("Webview"))
+    }
+
+    @Test
+    func test_commandsScope_emptyWorkspaceHidesPaneAndTabSpecificCommands() {
+        let store = makeStore()
+
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
+        let ids = Set(items.map(\.id))
+
+        #expect(!ids.contains("cmd-closePane"))
+        #expect(!ids.contains("cmd-addDrawerPane"))
+        #expect(!ids.contains("cmd-closeTab"))
+        #expect(!ids.contains("cmd-switchArrangement"))
+        #expect(!ids.contains("cmd-deleteArrangement"))
+        #expect(!ids.contains("cmd-renameArrangement"))
+        #expect(!ids.contains("cmd-saveArrangement"))
+        #expect(ids.contains("cmd-newTab"))
+        #expect(ids.contains("cmd-addRepo"))
     }
 
     @Test
@@ -500,7 +551,7 @@ struct CommandBarDataSourceTests {
 
     @Test
     func test_commandsScope_includesArrangementCommands() {
-        let store = makeStore()
+        let store = makeRichCommandStore()
 
         // Act
         let items = CommandBarDataSource.items(
@@ -516,7 +567,7 @@ struct CommandBarDataSourceTests {
 
     @Test
     func test_commandsScope_arrangementCommandsInTabGroup() {
-        let store = makeStore()
+        let store = makeRichCommandStore()
 
         // Act
         let items = CommandBarDataSource.items(
@@ -536,7 +587,14 @@ struct CommandBarDataSourceTests {
         // Arrange — need a tab with arrangements for drill-in to work
         let store = makeStore()
         let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let tab = Tab(paneId: pane.id)
+        var tab = Tab(paneId: pane.id)
+        let namedArrangement = PaneArrangement(
+            name: "Review",
+            isDefault: false,
+            layout: tab.layout,
+            visiblePaneIds: Set(tab.activePaneIds)
+        )
+        tab.arrangements.append(namedArrangement)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
@@ -733,13 +791,13 @@ struct CommandBarDataSourceTests {
 
     @Test
     func test_commandsScope_includesDrawerCommands() {
-        let store = makeStore()
+        let store = makeRichCommandStore()
 
         // Act
         let items = CommandBarDataSource.items(
             scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
-        // Assert — all four drawer commands should appear
+        // Assert — all four drawer commands should appear once the active pane has drawer state
         let ids = items.map(\.id)
         #expect(ids.contains("cmd-addDrawerPane"))
         #expect(ids.contains("cmd-toggleDrawer"))
@@ -749,7 +807,7 @@ struct CommandBarDataSourceTests {
 
     @Test
     func test_commandsScope_drawerCommandsInPaneGroup() {
-        let store = makeStore()
+        let store = makeRichCommandStore()
 
         // Act
         let items = CommandBarDataSource.items(

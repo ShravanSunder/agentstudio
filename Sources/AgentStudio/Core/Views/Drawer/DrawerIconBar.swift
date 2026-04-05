@@ -11,6 +11,40 @@ struct TrapezoidConnector: Shape {
     }
 }
 
+private struct DrawerHoverTooltip: View {
+    static let verticalOffset: CGFloat = -28
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: AppStyle.textXs, weight: .medium))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.98))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.white.opacity(AppStyle.fillActive), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
+            .fixedSize()
+    }
+}
+
+extension View {
+    fileprivate func drawerTooltip(_ text: String, isVisible: Bool) -> some View {
+        self.overlay(alignment: .top) {
+            if isVisible {
+                DrawerHoverTooltip(text: text)
+                    .offset(y: DrawerHoverTooltip.verticalOffset)
+            }
+        }
+    }
+}
+
 // MARK: - DrawerIconBar
 
 /// Icon bar at the bottom of a pane showing drawer controls.
@@ -35,6 +69,11 @@ struct DrawerIconBar: View {
     }
 
     var body: some View {
+        let togglePresentation = LocalActionPresentation.toggleDrawer(isExpanded: isExpanded).presentation
+        let addPresentation = LocalActionPresentation.addDrawerPane.presentation
+        let finderPresentation = LocalActionPresentation.openPaneLocationInFinder.presentation
+        let editorPresentation = LocalActionPresentation.openPaneLocationInPreferredEditor.presentation
+
         VStack(spacing: 0) {
             // Icon strip: [toggle] | [+]
             HStack(spacing: 2) {
@@ -61,7 +100,8 @@ struct DrawerIconBar: View {
                         isToggleHovered = hovering
                     }
                 }
-                .help(isExpanded ? "Collapse drawer" : "Expand drawer")
+                .drawerTooltip(togglePresentation.helpText, isVisible: isToggleHovered)
+                .help(togglePresentation.helpText)
 
                 // Vertical divider
                 Divider()
@@ -86,7 +126,8 @@ struct DrawerIconBar: View {
                         isAddHovered = hovering
                     }
                 }
-                .help("Add drawer pane")
+                .drawerTooltip(addPresentation.helpText, isVisible: isAddHovered)
+                .help(addPresentation.helpText)
 
                 Spacer()
 
@@ -94,7 +135,7 @@ struct DrawerIconBar: View {
                     HStack(spacing: 6) {
                         trailingActionButton(
                             icon: .system(name: "macwindow"),
-                            helpText: "Open pane location in Finder",
+                            helpText: finderPresentation.helpText,
                             isHovered: isFinderHovered,
                             action: trailingActions.onOpenFinder
                         )
@@ -104,10 +145,11 @@ struct DrawerIconBar: View {
                                 isFinderHovered = hovering
                             }
                         }
+                        .drawerTooltip(finderPresentation.helpText, isVisible: isFinderHovered)
 
                         trailingActionButton(
                             icon: .octicon(name: "octicon-code-square"),
-                            helpText: "Open pane location in Cursor or VS Code",
+                            helpText: editorPresentation.helpText,
                             isHovered: isCursorHovered,
                             action: trailingActions.onOpenCursor
                         )
@@ -117,6 +159,7 @@ struct DrawerIconBar: View {
                                 isCursorHovered = hovering
                             }
                         }
+                        .drawerTooltip(editorPresentation.helpText, isVisible: isCursorHovered)
                     }
                 }
             }
@@ -173,6 +216,7 @@ struct EmptyDrawerBar: View {
     @State private var isHovered = false
 
     var body: some View {
+        let addPresentation = LocalActionPresentation.addDrawerPane.presentation
         HStack {
             Spacer()
             Button(action: onAdd) {
@@ -192,7 +236,8 @@ struct EmptyDrawerBar: View {
                     isHovered = hovering
                 }
             }
-            .help("Add drawer pane")
+            .drawerTooltip(addPresentation.helpText, isVisible: isHovered)
+            .help(addPresentation.helpText)
             Spacer()
         }
         .padding(.vertical, DrawerLayout.iconBarVerticalPadding)

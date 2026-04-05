@@ -265,7 +265,7 @@ struct PaneLeafContainer: View {
                             }
                             .buttonStyle(.plain)
                             .onHover { isMinimizeHovered = $0 }
-                            .help("Minimize pane")
+                            .help(AppCommand.minimizePane.definition.helpText)
 
                             Button {
                                 beginCloseTransition()
@@ -295,7 +295,7 @@ struct PaneLeafContainer: View {
                             }
                             .buttonStyle(.plain)
                             .onHover { isCloseHovered = $0 }
-                            .help("Close pane")
+                            .help(AppCommand.closePane.definition.helpText)
                             .disabled(isClosing)
 
                             Spacer()
@@ -315,7 +315,7 @@ struct PaneLeafContainer: View {
                                 paneEdgeButton(
                                     systemName: "plus",
                                     isHovered: isSplitHovered,
-                                    helpText: "Split right"
+                                    helpText: AppCommand.splitRight.definition.helpText
                                 ) {
                                     actionDispatcher.dispatch(
                                         .insertPane(
@@ -331,7 +331,7 @@ struct PaneLeafContainer: View {
                                 paneEdgeButton(
                                     systemName: "globe",
                                     isHovered: isBrowserHovered,
-                                    helpText: "Open GitHub for pane context"
+                                    helpText: LocalActionPresentation.openGitHubInNewTab.presentation.helpText
                                 ) {
                                     onOpenPaneGitHub(paneHost.id)
                                 }
@@ -358,11 +358,11 @@ struct PaneLeafContainer: View {
             .allowsHitTesting(!isClosing)
             .contextMenu {
                 if managementMode.isActive && !isDrawerChild {
-                    Button("Extract Pane to New Tab") {
+                    Button(LocalActionPresentation.extractPaneToNewTab.presentation.label) {
                         actionDispatcher.dispatch(.extractPaneToTab(tabId: tabId, paneId: paneHost.id))
                     }
 
-                    Menu("Move Pane to Tab") {
+                    Menu(LocalActionPresentation.movePaneToTabMenu.presentation.label) {
                         ForEach(movePaneDestinations, id: \.tabId) { destination in
                             Button(destination.title) {
                                 guard

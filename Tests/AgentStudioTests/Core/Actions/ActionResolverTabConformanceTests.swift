@@ -124,23 +124,6 @@ final class ActionResolverTabConformanceTests {
 
     @Test
 
-    func test_resolve_splitBelow_withTab_returnsNil() {
-        // Vertical splits disabled (drawers own bottom space)
-        // Arrange
-        let paneId = UUID()
-        let tab = Tab(paneId: paneId)
-
-        // Act
-        let result = ActionResolver.resolve(
-            command: .splitBelow, tabs: [tab], activeTabId: tab.id
-        )
-
-        // Assert
-        #expect((result) == nil)
-    }
-
-    @Test
-
     func test_resolve_nextTab_withTabs() {
         // Arrange
         let tab1 = Tab(paneId: UUID())
