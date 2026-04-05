@@ -107,10 +107,10 @@ struct WorkspaceLauncherProjectorTests {
 
         for index in 0..<20 {
             cache.recordRecentTarget(
-                .forWorktree(
-                    path: worktree.path.appending(path: "nested-\(index)"),
-                    worktree: worktree,
-                    repo: repo
+                .forCwd(
+                    worktree.path.appending(path: "nested-\(index)"),
+                    title: "nested-\(index)",
+                    subtitle: repo.name
                 )
             )
         }
