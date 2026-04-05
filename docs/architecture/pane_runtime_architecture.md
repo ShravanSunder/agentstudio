@@ -737,7 +737,7 @@ Sources are categorized by scope. Topology sources use `SystemEnvelope`; worktre
 | **Worktree** | FilesystemActor | Built-in | `WorktreeEnvelope` | `FilesystemEvent` (.filesChanged, .worktreeRegistered, .worktreeUnregistered) | ✅ Implemented |
 | **Worktree** | GitWorkingDirectoryProjector | Built-in | `WorktreeEnvelope` | `GitWorkingDirectoryEvent` (.snapshotChanged, .branchChanged, .originChanged, .worktreeDiscovered, .worktreeRemoved) | ✅ Implemented |
 | **App** | PaneCoordinator | Built-in | `SystemEnvelope` | `.lifecycle(.tabSwitched)` | ✅ Implemented |
-| **Repo** | ForgeActor | Service | `WorktreeEnvelope` | `ForgeEvent` (.pullRequestCountsChanged, .checksUpdated, .refreshFailed) | Future (LUNA-350) |
+| **Repo** | ForgeActor | Service | `WorktreeEnvelope` | `ForgeEvent` (.pullRequestCountsChanged, .checksUpdated, .refreshFailed) | ✅ Implemented |
 | **App** | Container service | Service | `WorktreeEnvelope` | Future: `ContainerEvent` | Future (plugin-based) |
 | **Pane** | Agent RPC channel | — | `PaneEnvelope` | Future: Contract 15 events | Deferred (LUNA-344) |
 
@@ -2962,7 +2962,7 @@ enum PaneFilesystemContextEvent: PaneKindEvent {
 
 ## Migration: NotificationCenter/DispatchQueue → AsyncStream/Event Bus
 
-The current codebase uses `NotificationCenter` and `DispatchQueue.main.async` for Ghostty C callback dispatch. This architecture replaces those mechanisms. This section documents the migration path — what changes, what stays, and what order.
+The historical codebase used `NotificationCenter` and `DispatchQueue.main.async` for Ghostty C callback dispatch. The current implementation has already moved the core routing path onto typed runtime events and `Task { @MainActor in ... }` hops; this section is retained as migration history so the old-to-new boundary stays inspectable.
 
 ### What Gets Replaced
 
