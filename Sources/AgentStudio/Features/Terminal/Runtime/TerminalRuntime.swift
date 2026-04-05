@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import os.log
@@ -10,6 +11,12 @@ final class TerminalRuntime: BusPostingPaneRuntime {
     let paneId: PaneId
     private(set) var metadata: PaneMetadata
     private(set) var lifecycle: PaneRuntimeLifecycle
+    private(set) var commandProgress: ProgressState?
+    private(set) var isReadOnly: Bool = false
+    private(set) var isSecureInput: Bool = false
+    private(set) var rendererHealthy: Bool = true
+    private(set) var cellSize: NSSize = .zero
+    private(set) var sizeConstraints: TerminalSizeConstraints?
     let capabilities: Set<PaneCapability>
 
     private let eventChannel: PaneRuntimeEventChannel
@@ -24,6 +31,7 @@ final class TerminalRuntime: BusPostingPaneRuntime {
         self.paneId = paneId
         self.metadata = metadata
         self.lifecycle = .created
+        self.commandProgress = nil
         self.capabilities = [.input, .resize, .search]
         self.eventChannel = PaneRuntimeEventChannel(
             clock: clock,
@@ -124,15 +132,63 @@ final class TerminalRuntime: BusPostingPaneRuntime {
         switch event {
         case .newTab, .closeTab, .gotoTab, .moveTab, .newSplit, .gotoSplit, .resizeSplit, .equalizeSplits,
             .toggleSplitZoom:
-            break
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
         case .titleChanged(let title):
             metadata.updateTitle(title)
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
         case .cwdChanged(let cwdPath):
             metadata.updateCWD(URL(fileURLWithPath: cwdPath))
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
         case .commandFinished, .bellRang, .scrollbarChanged, .unhandled:
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+        case .progressReportUpdated(let progressState):
+            commandProgress = progressState
+        case .readOnlyChanged(let isReadOnly):
+            self.isReadOnly = isReadOnly
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+        case .secureInputRequested(let mode):
+            let resolvedValue = resolvedSecureInputValue(for: mode)
+            isSecureInput = resolvedValue
+            emit(
+                .secureInputChanged(resolvedValue),
+                commandId: commandId,
+                correlationId: correlationId,
+                persistForReplay: true
+            )
+        case .secureInputChanged:
+            break
+        case .rendererHealthChanged(let healthy):
+            rendererHealthy = healthy
+        case .cellSizeChanged(let size):
+            cellSize = size
+        case .initialSizeChanged:
+            break
+        case .sizeLimitChanged(let constraints):
+            sizeConstraints = constraints
+        case .promptTitleRequested, .desktopNotificationRequested:
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
+        case .openURLRequested, .undoRequested, .redoRequested, .copyTitleToClipboardRequested, .deferred:
             break
         }
+    }
 
+    private func resolvedSecureInputValue(for mode: SecureInputMode) -> Bool {
+        switch mode {
+        case .on:
+            return true
+        case .off:
+            return false
+        case .toggle:
+            return !isSecureInput
+        }
+    }
+
+    private func emit(
+        _ event: GhosttyEvent,
+        commandId: UUID?,
+        correlationId: UUID?,
+        persistForReplay: Bool
+    ) {
         eventChannel.emit(
             paneId: paneId,
             metadata: metadata,
@@ -140,18 +196,8 @@ final class TerminalRuntime: BusPostingPaneRuntime {
             commandId: commandId,
             correlationId: correlationId,
             event: .terminal(event),
-            persistForReplay: shouldPersistForReplay(event)
+            persistForReplay: persistForReplay
         )
-    }
-
-    private func shouldPersistForReplay(_ event: GhosttyEvent) -> Bool {
-        switch event {
-        case .newTab, .closeTab, .gotoTab, .moveTab, .newSplit, .gotoSplit, .resizeSplit, .equalizeSplits,
-            .toggleSplitZoom:
-            return false
-        case .titleChanged, .cwdChanged, .commandFinished, .bellRang, .scrollbarChanged, .unhandled:
-            return true
-        }
     }
 
     private func requiredCapability(for command: TerminalCommand) -> PaneCapability? {

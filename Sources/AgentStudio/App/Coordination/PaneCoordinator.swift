@@ -407,7 +407,10 @@ final class PaneCoordinator {
             Self.logger.debug(
                 "Terminal bell event received for pane \(sourcePaneUUID.uuidString, privacy: .public)"
             )
-        case .scrollbarChanged, .unhandled:
+        case .progressReportUpdated, .readOnlyChanged, .secureInputRequested, .secureInputChanged,
+            .rendererHealthChanged, .cellSizeChanged, .initialSizeChanged, .sizeLimitChanged,
+            .promptTitleRequested, .desktopNotificationRequested, .openURLRequested, .undoRequested,
+            .redoRequested, .copyTitleToClipboardRequested, .scrollbarChanged, .deferred, .unhandled:
             Self.logger.debug(
                 "Terminal runtime event ignored by coordinator for pane \(sourcePaneUUID.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
             )
