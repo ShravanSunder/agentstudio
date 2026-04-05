@@ -17,10 +17,78 @@ extension Ghostty {
     /// SurfaceManager and TerminalRuntime on the main actor.
     enum ActionRouter {
         @MainActor private static var runtimeRegistryOverride: RuntimeRegistry = .shared
+        static let explicitlyRoutedTags: Set<GhosttyActionTag> = [
+            .newTab,
+            .ringBell,
+            .setTitle,
+            .pwd,
+            .newSplit,
+            .gotoSplit,
+            .resizeSplit,
+            .equalizeSplits,
+            .toggleSplitZoom,
+            .closeTab,
+            .gotoTab,
+            .moveTab,
+            .sizeLimit,
+            .initialSize,
+            .cellSize,
+            .desktopNotification,
+            .promptTitle,
+            .rendererHealth,
+            .secureInput,
+            .undo,
+            .redo,
+            .openURL,
+            .progressReport,
+            .commandFinished,
+            .readOnly,
+            .copyTitleToClipboard,
+        ]
+        static let deferredTags: Set<GhosttyActionTag> = [
+            .setTabTitle,
+            .scrollbar,
+            .render,
+            .mouseShape,
+            .mouseVisibility,
+            .mouseOverLink,
+            .keySequence,
+            .keyTable,
+            .colorChange,
+            .reloadConfig,
+            .configChange,
+            .startSearch,
+            .endSearch,
+            .searchTotal,
+            .searchSelected,
+        ]
+        static let interceptedTags: Set<GhosttyActionTag> = [
+            .quit,
+            .newWindow,
+            .closeAllWindows,
+            .toggleMaximize,
+            .toggleFullscreen,
+            .toggleTabOverview,
+            .toggleWindowDecorations,
+            .toggleQuickTerminal,
+            .toggleCommandPalette,
+            .toggleVisibility,
+            .toggleBackgroundOpacity,
+            .gotoWindow,
+            .presentTerminal,
+            .resetWindowSize,
+            .inspector,
+            .showGtkInspector,
+            .renderInspector,
+            .openConfig,
+            .quitTimer,
+            .floatWindow,
+            .closeWindow,
+            .checkForUpdates,
+            .showChildExited,
+            .showOnScreenKeyboard,
+        ]
 
-        // Exhaustive action-tag switch is intentionally long to guarantee compile-time
-        // coverage when Ghostty adds new action tags.
-        // swiftlint:disable function_body_length
         static func handleAction(
             _ appPtr: ghostty_app_t,
             target: ghostty_target_s,
@@ -42,48 +110,120 @@ extension Ghostty {
         ) -> Bool {
             let rawActionTag = UInt32(truncatingIfNeeded: action.tag.rawValue)
             guard let actionTag = GhosttyActionTag(rawValue: rawActionTag) else {
-                return routeUnhandledAction(
+                logUnknownAction(actionTag: rawActionTag, target: target, routingLookupProvider: routingLookupProvider)
+                return false
+            }
+
+            if interceptedTags.contains(actionTag) {
+                return handleInterceptedAction(actionTag)
+            }
+
+            if deferredTags.contains(actionTag) {
+                return routeActionToTerminalRuntime(
                     actionTag: rawActionTag,
+                    payload: .noPayload,
                     target: target,
-                    routingLookupProvider: routingLookupProvider
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: false
                 )
             }
 
+            if let workspaceActionResult = handleWorkspaceAction(
+                actionTag,
+                rawActionTag: rawActionTag,
+                target: target,
+                action: action,
+                routingLookupProvider: routingLookupProvider
+            ) {
+                return workspaceActionResult
+            }
+
+            if let observedActionResult = handleObservedAction(
+                actionTag,
+                rawActionTag: rawActionTag,
+                target: target,
+                action: action,
+                routingLookupProvider: routingLookupProvider
+            ) {
+                return observedActionResult
+            }
+
+            preconditionFailure("Ghostty action tag \(actionTag) missing routing decision")
+        }
+
+        private static func handleInterceptedAction(_ actionTag: GhosttyActionTag) -> Bool {
             switch actionTag {
             case .quit:
-                // Don't quit - AgentStudio manages its own window lifecycle
-                // Ghostty sends this when all surfaces are closed, but we want to stay running
                 return true
-
             case .newWindow:
                 ghosttyLogger.debug(
                     "Ignoring Ghostty newWindow action because AgentStudio owns window lifecycle"
                 )
                 return true
+            case .closeAllWindows, .toggleMaximize, .toggleFullscreen, .toggleTabOverview,
+                .toggleWindowDecorations, .toggleQuickTerminal, .toggleCommandPalette, .toggleVisibility,
+                .toggleBackgroundOpacity, .gotoWindow, .presentTerminal, .resetWindowSize, .inspector,
+                .showGtkInspector, .renderInspector, .openConfig, .quitTimer, .floatWindow, .closeWindow,
+                .checkForUpdates, .showChildExited, .showOnScreenKeyboard:
+                return true
+            default:
+                return false
+            }
+        }
 
-            case .newTab:
-                return routeActionToTerminalRuntime(
-                    actionTag: rawActionTag,
-                    payload: .noPayload,
-                    target: target,
-                    routingLookupProvider: routingLookupProvider
-                )
+        private static func handleWorkspaceAction(
+            _ actionTag: GhosttyActionTag,
+            rawActionTag: UInt32,
+            target: ghostty_target_s,
+            action: ghostty_action_s,
+            routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider
+        ) -> Bool? {
+            if let metadataAction = handleMetadataAction(
+                actionTag,
+                rawActionTag: rawActionTag,
+                target: target,
+                action: action,
+                routingLookupProvider: routingLookupProvider
+            ) {
+                return metadataAction
+            }
 
-            case .ringBell:
-                return routeActionToTerminalRuntime(
-                    actionTag: rawActionTag,
-                    payload: .noPayload,
-                    target: target,
-                    routingLookupProvider: routingLookupProvider
-                )
+            if let splitAction = handleSplitAction(
+                actionTag,
+                rawActionTag: rawActionTag,
+                target: target,
+                action: action,
+                routingLookupProvider: routingLookupProvider
+            ) {
+                return splitAction
+            }
 
+            if let tabAction = handleTabAction(
+                actionTag,
+                rawActionTag: rawActionTag,
+                target: target,
+                action: action,
+                routingLookupProvider: routingLookupProvider
+            ) {
+                return tabAction
+            }
+
+            return nil
+        }
+
+        private static func handleMetadataAction(
+            _ actionTag: GhosttyActionTag,
+            rawActionTag: UInt32,
+            target: ghostty_target_s,
+            action: ghostty_action_s,
+            routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider
+        ) -> Bool? {
+            switch actionTag {
             case .setTitle:
                 guard let titlePtr = action.action.set_title.title else {
-                    return routeUnhandledAction(
-                        actionTag: rawActionTag,
-                        target: target,
-                        routingLookupProvider: routingLookupProvider
-                    )
+                    logUnknownAction(
+                        actionTag: rawActionTag, target: target, routingLookupProvider: routingLookupProvider)
+                    return false
                 }
                 let title = String(cString: titlePtr)
                 if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface,
@@ -97,9 +237,9 @@ extension Ghostty {
                     actionTag: rawActionTag,
                     payload: .titleChanged(title),
                     target: target,
-                    routingLookupProvider: routingLookupProvider
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: true
                 )
-
             case .pwd:
                 let resolvedPwd = action.action.pwd.pwd.map { String(cString: $0) }
                 if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface,
@@ -110,35 +250,46 @@ extension Ghostty {
                     }
                 }
                 guard let cwdPath = resolvedPwd else {
-                    return routeUnhandledAction(
-                        actionTag: rawActionTag,
-                        target: target,
-                        routingLookupProvider: routingLookupProvider
-                    )
+                    logUnknownAction(
+                        actionTag: rawActionTag, target: target, routingLookupProvider: routingLookupProvider)
+                    return false
                 }
                 return routeActionToTerminalRuntime(
                     actionTag: rawActionTag,
                     payload: .cwdChanged(cwdPath),
                     target: target,
-                    routingLookupProvider: routingLookupProvider
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: true
                 )
+            default:
+                return nil
+            }
+        }
 
+        private static func handleSplitAction(
+            _ actionTag: GhosttyActionTag,
+            rawActionTag: UInt32,
+            target: ghostty_target_s,
+            action: ghostty_action_s,
+            routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider
+        ) -> Bool? {
+            switch actionTag {
             case .newSplit:
                 return routeActionToTerminalRuntime(
                     actionTag: rawActionTag,
                     payload: .newSplit(directionRawValue: action.action.new_split.rawValue),
                     target: target,
-                    routingLookupProvider: routingLookupProvider
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: true
                 )
-
             case .gotoSplit:
                 return routeActionToTerminalRuntime(
                     actionTag: rawActionTag,
                     payload: .gotoSplit(directionRawValue: action.action.goto_split.rawValue),
                     target: target,
-                    routingLookupProvider: routingLookupProvider
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: true
                 )
-
             case .resizeSplit:
                 return routeActionToTerminalRuntime(
                     actionTag: rawActionTag,
@@ -147,47 +298,69 @@ extension Ghostty {
                         directionRawValue: action.action.resize_split.direction.rawValue
                     ),
                     target: target,
-                    routingLookupProvider: routingLookupProvider
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: true
                 )
-
             case .equalizeSplits:
                 return routeActionToTerminalRuntime(
                     actionTag: rawActionTag,
                     payload: .noPayload,
                     target: target,
-                    routingLookupProvider: routingLookupProvider
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: true
                 )
-
             case .toggleSplitZoom:
                 return routeActionToTerminalRuntime(
                     actionTag: rawActionTag,
                     payload: .noPayload,
                     target: target,
-                    routingLookupProvider: routingLookupProvider
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: true
                 )
+            default:
+                return nil
+            }
+        }
 
+        private static func handleTabAction(
+            _ actionTag: GhosttyActionTag,
+            rawActionTag: UInt32,
+            target: ghostty_target_s,
+            action: ghostty_action_s,
+            routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider
+        ) -> Bool? {
+            switch actionTag {
+            case .newTab, .ringBell:
+                return routeActionToTerminalRuntime(
+                    actionTag: rawActionTag,
+                    payload: .noPayload,
+                    target: target,
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: true
+                )
             case .closeTab:
                 return routeActionToTerminalRuntime(
                     actionTag: rawActionTag,
                     payload: .closeTab(modeRawValue: action.action.close_tab_mode.rawValue),
                     target: target,
-                    routingLookupProvider: routingLookupProvider
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: true
                 )
-
             case .gotoTab:
                 return routeActionToTerminalRuntime(
                     actionTag: rawActionTag,
                     payload: .gotoTab(targetRawValue: action.action.goto_tab.rawValue),
                     target: target,
-                    routingLookupProvider: routingLookupProvider
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: true
                 )
-
             case .moveTab:
                 return routeActionToTerminalRuntime(
                     actionTag: rawActionTag,
                     payload: .moveTab(amount: Int(action.action.move_tab.amount)),
                     target: target,
-                    routingLookupProvider: routingLookupProvider
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: true
                 )
             case .commandFinished:
                 return routeActionToTerminalRuntime(
@@ -197,39 +370,233 @@ extension Ghostty {
                         duration: action.action.command_finished.duration
                     ),
                     target: target,
-                    routingLookupProvider: routingLookupProvider
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: true
+                )
+            default:
+                return nil
+            }
+        }
+
+        private static func handleObservedAction(
+            _ actionTag: GhosttyActionTag,
+            rawActionTag: UInt32,
+            target: ghostty_target_s,
+            action: ghostty_action_s,
+            routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider
+        ) -> Bool? {
+            if let sizeAction = handleObservedSizeAction(
+                actionTag,
+                rawActionTag: rawActionTag,
+                target: target,
+                action: action,
+                routingLookupProvider: routingLookupProvider
+            ) {
+                return sizeAction
+            }
+
+            if let requestAction = handleObservedRequestAction(
+                actionTag,
+                rawActionTag: rawActionTag,
+                target: target,
+                action: action,
+                routingLookupProvider: routingLookupProvider
+            ) {
+                return requestAction
+            }
+
+            if let passthroughAction = handleObservedPassthroughAction(
+                actionTag,
+                rawActionTag: rawActionTag,
+                target: target,
+                action: action,
+                routingLookupProvider: routingLookupProvider
+            ) {
+                return passthroughAction
+            }
+
+            return nil
+        }
+
+        private static func handleObservedSizeAction(
+            _ actionTag: GhosttyActionTag,
+            rawActionTag: UInt32,
+            target: ghostty_target_s,
+            action: ghostty_action_s,
+            routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider
+        ) -> Bool? {
+            switch actionTag {
+            case .setTabTitle:
+                return routeActionToTerminalRuntime(
+                    actionTag: rawActionTag,
+                    payload: .noPayload,
+                    target: target,
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: false
+                )
+            case .sizeLimit:
+                return routeActionToTerminalRuntime(
+                    actionTag: rawActionTag,
+                    payload: .sizeLimitChanged(
+                        minWidth: action.action.size_limit.min_width,
+                        minHeight: action.action.size_limit.min_height,
+                        maxWidth: action.action.size_limit.max_width,
+                        maxHeight: action.action.size_limit.max_height
+                    ),
+                    target: target,
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: false
                 )
             case .initialSize:
                 updateReportedSurfaceSize(target: target, action: action, kind: .initial)
-                return routeUnhandledAction(
+                return routeActionToTerminalRuntime(
                     actionTag: rawActionTag,
+                    payload: .initialSizeChanged(
+                        width: action.action.initial_size.width,
+                        height: action.action.initial_size.height
+                    ),
                     target: target,
-                    routingLookupProvider: routingLookupProvider
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: false
                 )
             case .cellSize:
                 updateReportedSurfaceSize(target: target, action: action, kind: .cell)
-                return routeUnhandledAction(
+                return routeActionToTerminalRuntime(
                     actionTag: rawActionTag,
+                    payload: .cellSizeChanged(
+                        width: action.action.cell_size.width,
+                        height: action.action.cell_size.height
+                    ),
                     target: target,
-                    routingLookupProvider: routingLookupProvider
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: false
                 )
-            case .closeAllWindows, .toggleMaximize, .toggleFullscreen, .toggleTabOverview,
-                .toggleWindowDecorations, .toggleQuickTerminal, .toggleCommandPalette, .toggleVisibility,
-                .toggleBackgroundOpacity, .gotoWindow, .presentTerminal, .sizeLimit, .resetWindowSize,
-                .scrollbar, .render, .inspector, .showGtkInspector, .renderInspector,
-                .desktopNotification, .promptTitle, .mouseShape, .mouseVisibility, .mouseOverLink,
-                .rendererHealth, .openConfig, .quitTimer, .floatWindow, .secureInput, .keySequence, .keyTable,
-                .colorChange, .reloadConfig, .configChange, .closeWindow, .undo, .redo, .checkForUpdates,
-                .openURL, .showChildExited, .progressReport, .showOnScreenKeyboard,
-                .startSearch, .endSearch, .searchTotal, .searchSelected, .readOnly, .copyTitleToClipboard:
-                return routeUnhandledAction(
-                    actionTag: rawActionTag,
-                    target: target,
-                    routingLookupProvider: routingLookupProvider
-                )
+            default:
+                return nil
             }
         }
-        // swiftlint:enable function_body_length
+
+        private static func handleObservedRequestAction(
+            _ actionTag: GhosttyActionTag,
+            rawActionTag: UInt32,
+            target: ghostty_target_s,
+            action: ghostty_action_s,
+            routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider
+        ) -> Bool? {
+            switch actionTag {
+            case .desktopNotification:
+                guard
+                    let titlePointer = action.action.desktop_notification.title,
+                    let bodyPointer = action.action.desktop_notification.body
+                else {
+                    logUnknownAction(
+                        actionTag: rawActionTag, target: target, routingLookupProvider: routingLookupProvider)
+                    return false
+                }
+                return routeActionToTerminalRuntime(
+                    actionTag: rawActionTag,
+                    payload: .desktopNotification(
+                        title: String(cString: titlePointer),
+                        body: String(cString: bodyPointer)
+                    ),
+                    target: target,
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: false
+                )
+            case .promptTitle:
+                return routeActionToTerminalRuntime(
+                    actionTag: rawActionTag,
+                    payload: .promptTitle(
+                        scopeRawValue: UInt32(truncatingIfNeeded: action.action.prompt_title.rawValue)
+                    ),
+                    target: target,
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: false
+                )
+            case .rendererHealth:
+                return routeActionToTerminalRuntime(
+                    actionTag: rawActionTag,
+                    payload: .rendererHealth(
+                        rawValue: UInt32(truncatingIfNeeded: action.action.renderer_health.rawValue)
+                    ),
+                    target: target,
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: false
+                )
+            case .secureInput:
+                return routeActionToTerminalRuntime(
+                    actionTag: rawActionTag,
+                    payload: .secureInput(
+                        modeRawValue: UInt32(truncatingIfNeeded: action.action.secure_input.rawValue)
+                    ),
+                    target: target,
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: false
+                )
+            case .openURL:
+                guard let urlPointer = action.action.open_url.url else {
+                    logUnknownAction(
+                        actionTag: rawActionTag, target: target, routingLookupProvider: routingLookupProvider)
+                    return false
+                }
+                let urlData = Data(bytes: urlPointer, count: Int(action.action.open_url.len))
+                let url = String(data: urlData, encoding: .utf8) ?? ""
+                return routeActionToTerminalRuntime(
+                    actionTag: rawActionTag,
+                    payload: .openURL(
+                        url: url,
+                        kindRawValue: UInt32(truncatingIfNeeded: action.action.open_url.kind.rawValue)
+                    ),
+                    target: target,
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: false
+                )
+            case .progressReport:
+                return routeActionToTerminalRuntime(
+                    actionTag: rawActionTag,
+                    payload: .progressReport(
+                        stateRawValue: UInt32(truncatingIfNeeded: action.action.progress_report.state.rawValue),
+                        progress: action.action.progress_report.progress
+                    ),
+                    target: target,
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: false
+                )
+            case .readOnly:
+                return routeActionToTerminalRuntime(
+                    actionTag: rawActionTag,
+                    payload: .readOnly(
+                        modeRawValue: UInt32(truncatingIfNeeded: action.action.readonly.rawValue)
+                    ),
+                    target: target,
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: false
+                )
+            default:
+                return nil
+            }
+        }
+
+        private static func handleObservedPassthroughAction(
+            _ actionTag: GhosttyActionTag,
+            rawActionTag: UInt32,
+            target: ghostty_target_s,
+            action _: ghostty_action_s,
+            routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider
+        ) -> Bool? {
+            switch actionTag {
+            case .undo, .redo, .copyTitleToClipboard:
+                return routeActionToTerminalRuntime(
+                    actionTag: rawActionTag,
+                    payload: .noPayload,
+                    target: target,
+                    routingLookupProvider: routingLookupProvider,
+                    handledResult: false
+                )
+            default:
+                return nil
+            }
+        }
 
         @MainActor
         static func setRuntimeRegistry(_ runtimeRegistry: RuntimeRegistry) {
@@ -289,11 +656,11 @@ extension Ghostty {
             }
         }
 
-        private static func routeUnhandledAction(
+        private static func logUnknownAction(
             actionTag: UInt32,
             target: ghostty_target_s,
             routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider
-        ) -> Bool {
+        ) {
             let targetTag = UInt32(truncatingIfNeeded: target.tag.rawValue)
             if target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface {
                 let surfacePointerDescription = String(UInt(bitPattern: surface))
@@ -323,45 +690,14 @@ extension Ghostty {
                     "Unhandled Ghostty action tag \(actionTag) targetTag=\(targetTag) paneId=none surfacePtr=none"
                 )
             }
-
-            guard shouldForwardUnhandledActionToRuntime(actionTag: actionTag) else {
-                return false
-            }
-            _ = routeActionToTerminalRuntime(
-                actionTag: actionTag,
-                payload: .noPayload,
-                target: target,
-                routingLookupProvider: routingLookupProvider
-            )
-            return false
-        }
-
-        static func shouldForwardUnhandledActionToRuntime(actionTag: UInt32) -> Bool {
-            guard let knownActionTag = GhosttyActionTag(rawValue: actionTag) else {
-                return true
-            }
-            switch knownActionTag {
-            case .render, .mouseShape, .mouseVisibility, .mouseOverLink, .scrollbar:
-                return false
-            case .quit, .newWindow, .newTab, .ringBell, .setTitle, .pwd, .newSplit, .gotoSplit, .resizeSplit,
-                .equalizeSplits, .toggleSplitZoom, .closeTab, .gotoTab, .moveTab, .closeAllWindows, .toggleMaximize,
-                .toggleFullscreen, .toggleTabOverview, .toggleWindowDecorations, .toggleQuickTerminal,
-                .toggleCommandPalette, .toggleVisibility, .toggleBackgroundOpacity, .gotoWindow, .presentTerminal,
-                .sizeLimit, .resetWindowSize, .initialSize, .cellSize, .inspector, .showGtkInspector,
-                .renderInspector, .desktopNotification, .promptTitle, .rendererHealth, .openConfig, .quitTimer,
-                .floatWindow, .secureInput, .keySequence, .keyTable, .colorChange, .reloadConfig, .configChange,
-                .closeWindow, .undo, .redo, .checkForUpdates, .openURL, .showChildExited, .progressReport,
-                .showOnScreenKeyboard, .commandFinished, .startSearch, .endSearch, .searchTotal, .searchSelected,
-                .readOnly, .copyTitleToClipboard:
-                return true
-            }
         }
 
         private static func routeActionToTerminalRuntime(
             actionTag: UInt32,
             payload: GhosttyAdapter.ActionPayload,
             target: ghostty_target_s,
-            routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider
+            routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider,
+            handledResult: Bool
         ) -> Bool {
             guard target.tag == GHOSTTY_TARGET_SURFACE, let surface = target.target.surface else {
                 ghosttyLogger.debug(
@@ -372,7 +708,7 @@ extension Ghostty {
 
             guard let resolvedSurfaceView = surfaceView(from: surface) else {
                 ghosttyLogger.warning("Dropped action tag \(actionTag): no surface view for callback target")
-                return true
+                return handledResult
             }
 
             let surfaceViewObjectId = ObjectIdentifier(resolvedSurfaceView)
@@ -387,7 +723,7 @@ extension Ghostty {
                     routingLookup: routingLookup
                 )
             }
-            return true
+            return handledResult
         }
 
         @MainActor

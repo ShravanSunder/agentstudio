@@ -45,20 +45,20 @@ struct GhosttyActionRouterTests {
         #expect(!routed)
     }
 
-    @Test("high-frequency visual tags are not forwarded when unhandled")
-    func shouldForwardUnhandledActionToRuntime_filtersVisualTags() {
+    @Test("deferred tags capture high-frequency and feature-gated actions explicitly")
+    func deferredTags_coverVisualAndFeatureGatedActions() {
         #expect(
-            !Ghostty.ActionRouter.shouldForwardUnhandledActionToRuntime(
-                actionTag: UInt32(GHOSTTY_ACTION_RENDER.rawValue)
-            ))
+            Ghostty.ActionRouter.deferredTags.contains(.render)
+        )
         #expect(
-            !Ghostty.ActionRouter.shouldForwardUnhandledActionToRuntime(
-                actionTag: UInt32(GHOSTTY_ACTION_MOUSE_SHAPE.rawValue)
-            ))
+            Ghostty.ActionRouter.deferredTags.contains(.mouseShape)
+        )
         #expect(
-            Ghostty.ActionRouter.shouldForwardUnhandledActionToRuntime(
-                actionTag: UInt32(GHOSTTY_ACTION_OPEN_CONFIG.rawValue)
-            ))
+            Ghostty.ActionRouter.deferredTags.contains(.setTabTitle)
+        )
+        #expect(
+            Ghostty.ActionRouter.deferredTags.contains(.startSearch)
+        )
     }
 
     @Test("routing returns false when surface has no pane mapping")

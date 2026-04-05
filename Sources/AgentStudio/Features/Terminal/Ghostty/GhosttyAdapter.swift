@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import GhosttyKit
 import os.log
@@ -8,6 +9,51 @@ private let ghosttyAdapterLogger = Logger(subsystem: "com.agentstudio", category
 /// domain events consumed by TerminalRuntime.
 @MainActor
 final class GhosttyAdapter {
+    private static let deferredTags: Set<GhosttyActionTag> = [
+        .setTabTitle,
+        .scrollbar,
+        .render,
+        .mouseShape,
+        .mouseVisibility,
+        .mouseOverLink,
+        .keySequence,
+        .keyTable,
+        .colorChange,
+        .reloadConfig,
+        .configChange,
+        .startSearch,
+        .endSearch,
+        .searchTotal,
+        .searchSelected,
+    ]
+
+    private static let interceptOnlyTags: Set<GhosttyActionTag> = [
+        .quit,
+        .newWindow,
+        .closeAllWindows,
+        .toggleMaximize,
+        .toggleFullscreen,
+        .toggleTabOverview,
+        .toggleWindowDecorations,
+        .toggleQuickTerminal,
+        .toggleCommandPalette,
+        .toggleVisibility,
+        .toggleBackgroundOpacity,
+        .gotoWindow,
+        .presentTerminal,
+        .resetWindowSize,
+        .inspector,
+        .showGtkInspector,
+        .renderInspector,
+        .openConfig,
+        .quitTimer,
+        .floatWindow,
+        .closeWindow,
+        .checkForUpdates,
+        .showChildExited,
+        .showOnScreenKeyboard,
+    ]
+
     enum ActionPayload: Sendable, Equatable {
         case noPayload
         case titleChanged(String)
@@ -19,6 +65,16 @@ final class GhosttyAdapter {
         case newSplit(directionRawValue: UInt32)
         case gotoSplit(directionRawValue: UInt32)
         case resizeSplit(amount: UInt16, directionRawValue: UInt32)
+        case progressReport(stateRawValue: UInt32, progress: Int8)
+        case readOnly(modeRawValue: UInt32)
+        case secureInput(modeRawValue: UInt32)
+        case rendererHealth(rawValue: UInt32)
+        case cellSizeChanged(width: UInt32, height: UInt32)
+        case initialSizeChanged(width: UInt32, height: UInt32)
+        case sizeLimitChanged(minWidth: UInt32, minHeight: UInt32, maxWidth: UInt32, maxHeight: UInt32)
+        case promptTitle(scopeRawValue: UInt32)
+        case desktopNotification(title: String, body: String)
+        case openURL(url: String, kindRawValue: UInt32)
     }
 
     static let shared = GhosttyAdapter()
@@ -39,44 +95,37 @@ final class GhosttyAdapter {
         actionTag: GhosttyActionTag,
         payload: ActionPayload = .noPayload
     ) -> GhosttyEvent {
-        switch actionTag {
-        case .ringBell:
-            return .bellRang
-        case .setTitle:
-            return translateSetTitle(payload: payload, actionTag: actionTag)
-        case .pwd:
-            return translatePwd(payload: payload, actionTag: actionTag)
-        case .commandFinished:
-            return translateCommandFinished(payload: payload, actionTag: actionTag)
-        case .newTab:
-            return .newTab
-        case .closeTab:
-            return translateCloseTab(payload: payload, actionTag: actionTag)
-        case .gotoTab:
-            return translateGotoTab(payload: payload, actionTag: actionTag)
-        case .moveTab:
-            return translateMoveTab(payload: payload, actionTag: actionTag)
-        case .newSplit:
-            return translateNewSplit(payload: payload, actionTag: actionTag)
-        case .gotoSplit:
-            return translateGotoSplit(payload: payload, actionTag: actionTag)
-        case .resizeSplit:
-            return translateResizeSplit(payload: payload, actionTag: actionTag)
-        case .equalizeSplits:
-            return .equalizeSplits
-        case .toggleSplitZoom:
-            return .toggleSplitZoom
-        case .quit, .newWindow, .closeAllWindows, .toggleMaximize, .toggleFullscreen,
-            .toggleTabOverview, .toggleWindowDecorations, .toggleQuickTerminal, .toggleCommandPalette,
-            .toggleVisibility, .toggleBackgroundOpacity, .gotoWindow, .presentTerminal, .sizeLimit,
-            .resetWindowSize, .initialSize, .cellSize, .scrollbar, .render, .inspector, .showGtkInspector,
-            .renderInspector, .desktopNotification, .promptTitle, .mouseShape, .mouseVisibility, .mouseOverLink,
-            .rendererHealth, .openConfig, .quitTimer, .floatWindow, .secureInput, .keySequence, .keyTable,
-            .colorChange, .reloadConfig, .configChange, .closeWindow, .undo, .redo, .checkForUpdates, .openURL,
-            .showChildExited, .progressReport, .showOnScreenKeyboard, .startSearch, .endSearch,
-            .searchTotal, .searchSelected, .readOnly, .copyTitleToClipboard:
+        if Self.deferredTags.contains(actionTag) {
+            return .deferred(tag: actionTag.rawValue)
+        }
+
+        if Self.interceptOnlyTags.contains(actionTag) {
             return .unhandled(tag: actionTag.rawValue)
         }
+
+        if let coreEvent = translateCoreAction(actionTag: actionTag, payload: payload) {
+            return coreEvent
+        }
+
+        if let observedEvent = translateObservedAction(actionTag: actionTag, payload: payload) {
+            return observedEvent
+        }
+
+        preconditionFailure("translate(actionTag:) missing routed case for \(actionTag)")
+    }
+
+    func route(
+        actionTag: UInt32,
+        payload: ActionPayload = .noPayload,
+        to runtime: TerminalRuntime
+    ) {
+        let event = translate(actionTag: actionTag, payload: payload)
+        if case .unhandled(let unhandledTag) = event {
+            ghosttyAdapterLogger.warning(
+                "Unhandled Ghostty action tag \(unhandledTag) payload=\(String(describing: payload), privacy: .public)"
+            )
+        }
+        runtime.handleGhosttyEvent(event)
     }
 
     private func translateSetTitle(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
@@ -193,18 +242,283 @@ final class GhosttyAdapter {
         return .resizeSplit(amount: amount, direction: direction)
     }
 
-    func route(
-        actionTag: UInt32,
-        payload: ActionPayload = .noPayload,
-        to runtime: TerminalRuntime
-    ) {
-        let event = translate(actionTag: actionTag, payload: payload)
-        if case .unhandled(let unhandledTag) = event {
-            ghosttyAdapterLogger.warning(
-                "Unhandled Ghostty action tag \(unhandledTag) payload=\(String(describing: payload), privacy: .public)"
+    private func translateProgressReport(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .progressReport(let stateRawValue, let progress) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".progressReport(stateRawValue: UInt32, progress: Int8)"
             )
         }
-        runtime.handleGhosttyEvent(event)
+
+        switch stateRawValue {
+        case UInt32(truncatingIfNeeded: GHOSTTY_PROGRESS_STATE_REMOVE.rawValue):
+            return .progressReportUpdated(nil)
+        case UInt32(truncatingIfNeeded: GHOSTTY_PROGRESS_STATE_SET.rawValue):
+            return .progressReportUpdated(ProgressState(kind: .set, percent: progressPercent(progress)))
+        case UInt32(truncatingIfNeeded: GHOSTTY_PROGRESS_STATE_ERROR.rawValue):
+            return .progressReportUpdated(ProgressState(kind: .error, percent: progressPercent(progress)))
+        case UInt32(truncatingIfNeeded: GHOSTTY_PROGRESS_STATE_INDETERMINATE.rawValue):
+            return .progressReportUpdated(
+                ProgressState(kind: .indeterminate, percent: progressPercent(progress))
+            )
+        case UInt32(truncatingIfNeeded: GHOSTTY_PROGRESS_STATE_PAUSE.rawValue):
+            return .progressReportUpdated(ProgressState(kind: .paused, percent: progressPercent(progress)))
+        default:
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: "known progress report state"
+            )
+        }
+    }
+
+    private func translateCoreAction(
+        actionTag: GhosttyActionTag,
+        payload: ActionPayload
+    ) -> GhosttyEvent? {
+        switch actionTag {
+        case .ringBell:
+            return .bellRang
+        case .setTitle:
+            return translateSetTitle(payload: payload, actionTag: actionTag)
+        case .pwd:
+            return translatePwd(payload: payload, actionTag: actionTag)
+        case .commandFinished:
+            return translateCommandFinished(payload: payload, actionTag: actionTag)
+        case .newTab:
+            return .newTab
+        case .closeTab:
+            return translateCloseTab(payload: payload, actionTag: actionTag)
+        case .gotoTab:
+            return translateGotoTab(payload: payload, actionTag: actionTag)
+        case .moveTab:
+            return translateMoveTab(payload: payload, actionTag: actionTag)
+        case .newSplit:
+            return translateNewSplit(payload: payload, actionTag: actionTag)
+        case .gotoSplit:
+            return translateGotoSplit(payload: payload, actionTag: actionTag)
+        case .resizeSplit:
+            return translateResizeSplit(payload: payload, actionTag: actionTag)
+        case .equalizeSplits:
+            return .equalizeSplits
+        case .toggleSplitZoom:
+            return .toggleSplitZoom
+        default:
+            return nil
+        }
+    }
+
+    private func translateObservedAction(
+        actionTag: GhosttyActionTag,
+        payload: ActionPayload
+    ) -> GhosttyEvent? {
+        switch actionTag {
+        case .sizeLimit:
+            return translateSizeLimit(payload: payload, actionTag: actionTag)
+        case .initialSize:
+            return translateInitialSize(payload: payload, actionTag: actionTag)
+        case .cellSize:
+            return translateCellSize(payload: payload, actionTag: actionTag)
+        case .desktopNotification:
+            return translateDesktopNotification(payload: payload, actionTag: actionTag)
+        case .promptTitle:
+            return translatePromptTitle(payload: payload, actionTag: actionTag)
+        case .rendererHealth:
+            return translateRendererHealth(payload: payload, actionTag: actionTag)
+        case .secureInput:
+            return translateSecureInput(payload: payload, actionTag: actionTag)
+        case .openURL:
+            return translateOpenURL(payload: payload, actionTag: actionTag)
+        case .progressReport:
+            return translateProgressReport(payload: payload, actionTag: actionTag)
+        case .readOnly:
+            return translateReadOnly(payload: payload, actionTag: actionTag)
+        case .undo:
+            return .undoRequested
+        case .redo:
+            return .redoRequested
+        case .copyTitleToClipboard:
+            return .copyTitleToClipboardRequested
+        default:
+            return nil
+        }
+    }
+
+    private func translateReadOnly(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .readOnly(let modeRawValue) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".readOnly(modeRawValue: UInt32)"
+            )
+        }
+
+        switch modeRawValue {
+        case UInt32(truncatingIfNeeded: GHOSTTY_READONLY_OFF.rawValue):
+            return .readOnlyChanged(false)
+        case UInt32(truncatingIfNeeded: GHOSTTY_READONLY_ON.rawValue):
+            return .readOnlyChanged(true)
+        default:
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: "known readonly mode"
+            )
+        }
+    }
+
+    private func translateSecureInput(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .secureInput(let modeRawValue) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".secureInput(modeRawValue: UInt32)"
+            )
+        }
+
+        switch modeRawValue {
+        case UInt32(truncatingIfNeeded: GHOSTTY_SECURE_INPUT_ON.rawValue):
+            return .secureInputRequested(.on)
+        case UInt32(truncatingIfNeeded: GHOSTTY_SECURE_INPUT_OFF.rawValue):
+            return .secureInputRequested(.off)
+        case UInt32(truncatingIfNeeded: GHOSTTY_SECURE_INPUT_TOGGLE.rawValue):
+            return .secureInputRequested(.toggle)
+        default:
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: "known secure input mode"
+            )
+        }
+    }
+
+    private func translateRendererHealth(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .rendererHealth(let rawValue) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".rendererHealth(rawValue: UInt32)"
+            )
+        }
+
+        switch rawValue {
+        case UInt32(truncatingIfNeeded: GHOSTTY_RENDERER_HEALTH_HEALTHY.rawValue):
+            return .rendererHealthChanged(healthy: true)
+        case UInt32(truncatingIfNeeded: GHOSTTY_RENDERER_HEALTH_UNHEALTHY.rawValue):
+            return .rendererHealthChanged(healthy: false)
+        default:
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: "known renderer health value"
+            )
+        }
+    }
+
+    private func translateCellSize(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .cellSizeChanged(let width, let height) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".cellSizeChanged(width: UInt32, height: UInt32)"
+            )
+        }
+
+        return .cellSizeChanged(
+            NSSize(width: Double(width), height: Double(height))
+        )
+    }
+
+    private func translateInitialSize(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .initialSizeChanged(let width, let height) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".initialSizeChanged(width: UInt32, height: UInt32)"
+            )
+        }
+
+        return .initialSizeChanged(
+            NSSize(width: Double(width), height: Double(height))
+        )
+    }
+
+    private func translateSizeLimit(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .sizeLimitChanged(let minWidth, let minHeight, let maxWidth, let maxHeight) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload:
+                    ".sizeLimitChanged(minWidth: UInt32, minHeight: UInt32, maxWidth: UInt32, maxHeight: UInt32)"
+            )
+        }
+
+        return .sizeLimitChanged(
+            TerminalSizeConstraints(
+                minWidth: minWidth,
+                minHeight: minHeight,
+                maxWidth: maxWidth,
+                maxHeight: maxHeight
+            )
+        )
+    }
+
+    private func translatePromptTitle(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .promptTitle(let scopeRawValue) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".promptTitle(scopeRawValue: UInt32)"
+            )
+        }
+
+        switch scopeRawValue {
+        case UInt32(truncatingIfNeeded: GHOSTTY_PROMPT_TITLE_SURFACE.rawValue):
+            return .promptTitleRequested(scope: .surface)
+        case UInt32(truncatingIfNeeded: GHOSTTY_PROMPT_TITLE_TAB.rawValue):
+            return .promptTitleRequested(scope: .tab)
+        default:
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: "known prompt title scope"
+            )
+        }
+    }
+
+    private func translateDesktopNotification(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .desktopNotification(let title, let body) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".desktopNotification(title: String, body: String)"
+            )
+        }
+
+        return .desktopNotificationRequested(title: title, body: body)
+    }
+
+    private func translateOpenURL(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .openURL(let url, let kindRawValue) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".openURL(url: String, kindRawValue: UInt32)"
+            )
+        }
+
+        let kind: OpenURLKind =
+            switch kindRawValue {
+            case UInt32(truncatingIfNeeded: GHOSTTY_ACTION_OPEN_URL_KIND_TEXT.rawValue):
+                .text
+            case UInt32(truncatingIfNeeded: GHOSTTY_ACTION_OPEN_URL_KIND_HTML.rawValue):
+                .html
+            default:
+                .unknown
+            }
+
+        return .openURLRequested(url: url, kind: kind)
     }
 
     private func closeTabMode(from rawValue: UInt32) -> GhosttyCloseTabMode? {
@@ -281,6 +595,10 @@ final class GhosttyAdapter {
         default:
             return nil
         }
+    }
+
+    private func progressPercent(_ rawProgress: Int8) -> UInt8? {
+        rawProgress >= 0 ? UInt8(rawProgress) : nil
     }
 
     private func payloadMismatch(

@@ -20,6 +20,19 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
     case commandFinished
     case cwdChanged
     case titleChanged
+    case progressReportUpdated
+    case readOnlyChanged
+    case secureInputChanged
+    case rendererHealthChanged
+    case cellSizeChanged
+    case initialSizeChanged
+    case sizeLimitChanged
+    case promptTitleRequested
+    case desktopNotificationRequested
+    case openURLRequested
+    case undoRequested
+    case redoRequested
+    case copyTitleToClipboardRequested
     case bellRang
     case scrollbarChanged
     case navigationCompleted
@@ -28,6 +41,7 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
     case hunkApproved
     case contentSaved
     case fileOpened
+    case deferred
     case unhandled
     case consoleMessage
     case allApproved
@@ -48,6 +62,19 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
         case .commandFinished: return "commandFinished"
         case .cwdChanged: return "cwdChanged"
         case .titleChanged: return "titleChanged"
+        case .progressReportUpdated: return "progressReportUpdated"
+        case .readOnlyChanged: return "readOnlyChanged"
+        case .secureInputChanged: return "secureInputChanged"
+        case .rendererHealthChanged: return "rendererHealthChanged"
+        case .cellSizeChanged: return "cellSizeChanged"
+        case .initialSizeChanged: return "initialSizeChanged"
+        case .sizeLimitChanged: return "sizeLimitChanged"
+        case .promptTitleRequested: return "promptTitleRequested"
+        case .desktopNotificationRequested: return "desktopNotificationRequested"
+        case .openURLRequested: return "openURLRequested"
+        case .undoRequested: return "undoRequested"
+        case .redoRequested: return "redoRequested"
+        case .copyTitleToClipboardRequested: return "copyTitleToClipboardRequested"
         case .bellRang: return "bellRang"
         case .scrollbarChanged: return "scrollbarChanged"
         case .navigationCompleted: return "navigationCompleted"
@@ -56,6 +83,7 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
         case .hunkApproved: return "hunkApproved"
         case .contentSaved: return "contentSaved"
         case .fileOpened: return "fileOpened"
+        case .deferred: return "deferred"
         case .unhandled: return "unhandled"
         case .consoleMessage: return "consoleMessage"
         case .allApproved: return "allApproved"
