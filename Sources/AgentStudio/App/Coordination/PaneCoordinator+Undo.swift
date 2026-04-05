@@ -29,8 +29,8 @@ extension PaneCoordinator {
         Self.logger.info("No entries to restore from undo stack")
     }
 
-    private func undoTabClose(_ snapshot: WorkspaceStore.TabCloseSnapshot) {
-        store.restoreFromSnapshot(snapshot)
+    private func undoTabClose(_ snapshot: WorkspaceMutationCoordinator.TabCloseSnapshot) {
+        store.mutationCoordinator.restoreFromSnapshot(snapshot)
         for pane in snapshot.panes {
             viewRegistry.ensureSlot(for: pane.id)
         }
@@ -70,15 +70,15 @@ extension PaneCoordinator {
 
         guard let restoredTab = store.tab(snapshot.tab.id), !restoredTab.panes.isEmpty else {
             Self.logger.error("undoTabClose: all panes failed for tab \(snapshot.tab.id); removing empty tab")
-            store.removeTab(snapshot.tab.id)
+            store.tabLayoutAtom.removeTab(snapshot.tab.id)
             return
         }
 
-        store.setActiveTab(snapshot.tab.id)
+        store.tabLayoutAtom.setActiveTab(snapshot.tab.id)
     }
 
-    private func undoPaneClose(_ snapshot: WorkspaceStore.PaneCloseSnapshot) {
-        store.restoreFromPaneSnapshot(snapshot)
+    private func undoPaneClose(_ snapshot: WorkspaceMutationCoordinator.PaneCloseSnapshot) {
+        store.mutationCoordinator.restoreFromPaneSnapshot(snapshot)
         for pane in [snapshot.pane] + snapshot.drawerChildPanes {
             viewRegistry.ensureSlot(for: pane.id)
         }
@@ -114,10 +114,10 @@ extension PaneCoordinator {
         guard let restoredTab = store.tab(snapshot.tabId), !restoredTab.panes.isEmpty else {
             Self.logger.error(
                 "undoPaneClose: no panes remain in tab \(snapshot.tabId) after restore cleanup; removing empty tab")
-            store.removeTab(snapshot.tabId)
+            store.tabLayoutAtom.removeTab(snapshot.tabId)
             return
         }
-        store.setActiveTab(snapshot.tabId)
+        store.tabLayoutAtom.setActiveTab(snapshot.tabId)
     }
 
     private func restoreUndoPane(
@@ -169,7 +169,7 @@ extension PaneCoordinator {
         Self.logger.warning(
             "recoverActiveArrangementIfNeeded: switched tab \(tabId) to non-empty arrangement \(fallbackArrangement.id)"
         )
-        store.switchArrangement(to: fallbackArrangement.id, inTab: tabId)
+        store.tabLayoutAtom.switchArrangement(to: fallbackArrangement.id, inTab: tabId)
     }
 
     private func removeFailedRestoredPane(_ paneId: UUID, fromTab tabId: UUID) {
@@ -181,7 +181,7 @@ extension PaneCoordinator {
 
         if pane.isDrawerChild, let parentPaneId = pane.parentPaneId {
             teardownView(for: paneId)
-            store.removeDrawerPane(paneId, from: parentPaneId)
+            store.paneAtom.removeDrawerPane(paneId, from: parentPaneId)
             viewRegistry.removeSlot(for: paneId)
             return
         }
@@ -189,8 +189,8 @@ extension PaneCoordinator {
         let drawerChildIds = pane.drawer?.paneIds ?? []
         teardownDrawerPanes(for: paneId)
         teardownView(for: paneId)
-        store.removePaneFromLayout(paneId, inTab: tabId)
-        store.removePane(paneId)
+        store.tabLayoutAtom.removePaneFromLayout(paneId, inTab: tabId)
+        store.mutationCoordinator.removePane(paneId)
         for drawerPaneId in drawerChildIds {
             viewRegistry.removeSlot(for: drawerPaneId)
         }

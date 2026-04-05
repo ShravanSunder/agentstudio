@@ -20,8 +20,6 @@ import Observation
 @MainActor
 @Observable
 final class ManagementModeMonitor {
-    static let shared = ManagementModeMonitor()
-
     /// Whether management mode is currently active
     private var managementMode: ManagementModeAtom { atom(\.managementMode) }
 

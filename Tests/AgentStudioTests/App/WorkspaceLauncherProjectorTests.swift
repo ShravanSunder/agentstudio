@@ -15,7 +15,13 @@ struct WorkspaceLauncherProjectorTests {
             .appending(path: "workspace-launcher-projector-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         persistor.ensureDirectory()
-        let store = WorkspaceStore(atom: AtomStore().workspace, persistor: persistor)
+        let atoms = AtomStore()
+        let store = WorkspaceStore(
+            catalogAtom: atoms.workspaceCatalog,
+            graphAtom: atoms.workspaceGraph,
+            interactionAtom: atoms.workspaceInteraction,
+            persistor: persistor
+        )
         store.restore()
         return store
     }
@@ -23,7 +29,11 @@ struct WorkspaceLauncherProjectorTests {
     @Test
     func project_noRepos_returnsFolderIntakeState() {
         withTestAtomStore { atoms in
-            let store = WorkspaceStore(atom: atoms.workspace)
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceCatalog,
+                graphAtom: atoms.workspaceGraph,
+                interactionAtom: atoms.workspaceInteraction
+            )
             let result = WorkspaceLauncherProjector.project(store: store)
 
             #expect(result.kind == .noFolders)
@@ -35,7 +45,11 @@ struct WorkspaceLauncherProjectorTests {
     @Test
     func project_reposButNoTabs_returnsLauncherStateWithEnrichedCards() {
         withTestAtomStore { atoms in
-            let store = WorkspaceStore(atom: atoms.workspace)
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceCatalog,
+                graphAtom: atoms.workspaceGraph,
+                interactionAtom: atoms.workspaceInteraction
+            )
             let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
             guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
                 Issue.record("Expected main worktree")
@@ -68,7 +82,11 @@ struct WorkspaceLauncherProjectorTests {
     @Test
     func project_reposAndTabsPresent_returnsEmptyLauncherModel() {
         withTestAtomStore { atoms in
-            let store = WorkspaceStore(atom: atoms.workspace)
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceCatalog,
+                graphAtom: atoms.workspaceGraph,
+                interactionAtom: atoms.workspaceInteraction
+            )
             let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
             guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
                 Issue.record("Expected main worktree")
@@ -93,7 +111,11 @@ struct WorkspaceLauncherProjectorTests {
     @Test
     func project_launcherCapsAtSixAndShowsOpenAllForTwoOrMoreTargets() {
         withTestAtomStore { atoms in
-            let store = WorkspaceStore(atom: atoms.workspace)
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceCatalog,
+                graphAtom: atoms.workspaceGraph,
+                interactionAtom: atoms.workspaceInteraction
+            )
             _ = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
 
             for index in 0..<8 {

@@ -37,6 +37,75 @@ final class WorkspaceStoreTests {
         #expect((store.activeTabId) == nil)
     }
 
+    @Test
+    func test_restore_loadedState_doesNotMarkDirtyOrScheduleDebouncedSave() async throws {
+        let persistedDir = FileManager.default.temporaryDirectory
+            .appending(path: "workspace-store-restore-tests-\(UUID().uuidString)")
+        let persistor = WorkspacePersistor(workspacesDir: persistedDir)
+        #expect(persistor.ensureDirectory())
+
+        let workspaceId = UUID()
+        let pane = Pane(
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(
+                source: .floating(launchDirectory: nil, title: nil),
+                title: "Restored"
+            )
+        )
+        let tab = Tab(paneId: pane.id)
+        try persistor.save(
+            .init(
+                id: workspaceId,
+                panes: [pane],
+                tabs: [tab],
+                activeTabId: tab.id
+            )
+        )
+
+        let clock = TestPushClock()
+        let restoredStore = WorkspaceStore(
+            persistor: persistor,
+            persistDebounceDuration: .milliseconds(1),
+            clock: clock
+        )
+
+        restoredStore.restore()
+        await Task.yield()
+
+        #expect(!restoredStore.isDirty)
+        #expect(clock.pendingSleepCount == 0)
+    }
+
+    @Test
+    func test_workspaceStore_readsAndPersistsTheProvidedLiveAtomScope() throws {
+        let persistor = WorkspacePersistor(workspacesDir: tempDir)
+        let atoms = AtomStore()
+        let scopedStore = WorkspaceStore(
+            catalogAtom: atoms.workspaceCatalog,
+            graphAtom: atoms.workspaceGraph,
+            interactionAtom: atoms.workspaceInteraction,
+            persistor: persistor
+        )
+
+        let pane = Pane(
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(
+                source: .floating(launchDirectory: nil, title: nil),
+                title: "Scoped"
+            )
+        )
+        atoms.workspaceGraph.addPane(pane)
+
+        #expect(scopedStore.graphAtom === atoms.workspaceGraph)
+        #expect(scopedStore.pane(pane.id)?.title == "Scoped")
+
+        #expect(scopedStore.flush())
+
+        let restoredStore = WorkspaceStore(persistor: persistor)
+        restoredStore.restore()
+        #expect(restoredStore.pane(pane.id)?.title == "Scoped")
+    }
+
     // MARK: - Pane CRUD
 
     @Test

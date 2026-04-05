@@ -147,6 +147,7 @@ struct FlatTabStripContainer: View {
             tabId: tabId,
             isActive: true,
             isSplit: false,
+            isSplitResizing: false,
             store: store,
             repoCache: repoCache,
             closeTransitionCoordinator: closeTransitionCoordinator,

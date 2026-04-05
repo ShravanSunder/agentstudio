@@ -73,7 +73,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private func bootLoadCanonicalStore() {
         atomStore = AtomStore()
         AtomScope.setUp(atomStore)
-        store = WorkspaceStore(atom: atomStore.workspace)
+        store = WorkspaceStore(
+            metadataAtom: atomStore.workspaceMetadata,
+            repositoryTopologyAtom: atomStore.workspaceRepositoryTopology,
+            paneAtom: atomStore.workspacePane,
+            tabLayoutAtom: atomStore.workspaceTabLayout,
+            mutationCoordinator: atomStore.workspaceMutationCoordinator
+        )
         repoCacheStore = RepoCacheStore(atom: atomStore.repoCache)
         uiStateStore = UIStateStore(atom: atomStore.uiState)
         store.restore()
@@ -755,7 +761,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // 1. Persist the watched path (direct store mutation)
-        store.addWatchedPath(rootURL)
+        _ = store.repositoryTopologyAtom.addWatchedPath(rootURL)
 
         // The watched-folder command returns the authoritative scan summary.
         // Do not infer the result from store.repos here because coordinator
@@ -783,7 +789,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Skip if the path is already a known worktree of an available repo.
         // Unavailable repos are excluded so re-adding the same path can reassociate them.
         let isKnownWorktree = store.repos.contains { repo in
-            !store.isRepoUnavailable(repo.id)
+            !store.repositoryTopologyAtom.isRepoUnavailable(repo.id)
                 && repo.worktrees.contains { $0.path.standardizedFileURL == normalizedPath }
         }
         if isKnownWorktree { return }

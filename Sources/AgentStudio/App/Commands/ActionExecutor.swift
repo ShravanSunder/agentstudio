@@ -29,7 +29,7 @@ final class ActionExecutor {
         )
     }
 
-    var undoStack: [WorkspaceStore.CloseEntry] {
+    var undoStack: [WorkspaceMutationCoordinator.CloseEntry] {
         coordinator.undoStack
     }
 

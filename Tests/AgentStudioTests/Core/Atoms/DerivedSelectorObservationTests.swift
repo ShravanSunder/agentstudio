@@ -19,7 +19,7 @@ struct DerivedSelectorObservationTests {
                     title: "Initial"
                 )
             )
-            atoms.workspace.addPane(pane)
+            atoms.workspaceGraph.addPane(pane)
 
             let flag = ObservationFlag()
             let selector = PaneDisplayDerived()
@@ -30,7 +30,7 @@ struct DerivedSelectorObservationTests {
                 flag.fired = true
             }
 
-            atoms.workspace.renamePane(pane.id, title: "Updated")
+            atoms.workspaceGraph.renamePane(pane.id, title: "Updated")
 
             #expect(flag.fired)
         }

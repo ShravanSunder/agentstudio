@@ -1,6 +1,6 @@
 nonisolated enum AtomScope {
     @MainActor
-    private static var production: AtomStore!
+    private static var production: AtomStore?
 
     @TaskLocal
     static var override: AtomStore?

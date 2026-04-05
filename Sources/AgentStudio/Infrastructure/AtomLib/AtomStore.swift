@@ -1,19 +1,37 @@
 @MainActor
 final class AtomStore {
-    let workspace: WorkspaceAtom
+    let workspaceMetadata: WorkspaceMetadataAtom
+    let workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom
+    let workspacePane: WorkspacePaneAtom
+    let workspaceTabLayout: WorkspaceTabLayoutAtom
+    let workspaceMutationCoordinator: WorkspaceMutationCoordinator
     let repoCache: RepoCacheAtom
     let uiState: UIStateAtom
     let managementMode: ManagementModeAtom
     let sessionRuntime: SessionRuntimeAtom
 
     init(
-        workspace: WorkspaceAtom = .init(),
+        workspaceMetadata: WorkspaceMetadataAtom = .init(),
+        workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom = .init(),
+        workspacePane: WorkspacePaneAtom = .init(),
+        workspaceTabLayout: WorkspaceTabLayoutAtom = .init(),
+        workspaceMutationCoordinator: WorkspaceMutationCoordinator? = nil,
         repoCache: RepoCacheAtom = .init(),
         uiState: UIStateAtom = .init(),
         managementMode: ManagementModeAtom = .init(),
         sessionRuntime: SessionRuntimeAtom = .init()
     ) {
-        self.workspace = workspace
+        self.workspaceMetadata = workspaceMetadata
+        self.workspaceRepositoryTopology = workspaceRepositoryTopology
+        self.workspacePane = workspacePane
+        self.workspaceTabLayout = workspaceTabLayout
+        self.workspaceMutationCoordinator =
+            workspaceMutationCoordinator
+            ?? WorkspaceMutationCoordinator(
+                repositoryTopologyAtom: workspaceRepositoryTopology,
+                workspacePaneAtom: workspacePane,
+                workspaceTabLayoutAtom: workspaceTabLayout
+            )
         self.repoCache = repoCache
         self.uiState = uiState
         self.managementMode = managementMode

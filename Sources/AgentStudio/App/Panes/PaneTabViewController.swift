@@ -543,8 +543,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
         case .paneAction(let action):
             dispatchAction(action)
         case .moveTab(let tabId, let toIndex):
-            store.moveTab(fromId: tabId, toIndex: toIndex)
-            store.setActiveTab(tabId)
+            store.tabLayoutAtom.moveTab(fromId: tabId, toIndex: toIndex)
+            store.tabLayoutAtom.setActiveTab(tabId)
         case .extractPaneToTabThenMove(let paneId, let sourceTabId, let toIndex):
             let tabCountBefore = store.tabs.count
             dispatchAction(.extractPaneToTab(tabId: sourceTabId, paneId: paneId))
@@ -554,8 +554,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
             else {
                 return
             }
-            store.moveTab(fromId: extractedTabId, toIndex: toIndex)
-            store.setActiveTab(extractedTabId)
+            store.tabLayoutAtom.moveTab(fromId: extractedTabId, toIndex: toIndex)
+            store.tabLayoutAtom.setActiveTab(extractedTabId)
         }
     }
 
@@ -887,7 +887,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
     // MARK: - Tab Reordering
 
     private func handleTabReorder(fromId: UUID, toIndex: Int) {
-        store.moveTab(fromId: fromId, toIndex: toIndex)
+        store.tabLayoutAtom.moveTab(fromId: fromId, toIndex: toIndex)
     }
 
     // MARK: - Drag Payload
@@ -935,8 +935,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
             sourceTab.paneIds.count == 1
         {
             if let targetTabIndex {
-                store.moveTab(fromId: tabId, toIndex: targetTabIndex)
-                store.setActiveTab(tabId)
+                store.tabLayoutAtom.moveTab(fromId: tabId, toIndex: targetTabIndex)
+                store.tabLayoutAtom.setActiveTab(tabId)
             }
             return
         }
@@ -952,8 +952,8 @@ class PaneTabViewController: NSViewController, CommandHandler {
             return
         }
 
-        store.moveTab(fromId: extractedTabId, toIndex: targetTabIndex)
-        store.setActiveTab(extractedTabId)
+        store.tabLayoutAtom.moveTab(fromId: extractedTabId, toIndex: targetTabIndex)
+        store.tabLayoutAtom.setActiveTab(extractedTabId)
     }
 
     private func dispatchMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {

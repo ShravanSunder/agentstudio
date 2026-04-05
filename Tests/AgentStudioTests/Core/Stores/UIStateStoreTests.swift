@@ -38,4 +38,39 @@ struct UIStateStoreTests {
         #expect(restoredAtom.filterText == "terminal")
         #expect(restoredAtom.isFilterVisible)
     }
+
+    @Test
+    func flush_operatesOnTheProvidedLiveAtomScope() throws {
+        let workspaceId = UUID()
+        let atom = UIStateAtom()
+        let store = UIStateStore(atom: atom, persistor: persistor)
+
+        atom.setFilterText("agent")
+        atom.setFilterVisible(true)
+
+        try store.flush(for: workspaceId)
+
+        let restoredAtom = UIStateAtom()
+        UIStateStore(atom: restoredAtom, persistor: persistor).restore(for: workspaceId)
+
+        #expect(restoredAtom.filterText == "agent")
+        #expect(restoredAtom.isFilterVisible)
+    }
+
+    @Test
+    func restore_corruptUIFile_fallsBackToDefaults() throws {
+        let workspaceId = UUID()
+        let corruptURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
+        try "not json".write(to: corruptURL, atomically: true, encoding: .utf8)
+
+        let atom = UIStateAtom()
+        let store = UIStateStore(atom: atom, persistor: persistor)
+
+        store.restore(for: workspaceId)
+
+        #expect(atom.expandedGroups.isEmpty)
+        #expect(atom.checkoutColors.isEmpty)
+        #expect(atom.filterText.isEmpty)
+        #expect(!atom.isFilterVisible)
+    }
 }

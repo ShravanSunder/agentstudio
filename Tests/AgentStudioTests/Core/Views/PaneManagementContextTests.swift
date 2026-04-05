@@ -18,7 +18,12 @@ struct PaneManagementContextTests {
                     path: "pane-management-context-\(UUID().uuidString)")
             )
             persistor.ensureDirectory()
-            let store = WorkspaceStore(atom: atoms.workspace, persistor: persistor)
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceCatalog,
+                graphAtom: atoms.workspaceGraph,
+                interactionAtom: atoms.workspaceInteraction,
+                persistor: persistor
+            )
 
             let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
             guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
@@ -59,7 +64,12 @@ struct PaneManagementContextTests {
                     path: "pane-management-context-\(UUID().uuidString)")
             )
             persistor.ensureDirectory()
-            let store = WorkspaceStore(atom: atoms.workspace, persistor: persistor)
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceCatalog,
+                graphAtom: atoms.workspaceGraph,
+                interactionAtom: atoms.workspaceInteraction,
+                persistor: persistor
+            )
 
             let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
             guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
@@ -87,7 +97,12 @@ struct PaneManagementContextTests {
                     path: "pane-management-context-\(UUID().uuidString)")
             )
             persistor.ensureDirectory()
-            let store = WorkspaceStore(atom: atoms.workspace, persistor: persistor)
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceCatalog,
+                graphAtom: atoms.workspaceGraph,
+                interactionAtom: atoms.workspaceInteraction,
+                persistor: persistor
+            )
 
             let pane = store.createPane(
                 source: .floating(launchDirectory: nil, title: "Floating"),
@@ -111,7 +126,12 @@ struct PaneManagementContextTests {
                     path: "pane-management-context-\(UUID().uuidString)")
             )
             persistor.ensureDirectory()
-            let store = WorkspaceStore(atom: atoms.workspace, persistor: persistor)
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceCatalog,
+                graphAtom: atoms.workspaceGraph,
+                interactionAtom: atoms.workspaceInteraction,
+                persistor: persistor
+            )
 
             let pane = store.createPane(
                 content: .webview(WebviewState(url: URL(string: "https://github.com")!)),
@@ -136,7 +156,12 @@ struct PaneManagementContextTests {
                     path: "pane-management-context-\(UUID().uuidString)")
             )
             persistor.ensureDirectory()
-            let store = WorkspaceStore(atom: atoms.workspace, persistor: persistor)
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceCatalog,
+                graphAtom: atoms.workspaceGraph,
+                interactionAtom: atoms.workspaceInteraction,
+                persistor: persistor
+            )
 
             let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
             guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {

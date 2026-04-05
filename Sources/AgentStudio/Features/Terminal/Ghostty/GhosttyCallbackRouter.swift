@@ -37,7 +37,7 @@ extension Ghostty {
                     return ActionRouter.handleAction(appPtr, target: target, action: action)
                 },
                 read_clipboard_cb: { userdata, location, state in
-                    _ = Self.readClipboard(userdata, location: location, state: state)
+                    Self.readClipboard(userdata, location: location, state: state)
                 },
                 confirm_read_clipboard_cb: { userdata, str, state, request in
                     Self.confirmReadClipboard(userdata, string: str, state: state, request: request)

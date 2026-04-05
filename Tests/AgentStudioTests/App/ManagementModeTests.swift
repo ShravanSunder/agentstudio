@@ -3,7 +3,6 @@ import Testing
 
 @testable import AgentStudio
 
-@Suite(.serialized)
 @MainActor
 struct ManagementModeTests {
     private func makeMonitor() -> ManagementModeMonitor {

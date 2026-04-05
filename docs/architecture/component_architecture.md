@@ -819,7 +819,7 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `Infrastructure/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
 | `Core/Models/SessionStatus.swift` | 7-state session lifecycle machine (future zmx health) |
 | **Core/Stores** | |
-| `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper around `WorkspaceAtom` |
+| `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper around `WorkspaceCatalogAtom` + `WorkspaceGraphAtom` |
 | `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | JSON persistence I/O |
 | `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` | Runtime status tracking and health checks |
 | `App/Panes/ViewRegistry.swift` | Session ID → NSView mapping |

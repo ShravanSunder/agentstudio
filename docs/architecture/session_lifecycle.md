@@ -463,7 +463,7 @@ stateDiagram-v2
 
 | File | Role |
 |------|------|
-| `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper over `WorkspaceAtom` |
+| `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper over `WorkspaceCatalogAtom` + `WorkspaceGraphAtom` |
 | `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | JSON serialization/deserialization |
 | `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` | Runtime health monitoring and status tracking |
 | `App/Coordination/PaneCoordinator.swift` | Dispatches actions (open, close, split, undo, etc.) and is the sole intermediary for view/surface orchestration |

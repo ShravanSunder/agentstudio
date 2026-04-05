@@ -29,7 +29,7 @@ extension PaneCoordinator {
                 store.pane(paneId)?.worktreeId == worktree.id
             }
         }) {
-            store.setActiveTab(existingTab.id)
+            store.tabLayoutAtom.setActiveTab(existingTab.id)
             postRecentTargetOpened(
                 target: .forWorktree(
                     path: worktree.path,
@@ -62,7 +62,7 @@ extension PaneCoordinator {
             return openNewTerminal(for: worktree, in: repo)
         }
 
-        let pane = store.createPane(
+        let pane = store.paneAtom.createPane(
             source: .worktree(
                 worktreeId: worktree.id,
                 repoId: repo.id,
@@ -75,14 +75,14 @@ extension PaneCoordinator {
         )
         viewRegistry.ensureSlot(for: pane.id)
 
-        store.insertPane(
+        store.tabLayoutAtom.insertPane(
             pane.id,
             inTab: activeTabId,
             at: targetPaneId,
             direction: .horizontal,
             position: .after
         )
-        store.setActivePane(pane.id, inTab: activeTabId)
+        store.tabLayoutAtom.setActivePane(pane.id, inTab: activeTabId)
         ensureTerminalPaneView(pane)
         postRecentTargetOpened(
             target: .forWorktree(
@@ -101,7 +101,7 @@ extension PaneCoordinator {
     func openWebview(url: URL = defaultGitHubURL) -> Pane? {
         let state = WebviewState(url: url, showNavigation: true)
         let host = url.host() ?? "New Tab"
-        let pane = store.createPane(
+        let pane = store.paneAtom.createPane(
             content: .webview(state),
             metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: host), title: host)
         )
@@ -109,14 +109,14 @@ extension PaneCoordinator {
 
         guard createViewForContent(pane: pane) != nil else {
             Self.logger.error("Webview creation failed — rolling back pane \(pane.id)")
-            store.removePane(pane.id)
+            store.mutationCoordinator.removePane(pane.id)
             viewRegistry.removeSlot(for: pane.id)
             return nil
         }
 
         let tab = Tab(paneId: pane.id)
-        store.appendTab(tab)
-        store.setActiveTab(tab.id)
+        store.tabLayoutAtom.appendTab(tab)
+        store.tabLayoutAtom.setActiveTab(tab.id)
 
         Self.logger.info("Opened webview pane \(pane.id)")
         return pane
@@ -140,7 +140,7 @@ extension PaneCoordinator {
 
         let host = url.host() ?? "GitHub"
         let context = contextualBrowserMetadata(from: targetPane, fallbackTitle: host)
-        let pane = store.createPane(
+        let pane = store.paneAtom.createPane(
             content: .webview(WebviewState(url: url, title: host, showNavigation: true)),
             metadata: context.metadata
         )
@@ -148,21 +148,21 @@ extension PaneCoordinator {
 
         guard createViewForContent(pane: pane) != nil else {
             Self.logger.error("Contextual webview creation failed — rolling back pane \(pane.id)")
-            store.removePane(pane.id)
+            store.mutationCoordinator.removePane(pane.id)
             viewRegistry.removeSlot(for: pane.id)
             return nil
         }
 
         let layoutDirection = bridgeDirection(direction)
         let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
-        store.insertPane(
+        store.tabLayoutAtom.insertPane(
             pane.id,
             inTab: targetTabId,
             at: sourcePaneId,
             direction: layoutDirection,
             position: position
         )
-        store.setActivePane(pane.id, inTab: targetTabId)
+        store.tabLayoutAtom.setActivePane(pane.id, inTab: targetTabId)
 
         Self.logger.info("Opened contextual webview pane \(pane.id) from source pane \(sourcePaneId)")
         return pane
@@ -171,7 +171,7 @@ extension PaneCoordinator {
     @discardableResult
     func openFloatingTerminal(launchDirectory: URL?, title: String?) -> Pane? {
         let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let pane = store.createPane(
+        let pane = store.paneAtom.createPane(
             source: .floating(launchDirectory: launchDirectory, title: resolvedTitle),
             title: (resolvedTitle?.isEmpty == false) ? resolvedTitle! : "Terminal",
             provider: .zmx,
@@ -180,8 +180,8 @@ extension PaneCoordinator {
         viewRegistry.ensureSlot(for: pane.id)
 
         let tab = Tab(paneId: pane.id)
-        store.appendTab(tab)
-        store.setActiveTab(tab.id)
+        store.tabLayoutAtom.appendTab(tab)
+        store.tabLayoutAtom.setActiveTab(tab.id)
         ensureTerminalPaneView(pane)
         if let launchDirectory {
             postRecentTargetOpened(
@@ -231,7 +231,7 @@ extension PaneCoordinator {
             removeRepoHandler(repoId)
 
         case .selectTab(let tabId):
-            store.setActiveTab(tabId)
+            store.tabLayoutAtom.setActiveTab(tabId)
             restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
 
         case .closeTab(let tabId):
@@ -244,15 +244,15 @@ extension PaneCoordinator {
             executeClosePane(tabId: tabId, paneId: paneId)
 
         case .extractPaneToTab(let tabId, let paneId):
-            _ = store.extractPane(paneId, fromTab: tabId)
+            _ = store.tabLayoutAtom.extractPane(paneId, fromTab: tabId)
 
         case .focusPane(let tabId, let paneId):
             if let tab = store.tab(tabId), tab.minimizedPaneIds.contains(paneId) {
-                store.expandPane(paneId, inTab: tabId)
+                store.tabLayoutAtom.expandPane(paneId, inTab: tabId)
                 restoreViewsForActiveTabIfNeeded()
                 reattachForViewSwitch(paneId: paneId)
             }
-            store.setActivePane(paneId, inTab: tabId)
+            store.tabLayoutAtom.setActivePane(paneId, inTab: tabId)
 
         case .insertPane(let source, let targetTabId, let targetPaneId, let direction):
             executeInsertPane(
@@ -263,29 +263,29 @@ extension PaneCoordinator {
             )
 
         case .resizePane(let tabId, let splitId, let ratio):
-            store.resizePane(tabId: tabId, splitId: splitId, ratio: ratio)
+            store.tabLayoutAtom.resizePane(tabId: tabId, splitId: splitId, ratio: ratio)
 
         case .equalizePanes(let tabId):
-            store.equalizePanes(tabId: tabId)
+            store.tabLayoutAtom.equalizePanes(tabId: tabId)
 
         case .toggleSplitZoom(let tabId, let paneId):
-            store.toggleZoom(paneId: paneId, inTab: tabId)
+            store.tabLayoutAtom.toggleZoom(paneId: paneId, inTab: tabId)
 
         case .moveTab(let tabId, let delta):
-            store.moveTabByDelta(tabId: tabId, delta: delta)
+            store.tabLayoutAtom.moveTabByDelta(tabId: tabId, delta: delta)
 
         case .minimizePane(let tabId, let paneId):
-            if store.minimizePane(paneId, inTab: tabId) {
+            if store.tabLayoutAtom.minimizePane(paneId, inTab: tabId) {
                 detachForViewSwitch(paneId: paneId)
             }
 
         case .expandPane(let tabId, let paneId):
-            store.expandPane(paneId, inTab: tabId)
+            store.tabLayoutAtom.expandPane(paneId, inTab: tabId)
             restoreViewsForActiveTabIfNeeded()
             reattachForViewSwitch(paneId: paneId)
 
         case .resizePaneByDelta(let tabId, let paneId, let direction, let amount):
-            store.resizePaneByDelta(tabId: tabId, paneId: paneId, direction: direction, amount: amount)
+            store.tabLayoutAtom.resizePaneByDelta(tabId: tabId, paneId: paneId, direction: direction, amount: amount)
 
         case .mergeTab(let sourceTabId, let targetTabId, let targetPaneId, let direction):
             executeMergeTab(
@@ -296,13 +296,13 @@ extension PaneCoordinator {
             )
 
         case .createArrangement(let tabId, let name, let paneIds):
-            if store.createArrangement(name: name, paneIds: paneIds, inTab: tabId) == nil {
+            if store.tabLayoutAtom.createArrangement(name: name, paneIds: paneIds, inTab: tabId) == nil {
                 Self.logger.warning(
                     "createArrangement: failed to create arrangement '\(name)' in tab \(tabId)")
             }
 
         case .removeArrangement(let tabId, let arrangementId):
-            store.removeArrangement(arrangementId, inTab: tabId)
+            store.tabLayoutAtom.removeArrangement(arrangementId, inTab: tabId)
 
         case .switchArrangement(let tabId, let arrangementId):
             guard let tab = store.tab(tabId) else {
@@ -320,7 +320,7 @@ extension PaneCoordinator {
             // Transition calculations depend on before/after sets.
             let previousVisiblePaneIds = tab.activeArrangement.visiblePaneIds
             let previouslyMinimizedPaneIds = tab.minimizedPaneIds
-            store.switchArrangement(to: arrangementId, inTab: tabId)
+            store.tabLayoutAtom.switchArrangement(to: arrangementId, inTab: tabId)
             // Use the resolved arrangement snapshot as the post-switch target state.
             let newVisiblePaneIds = arrangement.visiblePaneIds
 
@@ -341,15 +341,15 @@ extension PaneCoordinator {
             }
 
         case .renameArrangement(let tabId, let arrangementId, let name):
-            store.renameArrangement(arrangementId, name: name, inTab: tabId)
+            store.tabLayoutAtom.renameArrangement(arrangementId, name: name, inTab: tabId)
 
         case .backgroundPane(let paneId):
-            store.backgroundPane(paneId)
+            store.mutationCoordinator.backgroundPane(paneId)
 
         case .reactivatePane(let paneId, let targetTabId, let targetPaneId, let direction):
             let layoutDirection = bridgeDirection(direction)
             let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
-            store.reactivatePane(
+            store.mutationCoordinator.reactivatePane(
                 paneId,
                 inTab: targetTabId,
                 at: targetPaneId,
@@ -364,25 +364,26 @@ extension PaneCoordinator {
         case .purgeOrphanedPane(let paneId):
             guard let pane = store.pane(paneId), pane.residency == .backgrounded else { break }
             teardownView(for: paneId)
-            store.purgeOrphanedPane(paneId)
+            store.paneAtom.purgeOrphanedPane(paneId)
             viewRegistry.removeSlot(for: paneId)
 
         case .addDrawerPane(let parentPaneId):
-            if let drawerPane = store.addDrawerPane(to: parentPaneId) {
+            let fallbackCWD = store.pane(parentPaneId)?.worktreeId.flatMap(store.worktree)?.path
+            if let drawerPane = store.paneAtom.addDrawerPane(to: parentPaneId, parentFallbackCWD: fallbackCWD) {
                 viewRegistry.ensureSlot(for: drawerPane.id)
                 ensureTerminalPaneView(drawerPane)
             }
 
         case .removeDrawerPane(let parentPaneId, let drawerPaneId):
             teardownView(for: drawerPaneId)
-            store.removeDrawerPane(drawerPaneId, from: parentPaneId)
+            store.paneAtom.removeDrawerPane(drawerPaneId, from: parentPaneId)
             viewRegistry.removeSlot(for: drawerPaneId)
 
         case .toggleDrawer(let paneId):
-            store.toggleDrawer(for: paneId)
+            store.paneAtom.toggleDrawer(for: paneId)
 
         case .setActiveDrawerPane(let parentPaneId, let drawerPaneId):
-            store.setActiveDrawerPane(drawerPaneId, in: parentPaneId)
+            store.paneAtom.setActiveDrawerPane(drawerPaneId, in: parentPaneId)
             restoreViewsForActiveTabIfNeeded()
             if let terminalView = viewRegistry.terminalView(for: drawerPaneId) {
                 terminalView.window?.makeFirstResponder(terminalView)
@@ -390,18 +391,18 @@ extension PaneCoordinator {
             }
 
         case .resizeDrawerPane(let parentPaneId, let splitId, let ratio):
-            store.resizeDrawerPane(parentPaneId: parentPaneId, splitId: splitId, ratio: ratio)
+            store.paneAtom.resizeDrawerPane(parentPaneId: parentPaneId, splitId: splitId, ratio: ratio)
 
         case .equalizeDrawerPanes(let parentPaneId):
-            store.equalizeDrawerPanes(parentPaneId: parentPaneId)
+            store.paneAtom.equalizeDrawerPanes(parentPaneId: parentPaneId)
 
         case .minimizeDrawerPane(let parentPaneId, let drawerPaneId):
-            if store.minimizeDrawerPane(drawerPaneId, in: parentPaneId) {
+            if store.paneAtom.minimizeDrawerPane(drawerPaneId, in: parentPaneId) {
                 detachForViewSwitch(paneId: drawerPaneId)
             }
 
         case .expandDrawerPane(let parentPaneId, let drawerPaneId):
-            store.expandDrawerPane(drawerPaneId, in: parentPaneId)
+            store.paneAtom.expandDrawerPane(drawerPaneId, in: parentPaneId)
             restoreViewsForActiveTabIfNeeded()
             reattachForViewSwitch(paneId: drawerPaneId)
 
@@ -415,7 +416,7 @@ extension PaneCoordinator {
         case .moveDrawerPane(let parentPaneId, let drawerPaneId, let targetDrawerPaneId, let direction):
             let layoutDirection = bridgeDirection(direction)
             let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
-            store.moveDrawerPane(
+            store.paneAtom.moveDrawerPane(
                 drawerPaneId,
                 in: parentPaneId,
                 at: targetDrawerPaneId,
@@ -462,7 +463,7 @@ extension PaneCoordinator {
             cwd: resolvedCwd,
             parentFolder: repo.repoPath.deletingLastPathComponent().path
         )
-        let pane = store.createPane(
+        let pane = store.paneAtom.createPane(
             source: .worktree(
                 worktreeId: worktree.id,
                 repoId: repo.id,
@@ -477,8 +478,8 @@ extension PaneCoordinator {
         viewRegistry.ensureSlot(for: pane.id)
 
         let tab = Tab(paneId: pane.id)
-        store.appendTab(tab)
-        store.setActiveTab(tab.id)
+        store.tabLayoutAtom.appendTab(tab)
+        store.tabLayoutAtom.setActiveTab(tab.id)
         ensureTerminalPaneView(pane)
         postRecentTargetOpened(
             target: .forWorktree(
@@ -515,7 +516,7 @@ extension PaneCoordinator {
     private func executeCloseTab(_ tabId: UUID) {
         syncWebviewStates()
 
-        if let snapshot = store.snapshotForClose(tabId: tabId) {
+        if let snapshot = store.mutationCoordinator.snapshotForClose(tabId: tabId) {
             appendUndoEntry(.tab(snapshot))
         } else {
             Self.logger.warning("closeTab: snapshot failed for tab \(tabId); undo will be unavailable")
@@ -531,7 +532,7 @@ extension PaneCoordinator {
             }
         }
 
-        store.removeTab(tabId)
+        store.tabLayoutAtom.removeTab(tabId)
         expireOldUndoEntries()
     }
 
@@ -550,7 +551,7 @@ extension PaneCoordinator {
 
             for pane in expiredPanes where !allOwnedPaneIds.contains(pane.id) {
                 teardownView(for: pane.id)
-                store.removePane(pane.id)
+                store.mutationCoordinator.removePane(pane.id)
                 viewRegistry.removeSlot(for: pane.id)
                 Self.logger.debug("GC'd orphaned pane \(pane.id) from expired undo entry")
             }
@@ -572,7 +573,7 @@ extension PaneCoordinator {
     }
 
     private func executeBreakUpTab(_ tabId: UUID) {
-        let newTabs = store.breakUpTab(tabId)
+        let newTabs = store.tabLayoutAtom.breakUpTab(tabId)
         if newTabs.isEmpty {
             Self.logger.debug("breakUpTab: tab has single pane, no-op")
         }
@@ -596,7 +597,7 @@ extension PaneCoordinator {
         }
 
         if shouldCreateUndoEntry {
-            if let snapshot = store.snapshotForPaneClose(paneId: paneId, inTab: tabId) {
+            if let snapshot = store.mutationCoordinator.snapshotForPaneClose(paneId: paneId, inTab: tabId) {
                 appendUndoEntry(.pane(snapshot))
             } else {
                 Self.logger.warning("closePane: snapshot failed for pane \(paneId) in tab \(tabId)")
@@ -608,10 +609,10 @@ extension PaneCoordinator {
         if closingPane.isDrawerChild {
             teardownView(for: paneId)
             if let parentPaneId = closingPane.parentPaneId {
-                store.removeDrawerPane(paneId, from: parentPaneId)
+                store.paneAtom.removeDrawerPane(paneId, from: parentPaneId)
                 viewRegistry.removeSlot(for: paneId)
             } else {
-                store.removePane(paneId)
+                store.mutationCoordinator.removePane(paneId)
                 viewRegistry.removeSlot(for: paneId)
             }
             expireOldUndoEntries()
@@ -621,16 +622,16 @@ extension PaneCoordinator {
         let drawerChildIds = closingPane.drawer?.paneIds ?? []
         teardownDrawerPanes(for: paneId)
         teardownView(for: paneId)
-        store.removePaneFromLayout(paneId, inTab: tabId)
+        store.tabLayoutAtom.removePaneFromLayout(paneId, inTab: tabId)
 
         for drawerPaneId in drawerChildIds {
-            store.removeDrawerPane(drawerPaneId, from: paneId)
+            store.paneAtom.removeDrawerPane(drawerPaneId, from: paneId)
             viewRegistry.removeSlot(for: drawerPaneId)
         }
 
         let allOwnedPaneIds = currentOwnedPaneIds()
         if !allOwnedPaneIds.contains(paneId) {
-            store.removePane(paneId)
+            store.mutationCoordinator.removePane(paneId)
             viewRegistry.removeSlot(for: paneId)
         }
 
@@ -660,8 +661,8 @@ extension PaneCoordinator {
                 Self.logger.warning("insertPane existingPane: target tab \(targetTabId) not found")
                 return
             }
-            store.removePaneFromLayout(paneId, inTab: sourceTabId)
-            store.insertPane(
+            store.tabLayoutAtom.removePaneFromLayout(paneId, inTab: sourceTabId)
+            store.tabLayoutAtom.insertPane(
                 paneId, inTab: targetTabId, at: targetPaneId,
                 direction: layoutDirection, position: position
             )
@@ -669,7 +670,7 @@ extension PaneCoordinator {
         case .newTerminal:
             let targetPane = store.pane(targetPaneId)
             if let resolved = resolvedWorktreeContext(for: targetPane) {
-                let pane = store.createPane(
+                let pane = store.paneAtom.createPane(
                     source: .worktree(
                         worktreeId: resolved.worktree.id,
                         repoId: resolved.repo.id,
@@ -681,7 +682,7 @@ extension PaneCoordinator {
                 )
                 viewRegistry.ensureSlot(for: pane.id)
 
-                store.insertPane(
+                store.tabLayoutAtom.insertPane(
                     pane.id, inTab: targetTabId, at: targetPaneId,
                     direction: layoutDirection, position: position
                 )
@@ -689,7 +690,7 @@ extension PaneCoordinator {
                 return
             }
 
-            let pane = store.createPane(
+            let pane = store.paneAtom.createPane(
                 source: .floating(
                     launchDirectory: targetPane?.metadata.cwd ?? targetPane?.metadata.launchDirectory,
                     title: nil
@@ -699,7 +700,7 @@ extension PaneCoordinator {
             )
             viewRegistry.ensureSlot(for: pane.id)
 
-            store.insertPane(
+            store.tabLayoutAtom.insertPane(
                 pane.id, inTab: targetTabId, at: targetPaneId,
                 direction: layoutDirection, position: position
             )
@@ -796,12 +797,15 @@ extension PaneCoordinator {
         let layoutDirection = bridgeDirection(direction)
         let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
 
+        let fallbackCWD = store.pane(parentPaneId)?.worktreeId.flatMap(store.worktree)?.path
+
         guard
-            let drawerPane = store.insertDrawerPane(
+            let drawerPane = store.paneAtom.insertDrawerPane(
                 in: parentPaneId,
                 at: targetDrawerPaneId,
                 direction: layoutDirection,
-                position: position
+                position: position,
+                parentFallbackCWD: fallbackCWD
             )
         else {
             Self.logger.warning(
@@ -831,7 +835,7 @@ extension PaneCoordinator {
         let layoutDirection = bridgeDirection(direction)
         let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
 
-        store.mergeTab(
+        store.tabLayoutAtom.mergeTab(
             sourceId: sourceTabId,
             intoTarget: targetTabId,
             at: targetPaneId,

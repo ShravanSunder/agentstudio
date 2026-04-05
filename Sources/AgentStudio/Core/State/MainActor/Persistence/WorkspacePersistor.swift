@@ -194,16 +194,19 @@ struct WorkspacePersistor {
     }
 
     /// Ensure the storage directory exists.
-    func ensureDirectory() {
+    @discardableResult
+    func ensureDirectory() -> Bool {
         do {
             try FileManager.default.createDirectory(
                 at: workspacesDir,
                 withIntermediateDirectories: true
             )
+            return true
         } catch {
             persistorLogger.error(
                 "Failed to create workspaces directory \(self.workspacesDir.path): \(error)"
             )
+            return false
         }
     }
 

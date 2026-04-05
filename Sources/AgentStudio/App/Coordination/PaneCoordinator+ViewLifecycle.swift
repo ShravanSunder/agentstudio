@@ -88,7 +88,7 @@ extension PaneCoordinator {
             let view = WebviewPaneMountView(paneId: pane.id, state: state)
             let paneId = pane.id
             view.controller.onTitleChange = { [weak self] title in
-                self?.store.updatePaneTitle(paneId, title: title)
+                self?.store.paneAtom.updatePaneTitle(paneId, title: title)
             }
             registerHostedView(mountedView: view, for: pane.id)
             registerRuntimeIfNeeded(runtime: view.runtime, for: pane)
@@ -175,7 +175,7 @@ extension PaneCoordinator {
                     "zmx not found; using ephemeral session for \(pane.id) (state will not persist)"
                 )
                 if !pane.metadata.title.localizedCaseInsensitiveContains("ephemeral") {
-                    store.updatePaneTitle(pane.id, title: "\(pane.metadata.title) [ephemeral]")
+                    store.paneAtom.updatePaneTitle(pane.id, title: "\(pane.metadata.title) [ephemeral]")
                 }
                 startupStrategy = .surfaceCommand(shellCommand)
                 showsRestorePresentationDuringStartup = false
@@ -294,7 +294,7 @@ extension PaneCoordinator {
                     "zmx not found; using ephemeral floating session for \(pane.id) (state will not persist)"
                 )
                 if !pane.metadata.title.localizedCaseInsensitiveContains("ephemeral") {
-                    store.updatePaneTitle(pane.id, title: "\(pane.metadata.title) [ephemeral]")
+                    store.paneAtom.updatePaneTitle(pane.id, title: "\(pane.metadata.title) [ephemeral]")
                 }
             }
             startupStrategy = .surfaceCommand(shellCommand)

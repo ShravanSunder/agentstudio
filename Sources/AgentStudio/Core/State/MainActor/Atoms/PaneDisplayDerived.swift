@@ -11,8 +11,8 @@ struct PaneDisplayParts: Equatable {
 @MainActor
 struct PaneDisplayDerived {
     func displayParts(for paneId: UUID) -> PaneDisplayParts {
-        let workspace = atom(\.workspace)
-        guard let pane = workspace.pane(paneId) else {
+        let workspacePane = atom(\.workspacePane)
+        guard let pane = workspacePane.pane(paneId) else {
             return PaneDisplayParts(
                 primaryLabel: "Terminal",
                 repoName: nil,
@@ -26,7 +26,7 @@ struct PaneDisplayDerived {
     }
 
     func displayParts(for pane: Pane) -> PaneDisplayParts {
-        let workspace = atom(\.workspace)
+        let workspaceRepositoryTopology = atom(\.workspaceRepositoryTopology)
         let repoCache = atom(\.repoCache)
 
         let rawTitle = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -38,8 +38,8 @@ struct PaneDisplayDerived {
 
         if let worktreeId = pane.worktreeId,
             let repoId = pane.repoId,
-            let repo = workspace.repo(repoId),
-            let worktree = workspace.worktree(worktreeId)
+            let repo = workspaceRepositoryTopology.repo(repoId),
+            let worktree = workspaceRepositoryTopology.worktree(worktreeId)
         {
             let repoName = pane.metadata.repoName ?? repo.name
             let branchName = resolvedBranchName(

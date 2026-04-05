@@ -38,6 +38,9 @@ final class RepoCacheStore {
     }
 
     func flush(for workspaceId: UUID) throws {
+        guard persistor.ensureDirectory() else {
+            throw CocoaError(.fileWriteUnknown)
+        }
         try persistor.saveCache(
             .init(
                 workspaceId: workspaceId,

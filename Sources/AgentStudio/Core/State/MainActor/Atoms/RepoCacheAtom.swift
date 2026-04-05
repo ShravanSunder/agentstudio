@@ -23,41 +23,63 @@ final class RepoCacheAtom {
     private(set) var lastRebuiltAt: Date?
 
     func setRepoEnrichment(_ enrichment: RepoEnrichment) {
-        repoEnrichmentByRepoId[enrichment.repoId] = enrichment
+        var updated = repoEnrichmentByRepoId
+        updated[enrichment.repoId] = enrichment
+        repoEnrichmentByRepoId = updated
     }
 
     func setWorktreeEnrichment(_ enrichment: WorktreeEnrichment) {
-        worktreeEnrichmentByWorktreeId[enrichment.worktreeId] = enrichment
+        var updated = worktreeEnrichmentByWorktreeId
+        updated[enrichment.worktreeId] = enrichment
+        worktreeEnrichmentByWorktreeId = updated
     }
 
     func setPullRequestCount(_ count: Int, for worktreeId: UUID) {
-        pullRequestCountByWorktreeId[worktreeId] = count
+        var updated = pullRequestCountByWorktreeId
+        updated[worktreeId] = count
+        pullRequestCountByWorktreeId = updated
     }
 
     func setNotificationCount(_ count: Int, for worktreeId: UUID) {
-        notificationCountByWorktreeId[worktreeId] = count
+        var updated = notificationCountByWorktreeId
+        updated[worktreeId] = count
+        notificationCountByWorktreeId = updated
     }
 
     func recordRecentTarget(_ target: RecentWorkspaceTarget) {
-        recentTargets.removeAll { $0.id == target.id }
-        recentTargets.insert(target, at: 0)
-        if recentTargets.count > 6 {
-            recentTargets = Array(recentTargets.prefix(6))
+        var updated = recentTargets
+        updated.removeAll { $0.id == target.id }
+        updated.insert(target, at: 0)
+        if updated.count > 6 {
+            updated = Array(updated.prefix(6))
         }
+        recentTargets = updated
     }
 
     func removeRecentTarget(_ targetId: String) {
-        recentTargets.removeAll { $0.id == targetId }
+        var updated = recentTargets
+        updated.removeAll { $0.id == targetId }
+        recentTargets = updated
     }
 
     func removeWorktree(_ worktreeId: UUID) {
-        worktreeEnrichmentByWorktreeId.removeValue(forKey: worktreeId)
-        pullRequestCountByWorktreeId.removeValue(forKey: worktreeId)
-        notificationCountByWorktreeId.removeValue(forKey: worktreeId)
+        var worktrees = worktreeEnrichmentByWorktreeId
+        worktrees.removeValue(forKey: worktreeId)
+        worktreeEnrichmentByWorktreeId = worktrees
+
+        var pullRequests = pullRequestCountByWorktreeId
+        pullRequests.removeValue(forKey: worktreeId)
+        pullRequestCountByWorktreeId = pullRequests
+
+        var notifications = notificationCountByWorktreeId
+        notifications.removeValue(forKey: worktreeId)
+        notificationCountByWorktreeId = notifications
     }
 
     func removeRepo(_ repoId: UUID) {
-        repoEnrichmentByRepoId.removeValue(forKey: repoId)
+        var repoEnrichments = repoEnrichmentByRepoId
+        repoEnrichments.removeValue(forKey: repoId)
+        repoEnrichmentByRepoId = repoEnrichments
         let worktreeIdsToRemove = worktreeEnrichmentByWorktreeId.values
             .filter { $0.repoId == repoId }
             .map(\.worktreeId)
@@ -82,11 +104,11 @@ final class RepoCacheAtom {
     }
 
     func clear() {
-        repoEnrichmentByRepoId.removeAll(keepingCapacity: false)
-        worktreeEnrichmentByWorktreeId.removeAll(keepingCapacity: false)
-        pullRequestCountByWorktreeId.removeAll(keepingCapacity: false)
-        notificationCountByWorktreeId.removeAll(keepingCapacity: false)
-        recentTargets.removeAll(keepingCapacity: false)
+        repoEnrichmentByRepoId = [:]
+        worktreeEnrichmentByWorktreeId = [:]
+        pullRequestCountByWorktreeId = [:]
+        notificationCountByWorktreeId = [:]
+        recentTargets = []
         sourceRevision = 0
         lastRebuiltAt = nil
     }

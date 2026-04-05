@@ -20,6 +20,7 @@ struct PaneLeafContainer: View {
     let tabId: UUID
     let isActive: Bool
     let isSplit: Bool
+    let isSplitResizing: Bool
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
@@ -42,6 +43,7 @@ struct PaneLeafContainer: View {
         tabId: UUID,
         isActive: Bool,
         isSplit: Bool,
+        isSplitResizing: Bool,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
@@ -54,6 +56,7 @@ struct PaneLeafContainer: View {
         self.tabId = tabId
         self.isActive = isActive
         self.isSplit = isSplit
+        self.isSplitResizing = isSplitResizing
         self.store = store
         self.repoCache = repoCache
         self.closeTransitionCoordinator = closeTransitionCoordinator
@@ -179,7 +182,7 @@ struct PaneLeafContainer: View {
                 }
 
                 // Hover border: drag affordance in management mode
-                if managementMode.isActive && isManagementHovered && !store.isSplitResizing {
+                if managementMode.isActive && isManagementHovered && !isSplitResizing {
                     RoundedRectangle(cornerRadius: AppStyle.panelCornerRadius)
                         .strokeBorder(Color.white.opacity(AppStyle.strokeVisible), lineWidth: 1)
                         .allowsHitTesting(false)
@@ -189,7 +192,7 @@ struct PaneLeafContainer: View {
                 // Drag handle: compact centered pill in management mode.
                 // The Color.clear fills the ZStack for centering; allowsHitTesting(false)
                 // ensures only the capsule itself intercepts mouse events.
-                if managementMode.isActive && !store.isSplitResizing {
+                if managementMode.isActive && !isSplitResizing {
                     ZStack {
                         Color.clear
                             .allowsHitTesting(false)
@@ -231,7 +234,7 @@ struct PaneLeafContainer: View {
                 }
 
                 // Pane controls: minimize + close (top-left, management mode)
-                if managementMode.isActive && !store.isSplitResizing {
+                if managementMode.isActive && !isSplitResizing {
                     VStack {
                         HStack(spacing: AppStyle.spacingStandard) {
                             Button {
@@ -304,7 +307,7 @@ struct PaneLeafContainer: View {
                 }
 
                 // Quarter-moon split and browser buttons (top-right, management mode)
-                if managementMode.isActive && !store.isSplitResizing {
+                if managementMode.isActive && !isSplitResizing {
                     VStack {
                         HStack {
                             Spacer()

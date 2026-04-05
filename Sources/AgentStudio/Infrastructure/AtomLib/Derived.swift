@@ -1,6 +1,10 @@
 @MainActor
 struct Derived<Value> {
-    let compute: (AtomReader) -> Value
+    private let compute: (AtomReader) -> Value
+
+    init(_ compute: @escaping (AtomReader) -> Value) {
+        self.compute = compute
+    }
 
     var value: Value {
         compute(AtomReader())

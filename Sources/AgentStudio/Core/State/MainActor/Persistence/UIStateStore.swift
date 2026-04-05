@@ -33,6 +33,9 @@ final class UIStateStore {
     }
 
     func flush(for workspaceId: UUID) throws {
+        guard persistor.ensureDirectory() else {
+            throw CocoaError(.fileWriteUnknown)
+        }
         try persistor.saveUI(
             .init(
                 workspaceId: workspaceId,

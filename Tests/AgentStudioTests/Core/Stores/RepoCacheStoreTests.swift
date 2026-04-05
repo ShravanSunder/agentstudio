@@ -62,4 +62,42 @@ struct RepoCacheStoreTests {
         #expect(restoredAtom.sourceRevision == 42)
         #expect(restoredAtom.lastRebuiltAt == Date(timeIntervalSince1970: 123))
     }
+
+    @Test
+    func flush_operatesOnTheProvidedLiveAtomScope() throws {
+        let workspaceId = UUID()
+        let atom = RepoCacheAtom()
+        let store = RepoCacheStore(atom: atom, persistor: persistor)
+        let repo = CanonicalRepo(
+            name: "agent-studio",
+            repoPath: URL(fileURLWithPath: "/tmp/agent-studio")
+        )
+
+        atom.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
+
+        try store.flush(for: workspaceId)
+
+        let restoredAtom = RepoCacheAtom()
+        RepoCacheStore(atom: restoredAtom, persistor: persistor).restore(for: workspaceId)
+
+        #expect(restoredAtom.repoEnrichmentByRepoId[repo.id] == .awaitingOrigin(repoId: repo.id))
+    }
+
+    @Test
+    func restore_corruptCacheFile_fallsBackToDefaults() throws {
+        let workspaceId = UUID()
+        let corruptURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.cache.json")
+        try "not json".write(to: corruptURL, atomically: true, encoding: .utf8)
+
+        let atom = RepoCacheAtom()
+        let repoStore = RepoCacheStore(atom: atom, persistor: persistor)
+
+        repoStore.restore(for: workspaceId)
+
+        #expect(atom.repoEnrichmentByRepoId.isEmpty)
+        #expect(atom.worktreeEnrichmentByWorktreeId.isEmpty)
+        #expect(atom.pullRequestCountByWorktreeId.isEmpty)
+        #expect(atom.notificationCountByWorktreeId.isEmpty)
+        #expect(atom.recentTargets.isEmpty)
+    }
 }
