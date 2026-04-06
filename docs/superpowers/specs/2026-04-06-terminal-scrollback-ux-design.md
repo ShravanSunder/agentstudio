@@ -66,6 +66,21 @@ User interaction → TerminalSurfaceActionPerforming.performBindingAction()
 
 This follows the established unidirectional flow pattern. Ghostty core is the source of truth for scrollback and search state. The host-side views are reactive readers that send commands back through binding actions.
 
+### Runtime Injection
+
+`TerminalPaneMountView` currently has no reference to `TerminalRuntime`. The coordinator (`PaneCoordinator+ViewLifecycle.swift`) creates runtimes and mount views separately. To connect them:
+
+- `TerminalPaneMountView` gains a `bind(runtime: TerminalRuntime)` method
+- `PaneCoordinator+ViewLifecycle` calls `bind(runtime:)` after both the mount view and runtime are registered
+- The mount view stores a `weak` reference to the runtime and starts observation
+- On unbind (pane close), observation tasks are cancelled
+
+This follows the existing pattern where `PaneCoordinator` wires together components that don't know about each other at construction time.
+
+### Action Router Return Values
+
+When un-deferring scrollbar/search/mouse actions, the `handledResult` passed to `routeActionToTerminalRuntime` must remain `false` for scrollbar and mouse events. This tells Ghostty "I routed it but you should still apply your defaults." Search events (`startSearch`, `endSearch`, `searchTotal`, `searchSelected`) should also return `false` since Ghostty core manages the search thread and match highlighting internally.
+
 ### Observation Pattern
 
 All new NSView subclasses observe `TerminalRuntime`'s `@Observable` properties using the established `withObservationTracking` + recursive re-subscribe pattern (matching `ManagementModeDragShield`):
