@@ -430,9 +430,9 @@ CommandBarView.executeItem()
 | `CommandBarView` | Root SwiftUI view composing search, results, shared focus context, and footer |
 
 The command bar no longer owns its own hidden-command or grouping switches. `AppCommand` remains
-the authoritative command ID, `CommandDefinition` carries the authoritative metadata for dispatchable
-commands, and `WorkspaceFocusComputer` computes visibility requirements from live workspace state.
-The command bar consumes that metadata; it does not define commands itself.
+the authoritative command ID, `CommandSpec` carries the authoritative metadata for dispatchable
+commands, and `WorkspaceFocusContextAtom.currentFocus` provides the shared app-wide focus context.
+The command bar consumes those shared models; it does not define commands itself.
 
 > **Files:** `CommandBar/CommandBarPanelController.swift`, `CommandBar/CommandBarState.swift`, `CommandBar/CommandBarPanel.swift`, `CommandBar/CommandBarDataSource.swift`, `CommandBar/CommandBarSearch.swift`, `CommandBar/CommandBarItem.swift`, `CommandBar/Views/*.swift`
 

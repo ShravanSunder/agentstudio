@@ -31,7 +31,7 @@ Sources/AgentStudio/
 │   └── Windows/                      # Main window / split-window controllers and settings
 │
 ├── Core/                             # Shared domain — pane system, models, stores
-│   ├── Actions/                      # PaneActionCommand, ActionResolver, ActionValidator, command visibility/presentation metadata
+│   ├── Actions/                      # PaneActionCommand, WorkspaceCommandResolver, WorkspaceCommandValidator, command/action presentation metadata
 │   ├── Models/                       # Pane, Layout, Tab, ViewDefinition
 │   ├── RuntimeEventSystem/           # Shared pane-runtime contracts, buses, projectors
 │   ├── Stores/                       # WorkspaceStore, SessionRuntime
@@ -101,7 +101,7 @@ To keep ownership decisions consistent, use these terms:
 - **Core slice**
   - Reusable, feature-agnostic domain and infrastructure.
   - Usually belongs in `Core/` or `Infrastructure/`.
-  - Examples: `WorkspaceStore`, `Tab`, `Layout`, `ActionResolver`, `ActionValidator`, `CommandVisibility`, `UIActionPresentation`.
+  - Examples: `WorkspaceStore`, `Tab`, `Layout`, `WorkspaceCommandResolver`, `WorkspaceCommandValidator`, `WorkspaceFocusContextAtom`, `UIActionPresentation`.
 
 - **Vertical slice**
   - A user-facing slice that traverses multiple layers and orchestrates behavior for a flow.
