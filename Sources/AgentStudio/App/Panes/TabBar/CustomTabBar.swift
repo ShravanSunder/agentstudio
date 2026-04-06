@@ -393,7 +393,7 @@ private struct GitHubTabButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .help("Open GitHub in a new tab")
+        .help(LocalActionPresentation.openGitHubInNewTab.presentation.helpText)
     }
 }
 
@@ -428,7 +428,7 @@ private struct TabBarArrangementButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in isHovered = hovering }
-        .help("Arrangements")
+        .help(LocalActionPresentation.arrangements.presentation.helpText)
         .popover(
             isPresented: $showPanel,
             attachmentAnchor: .point(.bottomLeading),
@@ -483,7 +483,7 @@ private struct TabBarManagementModeButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .help("Toggle Management Mode (\u{2318}E)")
+        .help(CommandDispatcher.shared.definition(for: .toggleManagementMode).controlToolTip)
     }
 }
 
@@ -496,10 +496,10 @@ private struct NewTabButton: View {
 
     var body: some View {
         Menu {
-            Button("Empty Terminal") { onAdd() }
+            Button(LocalActionPresentation.emptyTerminal.presentation.label) { onAdd() }
             Divider()
             if let onOpenRepoInTab {
-                Button("Open Repo/Worktree...") {
+                Button(LocalActionPresentation.openRepoWorktree.presentation.label) {
                     onOpenRepoInTab()
                 }
             }
@@ -520,7 +520,7 @@ private struct NewTabButton: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .onHover { isHovered = $0 }
-        .help("New Tab")
+        .help(CommandDispatcher.shared.definition(for: .newTab).controlToolTip)
     }
 }
 
@@ -555,36 +555,36 @@ struct TabPillView: View {
                 .scaleEffect(isDragging ? 1.05 : 1.0)
                 .opacity(isDragging ? 0.6 : 1.0)
                 .contextMenu {
-                    Button("Close Tab") { onCommand(.closeTab) }
+                    Button(AppCommand.closeTab.definition.label) { onCommand(.closeTab) }
                         .keyboardShortcut("w", modifiers: .command)
 
                     if tab.isSplit {
-                        Button("Break Up Tab") { onCommand(.breakUpTab) }
+                        Button(AppCommand.breakUpTab.definition.label) { onCommand(.breakUpTab) }
                     }
 
                     Divider()
 
-                    Menu("New Terminal in Tab") {
-                        Button("Split Right") { onCommand(.splitRight) }
-                        Button("Split Left") { onCommand(.splitLeft) }
+                    Menu(AppCommand.newTerminalInTab.definition.label) {
+                        Button(AppCommand.splitRight.definition.label) { onCommand(.splitRight) }
+                        Button(AppCommand.splitLeft.definition.label) { onCommand(.splitLeft) }
                     }
 
-                    Button("New Floating Terminal") { onCommand(.newFloatingTerminal) }
+                    Button(AppCommand.newFloatingTerminal.definition.label) { onCommand(.newFloatingTerminal) }
 
                     Divider()
 
                     if tab.isSplit {
-                        Button("Equalize Panes") { onCommand(.equalizePanes) }
+                        Button(AppCommand.equalizePanes.definition.label) { onCommand(.equalizePanes) }
                     }
 
                     Divider()
 
                     // Arrangement commands
-                    Menu("Arrangements") {
-                        Button("Switch Arrangement...") { onCommand(.switchArrangement) }
-                        Button("Save Current As...") { onCommand(.saveArrangement) }
-                        Button("Delete Arrangement...") { onCommand(.deleteArrangement) }
-                        Button("Rename Arrangement...") { onCommand(.renameArrangement) }
+                    Menu(LocalActionPresentation.arrangements.presentation.label) {
+                        Button(AppCommand.switchArrangement.definition.label) { onCommand(.switchArrangement) }
+                        Button(AppCommand.saveArrangement.definition.label) { onCommand(.saveArrangement) }
+                        Button(AppCommand.deleteArrangement.definition.label) { onCommand(.deleteArrangement) }
+                        Button(AppCommand.renameArrangement.definition.label) { onCommand(.renameArrangement) }
                     }
                 }
 

@@ -845,7 +845,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
             action = .breakUpTab(tabId: tabId)
         case .equalizePanes:
             action = .equalizePanes(tabId: tabId)
-        case .splitRight, .splitBelow, .splitLeft, .splitAbove:
+        case .splitRight, .splitLeft:
             // Resolve split direction using the target tab's active pane
             guard let tab = store.tab(tabId),
                 let paneId = tab.activePaneId
@@ -853,9 +853,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
             let direction: SplitNewDirection = {
                 switch command {
                 case .splitRight: return .right
-                case .splitBelow: return .down
                 case .splitLeft: return .left
-                case .splitAbove: return .up
                 default: return .right
                 }
             }()

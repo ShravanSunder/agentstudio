@@ -11,6 +11,14 @@ struct TrapezoidConnector: Shape {
     }
 }
 
+private enum DrawerTooltipTarget: Hashable {
+    case toggle
+    case add
+    case finder
+    case editor
+    case emptyAdd
+}
+
 // MARK: - DrawerIconBar
 
 /// Icon bar at the bottom of a pane showing drawer controls.
@@ -28,101 +36,127 @@ struct DrawerIconBar: View {
     @State private var isToggleHovered = false
     @State private var isFinderHovered = false
     @State private var isCursorHovered = false
+    @State private var tooltipFrames: [DrawerTooltipTarget: CGRect] = [:]
 
     private enum TrailingActionIcon {
         case system(name: String)
         case octicon(name: String)
     }
 
+    private static let tooltipCoordinateSpaceName = "drawerTooltipBar"
+
     var body: some View {
+        let togglePresentation = LocalActionPresentation.toggleDrawer(isExpanded: isExpanded).presentation
+        let addPresentation = LocalActionPresentation.addDrawerPane.presentation
+        let finderPresentation = LocalActionPresentation.openPaneLocationInFinder.presentation
+        let editorPresentation = LocalActionPresentation.openPaneLocationInPreferredEditor.presentation
+
         VStack(spacing: 0) {
-            // Icon strip: [toggle] | [+]
-            HStack(spacing: 2) {
-                // Expand/collapse toggle (left)
-                Button(action: onToggleExpand) {
-                    Image(systemName: "rectangle.bottomhalf.filled")
-                        .font(.system(size: AppStyle.compactIconSize, weight: .medium))
-                        .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(isExpanded ? .primary : (isToggleHovered ? .primary : .secondary))
-                .background(
-                    RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
-                        .fill(
-                            isExpanded
-                                ? Color.white.opacity(AppStyle.fillActive)
-                                : (isToggleHovered
-                                    ? Color.white.opacity(AppStyle.fillHover)
-                                    : Color.clear))
-                )
-                .onHover { hovering in
-                    withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
-                        isToggleHovered = hovering
-                    }
-                }
-                .help(isExpanded ? "Collapse drawer" : "Expand drawer")
+            GeometryReader { geo in
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: DrawerLayout.iconBarCornerRadius)
+                        .fill(.ultraThinMaterial)
 
-                // Vertical divider
-                Divider()
-                    .frame(height: 16)
-                    .padding(.horizontal, 2)
-
-                // Add button (right)
-                Button(action: onAdd) {
-                    Image(systemName: "plus")
-                        .font(.system(size: AppStyle.compactIconSize, weight: .medium))
-                        .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(isAddHovered ? .primary : .secondary)
-                .background(
-                    RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
-                        .fill(isAddHovered ? Color.white.opacity(AppStyle.fillHover) : Color.clear)
-                )
-                .onHover { hovering in
-                    withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
-                        isAddHovered = hovering
-                    }
-                }
-                .help("Add drawer pane")
-
-                Spacer()
-
-                if let trailingActions {
-                    HStack(spacing: 6) {
-                        trailingActionButton(
-                            icon: .system(name: "macwindow"),
-                            helpText: "Open pane location in Finder",
-                            isHovered: isFinderHovered,
-                            action: trailingActions.onOpenFinder
+                    // Icon strip: [toggle] | [+]
+                    HStack(spacing: 2) {
+                        // Expand/collapse toggle (left)
+                        Button(action: onToggleExpand) {
+                            Image(systemName: "rectangle.bottomhalf.filled")
+                                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                                .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(isExpanded ? .primary : (isToggleHovered ? .primary : .secondary))
+                        .background(
+                            RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
+                                .fill(
+                                    isExpanded
+                                        ? Color.white.opacity(AppStyle.fillActive)
+                                        : (isToggleHovered
+                                            ? Color.white.opacity(AppStyle.fillHover)
+                                            : Color.clear))
                         )
-                        .disabled(!trailingActions.canOpenTarget)
                         .onHover { hovering in
                             withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
-                                isFinderHovered = hovering
+                                isToggleHovered = hovering
                             }
                         }
+                        .hoverTooltipAnchor(DrawerTooltipTarget.toggle, in: Self.tooltipCoordinateSpaceName)
+                        .help(togglePresentation.helpText)
 
-                        trailingActionButton(
-                            icon: .octicon(name: "octicon-code-square"),
-                            helpText: "Open pane location in Cursor or VS Code",
-                            isHovered: isCursorHovered,
-                            action: trailingActions.onOpenCursor
+                        // Vertical divider
+                        Divider()
+                            .frame(height: 16)
+                            .padding(.horizontal, 2)
+
+                        // Add button (right)
+                        Button(action: onAdd) {
+                            Image(systemName: "plus")
+                                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                                .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(isAddHovered ? .primary : .secondary)
+                        .background(
+                            RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
+                                .fill(isAddHovered ? Color.white.opacity(AppStyle.fillHover) : Color.clear)
                         )
-                        .disabled(!trailingActions.canOpenTarget)
                         .onHover { hovering in
                             withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
-                                isCursorHovered = hovering
+                                isAddHovered = hovering
+                            }
+                        }
+                        .hoverTooltipAnchor(DrawerTooltipTarget.add, in: Self.tooltipCoordinateSpaceName)
+                        .help(addPresentation.helpText)
+
+                        Spacer()
+
+                        if let trailingActions {
+                            HStack(spacing: 6) {
+                                trailingActionButton(
+                                    icon: .system(name: "macwindow"),
+                                    helpText: finderPresentation.helpText,
+                                    isHovered: isFinderHovered,
+                                    action: trailingActions.onOpenFinder
+                                )
+                                .disabled(!trailingActions.canOpenTarget)
+                                .onHover { hovering in
+                                    withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
+                                        isFinderHovered = hovering
+                                    }
+                                }
+                                .hoverTooltipAnchor(DrawerTooltipTarget.finder, in: Self.tooltipCoordinateSpaceName)
+
+                                trailingActionButton(
+                                    icon: .octicon(name: "octicon-code-square"),
+                                    helpText: editorPresentation.helpText,
+                                    isHovered: isCursorHovered,
+                                    action: trailingActions.onOpenCursor
+                                )
+                                .disabled(!trailingActions.canOpenTarget)
+                                .onHover { hovering in
+                                    withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
+                                        isCursorHovered = hovering
+                                    }
+                                }
+                                .hoverTooltipAnchor(DrawerTooltipTarget.editor, in: Self.tooltipCoordinateSpaceName)
                             }
                         }
                     }
+                    .padding(DrawerLayout.iconBarVerticalPadding)
+
+                    FloatingHoverTooltipPresenter(
+                        activeTarget: activeTooltipTarget,
+                        anchorFrames: tooltipFrames,
+                        availableWidth: geo.size.width,
+                        tooltipText: tooltipText(for:)
+                    )
                 }
+                .coordinateSpace(name: Self.tooltipCoordinateSpaceName)
+                .onPreferenceChange(HoverTooltipAnchorPreferenceKey<DrawerTooltipTarget>.self) { tooltipFrames = $0 }
             }
-            .padding(DrawerLayout.iconBarVerticalPadding)
-            .background(.ultraThinMaterial)
-            .clipShape(RoundedRectangle(cornerRadius: DrawerLayout.iconBarCornerRadius))
             .background(
                 GeometryReader { geo in
                     Color.clear.preference(
@@ -131,6 +165,30 @@ struct DrawerIconBar: View {
                     )
                 }
             )
+            .frame(height: DrawerLayout.iconButtonSize + (DrawerLayout.iconBarVerticalPadding * 2))
+        }
+    }
+
+    private var activeTooltipTarget: DrawerTooltipTarget? {
+        if isToggleHovered { return .toggle }
+        if isAddHovered { return .add }
+        if isFinderHovered { return .finder }
+        if isCursorHovered { return .editor }
+        return nil
+    }
+
+    private func tooltipText(for target: DrawerTooltipTarget) -> String? {
+        switch target {
+        case .toggle:
+            return LocalActionPresentation.toggleDrawer(isExpanded: isExpanded).presentation.helpText
+        case .add:
+            return LocalActionPresentation.addDrawerPane.presentation.helpText
+        case .finder:
+            return LocalActionPresentation.openPaneLocationInFinder.presentation.helpText
+        case .editor:
+            return LocalActionPresentation.openPaneLocationInPreferredEditor.presentation.helpText
+        case .emptyAdd:
+            return nil
         }
     }
 
@@ -171,33 +229,59 @@ struct EmptyDrawerBar: View {
     let onAdd: () -> Void
 
     @State private var isHovered = false
+    @State private var tooltipFrames: [DrawerTooltipTarget: CGRect] = [:]
+
+    private static let tooltipCoordinateSpaceName = "emptyDrawerTooltipBar"
 
     var body: some View {
+        let addPresentation = LocalActionPresentation.addDrawerPane.presentation
         HStack {
             Spacer()
-            Button(action: onAdd) {
-                Image(systemName: "plus")
-                    .font(.system(size: AppStyle.compactIconSize, weight: .medium))
-                    .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(isHovered ? .primary : .secondary)
-            .background(
-                RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
-                    .fill(isHovered ? Color.white.opacity(AppStyle.fillHover) : Color.clear)
-            )
-            .onHover { hovering in
-                withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
-                    isHovered = hovering
+            GeometryReader { geo in
+                ZStack(alignment: .topLeading) {
+                    RoundedRectangle(cornerRadius: DrawerLayout.iconBarCornerRadius)
+                        .fill(.ultraThinMaterial)
+
+                    Button(action: onAdd) {
+                        Image(systemName: "plus")
+                            .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                            .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(isHovered ? .primary : .secondary)
+                    .background(
+                        RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
+                            .fill(isHovered ? Color.white.opacity(AppStyle.fillHover) : Color.clear)
+                    )
+                    .onHover { hovering in
+                        withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
+                            isHovered = hovering
+                        }
+                    }
+                    .hoverTooltipAnchor(DrawerTooltipTarget.emptyAdd, in: Self.tooltipCoordinateSpaceName)
+                    .help(addPresentation.helpText)
+                    .padding(.vertical, DrawerLayout.iconBarVerticalPadding)
+
+                    FloatingHoverTooltipPresenter(
+                        activeTarget: isHovered ? .emptyAdd : nil,
+                        anchorFrames: tooltipFrames,
+                        availableWidth: geo.size.width
+                    ) { target in
+                        switch target {
+                        case .emptyAdd:
+                            return addPresentation.helpText
+                        default:
+                            return nil
+                        }
+                    }
                 }
+                .coordinateSpace(name: Self.tooltipCoordinateSpaceName)
+                .onPreferenceChange(HoverTooltipAnchorPreferenceKey<DrawerTooltipTarget>.self) { tooltipFrames = $0 }
             }
-            .help("Add drawer pane")
             Spacer()
         }
-        .padding(.vertical, DrawerLayout.iconBarVerticalPadding)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: DrawerLayout.iconBarCornerRadius))
+        .frame(height: DrawerLayout.iconButtonSize + (DrawerLayout.iconBarVerticalPadding * 2))
     }
 }
 

@@ -43,6 +43,9 @@ struct CommandBarTextField: NSViewRepresentable {
     func updateNSView(_ nsView: KeyInterceptingTextField, context: Context) {
         if nsView.stringValue != text {
             nsView.stringValue = text
+            if let editor = nsView.currentEditor() as? NSTextView {
+                editor.setSelectedRange(NSRange(location: text.count, length: 0))
+            }
         }
         nsView.placeholderString = placeholder
     }

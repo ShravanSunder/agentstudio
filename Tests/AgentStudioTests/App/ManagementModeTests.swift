@@ -131,10 +131,9 @@ struct ManagementModeTests {
     func test_toggleManagementMode_commandDefinition() async {
         withTestAtomStore { _ in
             let definition = CommandDispatcher.shared.definition(for: .toggleManagementMode)
-            #expect(definition != nil)
-            #expect(definition?.keyBinding?.key == "e")
-            #expect(definition?.keyBinding?.modifiers == [.command])
-            #expect(definition?.icon == "rectangle.split.2x2")
+            #expect(definition.keyBinding?.key == "e")
+            #expect(definition.keyBinding?.modifiers == [.command])
+            #expect(definition.icon == "rectangle.split.2x2")
         }
     }
 
@@ -142,7 +141,7 @@ struct ManagementModeTests {
     func test_closePane_requiresManagementMode() async {
         withTestAtomStore { _ in
             let definition = CommandDispatcher.shared.definition(for: .closePane)
-            #expect(definition?.requiresManagementMode == true)
+            #expect(definition.requiresManagementMode == true)
         }
     }
 
@@ -150,7 +149,7 @@ struct ManagementModeTests {
     func test_closeTab_doesNotRequireManagementMode() async {
         withTestAtomStore { _ in
             let definition = CommandDispatcher.shared.definition(for: .closeTab)
-            #expect(definition?.requiresManagementMode == false)
+            #expect(definition.requiresManagementMode == false)
         }
     }
 
@@ -158,7 +157,7 @@ struct ManagementModeTests {
     func test_splitRight_doesNotRequireManagementMode() async {
         withTestAtomStore { _ in
             let definition = CommandDispatcher.shared.definition(for: .splitRight)
-            #expect(definition?.requiresManagementMode == false)
+            #expect(definition.requiresManagementMode == false)
         }
     }
 
@@ -166,7 +165,7 @@ struct ManagementModeTests {
     func test_addRepo_doesNotRequireManagementMode() async {
         withTestAtomStore { _ in
             let definition = CommandDispatcher.shared.definition(for: .addRepo)
-            #expect(definition?.requiresManagementMode == false)
+            #expect(definition.requiresManagementMode == false)
         }
     }
 }

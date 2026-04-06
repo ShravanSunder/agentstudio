@@ -166,13 +166,13 @@ struct SidebarWorktreeRow: View {
             Button {
                 onOpenNew()
             } label: {
-                Label("Open in New Tab", systemImage: "plus.rectangle")
+                menuLabel(presentation: LocalActionPresentation.openInNewTab.presentation)
             }
 
             Button {
                 onOpenInPane()
             } label: {
-                Label("Open in Pane (Split)", systemImage: "rectangle.split.2x1")
+                menuLabel(presentation: LocalActionPresentation.openInPaneSplit.presentation)
             }
 
             Divider()
@@ -180,20 +180,20 @@ struct SidebarWorktreeRow: View {
             Button {
                 onOpen()
             } label: {
-                Label("Go to Terminal", systemImage: "terminal")
+                menuLabel(presentation: LocalActionPresentation.goToTerminal.presentation)
             }
 
-            Menu("Open in...") {
+            Menu(LocalActionPresentation.openInMenu.presentation.label) {
                 Button {
                     openInCursor()
                 } label: {
-                    menuLabel(title: "Cursor", octiconName: "octicon-code-square")
+                    menuLabel(presentation: LocalActionPresentation.openInCursor.presentation)
                 }
 
                 Button {
                     openInVSCode()
                 } label: {
-                    menuLabel(title: "VS Code", octiconName: "octicon-vscode")
+                    menuLabel(presentation: LocalActionPresentation.openInVSCode.presentation)
                 }
             }
 
@@ -202,26 +202,26 @@ struct SidebarWorktreeRow: View {
             Button {
                 NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: worktree.path.path)
             } label: {
-                Label("Reveal in Finder", systemImage: "folder")
+                menuLabel(presentation: LocalActionPresentation.revealInFinder.presentation)
             }
 
             Button {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(worktree.path.path, forType: .string)
             } label: {
-                Label("Copy Path", systemImage: "doc.on.clipboard")
+                menuLabel(presentation: LocalActionPresentation.copyPath.presentation)
             }
 
             Divider()
 
-            Menu("Set Icon Color") {
+            Menu(LocalActionPresentation.setIconColorMenu.presentation.label) {
                 ForEach(SidebarRepoGrouping.colorPresets, id: \.hex) { preset in
                     Button(preset.name) {
                         onSetIconColor(preset.hex)
                     }
                 }
                 Divider()
-                Button("Reset to Default") {
+                Button(LocalActionPresentation.resetIconColorDefault.presentation.label) {
                     onSetIconColor(nil)
                 }
             }
@@ -237,15 +237,24 @@ struct SidebarWorktreeRow: View {
     }
 
     @ViewBuilder
-    private func menuLabel(title: String, octiconName: String) -> some View {
-        if let image = OcticonLoader.shared.image(named: octiconName) {
-            Label {
-                Text(title)
-            } icon: {
-                Image(nsImage: image)
+    private func menuLabel(presentation: ActionPresentation) -> some View {
+        if let icon = presentation.icon {
+            switch icon {
+            case .system(let systemName):
+                Label(presentation.label, systemImage: systemName)
+            case .octicon(let octiconName):
+                if let image = OcticonLoader.shared.image(named: octiconName) {
+                    Label {
+                        Text(presentation.label)
+                    } icon: {
+                        Image(nsImage: image)
+                    }
+                } else {
+                    Label(presentation.label, systemImage: "questionmark.square.dashed")
+                }
             }
         } else {
-            Label(title, systemImage: "questionmark.square.dashed")
+            Text(presentation.label)
         }
     }
 }

@@ -106,7 +106,10 @@ User Action → PaneActionCommand → ActionResolver → ActionValidator
     → @Observable tracks → SwiftUI re-renders
     → markDirty() → debounced save (500ms)
 
-Command Bar → CommandDispatcher.dispatch() → CommandHandler
+Command Bar
+  → CommandDefinition visibility + metadata
+  → CommandDispatcher.dispatch()
+  → CommandHandler
   → ActionResolver → ActionValidator → PaneCoordinator
 
 Runtime command → PaneCoordinator.dispatchRuntimeCommand()

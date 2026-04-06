@@ -55,10 +55,11 @@ struct GeneralSettingsView: View {
                         .font(.system(size: AppStyle.textBase, design: .monospaced))
                 }
 
-                Button("Reveal in Finder") {
+                Button(LocalActionPresentation.revealDataLocationInFinder.presentation.label) {
                     let url = AppDataPaths.rootDirectory()
                     NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: url.path)
                 }
+                .help(LocalActionPresentation.revealDataLocationInFinder.presentation.helpText)
             }
         }
         .formStyle(.grouped)
@@ -110,11 +111,12 @@ struct TerminalSettingsView: View {
                         .font(.system(size: AppStyle.textBase, design: .monospaced))
                 }
 
-                Button("Open Zellij Config") {
+                Button(LocalActionPresentation.openZellijConfig.presentation.label) {
                     let url = FileManager.default.homeDirectoryForCurrentUser
                         .appending(path: ".config/zellij")
                     NSWorkspace.shared.open(url)
                 }
+                .help(LocalActionPresentation.openZellijConfig.presentation.helpText)
             }
         }
         .formStyle(.grouped)
@@ -171,12 +173,12 @@ struct WebviewSettingsView: View {
 
                         HStack {
                             Spacer()
-                            Button("Cancel") {
+                            Button(LocalActionPresentation.cancel.presentation.label) {
                                 isAddingFavorite = false
                                 newFavoriteURL = ""
                                 newFavoriteTitle = ""
                             }
-                            Button("Add") {
+                            Button(LocalActionPresentation.add.presentation.label) {
                                 let normalized = WebviewPaneController.normalizeURLString(newFavoriteURL)
                                 if let url = URL(string: normalized) {
                                     history.addFavorite(url: url, title: newFavoriteTitle)
@@ -190,7 +192,7 @@ struct WebviewSettingsView: View {
                     }
                     .padding(.vertical, 4)
                 } else {
-                    Button("Add Favorite") {
+                    Button(LocalActionPresentation.addFavorite.presentation.label) {
                         isAddingFavorite = true
                     }
                 }
@@ -208,7 +210,7 @@ struct WebviewSettingsView: View {
 
                     Spacer()
 
-                    Button("Clear All History") {
+                    Button(LocalActionPresentation.clearAllHistory.presentation.label) {
                         history.clearHistory()
                     }
                     .disabled(history.entries.isEmpty)

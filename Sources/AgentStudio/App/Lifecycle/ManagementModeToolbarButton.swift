@@ -21,7 +21,7 @@ struct ManagementModeToolbarButton: View {
             .foregroundStyle(isManagementModeActive ? Color.accentColor : .primary)
         }
         .buttonStyle(.plain)
-        .help("Toggle Management Mode (\u{2318}E)")
+        .help(CommandDispatcher.shared.definition(for: .toggleManagementMode).controlToolTip)
         .frame(width: 36, height: 24)
     }
 }

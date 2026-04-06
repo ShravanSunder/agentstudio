@@ -38,7 +38,7 @@ struct ArrangementPanel: View {
                             )
                     }
                     .buttonStyle(.plain)
-                    .help("Save current layout as arrangement")
+                    .help(LocalActionPresentation.saveCurrentLayoutAsArrangement.presentation.helpText)
                 }
             }
 
@@ -69,13 +69,13 @@ struct ArrangementPanel: View {
             )
         ) {
             TextField("Name", text: $renameText)
-            Button("Rename") {
+            Button(LocalActionPresentation.rename.presentation.label) {
                 if let id = renamingArrangementId, !renameText.isEmpty {
                     onPaneAction(.renameArrangement(tabId: tabId, arrangementId: id, name: renameText))
                 }
                 renamingArrangementId = nil
             }
-            Button("Cancel", role: .cancel) {
+            Button(LocalActionPresentation.cancel.presentation.label, role: .cancel) {
                 renamingArrangementId = nil
             }
         }
@@ -113,7 +113,11 @@ struct ArrangementPanel: View {
                     .frame(width: 20, height: 20)
             }
             .buttonStyle(.plain)
-            .help(pane.isMinimized ? "Show pane" : "Hide pane")
+            .help(
+                pane.isMinimized
+                    ? LocalActionPresentation.showPane.presentation.helpText
+                    : LocalActionPresentation.hidePane.presentation.helpText
+            )
         }
         .padding(.horizontal, AppStyle.spacingStandard)
         .padding(.vertical, 3)
@@ -143,11 +147,11 @@ struct ArrangementPanel: View {
             }
             .contextMenu {
                 if !arr.isDefault {
-                    Button("Rename...") {
+                    Button(LocalActionPresentation.renameArrangement.presentation.label) {
                         renameText = arr.name
                         renamingArrangementId = arr.id
                     }
-                    Button("Delete", role: .destructive) {
+                    Button(LocalActionPresentation.deleteArrangement.presentation.label, role: .destructive) {
                         onPaneAction(.removeArrangement(tabId: tabId, arrangementId: arr.id))
                     }
                 }

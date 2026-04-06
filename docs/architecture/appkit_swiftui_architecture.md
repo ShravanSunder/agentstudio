@@ -424,10 +424,15 @@ CommandBarView.executeItem()
 |-----------|------|
 | `CommandBarPanelController` | Lifecycle: show/dismiss/toggle, backdrop, animation, state ownership |
 | `CommandBarState` | Observable state: visibility, prefix parsing, navigation stack, selection, recents |
-| `CommandBarDataSource` | Builds `CommandBarItem` arrays from `WorkspaceStore` + `CommandDispatcher` |
+| `CommandBarDataSource` | Builds `CommandBarItem` arrays from `WorkspaceStore`, `WorkspaceFocus`, and `CommandDispatcher` metadata |
 | `CommandBarSearch` | Custom fuzzy matching with score + character match ranges for highlighting |
 | `CommandBarPanel` | `NSPanel` subclass with `NSVisualEffectView` and `NSHostingView` |
-| `CommandBarView` | Root SwiftUI view composing search, results, scope pill, footer |
+| `CommandBarView` | Root SwiftUI view composing search, results, shared focus context, and footer |
+
+The command bar no longer owns its own hidden-command or grouping switches. `AppCommand` remains
+the authoritative command ID, `CommandDefinition` carries the authoritative metadata for dispatchable
+commands, and `WorkspaceFocusComputer` computes visibility requirements from live workspace state.
+The command bar consumes that metadata; it does not define commands itself.
 
 > **Files:** `CommandBar/CommandBarPanelController.swift`, `CommandBar/CommandBarState.swift`, `CommandBar/CommandBarPanel.swift`, `CommandBar/CommandBarDataSource.swift`, `CommandBar/CommandBarSearch.swift`, `CommandBar/CommandBarItem.swift`, `CommandBar/Views/*.swift`
 

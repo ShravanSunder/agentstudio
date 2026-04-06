@@ -128,23 +128,32 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     // MARK: - Titlebar Accessory
 
     private func setupTitlebarAccessory() {
+        let toggleSidebarPresentation = CommandDispatcher.shared.definition(for: .toggleSidebar)
+        let filterSidebarPresentation = CommandDispatcher.shared.definition(for: .filterSidebar)
+
         // Sidebar toggle button
         let toggleButton = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
-        toggleButton.image = NSImage(systemSymbolName: "sidebar.left", accessibilityDescription: "Toggle Sidebar")
+        toggleButton.image = NSImage(
+            systemSymbolName: "sidebar.left",
+            accessibilityDescription: toggleSidebarPresentation.presentation.label
+        )
         toggleButton.bezelStyle = .accessoryBarAction
         toggleButton.isBordered = false
         toggleButton.target = self
         toggleButton.action = #selector(toggleSidebarAction)
-        toggleButton.toolTip = "Toggle Sidebar (⌘\\)"
+        toggleButton.toolTip = toggleSidebarPresentation.controlToolTip
 
         // Search button
         let searchButton = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
-        searchButton.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: "Filter Sidebar")
+        searchButton.image = NSImage(
+            systemSymbolName: "magnifyingglass",
+            accessibilityDescription: filterSidebarPresentation.presentation.label
+        )
         searchButton.bezelStyle = .accessoryBarAction
         searchButton.isBordered = false
         searchButton.target = self
         searchButton.action = #selector(filterSidebarAction)
-        searchButton.toolTip = "Filter Sidebar (⌘⇧F)"
+        searchButton.toolTip = filterSidebarPresentation.controlToolTip
 
         // Stack both buttons horizontally with standard titlebar spacing
         let stack = NSStackView(views: [toggleButton, searchButton])
@@ -262,9 +271,10 @@ extension MainWindowController: NSToolbarDelegate {
     ) -> NSToolbarItem? {
         switch itemIdentifier {
         case .managementMode:
+            let presentation = CommandDispatcher.shared.definition(for: .toggleManagementMode).presentation
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Management Mode"
-            item.paletteLabel = "Management Mode"
+            item.label = presentation.label
+            item.paletteLabel = presentation.label
             // SwiftUI hosting for reactive toggle state
             let hostingView = NSHostingView(rootView: ManagementModeToolbarButton())
             hostingView.sizingOptions = .intrinsicContentSize
@@ -272,28 +282,37 @@ extension MainWindowController: NSToolbarDelegate {
             return item
 
         case .addRepo:
+            let definition = CommandDispatcher.shared.definition(for: .addRepo)
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Add Repo"
-            item.paletteLabel = "Add Repo"
-            item.toolTip = "Add a repo directly (\u{2318}\u{21E7}O)"
+            item.label = definition.presentation.label
+            item.paletteLabel = definition.presentation.label
+            item.toolTip = definition.controlToolTip
             item.isBordered = true
-            item.image = NSImage(systemSymbolName: "folder.badge.plus", accessibilityDescription: "Add Repo")
+            item.image = NSImage(
+                systemSymbolName: "folder.badge.plus",
+                accessibilityDescription: definition.presentation.label
+            )
             item.action = #selector(addRepoAction)
             item.target = self
             return item
 
         case .addFolder:
+            let definition = CommandDispatcher.shared.definition(for: .addFolder)
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = "Add Folder"
-            item.paletteLabel = "Add Folder"
-            item.toolTip = "Add folder to scan for repos (\u{2318}\u{2325}\u{21E7}O)"
-            let button = NSButton(title: "Add Folder", target: self, action: #selector(addFolderAction))
+            item.label = definition.presentation.label
+            item.paletteLabel = definition.presentation.label
+            item.toolTip = definition.controlToolTip
+            let button = NSButton(
+                title: definition.presentation.label,
+                target: self,
+                action: #selector(addFolderAction)
+            )
             button.bezelStyle = .rounded
             button.bezelColor = .systemTeal
             button.controlSize = .regular
             button.image = NSImage(
                 systemSymbolName: "folder.badge.questionmark",
-                accessibilityDescription: "Add Folder"
+                accessibilityDescription: definition.presentation.label
             )
             button.imagePosition = .imageLeading
             item.view = button

@@ -5,7 +5,7 @@ import SwiftUI
 /// Top row of the command bar showing mode and current pane context.
 struct CommandBarStatusStrip: View {
     let mode: CommandBarAppMode
-    let context: CommandBarAppContext
+    let context: WorkspaceFocus
 
     var body: some View {
         HStack {
@@ -19,13 +19,15 @@ struct CommandBarStatusStrip: View {
 
             Spacer()
 
-            HStack(spacing: 4) {
-                Image(systemName: context.icon)
-                    .font(.system(size: AppStyle.textXs, weight: .medium))
-                Text(context.label)
-                    .font(.system(size: AppStyle.textXs, weight: .medium))
+            if let icon = context.icon, let label = context.label {
+                HStack(spacing: 4) {
+                    Image(systemName: icon)
+                        .font(.system(size: AppStyle.textXs, weight: .medium))
+                    Text(label)
+                        .font(.system(size: AppStyle.textXs, weight: .medium))
+                }
+                .foregroundStyle(.primary.opacity(0.35))
             }
-            .foregroundStyle(.primary.opacity(0.35))
         }
         .padding(.horizontal, 12)
         .frame(height: 28)

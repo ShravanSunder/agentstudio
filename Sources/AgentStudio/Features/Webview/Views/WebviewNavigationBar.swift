@@ -44,7 +44,7 @@ struct WebviewNavigationBar: View {
             .buttonStyle(.plain)
             .foregroundStyle(controller.canGoBack ? .primary : .quaternary)
             .keyboardShortcut("[", modifiers: .command)
-            .help("Back (⌘[)")
+            .help(LocalActionPresentation.browserBack.presentation.helpText)
 
             Button {
                 controller.goForward()
@@ -56,7 +56,7 @@ struct WebviewNavigationBar: View {
             .buttonStyle(.plain)
             .foregroundStyle(controller.canGoForward ? .primary : .quaternary)
             .keyboardShortcut("]", modifiers: .command)
-            .help("Forward (⌘])")
+            .help(LocalActionPresentation.browserForward.presentation.helpText)
 
             if controller.isLoading {
                 Button {
@@ -66,7 +66,7 @@ struct WebviewNavigationBar: View {
                         .font(.system(size: AppStyle.textXs, weight: .medium))
                 }
                 .buttonStyle(.plain)
-                .help("Stop loading")
+                .help(LocalActionPresentation.browserStop.presentation.helpText)
             } else {
                 Button {
                     controller.reload()
@@ -76,7 +76,7 @@ struct WebviewNavigationBar: View {
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut("r", modifiers: .command)
-                .help("Reload (⌘R)")
+                .help(LocalActionPresentation.browserReload.presentation.helpText)
             }
 
             Button {
@@ -87,7 +87,7 @@ struct WebviewNavigationBar: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.primary)
-            .help("New tab page")
+            .help(LocalActionPresentation.browserHome.presentation.helpText)
 
             favoriteButton
         }
@@ -141,7 +141,11 @@ struct WebviewNavigationBar: View {
             }
             .buttonStyle(.plain)
             .keyboardShortcut("d", modifiers: .command)
-            .help(isCurrentPageFavorite ? "Remove from favorites (⌘D)" : "Add to favorites (⌘D)")
+            .help(
+                isCurrentPageFavorite
+                    ? LocalActionPresentation.browserRemoveFavorite.presentation.helpText
+                    : LocalActionPresentation.browserAddFavorite.presentation.helpText
+            )
         }
     }
 

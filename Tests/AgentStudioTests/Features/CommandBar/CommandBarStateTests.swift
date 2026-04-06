@@ -148,6 +148,37 @@ final class CommandBarStateTests {
     func test_activePrefix_singleCharWithoutSpace_returnsNil() {
         state.rawInput = "$"
 
+        #expect(state.rawInput == "$ ")
+        #expect(state.activePrefix == "$ ")
+        #expect(state.activeScope == .panes)
+    }
+
+    @Test
+    func test_singleGreaterThan_autoExpandsToCommandPrefix() {
+        state.rawInput = ">"
+
+        #expect(state.rawInput == "> ")
+        #expect(state.activePrefix == "> ")
+        #expect(state.activeScope == .commands)
+    }
+
+    @Test
+    func test_singleHash_autoExpandsToRepoPrefix() {
+        state.rawInput = "#"
+
+        #expect(state.rawInput == "# ")
+        #expect(state.activePrefix == "# ")
+        #expect(state.activeScope == .repos)
+    }
+
+    @Test
+    func test_backspacingFromAutoInsertedPrefixDoesNotReinsertSpace() {
+        state.rawInput = "$"
+        #expect(state.rawInput == "$ ")
+
+        state.rawInput = "$"
+
+        #expect(state.rawInput == "$")
         #expect(state.activePrefix == nil)
         #expect(state.activeScope == .everything)
     }

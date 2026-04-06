@@ -46,51 +46,6 @@ enum CommandBarAppMode {
     }
 }
 
-// MARK: - CommandBarAppContext
-
-/// Coarse app context displayed in the command bar status strip.
-struct CommandBarAppContext {
-    enum ContentType {
-        case terminal
-        case webview
-        case bridge
-        case codeViewer
-        case unknown
-    }
-
-    let paneContentType: ContentType?
-
-    var label: String {
-        switch paneContentType {
-        case .terminal, nil:
-            return "Terminal"
-        case .webview:
-            return "Webview"
-        case .bridge:
-            return "Bridge"
-        case .codeViewer:
-            return "Code Viewer"
-        case .unknown:
-            return "Unknown"
-        }
-    }
-
-    var icon: String {
-        switch paneContentType {
-        case .terminal, nil:
-            return "terminal"
-        case .webview:
-            return "globe"
-        case .bridge:
-            return "rectangle.split.2x1"
-        case .codeViewer:
-            return "doc.text"
-        case .unknown:
-            return "questionmark.square"
-        }
-    }
-}
-
 // MARK: - CommandBarAction
 
 /// What happens when a command bar item is selected.

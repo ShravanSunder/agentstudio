@@ -1,7 +1,9 @@
+import Foundation
 import Testing
 
 @testable import AgentStudio
 
+@MainActor
 @Suite("CommandBarAppMode")
 struct CommandBarAppModeTests {
     @Test
@@ -23,53 +25,205 @@ struct CommandBarAppModeTests {
     }
 }
 
-@Suite("CommandBarAppContext")
-struct CommandBarAppContextTests {
+@MainActor
+@Suite("WorkspaceFocus")
+struct WorkspaceFocusTests {
     @Test
-    func terminalContext() {
-        let context = CommandBarAppContext(paneContentType: .terminal)
+    func visibilityIgnoresMissingRequirementsOnlyWhenDefinitionHasNoRequirements() {
+        let alwaysVisible = CommandDefinition(command: .newTab, label: "New Tab", helpText: "Create a new tab")
+        let tabOnly = CommandDefinition(
+            command: .closeTab,
+            label: "Close Tab",
+            helpText: "Close the active tab",
+            visibleWhen: [.hasActiveTab]
+        )
+        let focus = WorkspaceFocus(paneContentType: .noActivePane, satisfiedRequirements: [])
 
-        #expect(context.label == "Terminal")
-        #expect(context.icon == "terminal")
+        #expect(alwaysVisible.isVisible(in: focus))
+        #expect(!tabOnly.isVisible(in: focus))
     }
 
     @Test
-    func webviewContext() {
-        let context = CommandBarAppContext(paneContentType: .webview)
+    func visibilityRequiresAllRequestedFocusFlags() {
+        let definition = CommandDefinition(
+            command: .navigateDrawerPane,
+            label: "Switch Drawer Pane",
+            helpText: "Switch to a pane inside the active drawer",
+            visibleWhen: [.hasActivePane, .hasDrawerPanes]
+        )
+        let missingDrawer = WorkspaceFocus(
+            paneContentType: .terminal,
+            satisfiedRequirements: [.hasActivePane]
+        )
+        let ready = WorkspaceFocus(
+            paneContentType: .terminal,
+            satisfiedRequirements: [.hasActivePane, .hasDrawerPanes]
+        )
 
-        #expect(context.label == "Webview")
-        #expect(context.icon == "globe")
+        #expect(!definition.isVisible(in: missingDrawer))
+        #expect(definition.isVisible(in: ready))
     }
 
     @Test
-    func bridgeContext() {
-        let context = CommandBarAppContext(paneContentType: .bridge)
+    func terminalContextMetadata() {
+        let focus = WorkspaceFocus(
+            paneContentType: .terminal,
+            satisfiedRequirements: [.hasActivePane, .paneIsTerminal]
+        )
 
-        #expect(context.label == "Bridge")
-        #expect(context.icon == "rectangle.split.2x1")
+        #expect(focus.label == "Terminal")
+        #expect(focus.icon == "terminal")
     }
 
     @Test
-    func codeViewerContext() {
-        let context = CommandBarAppContext(paneContentType: .codeViewer)
+    func webviewContextMetadata() {
+        let focus = WorkspaceFocus(paneContentType: .webview, satisfiedRequirements: [.hasActivePane, .paneIsWebview])
 
-        #expect(context.label == "Code Viewer")
-        #expect(context.icon == "doc.text")
+        #expect(focus.label == "Webview")
+        #expect(focus.icon == "globe")
     }
 
     @Test
-    func unknownContext() {
-        let context = CommandBarAppContext(paneContentType: .unknown)
+    func bridgeContextMetadata() {
+        let focus = WorkspaceFocus(paneContentType: .bridge, satisfiedRequirements: [.hasActivePane, .paneIsBridge])
 
-        #expect(context.label == "Unknown")
-        #expect(context.icon == "questionmark.square")
+        #expect(focus.label == "Bridge")
+        #expect(focus.icon == "rectangle.split.2x1")
     }
 
     @Test
-    func noActivePaneDefaultsToTerminal() {
-        let context = CommandBarAppContext(paneContentType: nil)
+    func codeViewerContextMetadata() {
+        let focus = WorkspaceFocus(
+            paneContentType: .codeViewer,
+            satisfiedRequirements: [.hasActivePane, .paneIsCodeViewer]
+        )
 
-        #expect(context.label == "Terminal")
-        #expect(context.icon == "terminal")
+        #expect(focus.label == "Code Viewer")
+        #expect(focus.icon == "doc.text")
+    }
+
+    @Test
+    func unsupportedContextMetadata() {
+        let focus = WorkspaceFocus(paneContentType: .unsupported, satisfiedRequirements: [.hasActivePane])
+
+        #expect(focus.label == "Unsupported")
+        #expect(focus.icon == "questionmark.square")
+    }
+
+    @Test
+    func noActivePaneHidesContextMetadata() {
+        let focus = WorkspaceFocus(paneContentType: .noActivePane, satisfiedRequirements: [])
+
+        #expect(focus.label == nil)
+        #expect(focus.icon == nil)
+    }
+}
+
+@MainActor
+@Suite("WorkspaceFocusComputer")
+struct WorkspaceFocusComputerTests {
+    @Test
+    func emptyWorkspaceHasNoActiveContext() {
+        let focus = WorkspaceFocusComputer.compute(store: WorkspaceStore())
+
+        #expect(focus.paneContentType == .noActivePane)
+        #expect(focus.satisfiedRequirements.isEmpty)
+    }
+
+    @Test
+    func activeTerminalTabReportsFocusRequirements() {
+        let store = WorkspaceStore()
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let focus = WorkspaceFocusComputer.compute(store: store)
+
+        #expect(focus.paneContentType == .terminal)
+        #expect(focus.satisfiedRequirements.contains(.hasActiveTab))
+        #expect(focus.satisfiedRequirements.contains(.hasActivePane))
+        #expect(focus.satisfiedRequirements.contains(.paneIsTerminal))
+        #expect(!focus.satisfiedRequirements.contains(.hasDrawerPanes))
+        #expect(!focus.satisfiedRequirements.contains(.hasMultiplePanes))
+        #expect(!focus.satisfiedRequirements.contains(.hasArrangements))
+    }
+
+    @Test
+    func activeTabWithoutActivePaneKeepsTabFocusButNoPaneFocus() {
+        let pane = UUID()
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: pane)
+        )
+        let tab = Tab(
+            name: "Detached",
+            allPaneIds: [pane],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id,
+            activePaneId: nil
+        )
+        let store = WorkspaceStore()
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let focus = WorkspaceFocusComputer.compute(store: store)
+
+        #expect(focus.paneContentType == .noActivePane)
+        #expect(focus.satisfiedRequirements.contains(.hasActiveTab))
+        #expect(!focus.satisfiedRequirements.contains(.hasActivePane))
+    }
+
+    @Test
+    func staleActivePaneIdDoesNotReportPaneFocus() {
+        let pane = UUID()
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: pane)
+        )
+        let tab = Tab(
+            name: "Stale",
+            allPaneIds: [],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id,
+            activePaneId: pane
+        )
+        let store = WorkspaceStore()
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let focus = WorkspaceFocusComputer.compute(store: store)
+
+        #expect(focus.paneContentType == .noActivePane)
+        #expect(focus.satisfiedRequirements.contains(.hasActiveTab))
+        #expect(!focus.satisfiedRequirements.contains(.hasActivePane))
+    }
+
+    @Test
+    func drawerAndArrangementRequirementsAreReported() {
+        let store = WorkspaceStore()
+        let paneA = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        let paneB = store.createPane(source: .floating(launchDirectory: nil, title: "Pane B"))
+        var tab = Tab(paneId: paneA.id)
+        let namedArrangement = PaneArrangement(
+            name: "Review",
+            isDefault: false,
+            layout: tab.layout,
+            visiblePaneIds: Set(tab.activePaneIds)
+        )
+        tab.arrangements.append(namedArrangement)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+        store.insertPane(paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after)
+        _ = store.addDrawerPane(to: paneA.id)
+
+        let focus = WorkspaceFocusComputer.compute(store: store)
+
+        #expect(focus.satisfiedRequirements.contains(.hasMultiplePanes))
+        #expect(focus.satisfiedRequirements.contains(.hasArrangements))
+        #expect(focus.satisfiedRequirements.contains(.hasDrawer))
+        #expect(focus.satisfiedRequirements.contains(.hasDrawerPanes))
     }
 }

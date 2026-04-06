@@ -273,16 +273,12 @@ Unchanged from current `isHiddenCommand`:
 
 | Command | Status |
 |---------|--------|
-| `splitBelow` | Disabled (vertical splits not implemented) |
-| `splitAbove` | Disabled (vertical splits not implemented) |
-| `duplicatePane` | Not implemented |
 | `toggleSplitZoom` | Not registered but ActionResolver handles it — should be registered |
 | `quickFind` | Handled outside CommandDispatcher |
 | `commandBar` | Handled outside CommandDispatcher |
 
 **Action items:**
 - Register `toggleSplitZoom` with label "Toggle Split Zoom", icon `"arrow.up.left.and.arrow.down.right.magnifyingglass"`, `visibleWhen: [.hasActivePane, .hasMultiplePanes]`.
-- Leave `splitBelow`, `splitAbove`, `duplicatePane` unregistered until implemented.
 - `quickFind` and `commandBar` are handled outside CommandDispatcher — no registration needed.
 
 ---
