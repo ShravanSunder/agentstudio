@@ -609,7 +609,7 @@ Keyboard-driven search/command palette (⌘P) providing unified access to tabs, 
 - `.commands` — commands grouped by category (Pane, Focus, Tab, Repo, Window)
 - `.panes` — panes grouped by parent tab, tabs as selectable items
 
-Also builds `CommandBarLevel` targets for drill-in commands (e.g., "Close Tab..." → list of open tabs).
+Also builds `CommandBarLevel` targets for drill-in commands (e.g., "Close Tab..." → list of open tabs). Visibility is driven by `CommandSpec.visibleWhen` against `atom(\.workspaceFocusContext).currentFocus`, while enablement continues to flow through `CommandDispatcher.canDispatch`.
 
 **`CommandBarSearch`** — Custom fuzzy matching engine. Returns scores (0.0 = best) and character match ranges for highlighting. Weighted scoring: title (1.0), subtitle (0.8), keywords (0.6). Recency boost for recently used items.
 
@@ -694,6 +694,65 @@ This keeps labels, help text, and icons centralized even when an action is not a
 - `LocalActionSpec` owns UI-only actions that do not have an `AppCommand` identity.
 
 This keeps `AppCommand` as the single command ID while still removing duplicated labels/tooltips across the UI.
+
+### 3.9 Command Bar Integration
+
+The command bar is a presentation layer over the shared command and focus models. It does not define command metadata, own visibility rules, or bypass the command pipeline.
+
+```text
+┌──────────────────────────────────────────────────────────────┐
+│ AppCommand                                                  │
+│ authoritative user command id                               │
+└──────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│ CommandSpec                                                 │
+│ authoritative metadata for dispatchable commands            │
+└──────────────────────────────────────────────────────────────┘
+                           │
+          ┌────────────────┼────────────────┬─────────────────┐
+          ▼                ▼                ▼                 ▼
+┌─────────────────┐ ┌───────────────┐ ┌──────────────┐ ┌──────────────┐
+│ menus/toolbars  │ │ command bar   │ │ sidebar      │ │ drawer       │
+│ read CommandSpec│ │ reads Command │ │ reads specs  │ │ reads specs  │
+│ + ActionSpec    │ │ Spec + focus  │ │ + ActionSpec │ │ + ActionSpec │
+└─────────────────┘ └───────────────┘ └──────────────┘ └──────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│ CommandDispatcher                                            │
+│ - lookup spec by AppCommand                                  │
+│ - filter visibility                                           │
+│ - route execution                                             │
+└──────────────────────────────────────────────────────────────┘
+                           │
+               ┌───────────┴───────────┐
+               ▼                       ▼
+┌──────────────────────────┐   ┌──────────────────────────────┐
+│ ShellCommandHandling     │   │ WorkspaceCommandHandling     │
+│ app/window/sidebar shell │   │ tab/pane/workspace handling  │
+└──────────────────────────┘   └──────────────────────────────┘
+                                          │
+                                          ▼
+┌──────────────────────────────────────────────────────────────┐
+│ WorkspaceCommandResolver                                    │
+│ AppCommand -> PaneActionCommand?                            │
+└──────────────────────────────────────────────────────────────┘
+                                          │
+                                          ▼
+┌──────────────────────────────────────────────────────────────┐
+│ WorkspaceCommandValidator                                   │
+│ validates PaneActionCommand                                 │
+└──────────────────────────────────────────────────────────────┘
+                                          │
+                                          ▼
+┌──────────────────────────────────────────────────────────────┐
+│ ActionExecutor / PaneCoordinator                            │
+└──────────────────────────────────────────────────────────────┘
+```
+
+This architecture gives us one true command ID (`AppCommand`), one true command metadata record (`CommandSpec`), one shared focus surface (`WorkspaceFocusContextAtom.currentFocus`), and one shared UI metadata shape (`ActionSpec`).
 
 ---
 
@@ -890,9 +949,10 @@ These rules are enforced by `WorkspaceStore` and model types at all times:
 | `Core/Models/StableKey.swift` | SHA-256 path hashing for deterministic IDs |
 | `Infrastructure/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
 | `Core/Models/SessionStatus.swift` | 7-state session lifecycle machine (future zmx health) |
-| **Core/Stores** | |
-| `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper around `WorkspaceCatalogAtom` + `WorkspaceGraphAtom` |
+| **Core/State/MainActor** | |
+| `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper around the canonical workspace atoms |
 | `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | JSON persistence I/O |
+| `Core/State/MainActor/Atoms/WorkspaceFocusContextAtom.swift` | Shared app-wide focus context for command visibility and status UI |
 | `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` | Runtime status tracking and health checks |
 | `App/Panes/ViewRegistry.swift` | Session ID → NSView mapping |
 | `Core/RuntimeEventSystem/Runtime/ZmxBackend.swift` | zmx CLI wrapper — session create/destroy/health |

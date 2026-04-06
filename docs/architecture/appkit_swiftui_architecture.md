@@ -424,7 +424,7 @@ CommandBarView.executeItem()
 |-----------|------|
 | `CommandBarPanelController` | Lifecycle: show/dismiss/toggle, backdrop, animation, state ownership |
 | `CommandBarState` | Observable state: visibility, prefix parsing, navigation stack, selection, recents |
-| `CommandBarDataSource` | Builds `CommandBarItem` arrays from `WorkspaceStore`, `WorkspaceFocus`, and `CommandDispatcher` metadata |
+| `CommandBarDataSource` | Builds `CommandBarItem` arrays from `WorkspaceStore`, `atom(\\.workspaceFocusContext).currentFocus`, and `CommandDispatcher` metadata |
 | `CommandBarSearch` | Custom fuzzy matching with score + character match ranges for highlighting |
 | `CommandBarPanel` | `NSPanel` subclass with `NSVisualEffectView` and `NSHostingView` |
 | `CommandBarView` | Root SwiftUI view composing search, results, shared focus context, and footer |
