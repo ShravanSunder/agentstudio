@@ -135,7 +135,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         let toggleButton = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
         toggleButton.image = NSImage(
             systemSymbolName: "sidebar.left",
-            accessibilityDescription: toggleSidebarPresentation.presentation.label
+            accessibilityDescription: toggleSidebarPresentation.actionSpec.label
         )
         toggleButton.bezelStyle = .accessoryBarAction
         toggleButton.isBordered = false
@@ -147,7 +147,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         let searchButton = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
         searchButton.image = NSImage(
             systemSymbolName: "magnifyingglass",
-            accessibilityDescription: filterSidebarPresentation.presentation.label
+            accessibilityDescription: filterSidebarPresentation.actionSpec.label
         )
         searchButton.bezelStyle = .accessoryBarAction
         searchButton.isBordered = false
@@ -271,7 +271,7 @@ extension MainWindowController: NSToolbarDelegate {
     ) -> NSToolbarItem? {
         switch itemIdentifier {
         case .managementMode:
-            let presentation = CommandDispatcher.shared.definition(for: .toggleManagementMode).presentation
+            let presentation = CommandDispatcher.shared.definition(for: .toggleManagementMode).actionSpec
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = presentation.label
             item.paletteLabel = presentation.label
@@ -284,13 +284,13 @@ extension MainWindowController: NSToolbarDelegate {
         case .addRepo:
             let definition = CommandDispatcher.shared.definition(for: .addRepo)
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = definition.presentation.label
-            item.paletteLabel = definition.presentation.label
+            item.label = definition.actionSpec.label
+            item.paletteLabel = definition.actionSpec.label
             item.toolTip = definition.controlToolTip
             item.isBordered = true
             item.image = NSImage(
                 systemSymbolName: "folder.badge.plus",
-                accessibilityDescription: definition.presentation.label
+                accessibilityDescription: definition.actionSpec.label
             )
             item.action = #selector(addRepoAction)
             item.target = self
@@ -299,11 +299,11 @@ extension MainWindowController: NSToolbarDelegate {
         case .addFolder:
             let definition = CommandDispatcher.shared.definition(for: .addFolder)
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = definition.presentation.label
-            item.paletteLabel = definition.presentation.label
+            item.label = definition.actionSpec.label
+            item.paletteLabel = definition.actionSpec.label
             item.toolTip = definition.controlToolTip
             let button = NSButton(
-                title: definition.presentation.label,
+                title: definition.actionSpec.label,
                 target: self,
                 action: #selector(addFolderAction)
             )
@@ -312,7 +312,7 @@ extension MainWindowController: NSToolbarDelegate {
             button.controlSize = .regular
             button.image = NSImage(
                 systemSymbolName: "folder.badge.questionmark",
-                accessibilityDescription: definition.presentation.label
+                accessibilityDescription: definition.actionSpec.label
             )
             button.imagePosition = .imageLeading
             item.view = button

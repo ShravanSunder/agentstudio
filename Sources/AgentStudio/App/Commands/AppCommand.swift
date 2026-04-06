@@ -124,10 +124,10 @@ extension KeyBinding {
     }
 }
 
-// MARK: - CommandDefinition
+// MARK: - CommandSpec
 
 /// Full command definition tying command identity, shortcut, display info, and context together.
-struct CommandDefinition {
+struct CommandSpec {
     let command: AppCommand
     let keyBinding: KeyBinding?
     let label: String
@@ -167,11 +167,11 @@ struct CommandDefinition {
     }
 }
 
-// MARK: - CommandHandler
+// MARK: - WorkspaceCommandHandling
 
 /// Protocol for objects that can execute commands.
 @MainActor
-protocol CommandHandler: AnyObject {
+protocol WorkspaceCommandHandling: AnyObject {
     /// Execute a contextual command (operates on the active/focused element)
     func execute(_ command: AppCommand)
 
@@ -190,7 +190,7 @@ protocol CommandHandler: AnyObject {
 
 /// Routes app-level commands that do not belong to the pane command handler.
 @MainActor
-protocol AppCommandRouting: AnyObject {
+protocol ShellCommandHandling: AnyObject {
     func canExecute(_ command: AppCommand) -> Bool
     func execute(_ command: AppCommand) -> Bool
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
@@ -216,11 +216,11 @@ final class CommandDispatcher {
     static let shared = CommandDispatcher()
 
     /// Registry of all command definitions
-    private(set) var definitions: [AppCommand: CommandDefinition] = [:]
+    private(set) var definitions: [AppCommand: CommandSpec] = [:]
 
     /// Active command handler (typically the tab/pane controller)
-    weak var handler: CommandHandler?
-    weak var appCommandRouter: AppCommandRouting?
+    weak var handler: WorkspaceCommandHandling?
+    weak var appCommandRouter: ShellCommandHandling?
 
     private init() {
         registerDefaults()
@@ -278,15 +278,15 @@ final class CommandDispatcher {
     // MARK: - Lookup
 
     /// Get the definition for a command
-    func definition(for command: AppCommand) -> CommandDefinition {
+    func definition(for command: AppCommand) -> CommandSpec {
         guard let definition = definitions[command] else {
-            preconditionFailure("Missing command definition for \(command.rawValue)")
+            fatalError("Missing command spec for \(command.rawValue)")
         }
         return definition
     }
 
     /// Get commands available for a given item type
-    func commands(for itemType: SearchItemType) -> [CommandDefinition] {
+    func commands(for itemType: SearchItemType) -> [CommandSpec] {
         definitions.values.filter { $0.appliesTo.contains(itemType) }
     }
 
@@ -319,10 +319,10 @@ extension AppCommand {
         .selectTab6, .selectTab7, .selectTab8, .selectTab9,
     ]
 
-    var definition: CommandDefinition {
+    var definition: CommandSpec {
         switch self {
         case .closeTab:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 keyBinding: KeyBinding(key: "w", modifiers: [.command]),
                 label: "Close Tab",
@@ -334,7 +334,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .breakUpTab:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Split Tab Into Individuals",
                 icon: "rectangle.split.3x1",
@@ -345,7 +345,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .newTerminalInTab:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Add Terminal to Tab",
                 icon: "terminal",
@@ -356,7 +356,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .newTab:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 keyBinding: KeyBinding(key: "t", modifiers: [.command]),
                 label: "New Tab",
@@ -366,7 +366,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .undoCloseTab:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 keyBinding: KeyBinding(key: "t", modifiers: [.command, .shift]),
                 label: "Undo Close Tab",
@@ -376,7 +376,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .selectTab:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Select Tab",
                 icon: "rectangle.stack",
@@ -388,7 +388,7 @@ extension AppCommand {
                 isHiddenInCommandBar: true
             )
         case .nextTab:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 keyBinding: KeyBinding(key: "]", modifiers: [.command, .shift]),
                 label: "Next Tab",
@@ -399,7 +399,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.tab
             )
         case .prevTab:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 keyBinding: KeyBinding(key: "[", modifiers: [.command, .shift]),
                 label: "Previous Tab",
@@ -428,7 +428,7 @@ extension AppCommand {
         case .selectTab9:
             return hiddenTabSelectionDefinition(index: 9)
         case .closePane:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Close Pane",
                 icon: "xmark.square",
@@ -440,7 +440,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .extractPaneToTab:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Move Pane to New Tab",
                 icon: "arrow.up.right.square",
@@ -451,7 +451,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .movePaneToTab:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Move Pane to Existing Tab",
                 icon: "arrow.left.and.right.square",
@@ -463,7 +463,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .focusPane:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Focus Pane",
                 icon: "scope",
@@ -475,7 +475,7 @@ extension AppCommand {
                 isHiddenInCommandBar: true
             )
         case .splitRight:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Split Right",
                 icon: "rectangle.split.1x2",
@@ -486,7 +486,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .splitLeft:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Split Left",
                 icon: "rectangle.split.1x2",
@@ -497,7 +497,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .equalizePanes:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Equalize Panes",
                 icon: "equal.square",
@@ -544,7 +544,7 @@ extension AppCommand {
                 helpText: "Move focus to the previous pane"
             )
         case .toggleSplitZoom:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Toggle Split Zoom",
                 icon: "arrow.up.left.and.arrow.down.right.magnifyingglass",
@@ -555,7 +555,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .minimizePane:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Minimize Pane",
                 icon: "minus.circle",
@@ -566,7 +566,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .expandPane:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Expand Pane",
                 icon: "arrow.up.left.and.arrow.down.right",
@@ -584,7 +584,7 @@ extension AppCommand {
             )
         case .saveArrangement:
             // Save Arrangement must stay visible with only the default arrangement so users can create their first custom layout.
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Save Arrangement As...",
                 icon: "rectangle.3.group.fill",
@@ -607,7 +607,7 @@ extension AppCommand {
                 helpText: "Rename a saved arrangement in the active tab"
             )
         case .addDrawerPane:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Add Drawer Pane",
                 icon: "rectangle.bottomhalf.inset.filled",
@@ -618,7 +618,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .toggleDrawer:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Toggle Drawer",
                 icon: "rectangle.expand.vertical",
@@ -629,7 +629,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .navigateDrawerPane:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Switch Drawer Pane",
                 icon: "arrow.down.to.line",
@@ -640,7 +640,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .closeDrawerPane:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Close Drawer Pane",
                 icon: "xmark.rectangle.portrait",
@@ -651,7 +651,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .addRepo:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 keyBinding: KeyBinding(key: "O", modifiers: [.command, .shift]),
                 label: "Add Repo",
@@ -662,7 +662,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.repo
             )
         case .addFolder:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 keyBinding: KeyBinding(key: "O", modifiers: [.command, .shift, .option]),
                 label: "Add Folder",
@@ -672,7 +672,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.repo
             )
         case .removeRepo:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Remove Repo",
                 icon: "folder.badge.minus",
@@ -694,7 +694,7 @@ extension AppCommand {
                 helpText: "Open a worktree in a split pane"
             )
         case .toggleManagementMode:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 keyBinding: KeyBinding(key: "e", modifiers: [.command]),
                 label: "Manage Workspace",
@@ -704,7 +704,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .toggleSidebar:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 keyBinding: KeyBinding(key: "s", modifiers: [.command, .shift]),
                 label: "Toggle Sidebar",
@@ -714,7 +714,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .newFloatingTerminal:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "New Floating Terminal",
                 icon: "terminal.fill",
@@ -723,7 +723,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .newWindow:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 keyBinding: KeyBinding(key: "n", modifiers: [.command]),
                 label: "New Window",
@@ -734,7 +734,7 @@ extension AppCommand {
                 isHiddenInCommandBar: true
             )
         case .closeWindow:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 keyBinding: KeyBinding(key: "W", modifiers: [.command, .shift]),
                 label: "Close Window",
@@ -745,7 +745,7 @@ extension AppCommand {
                 isHiddenInCommandBar: true
             )
         case .quickFind:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Quick Find",
                 icon: "magnifyingglass",
@@ -755,7 +755,7 @@ extension AppCommand {
                 isHiddenInCommandBar: true
             )
         case .commandBar:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Command Palette",
                 icon: "command",
@@ -765,7 +765,7 @@ extension AppCommand {
                 isHiddenInCommandBar: true
             )
         case .openWebview:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Open New Webview Tab",
                 icon: "globe",
@@ -774,7 +774,7 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.webview
             )
         case .signInGitHub:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Sign in to GitHub",
                 icon: "person.badge.key",
@@ -784,7 +784,7 @@ extension AppCommand {
                 isHiddenInCommandBar: true
             )
         case .signInGoogle:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 label: "Sign in to Google",
                 icon: "person.badge.key",
@@ -794,7 +794,7 @@ extension AppCommand {
                 isHiddenInCommandBar: true
             )
         case .filterSidebar:
-            return CommandDefinition(
+            return CommandSpec(
                 command: self,
                 keyBinding: KeyBinding(key: "f", modifiers: [.command, .shift]),
                 label: "Filter Sidebar",
@@ -812,8 +812,8 @@ extension AppCommand {
         }
     }
 
-    private func hiddenTabSelectionDefinition(index: Int) -> CommandDefinition {
-        CommandDefinition(
+    private func hiddenTabSelectionDefinition(index: Int) -> CommandSpec {
+        CommandSpec(
             command: self,
             keyBinding: KeyBinding(key: "\(index)", modifiers: [.command]),
             label: "Select Tab \(index)",
@@ -824,8 +824,8 @@ extension AppCommand {
         )
     }
 
-    private func focusDefinition(label: String, icon: String, helpText: String) -> CommandDefinition {
-        CommandDefinition(
+    private func focusDefinition(label: String, icon: String, helpText: String) -> CommandSpec {
+        CommandSpec(
             command: self,
             label: label,
             icon: icon,
@@ -836,8 +836,8 @@ extension AppCommand {
         )
     }
 
-    private func arrangementDefinition(label: String, icon: String, helpText: String) -> CommandDefinition {
-        CommandDefinition(
+    private func arrangementDefinition(label: String, icon: String, helpText: String) -> CommandSpec {
+        CommandSpec(
             command: self,
             label: label,
             icon: icon,
@@ -849,8 +849,8 @@ extension AppCommand {
         )
     }
 
-    private func worktreeDefinition(label: String, icon: String, helpText: String) -> CommandDefinition {
-        CommandDefinition(
+    private func worktreeDefinition(label: String, icon: String, helpText: String) -> CommandSpec {
+        CommandSpec(
             command: self,
             label: label,
             icon: icon,

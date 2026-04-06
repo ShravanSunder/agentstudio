@@ -5,7 +5,7 @@ enum ActionIconDescriptor: Equatable, Sendable {
     case octicon(String)
 }
 
-struct ActionPresentation: Equatable, Sendable {
+struct ActionSpec: Equatable, Sendable {
     let label: String
     let helpText: String
     let icon: ActionIconDescriptor?
@@ -27,9 +27,9 @@ extension KeyBinding {
     }
 }
 
-extension CommandDefinition {
-    var presentation: ActionPresentation {
-        ActionPresentation(
+extension CommandSpec {
+    var actionSpec: ActionSpec {
+        ActionSpec(
             label: label,
             helpText: helpText,
             icon: icon.map(ActionIconDescriptor.system)
@@ -38,13 +38,13 @@ extension CommandDefinition {
 
     var controlToolTip: String {
         if let keyBinding {
-            return "\(presentation.label) (\(keyBinding.displayString))"
+            return "\(actionSpec.label) (\(keyBinding.displayString))"
         }
-        return presentation.helpText
+        return actionSpec.helpText
     }
 }
 
-enum LocalActionPresentation {
+enum LocalActionSpec {
     case quickOpen
     case commandPalette
     case goToPane
@@ -93,145 +93,145 @@ enum LocalActionPresentation {
     case toggleDrawer(isExpanded: Bool)
     case addDrawerPane
 
-    var presentation: ActionPresentation {
+    var actionSpec: ActionSpec {
         switch self {
         case .quickOpen:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Quick Open", helpText: "Show the quick-open palette", icon: .system("magnifyingglass"))
         case .commandPalette:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Command Palette", helpText: "Show the command palette", icon: .system("command"))
         case .goToPane:
-            return ActionPresentation(label: "Go to Pane", helpText: "Show the pane picker", icon: .system("terminal"))
+            return ActionSpec(label: "Go to Pane", helpText: "Show the pane picker", icon: .system("terminal"))
         case .openInMenu:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Open in...", helpText: "Choose an editor to open this worktree", icon: nil)
         case .setIconColorMenu:
-            return ActionPresentation(label: "Set Icon Color", helpText: "Choose a custom sidebar color", icon: nil)
+            return ActionSpec(label: "Set Icon Color", helpText: "Choose a custom sidebar color", icon: nil)
         case .openInNewTab:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Open in New Tab", helpText: "Open this worktree in a new tab", icon: .system("plus.rectangle"))
         case .openInPaneSplit:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Open in Pane (Split)", helpText: "Open this worktree in a split pane",
                 icon: .system("rectangle.split.2x1"))
         case .goToTerminal:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Go to Terminal", helpText: "Focus the existing terminal for this worktree",
                 icon: .system("terminal"))
         case .openInCursor:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Cursor", helpText: "Open this worktree in Cursor", icon: .octicon("octicon-code-square"))
         case .openInVSCode:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "VS Code", helpText: "Open this worktree in VS Code", icon: .octicon("octicon-vscode"))
         case .revealInFinder:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Reveal in Finder", helpText: "Reveal this path in Finder", icon: .system("folder"))
         case .copyPath:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Copy Path", helpText: "Copy this path to the clipboard", icon: .system("doc.on.clipboard"))
         case .revealDataLocationInFinder:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Reveal in Finder", helpText: "Reveal the AgentStudio data folder in Finder",
                 icon: .system("folder"))
         case .openZellijConfig:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Open Zellij Config", helpText: "Open the Zellij configuration folder", icon: .system("folder"))
         case .clearFilter:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Clear Filter", helpText: "Clear filter", icon: .system("xmark.circle.fill"))
         case .refreshWorktrees:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Refresh Worktrees", helpText: "Refresh watched worktrees", icon: .system("arrow.clockwise"))
         case .chooseFolderToScan:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Choose a Folder to Scan…", helpText: "Choose a folder to scan",
                 icon: .system("folder.badge.plus"))
         case .openAllInTabs:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Open All In Tabs", helpText: "Open all recent worktrees in tabs",
                 icon: .system("rectangle.stack"))
         case .extractPaneToNewTab:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Extract Pane to New Tab", helpText: "Move the active pane into a new tab",
                 icon: .system("arrow.up.right.square"))
         case .movePaneToTabMenu:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Move Pane to Tab", helpText: "Move the active pane into another tab", icon: nil)
         case .openGitHubInNewTab:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Open GitHub in New Tab", helpText: "Open GitHub in a new tab", icon: .system("globe"))
         case .arrangements:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Arrangements", helpText: "Manage tab arrangements", icon: .system("rectangle.3.group"))
         case .saveCurrentLayoutAsArrangement:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Save Current Layout as Arrangement", helpText: "Save current layout as arrangement",
                 icon: .system("plus"))
         case .showPane:
-            return ActionPresentation(label: "Show Pane", helpText: "Show pane", icon: .system("eye"))
+            return ActionSpec(label: "Show Pane", helpText: "Show pane", icon: .system("eye"))
         case .hidePane:
-            return ActionPresentation(label: "Hide Pane", helpText: "Hide pane", icon: .system("eye.slash"))
+            return ActionSpec(label: "Hide Pane", helpText: "Hide pane", icon: .system("eye.slash"))
         case .addDrawerTerminal:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Add Drawer Terminal", helpText: "Add a drawer terminal", icon: .system("plus"))
         case .resetIconColorDefault:
-            return ActionPresentation(label: "Reset to Default", helpText: "Reset the sidebar icon color", icon: nil)
+            return ActionSpec(label: "Reset to Default", helpText: "Reset the sidebar icon color", icon: nil)
         case .browserBack:
-            return ActionPresentation(label: "Back", helpText: "Back (⌘[)", icon: .system("chevron.left"))
+            return ActionSpec(label: "Back", helpText: "Back (⌘[)", icon: .system("chevron.left"))
         case .browserForward:
-            return ActionPresentation(label: "Forward", helpText: "Forward (⌘])", icon: .system("chevron.right"))
+            return ActionSpec(label: "Forward", helpText: "Forward (⌘])", icon: .system("chevron.right"))
         case .browserStop:
-            return ActionPresentation(label: "Stop Loading", helpText: "Stop loading", icon: .system("xmark"))
+            return ActionSpec(label: "Stop Loading", helpText: "Stop loading", icon: .system("xmark"))
         case .browserReload:
-            return ActionPresentation(label: "Reload", helpText: "Reload (⌘R)", icon: .system("arrow.clockwise"))
+            return ActionSpec(label: "Reload", helpText: "Reload (⌘R)", icon: .system("arrow.clockwise"))
         case .browserHome:
-            return ActionPresentation(label: "New Tab Page", helpText: "New tab page", icon: .system("house"))
+            return ActionSpec(label: "New Tab Page", helpText: "New tab page", icon: .system("house"))
         case .browserAddFavorite:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Add to Favorites", helpText: "Add to favorites (⌘D)", icon: .system("star"))
         case .browserRemoveFavorite:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Remove from Favorites", helpText: "Remove from favorites (⌘D)", icon: .system("star.fill"))
         case .emptyTerminal:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Empty Terminal", helpText: "Open a new empty terminal tab", icon: .system("terminal"))
         case .openRepoWorktree:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Open Repo/Worktree...", helpText: "Open a repo or worktree in a tab", icon: .system("folder"))
         case .renameArrangement:
-            return ActionPresentation(label: "Rename...", helpText: "Rename this arrangement", icon: .system("pencil"))
+            return ActionSpec(label: "Rename...", helpText: "Rename this arrangement", icon: .system("pencil"))
         case .deleteArrangement:
-            return ActionPresentation(label: "Delete", helpText: "Delete this arrangement", icon: .system("trash"))
+            return ActionSpec(label: "Delete", helpText: "Delete this arrangement", icon: .system("trash"))
         case .addFavorite:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Add Favorite", helpText: "Add a saved favorite URL", icon: .system("plus"))
         case .clearAllHistory:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Clear All History", helpText: "Clear all saved browser history", icon: .system("trash"))
         case .cancel:
-            return ActionPresentation(label: "Cancel", helpText: "Cancel this action", icon: nil)
+            return ActionSpec(label: "Cancel", helpText: "Cancel this action", icon: nil)
         case .add:
-            return ActionPresentation(label: "Add", helpText: "Add this item", icon: nil)
+            return ActionSpec(label: "Add", helpText: "Add this item", icon: nil)
         case .rename:
-            return ActionPresentation(label: "Rename", helpText: "Rename this item", icon: nil)
+            return ActionSpec(label: "Rename", helpText: "Rename this item", icon: nil)
         case .openPaneLocationInFinder:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Open pane location in Finder", helpText: "Open pane location in Finder",
                 icon: .system("macwindow"))
         case .openPaneLocationInPreferredEditor:
-            return ActionPresentation(
+            return ActionSpec(
                 label: "Open pane location in Cursor or VS Code", helpText: "Open pane location in Cursor or VS Code",
                 icon: .octicon("octicon-code-square"))
         case .toggleDrawer(let isExpanded):
-            return ActionPresentation(
+            return ActionSpec(
                 label: isExpanded ? "Collapse Drawer" : "Expand Drawer",
                 helpText: isExpanded ? "Collapse drawer" : "Expand drawer",
                 icon: .system("rectangle.bottomhalf.filled")
             )
         case .addDrawerPane:
-            return ActionPresentation(label: "Add Drawer Pane", helpText: "Add drawer pane", icon: .system("plus"))
+            return ActionSpec(label: "Add Drawer Pane", helpText: "Add drawer pane", icon: .system("plus"))
         }
     }
 }

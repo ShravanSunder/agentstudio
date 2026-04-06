@@ -83,6 +83,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         repoCacheStore = RepoCacheStore(atom: atomStore.repoCache)
         uiStateStore = UIStateStore(atom: atomStore.uiState)
         store.restore()
+        atomStore.workspaceFocusContext.startObserving(store: store)
         managementModeMonitor = ManagementModeMonitor()
         appLifecycleStore = AppLifecycleStore()
         windowLifecycleStore = WindowLifecycleStore()
@@ -521,7 +522,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// Called from setupMainMenu() which runs on the main thread during app launch.
     private func menuItem(command: AppCommand, action: Selector) -> NSMenuItem {
         let definition = CommandDispatcher.shared.definition(for: command)
-        let item = NSMenuItem(title: definition.presentation.label, action: action, keyEquivalent: "")
+        let item = NSMenuItem(title: definition.actionSpec.label, action: action, keyEquivalent: "")
         item.target = self
         item.representedObject = command.rawValue
         if let binding = definition.keyBinding {
@@ -532,19 +533,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     private func makeCommandBarMenuItems() -> [NSMenuItem] {
         let quickOpenItem = NSMenuItem(
-            title: LocalActionPresentation.quickOpen.presentation.label,
+            title: LocalActionSpec.quickOpen.actionSpec.label,
             action: #selector(showCommandBar),
             keyEquivalent: "p"
         )
         let commandModeItem = NSMenuItem(
-            title: LocalActionPresentation.commandPalette.presentation.label,
+            title: LocalActionSpec.commandPalette.actionSpec.label,
             action: #selector(showCommandBarCommands),
             keyEquivalent: "p"
         )
         commandModeItem.keyEquivalentModifierMask = [.command, .shift]
 
         let paneModeItem = NSMenuItem(
-            title: LocalActionPresentation.goToPane.presentation.label,
+            title: LocalActionSpec.goToPane.actionSpec.label,
             action: #selector(showCommandBarPanes),
             keyEquivalent: "p"
         )
@@ -562,7 +563,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         let definition = CommandDispatcher.shared.definition(for: command)
-        let focus = WorkspaceFocusComputer.compute(store: store)
+        let focus = atom(\.workspaceFocusContext).currentFocus
         let isVisible = definition.isVisible(in: focus)
         menuItem.isHidden = !isVisible
         guard isVisible else { return false }
@@ -935,9 +936,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
 }
-// MARK: - AppCommandRouting
+// MARK: - ShellCommandHandling
 
-extension AppDelegate: AppCommandRouting {
+extension AppDelegate: ShellCommandHandling {
     func canExecute(_ command: AppCommand) -> Bool {
         switch command {
         case .addRepo, .addFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle: true

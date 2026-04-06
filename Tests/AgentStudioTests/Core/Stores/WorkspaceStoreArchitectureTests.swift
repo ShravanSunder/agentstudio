@@ -11,8 +11,8 @@ struct WorkspaceStoreArchitectureTests {
         )
         let source = try String(contentsOf: storePath, encoding: .utf8)
 
-        #expect(!source.contains("ActionResolver"))
-        #expect(!source.contains("ActionValidator"))
+        #expect(!source.contains("WorkspaceCommandResolver"))
+        #expect(!source.contains("WorkspaceCommandValidator"))
         #expect(!source.contains("PaneActionCommand"))
     }
 }

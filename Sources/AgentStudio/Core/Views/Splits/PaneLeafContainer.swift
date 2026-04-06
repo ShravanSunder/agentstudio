@@ -331,7 +331,7 @@ struct PaneLeafContainer: View {
                                 paneEdgeButton(
                                     systemName: "globe",
                                     isHovered: isBrowserHovered,
-                                    helpText: LocalActionPresentation.openGitHubInNewTab.presentation.helpText
+                                    helpText: LocalActionSpec.openGitHubInNewTab.actionSpec.helpText
                                 ) {
                                     onOpenPaneGitHub(paneHost.id)
                                 }
@@ -358,11 +358,11 @@ struct PaneLeafContainer: View {
             .allowsHitTesting(!isClosing)
             .contextMenu {
                 if managementMode.isActive && !isDrawerChild {
-                    Button(LocalActionPresentation.extractPaneToNewTab.presentation.label) {
+                    Button(LocalActionSpec.extractPaneToNewTab.actionSpec.label) {
                         actionDispatcher.dispatch(.extractPaneToTab(tabId: tabId, paneId: paneHost.id))
                     }
 
-                    Menu(LocalActionPresentation.movePaneToTabMenu.presentation.label) {
+                    Menu(LocalActionSpec.movePaneToTabMenu.actionSpec.label) {
                         ForEach(movePaneDestinations, id: \.tabId) { destination in
                             Button(destination.title) {
                                 guard

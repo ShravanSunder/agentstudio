@@ -105,7 +105,7 @@ struct WorkspaceEmptyStateView: View {
                     .foregroundStyle(.secondary)
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Button(LocalActionPresentation.chooseFolderToScan.presentation.label) {
+                    Button(LocalActionSpec.chooseFolderToScan.actionSpec.label) {
                         onAddFolder()
                     }
                     .buttonStyle(.borderedProminent)
@@ -223,7 +223,7 @@ struct WorkspaceEmptyStateView: View {
                 .foregroundStyle(.tertiary)
 
             if model.showsOpenAll {
-                Button(LocalActionPresentation.openAllInTabs.presentation.label) {
+                Button(LocalActionSpec.openAllInTabs.actionSpec.label) {
                     onOpenAllRecent()
                 }
                 .buttonStyle(.bordered)

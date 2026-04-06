@@ -2,7 +2,7 @@ import Foundation
 
 @testable import AgentStudio
 
-/// Lightweight `ResolvableTab` mock for testing `ActionResolver.resolve(command:)`.
+/// Lightweight `ResolvableTab` mock for testing `WorkspaceCommandResolver.resolve(command:)`.
 /// Uses pure UUIDs with configurable navigation results — no NSViews required.
 struct MockTab: ResolvableTab {
     let id: UUID

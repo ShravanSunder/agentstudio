@@ -367,7 +367,8 @@ final class PaneCoordinator {
         case .gotoSplit(let direction):
             guard
                 let command = mapGotoSplitDirection(direction),
-                let action = ActionResolver.resolve(command: command, tabs: store.tabs, activeTabId: sourceTabId)
+                let action = WorkspaceCommandResolver.resolve(
+                    command: command, tabs: store.tabs, activeTabId: sourceTabId)
             else {
                 Self.logger.debug(
                     "Unable to resolve gotoSplit runtime event for pane \(sourcePaneUUID.uuidString, privacy: .public) direction=\(String(describing: direction), privacy: .public)"
@@ -463,9 +464,9 @@ final class PaneCoordinator {
         let action: PaneActionCommand?
         switch target {
         case .previous:
-            action = ActionResolver.resolve(command: .prevTab, tabs: tabs, activeTabId: sourceTabId)
+            action = WorkspaceCommandResolver.resolve(command: .prevTab, tabs: tabs, activeTabId: sourceTabId)
         case .next:
-            action = ActionResolver.resolve(command: .nextTab, tabs: tabs, activeTabId: sourceTabId)
+            action = WorkspaceCommandResolver.resolve(command: .nextTab, tabs: tabs, activeTabId: sourceTabId)
         case .last:
             action = tabs.last.map { .selectTab(tabId: $0.id) }
         case .index(let oneBasedIndex):

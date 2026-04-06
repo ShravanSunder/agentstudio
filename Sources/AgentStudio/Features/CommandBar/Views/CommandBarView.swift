@@ -62,7 +62,7 @@ struct CommandBarView: View {
     }
 
     private var currentContext: WorkspaceFocus {
-        WorkspaceFocusComputer.compute(store: store)
+        atom(\.workspaceFocusContext).currentFocus
     }
 
     private var allItems: [CommandBarItem] {

@@ -3,10 +3,10 @@ import Testing
 
 @testable import AgentStudio
 
-/// Tests that `Tab` works correctly as a `ResolvableTab` with `ActionResolver`.
+/// Tests that `Tab` works correctly as a `ResolvableTab` with `WorkspaceCommandResolver`.
 /// This validates the Phase 2 conformance added in `ResolvableTab.swift`.
 @Suite(.serialized)
-final class ActionResolverTabConformanceTests {
+final class WorkspaceCommandResolverTabConformanceTests {
 
     // MARK: - ResolvableTab Protocol Conformance
 
@@ -48,7 +48,7 @@ final class ActionResolverTabConformanceTests {
         #expect(tab.activePaneId == ids[1])
     }
 
-    // MARK: - ActionResolver.resolve with Tab
+    // MARK: - WorkspaceCommandResolver.resolve with Tab
 
     @Test
 
@@ -58,7 +58,7 @@ final class ActionResolverTabConformanceTests {
         let tab = Tab(paneId: paneId)
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .closeTab, tabs: [tab], activeTabId: tab.id
         )
 
@@ -74,7 +74,7 @@ final class ActionResolverTabConformanceTests {
         let tab = Tab(paneId: paneId)
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .closePane, tabs: [tab], activeTabId: tab.id
         )
 
@@ -91,7 +91,7 @@ final class ActionResolverTabConformanceTests {
         let tab = makeTab(paneIds: [paneA, paneB], activePaneId: paneA)
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .closePane, tabs: [tab], activeTabId: tab.id
         )
 
@@ -107,7 +107,7 @@ final class ActionResolverTabConformanceTests {
         let tab = Tab(paneId: paneId)
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .splitRight, tabs: [tab], activeTabId: tab.id
         )
 
@@ -130,7 +130,7 @@ final class ActionResolverTabConformanceTests {
         let tab2 = Tab(paneId: UUID())
 
         // Act — from tab2 wraps to tab1
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .nextTab, tabs: [tab1, tab2], activeTabId: tab2.id
         )
 
@@ -146,7 +146,7 @@ final class ActionResolverTabConformanceTests {
         let tab2 = Tab(paneId: UUID())
 
         // Act — from tab1 wraps to tab2
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .prevTab, tabs: [tab1, tab2], activeTabId: tab1.id
         )
 
@@ -165,10 +165,12 @@ final class ActionResolverTabConformanceTests {
 
         // Act & Assert
         #expect(
-            ActionResolver.resolve(command: .selectTab1, tabs: tabs, activeTabId: nil) == .selectTab(tabId: tab1.id))
+            WorkspaceCommandResolver.resolve(command: .selectTab1, tabs: tabs, activeTabId: nil)
+                == .selectTab(tabId: tab1.id))
         #expect(
-            ActionResolver.resolve(command: .selectTab2, tabs: tabs, activeTabId: nil) == .selectTab(tabId: tab2.id))
-        #expect((ActionResolver.resolve(command: .selectTab4, tabs: tabs, activeTabId: nil)) == nil)
+            WorkspaceCommandResolver.resolve(command: .selectTab2, tabs: tabs, activeTabId: nil)
+                == .selectTab(tabId: tab2.id))
+        #expect((WorkspaceCommandResolver.resolve(command: .selectTab4, tabs: tabs, activeTabId: nil)) == nil)
     }
 
     @Test
@@ -179,7 +181,7 @@ final class ActionResolverTabConformanceTests {
         let tab = makeTab(paneIds: ids)
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .breakUpTab, tabs: [tab], activeTabId: tab.id
         )
 
@@ -195,7 +197,7 @@ final class ActionResolverTabConformanceTests {
         let tab = makeTab(paneIds: ids, activePaneId: ids[0])
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .extractPaneToTab, tabs: [tab], activeTabId: tab.id
         )
 
@@ -211,7 +213,7 @@ final class ActionResolverTabConformanceTests {
         let tab = makeTab(paneIds: ids)
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .equalizePanes, tabs: [tab], activeTabId: tab.id
         )
 
@@ -229,7 +231,7 @@ final class ActionResolverTabConformanceTests {
         let tab = makeTab(paneIds: ids, activePaneId: ids[0])
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .focusNextPane, tabs: [tab], activeTabId: tab.id
         )
 
@@ -245,7 +247,7 @@ final class ActionResolverTabConformanceTests {
         let tab = makeTab(paneIds: ids, activePaneId: ids[1])
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .focusPrevPane, tabs: [tab], activeTabId: tab.id
         )
 
@@ -261,7 +263,7 @@ final class ActionResolverTabConformanceTests {
         let tab = makeTab(paneIds: ids, activePaneId: ids[0])
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .focusPaneRight, tabs: [tab], activeTabId: tab.id
         )
 
@@ -277,7 +279,7 @@ final class ActionResolverTabConformanceTests {
         let tab = Tab(paneId: paneId)
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .focusPaneLeft, tabs: [tab], activeTabId: tab.id
         )
 
@@ -296,7 +298,7 @@ final class ActionResolverTabConformanceTests {
         let tab2 = Tab(paneId: UUID())
 
         // Act
-        let snapshot = ActionResolver.snapshot(
+        let snapshot = WorkspaceCommandResolver.snapshot(
             from: [tab1, tab2], activeTabId: tab1.id, isManagementModeActive: false
         )
 
