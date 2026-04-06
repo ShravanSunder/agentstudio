@@ -182,7 +182,7 @@ struct RepoSidebarContentView: View {
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help(LocalActionPresentation.clearFilter.presentation.helpText)
+                .help(LocalActionSpec.clearFilter.actionSpec.helpText)
                 .transition(.opacity.animation(.easeOut(duration: 0.1)))
             }
         }
@@ -244,12 +244,12 @@ struct RepoSidebarContentView: View {
                         Divider()
 
                         if let primaryRepo = Self.primaryRepoForGroup(group) {
-                            Button(LocalActionPresentation.revealInFinder.presentation.label) {
+                            Button(LocalActionSpec.revealInFinder.actionSpec.label) {
                                 openRepoInFinder(primaryRepo.repoPath)
                             }
                         }
 
-                        Button(LocalActionPresentation.refreshWorktrees.presentation.label) {
+                        Button(LocalActionSpec.refreshWorktrees.actionSpec.label) {
                             CommandDispatcher.shared.appCommandRouter?.refreshWorktrees()
                         }
                     }

@@ -193,8 +193,6 @@ These commands are valid regardless of workspace state:
 | `prevTab` | Previous Tab | |
 | `newTerminalInTab` | New Terminal in Tab | Needs a tab to add to |
 | `saveArrangement` | Save Arrangement As... | Saves current tab's panes |
-| `equalizePanes` | Equalize Panes | Operates on active tab |
-
 ### Requires `[hasActiveTab, hasMultiplePanes]`
 
 | Command | Label | Notes |
@@ -206,6 +204,7 @@ These commands are valid regardless of workspace state:
 | `focusPaneDown` | Focus Pane Down | |
 | `focusNextPane` | Focus Next Pane | |
 | `focusPrevPane` | Focus Previous Pane | |
+| `equalizePanes` | Equalize Panes | Hidden when only one pane exists because equalizing a single pane is meaningless |
 
 ### Requires `[hasActiveTab, hasArrangements]`
 
@@ -309,7 +308,7 @@ Some command labels are unclear. Proposed renames:
 
 ### Menus
 
-- `validateMenuItem` / `NSUserInterfaceValidations` can use the same `computeCurrentFocus` + `isCommandVisible` check
+- `validateMenuItem` / `NSUserInterfaceValidations` can use the same `WorkspaceFocusContextAtom.currentFocus` + `isCommandVisible` check
 - Menus may choose to show-but-dim instead of hide, depending on macOS conventions
 
 ### Keyboard shortcuts
@@ -322,15 +321,13 @@ Some command labels are unclear. Proposed renames:
 
 | File | Change |
 |------|--------|
-| `Core/Models/AppCommand.swift` → `CommandDefinition` | Add `visibleWhen: Set<FocusRequirement>` field |
-| `Core/Models/FocusRequirement.swift` | Create: the enum |
-| `Core/Models/WorkspaceFocus.swift` | Create: replaces `CommandBarAppContext`, adds `.none` case |
-| `Core/Models/WorkspaceFocusComputer.swift` | Create: `computeCurrentFocus(store:)` function |
+| `App/Commands/AppCommand.swift` → `CommandSpec` | Add `visibleWhen: Set<FocusRequirement>` field |
+| `Core/State/MainActor/Atoms/WorkspaceFocusContextAtom.swift` | Create: `FocusRequirement`, `WorkspaceFocus`, projector, and shared atom surface |
 | `Features/CommandBar/CommandBarDataSource.swift` | Filter items by visibility |
 | `Features/CommandBar/CommandBarItem.swift` | Remove `CommandBarAppContext`, import `WorkspaceFocus` |
 | `Features/CommandBar/Views/CommandBarView.swift` | Use `WorkspaceFocus` for status strip |
 | `Features/CommandBar/Views/CommandBarStatusStrip.swift` | Update to use `WorkspaceFocus` |
-| `App/Commands/AppCommand.swift` → `registerDefaults()` | Add `visibleWhen` to all 55 registered definitions |
+| `App/Commands/AppCommand.swift` → `registerDefaults()` | Add `visibleWhen` to all registered command specs |
 
 ---
 

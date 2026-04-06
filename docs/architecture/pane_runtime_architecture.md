@@ -3125,7 +3125,7 @@ Two distinct action layers exist with different scopes:
 | **Workspace** | `PaneActionCommand` | `Core/Actions/` | Workspace structure mutations — selectTab, closePane, insertPane, toggleDrawer |
 | **Runtime** | `RuntimeCommand` | `Core/RuntimeEventSystem/Contracts/` | Commands to individual runtimes — sendInput, navigate, approveHunk |
 
-`PaneActionCommand` flows: User → ActionResolver → ActionValidator → PaneCoordinator → WorkspaceStore.
+`PaneActionCommand` flows: User → WorkspaceCommandResolver → WorkspaceCommandValidator → PaneCoordinator → WorkspaceStore.
 `RuntimeCommand` flows: PaneCoordinator → RuntimeRegistry → `runtime.handleCommand(envelope)`.
 
 `AppEventBus` is reserved for app-level notifications that are not commands. `ApplicationLifecycleMonitor` owns AppKit/macOS lifecycle ingress and writes the lifecycle stores; it does not route workspace commands.

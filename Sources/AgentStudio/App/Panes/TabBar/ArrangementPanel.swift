@@ -38,7 +38,7 @@ struct ArrangementPanel: View {
                             )
                     }
                     .buttonStyle(.plain)
-                    .help(LocalActionPresentation.saveCurrentLayoutAsArrangement.presentation.helpText)
+                    .help(LocalActionSpec.saveCurrentLayoutAsArrangement.actionSpec.helpText)
                 }
             }
 
@@ -69,13 +69,13 @@ struct ArrangementPanel: View {
             )
         ) {
             TextField("Name", text: $renameText)
-            Button(LocalActionPresentation.rename.presentation.label) {
+            Button(LocalActionSpec.rename.actionSpec.label) {
                 if let id = renamingArrangementId, !renameText.isEmpty {
                     onPaneAction(.renameArrangement(tabId: tabId, arrangementId: id, name: renameText))
                 }
                 renamingArrangementId = nil
             }
-            Button(LocalActionPresentation.cancel.presentation.label, role: .cancel) {
+            Button(LocalActionSpec.cancel.actionSpec.label, role: .cancel) {
                 renamingArrangementId = nil
             }
         }
@@ -115,8 +115,8 @@ struct ArrangementPanel: View {
             .buttonStyle(.plain)
             .help(
                 pane.isMinimized
-                    ? LocalActionPresentation.showPane.presentation.helpText
-                    : LocalActionPresentation.hidePane.presentation.helpText
+                    ? LocalActionSpec.showPane.actionSpec.helpText
+                    : LocalActionSpec.hidePane.actionSpec.helpText
             )
         }
         .padding(.horizontal, AppStyle.spacingStandard)
@@ -147,11 +147,11 @@ struct ArrangementPanel: View {
             }
             .contextMenu {
                 if !arr.isDefault {
-                    Button(LocalActionPresentation.renameArrangement.presentation.label) {
+                    Button(LocalActionSpec.renameArrangement.actionSpec.label) {
                         renameText = arr.name
                         renamingArrangementId = arr.id
                     }
-                    Button(LocalActionPresentation.deleteArrangement.presentation.label, role: .destructive) {
+                    Button(LocalActionSpec.deleteArrangement.actionSpec.label, role: .destructive) {
                         onPaneAction(.removeArrangement(tabId: tabId, arrangementId: arr.id))
                     }
                 }

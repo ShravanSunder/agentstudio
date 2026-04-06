@@ -1,6 +1,6 @@
 import Foundation
 
-/// Protocol exposing what ActionResolver needs from a tab.
+/// Protocol exposing what WorkspaceCommandResolver needs from a tab.
 /// Decouples resolution logic from concrete tab implementations,
 /// enabling unit testing with lightweight mocks.
 protocol ResolvableTab: Identifiable where ID == UUID {

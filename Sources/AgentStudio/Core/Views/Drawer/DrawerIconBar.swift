@@ -46,10 +46,10 @@ struct DrawerIconBar: View {
     private static let tooltipCoordinateSpaceName = "drawerTooltipBar"
 
     var body: some View {
-        let togglePresentation = LocalActionPresentation.toggleDrawer(isExpanded: isExpanded).presentation
-        let addPresentation = LocalActionPresentation.addDrawerPane.presentation
-        let finderPresentation = LocalActionPresentation.openPaneLocationInFinder.presentation
-        let editorPresentation = LocalActionPresentation.openPaneLocationInPreferredEditor.presentation
+        let togglePresentation = LocalActionSpec.toggleDrawer(isExpanded: isExpanded).actionSpec
+        let addPresentation = LocalActionSpec.addDrawerPane.actionSpec
+        let finderPresentation = LocalActionSpec.openPaneLocationInFinder.actionSpec
+        let editorPresentation = LocalActionSpec.openPaneLocationInPreferredEditor.actionSpec
 
         VStack(spacing: 0) {
             GeometryReader { geo in
@@ -180,13 +180,13 @@ struct DrawerIconBar: View {
     private func tooltipText(for target: DrawerTooltipTarget) -> String? {
         switch target {
         case .toggle:
-            return LocalActionPresentation.toggleDrawer(isExpanded: isExpanded).presentation.helpText
+            return LocalActionSpec.toggleDrawer(isExpanded: isExpanded).actionSpec.helpText
         case .add:
-            return LocalActionPresentation.addDrawerPane.presentation.helpText
+            return LocalActionSpec.addDrawerPane.actionSpec.helpText
         case .finder:
-            return LocalActionPresentation.openPaneLocationInFinder.presentation.helpText
+            return LocalActionSpec.openPaneLocationInFinder.actionSpec.helpText
         case .editor:
-            return LocalActionPresentation.openPaneLocationInPreferredEditor.presentation.helpText
+            return LocalActionSpec.openPaneLocationInPreferredEditor.actionSpec.helpText
         case .emptyAdd:
             return nil
         }
@@ -234,7 +234,7 @@ struct EmptyDrawerBar: View {
     private static let tooltipCoordinateSpaceName = "emptyDrawerTooltipBar"
 
     var body: some View {
-        let addPresentation = LocalActionPresentation.addDrawerPane.presentation
+        let addPresentation = LocalActionSpec.addDrawerPane.actionSpec
         HStack {
             Spacer()
             GeometryReader { geo in

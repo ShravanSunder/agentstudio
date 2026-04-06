@@ -137,7 +137,7 @@ struct DrawerPanel: View {
                     guard let sourcePane = store.pane(sourcePaneId) else { return false }
                     guard sourcePane.parentPaneId == parentPaneId else { return false }
 
-                    let snapshot = ActionResolver.snapshot(
+                    let snapshot = WorkspaceCommandResolver.snapshot(
                         from: store.tabs,
                         activeTabId: store.activeTabId,
                         isManagementModeActive: atom(\.managementMode).isActive,
@@ -149,7 +149,7 @@ struct DrawerPanel: View {
                         targetDrawerPaneId: destPaneId,
                         direction: Self.splitDirection(for: zone)
                     )
-                    if case .success = ActionValidator.validate(moveAction, state: snapshot) {
+                    if case .success = WorkspaceCommandValidator.validate(moveAction, state: snapshot) {
                         return true
                     }
                     return false
@@ -191,7 +191,7 @@ struct DrawerPanel: View {
                 )
         }
         .buttonStyle(.plain)
-        .help(LocalActionPresentation.addDrawerTerminal.presentation.helpText)
+        .help(LocalActionSpec.addDrawerTerminal.actionSpec.helpText)
     }
 
     var body: some View {

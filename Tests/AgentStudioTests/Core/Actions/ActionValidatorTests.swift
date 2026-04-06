@@ -4,7 +4,7 @@ import Testing
 @testable import AgentStudio
 
 @Suite(.serialized)
-final class ActionValidatorTests {
+final class WorkspaceCommandValidatorTests {
 
     // MARK: - Test Helpers
 
@@ -54,7 +54,7 @@ final class ActionValidatorTests {
         )
 
         // Act
-        let result = ActionValidator.validate(.selectTab(tabId: tabId), state: snapshot)
+        let result = WorkspaceCommandValidator.validate(.selectTab(tabId: tabId), state: snapshot)
 
         // Assert
         #expect((try? result.get()) != nil)
@@ -67,7 +67,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot()
 
         // Act
-        let result = ActionValidator.validate(.selectTab(tabId: UUID()), state: snapshot)
+        let result = WorkspaceCommandValidator.validate(.selectTab(tabId: UUID()), state: snapshot)
 
         // Assert
         if case .failure(let error) = result {
@@ -88,7 +88,7 @@ final class ActionValidatorTests {
         )
 
         // Act
-        let result = ActionValidator.validate(.closeTab(tabId: tabId), state: snapshot)
+        let result = WorkspaceCommandValidator.validate(.closeTab(tabId: tabId), state: snapshot)
 
         // Assert
         #expect((try? result.get()) != nil)
@@ -101,7 +101,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot()
 
         // Act
-        let result = ActionValidator.validate(.closeTab(tabId: UUID()), state: snapshot)
+        let result = WorkspaceCommandValidator.validate(.closeTab(tabId: UUID()), state: snapshot)
 
         // Assert
         if case .failure(.tabNotFound) = result { return }
@@ -118,7 +118,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(.breakUpTab(tabId: tabId), state: snapshot)
+        let result = WorkspaceCommandValidator.validate(.breakUpTab(tabId: tabId), state: snapshot)
 
         // Assert
         #expect((try? result.get()) != nil)
@@ -132,7 +132,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(.breakUpTab(tabId: tabId), state: snapshot)
+        let result = WorkspaceCommandValidator.validate(.breakUpTab(tabId: tabId), state: snapshot)
 
         // Assert
         if case .failure(.tabNotSplit) = result { return }
@@ -146,7 +146,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot()
 
         // Act
-        let result = ActionValidator.validate(.breakUpTab(tabId: UUID()), state: snapshot)
+        let result = WorkspaceCommandValidator.validate(.breakUpTab(tabId: UUID()), state: snapshot)
 
         // Assert
         if case .failure(.tabNotFound) = result { return }
@@ -163,7 +163,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .closePane(tabId: tabId, paneId: paneIds[0]),
             state: snapshot
         )
@@ -180,7 +180,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .closePane(tabId: tabId, paneId: paneId),
             state: snapshot
         )
@@ -201,7 +201,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .closePane(tabId: tabId, paneId: UUID()),
             state: snapshot
         )
@@ -218,7 +218,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot()
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .closePane(tabId: UUID(), paneId: UUID()),
             state: snapshot
         )
@@ -238,7 +238,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .extractPaneToTab(tabId: tabId, paneId: paneIds[0]),
             state: snapshot
         )
@@ -255,7 +255,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .extractPaneToTab(tabId: tabId, paneId: paneId),
             state: snapshot
         )
@@ -277,7 +277,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .focusPane(tabId: tabId, paneId: paneId),
             state: snapshot
         )
@@ -294,7 +294,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .focusPane(tabId: tabId, paneId: UUID()),
             state: snapshot
         )
@@ -322,7 +322,7 @@ final class ActionValidatorTests {
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         if case .failure(.selfPaneInsertion(let id)) = result {
@@ -361,7 +361,7 @@ final class ActionValidatorTests {
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         #expect((try? result.get()) != nil)
@@ -381,7 +381,7 @@ final class ActionValidatorTests {
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         #expect((try? result.get()) != nil)
@@ -400,7 +400,7 @@ final class ActionValidatorTests {
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         if case .failure(.tabNotFound) = result { return }
@@ -421,7 +421,7 @@ final class ActionValidatorTests {
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         if case .failure(.paneNotFound) = result { return }
@@ -442,7 +442,7 @@ final class ActionValidatorTests {
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         if case .failure(.sourcePaneNotFound) = result { return }
@@ -460,7 +460,7 @@ final class ActionValidatorTests {
         let splitId = UUID()
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .resizePane(tabId: tabId, splitId: splitId, ratio: 0.5),
             state: snapshot
         )
@@ -478,7 +478,7 @@ final class ActionValidatorTests {
         let splitId = UUID()
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .resizePane(tabId: tabId, splitId: splitId, ratio: 0.05),
             state: snapshot
         )
@@ -497,7 +497,7 @@ final class ActionValidatorTests {
         let splitId = UUID()
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .resizePane(tabId: tabId, splitId: splitId, ratio: 0.95),
             state: snapshot
         )
@@ -516,7 +516,7 @@ final class ActionValidatorTests {
         let splitId = UUID()
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .resizePane(tabId: tabId, splitId: splitId, ratio: 0.5),
             state: snapshot
         )
@@ -536,7 +536,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(.equalizePanes(tabId: tabId), state: snapshot)
+        let result = WorkspaceCommandValidator.validate(.equalizePanes(tabId: tabId), state: snapshot)
 
         // Assert
         #expect((try? result.get()) != nil)
@@ -550,7 +550,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(.equalizePanes(tabId: tabId), state: snapshot)
+        let result = WorkspaceCommandValidator.validate(.equalizePanes(tabId: tabId), state: snapshot)
 
         // Assert
         if case .failure(.tabNotSplit) = result { return }
@@ -574,7 +574,7 @@ final class ActionValidatorTests {
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         #expect((try? result.get()) != nil)
@@ -594,7 +594,7 @@ final class ActionValidatorTests {
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         if case .failure(.tabNotFound) = result { return }
@@ -615,7 +615,7 @@ final class ActionValidatorTests {
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         if case .failure(.tabNotFound) = result { return }
@@ -637,7 +637,7 @@ final class ActionValidatorTests {
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         if case .failure(.paneNotFound) = result { return }
@@ -658,7 +658,7 @@ final class ActionValidatorTests {
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         if case .failure(.selfTabMerge) = result { return }
@@ -675,7 +675,7 @@ final class ActionValidatorTests {
         let action = PaneActionCommand.expireUndoEntry(paneId: UUID())
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         #expect((try? result.get()) != nil)
@@ -689,7 +689,7 @@ final class ActionValidatorTests {
         let action = PaneActionCommand.repair(.recreateSurface(paneId: UUID()))
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         #expect((try? result.get()) != nil)
@@ -712,7 +712,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validatePaneCardinality(
+        let result = WorkspaceCommandValidator.validatePaneCardinality(
             paneId: newPaneId, state: snapshot
         )
 
@@ -727,7 +727,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot()
 
         // Act
-        let result = ActionValidator.validatePaneCardinality(
+        let result = WorkspaceCommandValidator.validatePaneCardinality(
             paneId: UUID(), state: snapshot
         )
 
@@ -748,7 +748,7 @@ final class ActionValidatorTests {
         let action = PaneActionCommand.selectTab(tabId: tabId)
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         if case .success(let validated) = result {

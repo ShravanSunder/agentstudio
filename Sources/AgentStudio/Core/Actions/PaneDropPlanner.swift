@@ -121,7 +121,7 @@ enum PaneDropPlanner {
         }
 
         guard
-            let action = ActionResolver.resolveDrop(
+            let action = WorkspaceCommandResolver.resolveDrop(
                 payload: payload,
                 destinationPaneId: targetPaneId,
                 destinationTabId: targetTabId,
@@ -149,7 +149,7 @@ enum PaneDropPlanner {
         _ action: PaneActionCommand,
         state: ActionStateSnapshot
     ) -> Bool {
-        if case .success = ActionValidator.validate(action, state: state) {
+        if case .success = WorkspaceCommandValidator.validate(action, state: state) {
             return true
         }
         return false

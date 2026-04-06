@@ -30,11 +30,14 @@ Sources/AgentStudio/
 │   │   └── TabBar/                   # Tab bar arrangement + adapter views
 │   └── Windows/                      # Main window / split-window controllers and settings
 │
-├── Core/                             # Shared domain — pane system, models, stores
-│   ├── Actions/                      # PaneActionCommand, ActionResolver, ActionValidator, command visibility/presentation metadata
-│   ├── Models/                       # Pane, Layout, Tab, ViewDefinition
+├── Core/                             # Shared domain — pane system, models, state, runtime contracts
+│   ├── Actions/                      # PaneActionCommand, WorkspaceCommandResolver, WorkspaceCommandValidator, command/action metadata
+│   ├── Models/                       # Pane, Layout, Tab, Repo, Worktree, arrangement models
 │   ├── RuntimeEventSystem/           # Shared pane-runtime contracts, buses, projectors
-│   ├── Stores/                       # WorkspaceStore, SessionRuntime
+│   ├── State/
+│   │   └── MainActor/
+│   │       ├── Atoms/                # Workspace atoms, RepoCacheAtom, UIStateAtom, WorkspaceFocusContextAtom
+│   │       └── Persistence/          # WorkspaceStore, RepoCacheStore, UIStateStore
 │   └── Views/                        # Shared split/tree/drawer primitives
 │
 ├── Features/
@@ -101,7 +104,7 @@ To keep ownership decisions consistent, use these terms:
 - **Core slice**
   - Reusable, feature-agnostic domain and infrastructure.
   - Usually belongs in `Core/` or `Infrastructure/`.
-  - Examples: `WorkspaceStore`, `Tab`, `Layout`, `ActionResolver`, `ActionValidator`, `CommandVisibility`, `UIActionPresentation`.
+  - Examples: `WorkspaceStore`, `Tab`, `Layout`, `WorkspaceCommandResolver`, `WorkspaceCommandValidator`, `WorkspaceFocusContextAtom`, `CommandSpec`, `ActionSpec`.
 
 - **Vertical slice**
   - A user-facing slice that traverses multiple layers and orchestrates behavior for a flow.
@@ -115,7 +118,7 @@ Practical rule:
 
 ### Why Swift Makes This Free
 
-Swift imports are by **module** (`import Foundation`, `import SwiftUI`), not by file path. Agent Studio is a single SPM target — all files share one module. Moving a file from `Services/WorkspaceStore.swift` to `Core/Stores/WorkspaceStore.swift` changes zero import statements in the entire codebase. No merge conflicts from the restructure itself.
+Swift imports are by **module** (`import Foundation`, `import SwiftUI`), not by file path. Agent Studio is a single SPM target — all files share one module. Moving a file from `Services/WorkspaceStore.swift` to `Core/State/MainActor/Persistence/WorkspaceStore.swift` changes zero import statements in the entire codebase. No merge conflicts from the restructure itself.
 
 ---
 

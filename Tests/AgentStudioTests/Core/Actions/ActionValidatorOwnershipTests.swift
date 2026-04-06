@@ -4,7 +4,7 @@ import Testing
 @testable import AgentStudio
 
 @Suite(.serialized)
-struct ActionValidatorOwnershipTests {
+struct WorkspaceCommandValidatorOwnershipTests {
     private func makeSnapshot(
         tabs: [TabSnapshot],
         activeTabId: UUID? = nil,
@@ -33,7 +33,7 @@ struct ActionValidatorOwnershipTests {
             ]
         )
 
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .closePane(tabId: tabId, paneId: hiddenPaneId),
             state: snapshot
         )
@@ -61,7 +61,7 @@ struct ActionValidatorOwnershipTests {
             ]
         )
 
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .closePane(tabId: tabId, paneId: visiblePaneId),
             state: snapshot
         )
@@ -89,7 +89,7 @@ struct ActionValidatorOwnershipTests {
             ]
         )
 
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .focusPane(tabId: tabId, paneId: hiddenPaneId),
             state: snapshot
         )
@@ -128,7 +128,7 @@ struct ActionValidatorOwnershipTests {
             direction: .right
         )
 
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         #expect((try? result.get()) != nil)
     }
@@ -149,7 +149,7 @@ struct ActionValidatorOwnershipTests {
             ]
         )
 
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .removeDrawerPane(parentPaneId: hiddenParentPaneId, drawerPaneId: UUIDv7.generate()),
             state: snapshot
         )
@@ -173,7 +173,7 @@ struct ActionValidatorOwnershipTests {
             ]
         )
 
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .toggleDrawer(paneId: hiddenParentPaneId),
             state: snapshot
         )

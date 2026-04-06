@@ -44,7 +44,7 @@ struct WebviewNavigationBar: View {
             .buttonStyle(.plain)
             .foregroundStyle(controller.canGoBack ? .primary : .quaternary)
             .keyboardShortcut("[", modifiers: .command)
-            .help(LocalActionPresentation.browserBack.presentation.helpText)
+            .help(LocalActionSpec.browserBack.actionSpec.helpText)
 
             Button {
                 controller.goForward()
@@ -56,7 +56,7 @@ struct WebviewNavigationBar: View {
             .buttonStyle(.plain)
             .foregroundStyle(controller.canGoForward ? .primary : .quaternary)
             .keyboardShortcut("]", modifiers: .command)
-            .help(LocalActionPresentation.browserForward.presentation.helpText)
+            .help(LocalActionSpec.browserForward.actionSpec.helpText)
 
             if controller.isLoading {
                 Button {
@@ -66,7 +66,7 @@ struct WebviewNavigationBar: View {
                         .font(.system(size: AppStyle.textXs, weight: .medium))
                 }
                 .buttonStyle(.plain)
-                .help(LocalActionPresentation.browserStop.presentation.helpText)
+                .help(LocalActionSpec.browserStop.actionSpec.helpText)
             } else {
                 Button {
                     controller.reload()
@@ -76,7 +76,7 @@ struct WebviewNavigationBar: View {
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut("r", modifiers: .command)
-                .help(LocalActionPresentation.browserReload.presentation.helpText)
+                .help(LocalActionSpec.browserReload.actionSpec.helpText)
             }
 
             Button {
@@ -87,7 +87,7 @@ struct WebviewNavigationBar: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(.primary)
-            .help(LocalActionPresentation.browserHome.presentation.helpText)
+            .help(LocalActionSpec.browserHome.actionSpec.helpText)
 
             favoriteButton
         }
@@ -143,8 +143,8 @@ struct WebviewNavigationBar: View {
             .keyboardShortcut("d", modifiers: .command)
             .help(
                 isCurrentPageFavorite
-                    ? LocalActionPresentation.browserRemoveFavorite.presentation.helpText
-                    : LocalActionPresentation.browserAddFavorite.presentation.helpText
+                    ? LocalActionSpec.browserRemoveFavorite.actionSpec.helpText
+                    : LocalActionSpec.browserAddFavorite.actionSpec.helpText
             )
         }
     }

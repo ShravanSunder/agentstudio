@@ -2,7 +2,7 @@
 import Foundation
 
 /// Wrapper that proves an action has passed validation.
-/// Only ActionValidator can create instances (fileprivate init).
+/// Only WorkspaceCommandValidator can create instances (fileprivate init).
 struct ValidatedAction: Equatable {
     let action: PaneActionCommand
 
@@ -29,7 +29,7 @@ enum ActionValidationError: Error, Equatable {
 /// Pure-function validation engine.
 /// Takes a resolved action and a state snapshot, returns validated or error.
 /// No side effects, no UI dependencies, no NSViews.
-enum ActionValidator {
+enum WorkspaceCommandValidator {
 
     static func validate(
         _ action: PaneActionCommand,

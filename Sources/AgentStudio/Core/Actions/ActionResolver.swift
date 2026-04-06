@@ -1,7 +1,7 @@
 // swiftlint:disable cyclomatic_complexity
 import Foundation
 
-/// Resolves user intents into fully-specified PaneActions.
+/// Resolves workspace commands into fully-specified pane actions.
 /// Uses live state (including flat pane-strip navigation) to resolve
 /// "active tab", "next pane", "neighbor in direction X" into concrete IDs.
 ///
@@ -10,7 +10,7 @@ import Foundation
 ///
 /// Returns nil if the intent cannot be meaningfully resolved
 /// (e.g., focusPaneLeft when there is no active tab).
-enum ActionResolver {
+enum WorkspaceCommandResolver {
 
     // MARK: - From AppCommand
 

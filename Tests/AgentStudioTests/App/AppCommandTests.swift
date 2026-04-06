@@ -5,7 +5,7 @@ import Testing
 
 // MARK: - Mock Command Handler
 
-final class MockCommandHandler: CommandHandler {
+final class MockCommandHandler: WorkspaceCommandHandling {
     var executedCommands: [(AppCommand, UUID?, SearchItemType?)] = []
     var canExecuteResult: Bool = true
     var extractedPaneRequests: [(tabId: UUID, paneId: UUID, targetTabIndex: Int?)] = []
@@ -33,7 +33,7 @@ final class MockCommandHandler: CommandHandler {
 }
 
 @MainActor
-final class MockAppCommandRouter: AppCommandRouting {
+final class MockAppCommandRouter: ShellCommandHandling {
     var handledCommands: [AppCommand] = []
     var handledTargets: [(AppCommand, UUID, SearchItemType)] = []
     var appCommands: Set<AppCommand> = []
@@ -151,12 +151,12 @@ final class AppCommandTests {
         #expect(b1 != b2)
     }
 
-    // MARK: - CommandDefinition
+    // MARK: - CommandSpec
 
     @Test
     func test_commandDefinition_init_defaults() {
         // Act
-        let def = CommandDefinition(command: .closeTab, label: "Close Tab", helpText: "Close the active tab")
+        let def = CommandSpec(command: .closeTab, label: "Close Tab", helpText: "Close the active tab")
 
         // Assert
         #expect(def.command == AppCommand.closeTab)
@@ -175,7 +175,7 @@ final class AppCommandTests {
     @Test
     func test_commandDefinition_init_full() {
         // Act
-        let def = CommandDefinition(
+        let def = CommandSpec(
             command: .closePane,
             keyBinding: KeyBinding(key: "w", modifiers: [.command, .shift]),
             label: "Close Pane",

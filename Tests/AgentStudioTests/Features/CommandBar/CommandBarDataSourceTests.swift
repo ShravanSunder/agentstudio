@@ -13,7 +13,9 @@ struct CommandBarDataSourceTests {
     private let dispatcher = CommandDispatcher.shared
 
     private func makeStore() -> WorkspaceStore {
-        WorkspaceStore()
+        let store = WorkspaceStore()
+        atom(\.workspaceFocusContext).startObserving(store: store)
+        return store
     }
 
     private func makeRepoCache() -> RepoCacheAtom {

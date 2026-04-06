@@ -52,7 +52,7 @@ private final class RestoreAwareTerminalContainerView: NSView {
 /// local. It also handles direct tab-order updates (`store.moveTab`) from drag
 /// interactions as a UI-only mutation.
 @MainActor
-class PaneTabViewController: NSViewController, CommandHandler {
+class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneTabViewController")
     private static let genericGitHubURL = URL(string: "https://github.com")!
     // MARK: - Dependencies (injected)
@@ -530,7 +530,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
             result[pane.id] = parentPaneId
         }
 
-        return ActionResolver.snapshot(
+        return WorkspaceCommandResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
             isManagementModeActive: atom(\.managementMode).isActive,
@@ -787,7 +787,7 @@ class PaneTabViewController: NSViewController, CommandHandler {
             })
         else { return }
 
-        // Single-pane tab: close the whole tab (ActionValidator rejects .closePane
+        // Single-pane tab: close the whole tab (WorkspaceCommandValidator rejects .closePane
         // for single-pane tabs). Multi-pane: close just the pane.
         if tab.allPaneIds.count > 1 {
             guard
@@ -817,14 +817,14 @@ class PaneTabViewController: NSViewController, CommandHandler {
     /// Central entry point: validates a PaneActionCommand and executes it if valid.
     /// All input sources (keyboard, menu, drag-drop, commands) converge here.
     private func dispatchAction(_ action: PaneActionCommand) {
-        let snapshot = ActionResolver.snapshot(
+        let snapshot = WorkspaceCommandResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
             isManagementModeActive: atom(\.managementMode).isActive,
             knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
         )
 
-        switch ActionValidator.validate(action, state: snapshot) {
+        switch WorkspaceCommandValidator.validate(action, state: snapshot) {
         case .success:
             executor.execute(action)
         case .failure(let error):
@@ -1034,11 +1034,11 @@ class PaneTabViewController: NSViewController, CommandHandler {
         return "Arrangement \(index)"
     }
 
-    // MARK: - CommandHandler Conformance
+    // MARK: - WorkspaceCommandHandling Conformance
 
     func execute(_ command: AppCommand) {
         // Try the validated pipeline for pane/tab structural actions
-        if let action = ActionResolver.resolve(
+        if let action = WorkspaceCommandResolver.resolve(
             command: command, tabs: store.tabs, activeTabId: store.activeTabId
         ) {
             dispatchAction(action)
@@ -1222,17 +1222,17 @@ class PaneTabViewController: NSViewController, CommandHandler {
 
     func canExecute(_ command: AppCommand) -> Bool {
         // Try resolving — if it resolves, validate it
-        if let action = ActionResolver.resolve(
+        if let action = WorkspaceCommandResolver.resolve(
             command: command, tabs: store.tabs, activeTabId: store.activeTabId
         ) {
-            let snapshot = ActionResolver.snapshot(
+            let snapshot = WorkspaceCommandResolver.snapshot(
                 from: store.tabs,
                 activeTabId: store.activeTabId,
                 isManagementModeActive: atom(\.managementMode).isActive,
                 knownRepoIds: Set(store.repos.map(\.id)),
                 knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
             )
-            switch ActionValidator.validate(action, state: snapshot) {
+            switch WorkspaceCommandValidator.validate(action, state: snapshot) {
             case .success: return true
             case .failure: return false
             }

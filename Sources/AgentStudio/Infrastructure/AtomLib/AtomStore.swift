@@ -7,6 +7,7 @@ final class AtomStore {
     let workspaceMutationCoordinator: WorkspaceMutationCoordinator
     let repoCache: RepoCacheAtom
     let uiState: UIStateAtom
+    let workspaceFocusContext: WorkspaceFocusContextAtom
     let managementMode: ManagementModeAtom
     let sessionRuntime: SessionRuntimeAtom
 
@@ -18,6 +19,7 @@ final class AtomStore {
         workspaceMutationCoordinator: WorkspaceMutationCoordinator? = nil,
         repoCache: RepoCacheAtom = .init(),
         uiState: UIStateAtom = .init(),
+        workspaceFocusContext: WorkspaceFocusContextAtom = .init(),
         managementMode: ManagementModeAtom = .init(),
         sessionRuntime: SessionRuntimeAtom = .init()
     ) {
@@ -34,6 +36,7 @@ final class AtomStore {
             )
         self.repoCache = repoCache
         self.uiState = uiState
+        self.workspaceFocusContext = workspaceFocusContext
         self.managementMode = managementMode
         self.sessionRuntime = sessionRuntime
     }

@@ -44,7 +44,7 @@ enum CommandBarDataSource {
         repoCache: RepoCacheAtom,
         dispatcher: CommandDispatcher
     ) -> [CommandBarItem] {
-        let focus = WorkspaceFocusComputer.compute(store: store)
+        let focus = atom(\.workspaceFocusContext).currentFocus
         return items(
             scope: scope,
             store: store,
@@ -250,7 +250,7 @@ enum CommandBarDataSource {
     private static func visibleCommands(
         dispatcher: CommandDispatcher,
         focus: WorkspaceFocus
-    ) -> [CommandDefinition] {
+    ) -> [CommandSpec] {
         dispatcher.definitions.values.filter {
             !$0.isHiddenInCommandBar && $0.isVisible(in: focus)
         }
@@ -299,7 +299,7 @@ enum CommandBarDataSource {
     }
 
     private static func commandItem(
-        from def: CommandDefinition,
+        from def: CommandSpec,
         groupName: String,
         groupPriority: Int,
         store: WorkspaceStore? = nil,
@@ -369,7 +369,7 @@ enum CommandBarDataSource {
 
     /// Build a CommandBarLevel listing available targets for a command.
     private static func buildTargetLevel(
-        for def: CommandDefinition,
+        for def: CommandSpec,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> CommandBarLevel {
@@ -461,7 +461,7 @@ enum CommandBarDataSource {
     /// Build a two-level flow for moving panes:
     /// source pane selection -> destination tab selection.
     private static func buildMovePaneSourceLevel(
-        for def: CommandDefinition,
+        for def: CommandSpec,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> CommandBarLevel {
@@ -498,7 +498,7 @@ enum CommandBarDataSource {
     }
 
     private static func buildMovePaneDestinationLevel(
-        for def: CommandDefinition,
+        for def: CommandSpec,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         sourcePaneId: UUID,
@@ -540,7 +540,7 @@ enum CommandBarDataSource {
 
     /// Build a target level listing arrangements in the active tab for arrangement commands.
     private static func buildArrangementTargetLevel(
-        for def: CommandDefinition,
+        for def: CommandSpec,
         store: WorkspaceStore
     ) -> CommandBarLevel {
         var items: [CommandBarItem] = []
@@ -571,7 +571,7 @@ enum CommandBarDataSource {
 
     /// Build a target level listing drawer panes for the active pane.
     private static func buildDrawerPaneTargetLevel(
-        for def: CommandDefinition,
+        for def: CommandSpec,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> CommandBarLevel {
@@ -846,7 +846,7 @@ enum CommandBarDataSource {
         )
     }
 
-    private static func commandKeywords(for def: CommandDefinition) -> [String] {
+    private static func commandKeywords(for def: CommandSpec) -> [String] {
         var keywords: [String] = []
         // Split label into words for broader matching
         keywords.append(contentsOf: def.label.split(separator: " ").map(String.init))

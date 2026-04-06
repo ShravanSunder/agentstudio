@@ -166,13 +166,13 @@ struct SidebarWorktreeRow: View {
             Button {
                 onOpenNew()
             } label: {
-                menuLabel(presentation: LocalActionPresentation.openInNewTab.presentation)
+                menuLabel(actionSpec: LocalActionSpec.openInNewTab.actionSpec)
             }
 
             Button {
                 onOpenInPane()
             } label: {
-                menuLabel(presentation: LocalActionPresentation.openInPaneSplit.presentation)
+                menuLabel(actionSpec: LocalActionSpec.openInPaneSplit.actionSpec)
             }
 
             Divider()
@@ -180,20 +180,20 @@ struct SidebarWorktreeRow: View {
             Button {
                 onOpen()
             } label: {
-                menuLabel(presentation: LocalActionPresentation.goToTerminal.presentation)
+                menuLabel(actionSpec: LocalActionSpec.goToTerminal.actionSpec)
             }
 
-            Menu(LocalActionPresentation.openInMenu.presentation.label) {
+            Menu(LocalActionSpec.openInMenu.actionSpec.label) {
                 Button {
                     openInCursor()
                 } label: {
-                    menuLabel(presentation: LocalActionPresentation.openInCursor.presentation)
+                    menuLabel(actionSpec: LocalActionSpec.openInCursor.actionSpec)
                 }
 
                 Button {
                     openInVSCode()
                 } label: {
-                    menuLabel(presentation: LocalActionPresentation.openInVSCode.presentation)
+                    menuLabel(actionSpec: LocalActionSpec.openInVSCode.actionSpec)
                 }
             }
 
@@ -202,26 +202,26 @@ struct SidebarWorktreeRow: View {
             Button {
                 NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: worktree.path.path)
             } label: {
-                menuLabel(presentation: LocalActionPresentation.revealInFinder.presentation)
+                menuLabel(actionSpec: LocalActionSpec.revealInFinder.actionSpec)
             }
 
             Button {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(worktree.path.path, forType: .string)
             } label: {
-                menuLabel(presentation: LocalActionPresentation.copyPath.presentation)
+                menuLabel(actionSpec: LocalActionSpec.copyPath.actionSpec)
             }
 
             Divider()
 
-            Menu(LocalActionPresentation.setIconColorMenu.presentation.label) {
+            Menu(LocalActionSpec.setIconColorMenu.actionSpec.label) {
                 ForEach(SidebarRepoGrouping.colorPresets, id: \.hex) { preset in
                     Button(preset.name) {
                         onSetIconColor(preset.hex)
                     }
                 }
                 Divider()
-                Button(LocalActionPresentation.resetIconColorDefault.presentation.label) {
+                Button(LocalActionSpec.resetIconColorDefault.actionSpec.label) {
                     onSetIconColor(nil)
                 }
             }
@@ -237,24 +237,24 @@ struct SidebarWorktreeRow: View {
     }
 
     @ViewBuilder
-    private func menuLabel(presentation: ActionPresentation) -> some View {
-        if let icon = presentation.icon {
+    private func menuLabel(actionSpec: ActionSpec) -> some View {
+        if let icon = actionSpec.icon {
             switch icon {
             case .system(let systemName):
-                Label(presentation.label, systemImage: systemName)
+                Label(actionSpec.label, systemImage: systemName)
             case .octicon(let octiconName):
                 if let image = OcticonLoader.shared.image(named: octiconName) {
                     Label {
-                        Text(presentation.label)
+                        Text(actionSpec.label)
                     } icon: {
                         Image(nsImage: image)
                     }
                 } else {
-                    Label(presentation.label, systemImage: "questionmark.square.dashed")
+                    Label(actionSpec.label, systemImage: "questionmark.square.dashed")
                 }
             }
         } else {
-            Text(presentation.label)
+            Text(actionSpec.label)
         }
     }
 }

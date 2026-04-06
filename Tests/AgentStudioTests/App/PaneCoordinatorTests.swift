@@ -166,12 +166,12 @@ struct PaneCoordinatorTests {
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
-        let snapshot = ActionResolver.snapshot(
+        let snapshot = WorkspaceCommandResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
             isManagementModeActive: false
         )
-        let validated = try? ActionValidator.validate(
+        let validated = try? WorkspaceCommandValidator.validate(
             .closePane(tabId: tab.id, paneId: pane.id),
             state: snapshot
         ).get()

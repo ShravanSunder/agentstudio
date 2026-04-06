@@ -393,7 +393,7 @@ private struct GitHubTabButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .help(LocalActionPresentation.openGitHubInNewTab.presentation.helpText)
+        .help(LocalActionSpec.openGitHubInNewTab.actionSpec.helpText)
     }
 }
 
@@ -428,7 +428,7 @@ private struct TabBarArrangementButton: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering in isHovered = hovering }
-        .help(LocalActionPresentation.arrangements.presentation.helpText)
+        .help(LocalActionSpec.arrangements.actionSpec.helpText)
         .popover(
             isPresented: $showPanel,
             attachmentAnchor: .point(.bottomLeading),
@@ -496,10 +496,10 @@ private struct NewTabButton: View {
 
     var body: some View {
         Menu {
-            Button(LocalActionPresentation.emptyTerminal.presentation.label) { onAdd() }
+            Button(LocalActionSpec.emptyTerminal.actionSpec.label) { onAdd() }
             Divider()
             if let onOpenRepoInTab {
-                Button(LocalActionPresentation.openRepoWorktree.presentation.label) {
+                Button(LocalActionSpec.openRepoWorktree.actionSpec.label) {
                     onOpenRepoInTab()
                 }
             }
@@ -580,7 +580,7 @@ struct TabPillView: View {
                     Divider()
 
                     // Arrangement commands
-                    Menu(LocalActionPresentation.arrangements.presentation.label) {
+                    Menu(LocalActionSpec.arrangements.actionSpec.label) {
                         Button(AppCommand.switchArrangement.definition.label) { onCommand(.switchArrangement) }
                         Button(AppCommand.saveArrangement.definition.label) { onCommand(.saveArrangement) }
                         Button(AppCommand.deleteArrangement.definition.label) { onCommand(.deleteArrangement) }

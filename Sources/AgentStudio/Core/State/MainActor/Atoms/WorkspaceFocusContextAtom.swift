@@ -1,7 +1,8 @@
 import Foundation
+import Observation
 import os.log
 
-private let commandVisibilityLogger = Logger(subsystem: "com.agentstudio", category: "CommandVisibility")
+private let workspaceFocusLogger = Logger(subsystem: "com.agentstudio", category: "WorkspaceFocusContext")
 
 /// Workspace state requirements that determine whether a command should be visible.
 enum FocusRequirement: Hashable, CaseIterable, Sendable {
@@ -18,7 +19,7 @@ enum FocusRequirement: Hashable, CaseIterable, Sendable {
     case paneIsCodeViewer
 }
 
-/// User-facing pane context for status-strip and visibility decisions.
+/// App-wide workspace focus snapshot shared by command visibility and other UI readers.
 struct WorkspaceFocus: Equatable, Sendable {
     enum ContentType: Equatable, Sendable {
         case terminal
@@ -51,18 +52,35 @@ struct WorkspaceFocus: Equatable, Sendable {
         .paneIsCodeViewer,
     ]
 
+    let activeTabId: UUID?
+    let activePaneId: UUID?
+    let activeRepoId: UUID?
+    let activeWorktreeId: UUID?
     let paneContentType: ContentType
     let satisfiedRequirements: Set<FocusRequirement>
 
-    init(paneContentType: ContentType, satisfiedRequirements: Set<FocusRequirement>) {
+    init(
+        activeTabId: UUID? = nil,
+        activePaneId: UUID? = nil,
+        activeRepoId: UUID? = nil,
+        activeWorktreeId: UUID? = nil,
+        paneContentType: ContentType,
+        satisfiedRequirements: Set<FocusRequirement>
+    ) {
         var normalizedRequirements = satisfiedRequirements.subtracting(Self.contentRequirements)
         if let contentRequirement = paneContentType.visibilityRequirement {
             normalizedRequirements.insert(contentRequirement)
         }
 
+        self.activeTabId = activeTabId
+        self.activePaneId = activePaneId
+        self.activeRepoId = activeRepoId
+        self.activeWorktreeId = activeWorktreeId
         self.paneContentType = paneContentType
         self.satisfiedRequirements = normalizedRequirements
     }
+
+    static let empty = Self(paneContentType: .noActivePane, satisfiedRequirements: [])
 
     var label: String? {
         switch paneContentType {
@@ -99,25 +117,40 @@ struct WorkspaceFocus: Equatable, Sendable {
     }
 }
 
-extension CommandDefinition {
-    func isVisible(in focus: WorkspaceFocus) -> Bool {
-        visibleWhen.isSubset(of: focus.satisfiedRequirements)
+@MainActor
+@Observable
+final class WorkspaceFocusContextAtom {
+    private var observedStore: WorkspaceStore?
+    private var didLogMissingObservedStore = false
+
+    func startObserving(store: WorkspaceStore) {
+        observedStore = store
+        didLogMissingObservedStore = false
+    }
+
+    var currentFocus: WorkspaceFocus {
+        guard let observedStore else {
+            if !didLogMissingObservedStore {
+                workspaceFocusLogger.error("WorkspaceFocusContextAtom accessed without an observed WorkspaceStore")
+                didLogMissingObservedStore = true
+            }
+            return .empty
+        }
+
+        return WorkspaceFocusProjector.project(store: observedStore)
     }
 }
 
 @MainActor
-enum WorkspaceFocusComputer {
-    static func compute(store: WorkspaceStore) -> WorkspaceFocus {
+enum WorkspaceFocusProjector {
+    static func project(store: WorkspaceStore) -> WorkspaceFocus {
         var satisfiedRequirements: Set<FocusRequirement> = []
 
         guard
             let activeTabId = store.activeTabId,
             let tab = store.tab(activeTabId)
         else {
-            return WorkspaceFocus(
-                paneContentType: .noActivePane,
-                satisfiedRequirements: satisfiedRequirements
-            )
+            return .empty
         }
 
         satisfiedRequirements.insert(.hasActiveTab)
@@ -130,23 +163,21 @@ enum WorkspaceFocusComputer {
             satisfiedRequirements.insert(.hasMultiplePanes)
         }
 
-        // The default arrangement is always present, so > 1 means the tab has at least one saved custom arrangement.
         if tab.arrangements.count > 1 {
             satisfiedRequirements.insert(.hasArrangements)
         }
 
         guard let activePaneId = tab.activePaneId else {
             return WorkspaceFocus(
+                activeTabId: activeTabId,
                 paneContentType: .noActivePane,
                 satisfiedRequirements: satisfiedRequirements
             )
         }
 
         guard let pane = store.pane(activePaneId) else {
-            commandVisibilityLogger.warning(
-                "Workspace focus dropped invalid activePaneId=\(activePaneId.uuidString, privacy: .public) for tab=\(tab.id.uuidString, privacy: .public)"
-            )
             return WorkspaceFocus(
+                activeTabId: activeTabId,
                 paneContentType: .noActivePane,
                 satisfiedRequirements: satisfiedRequirements
             )
@@ -176,8 +207,18 @@ enum WorkspaceFocusComputer {
         }
 
         return WorkspaceFocus(
+            activeTabId: activeTabId,
+            activePaneId: activePaneId,
+            activeRepoId: pane.repoId,
+            activeWorktreeId: pane.worktreeId,
             paneContentType: paneContentType,
             satisfiedRequirements: satisfiedRequirements
         )
+    }
+}
+
+extension CommandSpec {
+    func isVisible(in focus: WorkspaceFocus) -> Bool {
+        visibleWhen.isSubset(of: focus.satisfiedRequirements)
     }
 }
