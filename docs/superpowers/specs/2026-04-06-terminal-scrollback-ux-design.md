@@ -10,7 +10,7 @@ Agent Studio's embedded Ghostty terminal has no native scrollbar, no scrollback 
 
 | Feature | Detail |
 |---------|--------|
-| Native scrollbar | Always visible, overlay style. **Deliberate fork from Ghostty** which respects `scrollbar = system\|never` config. Agent Studio hard-codes always-visible as a product choice — no user toggle. Ghostty's own scrollbar is disabled via config override (`scrollbar = never`) to avoid double scrollbars. |
+| Native scrollbar | Always visible, overlay style. Agent Studio builds its own scrollbar because Ghostty's `SurfaceScrollView` is part of Ghostty.app (macOS host code), not libghostty core. The `scrollbar` config has no effect in Agent Studio — it's only consumed by Ghostty.app. No double-scrollbar risk. |
 | Follow-bottom | Only auto-follow new output when viewport is already pinned to bottom |
 | No keystroke scroll-to-bottom | Typing while scrolled up does NOT yank viewport down. Requires Ghostty config override: `scroll-to-bottom = no-keystroke, no-output`. Without this, Ghostty core auto-scrolls on keypress regardless of host-side wrapper logic. |
 | Scroll-to-bottom button | Bottom-right floating button when scrolled up; icon changes when new unread output exists below viewport; follows management mode visual style |
@@ -96,11 +96,11 @@ This follows the existing pattern where `PaneCoordinator` wires together compone
 ```
 # Agent Studio overrides — loaded after user defaults, before finalize
 scroll-to-bottom = no-keystroke, no-output
-scrollbar = never
 ```
 
-- `scroll-to-bottom = no-keystroke, no-output` — disables Ghostty core's auto-scroll on keypress and on new output. The host-side `TerminalSurfaceScrollView` handles follow-bottom via `isPinnedToBottom` state instead.
-- `scrollbar = never` — disables Ghostty's built-in scrollbar since Agent Studio renders its own via `TerminalSurfaceScrollView`. Without this, two scrollbars would appear.
+- `scroll-to-bottom = no-keystroke, no-output` — disables Ghostty core's auto-scroll on keypress and on new output. This is a **libghostty core behavior** (implemented in Zig, not the macOS app) that would otherwise yank the viewport to bottom whenever the user types. The host-side `TerminalSurfaceScrollView` handles follow-bottom via `isPinnedToBottom` state instead.
+
+Note: `scrollbar` config does NOT need an override. Ghostty's scrollbar (`SurfaceScrollView`) is part of Ghostty.app's macOS host code, not libghostty core. Agent Studio embeds libghostty via the C API and never instantiates Ghostty.app's scrollbar. The user's `scrollbar = system` config has no effect in Agent Studio — it's only consumed by Ghostty.app. There is no double-scrollbar risk.
 
 The override file is written to the app's temporary directory at startup and loaded via `ghostty_config_load_file`. It runs after `load_default_files` so it overrides user config values.
 

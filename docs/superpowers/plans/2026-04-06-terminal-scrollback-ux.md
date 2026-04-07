@@ -71,7 +71,7 @@ This plan does NOT cover: cross-pane search, Find pasteboard, click-to-move host
 **Files:**
 - Modify: `Sources/AgentStudio/Features/Terminal/Ghostty/GhosttyAppHandle.swift`
 
-Without this task, Ghostty core auto-scrolls to bottom on every keystroke (`scroll-to-bottom = keystroke` in user config) and renders its own scrollbar (`scrollbar = system`). Both behaviors conflict with Agent Studio's host-side scroll wrapper.
+Without this task, Ghostty core auto-scrolls to bottom on every keystroke (`scroll-to-bottom = keystroke` in user config). This is a libghostty core behavior (Zig, not macOS app) that would yank the viewport on every keypress regardless of host-side wrapper logic. Note: `scrollbar` config does NOT need an override — Ghostty's scrollbar is macOS app code, not libghostty. Agent Studio never instantiates it.
 
 - [ ] **Step 1: Write the override config file at startup**
 
@@ -115,7 +115,6 @@ private static func writeConfigOverrideFile() -> String? {
     let overrideURL = tempDir.appendingPathComponent("agent-studio-ghostty-overrides.conf")
     let contents = """
     scroll-to-bottom = no-keystroke, no-output
-    scrollbar = never
     """
     do {
         try contents.write(to: overrideURL, atomically: true, encoding: .utf8)
