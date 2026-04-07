@@ -10,15 +10,27 @@ Agent Studio's embedded Ghostty terminal has no native scrollbar, no scrollback 
 
 | Feature | Detail |
 |---------|--------|
-| Native scrollbar | Always visible, overlay style, following Ghostty's `SurfaceScrollView` pattern |
+| Native scrollbar | Always visible, overlay style. **Deliberate fork from Ghostty** which respects `scrollbar = system\|never` config. Agent Studio hard-codes always-visible as a product choice — no user toggle. Ghostty's own scrollbar is disabled via config override (`scrollbar = never`) to avoid double scrollbars. |
 | Follow-bottom | Only auto-follow new output when viewport is already pinned to bottom |
-| No keystroke scroll-to-bottom | Typing while scrolled up does NOT yank viewport down |
+| No keystroke scroll-to-bottom | Typing while scrolled up does NOT yank viewport down. Requires Ghostty config override: `scroll-to-bottom = no-keystroke, no-output`. Without this, Ghostty core auto-scrolls on keypress regardless of host-side wrapper logic. |
 | Scroll-to-bottom button | Bottom-right floating button when scrolled up; icon changes when new unread output exists below viewport; follows management mode visual style |
 | Scrollback search | `cmd+f` opens top-center overlay in focused pane; `cmd+g` / `shift+cmd+g` navigate matches; Escape clears highlights and closes |
 | Find menu | macOS Edit > Find menu entries wired to responder chain |
 | Mouse cursor shape | Un-defer `mouseShape` action, set `NSCursor` for links/prompts/default |
 | Mouse visibility | Un-defer `mouseVisibility` action, hide cursor while typing |
 | Click-to-move-cursor | Already works via Ghostty core — add verification test only |
+
+### Coordination with Deferred Contracts Branch
+
+The `agent-studio.deffered-contracts` worktree is implementing `docs/superpowers/plans/2026-04-06-deferred-pane-runtime-contracts.md` (C15 + C16) in parallel. That plan promotes ALL remaining deferred Ghostty tags to typed events on the bus.
+
+**Overlap:** Both branches promote these 7 tags from `deferredTags` → `explicitlyRoutedTags`: `scrollbar`, `startSearch`, `endSearch`, `searchTotal`, `searchSelected`, `mouseShape`, `mouseVisibility`. Both branches add new `GhosttyEvent` cases and update `ScrollbarState`.
+
+**Merge order:** This branch (`native-scrollbars`) should merge first. The deferred-contracts plan explicitly accounts for 5 of the 7 tags: *"If the scrollbar branch merges first, those 5 tags are done. Skip those and do the remaining 9."* The deferred-contracts plan must ALSO skip `mouseShape` and `mouseVisibility` (total 7 tags to skip, not 5). Flag this to the other agent before they start Task 2.
+
+**`ScrollbarState` shape change:** This branch changes `ScrollbarState` from `{top, bottom, total}` to `{totalRows, firstVisibleRow, visibleRowCount}`. The deferred-contracts branch must adopt the new field names after rebase.
+
+**Exhaustive switch conflicts:** Both branches add cases to `GhosttyEvent`, `GhosttyEvent.actionPolicy`, `GhosttyEvent.eventName`, and `TerminalRuntime.handleGhosttyEvent()`. These will produce merge conflicts on the exhaustive switches that need manual resolution during rebase.
 
 ### Out of Scope
 
@@ -76,6 +88,21 @@ This follows the established unidirectional flow pattern. Ghostty core is the so
 - On unbind (pane close), observation tasks are cancelled
 
 This follows the existing pattern where `PaneCoordinator` wires together components that don't know about each other at construction time.
+
+### Ghostty Config Overrides
+
+`GhosttyAppHandle.init` (line 15-33) calls `ghostty_config_load_default_files` then `ghostty_config_finalize`. Between these two calls, we inject Agent Studio's config overrides via `ghostty_config_load_file` with a bundled override file:
+
+```
+# Agent Studio overrides — loaded after user defaults, before finalize
+scroll-to-bottom = no-keystroke, no-output
+scrollbar = never
+```
+
+- `scroll-to-bottom = no-keystroke, no-output` — disables Ghostty core's auto-scroll on keypress and on new output. The host-side `TerminalSurfaceScrollView` handles follow-bottom via `isPinnedToBottom` state instead.
+- `scrollbar = never` — disables Ghostty's built-in scrollbar since Agent Studio renders its own via `TerminalSurfaceScrollView`. Without this, two scrollbars would appear.
+
+The override file is written to the app's temporary directory at startup and loaded via `ghostty_config_load_file`. It runs after `load_default_files` so it overrides user config values.
 
 ### Action Router Return Values
 
