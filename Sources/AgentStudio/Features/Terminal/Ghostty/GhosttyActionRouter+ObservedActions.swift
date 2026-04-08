@@ -76,7 +76,13 @@ extension Ghostty.ActionRouter {
             let url: String?
             if let urlPtr = action.action.mouse_over_link.url, action.action.mouse_over_link.len > 0 {
                 let data = Data(bytes: urlPtr, count: Int(action.action.mouse_over_link.len))
-                url = String(data: data, encoding: .utf8)
+                guard let decodedURL = String(data: data, encoding: .utf8) else {
+                    ghosttyLogger.warning(
+                        "Dropped mouseOverLink action tag \(rawActionTag, privacy: .public): invalid UTF-8 payload"
+                    )
+                    return false
+                }
+                url = decodedURL
             } else {
                 url = nil
             }
@@ -268,7 +274,12 @@ extension Ghostty.ActionRouter {
                 return false
             }
             let urlData = Data(bytes: urlPointer, count: Int(action.action.open_url.len))
-            let url = String(data: urlData, encoding: .utf8) ?? ""
+            guard let url = String(data: urlData, encoding: .utf8) else {
+                ghosttyLogger.warning(
+                    "Dropped openURL action tag \(rawActionTag, privacy: .public): invalid UTF-8 payload"
+                )
+                return false
+            }
             return routeActionToTerminalRuntime(
                 actionTag: rawActionTag,
                 payload: .openURL(
@@ -303,7 +314,11 @@ extension Ghostty.ActionRouter {
         }
 
         let data = Data(bytes: namePtr, count: Int(keyTable.value.activate.len))
-        return String(data: data, encoding: .utf8)
+        guard let activateName = String(data: data, encoding: .utf8) else {
+            ghosttyLogger.warning("Dropped keyTable activate payload: invalid UTF-8")
+            return nil
+        }
+        return activateName
     }
 
     private static func keyValue(for trigger: ghostty_input_trigger_s) -> UInt32? {

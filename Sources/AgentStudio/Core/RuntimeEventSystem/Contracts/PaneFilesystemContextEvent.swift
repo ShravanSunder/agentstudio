@@ -2,6 +2,7 @@ import Foundation
 
 struct PaneFilesystemContext: Sendable, Equatable {
     let paneId: PaneId
+    let repoId: UUID
     let cwd: URL
     let worktreeId: WorktreeId
 }
@@ -15,9 +16,9 @@ enum PaneFilesystemContextEvent: PaneKindEvent, Sendable, Equatable {
     var eventName: EventIdentifier {
         switch self {
         case .cwdSubtreeChanged:
-            return .plugin("fs.cwdSubtreeChanged")
+            return .fsCwdSubtreeChanged
         case .gitWorkingTreeInCwd:
-            return .plugin("fs.gitWorkingTreeInCwd")
+            return .fsGitWorkingTreeInCwd
         }
     }
 }

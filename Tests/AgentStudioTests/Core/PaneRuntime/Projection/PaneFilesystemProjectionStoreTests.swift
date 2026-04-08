@@ -155,6 +155,7 @@ struct PaneFilesystemProjectionStoreTests {
             return
         }
         #expect(context.paneId == PaneId(uuid: pane.id))
+        #expect(context.repoId == repoId)
         #expect(context.cwd == worktreeRoot.appending(path: "Sources"))
         #expect(context.worktreeId == worktreeId)
         #expect(paths == Set(["Sources/App.swift", "Sources/Views/List.swift"]))
@@ -196,6 +197,7 @@ struct PaneFilesystemProjectionStoreTests {
             return
         }
         #expect(context.paneId == PaneId(uuid: pane.id))
+        #expect(context.repoId == repoId)
         #expect(context.cwd == worktreeRoot)
         #expect(staged == 2)
         #expect(unstaged == 3)

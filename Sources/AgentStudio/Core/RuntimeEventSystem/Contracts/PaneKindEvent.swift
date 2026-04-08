@@ -59,6 +59,8 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
     case consoleMessage
     case allApproved
     case diagnosticsUpdated
+    case fsCwdSubtreeChanged
+    case fsGitWorkingTreeInCwd
     case plugin(String)
 
     var rawValue: String {
@@ -114,6 +116,8 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
         case .consoleMessage: return "consoleMessage"
         case .allApproved: return "allApproved"
         case .diagnosticsUpdated: return "diagnosticsUpdated"
+        case .fsCwdSubtreeChanged: return "fsCwdSubtreeChanged"
+        case .fsGitWorkingTreeInCwd: return "fsGitWorkingTreeInCwd"
         case .plugin(let value): return value
         }
     }

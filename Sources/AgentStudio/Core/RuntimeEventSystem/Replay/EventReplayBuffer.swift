@@ -324,6 +324,7 @@ final class EventReplayBuffer {
         if let requestSize = estimateGhosttyRequestSize(event) {
             return requestSize
         }
+        assertionFailure("Unhandled GhosttyEvent size estimate: \(event)")
         return 24
     }
 

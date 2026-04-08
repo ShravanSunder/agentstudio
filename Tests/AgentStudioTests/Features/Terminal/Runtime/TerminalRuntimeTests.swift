@@ -410,6 +410,31 @@ struct TerminalRuntimeTests {
         await assertBusDrained(harness.bus)
     }
 
+    @Test("searchEnded clears state and remains replayable")
+    func searchEnded_clearsStateAndReplays() async {
+        let runtime = TerminalRuntime(
+            paneId: PaneId(),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+        )
+        runtime.transitionToReady()
+
+        runtime.handleGhosttyEvent(.searchStarted(query: "needle"))
+        runtime.handleGhosttyEvent(.searchEnded)
+
+        #expect(runtime.searchState == nil)
+
+        let replay = await runtime.eventsSince(seq: 0)
+        #expect(replay.events.count == 2)
+        guard
+            let lastEvent = replay.events.last,
+            case .pane(let envelope) = lastEvent,
+            case .terminal(.searchEnded) = envelope.event
+        else {
+            Issue.record("Expected searchEnded in replay")
+            return
+        }
+    }
+
     @Test("promoted deferred transient events post to bus without replay")
     func promotedDeferredTransientEvents_postWithoutReplay() async {
         let harness = EventBusHarness<RuntimeEnvelope>()

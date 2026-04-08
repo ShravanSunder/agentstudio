@@ -138,6 +138,10 @@ final class TerminalRuntime: BusPostingPaneRuntime {
         if handleGhosttyConfigurationEvent(event, commandId: commandId, correlationId: correlationId) { return }
         if handleGhosttySearchEvent(event, commandId: commandId, correlationId: correlationId) { return }
         if handleGhosttyRequestEvent(event, commandId: commandId, correlationId: correlationId) { return }
+
+        Self.logger.warning(
+            "Unhandled terminal runtime event for pane \(self.paneId.uuid.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
+        )
     }
 
     private func handleGhosttyStructuralEvent(
@@ -253,6 +257,9 @@ final class TerminalRuntime: BusPostingPaneRuntime {
             return true
         case .searchMatchesUpdated(let totalMatches):
             if searchState == nil {
+                Self.logger.debug(
+                    "Synthesizing terminal search state from searchMatchesUpdated without prior searchStarted for pane \(self.paneId.uuid.uuidString, privacy: .public)"
+                )
                 searchState = TerminalSearchState(query: "", totalMatches: totalMatches, selectedMatchIndex: nil)
             } else {
                 searchState?.totalMatches = totalMatches
@@ -261,6 +268,9 @@ final class TerminalRuntime: BusPostingPaneRuntime {
             return true
         case .searchSelectionChanged(let selectedMatchIndex):
             if searchState == nil {
+                Self.logger.debug(
+                    "Synthesizing terminal search state from searchSelectionChanged without prior searchStarted for pane \(self.paneId.uuid.uuidString, privacy: .public)"
+                )
                 searchState = TerminalSearchState(
                     query: "",
                     totalMatches: nil,

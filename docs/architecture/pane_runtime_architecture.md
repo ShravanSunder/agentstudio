@@ -2790,6 +2790,7 @@ A derived, per-pane filesystem context stream based on the pane's current CWD. S
 ///   - PaneFilesystemContext is the pane-level derived stream
 struct PaneFilesystemContext: Sendable {
     let paneId: PaneId
+    let repoId: UUID                    // repo owning the worktree
     let cwd: URL                         // pane's current CWD
     let worktreeId: WorktreeId           // which worktree watcher provides data
 }
@@ -2803,8 +2804,8 @@ enum PaneFilesystemContextEvent: PaneKindEvent {
     var actionPolicy: ActionPolicy { .critical }
     var eventName: EventIdentifier {
         switch self {
-        case .cwdSubtreeChanged: return .init("fs.cwdSubtreeChanged")
-        case .gitWorkingTreeInCwd: return .init("fs.gitWorkingTreeInCwd")
+        case .cwdSubtreeChanged: return .fsCwdSubtreeChanged
+        case .gitWorkingTreeInCwd: return .fsGitWorkingTreeInCwd
         }
     }
 }

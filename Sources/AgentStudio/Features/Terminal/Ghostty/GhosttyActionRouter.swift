@@ -150,7 +150,7 @@ extension Ghostty {
                 return true
             case .closeAllWindows, .toggleMaximize, .toggleFullscreen, .toggleTabOverview,
                 .toggleWindowDecorations, .toggleQuickTerminal, .toggleCommandPalette, .toggleVisibility,
-                .toggleBackgroundOpacity, .gotoWindow, .presentTerminal, .resetWindowSize, .inspector,
+                .toggleBackgroundOpacity, .gotoWindow, .presentTerminal, .resetWindowSize, .inspector, .render,
                 .showGtkInspector, .renderInspector, .openConfig, .quitTimer, .floatWindow, .closeWindow,
                 .checkForUpdates, .showChildExited, .showOnScreenKeyboard:
                 return true

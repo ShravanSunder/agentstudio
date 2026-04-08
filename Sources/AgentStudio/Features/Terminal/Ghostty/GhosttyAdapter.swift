@@ -255,7 +255,14 @@ final class GhosttyAdapter {
         let change: GhosttyKeyTableChange
         switch tagRawValue {
         case UInt32(truncatingIfNeeded: GHOSTTY_KEY_TABLE_ACTIVATE.rawValue):
-            change = .activate(name: activateName ?? "")
+            guard let activateName else {
+                return payloadMismatch(
+                    actionTag: actionTag,
+                    payload: payload,
+                    expectedPayload: "UTF-8 decodable activate key table name"
+                )
+            }
+            change = .activate(name: activateName)
         case UInt32(truncatingIfNeeded: GHOSTTY_KEY_TABLE_DEACTIVATE.rawValue):
             change = .deactivate
         case UInt32(truncatingIfNeeded: GHOSTTY_KEY_TABLE_DEACTIVATE_ALL.rawValue):
@@ -280,17 +287,23 @@ final class GhosttyAdapter {
             )
         }
 
-        let kind: TerminalColorKind =
-            switch kindRawValue {
-            case Int32(GHOSTTY_ACTION_COLOR_KIND_FOREGROUND.rawValue):
-                .foreground
-            case Int32(GHOSTTY_ACTION_COLOR_KIND_BACKGROUND.rawValue):
-                .background
-            case Int32(GHOSTTY_ACTION_COLOR_KIND_CURSOR.rawValue):
-                .cursor
-            default:
-                .palette(index: UInt8(truncatingIfNeeded: kindRawValue))
-            }
+        let kind: TerminalColorKind
+        switch kindRawValue {
+        case Int32(GHOSTTY_ACTION_COLOR_KIND_FOREGROUND.rawValue):
+            kind = .foreground
+        case Int32(GHOSTTY_ACTION_COLOR_KIND_BACKGROUND.rawValue):
+            kind = .background
+        case Int32(GHOSTTY_ACTION_COLOR_KIND_CURSOR.rawValue):
+            kind = .cursor
+        case 0...255:
+            kind = .palette(index: UInt8(kindRawValue))
+        default:
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: "known color kind or 0...255 palette index"
+            )
+        }
 
         return .colorChanged(
             TerminalColorChange(

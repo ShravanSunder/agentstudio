@@ -184,6 +184,11 @@ struct GhosttyAdapterTests {
     }
 
     private func assertDeferredMappings(using adapter: GhosttyAdapter) {
+        assertPromotedViewportAndInputMappings(using: adapter)
+        assertPromotedConfigAndSearchMappings(using: adapter)
+    }
+
+    private func assertPromotedViewportAndInputMappings(using adapter: GhosttyAdapter) {
         #expect(
             adapter.translate(
                 actionTag: UInt32(GHOSTTY_ACTION_SET_TAB_TITLE.rawValue),
@@ -210,9 +215,30 @@ struct GhosttyAdapterTests {
         )
         #expect(
             adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_MOUSE_VISIBILITY.rawValue),
+                payload: .mouseVisibility(rawValue: 99)
+            ) == .unhandled(tag: UInt32(GHOSTTY_ACTION_MOUSE_VISIBILITY.rawValue))
+        )
+        #expect(
+            adapter.translate(
                 actionTag: UInt32(GHOSTTY_ACTION_MOUSE_OVER_LINK.rawValue),
                 payload: .mouseOverLink("https://example.com")
             ) == .mouseLinkHovered(url: "https://example.com")
+        )
+        #expect(
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_KEY_SEQUENCE.rawValue),
+                payload: .keySequence(
+                    active: true,
+                    triggerTag: UInt32(GHOSTTY_TRIGGER_UNICODE.rawValue),
+                    key: 97,
+                    mods: 0
+                )
+            )
+                == .keySequenceChanged(
+                    active: true,
+                    trigger: GhosttyInputTrigger(tag: .unicode, key: 97, modifiers: 0)
+                )
         )
         #expect(
             adapter.translate(
@@ -223,6 +249,9 @@ struct GhosttyAdapterTests {
                 )
             ) == .keyTableChanged(.activate(name: "copy-mode"))
         )
+    }
+
+    private func assertPromotedConfigAndSearchMappings(using adapter: GhosttyAdapter) {
         #expect(
             adapter.translate(
                 actionTag: UInt32(GHOSTTY_ACTION_COLOR_CHANGE.rawValue),

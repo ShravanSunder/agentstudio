@@ -14,7 +14,36 @@ final class PaneFilesystemProjectionStore {
     }
 
     private(set) var snapshotsByPaneId: [UUID: PaneSnapshot] = [:]
+    private(set) var contextsByPaneId: [UUID: PaneFilesystemContext] = [:]
     private var nextSequenceByPaneId: [UUID: UInt64] = [:]
+
+    func registerPaneContext(_ context: PaneFilesystemContext) {
+        contextsByPaneId[context.paneId.uuid] = context
+    }
+
+    func unregisterPaneContext(_ paneUUID: UUID) {
+        contextsByPaneId.removeValue(forKey: paneUUID)
+        snapshotsByPaneId.removeValue(forKey: paneUUID)
+        nextSequenceByPaneId.removeValue(forKey: paneUUID)
+    }
+
+    func context(for paneUUID: UUID) -> PaneFilesystemContext? {
+        contextsByPaneId[paneUUID]
+    }
+
+    func updatePaneCwd(paneId paneUUID: UUID, newCwd: URL) {
+        guard var existing = contextsByPaneId[paneUUID] else { return }
+        let normalizedCwd = newCwd.standardizedFileURL.resolvingSymlinksInPath()
+        guard existing.cwd != normalizedCwd else { return }
+        existing = PaneFilesystemContext(
+            paneId: existing.paneId,
+            repoId: existing.repoId,
+            cwd: normalizedCwd,
+            worktreeId: existing.worktreeId
+        )
+        contextsByPaneId[paneUUID] = existing
+        snapshotsByPaneId.removeValue(forKey: paneUUID)
+    }
 
     func consume(
         _ envelope: RuntimeEnvelope,
@@ -49,11 +78,7 @@ final class PaneFilesystemProjectionStore {
                     lastGitSummary: previousSummary
                 )
 
-                let context = PaneFilesystemContext(
-                    paneId: PaneId(uuid: pane.id),
-                    cwd: pane.metadata.facets.cwd ?? worktreeRootPath,
-                    worktreeId: changeset.worktreeId
-                )
+                let context = resolvedContext(for: pane, fallbackCwd: worktreeRootPath)
                 derivedEnvelopes.append(
                     makePaneContextEnvelope(
                         pane: pane,
@@ -88,11 +113,7 @@ final class PaneFilesystemProjectionStore {
                     lastGitSummary: snapshot.summary
                 )
 
-                let context = PaneFilesystemContext(
-                    paneId: PaneId(uuid: pane.id),
-                    cwd: pane.metadata.facets.cwd ?? snapshot.rootPath,
-                    worktreeId: snapshot.worktreeId
-                )
+                let context = resolvedContext(for: pane, fallbackCwd: snapshot.rootPath)
                 derivedEnvelopes.append(
                     makePaneContextEnvelope(
                         pane: pane,
@@ -113,6 +134,9 @@ final class PaneFilesystemProjectionStore {
             return derivedEnvelopes
 
         default:
+            // Only filesystem batches and git snapshot facts participate in
+            // the pane-scoped filesystem projection. Other worktree events are
+            // intentionally ignored here.
             return []
         }
     }
@@ -121,6 +145,9 @@ final class PaneFilesystemProjectionStore {
         snapshotsByPaneId = snapshotsByPaneId.filter { paneId, snapshot in
             validPaneIds.contains(paneId) && validWorktreeIds.contains(snapshot.worktreeId)
         }
+        contextsByPaneId = contextsByPaneId.filter { paneId, context in
+            validPaneIds.contains(paneId) && validWorktreeIds.contains(context.worktreeId)
+        }
         nextSequenceByPaneId = nextSequenceByPaneId.filter { paneId, _ in
             validPaneIds.contains(paneId)
         }
@@ -128,7 +155,34 @@ final class PaneFilesystemProjectionStore {
 
     func reset() {
         snapshotsByPaneId.removeAll()
+        contextsByPaneId.removeAll()
         nextSequenceByPaneId.removeAll()
+    }
+
+    private func resolvedContext(for pane: Pane, fallbackCwd: URL) -> PaneFilesystemContext {
+        if let existing = contextsByPaneId[pane.id] {
+            return existing
+        }
+
+        guard let repoId = pane.repoId ?? pane.metadata.repoId,
+            let worktreeId = pane.worktreeId ?? pane.metadata.worktreeId
+        else {
+            return PaneFilesystemContext(
+                paneId: PaneId(uuid: pane.id),
+                repoId: pane.id,
+                cwd: (pane.metadata.facets.cwd ?? fallbackCwd).standardizedFileURL.resolvingSymlinksInPath(),
+                worktreeId: pane.id
+            )
+        }
+
+        let context = PaneFilesystemContext(
+            paneId: PaneId(uuid: pane.id),
+            repoId: repoId,
+            cwd: (pane.metadata.facets.cwd ?? fallbackCwd).standardizedFileURL.resolvingSymlinksInPath(),
+            worktreeId: worktreeId
+        )
+        contextsByPaneId[pane.id] = context
+        return context
     }
 
     private func makePaneContextEnvelope(

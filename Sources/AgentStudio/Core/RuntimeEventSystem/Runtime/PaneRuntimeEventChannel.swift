@@ -151,6 +151,9 @@ final class PaneRuntimeEventChannel {
                     "Skipped terminated subscriberId=\(subscriberId, privacy: .public) seq=\(envelope.seq, privacy: .public)"
                 )
             @unknown default:
+                Self.logger.warning(
+                    "Encountered unknown AsyncStream.YieldResult for local subscriberId=\(subscriberId, privacy: .public) seq=\(envelope.seq, privacy: .public)"
+                )
                 continue
             }
         }
@@ -167,7 +170,9 @@ final class PaneRuntimeEventChannel {
                 "Skipped pane runtime outbound buffer event after termination; seq=\(envelope.seq, privacy: .public)"
             )
         @unknown default:
-            break
+            Self.logger.warning(
+                "Encountered unknown AsyncStream.YieldResult for outbound buffer; seq=\(envelope.seq, privacy: .public)"
+            )
         }
 
         _ = metadata
