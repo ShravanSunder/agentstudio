@@ -3,30 +3,13 @@ import Foundation
 import GhosttyKit
 import os.log
 
+// swiftlint:disable type_body_length
 private let ghosttyAdapterLogger = Logger(subsystem: "com.agentstudio", category: "GhosttyAdapter")
 
 /// Adapter boundary translating low-level Ghostty action tags into typed
 /// domain events consumed by TerminalRuntime.
 @MainActor
 final class GhosttyAdapter {
-    private static let deferredTags: Set<GhosttyActionTag> = [
-        .setTabTitle,
-        .scrollbar,
-        .render,
-        .mouseShape,
-        .mouseVisibility,
-        .mouseOverLink,
-        .keySequence,
-        .keyTable,
-        .colorChange,
-        .reloadConfig,
-        .configChange,
-        .startSearch,
-        .endSearch,
-        .searchTotal,
-        .searchSelected,
-    ]
-
     private static let interceptOnlyTags: Set<GhosttyActionTag> = [
         .quit,
         .newWindow,
@@ -52,6 +35,7 @@ final class GhosttyAdapter {
         .checkForUpdates,
         .showChildExited,
         .showOnScreenKeyboard,
+        .render,
     ]
 
     enum ActionPayload: Sendable, Equatable {
@@ -59,6 +43,7 @@ final class GhosttyAdapter {
         case titleChanged(String)
         case cwdChanged(String)
         case commandFinished(exitCode: Int, duration: UInt64)
+        case tabTitleChanged(String)
         case closeTab(modeRawValue: UInt32)
         case gotoTab(targetRawValue: Int32)
         case moveTab(amount: Int)
@@ -72,6 +57,19 @@ final class GhosttyAdapter {
         case cellSizeChanged(width: UInt32, height: UInt32)
         case initialSizeChanged(width: UInt32, height: UInt32)
         case sizeLimitChanged(minWidth: UInt32, minHeight: UInt32, maxWidth: UInt32, maxHeight: UInt32)
+        case mouseShape(rawValue: UInt32)
+        case mouseVisibility(rawValue: UInt32)
+        case mouseOverLink(String?)
+        case keySequence(active: Bool, triggerTag: UInt32, key: UInt32?, mods: UInt32)
+        case keyTable(tagRawValue: UInt32, activateName: String?)
+        case colorChange(kindRawValue: Int32, red: UInt8, green: UInt8, blue: UInt8)
+        case reloadConfig(soft: Bool)
+        case configChange
+        case startSearch(String?)
+        case endSearch
+        case searchTotal(Int)
+        case searchSelected(Int)
+        case scrollbar(total: UInt64, offset: UInt64, length: UInt64)
         case promptTitle(scopeRawValue: UInt32)
         case desktopNotification(title: String, body: String)
         case openURL(url: String, kindRawValue: UInt32)
@@ -95,10 +93,6 @@ final class GhosttyAdapter {
         actionTag: GhosttyActionTag,
         payload: ActionPayload = .noPayload
     ) -> GhosttyEvent {
-        if Self.deferredTags.contains(actionTag) {
-            return .deferred(tag: actionTag.rawValue)
-        }
-
         if Self.interceptOnlyTags.contains(actionTag) {
             return .unhandled(tag: actionTag.rawValue)
         }
@@ -139,6 +133,17 @@ final class GhosttyAdapter {
         return .titleChanged(title)
     }
 
+    private func translateSetTabTitle(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .tabTitleChanged(let title) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".tabTitleChanged(String)"
+            )
+        }
+        return .tabTitleChanged(title)
+    }
+
     private func translatePwd(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
         guard case .cwdChanged(let cwdPath) = payload else {
             return payloadMismatch(
@@ -159,6 +164,226 @@ final class GhosttyAdapter {
             )
         }
         return .commandFinished(exitCode: exitCode, duration: duration)
+    }
+
+    private func translateMouseShape(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .mouseShape(let rawValue) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".mouseShape(rawValue: UInt32)"
+            )
+        }
+        return .mouseShapeChanged(shapeRawValue: rawValue)
+    }
+
+    private func translateMouseVisibility(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .mouseVisibility(let rawValue) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".mouseVisibility(rawValue: UInt32)"
+            )
+        }
+
+        switch rawValue {
+        case UInt32(truncatingIfNeeded: GHOSTTY_MOUSE_VISIBLE.rawValue):
+            return .mouseVisibilityChanged(isVisible: true)
+        case UInt32(truncatingIfNeeded: GHOSTTY_MOUSE_HIDDEN.rawValue):
+            return .mouseVisibilityChanged(isVisible: false)
+        default:
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: "known mouse visibility value"
+            )
+        }
+    }
+
+    private func translateMouseOverLink(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .mouseOverLink(let url) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".mouseOverLink(String?)"
+            )
+        }
+        return .mouseLinkHovered(url: url)
+    }
+
+    private func translateKeySequence(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .keySequence(let active, let triggerTag, let key, let mods) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".keySequence(active: Bool, triggerTag: UInt32, key: UInt32?, mods: UInt32)"
+            )
+        }
+
+        let trigger: GhosttyInputTrigger? =
+            switch triggerTag {
+            case UInt32(truncatingIfNeeded: GHOSTTY_TRIGGER_PHYSICAL.rawValue):
+                .init(tag: .physical, key: key, modifiers: mods)
+            case UInt32(truncatingIfNeeded: GHOSTTY_TRIGGER_UNICODE.rawValue):
+                .init(tag: .unicode, key: key, modifiers: mods)
+            case UInt32(truncatingIfNeeded: GHOSTTY_TRIGGER_CATCH_ALL.rawValue):
+                .init(tag: .catchAll, key: nil, modifiers: mods)
+            default:
+                nil
+            }
+
+        if active, trigger == nil {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: "known triggerTag value"
+            )
+        }
+
+        return .keySequenceChanged(active: active, trigger: trigger)
+    }
+
+    private func translateKeyTable(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .keyTable(let tagRawValue, let activateName) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".keyTable(tagRawValue: UInt32, activateName: String?)"
+            )
+        }
+
+        let change: GhosttyKeyTableChange
+        switch tagRawValue {
+        case UInt32(truncatingIfNeeded: GHOSTTY_KEY_TABLE_ACTIVATE.rawValue):
+            change = .activate(name: activateName ?? "")
+        case UInt32(truncatingIfNeeded: GHOSTTY_KEY_TABLE_DEACTIVATE.rawValue):
+            change = .deactivate
+        case UInt32(truncatingIfNeeded: GHOSTTY_KEY_TABLE_DEACTIVATE_ALL.rawValue):
+            change = .deactivateAll
+        default:
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: "known key table action"
+            )
+        }
+
+        return .keyTableChanged(change)
+    }
+
+    private func translateColorChange(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .colorChange(let kindRawValue, let red, let green, let blue) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".colorChange(kindRawValue: Int32, red: UInt8, green: UInt8, blue: UInt8)"
+            )
+        }
+
+        let kind: TerminalColorKind =
+            switch kindRawValue {
+            case Int32(GHOSTTY_ACTION_COLOR_KIND_FOREGROUND.rawValue):
+                .foreground
+            case Int32(GHOSTTY_ACTION_COLOR_KIND_BACKGROUND.rawValue):
+                .background
+            case Int32(GHOSTTY_ACTION_COLOR_KIND_CURSOR.rawValue):
+                .cursor
+            default:
+                .palette(index: UInt8(truncatingIfNeeded: kindRawValue))
+            }
+
+        return .colorChanged(
+            TerminalColorChange(
+                kind: kind,
+                red: red,
+                green: green,
+                blue: blue
+            )
+        )
+    }
+
+    private func translateReloadConfig(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .reloadConfig(let soft) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".reloadConfig(soft: Bool)"
+            )
+        }
+
+        return .configReloadRequested(soft: soft)
+    }
+
+    private func translateConfigChange(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .configChange = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".configChange"
+            )
+        }
+
+        return .configChanged
+    }
+
+    private func translateStartSearch(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .startSearch(let query) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".startSearch(String?)"
+            )
+        }
+
+        return .searchStarted(query: query)
+    }
+
+    private func translateEndSearch(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .endSearch = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".endSearch"
+            )
+        }
+
+        return .searchEnded
+    }
+
+    private func translateSearchTotal(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .searchTotal(let total) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".searchTotal(Int)"
+            )
+        }
+
+        return .searchMatchesUpdated(totalMatches: total >= 0 ? total : nil)
+    }
+
+    private func translateSearchSelected(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .searchSelected(let selected) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".searchSelected(Int)"
+            )
+        }
+
+        return .searchSelectionChanged(selectedMatchIndex: selected >= 0 ? selected : nil)
+    }
+
+    private func translateScrollbar(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
+        guard case .scrollbar(let total, let offset, let length) = payload else {
+            return payloadMismatch(
+                actionTag: actionTag,
+                payload: payload,
+                expectedPayload: ".scrollbar(total: UInt64, offset: UInt64, length: UInt64)"
+            )
+        }
+
+        return .scrollbarChanged(ScrollbarState(top: Int(offset), bottom: Int(offset + length), total: Int(total)))
     }
 
     private func translateCloseTab(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {
@@ -282,6 +507,8 @@ final class GhosttyAdapter {
             return .bellRang
         case .setTitle:
             return translateSetTitle(payload: payload, actionTag: actionTag)
+        case .setTabTitle:
+            return translateSetTabTitle(payload: payload, actionTag: actionTag)
         case .pwd:
             return translatePwd(payload: payload, actionTag: actionTag)
         case .commandFinished:
@@ -313,6 +540,22 @@ final class GhosttyAdapter {
         actionTag: GhosttyActionTag,
         payload: ActionPayload
     ) -> GhosttyEvent? {
+        if let viewportEvent = translateViewportOrDisplayAction(actionTag: actionTag, payload: payload) {
+            return viewportEvent
+        }
+        if let controlEvent = translateControlAction(actionTag: actionTag, payload: payload) {
+            return controlEvent
+        }
+        if let searchEvent = translateSearchAction(actionTag: actionTag, payload: payload) {
+            return searchEvent
+        }
+        return translateClipboardOrReadonlyAction(actionTag: actionTag, payload: payload)
+    }
+
+    private func translateViewportOrDisplayAction(
+        actionTag: GhosttyActionTag,
+        payload: ActionPayload
+    ) -> GhosttyEvent? {
         switch actionTag {
         case .sizeLimit:
             return translateSizeLimit(payload: payload, actionTag: actionTag)
@@ -320,18 +563,74 @@ final class GhosttyAdapter {
             return translateInitialSize(payload: payload, actionTag: actionTag)
         case .cellSize:
             return translateCellSize(payload: payload, actionTag: actionTag)
+        case .scrollbar:
+            return translateScrollbar(payload: payload, actionTag: actionTag)
         case .desktopNotification:
             return translateDesktopNotification(payload: payload, actionTag: actionTag)
         case .promptTitle:
             return translatePromptTitle(payload: payload, actionTag: actionTag)
+        case .mouseShape:
+            return translateMouseShape(payload: payload, actionTag: actionTag)
+        case .mouseVisibility:
+            return translateMouseVisibility(payload: payload, actionTag: actionTag)
+        case .mouseOverLink:
+            return translateMouseOverLink(payload: payload, actionTag: actionTag)
         case .rendererHealth:
             return translateRendererHealth(payload: payload, actionTag: actionTag)
+        default:
+            return nil
+        }
+    }
+
+    private func translateControlAction(
+        actionTag: GhosttyActionTag,
+        payload: ActionPayload
+    ) -> GhosttyEvent? {
+        switch actionTag {
+        case .keySequence:
+            return translateKeySequence(payload: payload, actionTag: actionTag)
+        case .keyTable:
+            return translateKeyTable(payload: payload, actionTag: actionTag)
+        case .colorChange:
+            return translateColorChange(payload: payload, actionTag: actionTag)
+        case .reloadConfig:
+            return translateReloadConfig(payload: payload, actionTag: actionTag)
+        case .configChange:
+            return translateConfigChange(payload: payload, actionTag: actionTag)
         case .secureInput:
             return translateSecureInput(payload: payload, actionTag: actionTag)
         case .openURL:
             return translateOpenURL(payload: payload, actionTag: actionTag)
         case .progressReport:
             return translateProgressReport(payload: payload, actionTag: actionTag)
+        default:
+            return nil
+        }
+    }
+
+    private func translateSearchAction(
+        actionTag: GhosttyActionTag,
+        payload: ActionPayload
+    ) -> GhosttyEvent? {
+        switch actionTag {
+        case .startSearch:
+            return translateStartSearch(payload: payload, actionTag: actionTag)
+        case .endSearch:
+            return translateEndSearch(payload: payload, actionTag: actionTag)
+        case .searchTotal:
+            return translateSearchTotal(payload: payload, actionTag: actionTag)
+        case .searchSelected:
+            return translateSearchSelected(payload: payload, actionTag: actionTag)
+        default:
+            return nil
+        }
+    }
+
+    private func translateClipboardOrReadonlyAction(
+        actionTag: GhosttyActionTag,
+        payload: ActionPayload
+    ) -> GhosttyEvent? {
+        switch actionTag {
         case .readOnly:
             return translateReadOnly(payload: payload, actionTag: actionTag)
         case .undo:
@@ -612,3 +911,4 @@ final class GhosttyAdapter {
         return .unhandled(tag: actionTag.rawValue)
     }
 }
+// swiftlint:enable type_body_length

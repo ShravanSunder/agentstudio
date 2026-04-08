@@ -327,7 +327,8 @@ final class PaneCoordinator {
                 Self.logger.warning(
                     "Runtime error event received from pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: errorEvent), privacy: .public)"
                 )
-            case .lifecycle, .browser, .diff, .editor, .plugin, .artifact, .security, .filesystem:
+            case .lifecycle, .browser, .diff, .editor, .plugin, .paneFilesystemContext, .artifact, .security,
+                .filesystem:
                 Self.logger.debug(
                     "Runtime event family ignored by coordinator for pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: paneEnvelope.event), privacy: .public)"
                 )
@@ -397,6 +398,8 @@ final class PaneCoordinator {
             execute(.moveTab(tabId: sourceTabId, delta: amount))
         case .titleChanged(let title):
             store.paneAtom.updatePaneTitle(sourcePaneUUID, title: title)
+        case .tabTitleChanged(let title):
+            store.paneAtom.updatePaneTitle(sourcePaneUUID, title: title)
         case .cwdChanged(let cwdPath):
             store.paneAtom.updatePaneCWD(sourcePaneUUID, cwd: URL(fileURLWithPath: cwdPath))
         case .commandFinished(let exitCode, _):
@@ -410,6 +413,9 @@ final class PaneCoordinator {
             )
         case .progressReportUpdated, .readOnlyChanged, .secureInputRequested, .secureInputChanged,
             .rendererHealthChanged, .cellSizeChanged, .initialSizeChanged, .sizeLimitChanged,
+            .mouseShapeChanged, .mouseVisibilityChanged, .mouseLinkHovered, .keySequenceChanged,
+            .keyTableChanged, .colorChanged, .configReloadRequested, .configChanged,
+            .searchStarted, .searchEnded, .searchMatchesUpdated, .searchSelectionChanged,
             .promptTitleRequested, .desktopNotificationRequested, .openURLRequested, .undoRequested,
             .redoRequested, .copyTitleToClipboardRequested, .scrollbarChanged, .deferred, .unhandled:
             Self.logger.debug(

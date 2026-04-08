@@ -702,7 +702,7 @@ Quick reference: which direction each contract's data flows and which actor boun
 | C13 | Workflow Engine | Consumer (deferred) | EventBus → @MainActor | Future bus subscriber |
 | C14 | Replay Buffer | Internal | @MainActor | Per-runtime replay |
 | C15 | Process Channel | Source (deferred) | Future boundary | Request/response, not bus |
-| C16 | Filesystem Context | Projection (deferred) | @MainActor | Derived from C6 |
+| C16 | Filesystem Context | Projection | @MainActor → EventBus | Derived from C6 and republished as pane-scoped filesystem context envelopes |
 
 ---
 
@@ -2762,13 +2762,13 @@ PaneRuntimeEvent stream → Harness Event Gateway → adapters → agent
 
 **Use cases:** Work tracker with dependencies and sub-projects, agent status queries, cross-agent coordination, project state management. Agents interact with Agent Studio as a structured workspace, not just a terminal host.
 
-### Contract 16: Pane Filesystem Context Stream (deferred)
+### Contract 16: Pane Filesystem Context Stream
 
 > **Role:** Projection of Contract 6 (Filesystem Batching). Derives per-pane filesystem events by filtering the worktree watcher's output to the pane's current CWD subtree. Depends on Contract 6 as its upstream source — cannot exist without it.
 
 > **Extensibility:** New per-pane derived streams (e.g., "pane git blame context", "pane dependency graph") follow the same projection pattern: filter an upstream source by pane-scoped criteria, expose a typed subscription. Adding a new projection does not change the upstream source or existing projections.
 
-> **Status:** Design intent only. Implementation deferred until per-pane filesystem awareness features are built.
+> **Status:** Implemented as a main-actor projection over Contract 6. `PaneFilesystemProjectionStore` derives pane-scoped context events from worktree filesystem and git snapshot facts, maintains per-pane projection snapshots, and produces pane-scoped filesystem context envelopes for bus consumers.
 
 A derived, per-pane filesystem context stream based on the pane's current CWD. Separate from the terminal process request/response channel.
 
@@ -2797,8 +2797,8 @@ struct PaneFilesystemContext: Sendable {
 /// Derived per-pane filesystem events — filtered from worktree watcher.
 /// Only includes changes within the pane's CWD subtree.
 enum PaneFilesystemContextEvent: PaneKindEvent {
-    case cwdSubtreeChanged(paths: Set<String>, batchSeq: UInt64)
-    case gitWorkingTreeInCwd(staged: Int, unstaged: Int, untracked: Int)
+    case cwdSubtreeChanged(context: PaneFilesystemContext, paths: Set<String>, batchSeq: UInt64)
+    case gitWorkingTreeInCwd(context: PaneFilesystemContext, staged: Int, unstaged: Int, untracked: Int)
 
     var actionPolicy: ActionPolicy { .critical }
     var eventName: EventIdentifier {

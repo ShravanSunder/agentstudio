@@ -89,6 +89,36 @@ Every `PaneEnvelope` carries `paneId` + `paneKind`. Consumers join against `Pane
 - `true` — mutable runtime state a late-joiner needs to reconstruct current state (`readOnly`, `secureInput`, `scrollbarState`, `cellSize`, `progressReport`, `rendererHealth`, `sizeConstraints`, `colorChanged`, `configChanged`)
 - `false` — one-shot actions where replay would cause side effects (`openURL`, `undo`, `desktopNotification`) or workspace commands (`newTab`)
 
+### Test Strategy
+
+The codebase has established test harnesses — **use them, don't reinvent patterns.**
+
+| Harness | Location | Use for |
+|---------|----------|---------|
+| `EventBusHarness<Envelope>` | `Tests/.../Helpers/EventBusHarness.swift` | Create isolated bus + `RecordingSubscriber`. Provides `makeSubscriber()`, `post()`, `postAll()`. |
+| `RecordingSubscriber<Envelope>` | Same file | Actor-backed buffer. `snapshot()` returns all received events. `count(where:)`, `last(where:)` for filtering. `shutdown()` for cleanup. |
+| `RuntimeEnvelopeHarness` | `Tests/.../Helpers/RuntimeEnvelopeHarness.swift` | Static factories: `paneEnvelope()`, `filesystemEnvelope()`, `gitEnvelope()`, etc. Extractors: `paneEvents(from:)`, `worktreeEvents(from:)`. |
+| `PaneEnvelope.test()` | `Contracts/RuntimeEnvelopeFactories.swift` | Test factory with defaults for all envelope fields. |
+| `assertEventuallyAsync` | `EventBusHarness.swift` | Poll with `Task.yield()` — **no wall-clock sleeps**. Use for async bus delivery assertions. |
+| `assertBusDrained` | `EventBusHarness.swift` | Verify bus has no subscribers after cleanup. |
+
+**Test pyramid for this plan:**
+
+| Layer | What | Count | Pattern |
+|-------|------|-------|---------|
+| **Unit: emit → bus** | Each promoted event reaches the bus with correct envelope shape | ~10 tests (Task 1) | `TerminalRuntime` + injected `EventBusHarness`, `assertEventuallyAsync` on subscriber |
+| **Unit: adapter translation** | Each deferred tag translates to typed `GhosttyEvent` | ~9-14 tests (Task 2) | `GhosttyAdapter.translate()` assertions |
+| **Unit: replay persistence** | State events replay, one-shot events don't | ~2 tests (Task 1) | `runtime.eventsSince(seq: 0)` checks |
+| **Unit: CWD rescoping** | Register, update, unregister, idempotency, prune | ~4 tests (Task 4) | Direct `PaneFilesystemProjectionStore` method calls |
+| **Unit: bus ordering** | Events arrive in strict seq order via AsyncStream | 1 test (Task 0) | `EventBusHarness` + `RecordingSubscriber`, verify seq ordering |
+| **Coverage gate** | No deferred tags remain | 1 test (Task 2) | `GhosttyActionRouter.deferredTags.isEmpty` |
+
+**Rules:**
+- No `Task.sleep()` in tests — use `assertEventuallyAsync` or `assertEventuallyMain`
+- Always `subscriber.shutdown()` + `assertBusDrained(harness.bus)` in cleanup
+- Use `RuntimeEnvelopeHarness.paneEvents(from:)` to extract typed records from recorded snapshots
+- Create isolated `EventBusHarness<RuntimeEnvelope>()` per test — never use `PaneRuntimeEventBus.shared` in tests
+
 ### C String Safety (Ghostty Payloads)
 
 Some Ghostty C payloads use **length-prefixed strings**, not null-terminated. When extracting strings from the C union:
@@ -221,51 +251,9 @@ Replace the per-event `Task {}` fire-and-forget with a single `AsyncStream` cont
 - Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Runtime/PaneRuntimeEventChannel.swift`
 - Test: `Tests/AgentStudioTests/Core/PaneRuntime/Runtime/PaneRuntimeEventChannelTests.swift` (or existing test file)
 
-- [ ] **Step 1: Write failing test — bus receives events in order**
+- [ ] **Step 1: Replace Task-per-event with AsyncStream continuation**
 
-```swift
-@Test("Events emitted in sequence arrive at bus in order")
-@MainActor
-func busReceivesEventsInOrder() async {
-    let bus = EventBus<RuntimeEnvelope>()
-    let channel = PaneRuntimeEventChannel(paneEventBus: bus)
-    let paneId = PaneId()
-    let metadata = PaneMetadata(
-        source: .floating(launchDirectory: nil, title: "Test"),
-        title: "Test"
-    )
-
-    let stream = await bus.subscribe()
-
-    // Emit 10 events rapidly
-    for i in 0..<10 {
-        channel.emit(
-            paneId: paneId, metadata: metadata, paneKind: .terminal,
-            event: .terminal(.titleChanged("title-\(i)")),
-            persistForReplay: false
-        )
-    }
-
-    // Collect events from bus (with timeout)
-    var received: [UInt64] = []
-    for await envelope in stream.prefix(10) {
-        received.append(envelope.seq)
-    }
-
-    // Must be strictly ordered
-    #expect(received == received.sorted())
-    #expect(received.count == 10)
-    for i in 0..<received.count - 1 {
-        #expect(received[i] < received[i + 1], "seq must be strictly increasing")
-    }
-}
-```
-
-- [ ] **Step 2: Run test — may pass or fail depending on Task ordering luck**
-
-Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift test --build-path "$SWIFT_BUILD_DIR" --filter "PaneRuntimeEventChannel" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
-
-- [ ] **Step 3: Replace Task-per-event with AsyncStream continuation**
+Implement first — the ordering test references the new `busContinuation` property which must exist before the test compiles.
 
 In `PaneRuntimeEventChannel.swift`:
 
@@ -380,11 +368,58 @@ final class PaneRuntimeEventChannel {
 }
 ```
 
-- [ ] **Step 4: Run ordering test**
+- [ ] **Step 2: Write ordering test**
 
+Use `EventBusHarness` and `RecordingSubscriber` from `Tests/AgentStudioTests/Helpers/EventBusHarness.swift`. Use `assertEventuallyAsync` (no wall-clock sleeps). Follow the pattern in `EventBusHarnessTests.swift`.
+
+```swift
+@Test("Events emitted in sequence arrive at bus in strict seq order")
+@MainActor
+func busReceivesEventsInOrder() async {
+    // Arrange — isolated bus via harness, channel wired to it
+    let harness = EventBusHarness<RuntimeEnvelope>()
+    let channel = PaneRuntimeEventChannel(paneEventBus: harness.bus)
+    let subscriber = await harness.makeSubscriber()
+    let paneId = PaneId()
+    let metadata = PaneMetadata(
+        source: .floating(launchDirectory: nil, title: "Test"),
+        title: "Test"
+    )
+
+    // Act — emit 10 events rapidly
+    for i in 0..<10 {
+        channel.emit(
+            paneId: paneId, metadata: metadata, paneKind: .terminal,
+            event: .terminal(.titleChanged("title-\(i)")),
+            persistForReplay: false
+        )
+    }
+
+    // Assert — all 10 arrive in strict seq order
+    await assertEventuallyAsync("subscriber should receive all 10 events") {
+        await subscriber.snapshot().count == 10
+    }
+
+    let received = await subscriber.snapshot()
+    let seqs = RuntimeEnvelopeHarness.paneEvents(from: received).map(\.seq)
+    #expect(seqs.count == 10)
+    for i in 0..<seqs.count - 1 {
+        #expect(seqs[i] < seqs[i + 1], "seq must be strictly increasing: \(seqs[i]) < \(seqs[i + 1])")
+    }
+
+    // Cleanup
+    await subscriber.shutdown()
+    channel.finishSubscribers()
+    await assertBusDrained(harness.bus)
+}
+```
+
+- [ ] **Step 3: Run ordering test**
+
+Run: `SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)" swift test --build-path "$SWIFT_BUILD_DIR" --filter "PaneRuntimeEventChannel" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"`
 Expected: PASS — events arrive in strict seq order.
 
-- [ ] **Step 5: Run full suite**
+- [ ] **Step 4: Run full suite**
 
 Run: `mise run test` (timeout 60s)
 Expected: All existing tests pass. The change is internal to `PaneRuntimeEventChannel` — the `emit()` API is unchanged.
@@ -415,27 +450,27 @@ These 10 events already have `GhosttyEvent` cases. They just don't call `emit()`
 - Modify: `Sources/AgentStudio/Core/RuntimeEventSystem/Replay/EventReplayBuffer.swift` (size estimates)
 - Test: `Tests/AgentStudioTests/Features/Terminal/Runtime/TerminalRuntimeTests.swift`
 
-- [ ] **Step 1: Write failing test — every event should emit to bus**
+- [ ] **Step 1: Write failing test — every previously-silent event should emit to bus**
+
+Use `EventBusHarness`, `RecordingSubscriber`, `assertEventuallyAsync` from `Tests/AgentStudioTests/Helpers/EventBusHarness.swift`. Follow the existing `TerminalRuntimeTests.swift` pattern: create runtime with injected `paneEventBus`, `transitionToReady()`, then verify bus reception.
 
 ```swift
 @Test("All previously-silent events now emit to bus")
 @MainActor
 func allSilentEventsEmitToBus() async {
-    let bus = EventBus<RuntimeEnvelope>()
-    let channel = PaneRuntimeEventChannel(paneEventBus: bus)
-    let paneId = PaneId()
+    // Arrange — isolated bus, recording subscriber, runtime wired to it
+    let harness = EventBusHarness<RuntimeEnvelope>()
+    let subscriber = await harness.makeSubscriber()
     let runtime = TerminalRuntime(
-        paneId: paneId,
+        paneId: PaneId(),
         metadata: PaneMetadata(
             source: .floating(launchDirectory: nil, title: "Test"), title: "Test"
         ),
-        eventChannel: channel
+        paneEventBus: harness.bus
     )
     runtime.transitionToReady()
 
-    let stream = await bus.subscribe()
-
-    // Emit each previously-silent event
+    // Act — emit each previously-silent event
     let silentEvents: [GhosttyEvent] = [
         .progressReportUpdated(ProgressState(kind: .set, percent: 50)),
         .rendererHealthChanged(healthy: false),
@@ -453,11 +488,49 @@ func allSilentEventsEmitToBus() async {
         runtime.handleGhosttyEvent(event)
     }
 
-    var receivedCount = 0
-    for await _ in stream.prefix(silentEvents.count) {
-        receivedCount += 1
+    // Assert — all 10 reach the bus
+    await assertEventuallyAsync("bus should receive all \(silentEvents.count) events") {
+        await subscriber.snapshot().count == silentEvents.count
     }
-    #expect(receivedCount == silentEvents.count, "All \(silentEvents.count) events should reach bus")
+
+    let received = await subscriber.snapshot()
+    let paneEvents = RuntimeEnvelopeHarness.paneEvents(from: received)
+    #expect(paneEvents.count == silentEvents.count)
+
+    // Verify specific state-bearing events also updated @Observable properties
+    #expect(runtime.commandProgress == ProgressState(kind: .set, percent: 50))
+    #expect(runtime.rendererHealthy == false)
+    #expect(runtime.cellSize == NSSize(width: 8, height: 16))
+
+    // Cleanup
+    await subscriber.shutdown()
+    await assertBusDrained(harness.bus)
+}
+
+@Test("State-bearing events persist for replay, one-shot events do not")
+@MainActor
+func replayPersistenceForPromotedEvents() async {
+    // Arrange
+    let runtime = TerminalRuntime(
+        paneId: PaneId(),
+        metadata: PaneMetadata(
+            source: .floating(launchDirectory: nil, title: "Test"), title: "Test"
+        )
+    )
+    runtime.transitionToReady()
+
+    // Act — emit one state event (should replay) and one action event (should not)
+    runtime.handleGhosttyEvent(.rendererHealthChanged(healthy: false))  // persistForReplay: true
+    runtime.handleGhosttyEvent(.openURLRequested(url: "https://example.com", kind: .text))  // persistForReplay: false
+
+    // Assert — only state event in replay buffer
+    let replay = await runtime.eventsSince(seq: 0)
+    #expect(replay.events.count == 1, "Only state events should persist for replay")
+    guard case .pane(let envelope) = replay.events.first,
+          case .terminal(.rendererHealthChanged) = envelope.event else {
+        Issue.record("Expected rendererHealthChanged in replay")
+        return
+    }
 }
 ```
 

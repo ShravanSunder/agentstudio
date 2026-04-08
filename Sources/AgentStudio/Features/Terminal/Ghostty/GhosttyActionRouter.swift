@@ -21,6 +21,7 @@ extension Ghostty {
             .newTab,
             .ringBell,
             .setTitle,
+            .setTabTitle,
             .pwd,
             .newSplit,
             .gotoSplit,
@@ -35,33 +36,30 @@ extension Ghostty {
             .cellSize,
             .desktopNotification,
             .promptTitle,
-            .rendererHealth,
-            .secureInput,
-            .undo,
-            .redo,
-            .openURL,
-            .progressReport,
-            .commandFinished,
-            .readOnly,
-            .copyTitleToClipboard,
-        ]
-        static let deferredTags: Set<GhosttyActionTag> = [
-            .setTabTitle,
-            .scrollbar,
-            .render,
             .mouseShape,
             .mouseVisibility,
             .mouseOverLink,
+            .rendererHealth,
+            .secureInput,
             .keySequence,
             .keyTable,
             .colorChange,
             .reloadConfig,
             .configChange,
+            .undo,
+            .redo,
+            .openURL,
+            .progressReport,
+            .commandFinished,
+            .scrollbar,
             .startSearch,
             .endSearch,
             .searchTotal,
             .searchSelected,
+            .readOnly,
+            .copyTitleToClipboard,
         ]
+        static let deferredTags: Set<GhosttyActionTag> = []
         static let interceptedTags: Set<GhosttyActionTag> = [
             .quit,
             .newWindow,
@@ -80,6 +78,7 @@ extension Ghostty {
             .inspector,
             .showGtkInspector,
             .renderInspector,
+            .render,
             .openConfig,
             .quitTimer,
             .floatWindow,
@@ -117,17 +116,6 @@ extension Ghostty {
             if interceptedTags.contains(actionTag) {
                 return handleInterceptedAction(actionTag)
             }
-
-            if deferredTags.contains(actionTag) {
-                return routeActionToTerminalRuntime(
-                    actionTag: rawActionTag,
-                    payload: .noPayload,
-                    target: target,
-                    routingLookupProvider: routingLookupProvider,
-                    handledResult: false
-                )
-            }
-
             if let workspaceActionResult = handleWorkspaceAction(
                 actionTag,
                 rawActionTag: rawActionTag,
@@ -429,9 +417,14 @@ extension Ghostty {
         ) -> Bool? {
             switch actionTag {
             case .setTabTitle:
+                guard let titlePtr = action.action.set_tab_title.title else {
+                    logUnknownAction(
+                        actionTag: rawActionTag, target: target, routingLookupProvider: routingLookupProvider)
+                    return false
+                }
                 return routeActionToTerminalRuntime(
                     actionTag: rawActionTag,
-                    payload: .noPayload,
+                    payload: .tabTitleChanged(String(cString: titlePtr)),
                     target: target,
                     routingLookupProvider: routingLookupProvider,
                     handledResult: false
@@ -485,98 +478,52 @@ extension Ghostty {
             action: ghostty_action_s,
             routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider
         ) -> Bool? {
-            switch actionTag {
-            case .desktopNotification:
-                guard
-                    let titlePointer = action.action.desktop_notification.title,
-                    let bodyPointer = action.action.desktop_notification.body
-                else {
-                    logUnknownAction(
-                        actionTag: rawActionTag, target: target, routingLookupProvider: routingLookupProvider)
-                    return false
-                }
-                return routeActionToTerminalRuntime(
-                    actionTag: rawActionTag,
-                    payload: .desktopNotification(
-                        title: String(cString: titlePointer),
-                        body: String(cString: bodyPointer)
-                    ),
-                    target: target,
-                    routingLookupProvider: routingLookupProvider,
-                    handledResult: false
-                )
-            case .promptTitle:
-                return routeActionToTerminalRuntime(
-                    actionTag: rawActionTag,
-                    payload: .promptTitle(
-                        scopeRawValue: UInt32(truncatingIfNeeded: action.action.prompt_title.rawValue)
-                    ),
-                    target: target,
-                    routingLookupProvider: routingLookupProvider,
-                    handledResult: false
-                )
-            case .rendererHealth:
-                return routeActionToTerminalRuntime(
-                    actionTag: rawActionTag,
-                    payload: .rendererHealth(
-                        rawValue: UInt32(truncatingIfNeeded: action.action.renderer_health.rawValue)
-                    ),
-                    target: target,
-                    routingLookupProvider: routingLookupProvider,
-                    handledResult: false
-                )
-            case .secureInput:
-                return routeActionToTerminalRuntime(
-                    actionTag: rawActionTag,
-                    payload: .secureInput(
-                        modeRawValue: UInt32(truncatingIfNeeded: action.action.secure_input.rawValue)
-                    ),
-                    target: target,
-                    routingLookupProvider: routingLookupProvider,
-                    handledResult: false
-                )
-            case .openURL:
-                guard let urlPointer = action.action.open_url.url else {
-                    logUnknownAction(
-                        actionTag: rawActionTag, target: target, routingLookupProvider: routingLookupProvider)
-                    return false
-                }
-                let urlData = Data(bytes: urlPointer, count: Int(action.action.open_url.len))
-                let url = String(data: urlData, encoding: .utf8) ?? ""
-                return routeActionToTerminalRuntime(
-                    actionTag: rawActionTag,
-                    payload: .openURL(
-                        url: url,
-                        kindRawValue: UInt32(truncatingIfNeeded: action.action.open_url.kind.rawValue)
-                    ),
-                    target: target,
-                    routingLookupProvider: routingLookupProvider,
-                    handledResult: false
-                )
-            case .progressReport:
-                return routeActionToTerminalRuntime(
-                    actionTag: rawActionTag,
-                    payload: .progressReport(
-                        stateRawValue: UInt32(truncatingIfNeeded: action.action.progress_report.state.rawValue),
-                        progress: action.action.progress_report.progress
-                    ),
-                    target: target,
-                    routingLookupProvider: routingLookupProvider,
-                    handledResult: false
-                )
-            case .readOnly:
-                return routeActionToTerminalRuntime(
-                    actionTag: rawActionTag,
-                    payload: .readOnly(
-                        modeRawValue: UInt32(truncatingIfNeeded: action.action.readonly.rawValue)
-                    ),
-                    target: target,
-                    routingLookupProvider: routingLookupProvider,
-                    handledResult: false
-                )
-            default:
-                return nil
+            if let displayAction = handleObservedDisplayAction(
+                actionTag,
+                rawActionTag: rawActionTag,
+                target: target,
+                action: action,
+                routingLookupProvider: routingLookupProvider
+            ) {
+                return displayAction
             }
+            if let inputAction = handleObservedInputAction(
+                actionTag,
+                rawActionTag: rawActionTag,
+                target: target,
+                action: action,
+                routingLookupProvider: routingLookupProvider
+            ) {
+                return inputAction
+            }
+            if let configAction = handleObservedConfigurationAction(
+                actionTag,
+                rawActionTag: rawActionTag,
+                target: target,
+                action: action,
+                routingLookupProvider: routingLookupProvider
+            ) {
+                return configAction
+            }
+            if let searchAction = handleObservedSearchAction(
+                actionTag,
+                rawActionTag: rawActionTag,
+                target: target,
+                action: action,
+                routingLookupProvider: routingLookupProvider
+            ) {
+                return searchAction
+            }
+            if let controlAction = handleObservedControlAction(
+                actionTag,
+                rawActionTag: rawActionTag,
+                target: target,
+                action: action,
+                routingLookupProvider: routingLookupProvider
+            ) {
+                return controlAction
+            }
+            return nil
         }
 
         private static func handleObservedPassthroughAction(
@@ -658,7 +605,7 @@ extension Ghostty {
             }
         }
 
-        private static func logUnknownAction(
+        static func logUnknownAction(
             actionTag: UInt32,
             target: ghostty_target_s,
             routingLookupProvider: @escaping GhosttyActionRoutingLookupProvider
@@ -694,7 +641,7 @@ extension Ghostty {
             }
         }
 
-        private static func routeActionToTerminalRuntime(
+        static func routeActionToTerminalRuntime(
             actionTag: UInt32,
             payload: GhosttyAdapter.ActionPayload,
             target: ghostty_target_s,

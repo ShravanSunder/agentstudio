@@ -198,6 +198,8 @@ final class EventReplayBuffer {
             return estimateSize(of: editorEvent)
         case .plugin(_, let event):
             return 24 + event.eventName.rawValue.utf8.count
+        case .paneFilesystemContext(let event):
+            return estimateSize(of: event)
         case .filesystem(let filesystemEvent):
             return estimateSize(of: filesystemEvent)
         case .artifact(let artifactEvent):
@@ -310,38 +312,90 @@ final class EventReplayBuffer {
     }
 
     private static func estimateSize(of event: GhosttyEvent) -> Int {
+        if let navigationOrMetadataSize = estimateGhosttyNavigationOrMetadataSize(event) {
+            return navigationOrMetadataSize
+        }
+        if let stateSize = estimateGhosttyStateSize(event) {
+            return stateSize
+        }
+        if let interactionSize = estimateGhosttyInteractionSize(event) {
+            return interactionSize
+        }
+        if let requestSize = estimateGhosttyRequestSize(event) {
+            return requestSize
+        }
+        return 24
+    }
+
+    private static func estimateGhosttyNavigationOrMetadataSize(_ event: GhosttyEvent) -> Int? {
         switch event {
         case .newTab, .closeTab, .gotoTab, .moveTab, .newSplit, .gotoSplit, .resizeSplit, .equalizeSplits,
             .toggleSplitZoom:
             return 24
-        case .titleChanged(let title):
+        case .titleChanged(let title), .tabTitleChanged(let title):
             return 32 + title.utf8.count
         case .cwdChanged(let cwd):
             return 32 + cwd.utf8.count
         case .commandFinished:
             return 48
+        case .bellRang:
+            return 24
+        default:
+            return nil
+        }
+    }
+
+    private static func estimateGhosttyStateSize(_ event: GhosttyEvent) -> Int? {
+        switch event {
         case .progressReportUpdated:
             return 40
         case .readOnlyChanged, .secureInputRequested, .secureInputChanged, .rendererHealthChanged:
             return 24
-        case .cellSizeChanged, .initialSizeChanged, .sizeLimitChanged:
+        case .cellSizeChanged, .initialSizeChanged, .sizeLimitChanged, .scrollbarChanged:
             return 40
+        case .colorChanged:
+            return 32
+        case .configReloadRequested, .configChanged:
+            return 24
+        default:
+            return nil
+        }
+    }
+
+    private static func estimateGhosttyInteractionSize(_ event: GhosttyEvent) -> Int? {
+        switch event {
+        case .mouseShapeChanged, .mouseVisibilityChanged:
+            return 24
+        case .mouseLinkHovered(let url), .searchStarted(let url):
+            return 24 + (url?.utf8.count ?? 0)
+        case .keySequenceChanged(_, let trigger):
+            return 32 + (trigger?.key.map { _ in 8 } ?? 0)
+        case .keyTableChanged(let change):
+            switch change {
+            case .activate(let name):
+                return 24 + name.utf8.count
+            case .deactivate, .deactivateAll:
+                return 24
+            }
+        case .searchEnded, .searchMatchesUpdated, .searchSelectionChanged:
+            return 24
+        default:
+            return nil
+        }
+    }
+
+    private static func estimateGhosttyRequestSize(_ event: GhosttyEvent) -> Int? {
+        switch event {
         case .promptTitleRequested:
             return 24
         case .desktopNotificationRequested(let title, let body):
             return 32 + title.utf8.count + body.utf8.count
         case .openURLRequested(let url, _):
             return 32 + url.utf8.count
-        case .undoRequested, .redoRequested, .copyTitleToClipboardRequested:
+        case .undoRequested, .redoRequested, .copyTitleToClipboardRequested, .deferred, .unhandled:
             return 24
-        case .bellRang:
-            return 24
-        case .scrollbarChanged:
-            return 40
-        case .deferred:
-            return 24
-        case .unhandled:
-            return 24
+        default:
+            return nil
         }
     }
 
@@ -353,6 +407,15 @@ final class EventReplayBuffer {
             return 32 + url.absoluteString.utf8.count
         case .consoleMessage(_, let message):
             return 32 + message.utf8.count
+        }
+    }
+
+    private static func estimateSize(of event: PaneFilesystemContextEvent) -> Int {
+        switch event {
+        case .cwdSubtreeChanged(let context, let paths, _):
+            return 48 + context.cwd.path.utf8.count + paths.reduce(0) { $0 + $1.utf8.count }
+        case .gitWorkingTreeInCwd(let context, _, _, _):
+            return 48 + context.cwd.path.utf8.count
         }
     }
 

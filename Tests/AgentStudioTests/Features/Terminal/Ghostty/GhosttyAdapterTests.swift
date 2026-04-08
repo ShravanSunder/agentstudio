@@ -185,12 +185,98 @@ struct GhosttyAdapterTests {
 
     private func assertDeferredMappings(using adapter: GhosttyAdapter) {
         #expect(
-            adapter.translate(actionTag: UInt32(GHOSTTY_ACTION_RENDER.rawValue))
-                == .deferred(tag: UInt32(GHOSTTY_ACTION_RENDER.rawValue))
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_SET_TAB_TITLE.rawValue),
+                payload: .tabTitleChanged("Build")
+            ) == .tabTitleChanged("Build")
         )
         #expect(
-            adapter.translate(actionTag: UInt32(GHOSTTY_ACTION_SET_TAB_TITLE.rawValue))
-                == .deferred(tag: UInt32(GHOSTTY_ACTION_SET_TAB_TITLE.rawValue))
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_SCROLLBAR.rawValue),
+                payload: .scrollbar(total: 100, offset: 20, length: 10)
+            ) == .scrollbarChanged(ScrollbarState(top: 20, bottom: 30, total: 100))
+        )
+        #expect(
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_MOUSE_SHAPE.rawValue),
+                payload: .mouseShape(rawValue: UInt32(GHOSTTY_MOUSE_SHAPE_TEXT.rawValue))
+            ) == .mouseShapeChanged(shapeRawValue: UInt32(GHOSTTY_MOUSE_SHAPE_TEXT.rawValue))
+        )
+        #expect(
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_MOUSE_VISIBILITY.rawValue),
+                payload: .mouseVisibility(rawValue: UInt32(GHOSTTY_MOUSE_HIDDEN.rawValue))
+            ) == .mouseVisibilityChanged(isVisible: false)
+        )
+        #expect(
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_MOUSE_OVER_LINK.rawValue),
+                payload: .mouseOverLink("https://example.com")
+            ) == .mouseLinkHovered(url: "https://example.com")
+        )
+        #expect(
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_KEY_TABLE.rawValue),
+                payload: .keyTable(
+                    tagRawValue: UInt32(GHOSTTY_KEY_TABLE_ACTIVATE.rawValue),
+                    activateName: "copy-mode"
+                )
+            ) == .keyTableChanged(.activate(name: "copy-mode"))
+        )
+        #expect(
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_COLOR_CHANGE.rawValue),
+                payload: .colorChange(
+                    kindRawValue: Int32(GHOSTTY_ACTION_COLOR_KIND_CURSOR.rawValue),
+                    red: 10,
+                    green: 20,
+                    blue: 30
+                )
+            )
+                == .colorChanged(
+                    TerminalColorChange(kind: .cursor, red: 10, green: 20, blue: 30)
+                )
+        )
+        #expect(
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_RELOAD_CONFIG.rawValue),
+                payload: .reloadConfig(soft: true)
+            ) == .configReloadRequested(soft: true)
+        )
+        #expect(
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_CONFIG_CHANGE.rawValue),
+                payload: .configChange
+            ) == .configChanged
+        )
+        #expect(
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_START_SEARCH.rawValue),
+                payload: .startSearch("needle")
+            ) == .searchStarted(query: "needle")
+        )
+        #expect(
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_END_SEARCH.rawValue),
+                payload: .endSearch
+            ) == .searchEnded
+        )
+        #expect(
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_SEARCH_TOTAL.rawValue),
+                payload: .searchTotal(7)
+            ) == .searchMatchesUpdated(totalMatches: 7)
+        )
+        #expect(
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_SEARCH_SELECTED.rawValue),
+                payload: .searchSelected(3)
+            ) == .searchSelectionChanged(selectedMatchIndex: 3)
+        )
+
+        #expect(
+            adapter.translate(actionTag: UInt32(GHOSTTY_ACTION_RENDER.rawValue))
+                == .unhandled(tag: UInt32(GHOSTTY_ACTION_RENDER.rawValue))
         )
     }
 

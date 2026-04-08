@@ -32,11 +32,19 @@ extension PaneCoordinator {
             return false
         }
 
-        paneFilesystemProjectionStore.consume(
+        let derivedEnvelopes = paneFilesystemProjectionStore.consume(
             envelope,
             panesById: store.panes,
             worktreeRootsByWorktreeId: workspaceWorktreeContextsById().mapValues(\.rootPath)
         )
+        if !derivedEnvelopes.isEmpty {
+            Task {
+                await Self.publishDerivedFilesystemEnvelopes(
+                    derivedEnvelopes,
+                    to: paneEventBus
+                )
+            }
+        }
         return true
     }
 
@@ -152,6 +160,15 @@ extension PaneCoordinator {
 
     nonisolated private static func sortWorktreeIds(_ lhs: UUID, _ rhs: UUID) -> Bool {
         lhs.uuidString < rhs.uuidString
+    }
+
+    @concurrent nonisolated private static func publishDerivedFilesystemEnvelopes(
+        _ envelopes: [RuntimeEnvelope],
+        to paneEventBus: EventBus<RuntimeEnvelope>
+    ) async {
+        for envelope in envelopes {
+            _ = await paneEventBus.post(envelope)
+        }
     }
 
     nonisolated private static func sortWorktreeByPriority(
