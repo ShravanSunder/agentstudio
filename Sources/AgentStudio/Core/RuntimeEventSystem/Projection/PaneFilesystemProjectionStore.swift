@@ -1,9 +1,11 @@
 import Foundation
 import Observation
+import os
 
 @Observable
 @MainActor
 final class PaneFilesystemProjectionStore {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneFilesystemProjectionStore")
     struct PaneSnapshot: Equatable, Sendable {
         let paneId: UUID
         let worktreeId: UUID
@@ -32,7 +34,12 @@ final class PaneFilesystemProjectionStore {
     }
 
     func updatePaneCwd(paneId paneUUID: UUID, newCwd: URL) {
-        guard var existing = contextsByPaneId[paneUUID] else { return }
+        guard var existing = contextsByPaneId[paneUUID] else {
+            Self.logger.debug(
+                "Ignoring pane filesystem cwd update for unregistered pane \(paneUUID.uuidString, privacy: .public)"
+            )
+            return
+        }
         let normalizedCwd = newCwd.standardizedFileURL.resolvingSymlinksInPath()
         guard existing.cwd != normalizedCwd else { return }
         existing = PaneFilesystemContext(
@@ -78,7 +85,9 @@ final class PaneFilesystemProjectionStore {
                     lastGitSummary: previousSummary
                 )
 
-                let context = resolvedContext(for: pane, fallbackCwd: worktreeRootPath)
+                guard let context = resolvedContext(for: pane, fallbackCwd: worktreeRootPath) else {
+                    continue
+                }
                 derivedEnvelopes.append(
                     makePaneContextEnvelope(
                         pane: pane,
@@ -113,7 +122,9 @@ final class PaneFilesystemProjectionStore {
                     lastGitSummary: snapshot.summary
                 )
 
-                let context = resolvedContext(for: pane, fallbackCwd: snapshot.rootPath)
+                guard let context = resolvedContext(for: pane, fallbackCwd: snapshot.rootPath) else {
+                    continue
+                }
                 derivedEnvelopes.append(
                     makePaneContextEnvelope(
                         pane: pane,
@@ -159,7 +170,7 @@ final class PaneFilesystemProjectionStore {
         nextSequenceByPaneId.removeAll()
     }
 
-    private func resolvedContext(for pane: Pane, fallbackCwd: URL) -> PaneFilesystemContext {
+    private func resolvedContext(for pane: Pane, fallbackCwd: URL) -> PaneFilesystemContext? {
         if let existing = contextsByPaneId[pane.id] {
             return existing
         }
@@ -167,12 +178,10 @@ final class PaneFilesystemProjectionStore {
         guard let repoId = pane.repoId ?? pane.metadata.repoId,
             let worktreeId = pane.worktreeId ?? pane.metadata.worktreeId
         else {
-            return PaneFilesystemContext(
-                paneId: PaneId(uuid: pane.id),
-                repoId: pane.id,
-                cwd: (pane.metadata.facets.cwd ?? fallbackCwd).standardizedFileURL.resolvingSymlinksInPath(),
-                worktreeId: pane.id
+            Self.logger.warning(
+                "Skipping pane filesystem context projection for pane \(pane.id.uuidString, privacy: .public): missing repoId/worktreeId"
             )
+            return nil
         }
 
         let context = PaneFilesystemContext(

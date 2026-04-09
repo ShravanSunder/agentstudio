@@ -1,4 +1,7 @@
 import Foundation
+import os
+
+private let eventReplayBufferLogger = Logger(subsystem: "com.agentstudio", category: "EventReplayBuffer")
 
 /// Per-runtime replay buffer for `RuntimeEnvelope` with bounded memory and TTL eviction.
 ///
@@ -324,6 +327,9 @@ final class EventReplayBuffer {
         if let requestSize = estimateGhosttyRequestSize(event) {
             return requestSize
         }
+        eventReplayBufferLogger.warning(
+            "Missing GhosttyEvent replay size estimate for \(String(describing: event), privacy: .public)"
+        )
         assertionFailure("Unhandled GhosttyEvent size estimate: \(event)")
         return 24
     }
