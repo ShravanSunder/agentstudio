@@ -52,6 +52,12 @@ enum AppCommand: String, CaseIterable {
 
     // Management mode
     case toggleManagementMode
+    case managementMoveLeft
+    case managementMoveRight
+    case managementMoveDown
+    case managementMoveUp
+    case managementCreateTerminal
+    case managementCreateBrowser
 
     // Workspace commands
     case toggleSidebar
@@ -620,6 +626,7 @@ extension AppCommand {
         case .toggleDrawer:
             return CommandSpec(
                 command: self,
+                keyBinding: KeyBinding(key: "d", modifiers: [.command]),
                 label: "Toggle Drawer",
                 icon: "rectangle.expand.vertical",
                 helpText: "Expand or collapse the active pane drawer",
@@ -703,6 +710,28 @@ extension AppCommand {
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
+        case .managementMoveLeft:
+            return managementDefinition(
+                label: "Management Move Left", icon: "arrow.left", helpText: "Move focus left in management mode")
+        case .managementMoveRight:
+            return managementDefinition(
+                label: "Management Move Right", icon: "arrow.right", helpText: "Move focus right in management mode")
+        case .managementMoveDown:
+            return managementDefinition(
+                label: "Management Move Down", icon: "arrow.down",
+                helpText: "Enter or expand the current drawer in management mode")
+        case .managementMoveUp:
+            return managementDefinition(
+                label: "Management Move Up", icon: "arrow.up",
+                helpText: "Collapse the current drawer in management mode")
+        case .managementCreateTerminal:
+            return managementDefinition(
+                label: "Management Create Terminal", icon: "plus.square",
+                helpText: "Create a terminal in the current management-mode context")
+        case .managementCreateBrowser:
+            return managementDefinition(
+                label: "Management Create Browser", icon: "globe",
+                helpText: "Create a browser in the current management-mode context")
         case .toggleSidebar:
             return CommandSpec(
                 command: self,
@@ -858,6 +887,17 @@ extension AppCommand {
             appliesTo: [.worktree],
             commandBarGroupName: "Repo",
             commandBarGroupPriority: CommandBarGroupPriority.repo
+        )
+    }
+
+    private func managementDefinition(label: String, icon: String, helpText: String) -> CommandSpec {
+        CommandSpec(
+            command: self,
+            label: label,
+            icon: icon,
+            helpText: helpText,
+            requiresManagementMode: true,
+            isHiddenInCommandBar: true
         )
     }
 }

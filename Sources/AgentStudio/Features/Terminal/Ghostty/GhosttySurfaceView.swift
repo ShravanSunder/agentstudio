@@ -810,23 +810,13 @@ extension Ghostty {
 
         override func scrollWheel(with event: NSEvent) {
             guard let surface else { return }
-
-            let mods = ghosttyMods(from: event.modifierFlags)
-            var scrollMods: ghostty_input_scroll_mods_t = Int32(mods.rawValue)
-
-            if !event.momentumPhase.isEmpty {
-                scrollMods |= 0x10  // GHOSTTY_SCROLL_MODS_MOMENTUM
-            }
-
-            if event.hasPreciseScrollingDeltas {
-                scrollMods |= 0x20  // GHOSTTY_SCROLL_MODS_PRECISION
-            }
+            let translatedScroll = GhosttyScrollTranslation.translate(event: event)
 
             ghostty_surface_mouse_scroll(
                 surface,
-                event.scrollingDeltaX,
-                event.scrollingDeltaY,
-                scrollMods
+                translatedScroll.deltaX,
+                translatedScroll.deltaY,
+                translatedScroll.scrollMods
             )
         }
 

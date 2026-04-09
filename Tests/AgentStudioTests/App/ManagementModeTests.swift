@@ -101,6 +101,81 @@ struct ManagementModeTests {
         }
     }
 
+    @Test("management mode key policy dispatches P to create terminal")
+    func test_managementMode_keyPolicy_dispatchesCreateTerminal() async {
+        withTestAtomStore { _ in
+            let monitor = makeMonitor()
+            let decision = monitor.keyDownDecision(
+                keyCode: 35,
+                modifierFlags: [],
+                charactersIgnoringModifiers: "p"
+            )
+            #expect(decision == .dispatch(.managementCreateTerminal))
+        }
+    }
+
+    @Test("management mode key policy dispatches D to open drawer")
+    func test_managementMode_keyPolicy_dispatchesDrawerOpenShortcut() async {
+        withTestAtomStore { _ in
+            let monitor = makeMonitor()
+            let decision = monitor.keyDownDecision(
+                keyCode: 2,
+                modifierFlags: [],
+                charactersIgnoringModifiers: "d"
+            )
+            #expect(decision == .dispatch(.managementMoveDown))
+        }
+    }
+
+    @Test("management mode key policy dispatches arrow keys")
+    func test_managementMode_keyPolicy_dispatchesArrowKeys() async {
+        withTestAtomStore { _ in
+            let monitor = makeMonitor()
+
+            #expect(
+                monitor.keyDownDecision(
+                    keyCode: 123,
+                    modifierFlags: [],
+                    charactersIgnoringModifiers: nil
+                ) == .dispatch(.managementMoveLeft)
+            )
+            #expect(
+                monitor.keyDownDecision(
+                    keyCode: 124,
+                    modifierFlags: [],
+                    charactersIgnoringModifiers: nil
+                ) == .dispatch(.managementMoveRight)
+            )
+            #expect(
+                monitor.keyDownDecision(
+                    keyCode: 125,
+                    modifierFlags: [],
+                    charactersIgnoringModifiers: nil
+                ) == .dispatch(.managementMoveDown)
+            )
+            #expect(
+                monitor.keyDownDecision(
+                    keyCode: 126,
+                    modifierFlags: [],
+                    charactersIgnoringModifiers: nil
+                ) == .dispatch(.managementMoveUp)
+            )
+        }
+    }
+
+    @Test("management mode key policy ignores numeric pad modifier on arrow keys")
+    func test_managementMode_keyPolicy_ignoresNumericPadModifierForArrowKeys() async {
+        withTestAtomStore { _ in
+            let monitor = makeMonitor()
+            let decision = monitor.keyDownDecision(
+                keyCode: 123,
+                modifierFlags: [.numericPad],
+                charactersIgnoringModifiers: nil
+            )
+            #expect(decision == .dispatch(.managementMoveLeft))
+        }
+    }
+
     @Test("management mode key policy consumes control combinations")
     func test_managementMode_keyPolicy_controlCombinationConsumed() async {
         withTestAtomStore { _ in

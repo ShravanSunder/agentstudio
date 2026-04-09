@@ -35,6 +35,9 @@ final class CommandBarState {
     /// Stack of nested levels. Empty = at root level.
     var navigationStack: [CommandBarLevel] = []
 
+    /// Root scope that remains stable while navigating nested levels.
+    private(set) var pinnedScope: CommandBarScope = .everything
+
     // MARK: - Selection
 
     /// Currently highlighted row index within filtered results.
@@ -69,6 +72,10 @@ final class CommandBarState {
         case "# ": return .repos
         default: return .everything
         }
+    }
+
+    var currentScope: CommandBarScope {
+        isNested ? pinnedScope : activeScope
     }
 
     var hasPrefixInText: Bool {
@@ -125,6 +132,7 @@ final class CommandBarState {
         } else {
             rawInput = prefix ?? ""
         }
+        pinnedScope = activeScope
         navigationStack = []
         selectedIndex = 0
         isVisible = true
@@ -135,6 +143,7 @@ final class CommandBarState {
     func dismiss() {
         isVisible = false
         rawInput = ""
+        pinnedScope = .everything
         navigationStack = []
         selectedIndex = 0
         stateLogger.debug("Command bar dismissed")
@@ -144,6 +153,7 @@ final class CommandBarState {
     func switchPrefix(_ prefix: String) {
         navigationStack = []
         rawInput = prefix.isEmpty ? "" : prefix + " "
+        pinnedScope = activeScope
         selectedIndex = 0
     }
 

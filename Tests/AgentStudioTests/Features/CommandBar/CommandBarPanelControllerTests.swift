@@ -112,38 +112,47 @@ struct CommandBarPanelControllerTests {
         #expect(!controller.state.isVisible)
     }
 
-    // MARK: - Toggle Behavior (same prefix → dismiss)
+    // MARK: - Same Scope Behavior (same prefix preserves state)
 
     @Test
-    func test_show_samePrefixTwice_togglesOff() {
+    func test_show_samePrefixTwice_preservesState() {
         let controller = CommandBarPanelController(
             store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
 
         // Arrange — show with no prefix
         controller.show(parentWindow: window)
         #expect(controller.state.isVisible)
+        controller.state.rawInput = "dra"
 
         // Act — show again with same prefix (nil)
         controller.show(parentWindow: window)
 
-        // Assert — should dismiss (toggle behavior)
-        #expect(!controller.state.isVisible)
+        // Assert — should stay open and preserve state
+        #expect(controller.state.isVisible)
+        #expect(controller.state.rawInput == "dra")
     }
 
     @Test
-    func test_show_sameCommandPrefixTwice_togglesOff() {
+    func test_show_sameCommandPrefixTwice_preservesQueryAndNavigation() {
         let controller = CommandBarPanelController(
             store: WorkspaceStore(), repoCache: RepoCacheAtom(), dispatcher: .shared)
 
         // Arrange
         controller.show(prefix: ">", parentWindow: window)
         #expect(controller.state.isVisible)
+        controller.state.rawInput = "> close"
+        controller.state.selectedIndex = 2
+        let level = makeCommandBarLevel(id: "close-tab", title: "Close Tab", parentLabel: "Tab")
+        controller.state.pushLevel(level)
 
         // Act
         controller.show(prefix: ">", parentWindow: window)
 
         // Assert
-        #expect(!controller.state.isVisible)
+        #expect(controller.state.isVisible)
+        #expect(controller.state.rawInput.isEmpty)
+        #expect(controller.state.isNested)
+        #expect(controller.state.selectedIndex == 0)
     }
 
     // MARK: - Switch Behavior (different prefix → switch in-place)

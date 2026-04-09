@@ -27,6 +27,7 @@ protocol PaneMountedContent: NSView {
 class PaneHostView: NSView, Identifiable {
     nonisolated let paneId: UUID
     nonisolated var id: UUID { paneId }
+    var onAttachedToWindow: ((UUID) -> Void)?
 
     /// Stable identity for this specific host instance. Changes when the host
     /// is replaced (repair, placeholder retry), forcing SwiftUI to recreate
@@ -71,6 +72,9 @@ class PaneHostView: NSView, Identifiable {
         RestoreTrace.log(
             "PaneHostView.viewDidMoveToWindow paneId=\(paneId) window=\(window != nil) id=\(ObjectIdentifier(self)) superview=\(superview != nil)"
         )
+        if window != nil {
+            onAttachedToWindow?(paneId)
+        }
     }
 
     func mountContentView(_ mountedView: NSView & PaneMountedContent) {

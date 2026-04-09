@@ -75,6 +75,9 @@ final class ManagementModeMonitor {
             case .deactivateAndConsume:
                 self.deactivate()
                 return nil
+            case .dispatch(let command):
+                CommandDispatcher.shared.dispatch(command)
+                return nil
             case .passThrough:
                 return event
             case .consume:
@@ -87,6 +90,7 @@ final class ManagementModeMonitor {
 
     enum KeyDownDecision: Equatable {
         case deactivateAndConsume
+        case dispatch(AppCommand)
         case passThrough
         case consume
     }
@@ -94,7 +98,7 @@ final class ManagementModeMonitor {
     func keyDownDecision(
         keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags,
-        charactersIgnoringModifiers _: String?
+        charactersIgnoringModifiers: String?
     ) -> KeyDownDecision {
         if keyCode == 53 {
             return .deactivateAndConsume
@@ -105,7 +109,54 @@ final class ManagementModeMonitor {
             return .passThrough
         }
 
-        return .consume
+        switch keyCode {
+        case 123:
+            return arrowKeyDecision(
+                command: .managementMoveLeft,
+                normalizedModifiers: normalizedModifiers
+            )
+        case 124:
+            return arrowKeyDecision(
+                command: .managementMoveRight,
+                normalizedModifiers: normalizedModifiers
+            )
+        case 125:
+            return arrowKeyDecision(
+                command: .managementMoveDown,
+                normalizedModifiers: normalizedModifiers
+            )
+        case 126:
+            return arrowKeyDecision(
+                command: .managementMoveUp,
+                normalizedModifiers: normalizedModifiers
+            )
+        default:
+            break
+        }
+
+        guard normalizedModifiers.isEmpty else {
+            return .consume
+        }
+
+        switch charactersIgnoringModifiers?.lowercased() {
+        case "p":
+            return .dispatch(.managementCreateTerminal)
+        case "b":
+            return .dispatch(.managementCreateBrowser)
+        case "d":
+            return .dispatch(.managementMoveDown)
+        default:
+            return .consume
+        }
+    }
+
+    private func arrowKeyDecision(
+        command: AppCommand,
+        normalizedModifiers: NSEvent.ModifierFlags
+    ) -> KeyDownDecision {
+        let nonSemanticArrowModifiers: NSEvent.ModifierFlags = [.numericPad, .function]
+        let semanticModifiers = normalizedModifiers.subtracting(nonSemanticArrowModifiers)
+        return semanticModifiers.isEmpty ? .dispatch(command) : .consume
     }
 
     // MARK: - First Responder Management

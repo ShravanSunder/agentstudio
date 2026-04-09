@@ -18,6 +18,9 @@ extension PaneCoordinator {
         for paneId: UUID
     ) -> PaneHostView {
         let host = PaneHostView(paneId: paneId)
+        host.onAttachedToWindow = { [weak self] attachedPaneId in
+            self?.handlePaneHostAttachedToWindow(attachedPaneId)
+        }
         host.mountContentView(mountedView)
         viewRegistry.register(host, for: paneId)
         return host
@@ -146,11 +149,13 @@ extension PaneCoordinator {
         treatAsRestoredSessionStart: Bool = false
     ) -> TerminalPaneMountView? {
         if pane.provider == .zmx, initialFrame == nil {
-            assertionFailure("zmx pane \(pane.id) must provide trusted initialFrame before Ghostty surface creation")
-            Self.logger.error(
-                "Refusing to create zmx pane \(pane.id, privacy: .public) without trusted initialFrame"
+            RestoreTrace.log(
+                "createView deferred pane=\(pane.id) reason=missingInitialFrame"
             )
-            registerTerminalPlaceholderIfNeeded(for: pane, mode: .failedToStart)
+            Self.logger.warning(
+                "Deferring zmx pane \(pane.id, privacy: .public) until trusted initialFrame exists"
+            )
+            registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
             return nil
         }
         let launchDirectory = pane.metadata.cwd ?? pane.metadata.launchDirectory ?? worktree.path
@@ -256,12 +261,13 @@ extension PaneCoordinator {
         treatAsRestoredSessionStart: Bool = false
     ) -> TerminalPaneMountView? {
         if pane.provider == .zmx, initialFrame == nil {
-            assertionFailure(
-                "floating zmx pane \(pane.id) must provide trusted initialFrame before Ghostty surface creation")
-            Self.logger.error(
-                "Refusing to create floating zmx pane \(pane.id, privacy: .public) without trusted initialFrame"
+            RestoreTrace.log(
+                "createFloatingTerminalView deferred pane=\(pane.id) reason=missingInitialFrame"
             )
-            registerTerminalPlaceholderIfNeeded(for: pane, mode: .failedToStart)
+            Self.logger.warning(
+                "Deferring floating zmx pane \(pane.id, privacy: .public) until trusted initialFrame exists"
+            )
+            registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
             return nil
         }
         let launchDirectory =

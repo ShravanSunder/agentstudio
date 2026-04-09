@@ -56,6 +56,7 @@ final class PaneCoordinator {
     private var batchedRuntimeEventsTask: Task<Void, Never>?
     var filesystemSyncTask: Task<Void, Never>?
     var filesystemSyncRequested = false
+    var pendingFocusPaneIds: Set<UUID> = []
     var filesystemRegisteredContextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
     var filesystemActivityByWorktreeId: [UUID: Bool] = [:]
     var filesystemLastActivePaneWorktreeId: UUID?

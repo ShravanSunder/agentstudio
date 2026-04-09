@@ -49,8 +49,9 @@ struct PaneManagementContextTests {
             let context = PaneManagementContext.project(paneId: pane.id, store: store)
 
             #expect(context.targetPath?.path == "/tmp/agent-studio/subdir")
-            #expect(context.title == worktree.path.lastPathComponent)
-            #expect(context.detailLine == "main")
+            #expect(context.identityRows.first(where: { $0.id == "repo" })?.text == repo.name)
+            #expect(context.identityRows.first(where: { $0.id == "branch" })?.text == "main")
+            #expect(context.identityRows.first(where: { $0.id == "cwd" })?.text == "subdir")
             #expect(context.statusChips?.branchStatus.prCount == 2)
             #expect(context.statusChips?.notificationCount == 1)
         }
@@ -85,7 +86,8 @@ struct PaneManagementContextTests {
             let context = PaneManagementContext.project(paneId: pane.id, store: store)
 
             #expect(context.targetPath?.path == worktree.path.path)
-            #expect(context.detailLine == "detached HEAD")
+            #expect(context.identityRows.first(where: { $0.id == "branch" })?.text == "detached HEAD")
+            #expect(context.identityRows.first(where: { $0.id == "cwd" })?.text == ".")
         }
     }
 
@@ -112,7 +114,7 @@ struct PaneManagementContextTests {
             let context = PaneManagementContext.project(paneId: pane.id, store: store)
 
             #expect(context.targetPath == nil)
-            #expect(context.detailLine == "No filesystem target")
+            #expect(context.identityRows.first(where: { $0.id == "fallback" })?.text == "Floating")
             #expect(context.statusChips == nil)
             #expect(context.showsIdentityBlock == true)
         }

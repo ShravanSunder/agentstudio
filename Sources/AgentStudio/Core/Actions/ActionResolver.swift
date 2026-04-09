@@ -131,7 +131,10 @@ enum WorkspaceCommandResolver {
             .deleteArrangement, .renameArrangement,
             .addDrawerPane, .toggleDrawer,
             .navigateDrawerPane, .closeDrawerPane,
-            .toggleManagementMode:
+            .toggleManagementMode,
+            .managementMoveLeft, .managementMoveRight,
+            .managementMoveDown, .managementMoveUp,
+            .managementCreateTerminal, .managementCreateBrowser:
             return nil
         }
     }

@@ -328,6 +328,33 @@ struct PaneTabViewControllerCommandTests {
         )
     }
 
+    @Test("toggleManagementMode preserves drawer scope while exiting management mode")
+    func executeToggleManagementMode_preservesDrawerScopeOnExit() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(
+            source: .floating(launchDirectory: nil, title: "Parent"),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        _ = harness.store.addDrawerPane(to: parentPane.id)
+
+        atom(\.managementMode).activate()
+        harness.controller.setManagementNavigationScopeToDrawerForTesting(parentPaneId: parentPane.id)
+
+        harness.controller.execute(.toggleManagementMode)
+
+        #expect(!atom(\.managementMode).isActive)
+        #expect(
+            harness.controller.managementNavigationScopeDescriptionForTesting
+                == "drawer:\(parentPane.id.uuidString)"
+        )
+    }
+
 }
 
 private final class MockPaneTabCommandSurfaceManager: PaneCoordinatorSurfaceManaging {
