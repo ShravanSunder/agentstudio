@@ -20,6 +20,7 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
     case commandFinished
     case cwdChanged
     case titleChanged
+    case tabTitleChanged
     case progressReportUpdated
     case readOnlyChanged
     case secureInputChanged
@@ -27,6 +28,18 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
     case cellSizeChanged
     case initialSizeChanged
     case sizeLimitChanged
+    case mouseShapeChanged
+    case mouseVisibilityChanged
+    case mouseLinkHovered
+    case keySequenceChanged
+    case keyTableChanged
+    case colorChanged
+    case configReloadRequested
+    case configChanged
+    case searchStarted
+    case searchEnded
+    case searchMatchesUpdated
+    case searchSelectionChanged
     case promptTitleRequested
     case desktopNotificationRequested
     case openURLRequested
@@ -46,6 +59,8 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
     case consoleMessage
     case allApproved
     case diagnosticsUpdated
+    case fsCwdSubtreeChanged
+    case fsGitWorkingTreeInCwd
     case plugin(String)
 
     var rawValue: String {
@@ -62,6 +77,7 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
         case .commandFinished: return "commandFinished"
         case .cwdChanged: return "cwdChanged"
         case .titleChanged: return "titleChanged"
+        case .tabTitleChanged: return "tabTitleChanged"
         case .progressReportUpdated: return "progressReportUpdated"
         case .readOnlyChanged: return "readOnlyChanged"
         case .secureInputChanged: return "secureInputChanged"
@@ -69,6 +85,18 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
         case .cellSizeChanged: return "cellSizeChanged"
         case .initialSizeChanged: return "initialSizeChanged"
         case .sizeLimitChanged: return "sizeLimitChanged"
+        case .mouseShapeChanged: return "mouseShapeChanged"
+        case .mouseVisibilityChanged: return "mouseVisibilityChanged"
+        case .mouseLinkHovered: return "mouseLinkHovered"
+        case .keySequenceChanged: return "keySequenceChanged"
+        case .keyTableChanged: return "keyTableChanged"
+        case .colorChanged: return "colorChanged"
+        case .configReloadRequested: return "configReloadRequested"
+        case .configChanged: return "configChanged"
+        case .searchStarted: return "searchStarted"
+        case .searchEnded: return "searchEnded"
+        case .searchMatchesUpdated: return "searchMatchesUpdated"
+        case .searchSelectionChanged: return "searchSelectionChanged"
         case .promptTitleRequested: return "promptTitleRequested"
         case .desktopNotificationRequested: return "desktopNotificationRequested"
         case .openURLRequested: return "openURLRequested"
@@ -88,6 +116,8 @@ enum EventIdentifier: Hashable, Sendable, CustomStringConvertible {
         case .consoleMessage: return "consoleMessage"
         case .allApproved: return "allApproved"
         case .diagnosticsUpdated: return "diagnosticsUpdated"
+        case .fsCwdSubtreeChanged: return "fsCwdSubtreeChanged"
+        case .fsGitWorkingTreeInCwd: return "fsGitWorkingTreeInCwd"
         case .plugin(let value): return value
         }
     }

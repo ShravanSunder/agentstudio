@@ -1,46 +1,154 @@
 import Foundation
 import Observation
+import os
 
 @Observable
 @MainActor
 final class PaneFilesystemProjectionStore {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneFilesystemProjectionStore")
     struct PaneSnapshot: Equatable, Sendable {
         let paneId: UUID
         let worktreeId: UUID
         let changedPaths: [String]
         let batchSequence: UInt64
         let timestamp: ContinuousClock.Instant
+        let lastGitSummary: GitWorkingTreeSummary?
     }
 
     private(set) var snapshotsByPaneId: [UUID: PaneSnapshot] = [:]
+    private(set) var contextsByPaneId: [UUID: PaneFilesystemContext] = [:]
+    private var nextSequenceByPaneId: [UUID: UInt64] = [:]
+
+    func registerPaneContext(_ context: PaneFilesystemContext) {
+        contextsByPaneId[context.paneId.uuid] = context
+    }
+
+    func unregisterPaneContext(_ paneUUID: UUID) {
+        contextsByPaneId.removeValue(forKey: paneUUID)
+        snapshotsByPaneId.removeValue(forKey: paneUUID)
+        nextSequenceByPaneId.removeValue(forKey: paneUUID)
+    }
+
+    func context(for paneUUID: UUID) -> PaneFilesystemContext? {
+        contextsByPaneId[paneUUID]
+    }
+
+    func updatePaneCwd(paneId paneUUID: UUID, newCwd: URL) {
+        guard var existing = contextsByPaneId[paneUUID] else {
+            Self.logger.debug(
+                "Ignoring pane filesystem cwd update for unregistered pane \(paneUUID.uuidString, privacy: .public)"
+            )
+            return
+        }
+        let normalizedCwd = newCwd.standardizedFileURL.resolvingSymlinksInPath()
+        guard existing.cwd != normalizedCwd else { return }
+        existing = PaneFilesystemContext(
+            paneId: existing.paneId,
+            repoId: existing.repoId,
+            cwd: normalizedCwd,
+            worktreeId: existing.worktreeId
+        )
+        contextsByPaneId[paneUUID] = existing
+        snapshotsByPaneId.removeValue(forKey: paneUUID)
+    }
 
     func consume(
         _ envelope: RuntimeEnvelope,
         panesById: [UUID: Pane],
         worktreeRootsByWorktreeId: [UUID: URL]
-    ) {
-        guard case .worktree(let worktreeEnvelope) = envelope else { return }
-        guard case .filesystem(.filesChanged(let changeset)) = worktreeEnvelope.event else { return }
-        guard let worktreeRootPath = worktreeRootsByWorktreeId[changeset.worktreeId] else { return }
+    ) -> [RuntimeEnvelope] {
+        guard case .worktree(let worktreeEnvelope) = envelope else { return [] }
 
-        let panes = panesById.values.filter { $0.worktreeId == changeset.worktreeId }
-        guard !panes.isEmpty else { return }
+        switch worktreeEnvelope.event {
+        case .filesystem(.filesChanged(let changeset)):
+            guard let worktreeRootPath = worktreeRootsByWorktreeId[changeset.worktreeId] else { return [] }
 
-        for pane in panes {
-            let filteredPaths = Self.filteredPaths(
-                changesetPaths: changeset.paths,
-                paneCwd: pane.metadata.facets.cwd,
-                worktreeRootPath: worktreeRootPath
-            )
-            guard !filteredPaths.isEmpty else { continue }
+            let panes = panesById.values.filter { $0.worktreeId == changeset.worktreeId }
+            guard !panes.isEmpty else { return [] }
 
-            snapshotsByPaneId[pane.id] = PaneSnapshot(
-                paneId: pane.id,
-                worktreeId: changeset.worktreeId,
-                changedPaths: filteredPaths,
-                batchSequence: changeset.batchSeq,
-                timestamp: changeset.timestamp
-            )
+            var derivedEnvelopes: [RuntimeEnvelope] = []
+            for pane in panes {
+                let filteredPaths = Self.filteredPaths(
+                    changesetPaths: changeset.paths,
+                    paneCwd: pane.metadata.facets.cwd,
+                    worktreeRootPath: worktreeRootPath
+                )
+                guard !filteredPaths.isEmpty else { continue }
+
+                let previousSummary = snapshotsByPaneId[pane.id]?.lastGitSummary
+                snapshotsByPaneId[pane.id] = PaneSnapshot(
+                    paneId: pane.id,
+                    worktreeId: changeset.worktreeId,
+                    changedPaths: filteredPaths,
+                    batchSequence: changeset.batchSeq,
+                    timestamp: changeset.timestamp,
+                    lastGitSummary: previousSummary
+                )
+
+                guard let context = resolvedContext(for: pane, fallbackCwd: worktreeRootPath) else {
+                    continue
+                }
+                derivedEnvelopes.append(
+                    makePaneContextEnvelope(
+                        pane: pane,
+                        timestamp: changeset.timestamp,
+                        correlationId: worktreeEnvelope.correlationId,
+                        commandId: worktreeEnvelope.commandId,
+                        event: .paneFilesystemContext(
+                            .cwdSubtreeChanged(
+                                context: context,
+                                paths: Set(filteredPaths),
+                                batchSeq: changeset.batchSeq
+                            )
+                        )
+                    )
+                )
+            }
+            return derivedEnvelopes
+
+        case .gitWorkingDirectory(.snapshotChanged(let snapshot)):
+            let panes = panesById.values.filter { $0.worktreeId == snapshot.worktreeId }
+            guard !panes.isEmpty else { return [] }
+
+            var derivedEnvelopes: [RuntimeEnvelope] = []
+            for pane in panes {
+                let previousSnapshot = snapshotsByPaneId[pane.id]
+                snapshotsByPaneId[pane.id] = PaneSnapshot(
+                    paneId: pane.id,
+                    worktreeId: snapshot.worktreeId,
+                    changedPaths: previousSnapshot?.changedPaths ?? [],
+                    batchSequence: previousSnapshot?.batchSequence ?? 0,
+                    timestamp: worktreeEnvelope.timestamp,
+                    lastGitSummary: snapshot.summary
+                )
+
+                guard let context = resolvedContext(for: pane, fallbackCwd: snapshot.rootPath) else {
+                    continue
+                }
+                derivedEnvelopes.append(
+                    makePaneContextEnvelope(
+                        pane: pane,
+                        timestamp: worktreeEnvelope.timestamp,
+                        correlationId: worktreeEnvelope.correlationId,
+                        commandId: worktreeEnvelope.commandId,
+                        event: .paneFilesystemContext(
+                            .gitWorkingTreeInCwd(
+                                context: context,
+                                staged: snapshot.summary.staged,
+                                unstaged: snapshot.summary.changed,
+                                untracked: snapshot.summary.untracked
+                            )
+                        )
+                    )
+                )
+            }
+            return derivedEnvelopes
+
+        default:
+            // Only filesystem batches and git snapshot facts participate in
+            // the pane-scoped filesystem projection. Other worktree events are
+            // intentionally ignored here.
+            return []
         }
     }
 
@@ -48,10 +156,66 @@ final class PaneFilesystemProjectionStore {
         snapshotsByPaneId = snapshotsByPaneId.filter { paneId, snapshot in
             validPaneIds.contains(paneId) && validWorktreeIds.contains(snapshot.worktreeId)
         }
+        contextsByPaneId = contextsByPaneId.filter { paneId, context in
+            validPaneIds.contains(paneId) && validWorktreeIds.contains(context.worktreeId)
+        }
+        nextSequenceByPaneId = nextSequenceByPaneId.filter { paneId, _ in
+            validPaneIds.contains(paneId)
+        }
     }
 
     func reset() {
         snapshotsByPaneId.removeAll()
+        contextsByPaneId.removeAll()
+        nextSequenceByPaneId.removeAll()
+    }
+
+    private func resolvedContext(for pane: Pane, fallbackCwd: URL) -> PaneFilesystemContext? {
+        if let existing = contextsByPaneId[pane.id] {
+            return existing
+        }
+
+        guard let repoId = pane.repoId ?? pane.metadata.repoId,
+            let worktreeId = pane.worktreeId ?? pane.metadata.worktreeId
+        else {
+            Self.logger.warning(
+                "Skipping pane filesystem context projection for pane \(pane.id.uuidString, privacy: .public): missing repoId/worktreeId"
+            )
+            return nil
+        }
+
+        let context = PaneFilesystemContext(
+            paneId: PaneId(uuid: pane.id),
+            repoId: repoId,
+            cwd: (pane.metadata.facets.cwd ?? fallbackCwd).standardizedFileURL.resolvingSymlinksInPath(),
+            worktreeId: worktreeId
+        )
+        contextsByPaneId[pane.id] = context
+        return context
+    }
+
+    private func makePaneContextEnvelope(
+        pane: Pane,
+        timestamp: ContinuousClock.Instant,
+        correlationId: UUID?,
+        commandId: UUID?,
+        event: PaneRuntimeEvent
+    ) -> RuntimeEnvelope {
+        let nextSequence = nextSequenceByPaneId[pane.id, default: 0] + 1
+        nextSequenceByPaneId[pane.id] = nextSequence
+
+        return .pane(
+            PaneEnvelope(
+                source: .pane(PaneId(uuid: pane.id)),
+                seq: nextSequence,
+                timestamp: timestamp,
+                correlationId: correlationId,
+                commandId: commandId,
+                paneId: PaneId(uuid: pane.id),
+                paneKind: pane.metadata.contentType,
+                event: event
+            )
+        )
     }
 
     static func filteredPaths(

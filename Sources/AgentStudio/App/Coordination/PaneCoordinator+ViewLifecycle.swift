@@ -45,6 +45,7 @@ extension PaneCoordinator {
         treatAsRestoredSessionStart: Bool = false
     ) -> NSView? {
         viewRegistry.ensureSlot(for: pane.id)
+        registerPaneFilesystemContextIfNeeded(for: pane)
 
         switch pane.content {
         case .terminal:
@@ -362,6 +363,7 @@ extension PaneCoordinator {
 
     /// Teardown a view — detach terminal surface, teardown bridge controller, unregister view/runtime state.
     func teardownView(for paneId: UUID, shouldUnregisterRuntime: Bool = true) {
+        paneFilesystemProjectionStore.unregisterPaneContext(paneId)
         if let terminal = viewRegistry.terminalView(for: paneId),
             let surfaceId = terminal.surfaceId
         {
@@ -507,6 +509,28 @@ extension PaneCoordinator {
             return nil
         }
         return PaneId(uuid: paneId)
+    }
+
+    private func registerPaneFilesystemContextIfNeeded(for pane: Pane) {
+        guard let repoId = pane.repoId, let worktreeId = pane.worktreeId else {
+            paneFilesystemProjectionStore.unregisterPaneContext(pane.id)
+            return
+        }
+
+        let fallbackCwd = store.worktree(worktreeId)?.path ?? pane.metadata.launchDirectory ?? pane.metadata.cwd
+        guard let fallbackCwd else {
+            paneFilesystemProjectionStore.unregisterPaneContext(pane.id)
+            return
+        }
+
+        paneFilesystemProjectionStore.registerPaneContext(
+            PaneFilesystemContext(
+                paneId: PaneId(uuid: pane.id),
+                repoId: repoId,
+                cwd: (pane.metadata.cwd ?? fallbackCwd).standardizedFileURL.resolvingSymlinksInPath(),
+                worktreeId: worktreeId
+            )
+        )
     }
 
     /// Restore a view from an undo close. Tries to reuse the undone surface; creates fresh if expired.

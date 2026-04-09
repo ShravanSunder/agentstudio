@@ -48,7 +48,7 @@ Each contract (C1-C16) has a specific relationship to the EventBus:
 | C13 | Workflow Engine | Consumer (deferred) | EventBus → @MainActor | Future bus subscriber |
 | C14 | Replay Buffer | Internal | @MainActor | Per-runtime, filled at emit time |
 | C15 | Process Channel | Source (deferred) | Future boundary | Not through EventBus (request/response) |
-| C16 | Filesystem Context | Projection (deferred) | @MainActor | Derived from C6 events on MainActor |
+| C16 | Filesystem Context | Projection | @MainActor → EventBus | Derived per-pane from C6 events, then fanned out as pane-scoped envelopes |
 
 ## Architecture Overview
 
@@ -521,7 +521,7 @@ SE-0461 changes the default isolation behavior for `nonisolated async` functions
 - **`@concurrent nonisolated`** explicitly runs on cooperative pool. `nonisolated` opts out of the enclosing actor's isolation; `@concurrent` opts into pool execution. This is the project's preferred pattern for offloading CPU-bound work, replacing most uses of `Task.detached`.
 - **NOT `nonisolated async` alone** — in Swift 6.2, `nonisolated async` means `nonisolated(nonsending)` by default: it inherits caller isolation. A `nonisolated async` method called from `@MainActor` runs ON MainActor in 6.2. This is a behavioral change from Swift 6.0.
 - **Prefer `@concurrent` over `Task.detached`** (project policy) — `Task.detached` strips task priority, task-locals, and structured concurrency. `@concurrent` preserves all of these. Exception: `Task.detached` remains appropriate when you explicitly need to escape structured concurrency (e.g., fire-and-forget background work that must outlive the calling scope) or when you need to strip inherited task-locals intentionally.
-- **PaneRuntimeEventChannel bus bridge is an explicit exception** — pane-local subscribers + replay are synchronous and ordered; global EventBus fanout uses a fire-and-forget `Task` so runtime emit paths stay non-blocking. This accepts best-effort cross-runtime fanout (no structured backpressure on that hop) in exchange for keeping pane command handling responsive.
+- **PaneRuntimeEventChannel bus bridge uses a bounded outbound `AsyncStream`** — pane-local subscribers + replay remain synchronous and ordered, while global EventBus fanout drains from one dedicated outbound stream per runtime. This preserves FIFO ordering without a Task-per-event hop and keeps runtime emit paths synchronous at the call site.
 - **Avoid `MainActor.run` in this architecture** — in the typical pattern of awaiting a `@concurrent nonisolated` function from a `@MainActor` caller, the compiler handles the hop back automatically. `MainActor.run` is still valid Swift when you genuinely need to hop TO MainActor from a non-MainActor isolated context (e.g., inside a `nonisolated` actor method that needs a one-off MainActor call), but in our architecture's common paths it adds unnecessary noise.
 
 ### Pattern: Runtime offloads heavy work
