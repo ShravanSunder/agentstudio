@@ -59,6 +59,7 @@ final class PaneCoordinator {
     var filesystemRegisteredContextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
     var filesystemActivityByWorktreeId: [UUID: Bool] = [:]
     var filesystemLastActivePaneWorktreeId: UUID?
+    var derivedFilesystemPublishTasks: [UUID: Task<Void, Never>] = [:]
 
     /// Unified undo stack — holds both tab and pane close entries, chronologically ordered.
     /// NOTE: Undo stack owned here (not in a store) because undo is fundamentally
@@ -137,6 +138,9 @@ final class PaneCoordinator {
         criticalRuntimeEventsTask?.cancel()
         batchedRuntimeEventsTask?.cancel()
         filesystemSyncTask?.cancel()
+        for task in derivedFilesystemPublishTasks.values {
+            task.cancel()
+        }
         let filesystemSource = filesystemSource
         Task {
             await filesystemSource.shutdown()
@@ -150,6 +154,7 @@ final class PaneCoordinator {
         let activeBatchedRuntimeEventsTask = batchedRuntimeEventsTask
         let activeFilesystemSyncTask = filesystemSyncTask
         let activeRuntimeBridgeTasks = Array(runtimeEventBridgeTasks.values)
+        let activeDerivedFilesystemPublishTasks = Array(derivedFilesystemPublishTasks.values)
 
         cwdChangesTask?.cancel()
         cwdChangesTask = nil
@@ -162,6 +167,10 @@ final class PaneCoordinator {
         filesystemSyncTask?.cancel()
         filesystemSyncTask = nil
         filesystemSyncRequested = false
+        for task in activeDerivedFilesystemPublishTasks {
+            task.cancel()
+        }
+        derivedFilesystemPublishTasks.removeAll()
 
         for task in activeRuntimeBridgeTasks {
             task.cancel()
@@ -182,6 +191,9 @@ final class PaneCoordinator {
         }
         if let activeFilesystemSyncTask {
             await activeFilesystemSyncTask.value
+        }
+        for task in activeDerivedFilesystemPublishTasks {
+            await task.value
         }
         for task in activeRuntimeBridgeTasks {
             await task.value
@@ -219,6 +231,9 @@ final class PaneCoordinator {
     private func onSurfaceCWDChanged(_ event: SurfaceManager.SurfaceCWDChangeEvent) {
         guard let paneId = event.paneId else { return }
         store.paneAtom.updatePaneCWD(paneId, cwd: event.cwd)
+        if let cwd = event.cwd {
+            paneFilesystemProjectionStore.updatePaneCwd(paneId: paneId, newCwd: cwd)
+        }
     }
 
     // MARK: - Webview State Sync
@@ -327,7 +342,8 @@ final class PaneCoordinator {
                 Self.logger.warning(
                     "Runtime error event received from pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: errorEvent), privacy: .public)"
                 )
-            case .lifecycle, .browser, .diff, .editor, .plugin, .artifact, .security, .filesystem:
+            case .lifecycle, .browser, .diff, .editor, .plugin, .paneFilesystemContext, .artifact, .security,
+                .filesystem:
                 Self.logger.debug(
                     "Runtime event family ignored by coordinator for pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: paneEnvelope.event), privacy: .public)"
                 )
@@ -397,8 +413,12 @@ final class PaneCoordinator {
             execute(.moveTab(tabId: sourceTabId, delta: amount))
         case .titleChanged(let title):
             store.paneAtom.updatePaneTitle(sourcePaneUUID, title: title)
+        case .tabTitleChanged(let title):
+            store.paneAtom.updatePaneTitle(sourcePaneUUID, title: title)
         case .cwdChanged(let cwdPath):
-            store.paneAtom.updatePaneCWD(sourcePaneUUID, cwd: URL(fileURLWithPath: cwdPath))
+            let cwd = URL(fileURLWithPath: cwdPath)
+            store.paneAtom.updatePaneCWD(sourcePaneUUID, cwd: cwd)
+            paneFilesystemProjectionStore.updatePaneCwd(paneId: sourcePaneUUID, newCwd: cwd)
         case .commandFinished(let exitCode, _):
             Self.logger.debug(
                 "Terminal commandFinished event received for pane \(sourcePaneUUID.uuidString, privacy: .public) exitCode=\(exitCode, privacy: .public)"
@@ -410,6 +430,9 @@ final class PaneCoordinator {
             )
         case .progressReportUpdated, .readOnlyChanged, .secureInputRequested, .secureInputChanged,
             .rendererHealthChanged, .cellSizeChanged, .initialSizeChanged, .sizeLimitChanged,
+            .mouseShapeChanged, .mouseVisibilityChanged, .mouseLinkHovered, .keySequenceChanged,
+            .keyTableChanged, .colorChanged, .configReloadRequested, .configChanged,
+            .searchStarted, .searchEnded, .searchMatchesUpdated, .searchSelectionChanged,
             .promptTitleRequested, .desktopNotificationRequested, .openURLRequested, .undoRequested,
             .redoRequested, .copyTitleToClipboardRequested, .scrollbarChanged, .deferred, .unhandled:
             Self.logger.debug(

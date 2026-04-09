@@ -45,20 +45,10 @@ struct GhosttyActionRouterTests {
         #expect(!routed)
     }
 
-    @Test("deferred tags capture high-frequency and feature-gated actions explicitly")
-    func deferredTags_coverVisualAndFeatureGatedActions() {
-        #expect(
-            Ghostty.ActionRouter.deferredTags.contains(.render)
-        )
-        #expect(
-            Ghostty.ActionRouter.deferredTags.contains(.mouseShape)
-        )
-        #expect(
-            Ghostty.ActionRouter.deferredTags.contains(.setTabTitle)
-        )
-        #expect(
-            Ghostty.ActionRouter.deferredTags.contains(.startSearch)
-        )
+    @Test("deferred tags are fully retired after explicit terminal event promotion")
+    func deferredTags_areRetired() {
+        #expect(Ghostty.ActionRouter.deferredTags.isEmpty)
+        #expect(Ghostty.ActionRouter.interceptedTags.contains(.render))
     }
 
     @Test("routing returns false when surface has no pane mapping")
