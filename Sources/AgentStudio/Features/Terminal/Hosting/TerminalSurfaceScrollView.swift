@@ -3,8 +3,6 @@ import GhosttyKit
 
 @MainActor
 private final class TerminalSurfaceClipView: NSClipView {
-    var onBoundsChanged: (() -> Void)?
-
     override func constrainBoundsRect(_ proposedBounds: NSRect) -> NSRect {
         var constrainedBounds = super.constrainBoundsRect(proposedBounds)
         if let documentView {
@@ -19,12 +17,12 @@ private final class TerminalSurfaceClipView: NSClipView {
         let proposedBounds = NSRect(origin: newOrigin, size: bounds.size)
         let constrainedOrigin = constrainBoundsRect(proposedBounds).origin
         super.scroll(to: constrainedOrigin)
-        onBoundsChanged?()
     }
 
     override func setBoundsOrigin(_ newOrigin: NSPoint) {
-        super.setBoundsOrigin(newOrigin)
-        onBoundsChanged?()
+        let proposedBounds = NSRect(origin: newOrigin, size: bounds.size)
+        let constrainedOrigin = constrainBoundsRect(proposedBounds).origin
+        super.setBoundsOrigin(constrainedOrigin)
     }
 }
 
@@ -35,12 +33,11 @@ final class TerminalSurfaceScrollView: NSView {
     private let documentView = NSView()
     private weak var actionPerformer: (any TerminalSurfaceActionPerforming)?
     private weak var surfaceView: Ghostty.SurfaceView?
+    nonisolated(unsafe) private var notificationObservers: [NSObjectProtocol] = []
     private var lastSentRow: Int?
     private var isLiveScrolling = false
-    private var isApplyingRuntimeScrollState = false
     private var previousScrollbarState: ScrollbarState?
     private var cellHeight: CGFloat = 0
-    private var followBottomUntilUserScrolls = true
     private var maximumDocumentOffsetY: CGFloat {
         max(0, documentView.frame.height - scrollView.contentView.documentVisibleRect.height)
     }
@@ -61,17 +58,70 @@ final class TerminalSurfaceScrollView: NSView {
         scrollView.contentView.clipsToBounds = false
         clipView.drawsBackground = false
         clipView.documentView = documentView
-        clipView.onBoundsChanged = { [weak self] in
-            self?.handleBoundsDidChange()
-        }
         scrollView.contentView = clipView
         scrollView.documentView = documentView
+        scrollView.contentView.postsBoundsChangedNotifications = true
 
         addSubview(scrollView)
+
+        notificationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleScrollChange()
+                }
+            })
+        notificationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: NSScrollView.willStartLiveScrollNotification,
+                object: scrollView,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.isLiveScrolling = true
+                }
+            })
+        notificationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: NSScrollView.didEndLiveScrollNotification,
+                object: scrollView,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.isLiveScrolling = false
+                }
+            })
+        notificationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: NSScrollView.didLiveScrollNotification,
+                object: scrollView,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleLiveScroll()
+                }
+            })
+        notificationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: NSScroller.preferredScrollerStyleDidChangeNotification,
+                object: nil,
+                queue: nil
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleScrollerStyleChange()
+                }
+            })
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not supported")
+    }
+
+    deinit {
+        notificationObservers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 
     override func layout() {
@@ -99,93 +149,27 @@ final class TerminalSurfaceScrollView: NSView {
     func applyScrollbarState(_ state: ScrollbarState, cellHeight: CGFloat) {
         guard cellHeight > 0 else { return }
         self.cellHeight = cellHeight
-        let wasPinnedToBottom = previousScrollbarState.map { isPinnedToBottom(scrollbarState: $0) } ?? true
-        let isInitialState = previousScrollbarState == nil
         previousScrollbarState = state
-        if isInitialState {
-            followBottomUntilUserScrolls = isPinnedToBottom(scrollbarState: state)
-        } else if wasPinnedToBottom {
-            followBottomUntilUserScrolls = true
-        }
 
         synchronizeScrollView()
         synchronizeSurfaceFrame()
-        synchronizeCoreSurface()
     }
 
-    var documentOffsetYForTesting: CGFloat {
-        scrollView.contentView.bounds.origin.y
-    }
-
-    var maximumDocumentOffsetYForTesting: CGFloat {
-        maximumDocumentOffsetY
-    }
-
-    var autohidesScrollersForTesting: Bool {
-        scrollView.autohidesScrollers
-    }
-
-    var usesOverlayScrollerStyleForTesting: Bool {
-        scrollView.scrollerStyle == .overlay
-    }
-
-    var documentHeightForTesting: CGFloat {
-        documentView.frame.height
-    }
-
-    func simulateLiveScrollForTesting(documentOffsetY: CGFloat) {
-        isLiveScrolling = true
-        scrollView.contentView.scroll(to: CGPoint(x: 0, y: documentOffsetY))
-        syncTerminalRowToVisibleRect()
-        isLiveScrolling = false
-    }
-
-    func simulateSurfaceWheelScrollForTesting(deltaY: CGFloat) {
-        let currentOffsetY = scrollView.contentView.bounds.origin.y
-        let nextOffsetY = max(0, currentOffsetY + deltaY)
-        scrollView.contentView.scroll(to: CGPoint(x: 0, y: nextOffsetY))
-        syncTerminalRowToVisibleRect()
-    }
-
-    func handleSurfaceScrollWheel(_ event: NSEvent) {
-        isLiveScrolling = true
-        scrollView.scrollWheel(with: event)
-        isLiveScrolling = false
-    }
-
-    private func handleBoundsDidChange() {
-        let currentOffsetY = scrollView.contentView.bounds.origin.y
-        let clampedOffsetY = min(max(0, currentOffsetY), maximumDocumentOffsetY)
-        if currentOffsetY != clampedOffsetY {
-            isApplyingRuntimeScrollState = true
-            scrollView.contentView.scroll(to: CGPoint(x: 0, y: clampedOffsetY))
-            scrollView.reflectScrolledClipView(scrollView.contentView)
-            isApplyingRuntimeScrollState = false
-        }
-
+    private func handleScrollChange() {
         synchronizeSurfaceFrame()
-        synchronizeCoreSurface()
-        guard !isApplyingRuntimeScrollState else { return }
-        if currentOffsetY != maximumDocumentOffsetY {
-            followBottomUntilUserScrolls = false
-        } else if maximumDocumentOffsetY == 0 || clampedOffsetY == maximumDocumentOffsetY {
-            followBottomUntilUserScrolls = true
-        }
-        syncTerminalRowToVisibleRect()
     }
 
-    private func syncTerminalRowToVisibleRect() {
+    private func handleLiveScroll() {
         guard let state = previousScrollbarState, cellHeight > 0 else { return }
 
         let visibleRect = scrollView.contentView.documentVisibleRect
         let documentHeight = documentView.frame.height
         let offsetFromTop = max(0, documentHeight - visibleRect.origin.y - visibleRect.height)
-        let visibleRowCount = max(0, state.bottom - state.top)
-        let maximumTopRow = max(0, state.total - visibleRowCount)
+        let maximumTopRow = max(0, state.total - state.visibleRowCount)
         let row = max(0, min(Int(offsetFromTop / cellHeight), maximumTopRow))
         guard row != lastSentRow else { return }
         lastSentRow = row
-        _ = actionPerformer?.performBindingAction("scroll_to_row:\(row)")
+        _ = actionPerformer?.performBindingAction(.scrollToRow(row))
     }
 
     private func synchronizeScrollView() {
@@ -196,12 +180,10 @@ final class TerminalSurfaceScrollView: NSView {
             return
         }
 
-        if !isLiveScrolling && followBottomUntilUserScrolls {
+        if !isLiveScrolling {
             let offsetY = runtimeDocumentOffsetY(for: state)
-            isApplyingRuntimeScrollState = true
             scrollView.contentView.scroll(to: CGPoint(x: 0, y: offsetY))
             scrollView.reflectScrolledClipView(scrollView.contentView)
-            isApplyingRuntimeScrollState = false
             lastSentRow = state.top
         } else {
             scrollView.reflectScrolledClipView(scrollView.contentView)
@@ -226,23 +208,23 @@ final class TerminalSurfaceScrollView: NSView {
         let contentHeight = scrollView.contentSize.height
         guard cellHeight > 0, let state = previousScrollbarState else { return contentHeight }
 
-        let visibleRowCount = max(0, state.bottom - state.top)
         let documentGridHeight = CGFloat(state.total) * cellHeight
-        let padding = contentHeight - (CGFloat(visibleRowCount) * cellHeight)
+        let padding = contentHeight - (CGFloat(state.visibleRowCount) * cellHeight)
         return max(contentHeight, documentGridHeight + padding)
     }
 
     private func runtimeDocumentOffsetY(for state: ScrollbarState) -> CGFloat {
-        let visibleRowCount = max(0, state.bottom - state.top)
-        let offsetY = CGFloat(state.total - state.top - visibleRowCount) * cellHeight
+        let offsetY = CGFloat(state.total - state.top - state.visibleRowCount) * cellHeight
         return min(max(0, offsetY), maximumDocumentOffsetY)
     }
 
-    private func isPinnedToBottom(scrollbarState: ScrollbarState) -> Bool {
-        scrollbarState.bottom >= scrollbarState.total
+    private func handleScrollerStyleChange() {
+        scrollView.scrollerStyle = .overlay
+        synchronizeCoreSurface()
     }
 
     override func mouseMoved(with event: NSEvent) {
+        guard NSScroller.preferredScrollerStyle == .legacy else { return }
         scrollView.flashScrollers()
         super.mouseMoved(with: event)
     }
@@ -264,3 +246,40 @@ final class TerminalSurfaceScrollView: NSView {
             ))
     }
 }
+
+#if DEBUG
+    @MainActor
+    extension TerminalSurfaceScrollView {
+        var documentOffsetYForTesting: CGFloat {
+            scrollView.contentView.bounds.origin.y
+        }
+
+        var maximumDocumentOffsetYForTesting: CGFloat {
+            maximumDocumentOffsetY
+        }
+
+        var autohidesScrollersForTesting: Bool {
+            scrollView.autohidesScrollers
+        }
+
+        var usesOverlayScrollerStyleForTesting: Bool {
+            scrollView.scrollerStyle == .overlay
+        }
+
+        var documentHeightForTesting: CGFloat {
+            documentView.frame.height
+        }
+
+        func simulateLiveScrollForTesting(documentOffsetY: CGFloat) {
+            isLiveScrolling = true
+            scrollView.contentView.scroll(to: CGPoint(x: 0, y: documentOffsetY))
+            handleLiveScroll()
+            isLiveScrolling = false
+        }
+
+        func simulateProgrammaticVisibleRectForTesting(documentOffsetY: CGFloat) {
+            scrollView.contentView.scroll(to: CGPoint(x: 0, y: documentOffsetY))
+            handleLiveScroll()
+        }
+    }
+#endif

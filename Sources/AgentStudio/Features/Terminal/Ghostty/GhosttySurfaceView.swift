@@ -264,6 +264,9 @@ extension Ghostty {
         }
 
         isolated deinit {
+            if !lastAppliedMouseVisibility {
+                NSCursor.unhide()
+            }
             if let surface {
                 ghostty_surface_free(surface)
             }
@@ -813,13 +816,10 @@ extension Ghostty {
         }
 
         override func scrollWheel(with event: NSEvent) {
-            if let terminalSurfaceScrollView = enclosingTerminalSurfaceScrollView() {
-                terminalSurfaceScrollView.handleSurfaceScrollWheel(event)
-                return
-            }
-
             guard let surface else { return }
 
+            var deltaX = event.scrollingDeltaX
+            var deltaY = event.scrollingDeltaY
             let mods = ghosttyMods(from: event.modifierFlags)
             var scrollMods: ghostty_input_scroll_mods_t = Int32(mods.rawValue)
 
@@ -829,25 +829,16 @@ extension Ghostty {
 
             if event.hasPreciseScrollingDeltas {
                 scrollMods |= 0x20  // GHOSTTY_SCROLL_MODS_PRECISION
+                deltaX *= 2
+                deltaY *= 2
             }
 
             ghostty_surface_mouse_scroll(
                 surface,
-                event.scrollingDeltaX,
-                event.scrollingDeltaY,
+                deltaX,
+                deltaY,
                 scrollMods
             )
-        }
-
-        private func enclosingTerminalSurfaceScrollView() -> TerminalSurfaceScrollView? {
-            var ancestor = superview
-            while let current = ancestor {
-                if let terminalSurfaceScrollView = current as? TerminalSurfaceScrollView {
-                    return terminalSurfaceScrollView
-                }
-                ancestor = current.superview
-            }
-            return nil
         }
 
         private func sendMouseButton(
@@ -885,27 +876,15 @@ extension Ghostty {
         // MARK: - Edit Menu Responders
 
         @objc func copy(_ sender: Any?) {
-            guard let surface else { return }
-            let action = "copy_to_clipboard"
-            action.withCString { ptr in
-                _ = ghostty_surface_binding_action(surface, ptr, UInt(action.utf8.count))
-            }
+            _ = performBindingAction(.copyToClipboard)
         }
 
         @objc func paste(_ sender: Any?) {
-            guard let surface else { return }
-            let action = "paste_from_clipboard"
-            action.withCString { ptr in
-                _ = ghostty_surface_binding_action(surface, ptr, UInt(action.utf8.count))
-            }
+            _ = performBindingAction(.pasteFromClipboard)
         }
 
         @objc override func selectAll(_ sender: Any?) {
-            guard let surface else { return }
-            let action = "select_all"
-            action.withCString { ptr in
-                _ = ghostty_surface_binding_action(surface, ptr, UInt(action.utf8.count))
-            }
+            _ = performBindingAction(.selectAll)
         }
 
         // MARK: - Public API
@@ -938,36 +917,35 @@ extension Ghostty {
 
         func bindRuntime(_ runtime: TerminalRuntime) {
             terminalRuntime = runtime
-            observeMouseState()
+            observeMouseState(runtime: runtime)
         }
 
-        private func observeMouseState() {
-            guard let terminalRuntime else { return }
+        private func observeMouseState(runtime expectedRuntime: TerminalRuntime) {
             withObservationTracking {
-                _ = terminalRuntime.mouseShapeRawValue
-                _ = terminalRuntime.isMouseVisible
+                _ = expectedRuntime.mouseShape
+                _ = expectedRuntime.isMouseVisible
             } onChange: { [weak self] in
                 Task { @MainActor [weak self] in
-                    guard let self, let runtime = self.terminalRuntime else { return }
-                    self.applyMouseShape(rawValue: runtime.mouseShapeRawValue)
+                    guard let self, let runtime = self.terminalRuntime, runtime === expectedRuntime else { return }
+                    self.applyMouseShape(runtime.mouseShape)
                     self.applyMouseVisibility(isVisible: runtime.isMouseVisible)
-                    self.observeMouseState()
+                    self.observeMouseState(runtime: runtime)
                 }
             }
         }
 
-        private func applyMouseShape(rawValue: UInt32?) {
-            guard let rawValue else { return }
-            switch rawValue {
-            case UInt32(GHOSTTY_MOUSE_SHAPE_TEXT.rawValue):
+        private func applyMouseShape(_ mouseShape: TerminalMouseShape?) {
+            guard let mouseShape else { return }
+            switch mouseShape {
+            case .text:
                 NSCursor.iBeam.set()
-            case UInt32(GHOSTTY_MOUSE_SHAPE_POINTER.rawValue):
+            case .pointer:
                 NSCursor.pointingHand.set()
-            case UInt32(GHOSTTY_MOUSE_SHAPE_CROSSHAIR.rawValue):
+            case .crosshair:
                 NSCursor.crosshair.set()
-            case UInt32(GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT.rawValue):
+            case .verticalText:
                 NSCursor.iBeamCursorForVerticalLayout.set()
-            default:
+            case .other:
                 NSCursor.arrow.set()
             }
         }

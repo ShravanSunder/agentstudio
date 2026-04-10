@@ -19,7 +19,7 @@ final class TerminalRuntime: BusPostingPaneRuntime {
     private(set) var sizeConstraints: TerminalSizeConstraints?
     private(set) var scrollbarState: ScrollbarState?
     private(set) var searchState: TerminalSearchState?
-    private(set) var mouseShapeRawValue: UInt32?
+    private(set) var mouseShape: TerminalMouseShape?
     private(set) var isMouseVisible: Bool = true
     let capabilities: Set<PaneCapability>
 
@@ -38,7 +38,7 @@ final class TerminalRuntime: BusPostingPaneRuntime {
         self.commandProgress = nil
         self.scrollbarState = nil
         self.searchState = nil
-        self.mouseShapeRawValue = nil
+        self.mouseShape = nil
         self.capabilities = [.input, .resize, .search]
         self.eventChannel = PaneRuntimeEventChannel(
             clock: clock,
@@ -229,8 +229,8 @@ final class TerminalRuntime: BusPostingPaneRuntime {
         correlationId: UUID?
     ) -> Bool {
         switch event {
-        case .mouseShapeChanged(let shapeRawValue):
-            mouseShapeRawValue = shapeRawValue
+        case .mouseShapeChanged(let shape):
+            mouseShape = shape
             emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
             return true
         case .mouseVisibilityChanged(let isVisible):

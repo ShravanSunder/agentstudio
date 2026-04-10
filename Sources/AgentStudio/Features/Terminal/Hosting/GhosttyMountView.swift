@@ -20,10 +20,6 @@ final class GhosttyMountView: NSView {
         mountedView = view
     }
 
-    func unmountCurrentSurface() {
-        unmountCurrentView()
-    }
-
     func unmountCurrentView() {
         mountedView?.removeFromSuperview()
         mountedView = nil

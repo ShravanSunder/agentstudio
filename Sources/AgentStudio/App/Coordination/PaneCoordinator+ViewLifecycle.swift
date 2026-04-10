@@ -230,9 +230,6 @@ extension PaneCoordinator {
 
             registerHostedView(mountedView: view, for: pane.id)
             registerTerminalRuntimeIfNeeded(for: pane)
-            if let terminalRuntime = runtimeForPane(runtimePaneId(for: pane.id)!) as? TerminalRuntime {
-                view.bind(runtime: terminalRuntime)
-            }
             runtime.markRunning(pane.id)
             RestoreTrace.log(
                 "createView complete pane=\(pane.id) surface=\(managed.id) viewBounds=\(NSStringFromRect(view.bounds))"
@@ -347,9 +344,6 @@ extension PaneCoordinator {
 
             registerHostedView(mountedView: view, for: pane.id)
             registerTerminalRuntimeIfNeeded(for: pane)
-            if let terminalRuntime = runtimeForPane(runtimePaneId(for: pane.id)!) as? TerminalRuntime {
-                view.bind(runtime: terminalRuntime)
-            }
             runtime.markRunning(pane.id)
             RestoreTrace.log("createFloatingView complete pane=\(pane.id) surface=\(managed.id)")
 

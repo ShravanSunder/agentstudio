@@ -12,10 +12,10 @@ struct ScrollToBottomIndicatorViewTests {
 
         view.applyScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
         #expect(view.isHidden == false)
-        #expect(view.hasNewOutputForTesting == false)
+        #expect(view.hasUnreadOutputForTesting == false)
 
         view.applyScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 210))
-        #expect(view.hasNewOutputForTesting == true)
+        #expect(view.hasUnreadOutputForTesting == true)
     }
 
     @Test("scroll-to-bottom indicator hides when pinned")

@@ -205,7 +205,7 @@ struct GhosttyAdapterTests {
             adapter.translate(
                 actionTag: UInt32(GHOSTTY_ACTION_MOUSE_SHAPE.rawValue),
                 payload: .mouseShape(rawValue: UInt32(GHOSTTY_MOUSE_SHAPE_TEXT.rawValue))
-            ) == .mouseShapeChanged(shapeRawValue: UInt32(GHOSTTY_MOUSE_SHAPE_TEXT.rawValue))
+            ) == .mouseShapeChanged(shape: .text)
         )
         #expect(
             adapter.translate(

@@ -630,17 +630,25 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         editMenu.addItem(NSMenuItem.separator())
 
         let findMenu = NSMenu(title: "Find")
-        let findItem = NSMenuItem(title: "Find…", action: Selector(("startSearch:")), keyEquivalent: "f")
+        let findItem = NSMenuItem(
+            title: "Find…",
+            action: #selector(TerminalPaneMountView.startSearch(_:)),
+            keyEquivalent: "f"
+        )
         findItem.keyEquivalentModifierMask = [.command]
         findMenu.addItem(findItem)
 
-        let findNextItem = NSMenuItem(title: "Find Next", action: Selector(("findNext:")), keyEquivalent: "g")
+        let findNextItem = NSMenuItem(
+            title: "Find Next",
+            action: #selector(TerminalPaneMountView.findNext(_:)),
+            keyEquivalent: "g"
+        )
         findNextItem.keyEquivalentModifierMask = [.command]
         findMenu.addItem(findNextItem)
 
         let findPreviousItem = NSMenuItem(
             title: "Find Previous",
-            action: Selector(("findPrevious:")),
+            action: #selector(TerminalPaneMountView.findPrevious(_:)),
             keyEquivalent: "G"
         )
         findPreviousItem.keyEquivalentModifierMask = [.command, .shift]

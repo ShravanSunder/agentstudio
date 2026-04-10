@@ -5,10 +5,10 @@ import Testing
 
 @MainActor
 private final class PaneSearchActionPerformer: TerminalSurfaceActionPerforming {
-    private(set) var actions: [String] = []
+    private(set) var actions: [TerminalSurfaceAction] = []
 
     @discardableResult
-    func performBindingAction(_ action: String) -> Bool {
+    func performBindingAction(_ action: TerminalSurfaceAction) -> Bool {
         actions.append(action)
         return true
     }
@@ -30,10 +30,10 @@ struct TerminalPaneMountViewSearchTests {
 
         #expect(
             performer.actions == [
-                "start_search",
-                "navigate_search:next",
-                "navigate_search:previous",
-                "end_search",
+                .startSearch,
+                .navigateSearch(.next),
+                .navigateSearch(.previous),
+                .endSearch,
             ])
     }
 

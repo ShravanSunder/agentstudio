@@ -102,28 +102,6 @@ final class TerminalSearchOverlayView: NSView {
         }
     }
 
-    var resultLabelTextForTesting: String {
-        resultLabel.stringValue
-    }
-
-    var interactivePointForTesting: NSPoint {
-        let searchFieldFrame = searchField.frame
-        return NSPoint(x: searchFieldFrame.midX, y: searchFieldFrame.midY)
-    }
-
-    func simulateQueryChangeForTesting(_ query: String) {
-        searchField.stringValue = query
-        onQueryChanged?(query)
-    }
-
-    func simulateNavigateForTesting(_ direction: NavigationDirection) {
-        onNavigate?(direction)
-    }
-
-    func simulateCloseForTesting() {
-        onClose?()
-    }
-
     @objc private func handleSearchFieldChange() {
         onQueryChanged?(searchField.stringValue)
     }
@@ -140,3 +118,30 @@ final class TerminalSearchOverlayView: NSView {
         onClose?()
     }
 }
+
+#if DEBUG
+    @MainActor
+    extension TerminalSearchOverlayView {
+        var resultLabelTextForTesting: String {
+            resultLabel.stringValue
+        }
+
+        var interactivePointForTesting: NSPoint {
+            let searchFieldFrame = searchField.frame
+            return NSPoint(x: searchFieldFrame.midX, y: searchFieldFrame.midY)
+        }
+
+        func simulateQueryChangeForTesting(_ query: String) {
+            searchField.stringValue = query
+            onQueryChanged?(query)
+        }
+
+        func simulateNavigateForTesting(_ direction: NavigationDirection) {
+            onNavigate?(direction)
+        }
+
+        func simulateCloseForTesting() {
+            onClose?()
+        }
+    }
+#endif

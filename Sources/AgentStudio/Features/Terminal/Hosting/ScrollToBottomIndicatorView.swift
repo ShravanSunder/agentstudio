@@ -4,7 +4,7 @@ import AppKit
 final class ScrollToBottomIndicatorView: NSButton {
     weak var actionPerformer: (any TerminalSurfaceActionPerforming)?
 
-    private(set) var hasNewOutputForTesting = false
+    private(set) var hasUnreadOutput = false
     private var totalRowsWhenScrolledUp: Int?
 
     override init(frame frameRect: NSRect) {
@@ -27,7 +27,7 @@ final class ScrollToBottomIndicatorView: NSButton {
 
         if isPinnedToBottom {
             totalRowsWhenScrolledUp = nil
-            hasNewOutputForTesting = false
+            hasUnreadOutput = false
             image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Scroll to bottom")
             return
         }
@@ -35,16 +35,25 @@ final class ScrollToBottomIndicatorView: NSButton {
         if totalRowsWhenScrolledUp == nil {
             totalRowsWhenScrolledUp = state.total
         } else if let previousTotalRows = totalRowsWhenScrolledUp, state.total > previousTotalRows {
-            hasNewOutputForTesting = true
+            hasUnreadOutput = true
         }
 
         image = NSImage(
-            systemSymbolName: hasNewOutputForTesting ? "chevron.down.circle.fill" : "chevron.down",
+            systemSymbolName: hasUnreadOutput ? "chevron.down.circle.fill" : "chevron.down",
             accessibilityDescription: "Scroll to bottom"
         )
     }
 
     @objc private func handleClick() {
-        _ = actionPerformer?.performBindingAction("scroll_to_bottom")
+        _ = actionPerformer?.performBindingAction(.scrollToBottom)
     }
 }
+
+#if DEBUG
+    @MainActor
+    extension ScrollToBottomIndicatorView {
+        var hasUnreadOutputForTesting: Bool {
+            hasUnreadOutput
+        }
+    }
+#endif

@@ -5,10 +5,10 @@ import Testing
 
 @MainActor
 private final class FakeSurfaceActionPerformer: TerminalSurfaceActionPerforming {
-    private(set) var actions: [String] = []
+    private(set) var actions: [TerminalSurfaceAction] = []
 
     @discardableResult
-    func performBindingAction(_ action: String) -> Bool {
+    func performBindingAction(_ action: TerminalSurfaceAction) -> Bool {
         actions.append(action)
         return true
     }
@@ -28,11 +28,11 @@ struct TerminalSurfaceScrollViewTests {
         )
         scrollView.simulateLiveScrollForTesting(documentOffsetY: 1200)
 
-        #expect(performer.actions.last?.starts(with: "scroll_to_row:") == true)
+        #expect(performer.actions.last == .scrollToRow(100))
     }
 
-    @Test("scroll wrapper owns wheel scrolling and syncs row changes")
-    func scrollWrapperOwnsWheelScrollingAndSyncsRowChanges() {
+    @Test("scroll wrapper converts visible rect changes into row updates")
+    func scrollWrapperConvertsVisibleRectChangesIntoRowUpdates() {
         let performer = FakeSurfaceActionPerformer()
         let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
 
@@ -43,9 +43,14 @@ struct TerminalSurfaceScrollViewTests {
             cellHeight: 20
         )
 
-        scrollView.simulateSurfaceWheelScrollForTesting(deltaY: 40)
+        scrollView.simulateProgrammaticVisibleRectForTesting(documentOffsetY: 40)
 
-        #expect(performer.actions.last?.starts(with: "scroll_to_row:") == true)
+        guard case .scrollToRow(let row)? = performer.actions.last else {
+            Issue.record("Expected scroll wrapper to emit scrollToRow action")
+            return
+        }
+
+        #expect(row >= 0)
     }
 
     @Test("scroll wrapper clamps host scroll range to content bounds")
@@ -109,8 +114,8 @@ struct TerminalSurfaceScrollViewTests {
         #expect(scrollView.documentOffsetYForTesting == 0)
     }
 
-    @Test("follow-bottom does not move viewport when reading history")
-    func followBottomDoesNotMoveViewportWhenReadingHistory() {
+    @Test("history viewport stays anchored to the same top row when total rows grow")
+    func historyViewportStaysAnchoredWhenTotalRowsGrow() {
         let performer = FakeSurfaceActionPerformer()
         let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
 
@@ -118,13 +123,13 @@ struct TerminalSurfaceScrollViewTests {
             ScrollbarState(top: 80, bottom: 120, total: 200),
             cellHeight: 20
         )
-        let historyOffset = scrollView.documentOffsetYForTesting
+        #expect(scrollView.documentOffsetYForTesting == 1600)
 
         scrollView.applyScrollbarState(
             ScrollbarState(top: 80, bottom: 120, total: 210),
             cellHeight: 20
         )
 
-        #expect(scrollView.documentOffsetYForTesting == historyOffset)
+        #expect(scrollView.documentOffsetYForTesting == 1800)
     }
 }

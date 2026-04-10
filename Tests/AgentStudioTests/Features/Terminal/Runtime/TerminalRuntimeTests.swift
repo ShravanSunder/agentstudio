@@ -291,10 +291,10 @@ struct TerminalRuntimeTests {
         )
         runtime.transitionToReady()
 
-        runtime.handleGhosttyEvent(.mouseShapeChanged(shapeRawValue: 1))
+        runtime.handleGhosttyEvent(.mouseShapeChanged(shape: .pointer))
         runtime.handleGhosttyEvent(.mouseVisibilityChanged(isVisible: false))
 
-        #expect(runtime.mouseShapeRawValue == 1)
+        #expect(runtime.mouseShape == .pointer)
         #expect(runtime.isMouseVisible == false)
     }
 
@@ -461,7 +461,7 @@ struct TerminalRuntimeTests {
         )
         runtime.transitionToReady()
 
-        runtime.handleGhosttyEvent(.mouseShapeChanged(shapeRawValue: 1))
+        runtime.handleGhosttyEvent(.mouseShapeChanged(shape: .pointer))
         runtime.handleGhosttyEvent(.mouseVisibilityChanged(isVisible: false))
         runtime.handleGhosttyEvent(.mouseLinkHovered(url: "https://example.com"))
         runtime.handleGhosttyEvent(

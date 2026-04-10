@@ -7,7 +7,7 @@ extension Ghostty {
     final class AppHandle {
         private let appHandle: ghostty_app_t
         private let configHandle: ghostty_config_t
-        static let ghosttyOverrideContentsForTesting = """
+        static let scrollBehaviorOverrideContents = """
             scroll-to-bottom = no-keystroke, no-output
             """
 
@@ -18,7 +18,7 @@ extension Ghostty {
         private static func writeGhosttyOverrideFile() throws -> URL {
             let overrideURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("agent-studio-ghostty-overrides.conf")
-            try ghosttyOverrideContentsForTesting.write(
+            try scrollBehaviorOverrideContents.write(
                 to: overrideURL,
                 atomically: true,
                 encoding: .utf8
@@ -33,12 +33,15 @@ extension Ghostty {
             }
 
             ghostty_config_load_default_files(config)
-            if let overrideURL = try? Self.writeGhosttyOverrideFile() {
+            do {
+                let overrideURL = try Self.writeGhosttyOverrideFile()
                 overrideURL.path.withCString { path in
                     ghostty_config_load_file(config, path)
                 }
-            } else {
-                ghosttyLogger.error("Failed to write Ghostty override file")
+            } catch {
+                ghosttyLogger.error(
+                    "Failed to write Ghostty scroll behavior override file: \(error.localizedDescription, privacy: .public). Host follow-bottom behavior may degrade."
+                )
             }
             ghostty_config_finalize(config)
 
