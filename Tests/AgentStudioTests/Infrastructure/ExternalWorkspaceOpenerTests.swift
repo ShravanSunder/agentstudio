@@ -27,17 +27,25 @@ struct ExternalWorkspaceOpenerTests {
 
     @Test
     func preferredEditorRequests_tryCursorThenVSCode() {
-        let requests = ExternalWorkspaceOpener.preferredEditorCommands(
+        let requests = ExternalWorkspaceOpener.preferredEditorRequests(
             path: URL(fileURLWithPath: "/tmp/project")
         )
 
         #expect(
             requests == [
-                ExternalWorkspaceOpener.CommandRequest(
+                .application(
+                    bundleIdentifier: "com.todesktop.230313mzl4w4u92",
+                    targetPath: URL(fileURLWithPath: "/tmp/project")
+                ),
+                .command(
                     executableURL: URL(fileURLWithPath: "/usr/bin/env"),
                     arguments: ["cursor", "--reuse-window", "/tmp/project"]
                 ),
-                ExternalWorkspaceOpener.CommandRequest(
+                .application(
+                    bundleIdentifier: "com.microsoft.VSCode",
+                    targetPath: URL(fileURLWithPath: "/tmp/project")
+                ),
+                .command(
                     executableURL: URL(fileURLWithPath: "/usr/bin/env"),
                     arguments: ["code", "--reuse-window", "/tmp/project"]
                 ),
@@ -45,19 +53,31 @@ struct ExternalWorkspaceOpenerTests {
     }
 
     @Test
-    func openInPreferredEditor_fallsBackToVSCodeWhenCursorFails() {
+    func openInPreferredEditor_fallsBackAcrossAppAndCliRequests() {
         let path = URL(fileURLWithPath: "/tmp/project")
-        var attemptedRequests: [ExternalWorkspaceOpener.CommandRequest] = []
+        var attemptedRequests: [ExternalWorkspaceOpener.OpenRequest] = []
 
         let success = ExternalWorkspaceOpener.open(
-            commands: ExternalWorkspaceOpener.preferredEditorCommands(path: path),
+            requests: ExternalWorkspaceOpener.preferredEditorRequests(path: path),
             runner: { request in
                 attemptedRequests.append(request)
-                return request.arguments.first == "code"
+                if case .application(bundleIdentifier: "com.microsoft.VSCode", targetPath: path) = request {
+                    return true
+                }
+                return false
             }
         )
 
         #expect(success)
-        #expect(attemptedRequests.map(\.arguments.first) == ["cursor", "code"])
+        #expect(
+            attemptedRequests == [
+                .application(bundleIdentifier: "com.todesktop.230313mzl4w4u92", targetPath: path),
+                .command(
+                    executableURL: URL(fileURLWithPath: "/usr/bin/env"),
+                    arguments: ["cursor", "--reuse-window", "/tmp/project"]
+                ),
+                .application(bundleIdentifier: "com.microsoft.VSCode", targetPath: path),
+            ]
+        )
     }
 }

@@ -153,6 +153,54 @@ final class WorkspaceCommandValidatorTests {
         Issue.record("Expected tabNotFound error")
     }
 
+    // MARK: - renameTab
+
+    @Test
+    func test_renameTab_existingTab_trimsAndSucceeds() {
+        let tabId = UUID()
+        let snapshot = makeSnapshot(
+            tabs: [TabSnapshot(id: tabId, visiblePaneIds: [UUID()], ownedPaneIds: [UUID()], activePaneId: nil)]
+        )
+
+        let result = WorkspaceCommandValidator.validate(
+            .renameTab(tabId: tabId, name: "  Review Queue  "),
+            state: snapshot
+        )
+
+        guard case .success(let validated) = result else {
+            Issue.record("Expected success")
+            return
+        }
+        #expect(validated.action == .renameTab(tabId: tabId, name: "Review Queue"))
+    }
+
+    @Test
+    func test_renameTab_missingTab_fails() {
+        let result = WorkspaceCommandValidator.validate(
+            .renameTab(tabId: UUID(), name: "Review Queue"),
+            state: makeSnapshot()
+        )
+
+        if case .failure(.tabNotFound) = result { return }
+        Issue.record("Expected tabNotFound error")
+    }
+
+    @Test
+    func test_renameTab_emptyName_fails() {
+        let tabId = UUID()
+        let snapshot = makeSnapshot(
+            tabs: [TabSnapshot(id: tabId, visiblePaneIds: [UUID()], ownedPaneIds: [UUID()], activePaneId: nil)]
+        )
+
+        let result = WorkspaceCommandValidator.validate(
+            .renameTab(tabId: tabId, name: "   "),
+            state: snapshot
+        )
+
+        if case .failure(.emptyName) = result { return }
+        Issue.record("Expected emptyName error")
+    }
+
     // MARK: - closePane
 
     @Test

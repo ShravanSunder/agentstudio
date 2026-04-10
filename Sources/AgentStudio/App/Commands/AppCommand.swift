@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Observation
+import os
 
 // MARK: - AppCommand
 
@@ -11,6 +12,7 @@ enum AppCommand: String, CaseIterable {
     // Tab commands
     case closeTab
     case breakUpTab
+    case renameTab
     case newTerminalInTab
     case newTab
     case undoCloseTab
@@ -52,12 +54,14 @@ enum AppCommand: String, CaseIterable {
 
     // Management mode
     case toggleManagementMode
-    case managementMoveLeft
-    case managementMoveRight
-    case managementMoveDown
-    case managementMoveUp
+    case managementFocusLeft
+    case managementFocusRight
+    case managementEnterDrawer
+    case managementExitDrawer
+    case managementOpenDrawer
     case managementCreateTerminal
     case managementCreateBrowser
+    case managementExitMode
 
     // Workspace commands
     case toggleSidebar
@@ -68,7 +72,10 @@ enum AppCommand: String, CaseIterable {
     case closeWindow
 
     // Search/navigation
-    case quickFind, commandBar
+    case showCommandBarEverything
+    case showCommandBarCommands
+    case showCommandBarPanes
+    case showCommandBarRepos
 
     // Webview commands
     case openWebview
@@ -135,7 +142,7 @@ extension KeyBinding {
 /// Full command definition tying command identity, shortcut, display info, and context together.
 struct CommandSpec {
     let command: AppCommand
-    let keyBinding: KeyBinding?
+    let shortcut: AppShortcut?
     let label: String
     let icon: String?
     let helpText: String
@@ -148,7 +155,7 @@ struct CommandSpec {
 
     init(
         command: AppCommand,
-        keyBinding: KeyBinding? = nil,
+        shortcut: AppShortcut? = nil,
         label: String,
         icon: String? = nil,
         helpText: String,
@@ -160,7 +167,7 @@ struct CommandSpec {
         isHiddenInCommandBar: Bool = false
     ) {
         self.command = command
-        self.keyBinding = keyBinding
+        self.shortcut = shortcut
         self.label = label
         self.icon = icon
         self.helpText = helpText
@@ -171,6 +178,8 @@ struct CommandSpec {
         self.commandBarGroupPriority = commandBarGroupPriority
         self.isHiddenInCommandBar = isHiddenInCommandBar
     }
+
+    var keyBinding: KeyBinding? { shortcut?.keyBinding }
 }
 
 // MARK: - WorkspaceCommandHandling
@@ -220,6 +229,7 @@ protocol ShellCommandHandling: AnyObject {
 @MainActor
 final class CommandDispatcher {
     static let shared = CommandDispatcher()
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "CommandDispatcher")
 
     /// Registry of all command definitions
     private(set) var definitions: [AppCommand: CommandSpec] = [:]
@@ -236,20 +246,38 @@ final class CommandDispatcher {
 
     /// Execute a contextual command (operates on active element)
     func dispatch(_ command: AppCommand) {
-        guard canDispatch(command) else { return }
+        guard canDispatch(command) else {
+            Self.logger.warning("Command dispatch rejected: \(command.rawValue, privacy: .public)")
+            return
+        }
         if appCommandRouter?.execute(command) == true {
             return
         }
-        handler?.execute(command)
+        guard let handler else {
+            Self.logger.warning("Command dispatch had no workspace handler: \(command.rawValue, privacy: .public)")
+            return
+        }
+        handler.execute(command)
     }
 
     /// Execute a targeted command (operates on a specific element)
     func dispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
-        guard canDispatch(command) else { return }
+        guard canDispatch(command) else {
+            Self.logger.warning(
+                "Targeted command dispatch rejected: \(command.rawValue, privacy: .public) targetType=\(targetType.rawValue, privacy: .public)"
+            )
+            return
+        }
         if appCommandRouter?.execute(command, target: target, targetType: targetType) == true {
             return
         }
-        handler?.execute(command, target: target, targetType: targetType)
+        guard let handler else {
+            Self.logger.warning(
+                "Targeted command dispatch had no workspace handler: \(command.rawValue, privacy: .public)"
+            )
+            return
+        }
+        handler.execute(command, target: target, targetType: targetType)
     }
 
     /// Execute a drag/drop extract-pane request through the active command handler.
@@ -330,7 +358,7 @@ extension AppCommand {
         case .closeTab:
             return CommandSpec(
                 command: self,
-                keyBinding: KeyBinding(key: "w", modifiers: [.command]),
+                shortcut: .closeTab,
                 label: "Close Tab",
                 icon: "xmark",
                 helpText: "Close the active tab",
@@ -350,6 +378,17 @@ extension AppCommand {
                 commandBarGroupName: "Tab",
                 commandBarGroupPriority: CommandBarGroupPriority.tab
             )
+        case .renameTab:
+            return CommandSpec(
+                command: self,
+                label: "Rename Tab...",
+                icon: "pencil",
+                helpText: "Rename the current tab",
+                appliesTo: [.tab],
+                visibleWhen: [.hasActiveTab],
+                commandBarGroupName: "Tab",
+                commandBarGroupPriority: CommandBarGroupPriority.tab
+            )
         case .newTerminalInTab:
             return CommandSpec(
                 command: self,
@@ -364,7 +403,7 @@ extension AppCommand {
         case .newTab:
             return CommandSpec(
                 command: self,
-                keyBinding: KeyBinding(key: "t", modifiers: [.command]),
+                shortcut: .newTab,
                 label: "New Tab",
                 icon: "plus.square",
                 helpText: "Create a new tab",
@@ -374,7 +413,7 @@ extension AppCommand {
         case .undoCloseTab:
             return CommandSpec(
                 command: self,
-                keyBinding: KeyBinding(key: "t", modifiers: [.command, .shift]),
+                shortcut: .undoCloseTab,
                 label: "Undo Close Tab",
                 icon: "arrow.uturn.backward",
                 helpText: "Restore the most recently closed tab",
@@ -396,7 +435,7 @@ extension AppCommand {
         case .nextTab:
             return CommandSpec(
                 command: self,
-                keyBinding: KeyBinding(key: "]", modifiers: [.command, .shift]),
+                shortcut: .nextTab,
                 label: "Next Tab",
                 icon: "chevron.right",
                 helpText: "Move to the next tab",
@@ -407,7 +446,7 @@ extension AppCommand {
         case .prevTab:
             return CommandSpec(
                 command: self,
-                keyBinding: KeyBinding(key: "[", modifiers: [.command, .shift]),
+                shortcut: .prevTab,
                 label: "Previous Tab",
                 icon: "chevron.left",
                 helpText: "Move to the previous tab",
@@ -626,7 +665,7 @@ extension AppCommand {
         case .toggleDrawer:
             return CommandSpec(
                 command: self,
-                keyBinding: KeyBinding(key: "d", modifiers: [.command]),
+                shortcut: .toggleDrawer,
                 label: "Toggle Drawer",
                 icon: "rectangle.expand.vertical",
                 helpText: "Expand or collapse the active pane drawer",
@@ -660,7 +699,7 @@ extension AppCommand {
         case .addRepo:
             return CommandSpec(
                 command: self,
-                keyBinding: KeyBinding(key: "O", modifiers: [.command, .shift]),
+                shortcut: .addRepo,
                 label: "Add Repo",
                 icon: "folder.badge.plus",
                 helpText: "Add a repository directly to the workspace",
@@ -671,7 +710,7 @@ extension AppCommand {
         case .addFolder:
             return CommandSpec(
                 command: self,
-                keyBinding: KeyBinding(key: "O", modifiers: [.command, .shift, .option]),
+                shortcut: .addFolder,
                 label: "Add Folder",
                 icon: "folder.badge.questionmark",
                 helpText: "Add a folder to scan for repositories",
@@ -703,39 +742,55 @@ extension AppCommand {
         case .toggleManagementMode:
             return CommandSpec(
                 command: self,
-                keyBinding: KeyBinding(key: "e", modifiers: [.command]),
+                shortcut: .toggleManagementMode,
                 label: "Manage Workspace",
                 icon: "rectangle.split.2x2",
                 helpText: "Toggle workspace management mode",
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
-        case .managementMoveLeft:
+        case .managementFocusLeft:
             return managementDefinition(
-                label: "Management Move Left", icon: "arrow.left", helpText: "Move focus left in management mode")
-        case .managementMoveRight:
+                shortcut: .managementFocusLeft,
+                label: "Management Focus Left", icon: "arrow.left", helpText: "Move focus left in management mode")
+        case .managementFocusRight:
             return managementDefinition(
-                label: "Management Move Right", icon: "arrow.right", helpText: "Move focus right in management mode")
-        case .managementMoveDown:
+                shortcut: .managementFocusRight,
+                label: "Management Focus Right", icon: "arrow.right", helpText: "Move focus right in management mode")
+        case .managementEnterDrawer:
             return managementDefinition(
-                label: "Management Move Down", icon: "arrow.down",
+                shortcut: .managementEnterDrawer,
+                label: "Management Enter Drawer", icon: "arrow.down",
                 helpText: "Enter or expand the current drawer in management mode")
-        case .managementMoveUp:
+        case .managementExitDrawer:
             return managementDefinition(
-                label: "Management Move Up", icon: "arrow.up",
+                shortcut: .managementExitDrawer,
+                label: "Management Exit Drawer", icon: "arrow.up",
                 helpText: "Collapse the current drawer in management mode")
+        case .managementOpenDrawer:
+            return managementDefinition(
+                shortcut: .managementOpenDrawer,
+                label: "Management Open Drawer", icon: "rectangle.expand.vertical",
+                helpText: "Open the current drawer in management mode")
         case .managementCreateTerminal:
             return managementDefinition(
+                shortcut: .managementCreateTerminal,
                 label: "Management Create Terminal", icon: "plus.square",
                 helpText: "Create a terminal in the current management-mode context")
         case .managementCreateBrowser:
             return managementDefinition(
+                shortcut: .managementCreateBrowser,
                 label: "Management Create Browser", icon: "globe",
                 helpText: "Create a browser in the current management-mode context")
+        case .managementExitMode:
+            return managementDefinition(
+                shortcut: .managementExitMode,
+                label: "Management Exit Mode", icon: "rectangle.split.2x2.fill",
+                helpText: "Exit management mode")
         case .toggleSidebar:
             return CommandSpec(
                 command: self,
-                keyBinding: KeyBinding(key: "s", modifiers: [.command, .shift]),
+                shortcut: .toggleSidebar,
                 label: "Toggle Sidebar",
                 icon: "sidebar.left",
                 helpText: "Show or hide the sidebar",
@@ -754,7 +809,7 @@ extension AppCommand {
         case .newWindow:
             return CommandSpec(
                 command: self,
-                keyBinding: KeyBinding(key: "n", modifiers: [.command]),
+                shortcut: .newWindow,
                 label: "New Window",
                 icon: "macwindow.badge.plus",
                 helpText: "Open a new application window",
@@ -765,7 +820,7 @@ extension AppCommand {
         case .closeWindow:
             return CommandSpec(
                 command: self,
-                keyBinding: KeyBinding(key: "W", modifiers: [.command, .shift]),
+                shortcut: .closeWindow,
                 label: "Close Window",
                 icon: "xmark.rectangle",
                 helpText: "Close the current application window",
@@ -773,9 +828,10 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.window,
                 isHiddenInCommandBar: true
             )
-        case .quickFind:
+        case .showCommandBarEverything:
             return CommandSpec(
                 command: self,
+                shortcut: .showCommandBarEverything,
                 label: "Quick Find",
                 icon: "magnifyingglass",
                 helpText: "Open quick find",
@@ -783,12 +839,34 @@ extension AppCommand {
                 commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
                 isHiddenInCommandBar: true
             )
-        case .commandBar:
+        case .showCommandBarCommands:
             return CommandSpec(
                 command: self,
+                shortcut: .showCommandBarCommands,
                 label: "Command Palette",
                 icon: "command",
                 helpText: "Open the command palette",
+                commandBarGroupName: "Commands",
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
+                isHiddenInCommandBar: true
+            )
+        case .showCommandBarPanes:
+            return CommandSpec(
+                command: self,
+                shortcut: .showCommandBarPanes,
+                label: "Go to Pane",
+                icon: "terminal",
+                helpText: "Open the pane picker",
+                commandBarGroupName: "Commands",
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
+                isHiddenInCommandBar: true
+            )
+        case .showCommandBarRepos:
+            return CommandSpec(
+                command: self,
+                label: "Open Repo or Worktree",
+                icon: "folder",
+                helpText: "Open the repo picker",
                 commandBarGroupName: "Commands",
                 commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
                 isHiddenInCommandBar: true
@@ -825,7 +903,7 @@ extension AppCommand {
         case .filterSidebar:
             return CommandSpec(
                 command: self,
-                keyBinding: KeyBinding(key: "f", modifiers: [.command, .shift]),
+                shortcut: .filterSidebar,
                 label: "Filter Sidebar",
                 icon: "magnifyingglass",
                 helpText: "Filter items in the sidebar",
@@ -844,7 +922,7 @@ extension AppCommand {
     private func hiddenTabSelectionDefinition(index: Int) -> CommandSpec {
         CommandSpec(
             command: self,
-            keyBinding: KeyBinding(key: "\(index)", modifiers: [.command]),
+            shortcut: selectTabShortcut(index: index),
             label: "Select Tab \(index)",
             helpText: "Select tab \(index)",
             visibleWhen: [.hasActiveTab],
@@ -852,7 +930,6 @@ extension AppCommand {
             isHiddenInCommandBar: true
         )
     }
-
     private func focusDefinition(label: String, icon: String, helpText: String) -> CommandSpec {
         CommandSpec(
             command: self,
@@ -864,7 +941,6 @@ extension AppCommand {
             commandBarGroupPriority: CommandBarGroupPriority.focus
         )
     }
-
     private func arrangementDefinition(label: String, icon: String, helpText: String) -> CommandSpec {
         CommandSpec(
             command: self,
@@ -877,7 +953,6 @@ extension AppCommand {
             commandBarGroupPriority: CommandBarGroupPriority.tab
         )
     }
-
     private func worktreeDefinition(label: String, icon: String, helpText: String) -> CommandSpec {
         CommandSpec(
             command: self,
@@ -889,15 +964,32 @@ extension AppCommand {
             commandBarGroupPriority: CommandBarGroupPriority.repo
         )
     }
-
-    private func managementDefinition(label: String, icon: String, helpText: String) -> CommandSpec {
+    private func managementDefinition(shortcut: AppShortcut, label: String, icon: String, helpText: String)
+        -> CommandSpec
+    {
         CommandSpec(
             command: self,
+            shortcut: shortcut,
             label: label,
             icon: icon,
             helpText: helpText,
             requiresManagementMode: true,
             isHiddenInCommandBar: true
         )
+    }
+    private func selectTabShortcut(index: Int) -> AppShortcut {
+        switch index {
+        case 1: return .selectTab1
+        case 2: return .selectTab2
+        case 3: return .selectTab3
+        case 4: return .selectTab4
+        case 5: return .selectTab5
+        case 6: return .selectTab6
+        case 7: return .selectTab7
+        case 8: return .selectTab8
+        case 9: return .selectTab9
+        default:
+            preconditionFailure("Unsupported tab shortcut index \(index)")
+        }
     }
 }

@@ -555,6 +555,8 @@ struct TabPillView: View {
                 .scaleEffect(isDragging ? 1.05 : 1.0)
                 .opacity(isDragging ? 0.6 : 1.0)
                 .contextMenu {
+                    Button(AppCommand.renameTab.definition.label) { onCommand(.renameTab) }
+
                     Button(AppCommand.closeTab.definition.label) { onCommand(.closeTab) }
                         .keyboardShortcut("w", modifiers: .command)
 

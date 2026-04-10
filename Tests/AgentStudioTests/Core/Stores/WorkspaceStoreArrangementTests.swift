@@ -331,6 +331,36 @@ final class WorkspaceStoreArrangementTests {
         store.renameArrangement(UUID(), name: "Nope", inTab: tab.id)
     }
 
+    // MARK: - renameTab
+
+    @Test
+    func test_renameTab_changesName() {
+        let (tab, _) = createTabWithPanes(2)
+
+        store.renameTab(tab.id, name: "Review Queue")
+
+        #expect(store.tab(tab.id)?.name == "Review Queue")
+    }
+
+    @Test
+    func test_renameTab_trimsWhitespace() {
+        let (tab, _) = createTabWithPanes(1)
+
+        store.renameTab(tab.id, name: "  Review Queue  ")
+
+        #expect(store.tab(tab.id)?.name == "Review Queue")
+    }
+
+    @Test
+    func test_renameTab_invalidId_noOp() {
+        let (tab, _) = createTabWithPanes(1)
+        let originalName = store.tab(tab.id)?.name
+
+        store.renameTab(UUID(), name: "Nope")
+
+        #expect(store.tab(tab.id)?.name == originalName)
+    }
+
     // MARK: - Arrangement + Layout Mutations Interaction
 
     @Test

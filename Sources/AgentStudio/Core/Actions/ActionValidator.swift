@@ -15,6 +15,7 @@ struct ValidatedAction: Equatable {
 enum ActionValidationError: Error, Equatable {
     case repoNotFound(repoId: UUID)
     case tabNotFound(tabId: UUID)
+    case emptyName
     case paneNotFound(paneId: UUID, tabId: UUID)
     case worktreeNotFound(worktreeId: UUID)
     case tabNotSplit(tabId: UUID)
@@ -56,6 +57,16 @@ enum WorkspaceCommandValidator {
                 return .failure(.tabNotSplit(tabId: tabId))
             }
             return .success(ValidatedAction(action))
+
+        case .renameTab(let tabId, let name):
+            guard state.tab(tabId) != nil else {
+                return .failure(.tabNotFound(tabId: tabId))
+            }
+            let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedName.isEmpty else {
+                return .failure(.emptyName)
+            }
+            return .success(ValidatedAction(.renameTab(tabId: tabId, name: trimmedName)))
 
         case .closePane(let tabId, let paneId):
             guard let tab = state.tab(tabId) else {

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import GhosttyKit
 import Testing
@@ -343,6 +344,43 @@ struct PaneCoordinatorHardeningTests {
         #expect(harness.surfaceManager.createSurfaceCallCount == 1)
     }
 
+    @Test("toggleDrawer collapse hands focus back to the parent pane host")
+    func toggleDrawer_collapseFocusesParentPaneHost() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let parentPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Parent")
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+
+        let parentHost = PaneHostView(paneId: parentPane.id)
+        let drawerHost = PaneHostView(paneId: drawerPane.id)
+        let parentMountedContent = FocusableMountedContentView()
+        let drawerMountedContent = FocusableMountedContentView()
+        parentHost.mountContentView(parentMountedContent)
+        drawerHost.mountContentView(drawerMountedContent)
+        harness.viewRegistry.register(parentHost, for: parentPane.id)
+        harness.viewRegistry.register(drawerHost, for: drawerPane.id)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: true
+        )
+        let contentView = try #require(window.contentView)
+        contentView.addSubview(parentHost)
+        contentView.addSubview(drawerHost)
+        window.makeFirstResponder(drawerHost)
+
+        harness.coordinator.execute(.toggleDrawer(paneId: parentPane.id))
+
+        #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == false)
+        #expect(window.firstResponder === parentMountedContent)
+    }
+
     @Test("repair recreateSurface registers preparing placeholder when geometry is unavailable")
     func repairRecreateSurface_registersPreparingPlaceholderWhenGeometryUnavailable() {
         let harness = makeHarness()
@@ -622,4 +660,11 @@ private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceMan
     func requeueUndo(_ surfaceId: UUID) {}
 
     func destroy(_ surfaceId: UUID) {}
+}
+
+@MainActor
+private final class FocusableMountedContentView: NSView, PaneMountedContent {
+    override var acceptsFirstResponder: Bool { true }
+
+    func setContentInteractionEnabled(_: Bool) {}
 }

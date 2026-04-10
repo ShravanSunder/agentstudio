@@ -219,7 +219,7 @@ enum LocalActionSpec {
         case .openPaneLocationInFinder:
             return ActionSpec(
                 label: "Open pane location in Finder", helpText: "Open pane location in Finder",
-                icon: .system("macwindow"))
+                icon: .system("finder"))
         case .openPaneLocationInPreferredEditor:
             return ActionSpec(
                 label: "Open pane location in Cursor or VS Code", helpText: "Open pane location in Cursor or VS Code",

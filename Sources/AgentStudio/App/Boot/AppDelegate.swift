@@ -532,26 +532,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func makeCommandBarMenuItems() -> [NSMenuItem] {
-        let quickOpenItem = NSMenuItem(
-            title: LocalActionSpec.quickOpen.actionSpec.label,
-            action: #selector(showCommandBar),
-            keyEquivalent: "p"
-        )
-        let commandModeItem = NSMenuItem(
-            title: LocalActionSpec.commandPalette.actionSpec.label,
-            action: #selector(showCommandBarCommands),
-            keyEquivalent: "p"
-        )
-        commandModeItem.keyEquivalentModifierMask = [.command, .shift]
-
-        let paneModeItem = NSMenuItem(
-            title: LocalActionSpec.goToPane.actionSpec.label,
-            action: #selector(showCommandBarPanes),
-            keyEquivalent: "p"
-        )
-        paneModeItem.keyEquivalentModifierMask = [.command, .option]
-
-        return [quickOpenItem, commandModeItem, paneModeItem]
+        [
+            menuItem(command: .showCommandBarEverything, action: #selector(showCommandBarEverything)),
+            menuItem(command: .showCommandBarCommands, action: #selector(showCommandBarCommands)),
+            menuItem(command: .showCommandBarPanes, action: #selector(showCommandBarPanes)),
+        ]
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
@@ -908,31 +893,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     // MARK: - Command Bar Actions
 
-    @objc private func showCommandBar() {
-        appLogger.info("showCommandBar triggered")
-        guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
-            appLogger.warning("No window available for command bar")
-            return
-        }
-        commandBarController.show(prefix: nil, parentWindow: window)
+    @objc private func showCommandBarEverything() {
+        CommandDispatcher.shared.dispatch(.showCommandBarEverything)
     }
 
     @objc private func showCommandBarCommands() {
-        appLogger.info("showCommandBarCommands triggered")
-        guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
-            appLogger.warning("No window available for command bar (commands)")
-            return
-        }
-        commandBarController.show(prefix: ">", parentWindow: window)
+        CommandDispatcher.shared.dispatch(.showCommandBarCommands)
     }
 
     @objc private func showCommandBarPanes() {
-        appLogger.info("showCommandBarPanes triggered")
-        guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
-            appLogger.warning("No window available for command bar (panes)")
-            return
-        }
-        commandBarController.show(prefix: "$", parentWindow: window)
+        CommandDispatcher.shared.dispatch(.showCommandBarPanes)
     }
 
 }
@@ -941,7 +911,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 extension AppDelegate: ShellCommandHandling {
     func canExecute(_ command: AppCommand) -> Bool {
         switch command {
-        case .addRepo, .addFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle: true
+        case .addRepo, .addFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle,
+            .newWindow, .closeWindow,
+            .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
+            true
         default: false
         }
     }
@@ -961,6 +934,24 @@ extension AppDelegate: ShellCommandHandling {
         case .filterSidebar:
             mainWindowController?.showSidebarFilter()
             return true
+        case .newWindow:
+            newWindow()
+            return true
+        case .closeWindow:
+            closeWindow()
+            return true
+        case .showCommandBarEverything:
+            showCommandBar(prefix: nil, context: "command bar")
+            return true
+        case .showCommandBarCommands:
+            showCommandBar(prefix: ">", context: "command bar (commands)")
+            return true
+        case .showCommandBarPanes:
+            showCommandBar(prefix: "$", context: "command bar (panes)")
+            return true
+        case .showCommandBarRepos:
+            showCommandBar(prefix: "#", context: "command bar (repos)")
+            return true
         case .signInGitHub:
             handleSignInRequested(provider: .github)
             return true
@@ -975,6 +966,15 @@ extension AppDelegate: ShellCommandHandling {
         switch (command, targetType) {
         default: return false
         }
+    }
+
+    private func showCommandBar(prefix: String?, context: String) {
+        appLogger.info("showCommandBar context=\(context, privacy: .public)")
+        guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
+            appLogger.warning("No window available for \(context, privacy: .public)")
+            return
+        }
+        commandBarController.show(prefix: prefix, parentWindow: window)
     }
 
 }

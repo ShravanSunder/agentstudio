@@ -70,6 +70,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
+    private let tabRenamePrompter: any TabRenamePrompting
     private lazy var actionDispatcher = PaneTabActionDispatcher(
         dispatch: { [weak self] action in
             guard let self else {
@@ -131,7 +132,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         executor: ActionExecutor,
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
-        closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
+        closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
+        tabRenamePrompter: any TabRenamePrompting = AlertTabRenamePrompter()
     ) {
         self.store = store
         self.repoCache = repoCache
@@ -141,6 +143,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
         self.closeTransitionCoordinator = closeTransitionCoordinator
+        self.tabRenamePrompter = tabRenamePrompter
         super.init(nibName: nil, bundle: nil)
         setupNotificationObservers()
     }
@@ -206,7 +209,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                     ))
             },
             onOpenRepoInTab: {
-                CommandDispatcher.shared.appCommandRouter?.showRepoCommandBar()
+                CommandDispatcher.shared.dispatch(.showCommandBarRepos)
             }
         )
         tabBarHostingView = DraggableTabBarHostingView(rootView: tabBar)
@@ -267,24 +270,15 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         updateEmptyState()
         observeForAppKitState()
 
-        // Cmd+E for management mode — handled via command pipeline (key event monitor)
+        // App-owned global shortcuts route through the centralized command pipeline.
         arrangementBarEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard self != nil else { return event }
-            let bareCommandShortcut =
-                event.modifierFlags.contains([.command])
-                && !event.modifierFlags.contains([.shift, .option, .control])
-
-            if bareCommandShortcut {
-                switch event.charactersIgnoringModifiers?.lowercased() {
-                case "e":
-                    CommandDispatcher.shared.dispatch(.toggleManagementMode)
-                    return nil
-                case "d":
-                    CommandDispatcher.shared.dispatch(.toggleDrawer)
-                    return nil
-                default:
-                    break
-                }
+            if let trigger = ShortcutDecoder.decode(event: event),
+                let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .global),
+                CommandDispatcher.shared.canDispatch(shortcut.command)
+            {
+                CommandDispatcher.shared.dispatch(shortcut.command)
+                return nil
             }
             return event
         }
@@ -886,27 +880,27 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         normalizeManagementNavigationScope()
 
         switch command {
-        case .managementMoveLeft:
+        case .managementFocusLeft:
             switch managementNavigationScope {
             case .mainRow:
                 return canExecute(.focusPaneLeft)
             case .drawer(let parentPaneId):
                 return visibleDrawerPaneIds(for: parentPaneId).count > 1
             }
-        case .managementMoveRight:
+        case .managementFocusRight:
             switch managementNavigationScope {
             case .mainRow:
                 return canExecute(.focusPaneRight)
             case .drawer(let parentPaneId):
                 return visibleDrawerPaneIds(for: parentPaneId).count > 1
             }
-        case .managementMoveDown:
+        case .managementEnterDrawer, .managementOpenDrawer:
             return activeMainPaneId() != nil
-        case .managementMoveUp:
+        case .managementExitDrawer, .managementExitMode:
             if case .drawer = managementNavigationScope {
                 return true
             }
-            return false
+            return command == .managementExitMode
         case .managementCreateTerminal:
             switch managementNavigationScope {
             case .mainRow:
@@ -1049,6 +1043,11 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
     /// Route tab context menu commands through the validated pipeline.
     private func handleTabCommand(_ command: AppCommand, tabId: UUID) {
+        if command == .renameTab {
+            presentRenameTabPrompt(for: tabId)
+            return
+        }
+
         let action: PaneActionCommand?
 
         switch command {
@@ -1096,6 +1095,16 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         if let action {
             dispatchAction(action)
         }
+    }
+
+    private func presentRenameTabPrompt(for tabId: UUID) {
+        guard let tab = store.tab(tabId) else { return }
+        let currentName = tab.name
+        guard let updatedName = tabRenamePrompter.promptToRenameTab(currentName: currentName, window: view.window)
+        else {
+            return
+        }
+        dispatchAction(.renameTab(tabId: tabId, name: updatedName))
     }
 
     // MARK: - Tab Reordering
@@ -1273,20 +1282,24 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             }
             return true
 
-        case .managementMoveLeft:
+        case .managementFocusLeft:
             handleManagementMoveLeft()
             return true
 
-        case .managementMoveRight:
+        case .managementFocusRight:
             handleManagementMoveRight()
             return true
 
-        case .managementMoveDown:
+        case .managementEnterDrawer:
             handleManagementMoveDown()
             return true
 
-        case .managementMoveUp:
+        case .managementExitDrawer:
             handleManagementMoveUp()
+            return true
+
+        case .managementOpenDrawer:
+            handleManagementMoveDown()
             return true
 
         case .managementCreateTerminal:
@@ -1295,6 +1308,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
         case .managementCreateBrowser:
             handleManagementCreateBrowser()
+            return true
+
+        case .managementExitMode:
+            atom(\.managementMode).deactivate()
             return true
 
         default:
@@ -1309,6 +1326,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
         case .undoCloseTab:
             handleUndoCloseTab()
+        case .renameTab:
+            guard let activeTabId = store.activeTabId else { break }
+            presentRenameTabPrompt(for: activeTabId)
         case .addRepo, .addFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle:
             break
         case .addDrawerPane:
@@ -1364,7 +1384,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             dispatchAction(.openFloatingTerminal(launchDirectory: activePaneCwd, title: nil))
         case .openWebview:
             executor.openWebview()
-        case .quickFind, .commandBar,
+        case .showCommandBarEverything, .showCommandBarCommands,
+            .showCommandBarPanes, .showCommandBarRepos,
             .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
             .switchArrangement, .deleteArrangement, .renameArrangement,
             .navigateDrawerPane, .movePaneToTab,
@@ -1388,6 +1409,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
         // Targeted non-pane commands (e.g. from command bar)
         switch (command, targetType) {
+        case (.renameTab, .tab):
+            presentRenameTabPrompt(for: target)
         default:
             execute(command)
         }
@@ -1476,9 +1499,12 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
     func canExecute(_ command: AppCommand) -> Bool {
         switch command {
-        case .managementMoveLeft, .managementMoveRight, .managementMoveDown,
-            .managementMoveUp, .managementCreateTerminal, .managementCreateBrowser:
+        case .managementFocusLeft, .managementFocusRight, .managementEnterDrawer,
+            .managementExitDrawer, .managementOpenDrawer,
+            .managementCreateTerminal, .managementCreateBrowser, .managementExitMode:
             return canExecuteManagementCommand(command)
+        case .renameTab:
+            return store.activeTabId != nil
         case .addDrawerPane, .toggleDrawer, .closeDrawerPane:
             return canExecuteContextualCommand(command)
         default:

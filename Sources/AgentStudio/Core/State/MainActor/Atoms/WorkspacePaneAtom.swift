@@ -167,14 +167,14 @@ final class WorkspacePaneAtom {
 
     @discardableResult
     func addDrawerPane(to parentPaneId: UUID, parentFallbackCWD: URL?) -> Pane? {
-        let parentCwd = panes[parentPaneId]?.metadata.facets.cwd ?? parentFallbackCWD
+        guard let metadata = inheritedDrawerMetadata(from: parentPaneId, parentFallbackCWD: parentFallbackCWD) else {
+            workspacePaneLogger.warning("addDrawerPane: parent pane \(parentPaneId) not found")
+            return nil
+        }
         return addDrawerPane(
             to: parentPaneId,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
-            metadata: PaneMetadata(
-                source: .floating(launchDirectory: parentCwd, title: nil),
-                title: "Drawer"
-            )
+            metadata: metadata
         )
     }
 
@@ -222,17 +222,47 @@ final class WorkspacePaneAtom {
         position: Layout.Position,
         parentFallbackCWD: URL?
     ) -> Pane? {
-        let parentCwd = panes[parentPaneId]?.metadata.facets.cwd ?? parentFallbackCWD
+        guard let metadata = inheritedDrawerMetadata(from: parentPaneId, parentFallbackCWD: parentFallbackCWD) else {
+            workspacePaneLogger.warning("insertDrawerPane: parent pane \(parentPaneId) not found")
+            return nil
+        }
         return insertDrawerPane(
             in: parentPaneId,
             at: targetDrawerPaneId,
             direction: direction,
             position: position,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
-            metadata: PaneMetadata(
-                source: .floating(launchDirectory: parentCwd, title: nil),
-                title: "Drawer"
+            metadata: metadata
+        )
+    }
+
+    private func inheritedDrawerMetadata(from parentPaneId: UUID, parentFallbackCWD: URL?) -> PaneMetadata? {
+        guard let parentPane = panes[parentPaneId] else { return nil }
+
+        let inheritedCWD =
+            parentPane.metadata.facets.cwd
+            ?? parentPane.metadata.launchDirectory
+            ?? parentFallbackCWD
+
+        let inheritedSource: PaneMetadata.PaneMetadataSource
+        if let worktreeId = parentPane.worktreeId, let repoId = parentPane.repoId, let inheritedCWD {
+            inheritedSource = .worktree(
+                worktreeId: worktreeId,
+                repoId: repoId,
+                launchDirectory: inheritedCWD
             )
+        } else {
+            inheritedSource = .floating(launchDirectory: inheritedCWD, title: nil)
+        }
+
+        let inheritedFacets = parentPane.metadata.facets.fillingNilFields(
+            from: PaneContextFacets(cwd: inheritedCWD)
+        )
+
+        return PaneMetadata(
+            source: inheritedSource,
+            title: "Drawer",
+            facets: inheritedFacets
         )
     }
 

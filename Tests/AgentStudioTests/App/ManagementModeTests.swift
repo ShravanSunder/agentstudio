@@ -114,6 +114,19 @@ struct ManagementModeTests {
         }
     }
 
+    @Test("management mode key policy dispatches B to create browser")
+    func test_managementMode_keyPolicy_dispatchesCreateBrowser() async {
+        withTestAtomStore { _ in
+            let monitor = makeMonitor()
+            let decision = monitor.keyDownDecision(
+                keyCode: 11,
+                modifierFlags: [],
+                charactersIgnoringModifiers: "b"
+            )
+            #expect(decision == .dispatch(.managementCreateBrowser))
+        }
+    }
+
     @Test("management mode key policy dispatches D to open drawer")
     func test_managementMode_keyPolicy_dispatchesDrawerOpenShortcut() async {
         withTestAtomStore { _ in
@@ -123,7 +136,20 @@ struct ManagementModeTests {
                 modifierFlags: [],
                 charactersIgnoringModifiers: "d"
             )
-            #expect(decision == .dispatch(.managementMoveDown))
+            #expect(decision == .dispatch(.managementOpenDrawer))
+        }
+    }
+
+    @Test("management mode key policy dispatches R to exit mode")
+    func test_managementMode_keyPolicy_dispatchesExitModeShortcut() async {
+        withTestAtomStore { _ in
+            let monitor = makeMonitor()
+            let decision = monitor.keyDownDecision(
+                keyCode: 15,
+                modifierFlags: [],
+                charactersIgnoringModifiers: "r"
+            )
+            #expect(decision == .deactivateAndConsume)
         }
     }
 
@@ -137,28 +163,28 @@ struct ManagementModeTests {
                     keyCode: 123,
                     modifierFlags: [],
                     charactersIgnoringModifiers: nil
-                ) == .dispatch(.managementMoveLeft)
+                ) == .dispatch(.managementFocusLeft)
             )
             #expect(
                 monitor.keyDownDecision(
                     keyCode: 124,
                     modifierFlags: [],
                     charactersIgnoringModifiers: nil
-                ) == .dispatch(.managementMoveRight)
+                ) == .dispatch(.managementFocusRight)
             )
             #expect(
                 monitor.keyDownDecision(
                     keyCode: 125,
                     modifierFlags: [],
                     charactersIgnoringModifiers: nil
-                ) == .dispatch(.managementMoveDown)
+                ) == .dispatch(.managementEnterDrawer)
             )
             #expect(
                 monitor.keyDownDecision(
                     keyCode: 126,
                     modifierFlags: [],
                     charactersIgnoringModifiers: nil
-                ) == .dispatch(.managementMoveUp)
+                ) == .dispatch(.managementExitDrawer)
             )
         }
     }
@@ -172,7 +198,20 @@ struct ManagementModeTests {
                 modifierFlags: [.numericPad],
                 charactersIgnoringModifiers: nil
             )
-            #expect(decision == .dispatch(.managementMoveLeft))
+            #expect(decision == .dispatch(.managementFocusLeft))
+        }
+    }
+
+    @Test("management mode key policy consumes shifted arrow keys")
+    func test_managementMode_keyPolicy_shiftedArrowConsumed() async {
+        withTestAtomStore { _ in
+            let monitor = makeMonitor()
+            let decision = monitor.keyDownDecision(
+                keyCode: 123,
+                modifierFlags: [.shift],
+                charactersIgnoringModifiers: nil
+            )
+            #expect(decision == .consume)
         }
     }
 
@@ -206,9 +245,17 @@ struct ManagementModeTests {
     func test_toggleManagementMode_commandDefinition() async {
         withTestAtomStore { _ in
             let definition = CommandDispatcher.shared.definition(for: .toggleManagementMode)
-            #expect(definition.keyBinding?.key == "e")
+            #expect(definition.keyBinding?.key == "r")
             #expect(definition.keyBinding?.modifiers == [.command])
             #expect(definition.icon == "rectangle.split.2x2")
+        }
+    }
+
+    @Test("managementExitMode uses active management icon")
+    func test_managementExitMode_commandDefinition() async {
+        withTestAtomStore { _ in
+            let definition = CommandDispatcher.shared.definition(for: .managementExitMode)
+            #expect(definition.icon == "rectangle.split.2x2.fill")
         }
     }
 

@@ -276,6 +276,9 @@ extension PaneCoordinator {
         case .breakUpTab(let tabId):
             executeBreakUpTab(tabId)
 
+        case .renameTab(let tabId, let name):
+            store.tabLayoutAtom.renameTab(tabId, name: name)
+
         case .closePane(let tabId, let paneId):
             executeClosePane(tabId: tabId, paneId: paneId)
 
@@ -424,6 +427,8 @@ extension PaneCoordinator {
             {
                 restoreViewsForActiveTabIfNeeded()
                 focusVisiblePaneHost(activeDrawerPaneId)
+            } else {
+                focusVisiblePaneHost(paneId)
             }
 
         case .setActiveDrawerPane(let parentPaneId, let drawerPaneId):

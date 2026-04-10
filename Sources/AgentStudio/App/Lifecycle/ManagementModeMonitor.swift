@@ -16,7 +16,7 @@ import Observation
 ///
 /// ## Toggling
 ///
-/// Toggled via Cmd+E (command pipeline) or the toolbar/tab bar button.
+/// Toggled via Cmd+R (command pipeline) or the toolbar/tab bar button.
 @MainActor
 @Observable
 final class ManagementModeMonitor {
@@ -75,8 +75,8 @@ final class ManagementModeMonitor {
             case .deactivateAndConsume:
                 self.deactivate()
                 return nil
-            case .dispatch(let command):
-                CommandDispatcher.shared.dispatch(command)
+            case .dispatch(let shortcut):
+                CommandDispatcher.shared.dispatch(shortcut.command)
                 return nil
             case .passThrough:
                 return event
@@ -90,7 +90,7 @@ final class ManagementModeMonitor {
 
     enum KeyDownDecision: Equatable {
         case deactivateAndConsume
-        case dispatch(AppCommand)
+        case dispatch(AppShortcut)
         case passThrough
         case consume
     }
@@ -109,54 +109,19 @@ final class ManagementModeMonitor {
             return .passThrough
         }
 
-        switch keyCode {
-        case 123:
-            return arrowKeyDecision(
-                command: .managementMoveLeft,
-                normalizedModifiers: normalizedModifiers
-            )
-        case 124:
-            return arrowKeyDecision(
-                command: .managementMoveRight,
-                normalizedModifiers: normalizedModifiers
-            )
-        case 125:
-            return arrowKeyDecision(
-                command: .managementMoveDown,
-                normalizedModifiers: normalizedModifiers
-            )
-        case 126:
-            return arrowKeyDecision(
-                command: .managementMoveUp,
-                normalizedModifiers: normalizedModifiers
-            )
-        default:
-            break
-        }
-
-        guard normalizedModifiers.isEmpty else {
-            return .consume
-        }
-
-        switch charactersIgnoringModifiers?.lowercased() {
-        case "p":
-            return .dispatch(.managementCreateTerminal)
-        case "b":
-            return .dispatch(.managementCreateBrowser)
-        case "d":
-            return .dispatch(.managementMoveDown)
-        default:
-            return .consume
-        }
-    }
-
-    private func arrowKeyDecision(
-        command: AppCommand,
-        normalizedModifiers: NSEvent.ModifierFlags
-    ) -> KeyDownDecision {
         let nonSemanticArrowModifiers: NSEvent.ModifierFlags = [.numericPad, .function]
-        let semanticModifiers = normalizedModifiers.subtracting(nonSemanticArrowModifiers)
-        return semanticModifiers.isEmpty ? .dispatch(command) : .consume
+        let sanitizedModifiers = modifierFlags.subtracting(nonSemanticArrowModifiers)
+        guard
+            let trigger = ShortcutDecoder.decode(
+                keyCode: keyCode,
+                modifierFlags: sanitizedModifiers,
+                charactersIgnoringModifiers: charactersIgnoringModifiers
+            ),
+            let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .managementMode)
+        else {
+            return .consume
+        }
+        return shortcut == .managementExitMode ? .deactivateAndConsume : .dispatch(shortcut)
     }
 
     // MARK: - First Responder Management
