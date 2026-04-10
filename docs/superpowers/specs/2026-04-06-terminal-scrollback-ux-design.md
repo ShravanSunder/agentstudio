@@ -24,7 +24,7 @@ This design does **not** re-implement that infrastructure. It consumes it.
 | Feature | Detail |
 |---------|--------|
 | Always-visible native scrollbar | Agent Studio host-side `NSScrollView` wrapper around embedded terminal surfaces. This is an Agent Studio product choice, not Ghostty parity. |
-| Follow-bottom | Only auto-follow new output when the viewport was already pinned to bottom. |
+| Ghostty-owned scroll behavior | Ghostty core remains the ordinary scroll authority for wheel/trackpad scrolling and follow-bottom semantics. |
 | No keystroke scroll-to-bottom | Disable Ghostty core auto-scroll on keypress and output using a host-owned config override. |
 | Scroll-to-bottom button | Bottom-right floating affordance when scrolled up; icon/badge changes when unread output exists below viewport. |
 | Scrollback search | `cmd+f`, `cmd+g`, `shift+cmd+g`, Escape, and host-side visible search overlay for the focused pane. |
@@ -94,9 +94,8 @@ TerminalPaneMountView
 Owns:
 - visible AppKit scrollbar
 - row/pixel coordinate conversion
-- follow-bottom behavior
-- primary wheel/trackpad scrolling path
-- scrollbar drag / track click -> `scroll_to_row:N`
+- scrollbar drag / live-scroll -> `scroll_to_row:N`
+- host-side synchronization that follows core scrollbar state
 
 Consumes:
 - `TerminalRuntime.scrollbarState`
@@ -185,14 +184,14 @@ or an equivalent small runtime-owned representation that `Ghostty.SurfaceView` c
 
 ### Observation Model
 
-All new host views should use the existing `@Observable` + `withObservationTracking` style already used in the app. No new NotificationCenter plumbing should be introduced for this feature.
+Host-side state consumption should use the existing `@Observable` + `withObservationTracking` style already used in the app. Scrollbar drag lifecycle may still use `NSScrollView`/`NSView` notifications where AppKit is the source of truth, matching Ghostty's macOS host implementation.
 
 ## Core Behaviors
 
 ### Follow-Bottom
 
-- If the viewport was pinned to bottom before a scrollbar update, new output should keep it pinned.
-- If the viewport was not pinned to bottom, new output must not move it.
+- Ghostty core owns follow-bottom semantics.
+- Agent Studio disables Ghostty's keypress/output auto-scroll through config so reading scrollback is stable.
 - While the user is actively dragging the scrollbar, the host must not fight the drag with programmatic repositioning.
 
 ### Scrollbar Math
@@ -212,7 +211,7 @@ let isPinnedToBottom = bottom >= total
 
 ### Smooth Scrolling Requirement
 
-Scrolling with a mouse wheel or trackpad must become **Ghostty.app-style host scrolling**, not the current raw libghostty wheel path that can feel page-like with discrete mice.
+Scrolling with a mouse wheel or trackpad must match Ghostty.app by keeping **Ghostty core** as the ordinary scroll authority, while the host wrapper provides native scrollbar UI and drag synchronization.
 
 Current Agent Studio behavior:
 
@@ -221,12 +220,11 @@ Current Agent Studio behavior:
 
 Target behavior for this feature:
 
-- Once the surface is wrapped in `TerminalSurfaceScrollView`, ordinary wheel/trackpad scrolling should be handled by `NSScrollView` first, exactly like Ghostty.app's `SurfaceScrollView`.
-- `NSScrollView` should drive the visible scroll position smoothly.
-- `didLiveScroll` / equivalent host scroll observation then converts the visible position into `scroll_to_row:N` updates for Ghostty core.
-- The direct `Ghostty.SurfaceView.scrollWheel(with:)` path should no longer be the primary scrollback UX path while embedded in the wrapper.
+- `Ghostty.SurfaceView.scrollWheel(with:)` remains the primary wheel/trackpad path while embedded.
+- The host `NSScrollView` provides the native scrollbar and uses live-scroll notifications to translate thumb/track movement into `scroll_to_row:N`.
+- The host follows core-emitted scrollbar state instead of owning a second scroll state machine.
 
-This smooth-scroll fix is part of this PR, not a follow-up.
+This Ghostty-centered smooth-scroll fix is part of this PR, not a follow-up.
 
 ### Search UX
 

@@ -1,7 +1,6 @@
 import AppKit
 import GhosttyKit
 
-@MainActor
 enum TerminalSurfaceAction: Equatable {
     enum SearchDirection: Equatable {
         case next

@@ -70,7 +70,7 @@ final class TerminalSurfaceScrollView: NSView {
                 object: scrollView.contentView,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in
+                MainActor.assumeIsolated { [weak self] in
                     self?.handleScrollChange()
                 }
             })
@@ -80,7 +80,7 @@ final class TerminalSurfaceScrollView: NSView {
                 object: scrollView,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in
+                MainActor.assumeIsolated { [weak self] in
                     self?.isLiveScrolling = true
                 }
             })
@@ -90,7 +90,7 @@ final class TerminalSurfaceScrollView: NSView {
                 object: scrollView,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in
+                MainActor.assumeIsolated { [weak self] in
                     self?.isLiveScrolling = false
                 }
             })
@@ -100,7 +100,7 @@ final class TerminalSurfaceScrollView: NSView {
                 object: scrollView,
                 queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in
+                MainActor.assumeIsolated { [weak self] in
                     self?.handleLiveScroll()
                 }
             })
@@ -108,9 +108,9 @@ final class TerminalSurfaceScrollView: NSView {
             NotificationCenter.default.addObserver(
                 forName: NSScroller.preferredScrollerStyleDidChangeNotification,
                 object: nil,
-                queue: nil
+                queue: .main
             ) { [weak self] _ in
-                Task { @MainActor [weak self] in
+                MainActor.assumeIsolated { [weak self] in
                     self?.handleScrollerStyleChange()
                 }
             })
@@ -120,8 +120,10 @@ final class TerminalSurfaceScrollView: NSView {
         fatalError("init(coder:) not supported")
     }
 
-    deinit {
-        notificationObservers.forEach { NotificationCenter.default.removeObserver($0) }
+    isolated deinit {
+        for observer in notificationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
 
     override func layout() {

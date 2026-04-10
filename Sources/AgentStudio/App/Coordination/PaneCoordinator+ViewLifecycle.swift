@@ -420,6 +420,9 @@ extension PaneCoordinator {
             return
         }
         terminal.displaySurface(surfaceView)
+        if let pane = store.pane(paneId) {
+            registerTerminalRuntimeIfNeeded(for: pane)
+        }
         Self.logger.debug("Reattached pane \(paneId.uuidString, privacy: .public) for view switch")
     }
 
@@ -552,10 +555,6 @@ extension PaneCoordinator {
         }
         let runtimePaneId = PaneId(uuid: pane.id)
         let runtimeWasAlreadyRegistered = runtimeForPane(runtimePaneId) != nil
-        if !runtimeWasAlreadyRegistered {
-            registerTerminalRuntimeIfNeeded(for: pane)
-        }
-
         if let undone = surfaceManager.undoClose() {
             if undone.metadata.paneId == pane.id {
                 let view = TerminalPaneMountView(
@@ -567,6 +566,7 @@ extension PaneCoordinator {
                 surfaceManager.attach(undone.id, to: pane.id)
                 view.displaySurface(undone.surface)
                 registerHostedView(mountedView: view, for: pane.id)
+                registerTerminalRuntimeIfNeeded(for: pane)
                 runtime.markRunning(pane.id)
                 Self.logger.info("Restored view from undo for pane \(pane.id)")
                 return view

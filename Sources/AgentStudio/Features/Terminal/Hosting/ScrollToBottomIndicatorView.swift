@@ -22,7 +22,7 @@ final class ScrollToBottomIndicatorView: NSButton {
     }
 
     func applyScrollbarState(_ state: ScrollbarState) {
-        let isPinnedToBottom = state.bottom >= state.total
+        let isPinnedToBottom = state.isPinnedToBottom
         isHidden = isPinnedToBottom
 
         if isPinnedToBottom {

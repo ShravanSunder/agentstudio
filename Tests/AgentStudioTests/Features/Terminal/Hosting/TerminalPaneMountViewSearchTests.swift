@@ -70,4 +70,15 @@ struct TerminalPaneMountViewSearchTests {
         #expect(hitView != nil)
         #expect(hitView !== mountView)
     }
+
+    @Test("cancelOperation without search overlay falls through without emitting actions")
+    func cancelOperationWithoutSearchOverlayDoesNotEmitActions() {
+        let mountView = TerminalPaneMountView(paneId: UUID(), title: "Terminal")
+        let performer = PaneSearchActionPerformer()
+        mountView.installActionPerformerForTesting(performer)
+
+        mountView.cancelOperation(nil)
+
+        #expect(performer.actions.isEmpty)
+    }
 }

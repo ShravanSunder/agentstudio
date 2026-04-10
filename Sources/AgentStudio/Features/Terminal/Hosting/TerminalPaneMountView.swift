@@ -12,24 +12,26 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
     // MARK: - Private State
 
-    var ghosttySurface: Ghostty.SurfaceView?
+    private(set) var ghosttySurface: Ghostty.SurfaceView?
     private let ghosttyMountView = GhosttyMountView()
-    var surfaceScrollView: TerminalSurfaceScrollView?
+    private(set) var surfaceScrollView: TerminalSurfaceScrollView?
     var searchOverlayView: TerminalSearchOverlayView?
     var scrollToBottomIndicatorView: ScrollToBottomIndicatorView?
-    weak var boundRuntime: TerminalRuntime?
+    private(set) weak var boundRuntime: TerminalRuntime?
     private var actionPerformerOverrideForTesting: (any TerminalSurfaceActionPerforming)?
     private(set) var isProcessRunning = false
-    var errorOverlay: SurfaceErrorOverlayView?
-    var startupOverlay: SurfaceStartupOverlayView?
-    var placeholderView: TerminalStatusPlaceholderView?
+    private(set) var errorOverlay: SurfaceErrorOverlayView?
+    private(set) var startupOverlay: SurfaceStartupOverlayView?
+    private(set) var placeholderView: TerminalStatusPlaceholderView?
     private let fallbackTitle: String
     private let showsRestorePresentationDuringStartup: Bool
     private let startupGraceDuration: Duration
     private var startupPresentationTask: Task<Void, Never>?
     private var startupPresentationActive = false
-    var shouldSuppressProcessExitedOverlayAfterTermination = false
-    var hasObservedEffectiveTerminationDelivery = false
+    private(set) var shouldSuppressProcessExitedOverlayAfterTermination = false
+    private(set) var hasObservedEffectiveTerminationDelivery = false
+    private weak var observedRuntime: TerminalRuntime?
+    private weak var runtimeBoundToDisplayedSurface: TerminalRuntime?
     var onRepairRequested: ((UUID) -> Void)?
 
     /// The current terminal title
@@ -174,6 +176,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     // MARK: - Surface Display
 
     func displaySurface(_ surfaceView: Ghostty.SurfaceView) {
+        let previouslyDisplayedSurface = ghosttySurface
         // Remove existing surface if any
         ghosttySurface?.onCloseRequested = nil
         ghosttyMountView.unmountCurrentView()
@@ -202,8 +205,14 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         beginRestorePresentationIfNeeded()
         ensureScrollToBottomIndicator()
         if let boundRuntime {
-            observeRuntimeState(runtime: boundRuntime)
-            surfaceView.bindRuntime(boundRuntime)
+            if observedRuntime !== boundRuntime {
+                observedRuntime = boundRuntime
+                observeRuntimeState(runtime: boundRuntime)
+            }
+            if runtimeBoundToDisplayedSurface !== boundRuntime || previouslyDisplayedSurface !== surfaceView {
+                surfaceView.bindRuntime(boundRuntime)
+                runtimeBoundToDisplayedSurface = boundRuntime
+            }
         }
         surfaceView.onCloseRequested = { [weak self] processAlive in
             self?.handleSurfaceClose(processAlive: processAlive)
@@ -216,15 +225,24 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         ghosttySurface = nil
         surfaceScrollView = nil
         boundRuntime = nil
+        observedRuntime = nil
+        runtimeBoundToDisplayedSurface = nil
         surfaceId = nil
         shouldSuppressProcessExitedOverlayAfterTermination = false
         hasObservedEffectiveTerminationDelivery = false
     }
 
     func bind(runtime: TerminalRuntime) {
+        let shouldObserveRuntime = observedRuntime !== runtime
         boundRuntime = runtime
-        ghosttySurface?.bindRuntime(runtime)
-        observeRuntimeState(runtime: runtime)
+        if let ghosttySurface, runtimeBoundToDisplayedSurface !== runtime {
+            ghosttySurface.bindRuntime(runtime)
+            runtimeBoundToDisplayedSurface = runtime
+        }
+        if shouldObserveRuntime {
+            observedRuntime = runtime
+            observeRuntimeState(runtime: runtime)
+        }
     }
 
     func installActionPerformerForTesting(_ performer: any TerminalSurfaceActionPerforming) {
@@ -236,7 +254,6 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         if handleSearchCancelOperation(sender) {
             return
         }
-        super.cancelOperation(sender)
     }
 
     @discardableResult

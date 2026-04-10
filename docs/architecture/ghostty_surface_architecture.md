@@ -165,9 +165,9 @@ Agent Studio now consumes libghostty/runtime facts for terminal scrollback UX, b
 - Ghostty core owns terminal scrollback/search state and exposes it through routed runtime events such as `scrollbarChanged` and `search*`.
 - `TerminalRuntime` is the observable host-side cache for those facts.
 - `TerminalPaneMountView` composes host UI around the surface: `TerminalSurfaceScrollView`, `TerminalSearchOverlayView`, and `ScrollToBottomIndicatorView`.
-- `TerminalSurfaceScrollView` is the primary scrollback UI on macOS and synchronizes host scroll position back into Ghostty core via `scroll_to_row:N`.
-- `Ghostty.SurfaceView` remains the rendering/input bridge, but when embedded inside the scroll wrapper it forwards ordinary wheel scrolling to the host wrapper so scrolling behavior matches Ghostty.app more closely.
-- `Ghostty.AppHandle` injects an Agent Studio config override before `ghostty_config_finalize` so Ghostty core does not auto-scroll to bottom on keypress or output while the host wrapper is managing follow-bottom behavior.
+- `TerminalSurfaceScrollView` provides the native scrollbar UI on macOS and synchronizes scrollbar thumb / live-scroll movement back into Ghostty core via `scroll_to_row:N`.
+- `Ghostty.SurfaceView` remains the rendering/input bridge and keeps ordinary wheel/trackpad scrolling owned by Ghostty core, matching Ghostty.app more closely than the earlier host-owned scroll prototype.
+- `Ghostty.AppHandle` injects an Agent Studio config override before `ghostty_config_finalize` so Ghostty core does not auto-scroll to bottom on keypress or output while the host wrapper is providing explicit scrollback affordances.
 
 This is a deliberate split of responsibilities:
 

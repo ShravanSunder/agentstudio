@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add Agent Studio host-side scrollback UX for embedded Ghostty terminals: always-visible scrollbar, search overlay, scroll-to-bottom indicator, and mouse cursor handling on top of the runtime event plumbing already merged on `main`.
+**Goal:** Add Agent Studio host-side scrollback UX for embedded Ghostty terminals: always-visible native scrollbar, search overlay, scroll-to-bottom indicator, and mouse cursor handling on top of the runtime event plumbing already merged on `main`, while leaving ordinary scroll behavior owned by Ghostty core.
 
 **Architecture:** `origin/main` already contains the Ghostty/runtime event coverage we need: `scrollbar`, `startSearch`, `endSearch`, `searchTotal`, `searchSelected`, `mouseShape`, and `mouseVisibility` all reach `TerminalRuntime`, and the event channel already uses AsyncStream bus posting. This plan only adds the remaining host pieces: a config override for Ghostty core scroll behavior, AppKit wrapper views, `TerminalPaneMountView` composition, Find menu integration, and a small `TerminalRuntime` follow-up to expose mouse state as observable properties for the surface view.
 
-**Smooth Scroll Requirement:** Fix the current mouse-wheel feel as part of this PR. Once the terminal is wrapped in the host scroll view, ordinary wheel/trackpad scrolling should go through `NSScrollView` first, matching Ghostty.app's host behavior, instead of relying on the current raw `ghostty_surface_mouse_scroll(...)` path in `Ghostty.SurfaceView.scrollWheel(with:)`.
+**Smooth Scroll Requirement:** Fix the current mouse-wheel feel as part of this PR by matching Ghostty.app's ownership model: ordinary wheel/trackpad scrolling stays in `Ghostty.SurfaceView.scrollWheel(with:)` and Ghostty core, while the host `NSScrollView` is used for native scrollbar presentation and drag-to-row synchronization.
 
 **Tech Stack:** Swift 6.2, macOS 26, AppKit, GhosttyKit/libghostty, Swift Testing (`@Suite`, `@Test`, `#expect`), mise, swift-format, swiftlint
 
@@ -39,10 +39,10 @@ This plan does **not** cover:
 | File | Responsibility |
 |------|---------------|
 | `Sources/AgentStudio/Features/Terminal/Hosting/TerminalSurfaceActionPerforming.swift` | Small host protocol for sending Ghostty binding actions from AppKit views |
-| `Sources/AgentStudio/Features/Terminal/Hosting/TerminalSurfaceScrollView.swift` | Always-visible host-side `NSScrollView` wrapper consuming `TerminalRuntime.scrollbarState` |
+| `Sources/AgentStudio/Features/Terminal/Hosting/TerminalSurfaceScrollView.swift` | Always-visible host-side `NSScrollView` wrapper consuming `TerminalRuntime.scrollbarState` and translating scrollbar drag into `scroll_to_row` |
 | `Sources/AgentStudio/Features/Terminal/Hosting/TerminalSearchOverlayView.swift` | Floating AppKit search bar for the focused pane |
 | `Sources/AgentStudio/Features/Terminal/Hosting/ScrollToBottomIndicatorView.swift` | Floating jump-to-bottom affordance with unread-output indicator |
-| `Tests/AgentStudioTests/Features/Terminal/Hosting/TerminalSurfaceScrollViewTests.swift` | Scroll math, follow-bottom, deduped drag behavior |
+| `Tests/AgentStudioTests/Features/Terminal/Hosting/TerminalSurfaceScrollViewTests.swift` | Scroll math, clamping, padded document sizing, and drag/visible-rect row synchronization |
 | `Tests/AgentStudioTests/Features/Terminal/Hosting/TerminalSearchOverlayViewTests.swift` | Overlay callback and label behavior |
 | `Tests/AgentStudioTests/Features/Terminal/Hosting/ScrollToBottomIndicatorViewTests.swift` | Indicator visibility and unread-output behavior |
 | `Tests/AgentStudioTests/Features/Terminal/Hosting/TerminalPaneMountViewSearchTests.swift` | Responder-chain search actions and runtime-driven overlay behavior |

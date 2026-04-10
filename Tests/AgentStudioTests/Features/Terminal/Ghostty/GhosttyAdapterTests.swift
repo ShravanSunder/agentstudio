@@ -209,6 +209,30 @@ struct GhosttyAdapterTests {
         )
         #expect(
             adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_MOUSE_SHAPE.rawValue),
+                payload: .mouseShape(rawValue: UInt32(GHOSTTY_MOUSE_SHAPE_POINTER.rawValue))
+            ) == .mouseShapeChanged(shape: .pointer)
+        )
+        #expect(
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_MOUSE_SHAPE.rawValue),
+                payload: .mouseShape(rawValue: UInt32(GHOSTTY_MOUSE_SHAPE_CROSSHAIR.rawValue))
+            ) == .mouseShapeChanged(shape: .crosshair)
+        )
+        #expect(
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_MOUSE_SHAPE.rawValue),
+                payload: .mouseShape(rawValue: UInt32(GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT.rawValue))
+            ) == .mouseShapeChanged(shape: .verticalText)
+        )
+        #expect(
+            adapter.translate(
+                actionTag: UInt32(GHOSTTY_ACTION_MOUSE_SHAPE.rawValue),
+                payload: .mouseShape(rawValue: 999)
+            ) == .mouseShapeChanged(shape: .other(rawValue: 999))
+        )
+        #expect(
+            adapter.translate(
                 actionTag: UInt32(GHOSTTY_ACTION_MOUSE_VISIBILITY.rawValue),
                 payload: .mouseVisibility(rawValue: UInt32(GHOSTTY_MOUSE_HIDDEN.rawValue))
             ) == .mouseVisibilityChanged(isVisible: false)

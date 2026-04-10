@@ -549,8 +549,8 @@ struct PaneCoordinatorHardeningTests {
         #expect(harness.store.pane(oldestClosedPaneId) == nil)
     }
 
-    @Test("restoreView registers runtime before undo lookup and rolls back runtime when restore fails")
-    func restoreView_registersRuntimeBeforeUndoLookup() {
+    @Test("restoreView defers runtime registration until after undo lookup")
+    func restoreView_defersRuntimeRegistrationUntilAfterUndoLookup() {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -566,7 +566,7 @@ struct PaneCoordinatorHardeningTests {
         let restored = harness.coordinator.restoreView(for: pane, worktree: worktree, repo: repo)
 
         #expect(restored == nil)
-        #expect(runtimeWasRegisteredDuringUndoLookup)
+        #expect(!runtimeWasRegisteredDuringUndoLookup)
         #expect(harness.coordinator.runtimeForPane(runtimePaneId) == nil)
     }
 }

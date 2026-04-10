@@ -31,6 +31,22 @@ struct TerminalSurfaceScrollViewTests {
         #expect(performer.actions.last == .scrollToRow(100))
     }
 
+    @Test("scroll wrapper deduplicates repeated live scrolls to the same row")
+    func scrollWrapperDeduplicatesRepeatedLiveScrollsToSameRow() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+
+        scrollView.applyScrollbarState(
+            ScrollbarState(top: 80, bottom: 120, total: 200),
+            cellHeight: 20
+        )
+
+        scrollView.simulateLiveScrollForTesting(documentOffsetY: 1200)
+        scrollView.simulateLiveScrollForTesting(documentOffsetY: 1200)
+
+        #expect(performer.actions == [.scrollToRow(100)])
+    }
+
     @Test("scroll wrapper converts visible rect changes into row updates")
     func scrollWrapperConvertsVisibleRectChangesIntoRowUpdates() {
         let performer = FakeSurfaceActionPerformer()
@@ -86,6 +102,22 @@ struct TerminalSurfaceScrollViewTests {
         #expect(scrollView.maximumDocumentOffsetYForTesting == 3200)
     }
 
+    @Test("no scrollback keeps document height equal to viewport")
+    func noScrollbackKeepsDocumentHeightEqualToViewport() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+
+        scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        scrollView.layoutSubtreeIfNeeded()
+        scrollView.applyScrollbarState(
+            ScrollbarState(top: 0, bottom: 30, total: 30),
+            cellHeight: 20
+        )
+
+        #expect(scrollView.documentHeightForTesting == 600)
+        #expect(scrollView.maximumDocumentOffsetYForTesting == 0)
+    }
+
     @Test("scroll wrapper uses native overlay scroller configuration")
     func scrollWrapperUsesNativeOverlayScrollerConfiguration() {
         let performer = FakeSurfaceActionPerformer()
@@ -93,6 +125,28 @@ struct TerminalSurfaceScrollViewTests {
 
         #expect(scrollView.autohidesScrollersForTesting == false)
         #expect(scrollView.usesOverlayScrollerStyleForTesting == true)
+    }
+
+    @Test("zero cellHeight ignores update until valid metrics arrive")
+    func zeroCellHeightIgnoresUpdateUntilValidMetricsArrive() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+
+        scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        scrollView.layoutSubtreeIfNeeded()
+        scrollView.applyScrollbarState(
+            ScrollbarState(top: 80, bottom: 120, total: 200),
+            cellHeight: 0
+        )
+
+        #expect(scrollView.documentHeightForTesting == 600)
+
+        scrollView.applyScrollbarState(
+            ScrollbarState(top: 80, bottom: 120, total: 200),
+            cellHeight: 20
+        )
+
+        #expect(scrollView.documentHeightForTesting == 3800)
     }
 
     @Test("follow-bottom keeps viewport pinned when already at bottom")
