@@ -46,6 +46,14 @@ enum CommandBarAppMode {
     }
 }
 
+// MARK: - EnterModifier
+
+enum EnterModifier: Sendable {
+    case plain
+    case command
+    case option
+}
+
 // MARK: - CommandBarAction
 
 /// What happens when a command bar item is selected.
@@ -58,6 +66,16 @@ enum CommandBarAction {
     case navigate(CommandBarLevel)
     /// Arbitrary action (e.g., open URL, show dialog)
     case custom(@Sendable () -> Void)
+    /// Resolve worktree behavior at selection time based on presence and modifier keys.
+    case worktreeAction(presence: WorktreePresence)
+}
+
+enum CommandBarItemKind {
+    case tab
+    case pane
+    case worktree
+    case command
+    case other
 }
 
 // MARK: - CommandBarItem
@@ -105,6 +123,36 @@ struct CommandBarItem: Identifiable {
         self.action = action
         self.command = command
     }
+
+    var worktreeOpenState: WorktreeOpenState? {
+        switch action {
+        case .worktreeAction(let presence):
+            return presence.openState
+        case .dispatch, .dispatchTargeted, .navigate, .custom:
+            return nil
+        }
+    }
+
+    var kind: CommandBarItemKind {
+        switch action {
+        case .worktreeAction:
+            return .worktree
+        case .dispatch:
+            return .command
+        case .navigate:
+            return command == nil ? .other : .command
+        case .custom:
+            return .other
+        case .dispatchTargeted(let command, _, let targetType):
+            if command == .selectTab && targetType == .tab {
+                return .tab
+            }
+            if command == .focusPane && (targetType == .pane || targetType == .floatingTerminal) {
+                return .pane
+            }
+            return .command
+        }
+    }
 }
 
 // MARK: - ShortcutKey
@@ -128,16 +176,28 @@ struct ShortcutKey: Identifiable, Hashable {
 // MARK: - CommandBarLevel
 
 /// A navigation level in the command bar (for nested drill-in).
+///
+/// When `scopeLabel` is set, the pill shows the scope label (e.g. "Worktrees · Actions")
+/// and the back row shows `‹ {title}`. When `scopeLabel` is nil, the pill shows `title`
+/// and the back row shows a bare `‹`.
 struct CommandBarLevel: Identifiable {
     let id: String
     let title: String
     let parentLabel: String?
+    let scopeLabel: String?
     let items: [CommandBarItem]
 
-    init(id: String, title: String, parentLabel: String? = nil, items: [CommandBarItem]) {
+    init(
+        id: String,
+        title: String,
+        parentLabel: String? = nil,
+        scopeLabel: String? = nil,
+        items: [CommandBarItem]
+    ) {
         self.id = id
         self.title = title
         self.parentLabel = parentLabel
+        self.scopeLabel = scopeLabel
         self.items = items
     }
 }
@@ -150,4 +210,87 @@ struct CommandBarItemGroup: Identifiable {
     let name: String
     let priority: Int
     let items: [CommandBarItem]
+}
+
+// MARK: - FooterHint
+
+struct FooterHint: Identifiable, Equatable, Sendable {
+    let id: String
+    let key: String
+    let label: String
+}
+
+// MARK: - FooterHintBuilder
+
+enum FooterHintBuilder {
+    static func hints(
+        for item: CommandBarItem?,
+        isNested: Bool,
+        hasTabsOpen: Bool
+    ) -> [FooterHint] {
+        if isNested {
+            return [
+                FooterHint(id: "enter", key: "↵", label: "Select"),
+                FooterHint(id: "back", key: "⌫", label: "Back"),
+                FooterHint(id: "dismiss", key: "esc", label: "Close"),
+            ]
+        }
+
+        guard let item else {
+            return [
+                FooterHint(id: "navigate", key: "↑↓", label: "Navigate"),
+                FooterHint(id: "dismiss", key: "esc", label: "Close"),
+            ]
+        }
+
+        guard let openState = item.worktreeOpenState else {
+            let enterLabel: String
+            if item.kind == .tab || item.kind == .pane {
+                enterLabel = "Go to"
+            } else {
+                enterLabel = "Open"
+            }
+
+            var hints = [FooterHint(id: "enter", key: "↵", label: enterLabel)]
+            if item.hasChildren {
+                hints.append(FooterHint(id: "drill-in", key: "→", label: "Drill in"))
+            }
+            hints.append(FooterHint(id: "navigate", key: "↑↓", label: "Navigate"))
+            hints.append(FooterHint(id: "dismiss", key: "esc", label: "Close"))
+            return hints
+        }
+
+        switch openState {
+        case .notOpen where !hasTabsOpen:
+            return [
+                FooterHint(id: "enter", key: "↵", label: "New tab"),
+                FooterHint(id: "navigate", key: "↑↓", label: "Navigate"),
+                FooterHint(id: "dismiss", key: "esc", label: "Close"),
+            ]
+        case .notOpen:
+            return [
+                FooterHint(id: "enter", key: "↵", label: "Choose"),
+                FooterHint(id: "cmd-enter", key: "⌘↵", label: "New tab"),
+                FooterHint(id: "opt-enter", key: "⌥↵", label: "Open in tab"),
+                FooterHint(id: "navigate", key: "↑↓", label: "Navigate"),
+                FooterHint(id: "dismiss", key: "esc", label: "Close"),
+            ]
+        case .singlePane:
+            return [
+                FooterHint(id: "enter", key: "↵", label: "Go to"),
+                FooterHint(id: "cmd-enter", key: "⌘↵", label: "New tab"),
+                FooterHint(id: "opt-enter", key: "⌥↵", label: "Open in tab"),
+                FooterHint(id: "navigate", key: "↑↓", label: "Navigate"),
+                FooterHint(id: "dismiss", key: "esc", label: "Close"),
+            ]
+        case .multiplePanes:
+            return [
+                FooterHint(id: "enter", key: "↵", label: "Choose pane"),
+                FooterHint(id: "cmd-enter", key: "⌘↵", label: "New tab"),
+                FooterHint(id: "opt-enter", key: "⌥↵", label: "Open in tab"),
+                FooterHint(id: "navigate", key: "↑↓", label: "Navigate"),
+                FooterHint(id: "dismiss", key: "esc", label: "Close"),
+            ]
+        }
+    }
 }

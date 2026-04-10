@@ -472,7 +472,10 @@ extension PaneCoordinator {
         )
         viewRegistry.ensureSlot(for: pane.id)
 
-        let tab = Tab(paneId: pane.id)
+        let tab = Tab(
+            paneId: pane.id,
+            name: Self.defaultTabName(worktree: worktree)
+        )
         store.tabLayoutAtom.appendTab(tab)
         store.tabLayoutAtom.setActiveTab(tab.id)
         ensureTerminalPaneView(pane)
@@ -488,6 +491,24 @@ extension PaneCoordinator {
 
         Self.logger.info("Opened terminal for worktree: \(worktree.name)")
         return pane
+    }
+
+    /// Seed a stable default tab name once at creation time.
+    /// We intentionally do not auto-rename tabs later when branch enrichment changes.
+    private static func defaultTabName(worktree: Worktree) -> String {
+        let folderName = worktree.path.lastPathComponent
+        let branchName = atom(\.paneDisplay).resolvedBranchName(
+            worktree: worktree,
+            enrichment: atom(\.repoCache).worktreeEnrichmentByWorktreeId[worktree.id]
+        )
+
+        if branchName == "detached HEAD" || branchName.isEmpty {
+            return folderName
+        }
+        if branchName == folderName {
+            return branchName
+        }
+        return "\(folderName) · \(branchName)"
     }
 
     private func postRecentTargetOpened(target: RecentWorkspaceTarget) {

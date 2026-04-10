@@ -25,13 +25,21 @@ struct CommandBarView: View {
                 state: state,
                 onArrowUp: { state.moveSelectionUp(totalItems: totalItems) },
                 onArrowDown: { state.moveSelectionDown(totalItems: totalItems) },
-                onEnter: { executeSelected() },
+                onEnter: { modifier in executeSelected(modifier: modifier) },
                 onBackspaceOnEmpty: { handleBackspace() }
             )
 
             // Separator
             Divider()
                 .opacity(0.3)
+
+            // Back row when nested
+            if state.isNested {
+                CommandBarBackRow(
+                    label: state.backRowLabel,
+                    onBack: { state.popToRoot() }
+                )
+            }
 
             // Results list
             CommandBarResultsList(
@@ -48,8 +56,7 @@ struct CommandBarView: View {
 
             // Footer
             CommandBarFooter(
-                isNested: state.isNested,
-                selectedHasChildren: selectedItem?.hasChildren ?? false
+                hints: footerHints
             )
         }
         .frame(maxWidth: .infinity)
@@ -111,14 +118,22 @@ struct CommandBarView: View {
         return ids
     }
 
-    // MARK: - Actions
-
-    private func executeSelected() {
-        guard let item = selectedItem else { return }
-        executeItem(item)
+    private var footerHints: [FooterHint] {
+        FooterHintBuilder.hints(
+            for: selectedItem,
+            isNested: state.isNested,
+            hasTabsOpen: !store.tabs.isEmpty
+        )
     }
 
-    private func executeItem(_ item: CommandBarItem) {
+    // MARK: - Actions
+
+    private func executeSelected(modifier: EnterModifier = .plain) {
+        guard let item = selectedItem else { return }
+        executeItem(item, modifier: modifier)
+    }
+
+    private func executeItem(_ item: CommandBarItem, modifier: EnterModifier = .plain) {
         // Block execution of dimmed (unavailable) commands
         if dimmedItemIds.contains(item.id) { return }
 
@@ -141,6 +156,60 @@ struct CommandBarView: View {
             state.recordRecent(itemId: item.id)
             onDismiss()
             closure()
+
+        case .worktreeAction(let presence):
+            executeResolvedWorktreeAction(
+                resolution: CommandBarWorktreeActionResolver.resolve(
+                    presence: presence,
+                    modifier: modifier,
+                    hasTabsOpen: !store.tabs.isEmpty
+                ),
+                presence: presence,
+                itemId: item.id
+            )
+        }
+    }
+
+    private func executeResolvedWorktreeAction(
+        resolution: CommandBarWorktreeActionResolution,
+        presence: WorktreePresence,
+        itemId: String
+    ) {
+        switch resolution {
+        case .dispatch(let command, let target, let targetType):
+            state.recordRecent(itemId: itemId)
+            onDismiss()
+            dispatcher.dispatch(command, target: target, targetType: targetType)
+
+        case .showOpenChoice:
+            guard let worktree = store.worktree(presence.worktreeId),
+                let repo = store.repo(containing: presence.worktreeId)
+            else {
+                onDismiss()
+                return
+            }
+            state.pushLevel(
+                CommandBarDataSource.buildWorktreeOpenChoiceLevel(
+                    worktree: worktree,
+                    repo: repo,
+                    hasTabsOpen: !store.tabs.isEmpty
+                )
+            )
+
+        case .showPaneChoice:
+            guard let worktree = store.worktree(presence.worktreeId),
+                let repo = store.repo(containing: presence.worktreeId)
+            else {
+                onDismiss()
+                return
+            }
+            state.pushLevel(
+                CommandBarDataSource.buildWorktreePaneDrillInLevel(
+                    presence: presence,
+                    worktree: worktree,
+                    repo: repo
+                )
+            )
         }
     }
 

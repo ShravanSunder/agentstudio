@@ -226,6 +226,10 @@ final class TabBarAdapter {
     }
 
     private func tabDisplayTitle(for tab: Tab) -> String {
+        if tab.hasCustomName {
+            return tab.name
+        }
+
         let paneLabels = tab.activePaneIds.map { paneDisplayTitle(for: $0) }
         if paneLabels.count > 1 {
             return paneLabels.joined(separator: " | ")

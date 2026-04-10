@@ -2,22 +2,15 @@ import SwiftUI
 
 // MARK: - CommandBarFooter
 
-/// Keyboard hints footer: "↵ Open  ↑↓ Navigate  esc Dismiss"
+/// Dynamic keyboard hints footer for the selected item.
 struct CommandBarFooter: View {
-    let isNested: Bool
-    let selectedHasChildren: Bool
+    let hints: [FooterHint]
 
     var body: some View {
         HStack(spacing: 16) {
-            footerHint("↵", isNested ? "Select" : "Open")
-            if selectedHasChildren && !isNested {
-                footerHint("→", "Drill in")
+            ForEach(hints) { hint in
+                footerHint(hint.key, hint.label)
             }
-            footerHint("↑↓", "Navigate")
-            if isNested {
-                footerHint("⌫", "Back")
-            }
-            footerHint("esc", "Dismiss")
         }
         .frame(height: 32)
         .frame(maxWidth: .infinity, alignment: .leading)

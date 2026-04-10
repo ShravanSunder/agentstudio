@@ -82,7 +82,6 @@ struct CommandBarDataSourceTests {
         #expect(tabItems.isEmpty)
         #expect(paneItems.isEmpty)
     }
-
     // MARK: - Commands Scope
 
     @Test
@@ -266,6 +265,55 @@ struct CommandBarDataSourceTests {
     }
 
     @Test
+    func test_everythingScope_panesGroupSortsAheadOfTabs() {
+        let store = makeStore()
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        store.appendTab(Tab(paneId: pane.id))
+
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
+        let groups = CommandBarDataSource.grouped(items)
+
+        let names = groups.map(\.name)
+        guard let panesIndex = names.firstIndex(of: "Panes"),
+            let tabsIndex = names.firstIndex(of: "Tabs")
+        else {
+            Issue.record("Expected both Panes and Tabs groups")
+            return
+        }
+        #expect(panesIndex < tabsIndex)
+    }
+
+    @Test
+    func test_everythingScope_namedTabUsesCustomTitle() {
+        let store = makeStore()
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        let tab = Tab(paneId: pane.id, name: "agent-vm")
+        store.appendTab(tab)
+
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
+        let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
+
+        #expect(tabItem?.title == "agent-vm")
+    }
+
+    @Test
+    func test_everythingScope_paneSubtitleIncludesOwningTabTitle() {
+        let store = makeStore()
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        let tab = Tab(paneId: pane.id, name: "agent-vm")
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
+        let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
+
+        #expect(paneItem?.subtitle == "agent-vm · Tab 1 · Active")
+    }
+
+    @Test
     func test_everythingScope_webviewPaneUsesHostInTitle() throws {
         let store = makeStore()
         let pane = store.createPane(
@@ -377,7 +425,7 @@ struct CommandBarDataSourceTests {
             scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
 
-        #expect(tabItem?.title == "Empty Tab")
+        #expect(tabItem?.title == "Empty")
     }
 
     @Test

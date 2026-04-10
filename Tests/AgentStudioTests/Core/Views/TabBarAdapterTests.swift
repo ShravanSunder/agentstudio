@@ -220,6 +220,23 @@ final class TabBarAdapterTests {
     }
 
     @Test
+    func test_namedTab_prefersStoredTabNameOverDerivedPaneContext() async throws {
+        resetFixture()
+
+        let pane = store.createPane(
+            source: .floating(launchDirectory: nil, title: "Ephemeral shell"),
+            title: "Ephemeral shell"
+        )
+        let tab = Tab(paneId: pane.id, name: "agent-vm.live-validation")
+        store.appendTab(tab)
+
+        await waitForAdapterRefresh()
+
+        let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
+        #expect(tabItem.displayTitle == "agent-vm.live-validation")
+    }
+
+    @Test
     func test_worktreeBackedPane_usesEnrichedDisplayLabel() async throws {
         resetFixture()
 

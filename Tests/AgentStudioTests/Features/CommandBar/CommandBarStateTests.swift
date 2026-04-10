@@ -398,19 +398,19 @@ final class CommandBarStateTests {
     }
 
     @Test
-    func test_scopePillParent_returnsParentLabel() {
+    func test_scopePillLabel_returnsScopeLabelWhenPresent() {
         // Arrange
-        let level = makeCommandBarLevel(parentLabel: "Tab")
+        let level = makeCommandBarLevel(title: "Actions", parentLabel: "Worktrees", scopeLabel: "Worktrees")
 
         // Act
         state.pushLevel(level)
 
         // Assert
-        #expect(state.scopePillParent == "Tab")
+        #expect(state.scopePillLabel == "Worktrees")
     }
 
     @Test
-    func test_scopePillChild_returnsLevelTitle() {
+    func test_scopePillLabel_returnsLevelTitle() {
         // Arrange
         let level = makeCommandBarLevel(title: "Close Tab")
 
@@ -418,7 +418,16 @@ final class CommandBarStateTests {
         state.pushLevel(level)
 
         // Assert
-        #expect(state.scopePillChild == "Close Tab")
+        #expect(state.scopePillLabel == "Close Tab")
+    }
+
+    @Test
+    func test_backRowLabel_returnsTitleWhenScopeLabelPresent() {
+        let level = makeCommandBarLevel(title: "Actions", parentLabel: "Worktrees", scopeLabel: "Worktrees")
+
+        state.pushLevel(level)
+
+        #expect(state.backRowLabel == "Actions")
     }
 
     // MARK: - Selection
@@ -631,15 +640,15 @@ final class CommandBarStateTests {
     // MARK: - Scope Pill at Root (nil behavior)
 
     @Test
-    func test_scopePillParent_atRoot_returnsNil() {
+    func test_scopePillLabel_atRoot_returnsNil() {
         // Assert — no nested level, should be nil
-        #expect(state.scopePillParent == nil)
+        #expect(state.scopePillLabel == nil)
     }
 
     @Test
-    func test_scopePillChild_atRoot_returnsNil() {
+    func test_backRowLabel_atRoot_returnsNil() {
         // Assert
-        #expect(state.scopePillChild == nil)
+        #expect(state.backRowLabel == nil)
     }
 
     // MARK: - Selection Edge Cases (out-of-bounds initial state)

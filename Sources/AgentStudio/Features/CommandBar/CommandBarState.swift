@@ -81,9 +81,15 @@ final class CommandBarState {
     /// Current level for display (last in stack, or nil for root).
     var currentLevel: CommandBarLevel? { navigationStack.last }
 
-    /// Scope pill text components (only when nested).
-    var scopePillParent: String? { currentLevel?.parentLabel }
-    var scopePillChild: String? { currentLevel?.title }
+    /// Pill label: shows scopeLabel if set, otherwise falls back to title.
+    var scopePillLabel: String? { currentLevel?.scopeLabel ?? currentLevel?.title }
+
+    /// Back row label: shows title when scopeLabel is set (pill shows category),
+    /// nil when scopeLabel is absent (pill already shows title, bare ‹ suffices).
+    var backRowLabel: String? {
+        guard let level = currentLevel else { return nil }
+        return level.scopeLabel != nil ? level.title : nil
+    }
 
     // MARK: - Placeholder
 

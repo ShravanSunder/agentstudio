@@ -3,6 +3,8 @@ import Foundation
 /// A tab in the workspace. Contains panes organized into arrangements.
 /// Order is implicit — determined by array position in the workspace's tabs array.
 struct Tab: Codable, Identifiable, Hashable {
+    static let defaultName = "Tab"
+
     // Memberwise equality so PaneTabViewController detects layout/focus/arrangement changes.
     // Hash by id only (Hashable contract: equal objects must have equal hashes,
     // but equal hashes need not imply equal objects).
@@ -35,7 +37,7 @@ struct Tab: Codable, Identifiable, Hashable {
     }
 
     /// Create a tab with a single pane.
-    init(id: UUID = UUID(), paneId: UUID, name: String = "Tab") {
+    init(id: UUID = UUID(), paneId: UUID, name: String = Self.defaultName) {
         self.id = id
         self.name = name
         self.allPaneIds = [paneId]
@@ -56,7 +58,7 @@ struct Tab: Codable, Identifiable, Hashable {
     /// Precondition: `arrangements` must contain exactly one with `isDefault == true`.
     init(
         id: UUID = UUID(),
-        name: String = "Tab",
+        name: String = Self.defaultName,
         allPaneIds: [UUID],
         arrangements: [PaneArrangement],
         activeArrangementId: UUID,
@@ -78,7 +80,7 @@ struct Tab: Codable, Identifiable, Hashable {
 
     init(
         id: UUID = UUID(),
-        name: String = "Tab",
+        name: String = Self.defaultName,
         panes: [UUID],
         arrangements: [PaneArrangement],
         activeArrangementId: UUID,
@@ -131,6 +133,10 @@ struct Tab: Codable, Identifiable, Hashable {
 
     var paneIds: [UUID] {
         activePaneIds
+    }
+
+    var hasCustomName: Bool {
+        name != Self.defaultName
     }
 
     // MARK: - Arrangement Mutation Helpers

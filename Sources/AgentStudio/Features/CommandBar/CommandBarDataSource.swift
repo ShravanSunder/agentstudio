@@ -10,7 +10,7 @@ enum CommandBarDataSource {
 
     // MARK: - Group Names & Priorities
 
-    private enum Group {
+    enum Group {
         static let recent = "Recent"
         static let tabs = "Tabs"
         static let panes = "Panes"
@@ -27,10 +27,10 @@ enum CommandBarDataSource {
         static let authCommands = "Auth"
     }
 
-    private enum Priority {
+    enum Priority {
         static let recent = 0
-        static let tabs = 1
-        static let panes = 2
+        static let panes = 1
+        static let tabs = 2
         static let commands = 3
         static let worktrees = 4
     }
@@ -99,8 +99,8 @@ enum CommandBarDataSource {
         focus: WorkspaceFocus
     ) -> [CommandBarItem] {
         var items: [CommandBarItem] = []
-        items.append(contentsOf: tabItems(store: store, repoCache: repoCache))
         items.append(contentsOf: paneItems(store: store, repoCache: repoCache))
+        items.append(contentsOf: tabItems(store: store, repoCache: repoCache))
         items.append(
             contentsOf: allCommandItems(
                 dispatcher: dispatcher,
@@ -109,7 +109,7 @@ enum CommandBarDataSource {
                 focus: focus,
                 groupName: Group.commands,
                 priority: Priority.commands))
-        items.append(contentsOf: worktreeItems(store: store))
+        items.append(contentsOf: everythingWorktreeItems(store: store))
         return items
     }
 
@@ -136,6 +136,11 @@ enum CommandBarDataSource {
             }()
 
             let tabId = tab.id
+            var keywords = ["tab", "switch"]
+            if tab.hasCustomName {
+                keywords.append(tab.name)
+            }
+            keywords.append(contentsOf: tab.arrangements.filter { !$0.isDefault }.map(\.name))
             return CommandBarItem(
                 id: "tab-\(tab.id.uuidString)",
                 title: title,
@@ -143,7 +148,7 @@ enum CommandBarDataSource {
                 icon: "rectangle.stack",
                 group: Group.tabs,
                 groupPriority: Priority.tabs,
-                keywords: ["tab", "switch"],
+                keywords: keywords,
                 action: .dispatchTargeted(.selectTab, target: tabId, targetType: .tab),
                 command: .selectTab
             )
@@ -173,7 +178,13 @@ enum CommandBarDataSource {
                     CommandBarItem(
                         id: "pane-\(pane.id.uuidString)",
                         title: paneDisplayLabel(for: pane, store: store, repoCache: repoCache),
-                        subtitle: "Tab \(tabIndex + 1)" + (isActive ? " · Active" : ""),
+                        subtitle: paneDisplaySubtitle(
+                            for: tab,
+                            tabIndex: tabIndex,
+                            isActive: isActive,
+                            store: store,
+                            repoCache: repoCache
+                        ),
                         icon: iconForPane(pane),
                         iconColor: nil,
                         group: Group.panes,
@@ -606,75 +617,6 @@ enum CommandBarDataSource {
         )
     }
 
-    // MARK: - Repos Scope (grouped by repo)
-
-    private static func repoScopeItems(store: WorkspaceStore) -> [CommandBarItem] {
-        var items: [CommandBarItem] = []
-        let singleWorktreeRepos = store.repos
-            .filter { $0.worktrees.count <= 1 }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        let multiWorktreeRepos = store.repos
-            .filter { $0.worktrees.count > 1 }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-
-        for repo in singleWorktreeRepos {
-            for worktree in repo.worktrees {
-                items.append(
-                    CommandBarItem(
-                        id: "repo-wt-\(worktree.id.uuidString)",
-                        title: worktree.name,
-                        subtitle: worktree.isMainWorktree ? "main worktree" : nil,
-                        icon: worktree.isMainWorktree ? "star.fill" : "arrow.triangle.branch",
-                        group: "Repos",
-                        groupPriority: 0,
-                        keywords: ["repo", "worktree", repo.name, worktree.name],
-                        action: .dispatchTargeted(.openWorktree, target: worktree.id, targetType: .worktree),
-                        command: .openWorktree
-                    ))
-            }
-        }
-
-        for (repoIndex, repo) in multiWorktreeRepos.enumerated() {
-            let groupName = "\(repo.name) (worktrees)"
-            for worktree in repo.worktrees {
-                items.append(
-                    CommandBarItem(
-                        id: "repo-wt-\(worktree.id.uuidString)",
-                        title: worktree.name,
-                        subtitle: worktree.isMainWorktree ? "main worktree" : nil,
-                        icon: worktree.isMainWorktree ? "star.fill" : "arrow.triangle.branch",
-                        group: groupName,
-                        groupPriority: repoIndex + 1,
-                        keywords: ["repo", "worktree", repo.name, worktree.name],
-                        action: .dispatchTargeted(.openWorktree, target: worktree.id, targetType: .worktree),
-                        command: .openWorktree
-                    ))
-            }
-        }
-
-        return items
-    }
-
-    // MARK: - Worktree Items
-
-    private static func worktreeItems(store: WorkspaceStore) -> [CommandBarItem] {
-        store.repos.flatMap { repo in
-            repo.worktrees.map { worktree in
-                CommandBarItem(
-                    id: "wt-\(worktree.id.uuidString)",
-                    title: worktree.name,
-                    subtitle: repo.name,
-                    icon: "arrow.triangle.branch",
-                    group: Group.worktrees,
-                    groupPriority: Priority.worktrees,
-                    keywords: ["worktree", repo.name, worktree.name],
-                    action: .dispatchTargeted(.openWorktree, target: worktree.id, targetType: .worktree),
-                    command: .openWorktree
-                )
-            }
-        }
-    }
-
     // MARK: - Helpers
 
     private static func iconForPane(_ pane: Pane) -> String {
@@ -770,11 +712,29 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> String {
+        if tab.hasCustomName {
+            return tab.name
+        }
+
         let primaryPaneId = tab.activePaneId ?? tab.activePaneIds.first
         guard let paneId = primaryPaneId else { return "Empty Tab" }
 
         let parts = displayParts(for: paneId, store: store, repoCache: repoCache)
         return parts.repoName ?? parts.primaryLabel
+    }
+
+    private static func paneDisplaySubtitle(
+        for tab: Tab,
+        tabIndex: Int,
+        isActive: Bool,
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom
+    ) -> String {
+        var parts = [tabDisplayTitle(tab: tab, store: store, repoCache: repoCache), "Tab \(tabIndex + 1)"]
+        if isActive {
+            parts.append("Active")
+        }
+        return parts.joined(separator: " · ")
     }
 
     private static func displayParts(
