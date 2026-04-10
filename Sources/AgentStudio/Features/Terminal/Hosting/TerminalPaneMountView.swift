@@ -1,5 +1,6 @@
 import AppKit
 import GhosttyKit
+import Observation
 
 /// Terminal view wrapping Ghostty's SurfaceView via SurfaceManager.
 /// This is a host-only view — PaneCoordinator creates surfaces and
@@ -15,6 +16,11 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
     private var ghosttySurface: Ghostty.SurfaceView?
     private let ghosttyMountView = GhosttyMountView()
+    private var surfaceScrollView: TerminalSurfaceScrollView?
+    private var searchOverlayView: TerminalSearchOverlayView?
+    private var scrollToBottomIndicatorView: ScrollToBottomIndicatorView?
+    private weak var boundRuntime: TerminalRuntime?
+    private var actionPerformerOverrideForTesting: (any TerminalSurfaceActionPerforming)?
     private(set) var isProcessRunning = false
     private var errorOverlay: SurfaceErrorOverlayView?
     private var startupOverlay: SurfaceStartupOverlayView?
@@ -127,6 +133,10 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         ])
     }
 
+    private var currentActionPerformer: (any TerminalSurfaceActionPerforming)? {
+        actionPerformerOverrideForTesting ?? ghosttySurface
+    }
+
     private var lastReportedSurfaceSize: NSSize = .zero
 
     override func layout() {
@@ -168,15 +178,18 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     func displaySurface(_ surfaceView: Ghostty.SurfaceView) {
         // Remove existing surface if any
         ghosttySurface?.onCloseRequested = nil
-        ghosttyMountView.unmountCurrentSurface()
+        ghosttyMountView.unmountCurrentView()
         clearPlaceholder()
         RestoreTrace.log(
             "TerminalPaneMountView.displaySurface pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") hostBounds=\(NSStringFromRect(bounds)) incomingSurfaceFrame=\(NSStringFromRect(surfaceView.frame)) incomingSurfaceMetrics={\(surfaceView.metricsSnapshotDescription())}"
         )
 
-        ghosttyMountView.mount(surfaceView)
+        let wrappedScrollView = TerminalSurfaceScrollView(actionPerformer: surfaceView)
+        wrappedScrollView.embedSurfaceView(surfaceView)
+        ghosttyMountView.mount(wrappedScrollView)
 
         self.ghosttySurface = surfaceView
+        self.surfaceScrollView = wrappedScrollView
         self.lastReportedSurfaceSize = .zero
         self.shouldSuppressProcessExitedOverlayAfterTermination = false
         self.hasObservedEffectiveTerminationDelivery = false
@@ -189,6 +202,11 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         self.layer?.backgroundColor = NSColor.clear.cgColor
 
         beginRestorePresentationIfNeeded()
+        ensureScrollToBottomIndicator()
+        if let boundRuntime {
+            observeRuntimeState(runtime: boundRuntime)
+            surfaceView.bindRuntime(boundRuntime)
+        }
         surfaceView.onCloseRequested = { [weak self] processAlive in
             self?.handleSurfaceClose(processAlive: processAlive)
         }
@@ -196,11 +214,117 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
     func removeSurface() {
         ghosttySurface?.onCloseRequested = nil
-        ghosttyMountView.unmountCurrentSurface()
+        ghosttyMountView.unmountCurrentView()
         ghosttySurface = nil
+        surfaceScrollView = nil
         surfaceId = nil
         shouldSuppressProcessExitedOverlayAfterTermination = false
         hasObservedEffectiveTerminationDelivery = false
+    }
+
+    func bind(runtime: TerminalRuntime) {
+        boundRuntime = runtime
+        ghosttySurface?.bindRuntime(runtime)
+        observeRuntimeState(runtime: runtime)
+    }
+
+    func installActionPerformerForTesting(_ performer: any TerminalSurfaceActionPerforming) {
+        actionPerformerOverrideForTesting = performer
+        scrollToBottomIndicatorView?.actionPerformer = performer
+    }
+
+    @objc func startSearch(_ sender: Any?) {
+        ensureSearchOverlay()
+        _ = currentActionPerformer?.performBindingAction("start_search")
+    }
+
+    @objc func findNext(_ sender: Any?) {
+        _ = currentActionPerformer?.performBindingAction("navigate_search:next")
+    }
+
+    @objc func findPrevious(_ sender: Any?) {
+        _ = currentActionPerformer?.performBindingAction("navigate_search:previous")
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        guard searchOverlayView != nil else {
+            super.cancelOperation(sender)
+            return
+        }
+
+        _ = currentActionPerformer?.performBindingAction("end_search")
+        hideSearchOverlay()
+    }
+
+    private func ensureSearchOverlay() {
+        guard searchOverlayView == nil else { return }
+
+        let overlay = TerminalSearchOverlayView()
+        overlay.onQueryChanged = { [weak self] query in
+            _ = self?.currentActionPerformer?.performBindingAction("search:\(query)")
+        }
+        overlay.onNavigate = { [weak self] direction in
+            let action = direction == .next ? "navigate_search:next" : "navigate_search:previous"
+            _ = self?.currentActionPerformer?.performBindingAction(action)
+        }
+        overlay.onClose = { [weak self] in
+            _ = self?.currentActionPerformer?.performBindingAction("end_search")
+            self?.hideSearchOverlay()
+        }
+        addSubview(overlay)
+        NSLayoutConstraint.activate([
+            overlay.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            overlay.centerXAnchor.constraint(equalTo: centerXAnchor),
+            overlay.widthAnchor.constraint(greaterThanOrEqualToConstant: 360),
+            overlay.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+        ])
+        searchOverlayView = overlay
+    }
+
+    private func hideSearchOverlay() {
+        searchOverlayView?.removeFromSuperview()
+        searchOverlayView = nil
+    }
+
+    private func ensureScrollToBottomIndicator() {
+        guard scrollToBottomIndicatorView == nil else { return }
+        let indicator = ScrollToBottomIndicatorView()
+        indicator.translatesAutoresizingMaskIntoConstraints = false
+        indicator.actionPerformer = currentActionPerformer
+        addSubview(indicator)
+        NSLayoutConstraint.activate([
+            indicator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+            indicator.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
+        ])
+        scrollToBottomIndicatorView = indicator
+    }
+
+    private func observeRuntimeState(runtime: TerminalRuntime) {
+        withObservationTracking {
+            _ = runtime.scrollbarState
+            _ = runtime.cellSize
+            _ = runtime.searchState
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self, let currentRuntime = self.boundRuntime, currentRuntime === runtime else { return }
+                if let scrollbarState = currentRuntime.scrollbarState {
+                    self.surfaceScrollView?.applyScrollbarState(
+                        scrollbarState, cellHeight: currentRuntime.cellSize.height)
+                    self.scrollToBottomIndicatorView?.applyScrollbarState(scrollbarState)
+                }
+                if let searchState = currentRuntime.searchState {
+                    self.ensureSearchOverlay()
+                    self.searchOverlayView?.update(
+                        query: searchState.query,
+                        totalMatches: searchState.totalMatches,
+                        selectedMatchIndex: searchState.selectedMatchIndex
+                    )
+                } else {
+                    self.hideSearchOverlay()
+                }
+                self.observeRuntimeState(runtime: currentRuntime)
+            }
+        }
     }
 
     @discardableResult
@@ -485,7 +609,20 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     // MARK: - Hit Testing
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // Normal mode: custom routing for error overlay and Ghostty surface
+        if let overlay = searchOverlayView {
+            let overlayPoint = convert(point, to: overlay)
+            if overlay.bounds.contains(overlayPoint) {
+                return overlay.hitTest(overlayPoint) ?? overlay
+            }
+        }
+
+        if let indicator = scrollToBottomIndicatorView, !indicator.isHidden {
+            let indicatorPoint = convert(point, to: indicator)
+            if indicator.bounds.contains(indicatorPoint) {
+                return indicator.hitTest(indicatorPoint) ?? indicator
+            }
+        }
+
         if let overlay = errorOverlay, !overlay.isHidden {
             let overlayPoint = convert(point, to: overlay)
             if overlay.bounds.contains(overlayPoint) {
@@ -535,6 +672,30 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
         var isShowingErrorOverlayForTesting: Bool {
             errorOverlay?.isHidden == false
+        }
+
+        func ensureSearchOverlayForTesting() {
+            ensureSearchOverlay()
+            layoutSubtreeIfNeeded()
+        }
+
+        func ensureScrollToBottomIndicatorForTesting() {
+            ensureScrollToBottomIndicator()
+            layoutSubtreeIfNeeded()
+        }
+
+        var searchOverlayFrameForTesting: NSRect? {
+            searchOverlayView?.frame
+        }
+
+        var searchOverlayInteractivePointForTesting: NSPoint? {
+            guard let searchOverlayView else { return nil }
+            let pointInOverlay = searchOverlayView.interactivePointForTesting
+            return convert(pointInOverlay, from: searchOverlayView)
+        }
+
+        var scrollToBottomIndicatorFrameForTesting: NSRect? {
+            scrollToBottomIndicatorView?.frame
         }
     }
 #endif

@@ -2,7 +2,20 @@
 
 ## Problem
 
-Agent Studio's embedded Ghostty terminal has no native scrollbar, no scrollback search, and no visual indicator when the viewport is scrolled away from the bottom. Users working with AI agents frequently need to scroll up to read long command output (build logs, plans, test results) while simultaneously typing follow-up commands. The terminal should support this workflow without fighting the user.
+Agent Studio now has the deferred Ghostty/runtime event coverage on `main`, but it still does not expose a usable host-side scrollback UX for embedded terminals. We can receive terminal scrollbar and search facts from Ghostty core, yet the host app still mounts `Ghostty.SurfaceView` directly into a plain `NSView`, so there is no native scrollbar UI, no visible scrollback search UI, no scroll-to-bottom affordance, and no host-side cursor handling for the promoted mouse events.
+
+The goal of this work is to add the macOS host-side UI that sits on top of the already-landed libghostty/runtime primitives.
+
+## Current Foundation On Main
+
+This is the key refresh after merging `origin/main`:
+
+- `GhosttyActionRouter` and `GhosttyActionRouter+ObservedActions` already route scrollbar/search/mouse actions into `TerminalRuntime`.
+- `GhosttyAdapter` already translates those actions into typed `GhosttyEvent` values.
+- `TerminalRuntime` already owns `scrollbarState` and `searchState`.
+- `PaneRuntimeEventChannel` already uses the AsyncStream outbound bus continuation.
+
+This design does **not** re-implement that infrastructure. It consumes it.
 
 ## Scope
 
@@ -10,316 +23,257 @@ Agent Studio's embedded Ghostty terminal has no native scrollbar, no scrollback 
 
 | Feature | Detail |
 |---------|--------|
-| Native scrollbar | Always visible, overlay style. Agent Studio builds its own scrollbar because Ghostty's `SurfaceScrollView` is part of Ghostty.app (macOS host code), not libghostty core. The `scrollbar` config has no effect in Agent Studio — it's only consumed by Ghostty.app. No double-scrollbar risk. |
-| Follow-bottom | Only auto-follow new output when viewport is already pinned to bottom |
-| No keystroke scroll-to-bottom | Typing while scrolled up does NOT yank viewport down. Requires Ghostty config override: `scroll-to-bottom = no-keystroke, no-output`. Without this, Ghostty core auto-scrolls on keypress regardless of host-side wrapper logic. |
-| Scroll-to-bottom button | Bottom-right floating button when scrolled up; icon changes when new unread output exists below viewport; follows management mode visual style |
-| Scrollback search | `cmd+f` opens top-center overlay in focused pane; `cmd+g` / `shift+cmd+g` navigate matches; Escape clears highlights and closes |
-| Find menu | macOS Edit > Find menu entries wired to responder chain |
-| Mouse cursor shape | Un-defer `mouseShape` action, set `NSCursor` for links/prompts/default |
-| Mouse visibility | Un-defer `mouseVisibility` action, hide cursor while typing |
-| Click-to-move-cursor | Already works via Ghostty core — add verification test only |
-
-### Coordination with Deferred Contracts Branch
-
-The `agent-studio.deffered-contracts` worktree is implementing `docs/superpowers/plans/2026-04-06-deferred-pane-runtime-contracts.md` (C15 + C16) in parallel. That plan promotes ALL remaining deferred Ghostty tags to typed events on the bus.
-
-**Overlap:** Both branches promote these 7 tags from `deferredTags` → `explicitlyRoutedTags`: `scrollbar`, `startSearch`, `endSearch`, `searchTotal`, `searchSelected`, `mouseShape`, `mouseVisibility`. Both branches add new `GhosttyEvent` cases and update `ScrollbarState`.
-
-**Merge order:** This branch (`native-scrollbars`) should merge first. The deferred-contracts plan explicitly accounts for 5 of the 7 tags: *"If the scrollbar branch merges first, those 5 tags are done. Skip those and do the remaining 9."* The deferred-contracts plan must ALSO skip `mouseShape` and `mouseVisibility` (total 7 tags to skip, not 5). Flag this to the other agent before they start Task 2.
-
-**`ScrollbarState` shape change:** This branch changes `ScrollbarState` from `{top, bottom, total}` to `{totalRows, firstVisibleRow, visibleRowCount}`. The deferred-contracts branch must adopt the new field names after rebase.
-
-**Exhaustive switch conflicts:** Both branches add cases to `GhosttyEvent`, `GhosttyEvent.actionPolicy`, `GhosttyEvent.eventName`, and `TerminalRuntime.handleGhosttyEvent()`. These will produce merge conflicts on the exhaustive switches that need manual resolution during rebase.
+| Always-visible native scrollbar | Agent Studio host-side `NSScrollView` wrapper around embedded terminal surfaces. This is an Agent Studio product choice, not Ghostty parity. |
+| Follow-bottom | Only auto-follow new output when the viewport was already pinned to bottom. |
+| No keystroke scroll-to-bottom | Disable Ghostty core auto-scroll on keypress and output using a host-owned config override. |
+| Scroll-to-bottom button | Bottom-right floating affordance when scrolled up; icon/badge changes when unread output exists below viewport. |
+| Scrollback search | `cmd+f`, `cmd+g`, `shift+cmd+g`, Escape, and host-side visible search overlay for the focused pane. |
+| Find menu | Edit > Find menu entries routed through the responder chain. |
+| Mouse cursor management | Consume promoted `mouseShape` and `mouseVisibility` events via runtime-owned observable state, then apply `NSCursor` behavior on the surface view. |
 
 ### Out of Scope
 
-- Cross-pane search (`cmd+shift+f`) — future work
-- macOS system Find pasteboard integration — add later if requested
-- Click-to-move-cursor host-side implementation (already works in Ghostty core)
-- Command finished notification UI (event plumbing already landed)
-- Scrollbar visibility configuration (always visible, no user toggle)
+- Cross-pane search
+- Find pasteboard integration
 - Search bar dragging/repositioning
+- Click-to-move-cursor implementation in core
+- Command-finished notification UI
+- Respecting Ghostty/macOS `scrollbar = system` behavior in Agent Studio
+
+## libghostty vs Ghostty macOS App
+
+This distinction is important:
+
+- `libghostty` / embedded runtime owns terminal state, scrollback, search thread, binding actions, and runtime action callbacks.
+- Ghostty's macOS app adds host-side AppKit/SwiftUI presentation such as `SurfaceScrollView`, search overlay UI, menu integration, and config-to-UI glue.
+
+Agent Studio embeds libghostty directly. It does **not** instantiate Ghostty.app's `SurfaceScrollView` or its search overlay. That means:
+
+1. Scrollbar and search events from Ghostty core are already useful inputs.
+2. The visible scrollbar/search UI still has to be built in Agent Studio's host layer.
+3. The host should reuse Ghostty's action semantics (`scroll_to_row`, `start_search`, `search:`, `navigate_search:*`, `end_search`) rather than inventing new ones.
+
+## Product Direction
+
+### Scrollbar Visibility
+
+Agent Studio will use an **always-visible** scrollbar.
+
+This is an intentional product divergence from Ghostty.app, which respects `scrollbar = system|never` in its macOS host code. Agent Studio is choosing a more explicit scrollback affordance for AI-heavy workflows.
+
+### Scroll-to-Bottom Behavior
+
+Agent Studio will override Ghostty's default scroll behavior by loading a host-owned config fragment before `ghostty_config_finalize`:
+
+```text
+scroll-to-bottom = no-keystroke, no-output
+```
+
+This is required because Ghostty core auto-scroll behavior is implemented below the host wrapper. Without this override, typing while reading scrollback would still yank the viewport to bottom even if the host-side scroll wrapper tried not to.
 
 ## Architecture
 
 ### View Hierarchy
 
-```
-TerminalPaneMountView (composition root, responder chain participant)
-├── TerminalSurfaceScrollView (NSScrollView wrapper — always visible overlay scrollbar)
-│   └── documentView (NSView — height represents total scrollback in pixels)
-│       └── GhosttyMountView (thin container)
-│           └── Ghostty.SurfaceView (Metal rendering, fills visible rect)
-├── TerminalSearchOverlayView (top-center floating, pure AppKit)
-├── ScrollToBottomIndicatorView (bottom-right floating, pure AppKit)
-├── SurfaceErrorOverlayView (existing)
-└── SurfaceStartupOverlayView (existing)
-```
-
-### Why Pure AppKit (No SwiftUI Overlays)
-
-Research confirmed that `NSHostingView` does NOT participate in AppKit's responder chain for Find menu actions (`startSearch:`, `findNext:`, `findPrevious:`, `cancelOperation:`). Since the search overlay needs these responder chain methods to integrate with the macOS Edit > Find menu, all new views are pure AppKit `NSView` subclasses.
-
-The existing codebase pattern for overlays (`SurfaceErrorOverlayView`, `SurfaceStartupOverlayView`) wraps SwiftUI in `NSHostingView`, but those don't need responder chain participation. The search overlay does.
-
-### Data Flow
-
-```
-Ghostty core (Zig) → C callback → GhosttyActionRouter
-  → GhosttyAdapter.translate(actionTag, payload) → GhosttyEvent
-  → TerminalRuntime.handleGhosttyEvent()
-    → @Observable mutation (scrollbarState, searchState, mouseShape, mouseVisibility)
-    → Views observe via withObservationTracking + recursive re-subscribe
-
-User interaction → TerminalSurfaceActionPerforming.performBindingAction()
-  → ghostty_surface_binding_action() → Ghostty core
+```text
+TerminalPaneMountView
+├── TerminalSurfaceScrollView
+│   └── documentView
+│       └── GhosttyMountView
+│           └── Ghostty.SurfaceView
+├── TerminalSearchOverlayView
+├── ScrollToBottomIndicatorView
+├── SurfaceErrorOverlayView
+└── SurfaceStartupOverlayView
 ```
 
-This follows the established unidirectional flow pattern. Ghostty core is the source of truth for scrollback and search state. The host-side views are reactive readers that send commands back through binding actions.
+### Responsibilities
+
+#### `TerminalSurfaceScrollView`
+
+Owns:
+- visible AppKit scrollbar
+- row/pixel coordinate conversion
+- follow-bottom behavior
+- primary wheel/trackpad scrolling path
+- scrollbar drag / track click -> `scroll_to_row:N`
+
+Consumes:
+- `TerminalRuntime.scrollbarState`
+- `TerminalRuntime.cellSize`
+
+#### `TerminalSearchOverlayView`
+
+Owns:
+- visible search field
+- match count label
+- next/previous/close controls
+
+Consumes:
+- `TerminalRuntime.searchState`
+
+Sends:
+- `start_search`
+- `search:<needle>`
+- `navigate_search:next`
+- `navigate_search:previous`
+- `end_search`
+
+#### `ScrollToBottomIndicatorView`
+
+Owns:
+- visible “jump to bottom” affordance
+- unread-output state when scrolled up
+
+Consumes:
+- `TerminalRuntime.scrollbarState`
+
+Sends:
+- `scroll_to_bottom`
+
+#### `Ghostty.SurfaceView`
+
+Already owns:
+- terminal rendering
+- keyboard/mouse forwarding
+- edit-menu binding actions like copy/paste/select all
+
+Will additionally own:
+- `TerminalSurfaceActionPerforming` conformance
+- observation of runtime-owned mouse cursor state
 
 ### Runtime Injection
 
-`TerminalPaneMountView` currently has no reference to `TerminalRuntime`. The coordinator (`PaneCoordinator+ViewLifecycle.swift`) creates runtimes and mount views separately. To connect them:
+`TerminalPaneMountView` is still created separately from `TerminalRuntime`, so the coordinator remains the composition seam:
 
-- `TerminalPaneMountView` gains a `bind(runtime: TerminalRuntime)` method
-- `PaneCoordinator+ViewLifecycle` calls `bind(runtime:)` after both the mount view and runtime are registered
-- The mount view stores a `weak` reference to the runtime and starts observation
-- On unbind (pane close), observation tasks are cancelled
+- `PaneCoordinator+ViewLifecycle` creates the mount view
+- `registerTerminalRuntimeIfNeeded` creates/registers the runtime
+- after both exist, the coordinator calls `terminalView.bind(runtime:)`
 
-This follows the existing pattern where `PaneCoordinator` wires together components that don't know about each other at construction time.
+This preserves the current ownership model instead of pushing runtime construction into the view layer.
 
-### Ghostty Config Overrides
+### Current Runtime Shapes To Consume
 
-`GhosttyAppHandle.init` (line 15-33) calls `ghostty_config_load_default_files` then `ghostty_config_finalize`. Between these two calls, we inject Agent Studio's config overrides via `ghostty_config_load_file` with a bundled override file:
-
-```
-# Agent Studio overrides — loaded after user defaults, before finalize
-scroll-to-bottom = no-keystroke, no-output
-```
-
-- `scroll-to-bottom = no-keystroke, no-output` — disables Ghostty core's auto-scroll on keypress and on new output. This is a **libghostty core behavior** (implemented in Zig, not the macOS app) that would otherwise yank the viewport to bottom whenever the user types. The host-side `TerminalSurfaceScrollView` handles follow-bottom via `isPinnedToBottom` state instead.
-
-Note: `scrollbar` config does NOT need an override. Ghostty's scrollbar (`SurfaceScrollView`) is part of Ghostty.app's macOS host code, not libghostty core. Agent Studio embeds libghostty via the C API and never instantiates Ghostty.app's scrollbar. The user's `scrollbar = system` config has no effect in Agent Studio — it's only consumed by Ghostty.app. There is no double-scrollbar risk.
-
-The override file is written to the app's temporary directory at startup and loaded via `ghostty_config_load_file`. It runs after `load_default_files` so it overrides user config values.
-
-### Action Router Return Values
-
-When un-deferring scrollbar/search/mouse actions, the `handledResult` passed to `routeActionToTerminalRuntime` must remain `false` for scrollbar and mouse events. This tells Ghostty "I routed it but you should still apply your defaults." Search events (`startSearch`, `endSearch`, `searchTotal`, `searchSelected`) should also return `false` since Ghostty core manages the search thread and match highlighting internally.
-
-### Observation Pattern
-
-All new NSView subclasses observe `TerminalRuntime`'s `@Observable` properties using the established `withObservationTracking` + recursive re-subscribe pattern (matching `ManagementModeDragShield`):
+The design should match the code already on `main` unless we intentionally change it later:
 
 ```swift
-private func observeRuntime() {
-    guard let runtime else { return }
-    withObservationTracking {
-        _ = runtime.scrollbarState  // track the property
-    } onChange: { [weak self] in
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.applyScrollbarState()
-            self.observeRuntime()  // re-subscribe
-        }
-    }
+struct ScrollbarState {
+    let top: Int
+    let bottom: Int
+    let total: Int
+}
+
+struct TerminalSearchState {
+    var query: String
+    var totalMatches: Int?
+    var selectedMatchIndex: Int?
 }
 ```
 
-On macOS 26, NSView's `updateLayer()` gets automatic `@Observable` tracking. The recursive pattern works on both macOS 15+ and macOS 26.
+The host layer may add computed helpers such as `visibleRowCount`, `firstVisibleRow`, or `isPinnedToBottom`, but it should not assume a shape change as part of this feature unless we explicitly decide to do that follow-up.
 
-## Component Design
+### Mouse State Gap
 
-### 1. TerminalSurfaceScrollView
-
-**Job:** Wrap the Ghostty surface in an NSScrollView to provide a native macOS scrollbar and translate between AppKit scroll position and Ghostty row coordinates.
-
-**Design stolen from Ghostty's `SurfaceScrollView`:** The same three-layer architecture — `NSScrollView` → `documentView` (height = total rows × cell height) → `surfaceView` (positioned at visible rect origin). The coordinate inversion (AppKit +Y-up vs terminal +Y-down) uses the same math.
-
-**Key differences from upstream:**
-- Always-visible scrollbar (upstream respects `scrollbar` config)
-- No `NotificationCenter` — observes `TerminalRuntime.scrollbarState` via `@Observable`
-- Sends `scroll_to_row:N` back through `TerminalSurfaceActionPerforming` protocol
-- Appearance synced to terminal background color (light vs dark `NSAppearance`)
-
-**Follow-bottom behavior:**
-- Track `wasPinnedToBottom` before each scrollbar state update
-- If previously pinned and new state arrives, programmatically scroll to match new offset (follow output)
-- If NOT previously pinned, hold scroll position (user is reading history)
-- During live scrolling (user dragging scrollbar), skip all programmatic scroll updates
-
-**Coordinate math (from Ghostty):**
-```
-documentHeight = (totalRows × cellHeight) + padding
-padding = contentHeight - (visibleRows × cellHeight)
-offsetY = (totalRows - firstVisibleRow - visibleRows) × cellHeight  // AppKit +Y-up inversion
-row = (documentHeight - visibleRect.originY - visibleRect.height) / cellHeight  // reverse for scroll_to_row
-```
-
-**Live scroll deduplication:** Track `lastSentRow` — only send `scroll_to_row:N` when the computed row changes. Avoids action spam during smooth scrolling.
-
-### 2. TerminalSearchOverlayView
-
-**Job:** Floating search bar — text field, match counter, next/previous buttons, close button.
-
-**Position:** Top-center of the pane, floating over terminal content with padding. Fixed position, no drag.
-
-**Visual treatment:** Pure AppKit. `NSSearchField` for the query input (standard macOS feel, accessible). Match counter label ("3 of 12"). Navigation buttons (chevron up/down SF Symbols). Close button (x).
-
-**Callbacks (not direct Ghostty coupling):**
-- `onQueryChanged: (String) -> Void` — debounced, triggers `search:<query>` binding action
-- `onNavigate: (SearchNavigationDirection) -> Void` — triggers `navigate_search:next/previous`
-- `onClose: () -> Void` — triggers `end_search`
-
-**Debounce:** Match Ghostty's approach — 300ms debounce for queries < 3 characters, immediate for longer queries.
-
-**Dismiss behavior:** Escape clears all highlights (via `end_search`), closes overlay, returns focus to terminal surface.
-
-**State driven by runtime:** `TerminalRuntime.searchState` (new `@Observable` property) provides `isPresented`, `query`, `totalMatches`, `selectedMatchIndex`. The overlay reads these and updates its labels.
-
-### 3. ScrollToBottomIndicatorView
-
-**Job:** Floating button that appears when scrolled away from bottom. Click scrolls to bottom.
-
-**Position:** Bottom-right of the pane with padding. In management mode, follows management mode visual style.
-
-**Visibility:** Shown when `scrollbarState.isPinnedToBottom == false`. Hidden when at bottom.
-
-**Two visual states:**
-- **Default icon** (down arrow / chevron.down) — viewport is scrolled up, no new output below
-- **New output icon** (different icon or dot badge) — there IS unread output below the current viewport
-
-**"Has new output" tracking:** When the user scrolls up, record the `totalRows` at that moment. If subsequent scrollbar updates show `totalRows` has grown, the button shows the "new output" indicator. Reset when the user scrolls back to bottom.
-
-**Action:** Click sends `scroll_to_bottom` binding action via `TerminalSurfaceActionPerforming`.
-
-### 4. Mouse Cursor Management
-
-**Un-defer `mouseShape` and `mouseVisibility`** from `GhosttyActionRouter.deferredTags` to `explicitlyRoutedTags`.
-
-**New `@Observable` properties on `TerminalRuntime`:**
-- `mouseShape: GhosttyMouseShape` — cursor shape enum (arrow, iBeam, pointer, crosshair, etc.)
-- `mouseVisible: Bool` — whether cursor should be visible (hide while typing)
-
-**Consumer:** `GhosttySurfaceView` observes these properties (via `withObservationTracking`) and calls `NSCursor` APIs. Uses `NSTrackingArea` with `.cursorUpdate` option on the surface view. Override `cursorUpdate(with:)` to set the appropriate `NSCursor` based on `runtime.mouseShape`.
-
-**Mouse visibility:** When `mouseVisible` transitions to `false`, call `NSCursor.hide()`. When it transitions back to `true`, call `NSCursor.unhide()`. Balance hide/unhide calls carefully — unbalanced calls are a common AppKit bug.
-
-### 5. Event Routing Changes
-
-**Move from `deferredTags` to `explicitlyRoutedTags` in `GhosttyActionRouter`:**
-- `scrollbar` — route with typed payload to runtime
-- `startSearch` — route with query string to runtime
-- `endSearch` — route to runtime
-- `searchTotal` — route with match count to runtime
-- `searchSelected` — route with selected index to runtime
-- `mouseShape` — route with cursor enum to runtime
-- `mouseVisibility` — route with bool to runtime
-
-**New `GhosttyEvent` cases:**
-- `searchStarted(query: String)`
-- `searchEnded`
-- `searchMatchesUpdated(totalMatches: Int)`
-- `searchSelectionChanged(selectedMatchIndex: Int?)`
-- `mouseShapeChanged(GhosttyMouseShape)`
-- `mouseVisibilityChanged(Bool)`
-
-**Updated `ScrollbarState`:**
-Current struct has `top`, `bottom`, `total` — needs alignment with Ghostty's C struct which provides `total`, `offset`, `len`. Update to:
-```swift
-struct ScrollbarState: Sendable, Equatable {
-    let totalRows: Int        // total rows in scrollback + active
-    let firstVisibleRow: Int  // offset of first visible row (0 = top of history)
-    let visibleRowCount: Int  // number of visible rows (viewport height)
-
-    var isPinnedToBottom: Bool {
-        firstVisibleRow + visibleRowCount >= totalRows
-    }
-}
-```
-
-**New `TerminalSearchState`:**
-```swift
-struct TerminalSearchState: Sendable, Equatable {
-    let isPresented: Bool
-    let query: String
-    let totalMatches: Int?
-    let selectedMatchIndex: Int?
-}
-```
-
-**New runtime `@Observable` properties:**
-- `scrollbarState: ScrollbarState?`
-- `searchState: TerminalSearchState?`
-- `mouseShape: GhosttyMouseShape` (default: `.arrow`)
-- `mouseVisible: Bool` (default: `true`)
-
-### 6. TerminalSurfaceActionPerforming Protocol
-
-Small protocol for sending Ghostty binding actions from host-side views back to the surface:
+Current `main` promotes `mouseShapeChanged` and `mouseVisibilityChanged` events, but `TerminalRuntime` does not currently store them as observable properties. This feature should add:
 
 ```swift
-@MainActor
-protocol TerminalSurfaceActionPerforming: AnyObject {
-    @discardableResult
-    func performBindingAction(_ action: String) -> Bool
-}
+private(set) var mouseShapeRawValue: UInt32?
+private(set) var isMouseVisible: Bool = true
 ```
 
-`Ghostty.SurfaceView` conforms by calling `ghostty_surface_binding_action()`. Test doubles implement it by recording actions.
+or an equivalent small runtime-owned representation that `Ghostty.SurfaceView` can observe directly.
 
-### 7. Find Menu Integration
+### Observation Model
 
-Add Find submenu under Edit in the main menu bar:
-- "Find..." (`cmd+f`) → `startSearch:` responder action
-- "Find Next" (`cmd+g`) → `findNext:` responder action  
-- "Find Previous" (`shift+cmd+g`) → `findPrevious:` responder action
+All new host views should use the existing `@Observable` + `withObservationTracking` style already used in the app. No new NotificationCenter plumbing should be introduced for this feature.
 
-`TerminalPaneMountView` implements these `@objc` responder methods. They delegate to `TerminalSurfaceActionPerforming`:
-- `startSearch:` → show search overlay + `performBindingAction("start_search")`
-- `findNext:` → `performBindingAction("navigate_search:next")`
-- `findPrevious:` → `performBindingAction("navigate_search:previous")`
-- `cancelOperation:` (Escape) → `performBindingAction("end_search")` + hide overlay + refocus surface
+## Core Behaviors
 
-### 8. Hit Testing Updates
+### Follow-Bottom
 
-`TerminalPaneMountView.hitTest(_:)` needs updating to route clicks to the new overlay views:
-1. Search overlay (if visible and hit) → search overlay
-2. Scroll-to-bottom button (if visible and hit) → button
-3. Error overlay (existing) → error overlay
-4. Otherwise → Ghostty surface
+- If the viewport was pinned to bottom before a scrollbar update, new output should keep it pinned.
+- If the viewport was not pinned to bottom, new output must not move it.
+- While the user is actively dragging the scrollbar, the host must not fight the drag with programmatic repositioning.
 
-## Invariants
+### Scrollbar Math
 
-1. **Ghostty core is source of truth** for scrollback position, search matches, and cursor shape. Host views are reactive readers.
-2. **No programmatic scroll during live drag** — when `isLiveScrolling == true`, skip all `scrollView.contentView.scroll(to:)` calls.
-3. **Follow-bottom is state-based, not event-based** — determined by `isPinnedToBottom` on the previous scrollbar state, not by a separate flag.
-4. **One `scroll_to_row` per row change** — deduplicate via `lastSentRow` to avoid action spam.
-5. **Search overlay lifecycle follows runtime state** — shown when `searchState.isPresented`, hidden when `searchState == nil`. No overlay-local presentation state.
-6. **NSCursor hide/unhide must be balanced** — track visibility state transitions, not absolute values.
-7. **All new views are pure AppKit** — no NSHostingView, no SwiftUI, no Combine for new code.
+The host wrapper should use the existing scrollbar facts from core:
+
+- `top`: first visible row
+- `bottom`: last visible row
+- `total`: total rows
+
+Derived host helpers:
+
+```swift
+let visibleRowCount = max(0, bottom - top)
+let isPinnedToBottom = bottom >= total
+```
+
+### Smooth Scrolling Requirement
+
+Scrolling with a mouse wheel or trackpad must become **Ghostty.app-style host scrolling**, not the current raw libghostty wheel path that can feel page-like with discrete mice.
+
+Current Agent Studio behavior:
+
+- `Ghostty.SurfaceView.scrollWheel(with:)` forwards raw wheel deltas directly to `ghostty_surface_mouse_scroll(...)`.
+- With a discrete physical mouse wheel, that path can feel like large jumps.
+
+Target behavior for this feature:
+
+- Once the surface is wrapped in `TerminalSurfaceScrollView`, ordinary wheel/trackpad scrolling should be handled by `NSScrollView` first, exactly like Ghostty.app's `SurfaceScrollView`.
+- `NSScrollView` should drive the visible scroll position smoothly.
+- `didLiveScroll` / equivalent host scroll observation then converts the visible position into `scroll_to_row:N` updates for Ghostty core.
+- The direct `Ghostty.SurfaceView.scrollWheel(with:)` path should no longer be the primary scrollback UX path while embedded in the wrapper.
+
+This smooth-scroll fix is part of this PR, not a follow-up.
+
+### Search UX
+
+- `cmd+f` opens search for the focused terminal pane.
+- `cmd+g` and `shift+cmd+g` navigate results.
+- Escape closes the visible overlay and ends search.
+- Search overlay visibility follows runtime state, not a second local boolean.
+
+### Mouse UX
+
+- Cursor shape updates should map into AppKit cursors where possible.
+- Visibility transitions must keep `NSCursor.hide()` / `NSCursor.unhide()` balanced.
 
 ## Testing Strategy
 
-**Unit tests (testable without Ghostty surface):**
-- `TerminalSurfaceScrollView` coordinate math: row↔pixel translation, follow-bottom logic, live scroll dedup
-- `TerminalSearchOverlayView` callbacks: query change, navigation, close
-- `ScrollToBottomIndicatorView` visibility: shown/hidden based on pinned state, new-output indicator
-- `TerminalRuntime` search state machine: started→matches→selection→ended transitions
-- `GhosttyAdapter` translation: scrollbar/search/mouse payloads map to correct events
-- `GhosttyActionRouter` tag classification: scrollbar/search/mouse tags in explicitlyRoutedTags
+### Unit Tests
 
-**Integration tests:**
-- Mount view search responder chain: `startSearch:` → `findNext:` → `findPrevious:` → `cancelOperation:` produce correct binding action sequences
-- Runtime→view observation: scrollbar state changes propagate to scroll view position
-- Click-to-move-cursor verification: mouse events forwarded to surface, cursor movement observed
+- `TerminalSurfaceScrollViewTests`
+  - row/pixel conversion
+  - live-scroll dedup
+  - follow-bottom behavior
+- `TerminalSearchOverlayViewTests`
+  - callback wiring
+  - label formatting
+- `ScrollToBottomIndicatorViewTests`
+  - visibility
+  - unread-output state
+- `TerminalPaneMountViewSearchTests`
+  - responder methods emit the correct binding actions
+- `TerminalRuntimeTests`
+  - mouse runtime state becomes observable
 
-**No wall-clock tests.** All async coordination tested via explicit state transitions and injected clocks.
+### Integration-Focused Checks
 
-## File Structure
+- `TerminalPaneMountView` reacts to `scrollbarState` and `searchState`
+- Find menu items route to the focused terminal responder chain
+- Surface view mouse cursor updates react to runtime state
+
+### Non-Goals For Tests
+
+- No end-to-end Ghostty app parity tests
+- No wall-clock sleep tests
+
+## Files
 
 ### Create
+
 - `Sources/AgentStudio/Features/Terminal/Hosting/TerminalSurfaceActionPerforming.swift`
 - `Sources/AgentStudio/Features/Terminal/Hosting/TerminalSurfaceScrollView.swift`
 - `Sources/AgentStudio/Features/Terminal/Hosting/TerminalSearchOverlayView.swift`
@@ -330,15 +284,12 @@ Add Find submenu under Edit in the main menu bar:
 - `Tests/AgentStudioTests/Features/Terminal/Hosting/TerminalPaneMountViewSearchTests.swift`
 
 ### Modify
-- `Sources/AgentStudio/Features/Terminal/Ghostty/GhosttyActionRouter.swift` — move tags from deferred to routed
-- `Sources/AgentStudio/Features/Terminal/Ghostty/GhosttyAdapter.swift` — add search/mouse payload translations
-- `Sources/AgentStudio/Features/Terminal/Runtime/TerminalRuntime.swift` — add scrollbar/search/mouse observable state
-- `Sources/AgentStudio/Core/RuntimeEventSystem/Contracts/PaneRuntimeEvent.swift` — add search/mouse event cases, update ScrollbarState
-- `Sources/AgentStudio/Features/Terminal/Hosting/TerminalPaneMountView.swift` — compose new children, add responder methods
-- `Sources/AgentStudio/Features/Terminal/Ghostty/GhosttySurfaceView.swift` — add performBindingAction, observe mouse shape/visibility
-- `Sources/AgentStudio/App/Boot/AppDelegate.swift` — add Find menu entries
 
-### Modify Tests
-- `Tests/AgentStudioTests/Features/Terminal/Ghostty/GhosttyAdapterTests.swift`
-- `Tests/AgentStudioTests/Features/Terminal/Ghostty/GhosttyActionRouterTests.swift`
+- `Sources/AgentStudio/Features/Terminal/Ghostty/GhosttyAppHandle.swift`
+- `Sources/AgentStudio/Features/Terminal/Hosting/GhosttyMountView.swift`
+- `Sources/AgentStudio/Features/Terminal/Hosting/TerminalPaneMountView.swift`
+- `Sources/AgentStudio/Features/Terminal/Ghostty/GhosttySurfaceView.swift`
+- `Sources/AgentStudio/App/Coordination/PaneCoordinator+ViewLifecycle.swift`
+- `Sources/AgentStudio/App/Boot/AppDelegate.swift`
+- `Sources/AgentStudio/Features/Terminal/Runtime/TerminalRuntime.swift`
 - `Tests/AgentStudioTests/Features/Terminal/Runtime/TerminalRuntimeTests.swift`

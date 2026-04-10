@@ -230,6 +230,9 @@ extension PaneCoordinator {
 
             registerHostedView(mountedView: view, for: pane.id)
             registerTerminalRuntimeIfNeeded(for: pane)
+            if let terminalRuntime = runtimeForPane(runtimePaneId(for: pane.id)!) as? TerminalRuntime {
+                view.bind(runtime: terminalRuntime)
+            }
             runtime.markRunning(pane.id)
             RestoreTrace.log(
                 "createView complete pane=\(pane.id) surface=\(managed.id) viewBounds=\(NSStringFromRect(view.bounds))"
@@ -344,6 +347,9 @@ extension PaneCoordinator {
 
             registerHostedView(mountedView: view, for: pane.id)
             registerTerminalRuntimeIfNeeded(for: pane)
+            if let terminalRuntime = runtimeForPane(runtimePaneId(for: pane.id)!) as? TerminalRuntime {
+                view.bind(runtime: terminalRuntime)
+            }
             runtime.markRunning(pane.id)
             RestoreTrace.log("createFloatingView complete pane=\(pane.id) surface=\(managed.id)")
 
@@ -438,7 +444,10 @@ extension PaneCoordinator {
             return
         }
         let runtimePaneId = PaneId(uuid: pane.id)
-        guard runtimeForPane(runtimePaneId) == nil else { return }
+        if let existingRuntime = runtimeForPane(runtimePaneId) as? TerminalRuntime {
+            viewRegistry.terminalView(for: pane.id)?.bind(runtime: existingRuntime)
+            return
+        }
 
         let terminalRuntime = TerminalRuntime(
             paneId: runtimePaneId,
@@ -451,6 +460,7 @@ extension PaneCoordinator {
             return
         }
         registerRuntime(terminalRuntime)
+        viewRegistry.terminalView(for: pane.id)?.bind(runtime: terminalRuntime)
     }
 
     private func registerCodeViewerRuntimeIfNeeded(for pane: Pane) -> SwiftPaneRuntime? {

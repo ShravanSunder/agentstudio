@@ -158,6 +158,26 @@ The boundary is intentionally split by isolation contract: callback trampolines 
 
 ---
 
+## Host Scrollback UX Boundary
+
+Agent Studio now consumes libghostty/runtime facts for terminal scrollback UX, but still renders the visible macOS UI on the host side.
+
+- Ghostty core owns terminal scrollback/search state and exposes it through routed runtime events such as `scrollbarChanged` and `search*`.
+- `TerminalRuntime` is the observable host-side cache for those facts.
+- `TerminalPaneMountView` composes host UI around the surface: `TerminalSurfaceScrollView`, `TerminalSearchOverlayView`, and `ScrollToBottomIndicatorView`.
+- `TerminalSurfaceScrollView` is the primary scrollback UI on macOS and synchronizes host scroll position back into Ghostty core via `scroll_to_row:N`.
+- `Ghostty.SurfaceView` remains the rendering/input bridge, but when embedded inside the scroll wrapper it forwards ordinary wheel scrolling to the host wrapper so scrolling behavior matches Ghostty.app more closely.
+- `Ghostty.AppHandle` injects an Agent Studio config override before `ghostty_config_finalize` so Ghostty core does not auto-scroll to bottom on keypress or output while the host wrapper is managing follow-bottom behavior.
+
+This is a deliberate split of responsibilities:
+
+- libghostty owns terminal truth
+- Agent Studio owns macOS host presentation
+
+That differs from Ghostty.app only in product choices such as Agent Studio's always-visible scrollbar.
+
+---
+
 ## CWD Propagation Architecture
 
 When a user `cd`s in a terminal, the shell's OSC 7 integration reports the new working directory. Ghostty's core parses this and emits `GHOSTTY_ACTION_PWD`. Agent Studio captures this and propagates it through a 5-stage pipeline.

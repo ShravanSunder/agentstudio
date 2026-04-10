@@ -7,9 +7,23 @@ extension Ghostty {
     final class AppHandle {
         private let appHandle: ghostty_app_t
         private let configHandle: ghostty_config_t
+        static let ghosttyOverrideContentsForTesting = """
+            scroll-to-bottom = no-keystroke, no-output
+            """
 
         var app: ghostty_app_t {
             appHandle
+        }
+
+        private static func writeGhosttyOverrideFile() throws -> URL {
+            let overrideURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("agent-studio-ghostty-overrides.conf")
+            try ghosttyOverrideContentsForTesting.write(
+                to: overrideURL,
+                atomically: true,
+                encoding: .utf8
+            )
+            return overrideURL
         }
 
         init?(runtimeConfig: ghostty_runtime_config_s) {
@@ -19,6 +33,13 @@ extension Ghostty {
             }
 
             ghostty_config_load_default_files(config)
+            if let overrideURL = try? Self.writeGhosttyOverrideFile() {
+                overrideURL.path.withCString { path in
+                    ghostty_config_load_file(config, path)
+                }
+            } else {
+                ghosttyLogger.error("Failed to write Ghostty override file")
+            }
             ghostty_config_finalize(config)
 
             var mutableRuntimeConfig = runtimeConfig

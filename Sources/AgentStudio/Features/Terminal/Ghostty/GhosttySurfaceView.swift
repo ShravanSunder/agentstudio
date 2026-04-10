@@ -1,6 +1,8 @@
+// swiftlint:disable file_length
 import AppKit
 import Foundation
 import GhosttyKit
+import Observation
 import QuartzCore
 
 extension Ghostty {
@@ -142,6 +144,8 @@ extension Ghostty {
 
         /// Any error during surface initialization
         private(set) var error: Error?
+        private weak var terminalRuntime: TerminalRuntime?
+        private var lastAppliedMouseVisibility = true
         // MARK: - Initialization
 
         init(app: App, config: SurfaceConfiguration? = nil) {
@@ -809,6 +813,11 @@ extension Ghostty {
         }
 
         override func scrollWheel(with event: NSEvent) {
+            if let terminalSurfaceScrollView = enclosingTerminalSurfaceScrollView() {
+                terminalSurfaceScrollView.handleSurfaceScrollWheel(event)
+                return
+            }
+
             guard let surface else { return }
 
             let mods = ghosttyMods(from: event.modifierFlags)
@@ -828,6 +837,17 @@ extension Ghostty {
                 event.scrollingDeltaY,
                 scrollMods
             )
+        }
+
+        private func enclosingTerminalSurfaceScrollView() -> TerminalSurfaceScrollView? {
+            var ancestor = superview
+            while let current = ancestor {
+                if let terminalSurfaceScrollView = current as? TerminalSurfaceScrollView {
+                    return terminalSurfaceScrollView
+                }
+                ancestor = current.superview
+            }
+            return nil
         }
 
         private func sendMouseButton(
@@ -914,6 +934,52 @@ extension Ghostty {
         var needsConfirmQuit: Bool {
             guard let surface else { return false }
             return ghostty_surface_needs_confirm_quit(surface)
+        }
+
+        func bindRuntime(_ runtime: TerminalRuntime) {
+            terminalRuntime = runtime
+            observeMouseState()
+        }
+
+        private func observeMouseState() {
+            guard let terminalRuntime else { return }
+            withObservationTracking {
+                _ = terminalRuntime.mouseShapeRawValue
+                _ = terminalRuntime.isMouseVisible
+            } onChange: { [weak self] in
+                Task { @MainActor [weak self] in
+                    guard let self, let runtime = self.terminalRuntime else { return }
+                    self.applyMouseShape(rawValue: runtime.mouseShapeRawValue)
+                    self.applyMouseVisibility(isVisible: runtime.isMouseVisible)
+                    self.observeMouseState()
+                }
+            }
+        }
+
+        private func applyMouseShape(rawValue: UInt32?) {
+            guard let rawValue else { return }
+            switch rawValue {
+            case UInt32(GHOSTTY_MOUSE_SHAPE_TEXT.rawValue):
+                NSCursor.iBeam.set()
+            case UInt32(GHOSTTY_MOUSE_SHAPE_POINTER.rawValue):
+                NSCursor.pointingHand.set()
+            case UInt32(GHOSTTY_MOUSE_SHAPE_CROSSHAIR.rawValue):
+                NSCursor.crosshair.set()
+            case UInt32(GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT.rawValue):
+                NSCursor.iBeamCursorForVerticalLayout.set()
+            default:
+                NSCursor.arrow.set()
+            }
+        }
+
+        private func applyMouseVisibility(isVisible: Bool) {
+            guard isVisible != lastAppliedMouseVisibility else { return }
+            lastAppliedMouseVisibility = isVisible
+            if isVisible {
+                NSCursor.unhide()
+            } else {
+                NSCursor.hide()
+            }
         }
     }
 }
