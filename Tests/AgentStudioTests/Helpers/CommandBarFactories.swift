@@ -58,6 +58,7 @@ func makeWorktreePresence(
                 paneId: UUID(),
                 tabId: UUID(),
                 tabIndex: 0,
+                paneIndexInTab: 0,
                 isActiveInTab: true
             )
         ]
@@ -68,12 +69,14 @@ func makeWorktreePresence(
                 paneId: UUID(),
                 tabId: tabId,
                 tabIndex: 0,
+                paneIndexInTab: 0,
                 isActiveInTab: true
             ),
             WorktreePaneLocation(
                 paneId: UUID(),
                 tabId: tabId,
                 tabIndex: 0,
+                paneIndexInTab: 1,
                 isActiveInTab: false
             ),
         ]

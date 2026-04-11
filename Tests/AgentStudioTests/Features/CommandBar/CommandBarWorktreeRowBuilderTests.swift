@@ -32,8 +32,20 @@ struct CommandBarWorktreeRowBuilderTests {
             repoName: repo.name,
             isMainWorktree: true,
             openPanes: [
-                WorktreePaneLocation(paneId: UUID(), tabId: tabId, tabIndex: 0, isActiveInTab: true),
-                WorktreePaneLocation(paneId: UUID(), tabId: UUID(), tabIndex: 2, isActiveInTab: false),
+                WorktreePaneLocation(
+                    paneId: UUID(),
+                    tabId: tabId,
+                    tabIndex: 0,
+                    paneIndexInTab: 0,
+                    isActiveInTab: true
+                ),
+                WorktreePaneLocation(
+                    paneId: UUID(),
+                    tabId: UUID(),
+                    tabIndex: 2,
+                    paneIndexInTab: 1,
+                    isActiveInTab: false
+                ),
             ]
         )
 
@@ -94,8 +106,20 @@ struct CommandBarWorktreeRowBuilderTests {
             repoName: "repo",
             isMainWorktree: true,
             openPanes: [
-                WorktreePaneLocation(paneId: UUID(), tabId: tabId, tabIndex: 1, isActiveInTab: true),
-                WorktreePaneLocation(paneId: UUID(), tabId: tabId, tabIndex: 1, isActiveInTab: false),
+                WorktreePaneLocation(
+                    paneId: UUID(),
+                    tabId: tabId,
+                    tabIndex: 1,
+                    paneIndexInTab: 0,
+                    isActiveInTab: true
+                ),
+                WorktreePaneLocation(
+                    paneId: UUID(),
+                    tabId: tabId,
+                    tabIndex: 1,
+                    paneIndexInTab: 1,
+                    isActiveInTab: false
+                ),
             ]
         )
         let worktree = Worktree(
@@ -122,8 +146,20 @@ struct CommandBarWorktreeRowBuilderTests {
             repoName: "repo",
             isMainWorktree: true,
             openPanes: [
-                WorktreePaneLocation(paneId: UUID(), tabId: UUID(), tabIndex: 0, isActiveInTab: true),
-                WorktreePaneLocation(paneId: UUID(), tabId: UUID(), tabIndex: 1, isActiveInTab: false),
+                WorktreePaneLocation(
+                    paneId: UUID(),
+                    tabId: UUID(),
+                    tabIndex: 0,
+                    paneIndexInTab: 0,
+                    isActiveInTab: true
+                ),
+                WorktreePaneLocation(
+                    paneId: UUID(),
+                    tabId: UUID(),
+                    tabIndex: 1,
+                    paneIndexInTab: 1,
+                    isActiveInTab: false
+                ),
             ]
         )
         let worktree = Worktree(
@@ -164,5 +200,39 @@ struct CommandBarWorktreeRowBuilderTests {
         )
 
         #expect(subtitle == nil)
+    }
+
+    @Test
+    func test_buildWorktreeActionsLevel_showsPaneNumbersInSubtitles() {
+        let presence = WorktreePresence(
+            worktreeId: UUID(),
+            repoId: UUID(),
+            worktreeName: "main",
+            repoName: "repo",
+            isMainWorktree: true,
+            openPanes: [
+                WorktreePaneLocation(
+                    paneId: UUID(),
+                    tabId: UUID(),
+                    tabIndex: 1,
+                    paneIndexInTab: 0,
+                    isActiveInTab: false
+                ),
+                WorktreePaneLocation(
+                    paneId: UUID(),
+                    tabId: UUID(),
+                    tabIndex: 1,
+                    paneIndexInTab: 1,
+                    isActiveInTab: true
+                ),
+            ]
+        )
+
+        let level = CommandBarDataSource.buildWorktreeActionsLevel(presence: presence, canOpenInCurrentTab: true)
+        let navigateItems = level.items.filter { $0.group == "Navigate to" }
+
+        #expect(navigateItems.count == 2)
+        #expect(navigateItems[0].subtitle == "Tab 2 · Pane 1")
+        #expect(navigateItems[1].subtitle == "Tab 2 · Pane 2 · Active")
     }
 }

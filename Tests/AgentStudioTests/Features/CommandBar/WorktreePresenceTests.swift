@@ -72,6 +72,7 @@ struct WorktreePresenceTests {
         #expect(presence.openPanes[0].paneId == pane.id)
         #expect(presence.openPanes[0].tabId == tab.id)
         #expect(presence.openPanes[0].tabIndex == 0)
+        #expect(presence.openPanes[0].paneIndexInTab == 0)
         #expect(presence.openState == .singlePane)
     }
 
@@ -165,6 +166,58 @@ struct WorktreePresenceTests {
         #expect(presence.openPanes.count == 2)
         #expect(presence.distinctTabCount == 1)
         #expect(presence.openState == .multiplePanes)
+        #expect(presence.openPanes[0].paneIndexInTab == 0)
+        #expect(presence.openPanes[1].paneIndexInTab == 1)
+    }
+
+    @Test
+    func test_build_sortsPanesByTabVisibleOrder_notByPaneId() {
+        let store = makeStore()
+        let repo = store.addRepo(at: URL(filePath: "/tmp/presence-pane-order"))
+        let worktree = Worktree(
+            repoId: repo.id,
+            name: "main",
+            path: URL(filePath: "/tmp/presence-pane-order")
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        guard let storedWorktree = store.repos.first?.worktrees.first else {
+            Issue.record("Expected stored worktree")
+            return
+        }
+
+        let paneA = store.createPane(
+            source: .worktree(
+                worktreeId: storedWorktree.id,
+                repoId: repo.id,
+                launchDirectory: storedWorktree.path
+            ),
+            title: "A"
+        )
+        let paneB = store.createPane(
+            source: .worktree(
+                worktreeId: storedWorktree.id,
+                repoId: repo.id,
+                launchDirectory: storedWorktree.path
+            ),
+            title: "B"
+        )
+        let paneC = store.createPane(
+            source: .worktree(
+                worktreeId: storedWorktree.id,
+                repoId: repo.id,
+                launchDirectory: storedWorktree.path
+            ),
+            title: "C"
+        )
+        let tab = Tab(paneId: paneA.id)
+        store.appendTab(tab)
+        store.insertPane(paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after)
+        store.insertPane(paneC.id, inTab: tab.id, at: paneB.id, direction: .horizontal, position: .after)
+
+        let presence = CommandBarDataSource.buildWorktreePresence(worktree: storedWorktree, repo: repo, store: store)
+
+        #expect(presence.openPanes.map(\.paneId) == [paneA.id, paneB.id, paneC.id])
+        #expect(presence.openPanes.map(\.paneIndexInTab) == [0, 1, 2])
     }
 
     @Test

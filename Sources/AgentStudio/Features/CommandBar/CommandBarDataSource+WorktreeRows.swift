@@ -100,16 +100,25 @@ extension CommandBarDataSource {
                 return nil
             }
 
+            let paneIndexInTab =
+                tab.activePaneIds.firstIndex(of: pane.id)
+                ?? tab.allPaneIds.firstIndex(of: pane.id)
+                ?? 0
+
             return WorktreePaneLocation(
                 paneId: pane.id,
                 tabId: tab.id,
                 tabIndex: tabIndex,
+                paneIndexInTab: paneIndexInTab,
                 isActiveInTab: tab.activePaneId == pane.id
             )
         }
         .sorted { lhs, rhs in
             if lhs.tabIndex != rhs.tabIndex {
                 return lhs.tabIndex < rhs.tabIndex
+            }
+            if lhs.paneIndexInTab != rhs.paneIndexInTab {
+                return lhs.paneIndexInTab < rhs.paneIndexInTab
             }
             return lhs.paneId.uuidString < rhs.paneId.uuidString
         }
@@ -201,6 +210,7 @@ extension CommandBarDataSource {
     }
 
     private static func locationSubtitle(for location: WorktreePaneLocation) -> String {
-        location.isActiveInTab ? "Tab \(location.tabIndex + 1) · Active" : "Tab \(location.tabIndex + 1)"
+        let base = "Tab \(location.tabIndex + 1) · Pane \(location.paneIndexInTab + 1)"
+        return location.isActiveInTab ? "\(base) · Active" : base
     }
 }

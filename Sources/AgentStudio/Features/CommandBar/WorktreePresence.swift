@@ -14,6 +14,7 @@ struct WorktreePaneLocation: Equatable, Sendable {
     let paneId: UUID
     let tabId: UUID
     let tabIndex: Int
+    let paneIndexInTab: Int
     let isActiveInTab: Bool
 }
 
