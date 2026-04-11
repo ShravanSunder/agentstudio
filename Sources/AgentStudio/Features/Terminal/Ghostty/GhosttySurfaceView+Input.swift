@@ -2,6 +2,34 @@ import AppKit
 import GhosttyKit
 import Observation
 
+@MainActor
+enum GhosttyMouseVisibilityCoordinator {
+    private static var hiddenToken: UUID?
+    private static var cursorHidden = false
+
+    static func update(token: UUID, isVisible: Bool, isFocused: Bool) {
+        guard isFocused, !isVisible else {
+            release(token: token)
+            return
+        }
+
+        guard hiddenToken != token else { return }
+        if !cursorHidden {
+            NSCursor.hide()
+            cursorHidden = true
+        }
+        hiddenToken = token
+    }
+
+    static func release(token: UUID) {
+        guard hiddenToken == token else { return }
+        hiddenToken = nil
+        guard cursorHidden else { return }
+        NSCursor.unhide()
+        cursorHidden = false
+    }
+}
+
 extension Ghostty.SurfaceView {
     // MARK: - Input Handling
 
@@ -312,6 +340,8 @@ extension Ghostty.SurfaceView {
 
     func bindRuntime(_ runtime: TerminalRuntime) {
         terminalRuntime = runtime
+        applyMouseShape(runtime.mouseShape)
+        applyMouseVisibility(isVisible: runtime.isMouseVisible)
         observeMouseState(runtime: runtime)
     }
 
@@ -345,14 +375,12 @@ extension Ghostty.SurfaceView {
         }
     }
 
-    private func applyMouseVisibility(isVisible: Bool) {
-        guard isVisible != lastAppliedMouseVisibility else { return }
-        lastAppliedMouseVisibility = isVisible
-        if isVisible {
-            NSCursor.unhide()
-        } else {
-            NSCursor.hide()
-        }
+    func applyMouseVisibility(isVisible: Bool) {
+        GhosttyMouseVisibilityCoordinator.update(
+            token: mouseVisibilityToken,
+            isVisible: isVisible,
+            isFocused: focused
+        )
     }
 }
 

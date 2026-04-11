@@ -144,7 +144,7 @@ extension Ghostty {
         /// Any error during surface initialization
         private(set) var error: Error?
         weak var terminalRuntime: TerminalRuntime?
-        var lastAppliedMouseVisibility = true
+        let mouseVisibilityToken = UUID()
         // MARK: - Initialization
 
         init(app: App, config: SurfaceConfiguration? = nil) {
@@ -262,9 +262,16 @@ extension Ghostty {
             fatalError("init(coder:) has not been implemented")
         }
 
-        isolated deinit {
-            if !lastAppliedMouseVisibility {
-                NSCursor.unhide()
+        deinit {
+            let mouseVisibilityToken = self.mouseVisibilityToken
+            if Thread.isMainThread {
+                MainActor.assumeIsolated {
+                    GhosttyMouseVisibilityCoordinator.release(token: mouseVisibilityToken)
+                }
+            } else {
+                Task { @MainActor in
+                    GhosttyMouseVisibilityCoordinator.release(token: mouseVisibilityToken)
+                }
             }
             if let surface {
                 ghostty_surface_free(surface)
@@ -307,6 +314,7 @@ extension Ghostty {
                 if let surface {
                     ghostty_surface_set_focus(surface, true)
                 }
+                applyMouseVisibility(isVisible: terminalRuntime?.isMouseVisible ?? true)
                 logSurfaceSnapshot(reason: "becomeFirstResponder")
             }
             return result
@@ -319,6 +327,7 @@ extension Ghostty {
                 if let surface {
                     ghostty_surface_set_focus(surface, false)
                 }
+                applyMouseVisibility(isVisible: true)
                 logSurfaceSnapshot(reason: "resignFirstResponder")
             }
             return result

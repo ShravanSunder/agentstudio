@@ -17,7 +17,7 @@ extension Ghostty {
 
         private static func writeGhosttyOverrideFile() throws -> URL {
             let overrideURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("agent-studio-ghostty-overrides.conf")
+                .appendingPathComponent("agent-studio-ghostty-overrides-\(UUID().uuidString).conf")
             try scrollBehaviorOverrideContents.write(
                 to: overrideURL,
                 atomically: true,

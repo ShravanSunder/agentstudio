@@ -120,7 +120,7 @@ final class TerminalSurfaceScrollView: NSView {
         fatalError("init(coder:) not supported")
     }
 
-    isolated deinit {
+    deinit {
         for observer in notificationObservers {
             NotificationCenter.default.removeObserver(observer)
         }
