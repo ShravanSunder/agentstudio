@@ -91,6 +91,10 @@ enum CommandBarDataSource {
             .sorted { $0.priority < $1.priority }
     }
 
+    static func displayItems(from groups: [CommandBarItemGroup]) -> [CommandBarItem] {
+        groups.flatMap(\.items)
+    }
+
     // MARK: - Everything Scope
 
     private static func everythingItems(

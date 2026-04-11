@@ -97,13 +97,17 @@ struct CommandBarView: View {
         CommandBarDataSource.grouped(filteredItems)
     }
 
+    private var displayedItems: [CommandBarItem] {
+        CommandBarDataSource.displayItems(from: groups)
+    }
+
     private var totalItems: Int {
-        filteredItems.count
+        displayedItems.count
     }
 
     private var selectedItem: CommandBarItem? {
-        guard state.selectedIndex >= 0, state.selectedIndex < filteredItems.count else { return nil }
-        return filteredItems[state.selectedIndex]
+        guard state.selectedIndex >= 0, state.selectedIndex < displayedItems.count else { return nil }
+        return displayedItems[state.selectedIndex]
     }
 
     /// IDs of items that should be dimmed (command not currently dispatchable).
@@ -122,9 +126,20 @@ struct CommandBarView: View {
         FooterHintBuilder.hints(
             for: selectedItem,
             isNested: state.isNested,
-            hasTabsOpen: !store.tabs.isEmpty,
+            canOpenInCurrentTab: canOpenWorktreeInCurrentTab,
             scope: state.currentScope
         )
+    }
+
+    private var canOpenWorktreeInCurrentTab: Bool {
+        guard
+            let activeTabId = store.activeTabId,
+            let activeTab = store.tab(activeTabId),
+            activeTab.activePaneId != nil
+        else {
+            return false
+        }
+        return true
     }
 
     // MARK: - Actions
@@ -163,7 +178,7 @@ struct CommandBarView: View {
                 resolution: CommandBarWorktreeActionResolver.resolve(
                     presence: presence,
                     modifier: modifier,
-                    hasTabsOpen: !store.tabs.isEmpty
+                    canOpenInCurrentTab: canOpenWorktreeInCurrentTab
                 ),
                 presence: presence,
                 itemId: item.id
@@ -182,18 +197,11 @@ struct CommandBarView: View {
             onDismiss()
             dispatcher.dispatch(command, target: target, targetType: targetType)
 
-        case .showOpenChoice:
+        case .showActionsMenu:
             state.pushLevel(
-                CommandBarDataSource.buildWorktreeOpenChoiceLevel(
+                CommandBarDataSource.buildWorktreeActionsLevel(
                     presence: presence,
-                    hasTabsOpen: !store.tabs.isEmpty
-                )
-            )
-
-        case .showPaneChoice:
-            state.pushLevel(
-                CommandBarDataSource.buildWorktreePaneDrillInLevel(
-                    presence: presence
+                    canOpenInCurrentTab: canOpenWorktreeInCurrentTab
                 )
             )
         }

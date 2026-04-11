@@ -237,7 +237,7 @@ enum FooterHintBuilder {
     static func hints(
         for item: CommandBarItem?,
         isNested: Bool,
-        hasTabsOpen: Bool,
+        canOpenInCurrentTab: Bool,
         scope: CommandBarScope = .everything
     ) -> [FooterHint] {
         if isNested {
@@ -253,22 +253,13 @@ enum FooterHintBuilder {
         var actions: [FooterHint] = []
 
         if let item {
-            if let openState = item.worktreeOpenState {
-                switch openState {
-                case .notOpen where !hasTabsOpen:
-                    actions = [FooterHint(id: "enter", key: "↵", label: "New tab")]
-                case .notOpen:
-                    actions = [
-                        FooterHint(id: "enter", key: "↵", label: "Choose"),
-                        FooterHint(id: "cmd-enter", key: "⌘↵", label: "New tab"),
-                        FooterHint(id: "opt-enter", key: "⌥↵", label: "Open in tab"),
-                    ]
-                case .singlePane, .multiplePanes:
-                    actions = [
-                        FooterHint(id: "enter", key: "↵", label: "Choose"),
-                        FooterHint(id: "cmd-enter", key: "⌘↵", label: "New tab"),
-                        FooterHint(id: "opt-enter", key: "⌥↵", label: "Open in tab"),
-                    ]
+            if item.worktreeOpenState != nil {
+                actions = [
+                    FooterHint(id: "enter", key: "↵", label: "Actions"),
+                    FooterHint(id: "cmd-enter", key: "⌘↵", label: "New tab"),
+                ]
+                if canOpenInCurrentTab {
+                    actions.append(FooterHint(id: "opt-enter", key: "⌥↵", label: "Open in tab"))
                 }
             } else {
                 let enterLabel = (item.kind == .tab || item.kind == .pane) ? "Go to" : "Open"

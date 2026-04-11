@@ -15,7 +15,7 @@ struct FooterHintBuilderTests {
 
     @Test
     func test_nested_showsSelectBackAndClose() {
-        let hints = FooterHintBuilder.hints(for: nil, isNested: true, hasTabsOpen: true)
+        let hints = FooterHintBuilder.hints(for: nil, isNested: true, canOpenInCurrentTab: true)
 
         #expect(labels(hints) == ["Select", "Back", "Close"])
         #expect(hasDivider(hints))
@@ -23,14 +23,14 @@ struct FooterHintBuilderTests {
 
     @Test
     func test_noSelection_everythingScope_showsScopeHintsAndClose() {
-        let hints = FooterHintBuilder.hints(for: nil, isNested: false, hasTabsOpen: true)
+        let hints = FooterHintBuilder.hints(for: nil, isNested: false, canOpenInCurrentTab: true)
 
         #expect(labels(hints) == ["Commands", "Panes", "Repos", "Close"])
     }
 
     @Test
     func test_noSelection_nonEverythingScope_showsOnlyClose() {
-        let hints = FooterHintBuilder.hints(for: nil, isNested: false, hasTabsOpen: true, scope: .commands)
+        let hints = FooterHintBuilder.hints(for: nil, isNested: false, canOpenInCurrentTab: true, scope: .commands)
 
         #expect(labels(hints) == ["Close"])
     }
@@ -43,7 +43,7 @@ struct FooterHintBuilderTests {
             title: "Tab",
             action: .dispatchTargeted(.selectTab, target: tabId, targetType: .tab)
         )
-        let hints = FooterHintBuilder.hints(for: item, isNested: false, hasTabsOpen: true)
+        let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true)
 
         #expect(labels(hints).first == "Go to")
         #expect(labels(hints).contains("Commands"))
@@ -58,7 +58,7 @@ struct FooterHintBuilderTests {
             title: "Pane",
             action: .dispatchTargeted(.focusPane, target: paneId, targetType: .pane)
         )
-        let hints = FooterHintBuilder.hints(for: item, isNested: false, hasTabsOpen: true)
+        let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true)
 
         #expect(labels(hints).first == "Go to")
         #expect(!labels(hints).contains("Open"))
@@ -67,7 +67,7 @@ struct FooterHintBuilderTests {
     @Test
     func test_commandItem_showsOpen() {
         let item = makeCommandBarItem(id: "cmd-1", title: "Cmd")
-        let hints = FooterHintBuilder.hints(for: item, isNested: false, hasTabsOpen: true)
+        let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true)
 
         #expect(labels(hints).first == "Open")
         #expect(!labels(hints).contains("Go to"))
@@ -76,64 +76,64 @@ struct FooterHintBuilderTests {
     @Test
     func test_commandItemWithChildren_showsOpenAndDrillIn() {
         let item = makeCommandBarItem(id: "cmd-1", title: "Cmd", hasChildren: true)
-        let hints = FooterHintBuilder.hints(for: item, isNested: false, hasTabsOpen: true)
+        let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true)
 
         #expect(labels(hints).contains("Open"))
         #expect(labels(hints).contains("Drill in"))
     }
 
     @Test
-    func test_worktreeNotOpen_noTabs_showsNewTab() {
+    func test_worktreeWithoutCurrentTab_showsActionsAndNewTab() {
         let item = makeCommandBarItem(
             id: "wt-1",
             title: "main",
             worktreePresence: makeWorktreePresence(paneCount: 0)
         )
-        let hints = FooterHintBuilder.hints(for: item, isNested: false, hasTabsOpen: false)
+        let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: false)
 
-        #expect(labels(hints) == ["New tab", "Commands", "Panes", "Repos", "Close"])
+        #expect(labels(hints) == ["Actions", "New tab", "Commands", "Panes", "Repos", "Close"])
     }
 
     @Test
-    func test_worktreeNotOpen_tabsExist_showsChooseAndModifiers() {
+    func test_worktreeNotOpen_withCurrentTab_showsActionsAndModifiers() {
         let item = makeCommandBarItem(
             id: "wt-1",
             title: "main",
             worktreePresence: makeWorktreePresence(paneCount: 0)
         )
-        let hints = FooterHintBuilder.hints(for: item, isNested: false, hasTabsOpen: true)
+        let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true)
 
-        #expect(labels(hints) == ["Choose", "New tab", "Open in tab", "Commands", "Panes", "Repos", "Close"])
+        #expect(labels(hints) == ["Actions", "New tab", "Open in tab", "Commands", "Panes", "Repos", "Close"])
     }
 
     @Test
-    func test_worktreeSinglePane_showsChooseAndModifiers() {
+    func test_worktreeSinglePane_showsSameMenuAndModifiers() {
         let item = makeCommandBarItem(
             id: "wt-1",
             title: "main",
             worktreePresence: makeWorktreePresence(paneCount: 1)
         )
-        let hints = FooterHintBuilder.hints(for: item, isNested: false, hasTabsOpen: true)
+        let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true)
 
-        #expect(labels(hints) == ["Choose", "New tab", "Open in tab", "Commands", "Panes", "Repos", "Close"])
+        #expect(labels(hints) == ["Actions", "New tab", "Open in tab", "Commands", "Panes", "Repos", "Close"])
     }
 
     @Test
-    func test_worktreeMultiplePanes_showsChooseAndModifiers() {
+    func test_worktreeMultiplePanes_showsSameMenuAndModifiers() {
         let item = makeCommandBarItem(
             id: "wt-1",
             title: "main",
             worktreePresence: makeWorktreePresence(paneCount: 2)
         )
-        let hints = FooterHintBuilder.hints(for: item, isNested: false, hasTabsOpen: true)
+        let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true)
 
-        #expect(labels(hints) == ["Choose", "New tab", "Open in tab", "Commands", "Panes", "Repos", "Close"])
+        #expect(labels(hints) == ["Actions", "New tab", "Open in tab", "Commands", "Panes", "Repos", "Close"])
     }
 
     @Test
     func test_scopedView_omitsScopeHints() {
         let item = makeCommandBarItem(id: "cmd-1", title: "Cmd")
-        let hints = FooterHintBuilder.hints(for: item, isNested: false, hasTabsOpen: true, scope: .panes)
+        let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true, scope: .panes)
 
         #expect(labels(hints) == ["Open", "Close"])
         #expect(!labels(hints).contains("Commands"))
@@ -146,7 +146,7 @@ struct FooterHintBuilderTests {
             title: "main",
             worktreePresence: makeWorktreePresence(paneCount: 1)
         )
-        let hints = FooterHintBuilder.hints(for: item, isNested: false, hasTabsOpen: true)
+        let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true)
         let dividerCount = hints.filter(\.isDivider).count
 
         #expect(dividerCount == 2)

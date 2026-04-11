@@ -590,6 +590,20 @@ struct CommandBarDataSourceTests {
     }
 
     @Test
+    func test_displayItems_flattensInRenderedGroupOrder() {
+        let items = [
+            makeCommandBarItem(id: "pane-1", group: "Panes", groupPriority: 2),
+            makeCommandBarItem(id: "wt-1", group: "Worktrees", groupPriority: 1),
+            makeCommandBarItem(id: "tab-1", group: "Tabs", groupPriority: 3),
+        ]
+
+        let groups = CommandBarDataSource.grouped(items)
+        let displayItems = CommandBarDataSource.displayItems(from: groups)
+
+        #expect(displayItems.map(\.id) == ["wt-1", "pane-1", "tab-1"])
+    }
+
+    @Test
     func test_grouped_emptyItems_returnsEmpty() {
         // Act
         let groups = CommandBarDataSource.grouped([])

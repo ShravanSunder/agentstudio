@@ -115,63 +115,14 @@ extension CommandBarDataSource {
         )
     }
 
-    static func buildWorktreePaneDrillInLevel(
-        presence: WorktreePresence
-    ) -> CommandBarLevel {
-        var items = presence.openPanes.map { location in
-            CommandBarItem(
-                id: "wt-pane-\(location.paneId.uuidString)",
-                title: "Terminal — \(presence.worktreeName)",
-                subtitle: locationSubtitle(for: location),
-                icon: "terminal",
-                group: "Navigate to",
-                groupPriority: 0,
-                action: .dispatchTargeted(.focusPane, target: location.paneId, targetType: .pane),
-                command: .focusPane
-            )
-        }
-
-        let worktreeId = presence.worktreeId
-        items.append(
-            CommandBarItem(
-                id: "wt-new-tab-\(worktreeId.uuidString)",
-                title: "New pane in new tab",
-                icon: "plus.rectangle",
-                shortcutKeys: [ShortcutKey(symbol: "⌘"), ShortcutKey(symbol: "↵")],
-                group: "Open new",
-                groupPriority: 1,
-                action: .dispatchTargeted(.openNewTerminalInTab, target: worktreeId, targetType: .worktree),
-                command: .openNewTerminalInTab
-            ))
-        items.append(
-            CommandBarItem(
-                id: "wt-add-pane-\(worktreeId.uuidString)",
-                title: "New pane in current tab",
-                icon: "rectangle.split.2x1",
-                shortcutKeys: [ShortcutKey(symbol: "⌥"), ShortcutKey(symbol: "↵")],
-                group: "Open new",
-                groupPriority: 1,
-                action: .dispatchTargeted(.openWorktreeInPane, target: worktreeId, targetType: .worktree),
-                command: .openWorktreeInPane
-            ))
-
-        return CommandBarLevel(
-            id: "level-wt-\(worktreeId.uuidString)",
-            title: presence.worktreeName,
-            parentLabel: presence.repoName,
-            scopeLabel: "Worktrees · Actions",
-            items: items
-        )
-    }
-
-    static func buildWorktreeOpenChoiceLevel(
+    static func buildWorktreeActionsLevel(
         presence: WorktreePresence,
-        hasTabsOpen: Bool
+        canOpenInCurrentTab: Bool
     ) -> CommandBarLevel {
         let worktreeId = presence.worktreeId
         var items = [
             CommandBarItem(
-                id: "wt-choice-new-tab-\(worktreeId.uuidString)",
+                id: "wt-new-tab-\(worktreeId.uuidString)",
                 title: "New pane in new tab",
                 icon: "plus.rectangle",
                 shortcutKeys: [ShortcutKey(symbol: "⌘"), ShortcutKey(symbol: "↵")],
@@ -182,10 +133,10 @@ extension CommandBarDataSource {
             )
         ]
 
-        if hasTabsOpen {
+        if canOpenInCurrentTab {
             items.append(
                 CommandBarItem(
-                    id: "wt-choice-add-pane-\(worktreeId.uuidString)",
+                    id: "wt-add-pane-\(worktreeId.uuidString)",
                     title: "New pane in current tab",
                     icon: "rectangle.split.2x1",
                     shortcutKeys: [ShortcutKey(symbol: "⌥"), ShortcutKey(symbol: "↵")],
@@ -196,11 +147,26 @@ extension CommandBarDataSource {
                 ))
         }
 
+        items.append(
+            contentsOf: presence.openPanes.map { location in
+                CommandBarItem(
+                    id: "wt-pane-\(location.paneId.uuidString)",
+                    title: "Terminal — \(presence.worktreeName)",
+                    subtitle: locationSubtitle(for: location),
+                    icon: "terminal",
+                    group: "Navigate to",
+                    groupPriority: 1,
+                    action: .dispatchTargeted(.focusPane, target: location.paneId, targetType: .pane),
+                    command: .focusPane
+                )
+            }
+        )
+
         return CommandBarLevel(
-            id: "level-wt-choice-\(worktreeId.uuidString)",
+            id: "level-wt-\(worktreeId.uuidString)",
             title: presence.worktreeName,
             parentLabel: presence.repoName,
-            scopeLabel: "Worktrees · Open",
+            scopeLabel: "Worktrees · Actions",
             items: items
         )
     }

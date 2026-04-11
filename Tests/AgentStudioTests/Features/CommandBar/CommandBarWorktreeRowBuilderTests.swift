@@ -11,7 +11,7 @@ struct CommandBarWorktreeRowBuilderTests {
     }
 
     @Test
-    func test_buildWorktreePaneDrillInLevel_includesNavigateAndOpenRows() {
+    func test_buildWorktreeActionsLevel_includesOpenCommandsAndNavigateRows() {
         let worktree = Worktree(
             repoId: UUID(),
             name: "main",
@@ -37,44 +37,51 @@ struct CommandBarWorktreeRowBuilderTests {
             ]
         )
 
-        let level = CommandBarDataSource.buildWorktreePaneDrillInLevel(
-            presence: presence
-        )
+        let level = CommandBarDataSource.buildWorktreeActionsLevel(presence: presence, canOpenInCurrentTab: true)
 
         #expect(level.title == "main")
         #expect(level.parentLabel == "repo")
         #expect(level.items.count == 4)
+        #expect(level.items.filter { $0.group == "Open" }.count == 2)
         #expect(level.items.filter { $0.group == "Navigate to" }.count == 2)
-        #expect(level.items.filter { $0.group == "Open new" }.count == 2)
         #expect(level.items.contains { $0.id == "wt-new-tab-\(worktree.id.uuidString)" })
         #expect(level.items.contains { $0.id == "wt-add-pane-\(worktree.id.uuidString)" })
+        #expect(level.items[0].id == "wt-new-tab-\(worktree.id.uuidString)")
+        #expect(level.items[1].id == "wt-add-pane-\(worktree.id.uuidString)")
     }
 
     @Test
-    func test_buildWorktreeOpenChoiceLevel_hidesCurrentTabOptionWhenNoTabs() {
+    func test_buildWorktreeActionsLevel_hidesCurrentTabOptionWhenUnavailable() {
         let presence = makeWorktreePresence(paneCount: 0)
 
-        let level = CommandBarDataSource.buildWorktreeOpenChoiceLevel(
-            presence: presence,
-            hasTabsOpen: false
-        )
+        let level = CommandBarDataSource.buildWorktreeActionsLevel(presence: presence, canOpenInCurrentTab: false)
 
         #expect(level.items.count == 1)
-        #expect(level.items[0].id == "wt-choice-new-tab-\(presence.worktreeId.uuidString)")
+        #expect(level.items[0].id == "wt-new-tab-\(presence.worktreeId.uuidString)")
+        #expect(level.items.allSatisfy { $0.id != "wt-add-pane-\(presence.worktreeId.uuidString)" })
     }
 
     @Test
-    func test_buildWorktreeOpenChoiceLevel_includesCurrentTabOptionWhenTabsExist() {
-        let presence = makeWorktreePresence(paneCount: 0)
+    func test_buildWorktreeActionsLevel_usesExistingTargetedCommands() {
+        let presence = makeWorktreePresence(paneCount: 1)
 
-        let level = CommandBarDataSource.buildWorktreeOpenChoiceLevel(
-            presence: presence,
-            hasTabsOpen: true
-        )
+        let level = CommandBarDataSource.buildWorktreeActionsLevel(presence: presence, canOpenInCurrentTab: true)
 
-        #expect(level.items.count == 2)
-        #expect(level.items.contains { $0.id == "wt-choice-new-tab-\(presence.worktreeId.uuidString)" })
-        #expect(level.items.contains { $0.id == "wt-choice-add-pane-\(presence.worktreeId.uuidString)" })
+        guard
+            case .dispatchTargeted(.openNewTerminalInTab, let newTabTarget, .worktree) = level.items[0].action
+        else {
+            Issue.record("Expected new-tab row to dispatch existing openNewTerminalInTab command")
+            return
+        }
+        #expect(newTabTarget == presence.worktreeId)
+
+        guard
+            case .dispatchTargeted(.openWorktreeInPane, let splitTarget, .worktree) = level.items[1].action
+        else {
+            Issue.record("Expected current-tab row to dispatch existing openWorktreeInPane command")
+            return
+        }
+        #expect(splitTarget == presence.worktreeId)
     }
 
     @Test
