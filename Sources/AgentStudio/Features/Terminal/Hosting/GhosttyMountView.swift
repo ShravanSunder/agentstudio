@@ -3,35 +3,10 @@ import GhosttyKit
 
 @MainActor
 final class GhosttyMountView: NSView {
-    private(set) var mountedSurfaceView: Ghostty.SurfaceView?
+    private(set) var mountedView: NSView?
 
-    func mount(_ surfaceView: Ghostty.SurfaceView) {
-        unmountCurrentSurface()
-
-        surfaceView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(surfaceView)
-        NSLayoutConstraint.activate([
-            surfaceView.topAnchor.constraint(equalTo: topAnchor),
-            surfaceView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            surfaceView.trailingAnchor.constraint(equalTo: trailingAnchor),
-            surfaceView.bottomAnchor.constraint(equalTo: bottomAnchor),
-        ])
-
-        mountedSurfaceView = surfaceView
-    }
-
-    func unmountCurrentSurface() {
-        mountedSurfaceView?.removeFromSuperview()
-        mountedSurfaceView = nil
-    }
-
-    // MARK: - Testing
-
-    func mountAnyViewForTesting(_ view: NSView) {
-        unmountCurrentSurface()
-        for subview in subviews {
-            subview.removeFromSuperview()
-        }
+    func mount(_ view: NSView) {
+        unmountCurrentView()
 
         view.translatesAutoresizingMaskIntoConstraints = false
         addSubview(view)
@@ -41,5 +16,22 @@ final class GhosttyMountView: NSView {
             view.trailingAnchor.constraint(equalTo: trailingAnchor),
             view.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+
+        mountedView = view
+    }
+
+    func unmountCurrentView() {
+        mountedView?.removeFromSuperview()
+        mountedView = nil
+    }
+
+    // MARK: - Testing
+
+    func mountAnyViewForTesting(_ view: NSView) {
+        unmountCurrentView()
+        for subview in subviews {
+            subview.removeFromSuperview()
+        }
+        mount(view)
     }
 }

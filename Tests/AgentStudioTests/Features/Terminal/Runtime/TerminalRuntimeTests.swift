@@ -283,6 +283,21 @@ struct TerminalRuntimeTests {
         #expect(replay.events.count == 1)
     }
 
+    @Test("mouse events update observable runtime state")
+    func mouseEventsUpdateObservableRuntimeState() {
+        let runtime = TerminalRuntime(
+            paneId: PaneId(),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+        )
+        runtime.transitionToReady()
+
+        runtime.handleGhosttyEvent(.mouseShapeChanged(shape: .pointer))
+        runtime.handleGhosttyEvent(.mouseVisibilityChanged(isVisible: false))
+
+        #expect(runtime.mouseShape == .pointer)
+        #expect(runtime.isMouseVisible == false)
+    }
+
     @Test("promptTitle posts to bus but is not replayed")
     func promptTitle_postsNonReplayableBusEvent() async {
         let paneEventBus = EventBus<RuntimeEnvelope>()
@@ -446,7 +461,7 @@ struct TerminalRuntimeTests {
         )
         runtime.transitionToReady()
 
-        runtime.handleGhosttyEvent(.mouseShapeChanged(shapeRawValue: 1))
+        runtime.handleGhosttyEvent(.mouseShapeChanged(shape: .pointer))
         runtime.handleGhosttyEvent(.mouseVisibilityChanged(isVisible: false))
         runtime.handleGhosttyEvent(.mouseLinkHovered(url: "https://example.com"))
         runtime.handleGhosttyEvent(

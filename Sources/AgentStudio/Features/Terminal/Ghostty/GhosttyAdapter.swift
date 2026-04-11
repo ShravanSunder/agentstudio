@@ -174,7 +174,20 @@ final class GhosttyAdapter {
                 expectedPayload: ".mouseShape(rawValue: UInt32)"
             )
         }
-        return .mouseShapeChanged(shapeRawValue: rawValue)
+        let mouseShape: TerminalMouseShape
+        switch rawValue {
+        case UInt32(GHOSTTY_MOUSE_SHAPE_TEXT.rawValue):
+            mouseShape = .text
+        case UInt32(GHOSTTY_MOUSE_SHAPE_POINTER.rawValue):
+            mouseShape = .pointer
+        case UInt32(GHOSTTY_MOUSE_SHAPE_CROSSHAIR.rawValue):
+            mouseShape = .crosshair
+        case UInt32(GHOSTTY_MOUSE_SHAPE_VERTICAL_TEXT.rawValue):
+            mouseShape = .verticalText
+        default:
+            mouseShape = .other(rawValue: rawValue)
+        }
+        return .mouseShapeChanged(shape: mouseShape)
     }
 
     private func translateMouseVisibility(payload: ActionPayload, actionTag: GhosttyActionTag) -> GhosttyEvent {

@@ -1,3 +1,4 @@
+// swiftlint:disable file_length
 import AppKit
 import SwiftUI
 import os.log
@@ -555,6 +556,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         return CommandDispatcher.shared.canDispatch(command)
     }
 
+    // swiftlint:disable:next function_body_length
     private func setupMainMenu() {
         let mainMenu = NSMenu()
 
@@ -610,6 +612,36 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
         editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
         editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
+        editMenu.addItem(NSMenuItem.separator())
+
+        let findMenu = NSMenu(title: "Find")
+        let findItem = NSMenuItem(
+            title: "Find…",
+            action: #selector(TerminalPaneMountView.startSearch(_:)),
+            keyEquivalent: "f"
+        )
+        findItem.keyEquivalentModifierMask = [.command]
+        findMenu.addItem(findItem)
+
+        let findNextItem = NSMenuItem(
+            title: "Find Next",
+            action: #selector(TerminalPaneMountView.findNext(_:)),
+            keyEquivalent: "g"
+        )
+        findNextItem.keyEquivalentModifierMask = [.command]
+        findMenu.addItem(findNextItem)
+
+        let findPreviousItem = NSMenuItem(
+            title: "Find Previous",
+            action: #selector(TerminalPaneMountView.findPrevious(_:)),
+            keyEquivalent: "G"
+        )
+        findPreviousItem.keyEquivalentModifierMask = [.command, .shift]
+        findMenu.addItem(findPreviousItem)
+
+        let findMenuItem = NSMenuItem()
+        findMenuItem.submenu = findMenu
+        editMenu.addItem(findMenuItem)
 
         let editMenuItem = NSMenuItem()
         editMenuItem.submenu = editMenu
