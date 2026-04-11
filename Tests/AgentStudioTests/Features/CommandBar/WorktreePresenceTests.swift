@@ -166,4 +166,49 @@ struct WorktreePresenceTests {
         #expect(presence.distinctTabCount == 1)
         #expect(presence.openState == .multiplePanes)
     }
+
+    @Test
+    func test_build_excludesBackgroundedPanesFromPresence() {
+        let store = makeStore()
+        let repo = store.addRepo(at: URL(filePath: "/tmp/presence-backgrounded"))
+        let worktree = Worktree(repoId: repo.id, name: "main", path: URL(filePath: "/tmp/presence-backgrounded"))
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        guard let storedWorktree = store.repos.first?.worktrees.first else {
+            Issue.record("Expected stored worktree")
+            return
+        }
+
+        _ = store.createPane(
+            source: .worktree(worktreeId: storedWorktree.id, repoId: repo.id, launchDirectory: storedWorktree.path),
+            title: "Backgrounded",
+            residency: .backgrounded
+        )
+
+        let presence = CommandBarDataSource.buildWorktreePresence(worktree: storedWorktree, repo: repo, store: store)
+
+        #expect(presence.openPanes.isEmpty)
+        #expect(presence.openState == .notOpen)
+    }
+
+    @Test
+    func test_build_excludesActivePanesWithoutOwningTab() {
+        let store = makeStore()
+        let repo = store.addRepo(at: URL(filePath: "/tmp/presence-orphan"))
+        let worktree = Worktree(repoId: repo.id, name: "main", path: URL(filePath: "/tmp/presence-orphan"))
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        guard let storedWorktree = store.repos.first?.worktrees.first else {
+            Issue.record("Expected stored worktree")
+            return
+        }
+
+        _ = store.createPane(
+            source: .worktree(worktreeId: storedWorktree.id, repoId: repo.id, launchDirectory: storedWorktree.path),
+            title: "Orphaned"
+        )
+
+        let presence = CommandBarDataSource.buildWorktreePresence(worktree: storedWorktree, repo: repo, store: store)
+
+        #expect(presence.openPanes.isEmpty)
+        #expect(presence.openState == .notOpen)
+    }
 }

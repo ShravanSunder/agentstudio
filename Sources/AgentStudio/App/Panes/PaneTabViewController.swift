@@ -1405,6 +1405,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         // Targeted non-pane commands (e.g. from command bar)
         switch (command, targetType) {
         case (.renameTab, .tab):
+            guard store.tab(target) != nil else {
+                Self.logger.warning("renameTab targeted command ignored: tab \(target) not found")
+                return
+            }
             if store.activeTabId != target {
                 dispatchAction(.selectTab(tabId: target))
             }

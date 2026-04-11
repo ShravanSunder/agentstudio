@@ -565,28 +565,10 @@ extension PaneCoordinator: TopologyEffectHandler {
     /// Worktree-backed panes get "folder · branch", others get the pane title.
     /// We intentionally do not auto-rename tabs later when enrichment changes.
     func tabNameForPane(_ pane: Pane) -> String {
-        if let worktreeId = pane.worktreeId,
-            let worktree = store.worktree(worktreeId)
-        {
-            return Self.defaultTabName(worktree: worktree)
-        }
-        let title = pane.metadata.title.trimmingCharacters(in: .whitespacesAndNewlines)
-        return title.isEmpty ? "Terminal" : title
-    }
-
-    private static func defaultTabName(worktree: Worktree) -> String {
-        let folderName = worktree.path.lastPathComponent
-        let branchName = atom(\.paneDisplay).resolvedBranchName(
-            worktree: worktree,
-            enrichment: atom(\.repoCache).worktreeEnrichmentByWorktreeId[worktree.id]
+        TabDisplayNameResolver.title(
+            for: pane,
+            store: store,
+            repoCache: atom(\.repoCache)
         )
-
-        if branchName == "detached HEAD" || branchName.isEmpty {
-            return folderName
-        }
-        if branchName == folderName {
-            return branchName
-        }
-        return "\(folderName) · \(branchName)"
     }
 }

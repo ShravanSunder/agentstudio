@@ -248,22 +248,60 @@ final class TabBarAdapterTests {
             path: URL(filePath: "/tmp/agent-studio/feature-name")
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        let storedWorktree = try #require(store.repos.first?.worktrees.first, "Expected stored worktree")
         repoCache.setWorktreeEnrichment(
-            WorktreeEnrichment(worktreeId: worktree.id, repoId: repo.id, branch: "feature/pane-labels")
+            WorktreeEnrichment(worktreeId: storedWorktree.id, repoId: repo.id, branch: "feature/pane-labels")
         )
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            source: .worktree(worktreeId: storedWorktree.id, repoId: repo.id, launchDirectory: storedWorktree.path),
             title: "Ephemeral shell title",
             facets: PaneContextFacets(
                 repoId: repo.id,
                 repoName: repo.name,
-                worktreeId: worktree.id,
-                worktreeName: worktree.name,
-                cwd: worktree.path
+                worktreeId: storedWorktree.id,
+                worktreeName: storedWorktree.name,
+                cwd: storedWorktree.path
             )
         )
         store.appendTab(Tab(paneId: pane.id, name: "feature-name · feature/pane-labels"))
+
+        await waitForAdapterRefresh()
+
+        let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
+        #expect(tabItem.title == "feature-name · feature/pane-labels")
+        #expect(tabItem.displayTitle == "feature-name · feature/pane-labels")
+    }
+
+    @Test
+    func test_placeholderTabName_fallsBackToDerivedDisplayTitle() async throws {
+        resetFixture()
+
+        let repo = store.addRepo(at: URL(filePath: "/tmp/adapter-placeholder"))
+        let worktree = Worktree(
+            repoId: repo.id,
+            name: "feature-name",
+            path: URL(filePath: "/tmp/adapter-placeholder/feature-name")
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        let storedWorktree = try #require(store.repos.first?.worktrees.first, "Expected stored worktree")
+        repoCache.setWorktreeEnrichment(
+            WorktreeEnrichment(worktreeId: storedWorktree.id, repoId: repo.id, branch: "feature/pane-labels")
+        )
+
+        let pane = store.createPane(
+            source: .worktree(worktreeId: storedWorktree.id, repoId: repo.id, launchDirectory: storedWorktree.path),
+            title: "Ignored",
+            facets: PaneContextFacets(
+                repoId: repo.id,
+                repoName: repo.name,
+                worktreeId: storedWorktree.id,
+                worktreeName: storedWorktree.name,
+                cwd: storedWorktree.path
+            )
+        )
+        let tab = Tab(paneId: pane.id, name: "Tab")
+        store.appendTab(tab)
 
         await waitForAdapterRefresh()
 

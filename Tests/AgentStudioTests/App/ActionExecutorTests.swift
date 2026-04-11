@@ -188,6 +188,33 @@ final class ActionExecutorTests {
         #expect(store.tabs[1].paneIds == [p2.id])
     }
 
+    @Test
+    func test_execute_breakUpTab_namesNewTabsFromPaneContext() {
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: "Left"), title: "Left")
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: "Right"), title: "Right")
+        let layout = Layout(paneId: p1.id)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: layout,
+            visiblePaneIds: Set(layout.paneIds)
+        )
+        let tab = Tab(
+            panes: layout.paneIds,
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id,
+            activePaneId: p1.id
+        )
+        store.appendTab(tab)
+
+        executor.execute(.breakUpTab(tabId: tab.id))
+
+        #expect(store.tabs.count == 2)
+        #expect(store.tabs[0].name == "Left")
+        #expect(store.tabs[1].name == "Right")
+    }
+
     // MARK: - Execute: extractPaneToTab
 
     @Test
@@ -216,6 +243,32 @@ final class ActionExecutorTests {
 
         // Assert
         #expect(store.tabs.count == 2)
+    }
+
+    @Test
+    func test_execute_extractPaneToTab_namesNewTabFromExtractedPane() {
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: "First"), title: "First")
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: "Second"), title: "Second")
+        let layout = Layout(paneId: p1.id)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: layout,
+            visiblePaneIds: Set(layout.paneIds)
+        )
+        let tab = Tab(
+            panes: layout.paneIds,
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id,
+            activePaneId: p1.id
+        )
+        store.appendTab(tab)
+
+        executor.execute(.extractPaneToTab(tabId: tab.id, paneId: p2.id))
+
+        #expect(store.tabs.count == 2)
+        #expect(store.tabs[1].name == "Second")
     }
 
     // MARK: - Execute: focusPane

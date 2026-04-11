@@ -158,6 +158,23 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.store.tab(secondTab.id)?.name == "Second Tab")
     }
 
+    @Test("targeted renameTab ignores stale tab targets")
+    func executeRenameTab_missingTarget_doesNotPresentRenamePopover() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Only"))
+        let tab = Tab(paneId: pane.id, name: "Only Tab")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let missingTabId = UUID()
+
+        harness.controller.execute(.renameTab, target: missingTabId, targetType: .tab)
+
+        #expect(harness.tabRenamePopoverState.presentedTabId == nil)
+        #expect(harness.store.activeTabId == tab.id)
+    }
+
     @Test("terminated pane closes only the matching split pane")
     func handleTerminalProcessTerminated_closesOnlyMatchingSplitPane() {
         let harness = makeHarness()

@@ -77,6 +77,69 @@ struct CommandBarItemTests {
         #expect(key1 != key2)
     }
 
+    @Test
+    func test_itemKind_worktreeAction_isWorktree() {
+        let item = makeCommandBarItem(worktreePresence: makeWorktreePresence(paneCount: 0))
+
+        #expect(item.kind == .worktree)
+    }
+
+    @Test
+    func test_itemKind_dispatch_isCommand() {
+        let item = makeCommandBarItem(action: .dispatch(.toggleSidebar))
+
+        #expect(item.kind == .command)
+    }
+
+    @Test
+    func test_itemKind_navigateWithoutCommand_isOther() {
+        let item = makeCommandBarItem(action: .navigate(makeCommandBarLevel()))
+
+        #expect(item.kind == .other)
+    }
+
+    @Test
+    func test_itemKind_navigateWithCommand_isCommand() {
+        let item = CommandBarItem(
+            id: "cmd-nav",
+            title: "Navigate",
+            group: "Commands",
+            groupPriority: 0,
+            hasChildren: true,
+            action: .navigate(makeCommandBarLevel()),
+            command: .renameTab
+        )
+
+        #expect(item.kind == .command)
+    }
+
+    @Test
+    func test_itemKind_dispatchTargetedSelectTab_isTab() {
+        let item = makeCommandBarItem(
+            action: .dispatchTargeted(.selectTab, target: UUID(), targetType: .tab)
+        )
+
+        #expect(item.kind == .tab)
+    }
+
+    @Test
+    func test_itemKind_dispatchTargetedFocusPane_isPane() {
+        let item = makeCommandBarItem(
+            action: .dispatchTargeted(.focusPane, target: UUID(), targetType: .pane)
+        )
+
+        #expect(item.kind == .pane)
+    }
+
+    @Test
+    func test_itemKind_dispatchTargetedOtherCommand_isCommand() {
+        let item = makeCommandBarItem(
+            action: .dispatchTargeted(.openWorktreeInPane, target: UUID(), targetType: .worktree)
+        )
+
+        #expect(item.kind == .command)
+    }
+
     // MARK: - CommandBarItem Init
 
     @Test

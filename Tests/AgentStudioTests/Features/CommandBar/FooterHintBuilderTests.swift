@@ -151,6 +151,18 @@ struct FooterHintBuilderTests {
     }
 
     @Test
+    func test_worktreeInReposScope_omitsGlobalScopeHints() {
+        let item = makeCommandBarItem(
+            id: "wt-1",
+            title: "main",
+            worktreePresence: makeWorktreePresence(paneCount: 1)
+        )
+        let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true, scope: .repos)
+
+        #expect(labels(hints) == ["Actions", "New tab", "Open in tab", "Close"])
+    }
+
+    @Test
     func test_dividersSeparateGroups() {
         let item = makeCommandBarItem(
             id: "wt-1",

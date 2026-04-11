@@ -282,11 +282,14 @@ extension PaneCoordinator {
             executeClosePane(tabId: tabId, paneId: paneId)
 
         case .extractPaneToTab(let tabId, let paneId):
-            if let newTab = store.tabLayoutAtom.extractPane(paneId, fromTab: tabId),
-                let pane = store.pane(paneId)
-            {
-                store.tabLayoutAtom.renameTab(newTab.id, name: tabNameForPane(pane))
+            guard let newTab = store.tabLayoutAtom.extractPane(paneId, fromTab: tabId) else {
+                break
             }
+            guard let pane = store.pane(paneId) else {
+                Self.logger.warning("extractPaneToTab: extracted pane \(paneId) missing after tab extraction")
+                break
+            }
+            store.tabLayoutAtom.renameTab(newTab.id, name: tabNameForPane(pane))
 
         case .focusPane(let tabId, let paneId):
             if let tab = store.tab(tabId), tab.minimizedPaneIds.contains(paneId) {
@@ -623,9 +626,12 @@ extension PaneCoordinator {
     private func executeBreakUpTab(_ tabId: UUID) {
         let newTabs = store.tabLayoutAtom.breakUpTab(tabId)
         for newTab in newTabs {
-            if let paneId = newTab.activePaneId, let pane = store.pane(paneId) {
-                store.tabLayoutAtom.renameTab(newTab.id, name: tabNameForPane(pane))
+            guard let paneId = newTab.activePaneId else { continue }
+            guard let pane = store.pane(paneId) else {
+                Self.logger.warning("breakUpTab: pane \(paneId) missing while naming new tab \(newTab.id)")
+                continue
             }
+            store.tabLayoutAtom.renameTab(newTab.id, name: tabNameForPane(pane))
         }
     }
 

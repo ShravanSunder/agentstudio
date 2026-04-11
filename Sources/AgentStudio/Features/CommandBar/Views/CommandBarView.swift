@@ -114,7 +114,7 @@ struct CommandBarView: View {
     /// Checks both direct dispatch and navigate (drill-in) items via the `command` property.
     private var dimmedItemIds: Set<String> {
         var ids = Set<String>()
-        for item in filteredItems {
+        for item in displayedItems {
             if let command = item.command, !dispatcher.canDispatch(command) {
                 ids.insert(item.id)
             }

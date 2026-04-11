@@ -430,6 +430,15 @@ final class CommandBarStateTests {
         #expect(state.backRowLabel == "Actions")
     }
 
+    @Test
+    func test_backRowLabel_nestedWithoutScopeLabel_returnsNil() {
+        let level = makeCommandBarLevel(title: "Actions", parentLabel: "Worktrees", scopeLabel: nil)
+
+        state.pushLevel(level)
+
+        #expect(state.backRowLabel == nil)
+    }
+
     // MARK: - Selection
 
     @Test

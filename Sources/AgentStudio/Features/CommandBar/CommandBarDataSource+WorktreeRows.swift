@@ -1,4 +1,7 @@
 import Foundation
+import os.log
+
+private let commandBarWorktreeLogger = Logger(subsystem: "com.agentstudio", category: "CommandBarWorktreePresence")
 
 @MainActor
 extension CommandBarDataSource {
@@ -85,9 +88,15 @@ extension CommandBarDataSource {
         store: WorkspaceStore
     ) -> WorktreePresence {
         let openPanes: [WorktreePaneLocation] = store.panes(for: worktree.id).compactMap { pane in
+            guard pane.residency == .active else {
+                return nil
+            }
             guard let tab = store.tabContaining(paneId: pane.id),
                 let tabIndex = store.tabs.firstIndex(where: { $0.id == tab.id })
             else {
+                commandBarWorktreeLogger.warning(
+                    "buildWorktreePresence: active pane \(pane.id.uuidString, privacy: .public) for worktree \(worktree.id.uuidString, privacy: .public) has no owning tab"
+                )
                 return nil
             }
 

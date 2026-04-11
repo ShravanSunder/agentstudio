@@ -149,7 +149,7 @@ final class TabBarAdapter {
         let storeTabs = store.tabs
 
         tabs = storeTabs.map { tab in
-            let displayTitle = tab.name
+            let displayTitle = TabDisplayNameResolver.displayTitle(for: tab, store: store, repoCache: repoCache)
             let dragTitle = displayTitle
 
             let activeArrangement = tab.activeArrangement

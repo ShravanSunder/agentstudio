@@ -720,7 +720,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> String {
-        tab.name
+        TabDisplayNameResolver.displayTitle(for: tab, store: store, repoCache: repoCache)
     }
 
     private static func paneDisplaySubtitle(
