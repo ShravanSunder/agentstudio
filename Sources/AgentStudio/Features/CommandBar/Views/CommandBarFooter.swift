@@ -23,8 +23,10 @@ struct CommandBarFooter: View {
 
     private func footerHint(_ key: String, _ label: String) -> some View {
         HStack(spacing: 4) {
-            Text(key)
-                .font(.system(size: AppStyle.textXs, weight: .medium, design: .monospaced))
+            CommandBarShortcutBadge(
+                keys: ShortcutKey.from(chord: key),
+                style: .footerCompact
+            )
             Text(label)
                 .font(.system(size: AppStyle.textXs))
         }

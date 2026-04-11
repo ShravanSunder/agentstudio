@@ -68,6 +68,23 @@ struct CommandBarItemTests {
     }
 
     @Test
+    func test_shortcutKey_fromChord_splitsModifierChordIntoSeparateKeys() {
+        let keys = ShortcutKey.from(chord: "⌘↵")
+
+        #expect(keys.count == 2)
+        #expect(keys[0].symbol == "⌘")
+        #expect(keys[1].symbol == "↵")
+    }
+
+    @Test
+    func test_shortcutKey_fromChord_preservesSingleToken() {
+        let keys = ShortcutKey.from(chord: ">")
+
+        #expect(keys.count == 1)
+        #expect(keys[0].symbol == ">")
+    }
+
+    @Test
     func test_shortcutKey_hashable_sameSymbolNotEqual() {
         // Arrange — two ShortcutKeys with same symbol get different UUIDs
         let key1 = ShortcutKey(symbol: "⌘")
