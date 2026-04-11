@@ -23,7 +23,12 @@ enum CommandBarWorktreeActionResolver {
                 return .dispatch(command: .openNewTerminalInTab, target: presence.worktreeId, targetType: .worktree)
             case .notOpen:
                 return .showOpenChoice
-            case .singlePane, .multiplePanes:
+            case .singlePane:
+                guard let location = presence.openPanes.first else {
+                    return .showPaneChoice
+                }
+                return .dispatch(command: .focusPane, target: location.paneId, targetType: .floatingTerminal)
+            case .multiplePanes:
                 return .showPaneChoice
             }
         }
