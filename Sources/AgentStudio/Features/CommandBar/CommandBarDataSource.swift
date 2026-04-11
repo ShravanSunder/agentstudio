@@ -137,8 +137,8 @@ enum CommandBarDataSource {
 
             let tabId = tab.id
             var keywords = ["tab", "switch"]
-            if tab.hasCustomName {
-                keywords.append(tab.name)
+            if let customName = tab.explicitDisplayName {
+                keywords.append(customName)
             }
             keywords.append(contentsOf: tab.arrangements.filter { !$0.isDefault }.map(\.name))
             return CommandBarItem(

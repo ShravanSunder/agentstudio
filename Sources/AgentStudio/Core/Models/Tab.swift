@@ -135,8 +135,10 @@ struct Tab: Codable, Identifiable, Hashable {
         activePaneIds
     }
 
-    var hasCustomName: Bool {
-        name != Self.defaultName
+    var explicitDisplayName: String? {
+        let normalized = Self.normalizedName(name)
+        guard !normalized.isEmpty, normalized != "Tab" else { return nil }
+        return normalized
     }
 
     // MARK: - Arrangement Mutation Helpers

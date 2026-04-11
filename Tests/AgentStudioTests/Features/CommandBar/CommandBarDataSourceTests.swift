@@ -426,7 +426,7 @@ struct CommandBarDataSourceTests {
             scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
 
-        #expect(tabItem?.title == "Empty")
+        #expect(tabItem?.title == "Empty Tab")
     }
 
     @Test
