@@ -220,6 +220,24 @@ final class TabBarAdapterTests {
     }
 
     @Test
+    func test_customTabName_overridesDerivedDisplayTitle() async throws {
+        resetFixture()
+
+        let pane = store.createPane(
+            source: .floating(launchDirectory: nil, title: "MyTerminal"),
+            title: "MyTerminal"
+        )
+        let tab = Tab(paneId: pane.id, name: "Review Queue")
+        store.appendTab(tab)
+
+        await waitForAdapterRefresh()
+
+        let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
+        #expect(tabItem.title == "Review Queue")
+        #expect(tabItem.displayTitle == "Review Queue")
+    }
+
+    @Test
     func test_worktreeBackedPane_usesEnrichedDisplayLabel() async throws {
         resetFixture()
 

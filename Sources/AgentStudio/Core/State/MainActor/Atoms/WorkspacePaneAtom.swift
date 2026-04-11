@@ -167,17 +167,27 @@ final class WorkspacePaneAtom {
 
     @discardableResult
     func addDrawerPane(to parentPaneId: UUID, parentFallbackCWD: URL?) -> Pane? {
-        guard let parentPane = panes[parentPaneId] else {
+        guard let metadata = inheritedDrawerMetadata(from: parentPaneId, parentFallbackCWD: parentFallbackCWD) else {
             workspacePaneLogger.warning("addDrawerPane: parent pane \(parentPaneId) not found")
             return nil
         }
-
-        let parentCwd: URL? = parentPane.metadata.facets.cwd ?? parentFallbackCWD
-        let content = PaneContent.terminal(TerminalState(provider: .zmx, lifetime: .persistent))
-        let metadata = PaneMetadata(
-            source: .floating(launchDirectory: parentCwd, title: nil),
-            title: "Drawer"
+        return addDrawerPane(
+            to: parentPaneId,
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: metadata
         )
+    }
+
+    @discardableResult
+    func addDrawerPane(
+        to parentPaneId: UUID,
+        content: PaneContent,
+        metadata: PaneMetadata
+    ) -> Pane? {
+        guard panes[parentPaneId] != nil else {
+            workspacePaneLogger.warning("addDrawerPane: parent pane \(parentPaneId) not found")
+            return nil
+        }
 
         let drawerPane = Pane(
             content: content,
@@ -212,6 +222,59 @@ final class WorkspacePaneAtom {
         position: Layout.Position,
         parentFallbackCWD: URL?
     ) -> Pane? {
+        guard let metadata = inheritedDrawerMetadata(from: parentPaneId, parentFallbackCWD: parentFallbackCWD) else {
+            workspacePaneLogger.warning("insertDrawerPane: parent pane \(parentPaneId) not found")
+            return nil
+        }
+        return insertDrawerPane(
+            in: parentPaneId,
+            at: targetDrawerPaneId,
+            direction: direction,
+            position: position,
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: metadata
+        )
+    }
+
+    private func inheritedDrawerMetadata(from parentPaneId: UUID, parentFallbackCWD: URL?) -> PaneMetadata? {
+        guard let parentPane = panes[parentPaneId] else { return nil }
+
+        let inheritedCWD =
+            parentPane.metadata.facets.cwd
+            ?? parentPane.metadata.launchDirectory
+            ?? parentFallbackCWD
+
+        let inheritedSource: PaneMetadata.PaneMetadataSource
+        if let worktreeId = parentPane.worktreeId, let repoId = parentPane.repoId, let inheritedCWD {
+            inheritedSource = .worktree(
+                worktreeId: worktreeId,
+                repoId: repoId,
+                launchDirectory: inheritedCWD
+            )
+        } else {
+            inheritedSource = .floating(launchDirectory: inheritedCWD, title: nil)
+        }
+
+        let inheritedFacets = parentPane.metadata.facets.fillingNilFields(
+            from: PaneContextFacets(cwd: inheritedCWD)
+        )
+
+        return PaneMetadata(
+            source: inheritedSource,
+            title: "Drawer",
+            facets: inheritedFacets
+        )
+    }
+
+    @discardableResult
+    func insertDrawerPane(
+        in parentPaneId: UUID,
+        at targetDrawerPaneId: UUID,
+        direction: Layout.SplitDirection,
+        position: Layout.Position,
+        content: PaneContent,
+        metadata: PaneMetadata
+    ) -> Pane? {
         guard let parentPane = panes[parentPaneId], parentPane.drawer != nil else {
             workspacePaneLogger.warning("insertDrawerPane: parent pane \(parentPaneId) has no drawer")
             return nil
@@ -220,13 +283,6 @@ final class WorkspacePaneAtom {
             workspacePaneLogger.warning("insertDrawerPane: target \(targetDrawerPaneId) not in drawer layout")
             return nil
         }
-
-        let parentCwd: URL? = parentPane.metadata.facets.cwd ?? parentFallbackCWD
-        let content = PaneContent.terminal(TerminalState(provider: .zmx, lifetime: .persistent))
-        let metadata = PaneMetadata(
-            source: .floating(launchDirectory: parentCwd, title: nil),
-            title: "Drawer"
-        )
 
         let drawerPane = Pane(
             content: content,

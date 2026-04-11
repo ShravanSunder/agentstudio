@@ -19,6 +19,10 @@ enum WorkspaceCommandResolver {
         tabs: [T],
         activeTabId: UUID?
     ) -> PaneActionCommand? {
+        if isNonPaneCommand(command) {
+            return nil
+        }
+
         switch command {
         // Tab lifecycle
         case .selectTab:
@@ -26,6 +30,9 @@ enum WorkspaceCommandResolver {
         case .closeTab:
             guard let tabId = activeTabId else { return nil }
             return .closeTab(tabId: tabId)
+
+        case .renameTab:
+            return nil
 
         case .breakUpTab:
             guard let tabId = activeTabId else { return nil }
@@ -119,20 +126,33 @@ enum WorkspaceCommandResolver {
             else { return nil }
             return .expandPane(tabId: tab.id, paneId: paneId)
 
-        // Non-pane commands: not resolved to PaneActionCommand
+        default:
+            return nil
+        }
+    }
+
+    private static func isNonPaneCommand(_ command: AppCommand) -> Bool {
+        switch command {
         case .addRepo, .addFolder, .removeRepo,
             .toggleSidebar, .newFloatingTerminal,
-            .newTerminalInTab, .newTab, .undoCloseTab,
+            .newTerminalInTab, .newTab, .undoCloseTab, .renameTab,
             .newWindow, .closeWindow,
-            .quickFind, .commandBar,
+            .showCommandBarEverything, .showCommandBarCommands,
+            .showCommandBarPanes, .showCommandBarRepos,
             .openWebview, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
             .switchArrangement, .saveArrangement,
             .deleteArrangement, .renameArrangement,
             .addDrawerPane, .toggleDrawer,
             .navigateDrawerPane, .closeDrawerPane,
-            .toggleManagementMode:
-            return nil
+            .toggleManagementMode,
+            .managementFocusLeft, .managementFocusRight,
+            .managementEnterDrawer, .managementExitDrawer,
+            .managementOpenDrawer, .managementCreateTerminal, .managementCreateBrowser,
+            .managementExitMode:
+            return true
+        default:
+            return false
         }
     }
 

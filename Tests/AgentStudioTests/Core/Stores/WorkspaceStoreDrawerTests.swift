@@ -79,6 +79,76 @@ final class WorkspaceStoreDrawerTests {
         #expect(store.isDirty)
     }
 
+    @Test
+    func test_addDrawerPane_inheritsParentWorktreeContext() throws {
+        let repoPath = URL(filePath: "/tmp/drawer-parent-repo-\(UUID().uuidString)")
+        let worktreePath = repoPath.appending(path: "feature-branch")
+        let repo = store.addRepo(at: repoPath)
+        let worktree = Worktree(repoId: repo.id, name: "feature-branch", path: worktreePath)
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+
+        let inheritedCWD = worktreePath.appending(path: "Sources")
+        let parent = store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            facets: PaneContextFacets(
+                repoId: repo.id,
+                repoName: repo.name,
+                worktreeId: worktree.id,
+                worktreeName: worktree.name,
+                cwd: inheritedCWD
+            )
+        )
+
+        let drawerPane = try #require(store.addDrawerPane(to: parent.id))
+
+        #expect(drawerPane.isDrawerChild)
+        #expect(drawerPane.parentPaneId == parent.id)
+        #expect(drawerPane.repoId == repo.id)
+        #expect(drawerPane.worktreeId == worktree.id)
+        #expect(drawerPane.metadata.cwd == inheritedCWD)
+        #expect(drawerPane.source == .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: inheritedCWD))
+    }
+
+    @Test
+    func test_insertDrawerPane_inheritsParentWorktreeContext() throws {
+        let repoPath = URL(filePath: "/tmp/drawer-insert-parent-\(UUID().uuidString)")
+        let worktreePath = repoPath.appending(path: "feature-branch")
+        let repo = store.addRepo(at: repoPath)
+        let worktree = Worktree(repoId: repo.id, name: "feature-branch", path: worktreePath)
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+
+        let inheritedCWD = worktreePath.appending(path: "Sources")
+        let parent = store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            facets: PaneContextFacets(
+                repoId: repo.id,
+                repoName: repo.name,
+                worktreeId: worktree.id,
+                worktreeName: worktree.name,
+                cwd: inheritedCWD
+            )
+        )
+
+        let firstDrawerPane = try #require(store.addDrawerPane(to: parent.id))
+        let insertedDrawerPane = try #require(
+            store.insertDrawerPane(
+                in: parent.id,
+                at: firstDrawerPane.id,
+                direction: .horizontal,
+                position: .after
+            )
+        )
+
+        #expect(insertedDrawerPane.isDrawerChild)
+        #expect(insertedDrawerPane.parentPaneId == parent.id)
+        #expect(insertedDrawerPane.repoId == repo.id)
+        #expect(insertedDrawerPane.worktreeId == worktree.id)
+        #expect(insertedDrawerPane.metadata.cwd == inheritedCWD)
+        #expect(
+            insertedDrawerPane.source
+                == .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: inheritedCWD))
+    }
+
     // MARK: - removeDrawerPane
 
     @Test

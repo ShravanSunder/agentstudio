@@ -286,6 +286,10 @@ final class WorkspaceStore {
         tabLayoutAtom.setActiveTab(tabId)
     }
 
+    func renameTab(_ tabId: UUID, name: String) {
+        tabLayoutAtom.renameTab(tabId, name: name)
+    }
+
     @discardableResult
     func insertPane(
         _ paneId: UUID,

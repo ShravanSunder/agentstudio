@@ -147,4 +147,13 @@ struct Tab: Codable, Identifiable, Hashable {
     var activeArrangementIndex: Int {
         arrangements.firstIndex { $0.id == activeArrangementId } ?? defaultArrangementIndex
     }
+
+    static func normalizedName(_ rawName: String) -> String {
+        rawName
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }

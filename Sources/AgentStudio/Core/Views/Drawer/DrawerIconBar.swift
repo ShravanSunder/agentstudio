@@ -116,7 +116,7 @@ struct DrawerIconBar: View {
                         if let trailingActions {
                             HStack(spacing: 6) {
                                 trailingActionButton(
-                                    icon: .system(name: "macwindow"),
+                                    icon: trailingActionIcon(for: finderPresentation.icon) ?? .system(name: "finder"),
                                     helpText: finderPresentation.helpText,
                                     isHovered: isFinderHovered,
                                     action: trailingActions.onOpenFinder
@@ -130,7 +130,8 @@ struct DrawerIconBar: View {
                                 .hoverTooltipAnchor(DrawerTooltipTarget.finder, in: Self.tooltipCoordinateSpaceName)
 
                                 trailingActionButton(
-                                    icon: .octicon(name: "octicon-code-square"),
+                                    icon: trailingActionIcon(for: editorPresentation.icon)
+                                        ?? .octicon(name: "octicon-code-square"),
                                     helpText: editorPresentation.helpText,
                                     isHovered: isCursorHovered,
                                     action: trailingActions.onOpenCursor
@@ -188,6 +189,17 @@ struct DrawerIconBar: View {
         case .editor:
             return LocalActionSpec.openPaneLocationInPreferredEditor.actionSpec.helpText
         case .emptyAdd:
+            return nil
+        }
+    }
+
+    private func trailingActionIcon(for descriptor: ActionIconDescriptor?) -> TrailingActionIcon? {
+        switch descriptor {
+        case .system(let name):
+            return .system(name: name)
+        case .octicon(let name):
+            return .octicon(name: name)
+        case nil:
             return nil
         }
     }

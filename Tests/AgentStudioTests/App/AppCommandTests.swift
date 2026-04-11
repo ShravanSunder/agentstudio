@@ -176,23 +176,22 @@ final class AppCommandTests {
     func test_commandDefinition_init_full() {
         // Act
         let def = CommandSpec(
-            command: .closePane,
-            keyBinding: KeyBinding(key: "w", modifiers: [.command, .shift]),
-            label: "Close Pane",
+            command: .closeWindow,
+            shortcut: .closeWindow,
+            label: "Close Window",
             icon: "xmark",
-            helpText: "Close the active pane",
-            appliesTo: [.pane, .floatingTerminal],
-            requiresManagementMode: true
+            helpText: "Close the active window",
+            appliesTo: [.tab],
+            requiresManagementMode: false
         )
 
         // Assert
-        #expect(def.command == AppCommand.closePane)
+        #expect(def.command == AppCommand.closeWindow)
         #expect(def.keyBinding != nil)
         #expect(def.icon == "xmark")
-        #expect(def.helpText == "Close the active pane")
-        #expect(def.appliesTo.contains(SearchItemType.pane))
-        #expect(def.appliesTo.contains(SearchItemType.floatingTerminal))
-        #expect(def.requiresManagementMode)
+        #expect(def.helpText == "Close the active window")
+        #expect(def.appliesTo.contains(SearchItemType.tab))
+        #expect(!def.requiresManagementMode)
     }
 
     // MARK: - CommandDispatcher

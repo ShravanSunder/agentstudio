@@ -381,7 +381,7 @@ private struct QuickActionsCallout: View {
                     CommandDispatcher.shared.dispatch(.newTab)
                 }
                 quickActionButton(key: "⌘P", label: "Command palette") {
-                    CommandDispatcher.shared.dispatch(.commandBar)
+                    CommandDispatcher.shared.dispatch(.showCommandBarCommands)
                 }
             }
         }

@@ -331,6 +331,20 @@ final class WorkspaceTabLayoutAtom {
         tabs[tabIndex].arrangements[arrIndex].name = name
     }
 
+    func renameTab(_ tabId: UUID, name: String) {
+        guard let tabIndex = findTabIndex(tabId) else {
+            workspaceTabLayoutLogger.warning("renameTab: tab \(tabId) not found")
+            return
+        }
+        let trimmedName = Tab.normalizedName(name)
+        guard !trimmedName.isEmpty else {
+            workspaceTabLayoutLogger.warning("renameTab: empty name rejected for tab \(tabId)")
+            return
+        }
+        guard tabs[tabIndex].name != trimmedName else { return }
+        tabs[tabIndex].name = trimmedName
+    }
+
     func toggleZoom(paneId: UUID, inTab tabId: UUID) {
         guard let tabIndex = findTabIndex(tabId) else {
             workspaceTabLayoutLogger.warning("toggleZoom: tab \(tabId) not found")
