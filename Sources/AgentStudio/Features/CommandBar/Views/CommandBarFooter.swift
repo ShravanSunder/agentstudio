@@ -7,9 +7,13 @@ struct CommandBarFooter: View {
     let hints: [FooterHint]
 
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 12) {
             ForEach(hints) { hint in
-                footerHint(hint.key, hint.label)
+                if hint.isDivider {
+                    divider
+                } else {
+                    footerHint(hint.key, hint.label)
+                }
             }
         }
         .frame(height: 32)
@@ -25,5 +29,11 @@ struct CommandBarFooter: View {
                 .font(.system(size: AppStyle.textXs))
         }
         .foregroundStyle(.primary.opacity(0.3))
+    }
+
+    private var divider: some View {
+        Rectangle()
+            .fill(.primary.opacity(0.1))
+            .frame(width: 1, height: 14)
     }
 }

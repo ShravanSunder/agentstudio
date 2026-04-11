@@ -29,10 +29,11 @@ enum CommandBarDataSource {
 
     enum Priority {
         static let recent = 0
-        static let panes = 1
-        static let tabs = 2
-        static let commands = 3
-        static let worktrees = 4
+        /// Repos and their worktrees.
+        static let worktrees = 1
+        static let panes = 2
+        static let tabs = 3
+        static let commands = 4
     }
 
     // MARK: - Public API
@@ -137,9 +138,7 @@ enum CommandBarDataSource {
 
             let tabId = tab.id
             var keywords = ["tab", "switch"]
-            if let customName = tab.explicitDisplayName {
-                keywords.append(customName)
-            }
+            keywords.append(tab.name)
             keywords.append(contentsOf: tab.arrangements.filter { !$0.isDefault }.map(\.name))
             return CommandBarItem(
                 id: "tab-\(tab.id.uuidString)",
@@ -717,18 +716,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> String {
-        guard !tab.activePaneIds.isEmpty else { return "Empty Tab" }
-
-        let trimmedTabName = tab.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedTabName.isEmpty, trimmedTabName != "Tab" {
-            return trimmedTabName
-        }
-
-        let primaryPaneId = tab.activePaneId ?? tab.activePaneIds.first
-        guard let paneId = primaryPaneId else { return "Empty Tab" }
-
-        let parts = displayParts(for: paneId, store: store, repoCache: repoCache)
-        return parts.repoName ?? parts.primaryLabel
+        tab.name
     }
 
     private static func paneDisplaySubtitle(

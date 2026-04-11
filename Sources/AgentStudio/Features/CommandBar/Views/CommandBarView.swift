@@ -122,7 +122,8 @@ struct CommandBarView: View {
         FooterHintBuilder.hints(
             for: selectedItem,
             isNested: state.isNested,
-            hasTabsOpen: !store.tabs.isEmpty
+            hasTabsOpen: !store.tabs.isEmpty,
+            scope: state.currentScope
         )
     }
 
@@ -182,32 +183,17 @@ struct CommandBarView: View {
             dispatcher.dispatch(command, target: target, targetType: targetType)
 
         case .showOpenChoice:
-            guard let worktree = store.worktree(presence.worktreeId),
-                let repo = store.repo(containing: presence.worktreeId)
-            else {
-                onDismiss()
-                return
-            }
             state.pushLevel(
                 CommandBarDataSource.buildWorktreeOpenChoiceLevel(
-                    worktree: worktree,
-                    repo: repo,
+                    presence: presence,
                     hasTabsOpen: !store.tabs.isEmpty
                 )
             )
 
         case .showPaneChoice:
-            guard let worktree = store.worktree(presence.worktreeId),
-                let repo = store.repo(containing: presence.worktreeId)
-            else {
-                onDismiss()
-                return
-            }
             state.pushLevel(
                 CommandBarDataSource.buildWorktreePaneDrillInLevel(
-                    presence: presence,
-                    worktree: worktree,
-                    repo: repo
+                    presence: presence
                 )
             )
         }

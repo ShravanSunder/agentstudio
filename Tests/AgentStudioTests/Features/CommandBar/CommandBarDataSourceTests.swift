@@ -228,7 +228,7 @@ struct CommandBarDataSourceTests {
                 cwd: worktree.path
             )
         )
-        store.appendTab(Tab(paneId: pane.id))
+        store.appendTab(Tab(paneId: pane.id, name: "agent-studio"))
 
         let items = CommandBarDataSource.items(
             scope: .panes,
@@ -426,17 +426,17 @@ struct CommandBarDataSourceTests {
             scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
 
-        #expect(tabItem?.title == "Empty Tab")
+        #expect(tabItem?.title == "Empty")
     }
 
     @Test
-    func test_everythingScope_tabTitleFallsBackToPrimaryLabelWhenRepoNameMissing() {
+    func test_everythingScope_tabTitleUsesTabName() {
         let store = makeStore()
         let pane = store.createPane(
             source: .floating(launchDirectory: nil, title: nil),
             title: "Scratch Pad"
         )
-        let tab = Tab(paneId: pane.id)
+        let tab = Tab(paneId: pane.id, name: "Scratch Pad")
         store.appendTab(tab)
 
         let items = CommandBarDataSource.items(

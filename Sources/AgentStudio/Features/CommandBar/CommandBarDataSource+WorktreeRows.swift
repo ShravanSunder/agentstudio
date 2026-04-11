@@ -116,14 +116,12 @@ extension CommandBarDataSource {
     }
 
     static func buildWorktreePaneDrillInLevel(
-        presence: WorktreePresence,
-        worktree: Worktree,
-        repo: Repo
+        presence: WorktreePresence
     ) -> CommandBarLevel {
         var items = presence.openPanes.map { location in
             CommandBarItem(
                 id: "wt-pane-\(location.paneId.uuidString)",
-                title: "Terminal — \(worktree.name)",
+                title: "Terminal — \(presence.worktreeName)",
                 subtitle: locationSubtitle(for: location),
                 icon: "terminal",
                 group: "Navigate to",
@@ -133,7 +131,7 @@ extension CommandBarDataSource {
             )
         }
 
-        let worktreeId = worktree.id
+        let worktreeId = presence.worktreeId
         items.append(
             CommandBarItem(
                 id: "wt-new-tab-\(worktreeId.uuidString)",
@@ -159,19 +157,18 @@ extension CommandBarDataSource {
 
         return CommandBarLevel(
             id: "level-wt-\(worktreeId.uuidString)",
-            title: worktree.name,
-            parentLabel: repo.name,
+            title: presence.worktreeName,
+            parentLabel: presence.repoName,
             scopeLabel: "Worktrees · Actions",
             items: items
         )
     }
 
     static func buildWorktreeOpenChoiceLevel(
-        worktree: Worktree,
-        repo: Repo,
+        presence: WorktreePresence,
         hasTabsOpen: Bool
     ) -> CommandBarLevel {
-        let worktreeId = worktree.id
+        let worktreeId = presence.worktreeId
         var items = [
             CommandBarItem(
                 id: "wt-choice-new-tab-\(worktreeId.uuidString)",
@@ -201,8 +198,8 @@ extension CommandBarDataSource {
 
         return CommandBarLevel(
             id: "level-wt-choice-\(worktreeId.uuidString)",
-            title: worktree.name,
-            parentLabel: repo.name,
+            title: presence.worktreeName,
+            parentLabel: presence.repoName,
             scopeLabel: "Worktrees · Open",
             items: items
         )

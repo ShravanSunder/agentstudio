@@ -113,7 +113,7 @@ extension PaneCoordinator {
             return nil
         }
 
-        let tab = Tab(paneId: pane.id)
+        let tab = Tab(paneId: pane.id, name: tabNameForPane(pane))
         store.tabLayoutAtom.appendTab(tab)
         store.tabLayoutAtom.setActiveTab(tab.id)
 
@@ -214,7 +214,7 @@ extension PaneCoordinator {
         )
         viewRegistry.ensureSlot(for: pane.id)
 
-        let tab = Tab(paneId: pane.id)
+        let tab = Tab(paneId: pane.id, name: tabNameForPane(pane))
         store.tabLayoutAtom.appendTab(tab)
         store.tabLayoutAtom.setActiveTab(tab.id)
         ensureTerminalPaneView(pane)
@@ -282,7 +282,11 @@ extension PaneCoordinator {
             executeClosePane(tabId: tabId, paneId: paneId)
 
         case .extractPaneToTab(let tabId, let paneId):
-            _ = store.tabLayoutAtom.extractPane(paneId, fromTab: tabId)
+            if let newTab = store.tabLayoutAtom.extractPane(paneId, fromTab: tabId),
+                let pane = store.pane(paneId)
+            {
+                store.tabLayoutAtom.renameTab(newTab.id, name: tabNameForPane(pane))
+            }
 
         case .focusPane(let tabId, let paneId):
             if let tab = store.tab(tabId), tab.minimizedPaneIds.contains(paneId) {
@@ -520,7 +524,7 @@ extension PaneCoordinator {
 
         let tab = Tab(
             paneId: pane.id,
-            name: Self.defaultTabName(worktree: worktree)
+            name: tabNameForPane(pane)
         )
         store.tabLayoutAtom.appendTab(tab)
         store.tabLayoutAtom.setActiveTab(tab.id)
@@ -537,24 +541,6 @@ extension PaneCoordinator {
 
         Self.logger.info("Opened terminal for worktree: \(worktree.name)")
         return pane
-    }
-
-    /// Seed a stable default tab name once at creation time.
-    /// We intentionally do not auto-rename tabs later when branch enrichment changes.
-    private static func defaultTabName(worktree: Worktree) -> String {
-        let folderName = worktree.path.lastPathComponent
-        let branchName = atom(\.paneDisplay).resolvedBranchName(
-            worktree: worktree,
-            enrichment: atom(\.repoCache).worktreeEnrichmentByWorktreeId[worktree.id]
-        )
-
-        if branchName == "detached HEAD" || branchName.isEmpty {
-            return folderName
-        }
-        if branchName == folderName {
-            return branchName
-        }
-        return "\(folderName) · \(branchName)"
     }
 
     private func postRecentTargetOpened(target: RecentWorkspaceTarget) {
@@ -636,8 +622,10 @@ extension PaneCoordinator {
 
     private func executeBreakUpTab(_ tabId: UUID) {
         let newTabs = store.tabLayoutAtom.breakUpTab(tabId)
-        if newTabs.isEmpty {
-            Self.logger.debug("breakUpTab: tab has single pane, no-op")
+        for newTab in newTabs {
+            if let paneId = newTab.activePaneId, let pane = store.pane(paneId) {
+                store.tabLayoutAtom.renameTab(newTab.id, name: tabNameForPane(pane))
+            }
         }
     }
 

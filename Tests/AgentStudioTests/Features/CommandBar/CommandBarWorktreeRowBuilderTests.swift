@@ -38,9 +38,7 @@ struct CommandBarWorktreeRowBuilderTests {
         )
 
         let level = CommandBarDataSource.buildWorktreePaneDrillInLevel(
-            presence: presence,
-            worktree: worktree,
-            repo: repo
+            presence: presence
         )
 
         #expect(level.title == "main")
@@ -54,53 +52,29 @@ struct CommandBarWorktreeRowBuilderTests {
 
     @Test
     func test_buildWorktreeOpenChoiceLevel_hidesCurrentTabOptionWhenNoTabs() {
-        let worktree = Worktree(
-            repoId: UUID(),
-            name: "main",
-            path: URL(filePath: "/tmp/open-choice-main"),
-            isMainWorktree: true
-        )
-        let repo = Repo(
-            id: worktree.repoId,
-            name: "repo",
-            repoPath: URL(filePath: "/tmp/open-choice-main"),
-            worktrees: [worktree]
-        )
+        let presence = makeWorktreePresence(paneCount: 0)
 
         let level = CommandBarDataSource.buildWorktreeOpenChoiceLevel(
-            worktree: worktree,
-            repo: repo,
+            presence: presence,
             hasTabsOpen: false
         )
 
         #expect(level.items.count == 1)
-        #expect(level.items[0].id == "wt-choice-new-tab-\(worktree.id.uuidString)")
+        #expect(level.items[0].id == "wt-choice-new-tab-\(presence.worktreeId.uuidString)")
     }
 
     @Test
     func test_buildWorktreeOpenChoiceLevel_includesCurrentTabOptionWhenTabsExist() {
-        let worktree = Worktree(
-            repoId: UUID(),
-            name: "main",
-            path: URL(filePath: "/tmp/open-choice-main"),
-            isMainWorktree: true
-        )
-        let repo = Repo(
-            id: worktree.repoId,
-            name: "repo",
-            repoPath: URL(filePath: "/tmp/open-choice-main"),
-            worktrees: [worktree]
-        )
+        let presence = makeWorktreePresence(paneCount: 0)
 
         let level = CommandBarDataSource.buildWorktreeOpenChoiceLevel(
-            worktree: worktree,
-            repo: repo,
+            presence: presence,
             hasTabsOpen: true
         )
 
         #expect(level.items.count == 2)
-        #expect(level.items.contains { $0.id == "wt-choice-new-tab-\(worktree.id.uuidString)" })
-        #expect(level.items.contains { $0.id == "wt-choice-add-pane-\(worktree.id.uuidString)" })
+        #expect(level.items.contains { $0.id == "wt-choice-new-tab-\(presence.worktreeId.uuidString)" })
+        #expect(level.items.contains { $0.id == "wt-choice-add-pane-\(presence.worktreeId.uuidString)" })
     }
 
     @Test

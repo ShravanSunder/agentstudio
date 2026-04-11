@@ -58,12 +58,12 @@ func makePane(
 
 // MARK: - Tab Factory (multi-pane)
 
-func makeTab(paneIds: [UUID], activePaneId: UUID? = nil) -> Tab {
+func makeTab(paneIds: [UUID], activePaneId: UUID? = nil, name: String = "Tab") -> Tab {
     guard let first = paneIds.first else {
         fatalError("Need at least one pane ID")
     }
     if paneIds.count == 1 {
-        return Tab(paneId: first)
+        return Tab(paneId: first, name: name)
     }
     // Build layout by inserting subsequent panes
     var layout = Layout(paneId: first)
@@ -82,6 +82,7 @@ func makeTab(paneIds: [UUID], activePaneId: UUID? = nil) -> Tab {
         visiblePaneIds: Set(paneIds)
     )
     return Tab(
+        name: name,
         panes: paneIds,
         arrangements: [arrangement],
         activeArrangementId: arrangement.id,

@@ -1,4 +1,3 @@
-import Foundation
 import SwiftUI
 
 // MARK: - CommandBarScope
@@ -218,6 +217,18 @@ struct FooterHint: Identifiable, Equatable, Sendable {
     let id: String
     let key: String
     let label: String
+    let isDivider: Bool
+
+    init(id: String, key: String, label: String, isDivider: Bool = false) {
+        self.id = id
+        self.key = key
+        self.label = label
+        self.isDivider = isDivider
+    }
+
+    static func divider(_ id: String) -> Self {
+        Self(id: id, key: "", label: "", isDivider: true)
+    }
 }
 
 // MARK: - FooterHintBuilder
@@ -226,71 +237,62 @@ enum FooterHintBuilder {
     static func hints(
         for item: CommandBarItem?,
         isNested: Bool,
-        hasTabsOpen: Bool
+        hasTabsOpen: Bool,
+        scope: CommandBarScope = .everything
     ) -> [FooterHint] {
         if isNested {
             return [
                 FooterHint(id: "enter", key: "↵", label: "Select"),
                 FooterHint(id: "back", key: "⌫", label: "Back"),
+                .divider("div-dismiss"),
                 FooterHint(id: "dismiss", key: "esc", label: "Close"),
             ]
         }
 
-        guard let item else {
-            return [
-                FooterHint(id: "navigate", key: "↑↓", label: "Navigate"),
-                FooterHint(id: "dismiss", key: "esc", label: "Close"),
-            ]
-        }
+        // Action hints — item-specific
+        var actions: [FooterHint] = []
 
-        guard let openState = item.worktreeOpenState else {
-            let enterLabel: String
-            if item.kind == .tab || item.kind == .pane {
-                enterLabel = "Go to"
+        if let item {
+            if let openState = item.worktreeOpenState {
+                switch openState {
+                case .notOpen where !hasTabsOpen:
+                    actions = [FooterHint(id: "enter", key: "↵", label: "New tab")]
+                case .notOpen:
+                    actions = [
+                        FooterHint(id: "enter", key: "↵", label: "Choose"),
+                        FooterHint(id: "cmd-enter", key: "⌘↵", label: "New tab"),
+                        FooterHint(id: "opt-enter", key: "⌥↵", label: "Open in tab"),
+                    ]
+                case .singlePane, .multiplePanes:
+                    actions = [
+                        FooterHint(id: "enter", key: "↵", label: "Choose"),
+                        FooterHint(id: "cmd-enter", key: "⌘↵", label: "New tab"),
+                        FooterHint(id: "opt-enter", key: "⌥↵", label: "Open in tab"),
+                    ]
+                }
             } else {
-                enterLabel = "Open"
+                let enterLabel = (item.kind == .tab || item.kind == .pane) ? "Go to" : "Open"
+                actions = [FooterHint(id: "enter", key: "↵", label: enterLabel)]
+                if item.hasChildren {
+                    actions.append(FooterHint(id: "drill-in", key: "→", label: "Drill in"))
+                }
             }
-
-            var hints = [FooterHint(id: "enter", key: "↵", label: enterLabel)]
-            if item.hasChildren {
-                hints.append(FooterHint(id: "drill-in", key: "→", label: "Drill in"))
-            }
-            hints.append(FooterHint(id: "navigate", key: "↑↓", label: "Navigate"))
-            hints.append(FooterHint(id: "dismiss", key: "esc", label: "Close"))
-            return hints
         }
 
-        switch openState {
-        case .notOpen where !hasTabsOpen:
-            return [
-                FooterHint(id: "enter", key: "↵", label: "New tab"),
-                FooterHint(id: "navigate", key: "↑↓", label: "Navigate"),
-                FooterHint(id: "dismiss", key: "esc", label: "Close"),
-            ]
-        case .notOpen:
-            return [
-                FooterHint(id: "enter", key: "↵", label: "Choose"),
-                FooterHint(id: "cmd-enter", key: "⌘↵", label: "New tab"),
-                FooterHint(id: "opt-enter", key: "⌥↵", label: "Open in tab"),
-                FooterHint(id: "navigate", key: "↑↓", label: "Navigate"),
-                FooterHint(id: "dismiss", key: "esc", label: "Close"),
-            ]
-        case .singlePane:
-            return [
-                FooterHint(id: "enter", key: "↵", label: "Go to"),
-                FooterHint(id: "cmd-enter", key: "⌘↵", label: "New tab"),
-                FooterHint(id: "opt-enter", key: "⌥↵", label: "Open in tab"),
-                FooterHint(id: "navigate", key: "↑↓", label: "Navigate"),
-                FooterHint(id: "dismiss", key: "esc", label: "Close"),
-            ]
-        case .multiplePanes:
-            return [
-                FooterHint(id: "enter", key: "↵", label: "Choose pane"),
-                FooterHint(id: "cmd-enter", key: "⌘↵", label: "New tab"),
-                FooterHint(id: "opt-enter", key: "⌥↵", label: "Open in tab"),
-                FooterHint(id: "navigate", key: "↑↓", label: "Navigate"),
-                FooterHint(id: "dismiss", key: "esc", label: "Close"),
-            ]
+        // Assemble: actions | scopes | dismiss
+        var hints = actions
+        if scope == .everything {
+            if !hints.isEmpty { hints.append(.divider("div-scope")) }
+            hints.append(contentsOf: scopeHints)
         }
+        hints.append(.divider("div-dismiss"))
+        hints.append(FooterHint(id: "dismiss", key: "esc", label: "Close"))
+        return hints
     }
+
+    private static let scopeHints: [FooterHint] = [
+        FooterHint(id: "scope-commands", key: ">", label: "Commands"),
+        FooterHint(id: "scope-panes", key: "$", label: "Panes"),
+        FooterHint(id: "scope-repos", key: "#", label: "Repos"),
+    ]
 }

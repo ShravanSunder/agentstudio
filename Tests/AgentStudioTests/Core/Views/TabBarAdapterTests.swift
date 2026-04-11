@@ -60,7 +60,7 @@ final class TabBarAdapterTests {
             source: .floating(launchDirectory: nil, title: "MyTerminal"),
             title: "MyTerminal"
         )
-        let tab = Tab(paneId: pane.id)
+        let tab = Tab(paneId: pane.id, name: "MyTerminal")
         store.appendTab(tab)
 
         // Act — wait for the async observation pipeline to process
@@ -90,7 +90,7 @@ final class TabBarAdapterTests {
             source: .floating(launchDirectory: nil, title: "Right"),
             title: "Right"
         )
-        let tab = makeTab(paneIds: [s1.id, s2.id], activePaneId: s1.id)
+        let tab = makeTab(paneIds: [s1.id, s2.id], activePaneId: s1.id, name: "Left · Right")
         store.appendTab(tab)
 
         // Wait for async refresh
@@ -100,8 +100,8 @@ final class TabBarAdapterTests {
         #expect(adapter.tabs.count == 1)
         let derivedTab = try #require(adapter.tabs.first)
         #expect(derivedTab.isSplit)
-        #expect(derivedTab.displayTitle == "Left | Right")
-        #expect(derivedTab.title == "Left")
+        #expect(derivedTab.displayTitle == "Left · Right")
+        #expect(derivedTab.title == "Left · Right")
     }
 
     @Test
@@ -193,7 +193,7 @@ final class TabBarAdapterTests {
         let pane = store.createPane(
             source: .floating(launchDirectory: nil, title: nil)
         )
-        let tab = Tab(paneId: pane.id)
+        let tab = Tab(paneId: pane.id, name: "Terminal")
         store.appendTab(tab)
 
         // Wait for refresh
@@ -210,7 +210,7 @@ final class TabBarAdapterTests {
 
         let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         store.updatePaneCWD(pane.id, cwd: URL(filePath: "/tmp/askluna-finance"))
-        store.appendTab(Tab(paneId: pane.id))
+        store.appendTab(Tab(paneId: pane.id, name: "askluna-finance"))
 
         await waitForAdapterRefresh()
 
@@ -263,13 +263,13 @@ final class TabBarAdapterTests {
                 cwd: worktree.path
             )
         )
-        store.appendTab(Tab(paneId: pane.id))
+        store.appendTab(Tab(paneId: pane.id, name: "feature-name · feature/pane-labels"))
 
         await waitForAdapterRefresh()
 
         let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
-        #expect(tabItem.title == "agent-studio | feature/pane-labels | feature-name")
-        #expect(tabItem.displayTitle == "agent-studio | feature/pane-labels | feature-name")
+        #expect(tabItem.title == "feature-name · feature/pane-labels")
+        #expect(tabItem.displayTitle == "feature-name · feature/pane-labels")
     }
 
     // MARK: - Transient State

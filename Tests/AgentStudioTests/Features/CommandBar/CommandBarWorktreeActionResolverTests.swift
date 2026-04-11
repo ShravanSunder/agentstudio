@@ -33,9 +33,8 @@ struct CommandBarWorktreeActionResolverTests {
     }
 
     @Test
-    func test_plain_singlePane_dispatchesFocusPane() {
+    func test_plain_singlePane_showsPaneChoice() {
         let presence = makeWorktreePresence(paneCount: 1)
-        let expectedPaneId = presence.openPanes.first!.paneId
 
         let resolution = CommandBarWorktreeActionResolver.resolve(
             presence: presence,
@@ -43,7 +42,7 @@ struct CommandBarWorktreeActionResolverTests {
             hasTabsOpen: true
         )
 
-        #expect(resolution == .dispatch(command: .focusPane, target: expectedPaneId, targetType: .floatingTerminal))
+        #expect(resolution == .showPaneChoice)
     }
 
     @Test

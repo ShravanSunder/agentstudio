@@ -149,11 +149,8 @@ final class TabBarAdapter {
         let storeTabs = store.tabs
 
         tabs = storeTabs.map { tab in
-            let paneTitles = tab.activePaneIds.map { paneDisplayTitle(for: $0) }
-            let displayTitle = tabDisplayTitle(for: tab)
-            let trimmedTabName = tab.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            let dragTitle =
-                (!trimmedTabName.isEmpty && trimmedTabName != "Tab") ? displayTitle : (paneTitles.first ?? "Terminal")
+            let displayTitle = tab.name
+            let dragTitle = displayTitle
 
             let activeArrangement = tab.activeArrangement
             let showArrangementName = tab.arrangements.count > 1 && !activeArrangement.isDefault
@@ -226,21 +223,6 @@ final class TabBarAdapter {
         }
 
         return defaultLabel
-    }
-
-    private func tabDisplayTitle(for tab: Tab) -> String {
-        guard !tab.activePaneIds.isEmpty else { return "Empty Tab" }
-
-        let trimmedTabName = tab.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmedTabName.isEmpty, trimmedTabName != "Tab" {
-            return trimmedTabName
-        }
-
-        let paneLabels = tab.activePaneIds.map { paneDisplayTitle(for: $0) }
-        if paneLabels.count > 1 {
-            return paneLabels.joined(separator: " | ")
-        }
-        return paneLabels.first ?? "Terminal"
     }
 
     private func updateOverflow() {
