@@ -14,6 +14,15 @@ private final class PaneSearchActionPerformer: TerminalSurfaceActionPerforming {
     }
 }
 
+@MainActor
+private final class PaneScrollActionPerformer: TerminalSurfaceActionPerforming {
+    @discardableResult
+    func performBindingAction(_ action: TerminalSurfaceAction) -> Bool {
+        _ = action
+        return true
+    }
+}
+
 @Suite("TerminalPaneMountView search responders")
 @MainActor
 struct TerminalPaneMountViewSearchTests {
@@ -80,5 +89,26 @@ struct TerminalPaneMountViewSearchTests {
         mountView.cancelOperation(nil)
 
         #expect(performer.actions.isEmpty)
+    }
+
+    @Test("bind applies current runtime scrollbar snapshot immediately")
+    func bindAppliesCurrentRuntimeScrollbarSnapshotImmediately() {
+        let mountView = TerminalPaneMountView(paneId: UUID(), title: "Terminal")
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: PaneScrollActionPerformer())
+        scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        scrollView.layoutSubtreeIfNeeded()
+        mountView.installSurfaceScrollViewForTesting(scrollView)
+
+        let runtime = TerminalRuntime(
+            paneId: PaneId(),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Terminal"), title: "Terminal")
+        )
+        #expect(runtime.transitionToReady())
+        runtime.handleGhosttyEvent(.cellSizeChanged(NSSize(width: 8, height: 20)))
+        runtime.handleGhosttyEvent(.scrollbarChanged(ScrollbarState(top: 80, bottom: 120, total: 200)))
+
+        mountView.bind(runtime: runtime)
+
+        #expect(scrollView.documentOffsetYForTesting == 1600)
     }
 }

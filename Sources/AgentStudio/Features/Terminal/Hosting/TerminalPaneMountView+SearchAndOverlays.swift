@@ -3,6 +3,26 @@ import Observation
 
 @MainActor
 extension TerminalPaneMountView {
+    func applyRuntimeStateSnapshot(_ runtime: TerminalRuntime) {
+        if let scrollbarState = runtime.scrollbarState {
+            surfaceScrollView?.applyScrollbarState(
+                scrollbarState,
+                cellHeight: runtime.cellSize.height
+            )
+            scrollToBottomIndicatorView?.applyScrollbarState(scrollbarState)
+        }
+        if let searchState = runtime.searchState {
+            ensureSearchOverlay()
+            searchOverlayView?.update(
+                query: searchState.query,
+                totalMatches: searchState.totalMatches,
+                selectedMatchIndex: searchState.selectedMatchIndex
+            )
+        } else {
+            hideSearchOverlay()
+        }
+    }
+
     @objc func startSearch(_ sender: Any?) {
         ensureSearchOverlay()
         _ = currentActionPerformer?.performBindingAction(.startSearch)
@@ -78,23 +98,7 @@ extension TerminalPaneMountView {
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self, let currentRuntime = self.boundRuntime, currentRuntime === runtime else { return }
-                if let scrollbarState = currentRuntime.scrollbarState {
-                    self.surfaceScrollView?.applyScrollbarState(
-                        scrollbarState,
-                        cellHeight: currentRuntime.cellSize.height
-                    )
-                    self.scrollToBottomIndicatorView?.applyScrollbarState(scrollbarState)
-                }
-                if let searchState = currentRuntime.searchState {
-                    self.ensureSearchOverlay()
-                    self.searchOverlayView?.update(
-                        query: searchState.query,
-                        totalMatches: searchState.totalMatches,
-                        selectedMatchIndex: searchState.selectedMatchIndex
-                    )
-                } else {
-                    self.hideSearchOverlay()
-                }
+                self.applyRuntimeStateSnapshot(currentRuntime)
                 self.observeRuntimeState(runtime: currentRuntime)
             }
         }

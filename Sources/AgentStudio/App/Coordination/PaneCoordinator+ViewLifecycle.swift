@@ -211,6 +211,7 @@ extension PaneCoordinator {
             paneId: pane.id
         )
 
+        let preparedRuntime = prepareTerminalRuntimeForFreshSurfaceIfNeeded(for: pane)
         let result = surfaceManager.createSurface(config: config, metadata: metadata)
 
         switch result {
@@ -232,9 +233,11 @@ extension PaneCoordinator {
                 self?.execute(.repair(.recreateSurface(paneId: paneId)))
             }
             view.displaySurface(managed.surface)
+            if let runtime = preparedRuntime?.runtime {
+                view.bind(runtime: runtime)
+            }
 
             registerHostedView(mountedView: view, for: pane.id)
-            registerTerminalRuntimeIfNeeded(for: pane)
             runtime.markRunning(pane.id)
             RestoreTrace.log(
                 "createView complete pane=\(pane.id) surface=\(managed.id) viewBounds=\(NSStringFromRect(view.bounds))"
@@ -248,6 +251,7 @@ extension PaneCoordinator {
                 "createSurface failure pane=\(pane.id) error=\(error.localizedDescription)"
             )
             Self.logger.error("Failed to create surface for pane \(pane.id): \(error.localizedDescription)")
+            rollbackPreparedTerminalRuntimeIfNeeded(preparedRuntime)
             registerTerminalPlaceholderIfNeeded(for: pane, mode: .failedToStart)
             return nil
         }
@@ -327,6 +331,7 @@ extension PaneCoordinator {
             paneId: pane.id
         )
 
+        let preparedRuntime = prepareTerminalRuntimeForFreshSurfaceIfNeeded(for: pane)
         let result = surfaceManager.createSurface(config: config, metadata: metadata)
 
         switch result {
@@ -347,9 +352,11 @@ extension PaneCoordinator {
                 self?.execute(.repair(.recreateSurface(paneId: paneId)))
             }
             view.displaySurface(managed.surface)
+            if let runtime = preparedRuntime?.runtime {
+                view.bind(runtime: runtime)
+            }
 
             registerHostedView(mountedView: view, for: pane.id)
-            registerTerminalRuntimeIfNeeded(for: pane)
             runtime.markRunning(pane.id)
             RestoreTrace.log("createFloatingView complete pane=\(pane.id) surface=\(managed.id)")
 
@@ -362,6 +369,7 @@ extension PaneCoordinator {
             )
             Self.logger.error(
                 "Failed to create floating surface for pane \(pane.id): \(error.localizedDescription)")
+            rollbackPreparedTerminalRuntimeIfNeeded(preparedRuntime)
             registerTerminalPlaceholderIfNeeded(for: pane, mode: .failedToStart)
             return nil
         }
@@ -430,40 +438,6 @@ extension PaneCoordinator {
             registerTerminalRuntimeIfNeeded(for: pane)
         }
         Self.logger.debug("Reattached pane \(paneId.uuidString, privacy: .public) for view switch")
-    }
-
-    private func registerTerminalRuntimeIfNeeded(for pane: Pane) {
-        guard case .terminal = pane.content else {
-            Self.logger.debug(
-                "Skipping terminal runtime registration for non-terminal pane \(pane.id.uuidString, privacy: .public)"
-            )
-            return
-        }
-
-        guard UUIDv7.isV7(pane.id) else {
-            Self.logger.error(
-                "Skipping terminal runtime registration for non-v7 pane id \(pane.id.uuidString, privacy: .public)"
-            )
-            return
-        }
-        let runtimePaneId = PaneId(uuid: pane.id)
-        if let existingRuntime = runtimeForPane(runtimePaneId) as? TerminalRuntime {
-            viewRegistry.terminalView(for: pane.id)?.bind(runtime: existingRuntime)
-            return
-        }
-
-        let terminalRuntime = TerminalRuntime(
-            paneId: runtimePaneId,
-            metadata: pane.metadata
-        )
-        guard terminalRuntime.transitionToReady() else {
-            Self.logger.warning(
-                "Terminal runtime for pane \(pane.id.uuidString, privacy: .public) failed ready transition; skipping runtime registration"
-            )
-            return
-        }
-        registerRuntime(terminalRuntime)
-        viewRegistry.terminalView(for: pane.id)?.bind(runtime: terminalRuntime)
     }
 
     private func registerCodeViewerRuntimeIfNeeded(for pane: Pane) -> SwiftPaneRuntime? {

@@ -209,6 +209,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
                 observedRuntime = boundRuntime
                 observeRuntimeState(runtime: boundRuntime)
             }
+            applyRuntimeStateSnapshot(boundRuntime)
             if runtimeBoundToDisplayedSurface !== boundRuntime || previouslyDisplayedSurface !== surfaceView {
                 surfaceView.bindRuntime(boundRuntime)
                 runtimeBoundToDisplayedSurface = boundRuntime
@@ -235,6 +236,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     func bind(runtime: TerminalRuntime) {
         let shouldObserveRuntime = observedRuntime !== runtime
         boundRuntime = runtime
+        applyRuntimeStateSnapshot(runtime)
         if let ghosttySurface, runtimeBoundToDisplayedSurface !== runtime {
             ghosttySurface.bindRuntime(runtime)
             runtimeBoundToDisplayedSurface = runtime
@@ -543,3 +545,12 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     /// to check placeholder state during repair and re-registration flows.
     var currentPlaceholderView: TerminalStatusPlaceholderView? { placeholderView }
 }
+
+#if DEBUG
+    @MainActor
+    extension TerminalPaneMountView {
+        func installSurfaceScrollViewForTesting(_ scrollView: TerminalSurfaceScrollView) {
+            surfaceScrollView = scrollView
+        }
+    }
+#endif

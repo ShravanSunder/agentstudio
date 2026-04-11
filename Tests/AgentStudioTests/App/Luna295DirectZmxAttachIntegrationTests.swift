@@ -7,6 +7,10 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct Luna295DirectZmxAttachIntegrationTests {
+    init() {
+        installTestAtomScopeIfNeeded()
+    }
+
     private let fixtureSessionConfiguration = SessionConfiguration(
         isEnabled: true,
         backgroundRestorePolicy: .existingSessionsOnly,
