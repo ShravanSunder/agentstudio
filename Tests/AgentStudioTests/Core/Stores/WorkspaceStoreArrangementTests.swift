@@ -352,6 +352,15 @@ final class WorkspaceStoreArrangementTests {
     }
 
     @Test
+    func test_renameTab_multilineName_normalizesToSingleLine() {
+        let (tab, _) = createTabWithPanes(1)
+
+        store.renameTab(tab.id, name: "  Review Queue\nFor Launch  ")
+
+        #expect(store.tab(tab.id)?.name == "Review Queue For Launch")
+    }
+
+    @Test
     func test_renameTab_invalidId_noOp() {
         let (tab, _) = createTabWithPanes(1)
         let originalName = store.tab(tab.id)?.name

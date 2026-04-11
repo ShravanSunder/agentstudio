@@ -336,7 +336,7 @@ final class WorkspaceTabLayoutAtom {
             workspaceTabLayoutLogger.warning("renameTab: tab \(tabId) not found")
             return
         }
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedName = Tab.normalizedName(name)
         guard !trimmedName.isEmpty else {
             workspaceTabLayoutLogger.warning("renameTab: empty name rejected for tab \(tabId)")
             return

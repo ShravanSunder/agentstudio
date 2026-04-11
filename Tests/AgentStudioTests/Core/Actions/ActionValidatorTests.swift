@@ -175,6 +175,25 @@ final class WorkspaceCommandValidatorTests {
     }
 
     @Test
+    func test_renameTab_multilineName_normalizesToSingleLine() {
+        let tabId = UUID()
+        let snapshot = makeSnapshot(
+            tabs: [TabSnapshot(id: tabId, visiblePaneIds: [UUID()], ownedPaneIds: [UUID()], activePaneId: nil)]
+        )
+
+        let result = WorkspaceCommandValidator.validate(
+            .renameTab(tabId: tabId, name: "  Review Queue\nFor Launch  "),
+            state: snapshot
+        )
+
+        guard case .success(let validated) = result else {
+            Issue.record("Expected success")
+            return
+        }
+        #expect(validated.action == .renameTab(tabId: tabId, name: "Review Queue For Launch"))
+    }
+
+    @Test
     func test_renameTab_missingTab_fails() {
         let result = WorkspaceCommandValidator.validate(
             .renameTab(tabId: UUID(), name: "Review Queue"),

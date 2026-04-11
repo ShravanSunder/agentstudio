@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import GhosttyKit
 import Testing
@@ -11,16 +10,6 @@ struct PaneTabViewControllerCommandTests {
     init() {
         installTestAtomScopeIfNeeded()
     }
-    @MainActor
-    private final class StubTabRenamePrompter: TabRenamePrompting {
-        var nextResponse: String?
-        private(set) var requestedNames: [String] = []
-
-        func promptToRenameTab(currentName: String, window _: NSWindow?) -> String? {
-            requestedNames.append(currentName)
-            return nextResponse
-        }
-    }
 
     private struct Harness {
         let store: WorkspaceStore
@@ -31,7 +20,7 @@ struct PaneTabViewControllerCommandTests {
         let surfaceManager: MockPaneTabCommandSurfaceManager
         let windowLifecycleStore: WindowLifecycleStore
         let tempDir: URL
-        let tabRenamePrompter: StubTabRenamePrompter
+        let tabRenamePopoverState: TabRenamePopoverState
     }
 
     private func makeHarness(
@@ -47,7 +36,7 @@ struct PaneTabViewControllerCommandTests {
         let runtimeRegistry = RuntimeRegistry()
         let appLifecycleStore = AppLifecycleStore()
         let windowLifecycleStore = WindowLifecycleStore()
-        let tabRenamePrompter = StubTabRenamePrompter()
+        let tabRenamePopoverState = TabRenamePopoverState()
         let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore
@@ -69,7 +58,7 @@ struct PaneTabViewControllerCommandTests {
             executor: executor,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry,
-            tabRenamePrompter: tabRenamePrompter
+            tabRenamePopoverState: tabRenamePopoverState
         )
         return Harness(
             store: store,
@@ -80,7 +69,7 @@ struct PaneTabViewControllerCommandTests {
             surfaceManager: surfaceManager,
             windowLifecycleStore: windowLifecycleStore,
             tempDir: tempDir,
-            tabRenamePrompter: tabRenamePrompter
+            tabRenamePopoverState: tabRenamePopoverState
         )
     }
 
@@ -149,8 +138,8 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd == unknownCwd)
     }
 
-    @Test("targeted renameTab renames the selected tab")
-    func executeRenameTab_targetedTab_renamesSelectedTab() {
+    @Test("targeted renameTab presents the anchored popover for the selected tab")
+    func executeRenameTab_targetedTab_presentsRenamePopoverForSelectedTab() {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -161,13 +150,12 @@ struct PaneTabViewControllerCommandTests {
         harness.store.appendTab(firstTab)
         harness.store.appendTab(secondTab)
         harness.store.setActiveTab(firstTab.id)
-        harness.tabRenamePrompter.nextResponse = "Renamed Tab"
 
         harness.controller.execute(.renameTab, target: secondTab.id, targetType: .tab)
 
-        #expect(harness.tabRenamePrompter.requestedNames == ["Second Tab"])
-        #expect(harness.store.tab(secondTab.id)?.name == "Renamed Tab")
-        #expect(harness.store.tab(firstTab.id)?.name == "First Tab")
+        #expect(harness.tabRenamePopoverState.presentedTabId == secondTab.id)
+        #expect(harness.store.activeTabId == secondTab.id)
+        #expect(harness.store.tab(secondTab.id)?.name == "Second Tab")
     }
 
     @Test("terminated pane closes only the matching split pane")

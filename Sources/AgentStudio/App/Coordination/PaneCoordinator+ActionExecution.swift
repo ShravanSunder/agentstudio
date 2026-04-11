@@ -292,6 +292,7 @@ extension PaneCoordinator {
                 reattachForViewSwitch(paneId: paneId)
             }
             store.tabLayoutAtom.setActivePane(paneId, inTab: tabId)
+            focusVisiblePaneHost(paneId)
 
         case .insertPane(let source, let targetTabId, let targetPaneId, let direction):
             executeInsertPane(

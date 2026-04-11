@@ -70,7 +70,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
-    private let tabRenamePrompter: any TabRenamePrompting
+    private let tabRenamePopoverState: TabRenamePopoverState
     private lazy var actionDispatcher = PaneTabActionDispatcher(
         dispatch: { [weak self] action in
             guard let self else {
@@ -133,7 +133,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
-        tabRenamePrompter: any TabRenamePrompting = AlertTabRenamePrompter()
+        tabRenamePopoverState: TabRenamePopoverState = TabRenamePopoverState()
     ) {
         self.store = store
         self.repoCache = repoCache
@@ -143,7 +143,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
         self.closeTransitionCoordinator = closeTransitionCoordinator
-        self.tabRenamePrompter = tabRenamePrompter
+        self.tabRenamePopoverState = tabRenamePopoverState
         super.init(nibName: nil, bundle: nil)
         setupNotificationObservers()
     }
@@ -179,6 +179,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         // Create custom tab bar AFTER (so it's on top visually)
         let tabBar = CustomTabBar(
             adapter: tabBarAdapter,
+            renamePopoverState: tabRenamePopoverState,
             onSelect: { [weak self] tabId in
                 self?.dispatchAction(.selectTab(tabId: tabId))
             },
@@ -187,6 +188,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             },
             onCommand: { [weak self] command, tabId in
                 self?.handleTabCommand(command, tabId: tabId)
+            },
+            onRenameCommit: { [weak self] tabId, name in
+                self?.dispatchAction(.renameTab(tabId: tabId, name: name))
+                self?.tabRenamePopoverState.dismiss()
             },
             onTabFramesChanged: { [weak self] frames in
                 self?.tabBarHostingView?.updateTabFrames(frames)
@@ -1044,7 +1049,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     /// Route tab context menu commands through the validated pipeline.
     private func handleTabCommand(_ command: AppCommand, tabId: UUID) {
         if command == .renameTab {
-            presentRenameTabPrompt(for: tabId)
+            tabRenamePopoverState.present(for: tabId)
             return
         }
 
@@ -1095,16 +1100,6 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         if let action {
             dispatchAction(action)
         }
-    }
-
-    private func presentRenameTabPrompt(for tabId: UUID) {
-        guard let tab = store.tab(tabId) else { return }
-        let currentName = tab.name
-        guard let updatedName = tabRenamePrompter.promptToRenameTab(currentName: currentName, window: view.window)
-        else {
-            return
-        }
-        dispatchAction(.renameTab(tabId: tabId, name: updatedName))
     }
 
     // MARK: - Tab Reordering
@@ -1328,7 +1323,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             handleUndoCloseTab()
         case .renameTab:
             guard let activeTabId = store.activeTabId else { break }
-            presentRenameTabPrompt(for: activeTabId)
+            tabRenamePopoverState.present(for: activeTabId)
         case .addRepo, .addFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle:
             break
         case .addDrawerPane:
@@ -1410,7 +1405,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         // Targeted non-pane commands (e.g. from command bar)
         switch (command, targetType) {
         case (.renameTab, .tab):
-            presentRenameTabPrompt(for: target)
+            if store.activeTabId != target {
+                dispatchAction(.selectTab(tabId: target))
+            }
+            tabRenamePopoverState.present(for: target)
         default:
             execute(command)
         }

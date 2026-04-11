@@ -62,7 +62,7 @@ enum WorkspaceCommandValidator {
             guard state.tab(tabId) != nil else {
                 return .failure(.tabNotFound(tabId: tabId))
             }
-            let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedName = Tab.normalizedName(name)
             guard !trimmedName.isEmpty else {
                 return .failure(.emptyName)
             }
