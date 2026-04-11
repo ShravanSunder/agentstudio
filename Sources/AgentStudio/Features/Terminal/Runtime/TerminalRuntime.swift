@@ -17,6 +17,8 @@ final class TerminalRuntime: BusPostingPaneRuntime {
     private(set) var rendererHealthy: Bool = true
     private(set) var cellSize: NSSize = .zero
     private(set) var sizeConstraints: TerminalSizeConstraints?
+    private(set) var scrollbarState: ScrollbarState?
+    private(set) var searchState: TerminalSearchState?
     let capabilities: Set<PaneCapability>
 
     private let eventChannel: PaneRuntimeEventChannel
@@ -32,6 +34,8 @@ final class TerminalRuntime: BusPostingPaneRuntime {
         self.metadata = metadata
         self.lifecycle = .created
         self.commandProgress = nil
+        self.scrollbarState = nil
+        self.searchState = nil
         self.capabilities = [.input, .resize, .search]
         self.eventChannel = PaneRuntimeEventChannel(
             clock: clock,
@@ -129,23 +133,61 @@ final class TerminalRuntime: BusPostingPaneRuntime {
             return
         }
 
+        if handleGhosttyStructuralEvent(event, commandId: commandId, correlationId: correlationId) { return }
+        if handleGhosttyStateEvent(event, commandId: commandId, correlationId: correlationId) { return }
+        if handleGhosttyConfigurationEvent(event, commandId: commandId, correlationId: correlationId) { return }
+        if handleGhosttySearchEvent(event, commandId: commandId, correlationId: correlationId) { return }
+        if handleGhosttyRequestEvent(event, commandId: commandId, correlationId: correlationId) { return }
+
+        Self.logger.warning(
+            "Unhandled terminal runtime event for pane \(self.paneId.uuid.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
+        )
+    }
+
+    private func handleGhosttyStructuralEvent(
+        _ event: GhosttyEvent,
+        commandId: UUID?,
+        correlationId: UUID?
+    ) -> Bool {
         switch event {
         case .newTab, .closeTab, .gotoTab, .moveTab, .newSplit, .gotoSplit, .resizeSplit, .equalizeSplits,
             .toggleSplitZoom:
             emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
-        case .titleChanged(let title):
+            return true
+        case .titleChanged(let title), .tabTitleChanged(let title):
             metadata.updateTitle(title)
             emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
         case .cwdChanged(let cwdPath):
             metadata.updateCWD(URL(fileURLWithPath: cwdPath))
             emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
-        case .commandFinished, .bellRang, .scrollbarChanged, .unhandled:
+            return true
+        case .commandFinished, .bellRang, .unhandled:
             emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func handleGhosttyStateEvent(
+        _ event: GhosttyEvent,
+        commandId: UUID?,
+        correlationId: UUID?
+    ) -> Bool {
+        switch event {
+        case .scrollbarChanged(let scrollbarState):
+            self.scrollbarState = scrollbarState
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
         case .progressReportUpdated(let progressState):
             commandProgress = progressState
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
         case .readOnlyChanged(let isReadOnly):
             self.isReadOnly = isReadOnly
             emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
         case .secureInputRequested(let mode):
             let resolvedValue = resolvedSecureInputValue(for: mode)
             isSecureInput = resolvedValue
@@ -155,20 +197,111 @@ final class TerminalRuntime: BusPostingPaneRuntime {
                 correlationId: correlationId,
                 persistForReplay: true
             )
+            return true
         case .secureInputChanged:
-            break
+            return true
         case .rendererHealthChanged(let healthy):
             rendererHealthy = healthy
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
         case .cellSizeChanged(let size):
             cellSize = size
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
         case .initialSizeChanged:
-            break
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
+            return true
         case .sizeLimitChanged(let constraints):
             sizeConstraints = constraints
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func handleGhosttyConfigurationEvent(
+        _ event: GhosttyEvent,
+        commandId: UUID?,
+        correlationId: UUID?
+    ) -> Bool {
+        switch event {
+        case .mouseShapeChanged, .mouseVisibilityChanged, .mouseLinkHovered, .keySequenceChanged,
+            .keyTableChanged:
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
+            return true
+        case .colorChanged, .configChanged:
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        case .configReloadRequested:
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func handleGhosttySearchEvent(
+        _ event: GhosttyEvent,
+        commandId: UUID?,
+        correlationId: UUID?
+    ) -> Bool {
+        switch event {
+        case .searchStarted(let query):
+            searchState = TerminalSearchState(query: query ?? "", totalMatches: nil, selectedMatchIndex: nil)
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        case .searchEnded:
+            searchState = nil
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        case .searchMatchesUpdated(let totalMatches):
+            if searchState == nil {
+                Self.logger.debug(
+                    "Synthesizing terminal search state from searchMatchesUpdated without prior searchStarted for pane \(self.paneId.uuid.uuidString, privacy: .public)"
+                )
+                searchState = TerminalSearchState(query: "", totalMatches: totalMatches, selectedMatchIndex: nil)
+            } else {
+                searchState?.totalMatches = totalMatches
+            }
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        case .searchSelectionChanged(let selectedMatchIndex):
+            if searchState == nil {
+                Self.logger.debug(
+                    "Synthesizing terminal search state from searchSelectionChanged without prior searchStarted for pane \(self.paneId.uuid.uuidString, privacy: .public)"
+                )
+                searchState = TerminalSearchState(
+                    query: "",
+                    totalMatches: nil,
+                    selectedMatchIndex: selectedMatchIndex
+                )
+            } else {
+                searchState?.selectedMatchIndex = selectedMatchIndex
+            }
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func handleGhosttyRequestEvent(
+        _ event: GhosttyEvent,
+        commandId: UUID?,
+        correlationId: UUID?
+    ) -> Bool {
+        switch event {
         case .promptTitleRequested, .desktopNotificationRequested:
             emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
-        case .openURLRequested, .undoRequested, .redoRequested, .copyTitleToClipboardRequested, .deferred:
-            break
+            return true
+        case .openURLRequested, .undoRequested, .redoRequested, .copyTitleToClipboardRequested:
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
+            return true
+        case .deferred:
+            return true
+        default:
+            return false
         }
     }
 

@@ -12,6 +12,7 @@ enum PaneRuntimeEvent: Sendable {
     case diff(DiffEvent)
     case editor(EditorEvent)
     case plugin(kind: PaneContentType, event: any PaneKindEvent & Sendable)
+    case paneFilesystemContext(PaneFilesystemContextEvent)
     case filesystem(FilesystemEvent)
     case artifact(ArtifactEvent)
     case security(SecurityEvent)
@@ -27,6 +28,7 @@ extension PaneRuntimeEvent {
         case .diff(let event): return event.actionPolicy
         case .editor(let event): return event.actionPolicy
         case .plugin(_, let event): return event.actionPolicy
+        case .paneFilesystemContext(let event): return event.actionPolicy
         case .lifecycle, .filesystem, .artifact, .security, .error:
             return .critical
         }
@@ -256,6 +258,38 @@ struct TerminalSizeConstraints: Sendable, Equatable {
     let maxHeight: UInt32
 }
 
+struct GhosttyInputTrigger: Sendable, Equatable {
+    enum TriggerTag: Sendable, Equatable {
+        case physical
+        case unicode
+        case catchAll
+    }
+
+    let tag: TriggerTag
+    let key: UInt32?
+    let modifiers: UInt32
+}
+
+enum GhosttyKeyTableChange: Sendable, Equatable {
+    case activate(name: String)
+    case deactivate
+    case deactivateAll
+}
+
+enum TerminalColorKind: Sendable, Equatable {
+    case foreground
+    case background
+    case cursor
+    case palette(index: UInt8)
+}
+
+struct TerminalColorChange: Sendable, Equatable {
+    let kind: TerminalColorKind
+    let red: UInt8
+    let green: UInt8
+    let blue: UInt8
+}
+
 enum TitlePromptScope: Sendable, Equatable {
     case surface
     case tab
@@ -284,6 +318,7 @@ enum GhosttyEvent: PaneKindEvent, Sendable, Equatable {
     case equalizeSplits
     case toggleSplitZoom
     case titleChanged(String)
+    case tabTitleChanged(String)
     case cwdChanged(String)
     case commandFinished(exitCode: Int, duration: UInt64)
     case progressReportUpdated(ProgressState?)
@@ -294,6 +329,18 @@ enum GhosttyEvent: PaneKindEvent, Sendable, Equatable {
     case cellSizeChanged(NSSize)
     case initialSizeChanged(NSSize)
     case sizeLimitChanged(TerminalSizeConstraints)
+    case mouseShapeChanged(shapeRawValue: UInt32)
+    case mouseVisibilityChanged(isVisible: Bool)
+    case mouseLinkHovered(url: String?)
+    case keySequenceChanged(active: Bool, trigger: GhosttyInputTrigger?)
+    case keyTableChanged(GhosttyKeyTableChange)
+    case colorChanged(TerminalColorChange)
+    case configReloadRequested(soft: Bool)
+    case configChanged
+    case searchStarted(query: String?)
+    case searchEnded
+    case searchMatchesUpdated(totalMatches: Int?)
+    case searchSelectionChanged(selectedMatchIndex: Int?)
     case promptTitleRequested(scope: TitlePromptScope)
     case desktopNotificationRequested(title: String, body: String)
     case openURLRequested(url: String, kind: OpenURLKind)
@@ -307,14 +354,35 @@ enum GhosttyEvent: PaneKindEvent, Sendable, Equatable {
 
     var actionPolicy: ActionPolicy {
         switch self {
+        case .progressReportUpdated:
+            return .lossy(consolidationKey: "progress")
+        case .cellSizeChanged:
+            return .lossy(consolidationKey: "cellSize")
+        case .mouseShapeChanged:
+            return .lossy(consolidationKey: "mouseShape")
+        case .mouseVisibilityChanged:
+            return .lossy(consolidationKey: "mouseVisibility")
+        case .mouseLinkHovered:
+            return .lossy(consolidationKey: "mouseLink")
+        case .keySequenceChanged:
+            return .lossy(consolidationKey: "keySequence")
+        case .keyTableChanged:
+            return .lossy(consolidationKey: "keyTable")
+        case .searchMatchesUpdated:
+            return .lossy(consolidationKey: "searchTotal")
+        case .searchSelectionChanged:
+            return .lossy(consolidationKey: "searchSelected")
         case .scrollbarChanged:
             return .lossy(consolidationKey: "scroll")
+        case .deferred:
+            return .lossy(consolidationKey: "deferred")
         case .newTab, .closeTab, .gotoTab, .moveTab, .newSplit, .gotoSplit, .resizeSplit, .equalizeSplits,
-            .toggleSplitZoom, .titleChanged, .cwdChanged, .commandFinished, .progressReportUpdated,
+            .toggleSplitZoom, .titleChanged, .tabTitleChanged, .cwdChanged, .commandFinished,
             .readOnlyChanged, .secureInputRequested, .secureInputChanged, .rendererHealthChanged,
-            .cellSizeChanged, .initialSizeChanged, .sizeLimitChanged, .promptTitleRequested,
+            .initialSizeChanged, .sizeLimitChanged, .colorChanged, .configReloadRequested, .configChanged,
+            .searchStarted, .searchEnded, .promptTitleRequested,
             .desktopNotificationRequested, .openURLRequested, .undoRequested, .redoRequested,
-            .copyTitleToClipboardRequested, .bellRang, .deferred, .unhandled:
+            .copyTitleToClipboardRequested, .bellRang, .unhandled:
             return .critical
         }
     }
@@ -331,6 +399,7 @@ enum GhosttyEvent: PaneKindEvent, Sendable, Equatable {
         case .equalizeSplits: return .equalizeSplits
         case .toggleSplitZoom: return .toggleSplitZoom
         case .titleChanged: return .titleChanged
+        case .tabTitleChanged: return .tabTitleChanged
         case .cwdChanged: return .cwdChanged
         case .commandFinished: return .commandFinished
         case .progressReportUpdated: return .progressReportUpdated
@@ -340,6 +409,18 @@ enum GhosttyEvent: PaneKindEvent, Sendable, Equatable {
         case .cellSizeChanged: return .cellSizeChanged
         case .initialSizeChanged: return .initialSizeChanged
         case .sizeLimitChanged: return .sizeLimitChanged
+        case .mouseShapeChanged: return .mouseShapeChanged
+        case .mouseVisibilityChanged: return .mouseVisibilityChanged
+        case .mouseLinkHovered: return .mouseLinkHovered
+        case .keySequenceChanged: return .keySequenceChanged
+        case .keyTableChanged: return .keyTableChanged
+        case .colorChanged: return .colorChanged
+        case .configReloadRequested: return .configReloadRequested
+        case .configChanged: return .configChanged
+        case .searchStarted: return .searchStarted
+        case .searchEnded: return .searchEnded
+        case .searchMatchesUpdated: return .searchMatchesUpdated
+        case .searchSelectionChanged: return .searchSelectionChanged
         case .promptTitleRequested: return .promptTitleRequested
         case .desktopNotificationRequested: return .desktopNotificationRequested
         case .openURLRequested: return .openURLRequested
@@ -358,6 +439,12 @@ struct ScrollbarState: Sendable, Equatable {
     let top: Int
     let bottom: Int
     let total: Int
+}
+
+struct TerminalSearchState: Sendable, Equatable {
+    var query: String
+    var totalMatches: Int?
+    var selectedMatchIndex: Int?
 }
 
 enum BrowserEvent: PaneKindEvent, Sendable {

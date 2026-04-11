@@ -574,26 +574,23 @@ extension Ghostty {
         }
 
         /// Shortcuts that Agent Studio owns — always pass to macOS menu bar, never to Ghostty.
-        static let appOwnedShortcuts: [(key: String, mods: NSEvent.ModifierFlags)] = [
-            ("p", [.command]),  // ⌘P — Quick Open
-            ("p", [.command, .shift]),  // ⌘⇧P — Command Palette
-            ("p", [.command, .option]),  // ⌘⌥P — Go to Pane
-        ]
+        static let appOwnedShortcuts: [AppShortcut] = AppShortcut.allCases.filter {
+            $0.contexts.contains(.terminalAppOwned)
+        }
 
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
             guard event.type == .keyDown else { return false }
             guard focused else { return false }
 
-            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-
             // App-owned shortcuts bypass Ghostty — always go to macOS menu bar.
-            if let chars = event.charactersIgnoringModifiers?.lowercased() {
-                for shortcut in Self.appOwnedShortcuts {
-                    if chars == shortcut.key && mods == shortcut.mods {
-                        return false
-                    }
-                }
+            if let trigger = ShortcutDecoder.decode(event: event),
+                let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .terminalAppOwned),
+                Self.appOwnedShortcuts.contains(shortcut)
+            {
+                return false
             }
+
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
             // Cmd combinations: app menu shortcuts take priority over terminal keybindings.
             if mods.contains(.command) {
@@ -810,23 +807,13 @@ extension Ghostty {
 
         override func scrollWheel(with event: NSEvent) {
             guard let surface else { return }
-
-            let mods = ghosttyMods(from: event.modifierFlags)
-            var scrollMods: ghostty_input_scroll_mods_t = Int32(mods.rawValue)
-
-            if !event.momentumPhase.isEmpty {
-                scrollMods |= 0x10  // GHOSTTY_SCROLL_MODS_MOMENTUM
-            }
-
-            if event.hasPreciseScrollingDeltas {
-                scrollMods |= 0x20  // GHOSTTY_SCROLL_MODS_PRECISION
-            }
+            let translatedScroll = GhosttyScrollTranslation.translate(event: event)
 
             ghostty_surface_mouse_scroll(
                 surface,
-                event.scrollingDeltaX,
-                event.scrollingDeltaY,
-                scrollMods
+                translatedScroll.deltaX,
+                translatedScroll.deltaY,
+                translatedScroll.scrollMods
             )
         }
 

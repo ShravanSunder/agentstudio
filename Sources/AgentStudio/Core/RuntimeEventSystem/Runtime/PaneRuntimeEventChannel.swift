@@ -11,7 +11,8 @@ final class PaneRuntimeEventChannel {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneRuntimeEventChannel")
     private let clock: ContinuousClock
     private let replayBuffer: EventReplayBuffer
-    private let paneEventBus: EventBus<RuntimeEnvelope>
+    private let busContinuation: AsyncStream<RuntimeEnvelope>.Continuation
+    private let busConsumerTask: Task<Void, Never>
 
     private var sequence: UInt64 = 0
     private var nextSubscriberId: UInt64 = 0
@@ -24,7 +25,21 @@ final class PaneRuntimeEventChannel {
     ) {
         self.clock = clock
         self.replayBuffer = replayBuffer
-        self.paneEventBus = paneEventBus
+
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: RuntimeEnvelope.self,
+            bufferingPolicy: .bufferingNewest(128)
+        )
+        self.busContinuation = continuation
+        // swiftlint:disable:next no_task_detached
+        self.busConsumerTask = Task.detached {
+            await Self.consumeOutboundBusStream(stream, paneEventBus: paneEventBus)
+        }
+    }
+
+    deinit {
+        busContinuation.finish()
+        busConsumerTask.cancel()
     }
 
     var lastSequence: UInt64 {
@@ -77,6 +92,23 @@ final class PaneRuntimeEventChannel {
         for continuation in activeSubscribers {
             continuation.finish()
         }
+        busContinuation.finish()
+        busConsumerTask.cancel()
+    }
+
+    @concurrent nonisolated private static func consumeOutboundBusStream(
+        _ stream: AsyncStream<RuntimeEnvelope>,
+        paneEventBus: EventBus<RuntimeEnvelope>
+    ) async {
+        let detachedLogger = Logger(subsystem: "com.agentstudio", category: "PaneRuntimeEventChannel")
+        for await envelope in stream {
+            let postResult = await paneEventBus.post(envelope)
+            if postResult.droppedCount > 0 {
+                detachedLogger.warning(
+                    "Dropped pane runtime bus event for \(postResult.droppedCount, privacy: .public) subscriber(s); seq=\(envelope.seq, privacy: .public)"
+                )
+            }
+        }
     }
 
     func emit(
@@ -119,21 +151,28 @@ final class PaneRuntimeEventChannel {
                     "Skipped terminated subscriberId=\(subscriberId, privacy: .public) seq=\(envelope.seq, privacy: .public)"
                 )
             @unknown default:
+                Self.logger.warning(
+                    "Encountered unknown AsyncStream.YieldResult for local subscriberId=\(subscriberId, privacy: .public) seq=\(envelope.seq, privacy: .public)"
+                )
                 continue
             }
         }
 
-        // Intentional fire-and-forget hop to keep runtime emit paths non-blocking.
-        // Tradeoff: global bus post does not participate in structured backpressure.
-        // Ordering is guaranteed for local subscribers/replay (yield + append above),
-        // while cross-runtime bus fanout is best-effort and eventually consistent.
-        Task { [paneEventBus] in
-            let postResult = await paneEventBus.post(envelope)
-            if postResult.droppedCount > 0 {
-                Self.logger.warning(
-                    "Dropped pane runtime bus event for \(postResult.droppedCount, privacy: .public) subscriber(s); seq=\(envelope.seq, privacy: .public)"
-                )
-            }
+        switch busContinuation.yield(envelope) {
+        case .enqueued:
+            break
+        case .dropped(let droppedEnvelope):
+            Self.logger.warning(
+                "Dropped pane runtime outbound buffer event seq=\(droppedEnvelope.seq, privacy: .public)"
+            )
+        case .terminated:
+            Self.logger.debug(
+                "Skipped pane runtime outbound buffer event after termination; seq=\(envelope.seq, privacy: .public)"
+            )
+        @unknown default:
+            Self.logger.warning(
+                "Encountered unknown AsyncStream.YieldResult for outbound buffer; seq=\(envelope.seq, privacy: .public)"
+            )
         }
 
         _ = metadata

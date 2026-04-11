@@ -9,10 +9,7 @@ struct AppDelegateLaunchRestoreObservationStateTests {
     @Test("complete cancels diagnostics and marks restore complete")
     func complete_cancelsDiagnosticsAndMarksRestoreComplete() async {
         let state = AppDelegateLaunchRestoreObservationState()
-        let diagnosticTask = Task<Void, Never> { @MainActor in
-            try? await Task.sleep(for: .seconds(60))
-            return ()
-        }
+        let diagnosticTask = makePendingDiagnosticTask()
         state.installDiagnosticTask(diagnosticTask)
 
         state.complete()
@@ -24,10 +21,7 @@ struct AppDelegateLaunchRestoreObservationStateTests {
     @Test("cancelDiagnostics stops the timer without marking restore complete")
     func cancelDiagnostics_stopsTimerWithoutMarkingRestoreComplete() async {
         let state = AppDelegateLaunchRestoreObservationState()
-        let diagnosticTask = Task<Void, Never> { @MainActor in
-            try? await Task.sleep(for: .seconds(60))
-            return ()
-        }
+        let diagnosticTask = makePendingDiagnosticTask()
         state.installDiagnosticTask(diagnosticTask)
 
         state.cancelDiagnostics()
@@ -43,5 +37,12 @@ struct AppDelegateLaunchRestoreObservationStateTests {
         state.complete()
 
         #expect(state.didComplete == true)
+    }
+
+    private func makePendingDiagnosticTask() -> Task<Void, Never> {
+        Task<Void, Never> { @MainActor in
+            let stream = AsyncStream<Void> { _ in }
+            for await _ in stream {}
+        }
     }
 }

@@ -10,6 +10,7 @@ struct PaneTabViewControllerCommandTests {
     init() {
         installTestAtomScopeIfNeeded()
     }
+
     private struct Harness {
         let store: WorkspaceStore
         let coordinator: PaneCoordinator
@@ -19,6 +20,7 @@ struct PaneTabViewControllerCommandTests {
         let surfaceManager: MockPaneTabCommandSurfaceManager
         let windowLifecycleStore: WindowLifecycleStore
         let tempDir: URL
+        let tabRenamePopoverState: TabRenamePopoverState
     }
 
     private func makeHarness(
@@ -34,6 +36,7 @@ struct PaneTabViewControllerCommandTests {
         let runtimeRegistry = RuntimeRegistry()
         let appLifecycleStore = AppLifecycleStore()
         let windowLifecycleStore = WindowLifecycleStore()
+        let tabRenamePopoverState = TabRenamePopoverState()
         let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore
@@ -54,7 +57,8 @@ struct PaneTabViewControllerCommandTests {
             appLifecycleStore: appLifecycleStore,
             executor: executor,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
-            viewRegistry: viewRegistry
+            viewRegistry: viewRegistry,
+            tabRenamePopoverState: tabRenamePopoverState
         )
         return Harness(
             store: store,
@@ -64,7 +68,8 @@ struct PaneTabViewControllerCommandTests {
             viewRegistry: viewRegistry,
             surfaceManager: surfaceManager,
             windowLifecycleStore: windowLifecycleStore,
-            tempDir: tempDir
+            tempDir: tempDir,
+            tabRenamePopoverState: tabRenamePopoverState
         )
     }
 
@@ -131,6 +136,26 @@ struct PaneTabViewControllerCommandTests {
         #expect(Set(harness.store.panes.keys).count == initialPaneIds.count + 1)
         #expect(harness.surfaceManager.createSurfaceCallCount == 1)
         #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd == unknownCwd)
+    }
+
+    @Test("targeted renameTab presents the anchored popover for the selected tab")
+    func executeRenameTab_targetedTab_presentsRenamePopoverForSelectedTab() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let firstPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+        let secondPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        let firstTab = Tab(paneId: firstPane.id, name: "First Tab")
+        let secondTab = Tab(paneId: secondPane.id, name: "Second Tab")
+        harness.store.appendTab(firstTab)
+        harness.store.appendTab(secondTab)
+        harness.store.setActiveTab(firstTab.id)
+
+        harness.controller.execute(.renameTab, target: secondTab.id, targetType: .tab)
+
+        #expect(harness.tabRenamePopoverState.presentedTabId == secondTab.id)
+        #expect(harness.store.activeTabId == secondTab.id)
+        #expect(harness.store.tab(secondTab.id)?.name == "Second Tab")
     }
 
     @Test("terminated pane closes only the matching split pane")
@@ -325,6 +350,33 @@ struct PaneTabViewControllerCommandTests {
 
         #expect(
             harness.coordinator.windowLifecycleStore === harness.windowLifecycleStore
+        )
+    }
+
+    @Test("toggleManagementMode preserves drawer scope while exiting management mode")
+    func executeToggleManagementMode_preservesDrawerScopeOnExit() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(
+            source: .floating(launchDirectory: nil, title: "Parent"),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        _ = harness.store.addDrawerPane(to: parentPane.id)
+
+        atom(\.managementMode).activate()
+        harness.controller.setManagementNavigationScopeToDrawerForTesting(parentPaneId: parentPane.id)
+
+        harness.controller.execute(.toggleManagementMode)
+
+        #expect(!atom(\.managementMode).isActive)
+        #expect(
+            harness.controller.managementNavigationScopeDescriptionForTesting
+                == "drawer:\(parentPane.id.uuidString)"
         )
     }
 

@@ -18,6 +18,9 @@ extension PaneCoordinator {
         for paneId: UUID
     ) -> PaneHostView {
         let host = PaneHostView(paneId: paneId)
+        host.onAttachedToWindow = { [weak self] attachedPaneId in
+            self?.handlePaneHostAttachedToWindow(attachedPaneId)
+        }
         host.mountContentView(mountedView)
         viewRegistry.register(host, for: paneId)
         return host
@@ -45,6 +48,7 @@ extension PaneCoordinator {
         treatAsRestoredSessionStart: Bool = false
     ) -> NSView? {
         viewRegistry.ensureSlot(for: pane.id)
+        registerPaneFilesystemContextIfNeeded(for: pane)
 
         switch pane.content {
         case .terminal:
@@ -146,11 +150,13 @@ extension PaneCoordinator {
         treatAsRestoredSessionStart: Bool = false
     ) -> TerminalPaneMountView? {
         if pane.provider == .zmx, initialFrame == nil {
-            assertionFailure("zmx pane \(pane.id) must provide trusted initialFrame before Ghostty surface creation")
-            Self.logger.error(
-                "Refusing to create zmx pane \(pane.id, privacy: .public) without trusted initialFrame"
+            RestoreTrace.log(
+                "createView deferred pane=\(pane.id) reason=missingInitialFrame"
             )
-            registerTerminalPlaceholderIfNeeded(for: pane, mode: .failedToStart)
+            Self.logger.warning(
+                "Deferring zmx pane \(pane.id, privacy: .public) until trusted initialFrame exists"
+            )
+            registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
             return nil
         }
         let launchDirectory = pane.metadata.cwd ?? pane.metadata.launchDirectory ?? worktree.path
@@ -256,12 +262,13 @@ extension PaneCoordinator {
         treatAsRestoredSessionStart: Bool = false
     ) -> TerminalPaneMountView? {
         if pane.provider == .zmx, initialFrame == nil {
-            assertionFailure(
-                "floating zmx pane \(pane.id) must provide trusted initialFrame before Ghostty surface creation")
-            Self.logger.error(
-                "Refusing to create floating zmx pane \(pane.id, privacy: .public) without trusted initialFrame"
+            RestoreTrace.log(
+                "createFloatingTerminalView deferred pane=\(pane.id) reason=missingInitialFrame"
             )
-            registerTerminalPlaceholderIfNeeded(for: pane, mode: .failedToStart)
+            Self.logger.warning(
+                "Deferring floating zmx pane \(pane.id, privacy: .public) until trusted initialFrame exists"
+            )
+            registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
             return nil
         }
         let launchDirectory =
@@ -362,6 +369,7 @@ extension PaneCoordinator {
 
     /// Teardown a view — detach terminal surface, teardown bridge controller, unregister view/runtime state.
     func teardownView(for paneId: UUID, shouldUnregisterRuntime: Bool = true) {
+        paneFilesystemProjectionStore.unregisterPaneContext(paneId)
         if let terminal = viewRegistry.terminalView(for: paneId),
             let surfaceId = terminal.surfaceId
         {
@@ -507,6 +515,28 @@ extension PaneCoordinator {
             return nil
         }
         return PaneId(uuid: paneId)
+    }
+
+    private func registerPaneFilesystemContextIfNeeded(for pane: Pane) {
+        guard let repoId = pane.repoId, let worktreeId = pane.worktreeId else {
+            paneFilesystemProjectionStore.unregisterPaneContext(pane.id)
+            return
+        }
+
+        let fallbackCwd = store.worktree(worktreeId)?.path ?? pane.metadata.launchDirectory ?? pane.metadata.cwd
+        guard let fallbackCwd else {
+            paneFilesystemProjectionStore.unregisterPaneContext(pane.id)
+            return
+        }
+
+        paneFilesystemProjectionStore.registerPaneContext(
+            PaneFilesystemContext(
+                paneId: PaneId(uuid: pane.id),
+                repoId: repoId,
+                cwd: (pane.metadata.cwd ?? fallbackCwd).standardizedFileURL.resolvingSymlinksInPath(),
+                worktreeId: worktreeId
+            )
+        )
     }
 
     /// Restore a view from an undo close. Tries to reuse the undone surface; creates fresh if expired.

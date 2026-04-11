@@ -46,22 +46,16 @@ final class CommandBarPanelController {
     // MARK: - Show / Dismiss
 
     /// Show the command bar. If already visible with a different prefix, switch in-place.
-    /// If already visible with the same prefix (or no prefix), dismiss (toggle behavior).
+    /// If already visible with the same prefix (or no prefix), preserve current state.
     func show(prefix: String? = nil, parentWindow: NSWindow) {
         self.parentWindow = parentWindow
 
         if state.isVisible {
-            // Toggle: same prefix → dismiss; different prefix → switch in-place
-            let currentPrefix = state.activePrefix
+            let currentPrefix = normalizedPrefix(for: state.currentScope)
             let normalizedRequestedPrefix: String? =
-                if let prefix, [">", "$", "#"].contains(prefix) {
-                    prefix + " "
-                } else {
-                    prefix
-                }
+                normalizedPrefix(for: prefix)
 
             if currentPrefix == normalizedRequestedPrefix {
-                dismiss()
                 return
             } else {
                 state.switchPrefix(prefix ?? "")
@@ -156,6 +150,26 @@ final class CommandBarPanelController {
 
         // Return focus to parent window
         parentWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    private func normalizedPrefix(for prefix: String?) -> String? {
+        if let prefix, [">", "$", "#"].contains(prefix) {
+            return prefix + " "
+        }
+        return prefix
+    }
+
+    private func normalizedPrefix(for scope: CommandBarScope) -> String? {
+        switch scope {
+        case .everything:
+            return nil
+        case .commands:
+            return "> "
+        case .panes:
+            return "$ "
+        case .repos:
+            return "# "
+        }
     }
 
     // MARK: - Backdrop

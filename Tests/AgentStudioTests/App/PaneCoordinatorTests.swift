@@ -195,6 +195,55 @@ struct PaneCoordinatorTests {
         }
     }
 
+    @Test("view lifecycle registers and unregisters pane filesystem context for worktree-backed panes")
+    func viewLifecycle_registersAndUnregistersPaneFilesystemContext() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-pane-filesystem-lifecycle-\(UUID().uuidString)")
+        let persistor = WorkspacePersistor(workspacesDir: tempDir)
+        let store = WorkspaceStore(persistor: persistor)
+        store.restore()
+        let paneFilesystemProjectionStore = PaneFilesystemProjectionStore()
+        let coordinator = PaneCoordinator(
+            store: store,
+            viewRegistry: ViewRegistry(),
+            runtime: SessionRuntime(store: store),
+            surfaceManager: MockPaneCoordinatorSurfaceManager(),
+            runtimeRegistry: RuntimeRegistry(),
+            paneEventBus: EventBus<RuntimeEnvelope>(),
+            filesystemSource: RecordingFilesystemSourceHarness(),
+            paneFilesystemProjectionStore: paneFilesystemProjectionStore,
+            windowLifecycleStore: WindowLifecycleStore()
+        )
+
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let repoPath = tempDir.appending(path: "repo")
+        let repo = store.addRepo(at: repoPath)
+        let worktree = Worktree(
+            id: UUID(),
+            repoId: repo.id,
+            name: "repo",
+            path: repoPath,
+            isMainWorktree: true
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+
+        let pane = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com")!, showNavigation: true)),
+            metadata: PaneMetadata(
+                source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: repoPath),
+                title: "Browser"
+            )
+        )
+
+        _ = coordinator.createViewForContent(pane: pane)
+        #expect(paneFilesystemProjectionStore.context(for: pane.id)?.repoId == repo.id)
+        #expect(paneFilesystemProjectionStore.context(for: pane.id)?.worktreeId == worktree.id)
+
+        coordinator.teardownView(for: pane.id)
+        #expect(paneFilesystemProjectionStore.context(for: pane.id) == nil)
+    }
+
     @Test("closing tab with drawer children snapshots all panes for undo")
     func closeTab_withDrawerChildren_snapshotsUndo() {
         let harness = makeHarnessCoordinator()

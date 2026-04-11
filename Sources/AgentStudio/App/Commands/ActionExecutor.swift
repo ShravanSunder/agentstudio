@@ -70,6 +70,17 @@ final class ActionExecutor {
         )
     }
 
+    @discardableResult
+    func openContextualWebviewInDrawer(
+        parentPaneId: UUID,
+        url: URL
+    ) -> Pane? {
+        coordinator.openContextualWebviewInDrawer(
+            parentPaneId: parentPaneId,
+            url: url
+        )
+    }
+
     /// Undo the last close operation (tab or pane).
     func undoCloseTab() {
         coordinator.undoCloseTab()

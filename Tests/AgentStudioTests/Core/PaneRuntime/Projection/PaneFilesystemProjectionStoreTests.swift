@@ -29,7 +29,7 @@ struct PaneFilesystemProjectionStoreTests {
             worktreeId: worktreeId,
             paths: ["README.md", "Sources/App.swift", "Sources/Views/List.swift", "."]
         )
-        store.consume(
+        _ = store.consume(
             envelope,
             panesById: [rootPane.id: rootPane, subtreePane.id: subtreePane],
             worktreeRootsByWorktreeId: [worktreeId: worktreeRoot]
@@ -71,7 +71,7 @@ struct PaneFilesystemProjectionStoreTests {
             worktreeId: worktreeId,
             paths: ["/README.md", "./Sources/App.swift", "Sources/App.swift", "Tests/Test.swift"]
         )
-        store.consume(
+        _ = store.consume(
             envelope,
             panesById: [nilCwdPane.id: nilCwdPane, subtreePane.id: subtreePane],
             worktreeRootsByWorktreeId: [worktreeId: worktreeRoot]
@@ -114,7 +114,7 @@ struct PaneFilesystemProjectionStoreTests {
             worktreeId: worktreeId,
             paths: ["Package.swift"]
         )
-        store.consume(
+        _ = store.consume(
             envelope,
             panesById: [matchingPane.id: matchingPane, unrelatedPane.id: unrelatedPane],
             worktreeRootsByWorktreeId: [worktreeId: worktreeRoot, otherWorktreeId: worktreeRoot]
@@ -122,6 +122,128 @@ struct PaneFilesystemProjectionStoreTests {
 
         #expect(store.snapshotsByPaneId[matchingPane.id] != nil)
         #expect(store.snapshotsByPaneId[unrelatedPane.id] == nil)
+    }
+
+    @Test("consume returns pane-scoped filesystem context envelopes for subtree matches")
+    func consumeReturnsPaneFilesystemContextEnvelopes() {
+        let store = PaneFilesystemProjectionStore()
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let worktreeRoot = URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)")
+        let pane = makePane(
+            repoId: repoId,
+            worktreeId: worktreeId,
+            cwd: worktreeRoot.appending(path: "Sources")
+        )
+
+        let derivedEnvelopes = store.consume(
+            makeFilesChangedEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                paths: ["README.md", "Sources/App.swift", "Sources/Views/List.swift"]
+            ),
+            panesById: [pane.id: pane],
+            worktreeRootsByWorktreeId: [worktreeId: worktreeRoot]
+        )
+
+        let paneEvents = RuntimeEnvelopeHarness.paneEvents(from: derivedEnvelopes)
+        #expect(paneEvents.count == 1)
+        guard
+            case .paneFilesystemContext(.cwdSubtreeChanged(let context, let paths, let batchSeq)) = paneEvents[0].event
+        else {
+            Issue.record("Expected cwdSubtreeChanged pane filesystem context event")
+            return
+        }
+        #expect(context.paneId == PaneId(uuid: pane.id))
+        #expect(context.repoId == repoId)
+        #expect(context.cwd == worktreeRoot.appending(path: "Sources"))
+        #expect(context.worktreeId == worktreeId)
+        #expect(paths == Set(["Sources/App.swift", "Sources/Views/List.swift"]))
+        #expect(batchSeq == 1)
+    }
+
+    @Test("consume returns pane-scoped git summary envelopes for worktree snapshots")
+    func consumeReturnsPaneGitSummaryContextEnvelopes() {
+        let store = PaneFilesystemProjectionStore()
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let worktreeRoot = URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)")
+        let pane = makePane(repoId: repoId, worktreeId: worktreeId, cwd: worktreeRoot)
+        let snapshot = GitWorkingTreeSnapshot(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            rootPath: worktreeRoot,
+            summary: GitWorkingTreeSummary(changed: 3, staged: 2, untracked: 1),
+            branch: "main"
+        )
+
+        let derivedEnvelopes = store.consume(
+            RuntimeEnvelopeHarness.gitEnvelope(
+                event: .snapshotChanged(snapshot: snapshot),
+                repoId: repoId,
+                worktreeId: worktreeId
+            ),
+            panesById: [pane.id: pane],
+            worktreeRootsByWorktreeId: [worktreeId: worktreeRoot]
+        )
+
+        let paneEvents = RuntimeEnvelopeHarness.paneEvents(from: derivedEnvelopes)
+        #expect(paneEvents.count == 1)
+        guard
+            case .paneFilesystemContext(.gitWorkingTreeInCwd(let context, let staged, let unstaged, let untracked)) =
+                paneEvents[0].event
+        else {
+            Issue.record("Expected gitWorkingTreeInCwd pane filesystem context event")
+            return
+        }
+        #expect(context.paneId == PaneId(uuid: pane.id))
+        #expect(context.repoId == repoId)
+        #expect(context.cwd == worktreeRoot)
+        #expect(staged == 2)
+        #expect(unstaged == 3)
+        #expect(untracked == 1)
+    }
+
+    @Test("derived filesystem context envelopes round-trip through the runtime bus harness")
+    func derivedFilesystemContextEnvelopes_roundTripThroughBusHarness() async {
+        let store = PaneFilesystemProjectionStore()
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let worktreeRoot = URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)")
+        let pane = makePane(
+            repoId: repoId,
+            worktreeId: worktreeId,
+            cwd: worktreeRoot.appending(path: "Sources")
+        )
+        let harness = EventBusHarness<RuntimeEnvelope>()
+        let subscriber = await harness.makeSubscriber()
+
+        let derivedEnvelopes = store.consume(
+            makeFilesChangedEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                paths: ["README.md", "Sources/App.swift"]
+            ),
+            panesById: [pane.id: pane],
+            worktreeRootsByWorktreeId: [worktreeId: worktreeRoot]
+        )
+
+        _ = await harness.postAll(derivedEnvelopes)
+
+        await assertEventuallyAsync("bus subscriber should receive derived pane filesystem envelope") {
+            await subscriber.snapshot().count == 1
+        }
+
+        let busPaneEvents = RuntimeEnvelopeHarness.paneEvents(from: await subscriber.snapshot())
+        #expect(busPaneEvents.count == 1)
+        guard case .paneFilesystemContext(.cwdSubtreeChanged(_, let paths, _)) = busPaneEvents[0].event else {
+            Issue.record("Expected pane filesystem context event on bus")
+            return
+        }
+        #expect(paths == Set(["Sources/App.swift"]))
+
+        await subscriber.shutdown()
+        await assertBusDrained(harness.bus)
     }
 
     @Test("prune removes snapshots for missing panes and worktrees")
@@ -135,12 +257,12 @@ struct PaneFilesystemProjectionStoreTests {
         let keepPane = makePane(repoId: repoId, worktreeId: keepWorktreeId, cwd: rootPath)
         let dropPane = makePane(repoId: repoId, worktreeId: dropWorktreeId, cwd: rootPath)
 
-        store.consume(
+        _ = store.consume(
             makeFilesChangedEnvelope(seq: 1, worktreeId: keepWorktreeId, paths: ["A.swift"]),
             panesById: [keepPane.id: keepPane, dropPane.id: dropPane],
             worktreeRootsByWorktreeId: [keepWorktreeId: rootPath, dropWorktreeId: rootPath]
         )
-        store.consume(
+        _ = store.consume(
             makeFilesChangedEnvelope(seq: 2, worktreeId: dropWorktreeId, paths: ["B.swift"]),
             panesById: [keepPane.id: keepPane, dropPane.id: dropPane],
             worktreeRootsByWorktreeId: [keepWorktreeId: rootPath, dropWorktreeId: rootPath]

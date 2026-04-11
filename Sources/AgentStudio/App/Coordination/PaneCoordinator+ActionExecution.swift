@@ -1,5 +1,4 @@
 import AppKit
-import Foundation
 
 @MainActor
 extension PaneCoordinator {
@@ -169,6 +168,42 @@ extension PaneCoordinator {
     }
 
     @discardableResult
+    func openContextualWebviewInDrawer(
+        parentPaneId: UUID,
+        url: URL
+    ) -> Pane? {
+        guard let parentPane = store.pane(parentPaneId) else {
+            Self.logger.warning("openContextualWebviewInDrawer: parent pane \(parentPaneId) not found")
+            return nil
+        }
+
+        let host = url.host() ?? "GitHub"
+        let context = contextualBrowserMetadata(from: parentPane, fallbackTitle: host)
+        guard
+            let pane = store.paneAtom.addDrawerPane(
+                to: parentPaneId,
+                content: .webview(WebviewState(url: url, title: host, showNavigation: true)),
+                metadata: context.metadata
+            )
+        else {
+            Self.logger.warning("openContextualWebviewInDrawer: failed to create drawer pane for \(parentPaneId)")
+            return nil
+        }
+
+        viewRegistry.ensureSlot(for: pane.id)
+        guard createViewForContent(pane: pane) != nil else {
+            Self.logger.error("Contextual drawer webview creation failed — rolling back pane \(pane.id)")
+            store.paneAtom.removeDrawerPane(pane.id, from: parentPaneId)
+            viewRegistry.removeSlot(for: pane.id)
+            return nil
+        }
+
+        focusVisiblePaneHost(pane.id)
+        Self.logger.info("Opened contextual drawer webview pane \(pane.id) from parent pane \(parentPaneId)")
+        return pane
+    }
+
+    @discardableResult
     func openFloatingTerminal(launchDirectory: URL?, title: String?) -> Pane? {
         let resolvedTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         let pane = store.paneAtom.createPane(
@@ -240,6 +275,9 @@ extension PaneCoordinator {
         case .breakUpTab(let tabId):
             executeBreakUpTab(tabId)
 
+        case .renameTab(let tabId, let name):
+            store.tabLayoutAtom.renameTab(tabId, name: name)
+
         case .closePane(let tabId, let paneId):
             executeClosePane(tabId: tabId, paneId: paneId)
 
@@ -253,6 +291,7 @@ extension PaneCoordinator {
                 reattachForViewSwitch(paneId: paneId)
             }
             store.tabLayoutAtom.setActivePane(paneId, inTab: tabId)
+            focusVisiblePaneHost(paneId)
 
         case .insertPane(let source, let targetTabId, let targetPaneId, let direction):
             executeInsertPane(
@@ -372,6 +411,7 @@ extension PaneCoordinator {
             if let drawerPane = store.paneAtom.addDrawerPane(to: parentPaneId, parentFallbackCWD: fallbackCWD) {
                 viewRegistry.ensureSlot(for: drawerPane.id)
                 ensureTerminalPaneView(drawerPane)
+                focusVisiblePaneHost(drawerPane.id)
             }
 
         case .removeDrawerPane(let parentPaneId, let drawerPaneId):
@@ -381,14 +421,20 @@ extension PaneCoordinator {
 
         case .toggleDrawer(let paneId):
             store.paneAtom.toggleDrawer(for: paneId)
+            if let drawer = store.pane(paneId)?.drawer,
+                drawer.isExpanded,
+                let activeDrawerPaneId = drawer.activePaneId
+            {
+                restoreViewsForActiveTabIfNeeded()
+                focusVisiblePaneHost(activeDrawerPaneId)
+            } else {
+                focusVisiblePaneHost(paneId)
+            }
 
         case .setActiveDrawerPane(let parentPaneId, let drawerPaneId):
             store.paneAtom.setActiveDrawerPane(drawerPaneId, in: parentPaneId)
             restoreViewsForActiveTabIfNeeded()
-            if let terminalView = viewRegistry.terminalView(for: drawerPaneId) {
-                terminalView.window?.makeFirstResponder(terminalView)
-                surfaceManager.syncFocus(activeSurfaceId: terminalView.surfaceId)
-            }
+            focusVisiblePaneHost(drawerPaneId)
 
         case .resizeDrawerPane(let parentPaneId, let splitId, let ratio):
             store.paneAtom.resizeDrawerPane(parentPaneId: parentPaneId, splitId: splitId, ratio: ratio)
@@ -832,6 +878,7 @@ extension PaneCoordinator {
 
         viewRegistry.ensureSlot(for: drawerPane.id)
         ensureTerminalPaneView(drawerPane)
+        focusVisiblePaneHost(drawerPane.id)
     }
 
     private func ensureTerminalPaneView(_ pane: Pane) {
@@ -840,6 +887,34 @@ extension PaneCoordinator {
             RestoreTrace.log("ensureTerminalPaneView deferred pane=\(pane.id)")
             restoreViewsForActiveTabIfNeeded()
         }
+    }
+
+    private func focusVisiblePaneHost(_ paneId: UUID) {
+        if focusPaneHostIfReady(paneId) {
+            pendingFocusPaneIds.remove(paneId)
+        } else {
+            pendingFocusPaneIds.insert(paneId)
+        }
+    }
+
+    func handlePaneHostAttachedToWindow(_ paneId: UUID) {
+        guard pendingFocusPaneIds.contains(paneId) else { return }
+        if focusPaneHostIfReady(paneId) {
+            pendingFocusPaneIds.remove(paneId)
+        }
+    }
+
+    @discardableResult
+    private func focusPaneHostIfReady(_ paneId: UUID) -> Bool {
+        guard let paneView = viewRegistry.view(for: paneId), paneView.window != nil else {
+            return false
+        }
+
+        paneView.window?.makeFirstResponder(paneView)
+        if let terminalView = viewRegistry.terminalView(for: paneId) {
+            surfaceManager.syncFocus(activeSurfaceId: terminalView.surfaceId)
+        }
+        return true
     }
 
     private func executeMergeTab(

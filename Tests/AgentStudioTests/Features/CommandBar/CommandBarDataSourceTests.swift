@@ -105,11 +105,11 @@ struct CommandBarDataSourceTests {
         let items = CommandBarDataSource.items(
             scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
-        // Assert — selectTab1..9, quickFind, commandBar should be hidden
+        // Assert — selectTab1..9 and command bar launcher commands should be hidden
         let ids = items.map(\.id)
         #expect(!ids.contains("cmd-selectTab1"))
-        #expect(!ids.contains("cmd-quickFind"))
-        #expect(!ids.contains("cmd-commandBar"))
+        #expect(!ids.contains("cmd-showCommandBarEverything"))
+        #expect(!ids.contains("cmd-showCommandBarCommands"))
     }
 
     @Test
@@ -153,6 +153,7 @@ struct CommandBarDataSourceTests {
         #expect(!ids.contains("cmd-closePane"))
         #expect(!ids.contains("cmd-addDrawerPane"))
         #expect(!ids.contains("cmd-closeTab"))
+        #expect(!ids.contains("cmd-renameTab"))
         #expect(!ids.contains("cmd-switchArrangement"))
         #expect(!ids.contains("cmd-deleteArrangement"))
         #expect(!ids.contains("cmd-renameArrangement"))
@@ -598,6 +599,19 @@ struct CommandBarDataSourceTests {
     }
 
     // MARK: - Arrangement Commands
+
+    @Test
+    func test_commandsScope_includesRenameTab() {
+        let store = makeRichCommandStore()
+
+        let items = CommandBarDataSource.items(
+            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
+        let renameItem = items.first { $0.id == "cmd-renameTab" }
+
+        #expect(renameItem != nil)
+        #expect(renameItem?.group == "Tab")
+        #expect(renameItem?.hasChildren == true)
+    }
 
     @Test
     func test_commandsScope_includesArrangementCommands() {

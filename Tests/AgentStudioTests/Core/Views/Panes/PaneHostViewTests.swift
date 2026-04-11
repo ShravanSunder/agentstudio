@@ -42,6 +42,26 @@ struct PaneHostViewTests {
         #expect(host.mountedContent(as: TestMountedContentView.self) === mountedContent)
         #expect(host.mountedContent(as: NSButton.self) == nil)
     }
+
+    @Test
+    func paneHost_notifiesWhenAttachedToWindow() {
+        let paneId = UUID()
+        let host = PaneHostView(paneId: paneId)
+        let mountedContent = TestMountedContentView()
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: true
+        )
+
+        var attachedPaneId: UUID?
+        host.onAttachedToWindow = { attachedPaneId = $0 }
+        host.mountContentView(mountedContent)
+        window.contentView?.addSubview(host)
+
+        #expect(attachedPaneId == paneId)
+    }
 }
 
 @MainActor

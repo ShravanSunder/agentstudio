@@ -151,6 +151,9 @@ final class TabBarAdapter {
         tabs = storeTabs.map { tab in
             let paneTitles = tab.activePaneIds.map { paneDisplayTitle(for: $0) }
             let displayTitle = tabDisplayTitle(for: tab)
+            let trimmedTabName = tab.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let dragTitle =
+                (!trimmedTabName.isEmpty && trimmedTabName != "Tab") ? displayTitle : (paneTitles.first ?? "Terminal")
 
             let activeArrangement = tab.activeArrangement
             let showArrangementName = tab.arrangements.count > 1 && !activeArrangement.isDefault
@@ -174,7 +177,7 @@ final class TabBarAdapter {
 
             return TabBarItem(
                 id: tab.id,
-                title: paneTitles.first ?? "Terminal",
+                title: dragTitle,
                 isSplit: tab.isSplit,
                 displayTitle: displayTitle,
                 activeArrangementName: showArrangementName ? activeArrangement.name : nil,
@@ -226,8 +229,11 @@ final class TabBarAdapter {
     }
 
     private func tabDisplayTitle(for tab: Tab) -> String {
-        if tab.hasCustomName {
-            return tab.name
+        guard !tab.activePaneIds.isEmpty else { return "Empty Tab" }
+
+        let trimmedTabName = tab.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTabName.isEmpty, trimmedTabName != "Tab" {
+            return trimmedTabName
         }
 
         let paneLabels = tab.activePaneIds.map { paneDisplayTitle(for: $0) }

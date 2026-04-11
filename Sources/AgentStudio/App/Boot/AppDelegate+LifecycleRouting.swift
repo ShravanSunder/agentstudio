@@ -47,16 +47,11 @@ extension AppDelegate {
     }
 
     @objc func showCommandBarRepos() {
-        appDelegateLifecycleLogger.info("showCommandBarRepos triggered")
-        guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
-            appDelegateLifecycleLogger.warning("No window available for command bar (repos)")
-            return
-        }
-        commandBarController.show(prefix: "#", parentWindow: window)
+        CommandDispatcher.shared.dispatch(.showCommandBarRepos)
     }
 
     func showRepoCommandBar() {
-        showCommandBarRepos()
+        CommandDispatcher.shared.dispatch(.showCommandBarRepos)
     }
 
     func refreshWorktrees() {

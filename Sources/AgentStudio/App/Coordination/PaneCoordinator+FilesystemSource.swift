@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 struct WorktreeFilesystemContext: Sendable, Equatable {
     let repoId: UUID
@@ -32,11 +33,24 @@ extension PaneCoordinator {
             return false
         }
 
-        paneFilesystemProjectionStore.consume(
+        let derivedEnvelopes = paneFilesystemProjectionStore.consume(
             envelope,
             panesById: store.panes,
             worktreeRootsByWorktreeId: workspaceWorktreeContextsById().mapValues(\.rootPath)
         )
+        if !derivedEnvelopes.isEmpty {
+            let taskId = UUID()
+            let publishTask = Task { [weak self, paneEventBus] in
+                await Self.publishDerivedFilesystemEnvelopes(
+                    derivedEnvelopes,
+                    to: paneEventBus
+                )
+                let _: Void = await MainActor.run {
+                    self?.derivedFilesystemPublishTasks.removeValue(forKey: taskId)
+                }
+            }
+            derivedFilesystemPublishTasks[taskId] = publishTask
+        }
         return true
     }
 
@@ -152,6 +166,21 @@ extension PaneCoordinator {
 
     nonisolated private static func sortWorktreeIds(_ lhs: UUID, _ rhs: UUID) -> Bool {
         lhs.uuidString < rhs.uuidString
+    }
+
+    @concurrent nonisolated private static func publishDerivedFilesystemEnvelopes(
+        _ envelopes: [RuntimeEnvelope],
+        to paneEventBus: EventBus<RuntimeEnvelope>
+    ) async {
+        let logger = Logger(subsystem: "com.agentstudio", category: "PaneCoordinator")
+        for envelope in envelopes {
+            let result = await paneEventBus.post(envelope)
+            if result.droppedCount > 0 {
+                logger.warning(
+                    "Dropped derived filesystem context event for \(result.droppedCount, privacy: .public) subscriber(s); seq=\(envelope.seq, privacy: .public)"
+                )
+            }
+        }
     }
 
     nonisolated private static func sortWorktreeByPriority(

@@ -316,12 +316,15 @@ enum CommandBarDataSource {
         store: WorkspaceStore? = nil,
         repoCache: RepoCacheAtom
     ) -> CommandBarItem {
+        let commandIconColor: Color? = def.command == .managementExitMode ? .accentColor : nil
+
         if def.command == .movePaneToTab, let store {
             let level = buildMovePaneSourceLevel(for: def, store: store, repoCache: repoCache)
             return CommandBarItem(
                 id: "cmd-\(def.command.rawValue)",
                 title: def.label,
                 icon: def.icon,
+                iconColor: commandIconColor,
                 shortcutKeys: def.keyBinding.map { ShortcutKey.from(keyBinding: $0) },
                 group: groupName,
                 groupPriority: groupPriority,
@@ -341,6 +344,7 @@ enum CommandBarDataSource {
                 id: "cmd-\(def.command.rawValue)",
                 title: def.label,
                 icon: def.icon,
+                iconColor: commandIconColor,
                 shortcutKeys: def.keyBinding.map { ShortcutKey.from(keyBinding: $0) },
                 group: groupName,
                 groupPriority: groupPriority,
@@ -355,6 +359,7 @@ enum CommandBarDataSource {
             id: "cmd-\(def.command.rawValue)",
             title: def.label,
             icon: def.icon,
+            iconColor: commandIconColor,
             shortcutKeys: def.keyBinding.map { ShortcutKey.from(keyBinding: $0) },
             group: groupName,
             groupPriority: groupPriority,
@@ -367,7 +372,7 @@ enum CommandBarDataSource {
     /// Whether a command should show as a drill-in item with target selection.
     private static func isTargetableCommand(_ command: AppCommand) -> Bool {
         switch command {
-        case .closeTab, .closePane, .extractPaneToTab, .movePaneToTab, .focusPaneLeft, .focusPaneRight,
+        case .closeTab, .renameTab, .closePane, .extractPaneToTab, .movePaneToTab, .focusPaneLeft, .focusPaneRight,
             .focusPaneUp, .focusPaneDown, .focusNextPane, .focusPrevPane,
             .switchArrangement, .deleteArrangement, .renameArrangement,
             .navigateDrawerPane, .openWorktree, .openWorktreeInPane, .openNewTerminalInTab,
@@ -712,8 +717,11 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> String {
-        if tab.hasCustomName {
-            return tab.name
+        guard !tab.activePaneIds.isEmpty else { return "Empty Tab" }
+
+        let trimmedTabName = tab.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedTabName.isEmpty, trimmedTabName != "Tab" {
+            return trimmedTabName
         }
 
         let primaryPaneId = tab.activePaneId ?? tab.activePaneIds.first
