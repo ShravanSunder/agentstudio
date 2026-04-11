@@ -12,7 +12,7 @@ struct CommandBarFooter: View {
                 if hint.isDivider {
                     divider
                 } else {
-                    footerHint(hint.key, hint.label)
+                    footerHint(hint.shortcutKeys, hint.label)
                 }
             }
         }
@@ -21,10 +21,10 @@ struct CommandBarFooter: View {
         .padding(.horizontal, 12)
     }
 
-    private func footerHint(_ key: String, _ label: String) -> some View {
+    private func footerHint(_ shortcutKeys: [ShortcutKey], _ label: String) -> some View {
         HStack(spacing: 4) {
             CommandBarShortcutBadge(
-                keys: ShortcutKey.from(chord: key),
+                keys: shortcutKeys,
                 style: .footerCompact
             )
             Text(label)

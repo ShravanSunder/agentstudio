@@ -70,9 +70,3 @@ struct CommandBarShortcutBadge: View {
         }
     }
 }
-
-extension ShortcutKey {
-    static func from(chord: String) -> [Self] {
-        chord.map { Self(symbol: String($0)) }
-    }
-}

@@ -9,6 +9,14 @@ struct FooterHintBuilderTests {
         hints.filter { !$0.isDivider }.map(\.label)
     }
 
+    private func keysById(_ hints: [FooterHint]) -> [String: [String]] {
+        hints.reduce(into: [:]) { result, hint in
+            if !hint.isDivider {
+                result[hint.id] = hint.shortcutKeys.map(\.symbol)
+            }
+        }
+    }
+
     private func hasDivider(_ hints: [FooterHint]) -> Bool {
         hints.contains { $0.isDivider }
     }
@@ -104,6 +112,9 @@ struct FooterHintBuilderTests {
         let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true)
 
         #expect(labels(hints) == ["Actions", "New tab", "Open in tab", "Commands", "Panes", "Repos", "Close"])
+        let keys = keysById(hints)
+        #expect(keys["cmd-enter"] == ["⌘", "↵"])
+        #expect(keys["opt-enter"] == ["⌥", "↵"])
     }
 
     @Test
@@ -150,5 +161,13 @@ struct FooterHintBuilderTests {
         let dividerCount = hints.filter(\.isDivider).count
 
         #expect(dividerCount == 2)
+    }
+
+    @Test
+    func test_closeHint_keepsEscAsSingleToken() {
+        let hints = FooterHintBuilder.hints(for: nil, isNested: false, canOpenInCurrentTab: true)
+        let keys = keysById(hints)
+
+        #expect(keys["dismiss"] == ["esc"])
     }
 }

@@ -215,19 +215,26 @@ struct CommandBarItemGroup: Identifiable {
 
 struct FooterHint: Identifiable, Equatable, Sendable {
     let id: String
-    let key: String
+    let shortcutKeys: [ShortcutKey]
     let label: String
     let isDivider: Bool
 
     init(id: String, key: String, label: String, isDivider: Bool = false) {
         self.id = id
-        self.key = key
+        self.shortcutKeys = [ShortcutKey(symbol: key)]
+        self.label = label
+        self.isDivider = isDivider
+    }
+
+    init(id: String, keys: [ShortcutKey], label: String, isDivider: Bool = false) {
+        self.id = id
+        self.shortcutKeys = keys
         self.label = label
         self.isDivider = isDivider
     }
 
     static func divider(_ id: String) -> Self {
-        Self(id: id, key: "", label: "", isDivider: true)
+        Self(id: id, keys: [], label: "", isDivider: true)
     }
 }
 
@@ -256,10 +263,20 @@ enum FooterHintBuilder {
             if item.worktreeOpenState != nil {
                 actions = [
                     FooterHint(id: "enter", key: "↵", label: "Actions"),
-                    FooterHint(id: "cmd-enter", key: "⌘↵", label: "New tab"),
+                    FooterHint(
+                        id: "cmd-enter",
+                        keys: [ShortcutKey(symbol: "⌘"), ShortcutKey(symbol: "↵")],
+                        label: "New tab"
+                    ),
                 ]
                 if canOpenInCurrentTab {
-                    actions.append(FooterHint(id: "opt-enter", key: "⌥↵", label: "Open in tab"))
+                    actions.append(
+                        FooterHint(
+                            id: "opt-enter",
+                            keys: [ShortcutKey(symbol: "⌥"), ShortcutKey(symbol: "↵")],
+                            label: "Open in tab"
+                        )
+                    )
                 }
             } else {
                 let enterLabel = (item.kind == .tab || item.kind == .pane) ? "Go to" : "Open"
