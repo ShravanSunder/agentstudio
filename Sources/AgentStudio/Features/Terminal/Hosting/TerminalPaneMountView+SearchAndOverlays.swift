@@ -122,9 +122,6 @@ extension TerminalPaneMountView {
             }
         }
 
-        if let surface = ghosttySurface, bounds.contains(point) {
-            return surface
-        }
         return nil
     }
 }
