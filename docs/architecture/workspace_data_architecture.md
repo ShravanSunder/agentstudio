@@ -350,20 +350,25 @@ Branch display: `WorktreeEnrichment.branch` from cache, falling back to `"detach
 
 ### App Boot (implemented)
 
+Boot is driven by `WorkspaceBootSequence` (`App/Boot/WorkspaceBootSequence.swift`), which defines ordered steps executed synchronously on the main actor:
+
 ```
-1. WorkspaceStore.restore() → load repos, worktrees, panes, tabs from workspace.state.json
-2. RepoCacheAtom.loadCache() → warm-start from workspace.cache.json
-   - Sidebar renders immediately with cached enrichment data
-3. UIStateAtom.load() → expanded groups, filter, colors from workspace.ui.json
-4. Start runtime actors (FilesystemActor, GitProjector, ForgeActor)
-5. Start WorkspaceCacheCoordinator → subscribes to bus
-6. replayBootTopology() — emit .repoDiscovered for each persisted repo
-   - Phase A: active-pane repos first (priority)
-   - Phase B: remaining repos
-7. Prune stale cache entries (IDs not in restored store)
-8. Actors process topology events → produce enrichment events
-9. Cache converges → sidebar updates reactively
+WorkspaceBootStep (in order):
+  1. loadCanonicalStore      → load repos, worktrees, panes, tabs from workspace.state.json
+  2. loadCacheStore           → warm-start from workspace.cache.json (sidebar renders immediately)
+  3. loadUIStore              → expanded groups, filter, colors from workspace.ui.json
+  4. establishRuntimeBus      → create/reset PaneRuntimeEventBus
+  5. startFilesystemActor     → start FilesystemActor
+  6. startGitProjector        → start GitWorkingDirectoryProjector
+  7. startForgeActor          → start ForgeActor
+  8. startCacheCoordinator    → start WorkspaceCacheCoordinator, subscribes to bus
+  9. triggerInitialTopologySync → replayBootTopology — emit .repoDiscovered for each persisted repo
+                                  Phase A: active-pane repos first (priority)
+                                  Phase B: remaining repos
+ 10. readyForReactiveSidebar  → prune stale cache entries, sidebar enters reactive mode
 ```
+
+After the boot sequence completes, `AppDelegate` calls `observeLaunchRestoreReadiness()` which creates a `WindowRestoreBridge`. The bridge observes `WindowLifecycleStore.isReadyForLaunchRestore` and yields trusted terminal container bounds once the window layout has settled. `AppDelegate` then calls `paneCoordinator.restoreAllViews(in: bounds)` to create views for all persisted panes. See [Deferred Launch Restore](#deferred-launch-restore) for the geometry gate that handles panes whose bounds are not yet available.
 
 Boot replay uses the same `.repoDiscovered` event and same coordinator code path as live discovery. The cached data provides instant display; the replay validates and refreshes everything.
 
@@ -426,6 +431,61 @@ When a repo directory moves on disk, the plan is:
 1. FilesystemActor detects repo gone on rescan → emits `.repoRemoved`
 2. Coordinator marks panes orphaned, prunes cache, keeps canonical entries for re-association
 3. User can "Locate" the repo at its new path → coordinator updates path, recomputes stableKey, re-registers with actors
+
+### Deferred Launch Restore
+
+> **Files:** `App/Boot/AppDelegate+LaunchRestore.swift`, `App/Lifecycle/WindowRestoreBridge.swift`, `App/Boot/AppDelegateLaunchRestoreObservationState.swift`, `App/Coordination/PaneCoordinator+ViewLifecycle.swift`, `Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift`, `Features/Terminal/Restore/TerminalRestoreScheduler.swift`
+
+zmx terminal panes require a trusted `initialFrame` before Ghostty surface creation. During app boot, `terminalContainerBounds` may be zero because the window has not settled layout yet. The deferred launch restore flow handles this geometry gate.
+
+**Geometry gate.** When `PaneCoordinator.createView(for:...)` is called for a zmx pane and `initialFrame` is nil, it does not create a Ghostty surface. Instead it registers a `.preparing` placeholder via `registerTerminalPlaceholderIfNeeded(for:mode:)` and returns nil. The same gate applies to floating zmx panes (drawers, standalone terminals) in `createFloatingTerminalView`.
+
+**Placeholder modes.** `TerminalStatusPlaceholderView` has two modes:
+- `.preparing` — transient waiting-for-geometry state. `shouldRetryCreationWhenBoundsChange` returns true.
+- `.failedToStart` — resting startup-failure state (surface creation failed). `shouldRetryCreationWhenBoundsChange` returns false. The user can retry or close.
+
+**Retry trigger.** When AppKit delivers a layout pass, `PaneTabViewController.handleTerminalContainerBoundsChanged()` calls `PaneCoordinator.restoreViewsForActiveTabIfNeeded()`. This method checks the active tab for any `.preparing` placeholders, resolves geometry from the now-settled bounds, and calls `createViewForContent(pane:initialFrame:treatAsRestoredSessionStart:)` with real frames. The placeholder is replaced by the live terminal surface.
+
+**Restore ordering.** `TerminalRestoreScheduler.order(_:resolver:)` sorts panes by `VisibilityTier` — `p0Visible` first, then `p1Hidden`. Within the visible tier, the active pane sorts first. This ensures the active tab paints before background tabs are hydrated. Background tabs are restored cooperatively with `Task.yield()` after every two panes.
+
+**Background restore policy.** `BackgroundRestorePolicy` controls whether hidden zmx panes are restored at boot:
+- `.off` — skip all hidden panes
+- `.existingSessionsOnly` — restore only if a live zmx session already exists (discovered via `discoverLiveSessionIds()`)
+- `.allTerminalPanes` — restore all hidden zmx panes unconditionally
+
+**The flow:**
+
+```
+AppDelegate: WorkspaceBootSequence.run() → stores loaded, actors started, topology replayed
+  ↓
+AppDelegate: observeLaunchRestoreReadiness()
+  → creates WindowRestoreBridge (observes WindowLifecycleStore)
+  ↓
+WindowLifecycleStore: recordTerminalContainerBounds() + recordLaunchLayoutSettled()
+  → isReadyForLaunchRestore becomes true
+  ↓
+WindowRestoreBridge: yields trusted bounds via AsyncStream
+  ↓
+AppDelegate: finishLaunchRestore(using: bounds)
+  → paneCoordinator.restoreAllViews(in: bounds)
+  ↓
+restoreAllViews:
+  → TerminalRestoreScheduler orders panes (p0Visible first)
+  → For each pane: resolveInitialFramesByTabId(in: bounds)
+    → createViewForContent(pane, initialFrame, treatAsRestoredSessionStart: true)
+      ↓ zmx pane with initialFrame available → surface created
+      ↓ zmx pane with initialFrame == nil → .preparing placeholder registered
+  ↓
+Window layout settles (AppKit viewDidLayout)
+  → PaneTabViewController.handleTerminalContainerBoundsChanged()
+  ↓
+restoreViewsForActiveTabIfNeeded()
+  → checks: .preparing placeholders in active tab? bounds non-empty?
+  → For each .preparing pane: createViewForContent(pane, initialFrame: REAL_FRAME)
+    → surface created, placeholder replaced
+```
+
+**Timeout recovery.** `AppDelegateLaunchRestoreObservationState` installs a 10-second diagnostic timer. If `WindowRestoreBridge` has not yielded by then, the timer attempts restore with whatever bounds are currently recorded in `WindowLifecycleStore` as a fallback.
 
 ---
 
