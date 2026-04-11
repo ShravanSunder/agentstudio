@@ -19,34 +19,28 @@ final class GhosttySurfaceShortcutTests {
 
     @Test
     func test_appOwnedShortcuts_containsCmdP() {
-        // Act
-        let match = Ghostty.SurfaceView.appOwnedShortcuts.contains { shortcut in
-            shortcut.key == "p" && shortcut.mods == [.command]
-        }
-
         // Assert
-        #expect(match, "Expected ⌘P in appOwnedShortcuts")
+        #expect(
+            Ghostty.SurfaceView.appOwnedShortcuts.contains(.showCommandBarEverything),
+            "Expected quick open in appOwnedShortcuts"
+        )
     }
 
     @Test
     func test_appOwnedShortcuts_containsCmdShiftP() {
-        // Act
-        let match = Ghostty.SurfaceView.appOwnedShortcuts.contains { shortcut in
-            shortcut.key == "p" && shortcut.mods == [.command, .shift]
-        }
-
         // Assert
-        #expect(match, "Expected ⌘⇧P in appOwnedShortcuts")
+        #expect(
+            Ghostty.SurfaceView.appOwnedShortcuts.contains(.showCommandBarCommands),
+            "Expected command palette in appOwnedShortcuts"
+        )
     }
 
     @Test
     func test_appOwnedShortcuts_containsCmdOptionP() {
-        // Act
-        let match = Ghostty.SurfaceView.appOwnedShortcuts.contains { shortcut in
-            shortcut.key == "p" && shortcut.mods == [.command, .option]
-        }
-
         // Assert
-        #expect(match, "Expected ⌘⌥P in appOwnedShortcuts")
+        #expect(
+            Ghostty.SurfaceView.appOwnedShortcuts.contains(.showCommandBarPanes),
+            "Expected pane picker in appOwnedShortcuts"
+        )
     }
 }

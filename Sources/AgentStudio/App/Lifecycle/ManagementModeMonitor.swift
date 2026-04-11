@@ -16,7 +16,7 @@ import Observation
 ///
 /// ## Toggling
 ///
-/// Toggled via Cmd+E (command pipeline) or the toolbar/tab bar button.
+/// Toggled via Cmd+R (command pipeline) or the toolbar/tab bar button.
 @MainActor
 @Observable
 final class ManagementModeMonitor {
@@ -75,6 +75,9 @@ final class ManagementModeMonitor {
             case .deactivateAndConsume:
                 self.deactivate()
                 return nil
+            case .dispatch(let shortcut):
+                CommandDispatcher.shared.dispatch(shortcut.command)
+                return nil
             case .passThrough:
                 return event
             case .consume:
@@ -87,6 +90,7 @@ final class ManagementModeMonitor {
 
     enum KeyDownDecision: Equatable {
         case deactivateAndConsume
+        case dispatch(AppShortcut)
         case passThrough
         case consume
     }
@@ -94,7 +98,7 @@ final class ManagementModeMonitor {
     func keyDownDecision(
         keyCode: UInt16,
         modifierFlags: NSEvent.ModifierFlags,
-        charactersIgnoringModifiers _: String?
+        charactersIgnoringModifiers: String?
     ) -> KeyDownDecision {
         if keyCode == 53 {
             return .deactivateAndConsume
@@ -105,7 +109,19 @@ final class ManagementModeMonitor {
             return .passThrough
         }
 
-        return .consume
+        let nonSemanticArrowModifiers: NSEvent.ModifierFlags = [.numericPad, .function]
+        let sanitizedModifiers = modifierFlags.subtracting(nonSemanticArrowModifiers)
+        guard
+            let trigger = ShortcutDecoder.decode(
+                keyCode: keyCode,
+                modifierFlags: sanitizedModifiers,
+                charactersIgnoringModifiers: charactersIgnoringModifiers
+            ),
+            let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .managementMode)
+        else {
+            return .consume
+        }
+        return shortcut == .managementExitMode ? .deactivateAndConsume : .dispatch(shortcut)
     }
 
     // MARK: - First Responder Management

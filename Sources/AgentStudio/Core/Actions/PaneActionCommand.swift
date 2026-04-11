@@ -46,6 +46,7 @@ enum PaneActionCommand: Equatable, Hashable {
     case selectTab(tabId: UUID)
     case closeTab(tabId: UUID)
     case breakUpTab(tabId: UUID)
+    case renameTab(tabId: UUID, name: String)
 
     // Pane lifecycle
     case closePane(tabId: UUID, paneId: UUID)

@@ -30,23 +30,22 @@ extension Ghostty.SurfaceView {
         sendKeyEvent(event, action: GHOSTTY_ACTION_PRESS)
     }
 
-    static let appOwnedShortcuts: [(key: String, mods: NSEvent.ModifierFlags)] = [
-        ("p", [.command]),
-        ("p", [.command, .shift]),
-        ("p", [.command, .option]),
-    ]
+    static let appOwnedShortcuts: [AppShortcut] = AppShortcut.allCases.filter {
+        $0.contexts.contains(.terminalAppOwned)
+    }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return false }
         guard focused else { return false }
 
-        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-
-        if let chars = event.charactersIgnoringModifiers?.lowercased() {
-            for shortcut in Self.appOwnedShortcuts where chars == shortcut.key && mods == shortcut.mods {
-                return false
-            }
+        if let trigger = ShortcutDecoder.decode(event: event),
+            let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .terminalAppOwned),
+            Self.appOwnedShortcuts.contains(shortcut)
+        {
+            return false
         }
+
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
         if mods.contains(.command) {
             if let mainMenu = NSApp.mainMenu, mainMenu.performKeyEquivalent(with: event) {
@@ -232,23 +231,13 @@ extension Ghostty.SurfaceView {
 
     override func scrollWheel(with event: NSEvent) {
         guard let surface else { return }
-
-        var deltaX = event.scrollingDeltaX
-        var deltaY = event.scrollingDeltaY
-        let mods = ghosttyMods(from: event.modifierFlags)
-        var scrollMods: ghostty_input_scroll_mods_t = Int32(mods.rawValue)
-
-        if !event.momentumPhase.isEmpty {
-            scrollMods |= 0x10
-        }
-
-        if event.hasPreciseScrollingDeltas {
-            scrollMods |= 0x20
-            deltaX *= 2
-            deltaY *= 2
-        }
-
-        ghostty_surface_mouse_scroll(surface, deltaX, deltaY, scrollMods)
+        let translatedScroll = GhosttyScrollTranslation.translate(event: event)
+        ghostty_surface_mouse_scroll(
+            surface,
+            translatedScroll.deltaX,
+            translatedScroll.deltaY,
+            translatedScroll.scrollMods
+        )
     }
 
     private func sendMouseButton(
