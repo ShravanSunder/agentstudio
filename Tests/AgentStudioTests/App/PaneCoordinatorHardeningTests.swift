@@ -8,6 +8,10 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct PaneCoordinatorHardeningTests {
+    init() {
+        installTestAtomScopeIfNeeded()
+    }
+
     private let trustedBounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
 
     private struct Harness {
@@ -618,8 +622,8 @@ struct PaneCoordinatorHardeningTests {
         #expect(harness.store.pane(oldestClosedPaneId) == nil)
     }
 
-    @Test("restoreView registers runtime before undo lookup and rolls back runtime when restore fails")
-    func restoreView_registersRuntimeBeforeUndoLookup() {
+    @Test("restoreView defers runtime registration until after undo lookup")
+    func restoreView_defersRuntimeRegistrationUntilAfterUndoLookup() {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -635,7 +639,52 @@ struct PaneCoordinatorHardeningTests {
         let restored = harness.coordinator.restoreView(for: pane, worktree: worktree, repo: repo)
 
         #expect(restored == nil)
-        #expect(runtimeWasRegisteredDuringUndoLookup)
+        #expect(!runtimeWasRegisteredDuringUndoLookup)
+        #expect(harness.coordinator.runtimeForPane(runtimePaneId) == nil)
+    }
+
+    @Test("fresh createView registers runtime before createSurface")
+    func freshCreateView_registersRuntimeBeforeCreateSurface() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let pane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Fresh")
+        let runtimePaneId = PaneId(uuid: pane.id)
+
+        var runtimeWasRegisteredDuringCreateSurface = false
+        harness.surfaceManager.onCreateSurface = { _ in
+            runtimeWasRegisteredDuringCreateSurface = harness.coordinator.runtimeForPane(runtimePaneId) != nil
+        }
+
+        let created = harness.coordinator.createView(
+            for: pane,
+            worktree: worktree,
+            repo: repo,
+            initialFrame: NSRect(x: 0, y: 0, width: 1000, height: 600)
+        )
+
+        #expect(created == nil)
+        #expect(runtimeWasRegisteredDuringCreateSurface)
+    }
+
+    @Test("fresh createView rolls back newly created runtime when createSurface fails")
+    func freshCreateView_rollsBackNewRuntimeWhenCreateSurfaceFails() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let pane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Rollback")
+        let runtimePaneId = PaneId(uuid: pane.id)
+
+        let created = harness.coordinator.createView(
+            for: pane,
+            worktree: worktree,
+            repo: repo,
+            initialFrame: NSRect(x: 0, y: 0, width: 1000, height: 600)
+        )
+
+        #expect(created == nil)
         #expect(harness.coordinator.runtimeForPane(runtimePaneId) == nil)
     }
 }
@@ -647,6 +696,7 @@ private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceMan
 
     private(set) var createSurfaceCallCount = 0
     private(set) var lastCreatedSurfaceMetadata: SurfaceMetadata?
+    var onCreateSurface: ((SurfaceMetadata) -> Void)?
     var onUndoClose: (() -> Void)?
     var undoCloseResult: ManagedSurface?
 
@@ -673,6 +723,7 @@ private final class MockPaneCoordinatorSurfaceManager: PaneCoordinatorSurfaceMan
     ) -> Result<ManagedSurface, SurfaceError> {
         createSurfaceCallCount += 1
         lastCreatedSurfaceMetadata = metadata
+        onCreateSurface?(metadata)
         return createSurfaceResult
     }
 

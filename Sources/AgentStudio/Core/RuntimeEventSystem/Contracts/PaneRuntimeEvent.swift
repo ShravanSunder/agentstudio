@@ -307,6 +307,14 @@ enum SecureInputMode: Sendable, Equatable {
     case toggle
 }
 
+enum TerminalMouseShape: Sendable, Equatable {
+    case text
+    case pointer
+    case crosshair
+    case verticalText
+    case other(rawValue: UInt32)
+}
+
 enum GhosttyEvent: PaneKindEvent, Sendable, Equatable {
     case newTab
     case closeTab(mode: GhosttyCloseTabMode)
@@ -329,7 +337,7 @@ enum GhosttyEvent: PaneKindEvent, Sendable, Equatable {
     case cellSizeChanged(NSSize)
     case initialSizeChanged(NSSize)
     case sizeLimitChanged(TerminalSizeConstraints)
-    case mouseShapeChanged(shapeRawValue: UInt32)
+    case mouseShapeChanged(shape: TerminalMouseShape)
     case mouseVisibilityChanged(isVisible: Bool)
     case mouseLinkHovered(url: String?)
     case keySequenceChanged(active: Bool, trigger: GhosttyInputTrigger?)
@@ -439,6 +447,23 @@ struct ScrollbarState: Sendable, Equatable {
     let top: Int
     let bottom: Int
     let total: Int
+
+    init(top: Int, bottom: Int, total: Int) {
+        precondition(top >= 0, "ScrollbarState.top must be non-negative")
+        precondition(bottom >= top, "ScrollbarState.bottom must be >= top")
+        precondition(total >= bottom, "ScrollbarState.total must be >= bottom")
+        self.top = top
+        self.bottom = bottom
+        self.total = total
+    }
+
+    var visibleRowCount: Int {
+        bottom - top
+    }
+
+    var isPinnedToBottom: Bool {
+        bottom >= total
+    }
 }
 
 struct TerminalSearchState: Sendable, Equatable {

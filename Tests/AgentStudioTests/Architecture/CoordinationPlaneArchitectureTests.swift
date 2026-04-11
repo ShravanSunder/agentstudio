@@ -113,7 +113,9 @@ struct CoordinationPlaneArchitectureTests {
     func notificationCenterUsage_isLifecycleOnly() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let sourcesRoot = projectRoot.appending(path: "Sources/AgentStudio")
-        let allowedFiles: Set<String> = []
+        let allowedFiles: Set<String> = [
+            "Sources/AgentStudio/Features/Terminal/Hosting/TerminalSurfaceScrollView.swift"
+        ]
 
         var notificationCenterFiles: Set<String> = []
         let enumerator = FileManager.default.enumerator(

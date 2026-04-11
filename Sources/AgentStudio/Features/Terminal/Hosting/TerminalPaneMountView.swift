@@ -1,9 +1,8 @@
 import AppKit
 import GhosttyKit
 
-/// Terminal view wrapping Ghostty's SurfaceView via SurfaceManager.
-/// This is a host-only view — PaneCoordinator creates surfaces and
-/// passes them here via displaySurface(). The view never creates its own surfaces.
+/// Host-side terminal pane container for Ghostty surfaces, overlays, and lifecycle UI.
+/// PaneCoordinator creates surfaces and passes them here via displaySurface().
 final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDelegate {
     let paneId: UUID
     let worktree: Worktree?
@@ -13,19 +12,26 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
     // MARK: - Private State
 
-    private var ghosttySurface: Ghostty.SurfaceView?
+    private(set) var ghosttySurface: Ghostty.SurfaceView?
     private let ghosttyMountView = GhosttyMountView()
+    private(set) var surfaceScrollView: TerminalSurfaceScrollView?
+    var searchOverlayView: TerminalSearchOverlayView?
+    var scrollToBottomIndicatorView: ScrollToBottomIndicatorView?
+    private(set) weak var boundRuntime: TerminalRuntime?
+    private var actionPerformerOverrideForTesting: (any TerminalSurfaceActionPerforming)?
     private(set) var isProcessRunning = false
-    private var errorOverlay: SurfaceErrorOverlayView?
-    private var startupOverlay: SurfaceStartupOverlayView?
-    private var placeholderView: TerminalStatusPlaceholderView?
+    private(set) var errorOverlay: SurfaceErrorOverlayView?
+    private(set) var startupOverlay: SurfaceStartupOverlayView?
+    private(set) var placeholderView: TerminalStatusPlaceholderView?
     private let fallbackTitle: String
     private let showsRestorePresentationDuringStartup: Bool
     private let startupGraceDuration: Duration
     private var startupPresentationTask: Task<Void, Never>?
     private var startupPresentationActive = false
-    private var shouldSuppressProcessExitedOverlayAfterTermination = false
-    private var hasObservedEffectiveTerminationDelivery = false
+    private(set) var shouldSuppressProcessExitedOverlayAfterTermination = false
+    private(set) var hasObservedEffectiveTerminationDelivery = false
+    private weak var observedRuntime: TerminalRuntime?
+    private weak var runtimeBoundToDisplayedSurface: TerminalRuntime?
     var onRepairRequested: ((UUID) -> Void)?
 
     /// The current terminal title
@@ -127,6 +133,10 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         ])
     }
 
+    var currentActionPerformer: (any TerminalSurfaceActionPerforming)? {
+        actionPerformerOverrideForTesting ?? ghosttySurface
+    }
+
     private var lastReportedSurfaceSize: NSSize = .zero
 
     override func layout() {
@@ -166,17 +176,21 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     // MARK: - Surface Display
 
     func displaySurface(_ surfaceView: Ghostty.SurfaceView) {
+        let previouslyDisplayedSurface = ghosttySurface
         // Remove existing surface if any
         ghosttySurface?.onCloseRequested = nil
-        ghosttyMountView.unmountCurrentSurface()
+        ghosttyMountView.unmountCurrentView()
         clearPlaceholder()
         RestoreTrace.log(
             "TerminalPaneMountView.displaySurface pane=\(paneId) surface=\(surfaceId?.uuidString ?? "nil") hostBounds=\(NSStringFromRect(bounds)) incomingSurfaceFrame=\(NSStringFromRect(surfaceView.frame)) incomingSurfaceMetrics={\(surfaceView.metricsSnapshotDescription())}"
         )
 
-        ghosttyMountView.mount(surfaceView)
+        let wrappedScrollView = TerminalSurfaceScrollView(actionPerformer: surfaceView)
+        wrappedScrollView.embedSurfaceView(surfaceView)
+        ghosttyMountView.mount(wrappedScrollView)
 
         self.ghosttySurface = surfaceView
+        self.surfaceScrollView = wrappedScrollView
         self.lastReportedSurfaceSize = .zero
         self.shouldSuppressProcessExitedOverlayAfterTermination = false
         self.hasObservedEffectiveTerminationDelivery = false
@@ -189,6 +203,18 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         self.layer?.backgroundColor = NSColor.clear.cgColor
 
         beginRestorePresentationIfNeeded()
+        ensureScrollToBottomIndicator()
+        if let boundRuntime {
+            if observedRuntime !== boundRuntime {
+                observedRuntime = boundRuntime
+                observeRuntimeState(runtime: boundRuntime)
+            }
+            applyRuntimeStateSnapshot(boundRuntime)
+            if runtimeBoundToDisplayedSurface !== boundRuntime || previouslyDisplayedSurface !== surfaceView {
+                surfaceView.bindRuntime(boundRuntime)
+                runtimeBoundToDisplayedSurface = boundRuntime
+            }
+        }
         surfaceView.onCloseRequested = { [weak self] processAlive in
             self?.handleSurfaceClose(processAlive: processAlive)
         }
@@ -196,11 +222,40 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
     func removeSurface() {
         ghosttySurface?.onCloseRequested = nil
-        ghosttyMountView.unmountCurrentSurface()
+        ghosttyMountView.unmountCurrentView()
         ghosttySurface = nil
+        surfaceScrollView = nil
+        boundRuntime = nil
+        observedRuntime = nil
+        runtimeBoundToDisplayedSurface = nil
         surfaceId = nil
         shouldSuppressProcessExitedOverlayAfterTermination = false
         hasObservedEffectiveTerminationDelivery = false
+    }
+
+    func bind(runtime: TerminalRuntime) {
+        let shouldObserveRuntime = observedRuntime !== runtime
+        boundRuntime = runtime
+        applyRuntimeStateSnapshot(runtime)
+        if let ghosttySurface, runtimeBoundToDisplayedSurface !== runtime {
+            ghosttySurface.bindRuntime(runtime)
+            runtimeBoundToDisplayedSurface = runtime
+        }
+        if shouldObserveRuntime {
+            observedRuntime = runtime
+            observeRuntimeState(runtime: runtime)
+        }
+    }
+
+    func installActionPerformerForTesting(_ performer: any TerminalSurfaceActionPerforming) {
+        actionPerformerOverrideForTesting = performer
+        scrollToBottomIndicatorView?.actionPerformer = performer
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        if handleSearchCancelOperation(sender) {
+            return
+        }
     }
 
     @discardableResult
@@ -256,7 +311,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         }
     }
 
-    private func updateHealthUI(_ health: SurfaceHealth) {
+    func updateHealthUI(_ health: SurfaceHealth) {
         if case .processExited = health,
             !isProcessRunning,
             shouldSuppressProcessExitedOverlayAfterTermination
@@ -328,7 +383,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 
     // MARK: - Surface Close Handling
 
-    private func handleSurfaceClose(processAlive: Bool) {
+    func handleSurfaceClose(processAlive: Bool) {
         guard isProcessRunning else { return }
         isProcessRunning = false
         shouldSuppressProcessExitedOverlayAfterTermination = true
@@ -339,7 +394,7 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         postProcessTerminationEvent(processAlive: processAlive)
     }
 
-    private func beginRestorePresentationIfNeeded() {
+    func beginRestorePresentationIfNeeded() {
         guard showsRestorePresentationDuringStartup else { return }
         startupPresentationTask?.cancel()
         startupPresentationActive = true
@@ -482,21 +537,8 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
         return super.resignFirstResponder()
     }
 
-    // MARK: - Hit Testing
-
     override func hitTest(_ point: NSPoint) -> NSView? {
-        // Normal mode: custom routing for error overlay and Ghostty surface
-        if let overlay = errorOverlay, !overlay.isHidden {
-            let overlayPoint = convert(point, to: overlay)
-            if overlay.bounds.contains(overlayPoint) {
-                return overlay.hitTest(overlayPoint)
-            }
-        }
-
-        if let surface = ghosttySurface, bounds.contains(point) {
-            return surface
-        }
-        return super.hitTest(point)
+        resolvedHitTest(for: point) ?? super.hitTest(point)
     }
 
     /// The current placeholder view, if one is shown. Used by coordinators
@@ -507,34 +549,8 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
 #if DEBUG
     @MainActor
     extension TerminalPaneMountView {
-        var placeholderViewForTesting: TerminalStatusPlaceholderView? { placeholderView }
-
-        func beginRestorePresentationForTesting() {
-            beginRestorePresentationIfNeeded()
-        }
-
-        func simulateSurfaceCloseForTesting(processAlive: Bool) {
-            handleSurfaceClose(processAlive: processAlive)
-        }
-
-        func applyHealthUpdateForTesting(_ health: SurfaceHealth) {
-            updateHealthUI(health)
-        }
-
-        var isShowingStartupOverlayForTesting: Bool {
-            startupOverlay?.isHidden == false
-        }
-
-        var isProcessExitedOverlaySuppressedAfterTerminationForTesting: Bool {
-            shouldSuppressProcessExitedOverlayAfterTermination
-        }
-
-        var hasObservedEffectiveTerminationDeliveryForTesting: Bool {
-            hasObservedEffectiveTerminationDelivery
-        }
-
-        var isShowingErrorOverlayForTesting: Bool {
-            errorOverlay?.isHidden == false
+        func installSurfaceScrollViewForTesting(_ scrollView: TerminalSurfaceScrollView) {
+            surfaceScrollView = scrollView
         }
     }
 #endif
