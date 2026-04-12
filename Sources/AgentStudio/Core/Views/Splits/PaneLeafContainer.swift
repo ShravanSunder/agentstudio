@@ -165,12 +165,9 @@ struct PaneLeafContainer: View {
                     }
                 }
 
-                // Ghostty-style dimming for unfocused panes
-                if !isActive {
-                    Rectangle()
-                        .fill(Color.black)
-                        .opacity(AppStyle.strokeMuted)
-                        .allowsHitTesting(false)
+                // Regular inactive split panes keep a readable center and dim only the edge band.
+                if isSplit && !isActive {
+                    InactivePaneEdgeDimmingOverlay()
                 }
 
                 // Management mode dimming: persistent overlay signaling content is non-interactive

@@ -305,6 +305,12 @@ enum AppStyle {
     /// Prominent border: active hover states, pane leaf borders.
     static let strokeVisible: CGFloat = 0.25
 
+    /// Max opacity for the regular inactive-pane focus cue.
+    static let inactivePaneDimmingOpacity: CGFloat = 0.30
+
+    /// Depth of the edge-only inactive-pane dimming band.
+    static let inactivePaneDimmingDepth: CGFloat = 150
+
     /// Management mode dimming overlay on pane content.
     static let managementModeDimming: CGFloat = 0.35
 
