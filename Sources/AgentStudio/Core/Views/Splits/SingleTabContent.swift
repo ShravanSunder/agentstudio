@@ -16,9 +16,10 @@ struct SingleTabContent: View {
     }
 
     var body: some View {
+        let tab = store.tabLayoutAtom.tab(tabId)
         // swiftlint:disable:next redundant_discardable_let
-        let _ = store.tab(tabId) == nil ? Self.traceMissingTab(tabId: tabId) : 0
-        if let tab = store.tab(tabId) {
+        let _ = tab == nil ? Self.traceMissingTab(tabId: tabId) : 0
+        if let tab {
             FlatTabStripContainer(
                 layout: tab.layout,
                 tabId: tabId,

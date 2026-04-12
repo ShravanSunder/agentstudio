@@ -11,13 +11,13 @@ extension PaneCoordinator {
                 return
 
             case .pane(let snapshot):
-                guard store.tab(snapshot.tabId) != nil else {
+                guard store.tabLayoutAtom.tab(snapshot.tabId) != nil else {
                     Self.logger.info("undoClose: tab \(snapshot.tabId) gone — skipping pane entry")
                     continue
                 }
                 if snapshot.pane.isDrawerChild,
                     let parentId = snapshot.anchorPaneId,
-                    store.pane(parentId) == nil
+                    store.paneAtom.pane(parentId) == nil
                 {
                     Self.logger.info("undoClose: parent pane \(parentId) gone — skipping drawer child entry")
                     continue
@@ -68,7 +68,7 @@ extension PaneCoordinator {
         // any remaining non-empty arrangement before deciding the tab is empty.
         recoverActiveArrangementIfNeeded(tabId: snapshot.tab.id)
 
-        guard let restoredTab = store.tab(snapshot.tab.id), !restoredTab.panes.isEmpty else {
+        guard let restoredTab = store.tabLayoutAtom.tab(snapshot.tab.id), !restoredTab.panes.isEmpty else {
             Self.logger.error("undoTabClose: all panes failed for tab \(snapshot.tab.id); removing empty tab")
             store.tabLayoutAtom.removeTab(snapshot.tab.id)
             return
@@ -95,8 +95,8 @@ extension PaneCoordinator {
         let allPanes = [snapshot.pane] + snapshot.drawerChildPanes
         for pane in allPanes.reversed() {
             guard viewRegistry.view(for: pane.id) == nil else { continue }
-            let worktree = pane.worktreeId.flatMap(store.worktree)
-            let repo = pane.repoId.flatMap { store.repo($0) }
+            let worktree = pane.worktreeId.flatMap(store.repositoryTopologyAtom.worktree)
+            let repo = pane.repoId.flatMap { store.repositoryTopologyAtom.repo($0) }
             let restored = restoreUndoPane(
                 pane,
                 worktree: worktree,
@@ -116,7 +116,7 @@ extension PaneCoordinator {
         }
 
         recoverActiveArrangementIfNeeded(tabId: snapshot.tabId)
-        guard let restoredTab = store.tab(snapshot.tabId), !restoredTab.panes.isEmpty else {
+        guard let restoredTab = store.tabLayoutAtom.tab(snapshot.tabId), !restoredTab.panes.isEmpty else {
             Self.logger.error(
                 "undoPaneClose: no panes remain in tab \(snapshot.tabId) after restore cleanup; removing empty tab")
             store.tabLayoutAtom.removeTab(snapshot.tabId)
@@ -161,7 +161,7 @@ extension PaneCoordinator {
     }
 
     private func recoverActiveArrangementIfNeeded(tabId: UUID) {
-        guard let tab = store.tab(tabId) else {
+        guard let tab = store.tabLayoutAtom.tab(tabId) else {
             Self.logger.warning("recoverActiveArrangementIfNeeded: tab \(tabId) no longer exists")
             return
         }
@@ -178,7 +178,7 @@ extension PaneCoordinator {
     }
 
     private func removeFailedRestoredPane(_ paneId: UUID, fromTab tabId: UUID) {
-        guard let pane = store.pane(paneId) else {
+        guard let pane = store.paneAtom.pane(paneId) else {
             teardownView(for: paneId)
             viewRegistry.removeSlot(for: paneId)
             return

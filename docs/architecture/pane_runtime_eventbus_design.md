@@ -48,7 +48,7 @@ Each contract (C1-C16) has a specific relationship to the EventBus:
 | C13 | Workflow Engine | Consumer (deferred) | EventBus → @MainActor | Future bus subscriber |
 | C14 | Replay Buffer | Internal | @MainActor | Per-runtime, filled at emit time |
 | C15 | Process Channel | Source (deferred) | Future boundary | Not through EventBus (request/response) |
-| C16 | Filesystem Context | Projection | @MainActor → EventBus | Derived per-pane from C6 events, then fanned out as pane-scoped envelopes |
+| C16 | Filesystem Context | Projection | @MainActor | `PaneFilesystemProjectionStore` derives per-pane snapshots from C6 events on MainActor |
 
 ## Architecture Overview
 
@@ -988,12 +988,12 @@ PROJECTION (C16: filesystem context → view):
        │  filter: source == .system(.builtin(.filesystemWatcher))
        │  filter: worktreeId matches pane's worktree
        ▼
-  PaneFilesystemContext (@MainActor, @Observable)
-  ┌──────────────────────────────────────┐
-  │  private(set) var changedFiles: ...  │◄─── updated from C6 events
-  │  private(set) var gitWorkingTree: ...│
-  │  private(set) var lastDiff: ...      │
-  └────────────┬─────────────────────────┘
+  PaneFilesystemProjectionStore (@MainActor, @Observable)
+  ┌───────────────────────────────────────────────┐
+  │  private(set) var snapshotsByPaneId: [...]    │◄─── updated from C6 events
+  │  consume(_:panesById:worktreeRootsByWtId:)    │
+  │  prune(validPaneIds:validWorktreeIds:)        │
+  └────────────┬──────────────────────────────────┘
                │  @Observable binding
                ▼
   DiffPaneView / SidebarFileTree / etc.

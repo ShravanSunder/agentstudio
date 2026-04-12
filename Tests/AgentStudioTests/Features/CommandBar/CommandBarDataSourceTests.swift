@@ -13,9 +13,7 @@ struct CommandBarDataSourceTests {
     private let dispatcher = CommandDispatcher.shared
 
     private func makeStore() -> WorkspaceStore {
-        let store = WorkspaceStore()
-        atom(\.workspaceFocusContext).startObserving(store: store)
-        return store
+        WorkspaceStore()
     }
 
     private func makeRepoCache() -> RepoCacheAtom {
@@ -82,7 +80,6 @@ struct CommandBarDataSourceTests {
         #expect(tabItems.isEmpty)
         #expect(paneItems.isEmpty)
     }
-
     // MARK: - Commands Scope
 
     @Test
@@ -229,7 +226,7 @@ struct CommandBarDataSourceTests {
                 cwd: worktree.path
             )
         )
-        store.appendTab(Tab(paneId: pane.id))
+        store.appendTab(Tab(paneId: pane.id, name: "agent-studio"))
 
         let items = CommandBarDataSource.items(
             scope: .panes,
@@ -264,6 +261,55 @@ struct CommandBarDataSourceTests {
         let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
 
         #expect(tabItem?.subtitle == "Active · Tab 1 · 3 panes")
+    }
+
+    @Test
+    func test_everythingScope_panesGroupSortsAheadOfTabs() {
+        let store = makeStore()
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        store.appendTab(Tab(paneId: pane.id))
+
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
+        let groups = CommandBarDataSource.grouped(items)
+
+        let names = groups.map(\.name)
+        guard let panesIndex = names.firstIndex(of: "Panes"),
+            let tabsIndex = names.firstIndex(of: "Tabs")
+        else {
+            Issue.record("Expected both Panes and Tabs groups")
+            return
+        }
+        #expect(panesIndex < tabsIndex)
+    }
+
+    @Test
+    func test_everythingScope_namedTabUsesCustomTitle() {
+        let store = makeStore()
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        let tab = Tab(paneId: pane.id, name: "agent-vm")
+        store.appendTab(tab)
+
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
+        let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
+
+        #expect(tabItem?.title == "agent-vm")
+    }
+
+    @Test
+    func test_everythingScope_paneSubtitleIncludesOwningTabTitle() {
+        let store = makeStore()
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        let tab = Tab(paneId: pane.id, name: "agent-vm")
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let items = CommandBarDataSource.items(
+            scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
+        let paneItem = items.first { $0.id == "pane-\(pane.id.uuidString)" }
+
+        #expect(paneItem?.subtitle == "agent-vm · Tab 1 · Active")
     }
 
     @Test
@@ -378,17 +424,17 @@ struct CommandBarDataSourceTests {
             scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let tabItem = items.first { $0.id == "tab-\(tab.id.uuidString)" }
 
-        #expect(tabItem?.title == "Empty Tab")
+        #expect(tabItem?.title == "Empty")
     }
 
     @Test
-    func test_everythingScope_tabTitleFallsBackToPrimaryLabelWhenRepoNameMissing() {
+    func test_everythingScope_tabTitleUsesTabName() {
         let store = makeStore()
         let pane = store.createPane(
             source: .floating(launchDirectory: nil, title: nil),
             title: "Scratch Pad"
         )
-        let tab = Tab(paneId: pane.id)
+        let tab = Tab(paneId: pane.id, name: "Scratch Pad")
         store.appendTab(tab)
 
         let items = CommandBarDataSource.items(
@@ -539,6 +585,20 @@ struct CommandBarDataSourceTests {
         #expect(groups.count == 2)
         let tabGroup = groups.first { $0.name == "Tab" }
         #expect(tabGroup?.items.count == 2)
+    }
+
+    @Test
+    func test_displayItems_flattensInRenderedGroupOrder() {
+        let items = [
+            makeCommandBarItem(id: "pane-1", group: "Panes", groupPriority: 2),
+            makeCommandBarItem(id: "wt-1", group: "Worktrees", groupPriority: 1),
+            makeCommandBarItem(id: "tab-1", group: "Tabs", groupPriority: 3),
+        ]
+
+        let groups = CommandBarDataSource.grouped(items)
+        let displayItems = CommandBarDataSource.displayItems(from: groups)
+
+        #expect(displayItems.map(\.id) == ["wt-1", "pane-1", "tab-1"])
     }
 
     @Test

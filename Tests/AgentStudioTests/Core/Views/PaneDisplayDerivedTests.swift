@@ -14,9 +14,9 @@ struct PaneDisplayDerivedTests {
     func worktreeBackedPane_usesRepoBranchAndFolderLabel() {
         withTestAtomStore { atoms in
             let store = WorkspaceStore(
-                catalogAtom: atoms.workspaceCatalog,
-                graphAtom: atoms.workspaceGraph,
-                interactionAtom: atoms.workspaceInteraction
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
             )
             let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio"))
             let worktree = makeWorktree(
@@ -51,9 +51,9 @@ struct PaneDisplayDerivedTests {
     func floatingPane_usesCwdFolderFallback() {
         withTestAtomStore { atoms in
             let store = WorkspaceStore(
-                catalogAtom: atoms.workspaceCatalog,
-                graphAtom: atoms.workspaceGraph,
-                interactionAtom: atoms.workspaceInteraction
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
             )
             let pane = store.createPane(
                 source: .floating(launchDirectory: URL(fileURLWithPath: "/tmp/project-dev"), title: "ignored"),

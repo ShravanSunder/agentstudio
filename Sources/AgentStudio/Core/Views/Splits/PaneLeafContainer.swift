@@ -68,18 +68,18 @@ struct PaneLeafContainer: View {
 
     /// Whether this pane is a drawer child (no drag, no drop, no sub-drawer).
     private var isDrawerChild: Bool {
-        store.pane(paneHost.id)?.isDrawerChild ?? false
+        store.paneAtom.pane(paneHost.id)?.isDrawerChild ?? false
     }
 
     /// Drawer state derived from store via @Observable tracking.
     /// Only layout panes have drawers; drawer children return nil.
     private var drawer: Drawer? {
-        store.pane(paneHost.id)?.drawer
+        store.paneAtom.pane(paneHost.id)?.drawer
     }
 
     /// Parent pane ID for drawer children; nil for layout panes.
     private var drawerParentPaneId: UUID? {
-        store.pane(paneHost.id)?.parentPaneId
+        store.paneAtom.pane(paneHost.id)?.parentPaneId
     }
 
     private var isClosing: Bool {
@@ -107,7 +107,7 @@ struct PaneLeafContainer: View {
     }
 
     private var movePaneDestinations: [(tabId: UUID, title: String)] {
-        store.tabs.enumerated().compactMap { index, tab in
+        store.tabLayoutAtom.tabs.enumerated().compactMap { index, tab in
             guard tab.id != tabId else { return nil }
             guard tab.activePaneId ?? tab.activePaneIds.first != nil else { return nil }
             let title = tabDisplayTitle(tab: tab)
@@ -366,7 +366,7 @@ struct PaneLeafContainer: View {
                         ForEach(movePaneDestinations, id: \.tabId) { destination in
                             Button(destination.title) {
                                 guard
-                                    let targetTab = store.tab(destination.tabId),
+                                    let targetTab = store.tabLayoutAtom.tab(destination.tabId),
                                     let targetPaneId = targetTab.activePaneId ?? targetTab.activePaneIds.first
                                 else { return }
 

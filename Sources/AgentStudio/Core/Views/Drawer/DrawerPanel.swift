@@ -130,18 +130,18 @@ struct DrawerPanel: View {
                     }
                 },
                 shouldAcceptDrop: { payload, destPaneId, zone in
-                    guard let drawer = store.pane(parentPaneId)?.drawer else { return false }
+                    guard let drawer = store.paneAtom.pane(parentPaneId)?.drawer else { return false }
                     guard drawer.layout.contains(destPaneId) else { return false }
                     guard case .existingPane(let sourcePaneId, _) = payload.kind else { return false }
                     guard sourcePaneId != destPaneId else { return false }
-                    guard let sourcePane = store.pane(sourcePaneId) else { return false }
+                    guard let sourcePane = store.paneAtom.pane(sourcePaneId) else { return false }
                     guard sourcePane.parentPaneId == parentPaneId else { return false }
 
                     let snapshot = WorkspaceCommandResolver.snapshot(
-                        from: store.tabs,
-                        activeTabId: store.activeTabId,
+                        from: store.tabLayoutAtom.tabs,
+                        activeTabId: store.tabLayoutAtom.activeTabId,
                         isManagementModeActive: atom(\.managementMode).isActive,
-                        knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
+                        knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id))
                     )
                     let moveAction = PaneActionCommand.moveDrawerPane(
                         parentPaneId: parentPaneId,
@@ -157,7 +157,7 @@ struct DrawerPanel: View {
                 handleDrop: { payload, destPaneId, zone in
                     guard case .existingPane(let sourcePaneId, _) = payload.kind else { return }
                     guard sourcePaneId != destPaneId else { return }
-                    guard let sourcePane = store.pane(sourcePaneId) else { return }
+                    guard let sourcePane = store.paneAtom.pane(sourcePaneId) else { return }
                     guard sourcePane.parentPaneId == parentPaneId else { return }
 
                     action(

@@ -7,7 +7,6 @@ final class AtomStore {
     let workspaceMutationCoordinator: WorkspaceMutationCoordinator
     let repoCache: RepoCacheAtom
     let uiState: UIStateAtom
-    let workspaceFocusContext: WorkspaceFocusContextAtom
     let managementMode: ManagementModeAtom
     let sessionRuntime: SessionRuntimeAtom
 
@@ -19,7 +18,6 @@ final class AtomStore {
         workspaceMutationCoordinator: WorkspaceMutationCoordinator? = nil,
         repoCache: RepoCacheAtom = .init(),
         uiState: UIStateAtom = .init(),
-        workspaceFocusContext: WorkspaceFocusContextAtom = .init(),
         managementMode: ManagementModeAtom = .init(),
         sessionRuntime: SessionRuntimeAtom = .init()
     ) {
@@ -36,18 +34,24 @@ final class AtomStore {
             )
         self.repoCache = repoCache
         self.uiState = uiState
-        self.workspaceFocusContext = workspaceFocusContext
         self.managementMode = managementMode
         self.sessionRuntime = sessionRuntime
     }
 
-    // Transitional compatibility aliases for migrated call sites/tests.
-    var workspaceCatalog: WorkspaceRepositoryTopologyAtom { workspaceRepositoryTopology }
-    var workspaceGraph: WorkspacePaneAtom { workspacePane }
-    var workspaceInteraction: WorkspaceTabLayoutAtom { workspaceTabLayout }
-
     var paneDisplay: PaneDisplayDerived {
         PaneDisplayDerived()
+    }
+
+    var workspaceLookup: WorkspaceLookupDerived {
+        WorkspaceLookupDerived()
+    }
+
+    var workspaceFocus: WorkspaceFocusDerived {
+        WorkspaceFocusDerived()
+    }
+
+    var tabDisplay: TabDisplayDerived {
+        TabDisplayDerived()
     }
 
     var dynamicView: DynamicViewDerived {

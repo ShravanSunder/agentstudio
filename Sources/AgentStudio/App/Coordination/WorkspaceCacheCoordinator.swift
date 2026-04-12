@@ -78,106 +78,135 @@ final class WorkspaceCacheCoordinator {
 
         switch topologyEvent {
         case .repoDiscovered(let repoPath, _, let linkedWorktrees):
-            let normalizedRepoPath = repoPath.standardizedFileURL
-            let incomingStableKey = StableKey.fromPath(normalizedRepoPath)
-            let existingRepo = workspaceStore.repos.first {
-                $0.repoPath.standardizedFileURL == normalizedRepoPath || $0.stableKey == incomingStableKey
-            }
-            let repoId: UUID
-            if let repo = existingRepo {
-                if repoCache.repoEnrichmentByRepoId[repo.id] == nil {
-                    repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
-                }
-                if workspaceStore.repositoryTopologyAtom.isRepoUnavailable(repo.id) {
-                    _ = workspaceStore.mutationCoordinator.reassociateRepo(
-                        repo.id,
-                        to: normalizedRepoPath,
-                        discoveredWorktrees: repo.worktrees
-                    )
-                }
-                repoId = repo.id
-            } else {
-                let repo = workspaceStore.repositoryTopologyAtom.addRepo(at: normalizedRepoPath)
-                repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
-                repoId = repo.id
-            }
-
-            guard case .scanned(let linkedPaths) = linkedWorktrees else { return }
-            guard let repo = workspaceStore.repos.first(where: { $0.id == repoId }) else {
-                Self.logger.error(
-                    "Repo id=\(repoId.uuidString, privacy: .public) not found after creation — store state inconsistency"
-                )
-                return
-            }
-
-            let discoveredWorktrees = Self.buildDiscoveredWorktreeList(
-                clonePath: normalizedRepoPath,
-                linkedPaths: linkedPaths,
-                repoId: repo.id
+            handleRepoDiscovered(
+                repoPath: repoPath,
+                linkedWorktrees: linkedWorktrees,
+                eventId: envelope.eventId
             )
-            let (mergedWorktrees, delta) = WorktreeReconciler.reconcile(
-                repoId: repo.id,
-                existing: repo.worktrees,
-                discovered: discoveredWorktrees,
-                traceId: envelope.eventId
-            )
-            guard delta.didChange else { return }
-
-            workspaceStore.repositoryTopologyAtom.reconcileDiscoveredWorktrees(repo.id, worktrees: mergedWorktrees)
-            for entry in delta.removedWorktrees {
-                repoCache.removeWorktree(entry.id)
-            }
-            if !delta.removedWorktrees.isEmpty, topologyEffectHandler == nil {
-                Self.logger.warning(
-                    "Topology delta has \(delta.removedWorktrees.count, privacy: .public) removed worktree(s) but no effect handler — pane orphaning skipped"
-                )
-            }
-            topologyEffectHandler?.topologyDidChange(delta)
         case .repoRemoved(let repoPath):
-            if let repo = workspaceStore.repos.first(where: { $0.repoPath == repoPath }) {
-                workspaceStore.repositoryTopologyAtom.markRepoUnavailable(repo.id)
-                let unavailablePathByWorktreeId = Dictionary(
-                    uniqueKeysWithValues: repo.worktrees.map { ($0.id, $0.path.path) }
-                )
-                let orphanedPaneIds = workspaceStore.paneAtom.orphanPanes(
-                    forUnavailableWorktreePathsById: unavailablePathByWorktreeId
-                )
-                if !orphanedPaneIds.isEmpty {
-                    Self.logger.info(
-                        "Repo removed at path=\(repoPath.path, privacy: .public); orphaned \(orphanedPaneIds.count, privacy: .public) pane(s)"
-                    )
-                }
-                repoCache.removeRepo(repo.id)
-                Task { [weak self] in
-                    await self?.syncScope(.unregisterForgeRepo(repoId: repo.id))
-                }
-            }
+            handleRepoRemoved(repoPath: repoPath)
         case .worktreeRegistered(let worktreeId, let repoId, let rootPath):
-            guard let repo = workspaceStore.repos.first(where: { $0.id == repoId }) else {
-                Self.logger.debug(
-                    "Ignoring worktree registration for unknown repoId=\(repoId.uuidString, privacy: .public)"
-                )
-                return
-            }
-            var worktrees = repo.worktrees
-            if !worktrees.contains(where: { $0.id == worktreeId }) {
-                worktrees.append(
-                    Worktree(
-                        id: worktreeId,
-                        repoId: repoId,
-                        name: rootPath.lastPathComponent,
-                        path: rootPath,
-                        isMainWorktree: false
-                    )
-                )
-                workspaceStore.repositoryTopologyAtom.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
-            }
+            handleWorktreeRegistered(worktreeId: worktreeId, repoId: repoId, rootPath: rootPath)
         case .worktreeUnregistered(let worktreeId, let repoId):
-            guard let repo = workspaceStore.repos.first(where: { $0.id == repoId }) else { return }
-            let worktrees = repo.worktrees.filter { $0.id != worktreeId }
-            workspaceStore.repositoryTopologyAtom.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
-            repoCache.removeWorktree(worktreeId)
+            handleWorktreeUnregistered(worktreeId: worktreeId, repoId: repoId)
         }
+    }
+
+    private func handleRepoDiscovered(
+        repoPath: URL,
+        linkedWorktrees: LinkedWorktreeInfo,
+        eventId: UUID
+    ) {
+        let repositoryTopology = workspaceStore.repositoryTopologyAtom
+        let normalizedRepoPath = repoPath.standardizedFileURL
+        let incomingStableKey = StableKey.fromPath(normalizedRepoPath)
+        let existingRepo = repositoryTopology.repos.first {
+            $0.repoPath.standardizedFileURL == normalizedRepoPath || $0.stableKey == incomingStableKey
+        }
+        let repoId: UUID
+        if let repo = existingRepo {
+            if repoCache.repoEnrichmentByRepoId[repo.id] == nil {
+                repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
+            }
+            if repositoryTopology.isRepoUnavailable(repo.id) {
+                _ = workspaceStore.mutationCoordinator.reassociateRepo(
+                    repo.id,
+                    to: normalizedRepoPath,
+                    discoveredWorktrees: repo.worktrees
+                )
+            }
+            repoId = repo.id
+        } else {
+            let repo = repositoryTopology.addRepo(at: normalizedRepoPath)
+            repoCache.setRepoEnrichment(.awaitingOrigin(repoId: repo.id))
+            repoId = repo.id
+        }
+
+        guard case .scanned(let linkedPaths) = linkedWorktrees else { return }
+        guard let repo = repositoryTopology.repos.first(where: { $0.id == repoId }) else {
+            Self.logger.error(
+                "Repo id=\(repoId.uuidString, privacy: .public) not found after creation — store state inconsistency"
+            )
+            return
+        }
+
+        let discoveredWorktrees = Self.buildDiscoveredWorktreeList(
+            clonePath: normalizedRepoPath,
+            linkedPaths: linkedPaths,
+            repoId: repo.id
+        )
+        let (mergedWorktrees, delta) = WorktreeReconciler.reconcile(
+            repoId: repo.id,
+            existing: repo.worktrees,
+            discovered: discoveredWorktrees,
+            traceId: eventId
+        )
+        guard delta.didChange else { return }
+
+        repositoryTopology.reconcileDiscoveredWorktrees(repo.id, worktrees: mergedWorktrees)
+        for entry in delta.removedWorktrees {
+            repoCache.removeWorktree(entry.id)
+        }
+        if !delta.removedWorktrees.isEmpty, topologyEffectHandler == nil {
+            Self.logger.warning(
+                "Topology delta has \(delta.removedWorktrees.count, privacy: .public) removed worktree(s) but no effect handler — pane orphaning skipped"
+            )
+        }
+        topologyEffectHandler?.topologyDidChange(delta)
+    }
+
+    private func handleRepoRemoved(repoPath: URL) {
+        let repositoryTopology = workspaceStore.repositoryTopologyAtom
+        guard let repo = repositoryTopology.repos.first(where: { $0.repoPath == repoPath }) else { return }
+
+        repositoryTopology.markRepoUnavailable(repo.id)
+        let unavailablePathByWorktreeId = Dictionary(
+            uniqueKeysWithValues: repo.worktrees.map { ($0.id, $0.path.path) }
+        )
+        let orphanedPaneIds = workspaceStore.paneAtom.orphanPanes(
+            forUnavailableWorktreePathsById: unavailablePathByWorktreeId
+        )
+        if !orphanedPaneIds.isEmpty {
+            Self.logger.info(
+                "Repo removed at path=\(repoPath.path, privacy: .public); orphaned \(orphanedPaneIds.count, privacy: .public) pane(s)"
+            )
+        }
+        repoCache.removeRepo(repo.id)
+        Task { [weak self] in
+            await self?.syncScope(.unregisterForgeRepo(repoId: repo.id))
+        }
+    }
+
+    private func handleWorktreeRegistered(worktreeId: UUID, repoId: UUID, rootPath: URL) {
+        let repositoryTopology = workspaceStore.repositoryTopologyAtom
+        guard let repo = repositoryTopology.repos.first(where: { $0.id == repoId }) else {
+            Self.logger.debug(
+                "Ignoring worktree registration for unknown repoId=\(repoId.uuidString, privacy: .public)"
+            )
+            return
+        }
+
+        var worktrees = repo.worktrees
+        if !worktrees.contains(where: { $0.id == worktreeId }) {
+            worktrees.append(
+                Worktree(
+                    id: worktreeId,
+                    repoId: repoId,
+                    name: rootPath.lastPathComponent,
+                    path: rootPath,
+                    isMainWorktree: false
+                )
+            )
+            repositoryTopology.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
+        }
+    }
+
+    private func handleWorktreeUnregistered(worktreeId: UUID, repoId: UUID) {
+        let repositoryTopology = workspaceStore.repositoryTopologyAtom
+        guard let repo = repositoryTopology.repos.first(where: { $0.id == repoId }) else { return }
+        let worktrees = repo.worktrees.filter { $0.id != worktreeId }
+        repositoryTopology.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
+        repoCache.removeWorktree(worktreeId)
     }
 
     private func handleWorkspaceActivity(_ envelope: SystemEnvelope) {
@@ -250,7 +279,9 @@ final class WorkspaceCacheCoordinator {
                 }
                 repoCache.setRepoEnrichment(enrichment)
             case .originUnavailable(let repoId):
-                let repoName = workspaceStore.repos.first(where: { $0.id == repoId })?.name ?? repoId.uuidString
+                let repoName =
+                    workspaceStore.repositoryTopologyAtom.repos.first(where: { $0.id == repoId })?.name
+                    ?? repoId.uuidString
                 repoCache.setRepoEnrichment(
                     .resolvedLocal(
                         repoId: repoId,
@@ -307,7 +338,7 @@ final class WorkspaceCacheCoordinator {
     /// Hard-deletes a repo and all associated cache/forge state.
     /// Called for user-initiated removal (not filesystem disappearance).
     func handleRepoRemoval(repoId: UUID) {
-        guard let repo = workspaceStore.repos.first(where: { $0.id == repoId }) else { return }
+        guard let repo = workspaceStore.repositoryTopologyAtom.repos.first(where: { $0.id == repoId }) else { return }
 
         // 1. Prune all worktree-level cache entries for this repo
         for worktree in repo.worktrees {

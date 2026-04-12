@@ -23,18 +23,23 @@ struct PaneManagementContext: Equatable {
         paneId: UUID,
         store: WorkspaceStore
     ) -> Self {
+        let workspacePane = store.paneAtom
+        let workspaceRepositoryTopology = store.repositoryTopologyAtom
+        let workspaceLookup = atom(\.workspaceLookup)
         let parts = atom(\.paneDisplay).displayParts(for: paneId)
         let repoCache = atom(\.repoCache)
-        let pane = store.pane(paneId)
+        let pane = workspacePane.pane(paneId)
         let resolvedContext =
             pane?.worktreeId.flatMap { worktreeId in
                 pane?.repoId.flatMap { repoId in
-                    store.repo(repoId).flatMap { repo in
-                        store.worktree(worktreeId).map { (repo: repo, worktree: $0) }
+                    workspaceRepositoryTopology.repo(repoId).flatMap { repo in
+                        workspaceRepositoryTopology.worktree(worktreeId).map { (repo: repo, worktree: $0) }
                     }
                 }
             }
-            ?? store.repoAndWorktree(containing: pane?.metadata.cwd).map { (repo: $0.repo, worktree: $0.worktree) }
+            ?? workspaceLookup.repoAndWorktree(containing: pane?.metadata.cwd).map {
+                (repo: $0.repo, worktree: $0.worktree)
+            }
         let resolvedTargetPath = pane?.metadata.cwd ?? resolvedContext?.worktree.path
         let hasWorkspaceAssociation =
             pane?.repoId != nil
@@ -62,7 +67,9 @@ struct PaneManagementContext: Equatable {
                 branchStatus: branchStatus,
                 notificationCount: repoCache.notificationCountByWorktreeId[worktreeId, default: 0]
             )
-        } else if let resolvedWorktreeId = store.repoAndWorktree(containing: pane?.metadata.cwd)?.worktree.id {
+        } else if let resolvedWorktreeId =
+            workspaceLookup.repoAndWorktree(containing: pane?.metadata.cwd)?.worktree.id
+        {
             let branchStatus = RepoSidebarContentView.branchStatus(
                 enrichment: repoCache.worktreeEnrichmentByWorktreeId[resolvedWorktreeId],
                 pullRequestCount: repoCache.pullRequestCountByWorktreeId[resolvedWorktreeId]

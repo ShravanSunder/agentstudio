@@ -1,8 +1,4 @@
 import Foundation
-import Observation
-import os.log
-
-private let workspaceFocusLogger = Logger(subsystem: "com.agentstudio", category: "WorkspaceFocusContext")
 
 /// Workspace state requirements that determine whether a command should be visible.
 enum FocusRequirement: Hashable, CaseIterable, Sendable {
@@ -114,106 +110,6 @@ struct WorkspaceFocus: Equatable, Sendable {
         case .noActivePane:
             return nil
         }
-    }
-}
-
-@MainActor
-@Observable
-final class WorkspaceFocusContextAtom {
-    private var observedStore: WorkspaceStore?
-    private var didLogMissingObservedStore = false
-
-    func startObserving(store: WorkspaceStore) {
-        observedStore = store
-        didLogMissingObservedStore = false
-    }
-
-    var currentFocus: WorkspaceFocus {
-        guard let observedStore else {
-            if !didLogMissingObservedStore {
-                workspaceFocusLogger.error("WorkspaceFocusContextAtom accessed without an observed WorkspaceStore")
-                didLogMissingObservedStore = true
-            }
-            return .empty
-        }
-
-        return WorkspaceFocusProjector.project(store: observedStore)
-    }
-}
-
-@MainActor
-enum WorkspaceFocusProjector {
-    static func project(store: WorkspaceStore) -> WorkspaceFocus {
-        var satisfiedRequirements: Set<FocusRequirement> = []
-
-        guard
-            let activeTabId = store.activeTabId,
-            let tab = store.tab(activeTabId)
-        else {
-            return .empty
-        }
-
-        satisfiedRequirements.insert(.hasActiveTab)
-
-        if store.tabs.count > 1 {
-            satisfiedRequirements.insert(.hasMultipleTabs)
-        }
-
-        if tab.activePaneIds.count > 1 {
-            satisfiedRequirements.insert(.hasMultiplePanes)
-        }
-
-        if tab.arrangements.count > 1 {
-            satisfiedRequirements.insert(.hasArrangements)
-        }
-
-        guard let activePaneId = tab.activePaneId else {
-            return WorkspaceFocus(
-                activeTabId: activeTabId,
-                paneContentType: .noActivePane,
-                satisfiedRequirements: satisfiedRequirements
-            )
-        }
-
-        guard let pane = store.pane(activePaneId) else {
-            return WorkspaceFocus(
-                activeTabId: activeTabId,
-                paneContentType: .noActivePane,
-                satisfiedRequirements: satisfiedRequirements
-            )
-        }
-
-        satisfiedRequirements.insert(.hasActivePane)
-
-        if let drawer = pane.drawer {
-            satisfiedRequirements.insert(.hasDrawer)
-            if !drawer.paneIds.isEmpty {
-                satisfiedRequirements.insert(.hasDrawerPanes)
-            }
-        }
-
-        let paneContentType: WorkspaceFocus.ContentType
-        switch pane.content {
-        case .terminal:
-            paneContentType = .terminal
-        case .webview:
-            paneContentType = .webview
-        case .bridgePanel:
-            paneContentType = .bridge
-        case .codeViewer:
-            paneContentType = .codeViewer
-        case .unsupported:
-            paneContentType = .unsupported
-        }
-
-        return WorkspaceFocus(
-            activeTabId: activeTabId,
-            activePaneId: activePaneId,
-            activeRepoId: pane.repoId,
-            activeWorktreeId: pane.worktreeId,
-            paneContentType: paneContentType,
-            satisfiedRequirements: satisfiedRequirements
-        )
     }
 }
 

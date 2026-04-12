@@ -220,7 +220,7 @@ UI consumers (search by CWD, breadcrumbs, grouping)
 ### Key Design Points
 
 - **1 pane = 1 surface = 1 CWD**. Layout splits create separate panes, so each pane tracks its own CWD independently.
-- **`CWDNormalizer`** (`Ghostty/CWDNormalizer.swift`): Pure function — `nil → nil`, `"" → nil`, non-absolute → nil, valid path → `URL.standardizedFileURL`. Defense-in-depth on top of Ghostty's own OSC 7 URI validation.
+- **`CWDNormalizer`** (`Infrastructure/CWDNormalizer.swift`): Pure function — `nil → nil`, `"" → nil`, non-absolute → nil, valid path → `URL.standardizedFileURL`. Defense-in-depth on top of Ghostty's own OSC 7 URI validation.
 - **Dual storage**: `SurfaceMetadata.workingDirectory` (surface-level truth) + `PaneMetadata.cwd` (model-level, persisted). Both update synchronously on main thread.
 - **Thread safety**: The C callback may fire off-main; the callback router captures stable identity synchronously, then uses `Task { @MainActor ... }` before touching `SurfaceView` or runtime state.
 - **Dedup**: Both `SurfaceView.pwd` (didSet guard) and `WorkspaceStore.updatePaneCWD` (equality check) skip redundant updates.
@@ -308,14 +308,19 @@ This document defines surface lifecycle primitives. Scheduling policy belongs to
 ## Restore Initializer Pattern
 
 ```swift
-// WRONG: Creates orphan surface
-let view = TerminalPaneMountView(worktree: w, repo: p)
-view.displaySurface(restoredSurface)  // Original surface from view is orphaned!
+// Worktree-bound (with repo context)
+let view = TerminalPaneMountView(worktree: w, repo: r, restoredSurfaceId: id, paneId: paneId)
+view.displaySurface(restoredSurface)
 
-// RIGHT: Skip surface creation for restore
-let view = TerminalPaneMountView(worktree: w, repo: p, restoredSurfaceId: id)
-view.displaySurface(restoredSurface)  // No orphan, view has no surface yet
+// Floating (no repo context — drawers, standalone terminals)
+let view = TerminalPaneMountView(restoredSurfaceId: id, paneId: paneId, title: "Terminal")
+view.displaySurface(restoredSurface)
+
+// Placeholder-only (no surface yet)
+let view = TerminalPaneMountView(paneId: paneId, title: "Terminal")
 ```
+
+All three initializers require `paneId:`. The view never creates its own surface — the caller attaches one via `displaySurface()` after construction.
 
 ---
 
@@ -351,7 +356,7 @@ view.displaySurface(restoredSurface)  // No orphan, view has no surface yet
 |------|---------|
 | `Ghostty/SurfaceManager.swift` | Singleton owner, lifecycle, health monitoring, CWD propagation |
 | `Ghostty/SurfaceTypes.swift` | SurfaceState, ManagedSurface, SurfaceMetadata, protocols |
-| `Ghostty/CWDNormalizer.swift` | Pure normalizer: raw pwd string → validated file URL |
+| `Infrastructure/CWDNormalizer.swift` | Pure normalizer: raw pwd string → validated file URL |
 | `Ghostty/GhosttySurfaceView.swift` | Surface view with `pwd` property (OSC 7 CWD tracking) |
 | `Ghostty/Ghostty.swift` | Thin composition root for the embedded Ghostty host |
 | `Ghostty/GhosttyAppHandle.swift` | Owns `ghostty_app_t` and config lifetime |

@@ -58,7 +58,7 @@ final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolving {
     }
 
     func isActive(_ paneId: PaneId) -> Bool {
-        guard let store, let activeTab = store.activeTab else { return false }
+        guard let store, let activeTab = store.tabLayoutAtom.activeTab else { return false }
         if activeTab.activePaneId == paneId.uuid {
             return true
         }
@@ -67,7 +67,7 @@ final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolving {
     }
 
     private func isVisible(_ paneId: PaneId) -> Bool {
-        guard let store, let activeTab = store.activeTab else { return false }
+        guard let store, let activeTab = store.tabLayoutAtom.activeTab else { return false }
 
         if let zoomedPaneId = activeTab.zoomedPaneId {
             return zoomedPaneId == paneId.uuid
@@ -78,10 +78,10 @@ final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolving {
         }
 
         guard
-            let pane = store.pane(paneId.uuid),
+            let pane = store.paneAtom.pane(paneId.uuid),
             let parentPaneId = pane.parentPaneId,
             activeTab.activePaneIds.contains(parentPaneId),
-            let drawer = store.pane(parentPaneId)?.drawer,
+            let drawer = store.paneAtom.pane(parentPaneId)?.drawer,
             drawer.isExpanded,
             drawer.layout.contains(paneId.uuid),
             !drawer.minimizedPaneIds.contains(paneId.uuid)
@@ -95,7 +95,7 @@ final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolving {
     private func expandedDrawerActivePaneIds(in store: WorkspaceStore, activeTab: Tab) -> Set<UUID> {
         Set(
             activeTab.activePaneIds.compactMap { paneId in
-                guard let drawer = store.pane(paneId)?.drawer, drawer.isExpanded else {
+                guard let drawer = store.paneAtom.pane(paneId)?.drawer, drawer.isExpanded else {
                     return nil
                 }
                 return drawer.activePaneId

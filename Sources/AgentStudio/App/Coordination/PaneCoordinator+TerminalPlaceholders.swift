@@ -68,7 +68,7 @@ extension PaneCoordinator {
     }
 
     private func closePlaceholderPane(_ paneId: UUID) {
-        guard let tab = store.tabs.first(where: { $0.allPaneIds.contains(paneId) }) else {
+        guard let tab = store.tabLayoutAtom.tabs.first(where: { $0.allPaneIds.contains(paneId) }) else {
             Self.logger.warning("closePlaceholderPane: pane \(paneId) has no owning tab")
             return
         }
@@ -81,15 +81,15 @@ extension PaneCoordinator {
 
     func activeTabHasMissingVisibleView(_ activeTab: Tab) -> Bool {
         let visiblePaneIds = TerminalRestoreScheduler.order(
-            store.panes.keys.map(PaneId.init(uuid:)),
+            store.paneAtom.panes.keys.map(PaneId.init(uuid:)),
             resolver: visibilityTierResolver
         )
         .filter { visibilityTierResolver.tier(for: $0) == .p0Visible }
         .map(\.uuid)
 
         for paneId in visiblePaneIds {
-            guard let pane = store.pane(paneId) else { continue }
-            guard store.tabContaining(paneId: pane.parentPaneId ?? pane.id)?.id == activeTab.id else {
+            guard let pane = store.paneAtom.pane(paneId) else { continue }
+            guard store.tabLayoutAtom.tabContaining(paneId: pane.parentPaneId ?? pane.id)?.id == activeTab.id else {
                 continue
             }
             if let placeholder = viewRegistry.terminalStatusPlaceholderView(for: paneId) {

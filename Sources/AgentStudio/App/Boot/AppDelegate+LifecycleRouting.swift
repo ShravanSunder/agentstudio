@@ -41,8 +41,9 @@ extension AppDelegate {
     }
 
     func handleRefreshWorktreesRequested() async {
-        guard !store.watchedPaths.isEmpty else { return }
-        _ = await watchedFolderCommands.refreshWatchedFolders(store.watchedPaths.map(\.path))
+        let watchedPaths = store.repositoryTopologyAtom.watchedPaths
+        guard !watchedPaths.isEmpty else { return }
+        _ = await watchedFolderCommands.refreshWatchedFolders(watchedPaths.map(\.path))
         paneCoordinator.syncFilesystemRootsAndActivity()
     }
 

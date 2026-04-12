@@ -174,7 +174,7 @@ SwiftPaneView           (direct Swift)             SwiftPaneRuntime             
 
 **Decision:** Events self-classify as `critical` (never coalesced, immediate delivery) or `lossy` (batched on frame boundary, deduped by consolidation key). This is the **event classification** axis.
 
-**Visibility tiers:** LUNA-295 defines a separate axis: `p0ActivePane → p1ActiveDrawer → p2VisibleActiveTab → p3Background`. This is a **delivery scheduling** concern — which pane's events get processed first when multiple events arrive in the same frame. The NotificationReducer resolves tier via an injected `VisibilityTierResolver` (coordinator-provided). Adding visibility tiers is additive — the event and envelope contracts are unchanged. See [Contract 12a: Visibility-Tier Scheduling](#contract-12a-visibility-tier-scheduling-luna-295) for the full specification.
+**Visibility tiers:** A separate axis determines **delivery scheduling** — which pane's events get processed first when multiple events arrive in the same frame. Two tiers: `p0Visible` (active/visible panes) and `p1Hidden` (background panes). The NotificationReducer resolves tier via an injected `VisibilityTierResolver` (coordinator-provided). Adding visibility tiers is additive — the event and envelope contracts are unchanged. See [Contract 12a: Visibility-Tier Scheduling](#contract-12a-visibility-tier-scheduling-luna-295) for the full specification.
 
 ### D7: Filesystem observation with batched artifact production
 
@@ -702,7 +702,7 @@ Quick reference: which direction each contract's data flows and which actor boun
 | C13 | Workflow Engine | Consumer (deferred) | EventBus → @MainActor | Future bus subscriber |
 | C14 | Replay Buffer | Internal | @MainActor | Per-runtime replay |
 | C15 | Process Channel | Source (deferred) | Future boundary | Request/response, not bus |
-| C16 | Filesystem Context | Projection | @MainActor → EventBus | Derived from C6 and republished as pane-scoped filesystem context envelopes |
+| C16 | Filesystem Context | Projection | @MainActor | `PaneFilesystemProjectionStore` derives per-pane snapshots from C6 |
 
 ---
 
@@ -2410,20 +2410,20 @@ Visibility-tier scheduling is the **delivery scheduling** axis — orthogonal to
 
 #### Tier Definitions
 
+Two tiers implemented. The original design explored four tiers (active pane, drawer, visible tab, background) but the shipped implementation uses a binary visible/hidden split which is simpler and sufficient.
+
 ```swift
 /// Visibility tier determines delivery priority within the critical queue.
 /// When multiple critical events arrive in the same processing cycle,
-/// the coordinator processes them in tier order (p0 first, p3 last).
+/// the coordinator processes them in tier order (p0 first, p1 last).
 ///
 /// Tier assignment is based on pane visibility state at the time the
 /// event is submitted to the NotificationReducer, NOT at event creation.
 /// This means a pane that becomes visible between event creation and
 /// submission gets the correct (higher) tier.
 enum VisibilityTier: Int, Comparable, Sendable {
-    case p0ActivePane = 0       // active pane in active tab → immediate
-    case p1ActiveDrawer = 1     // active pane's drawer panes → next
-    case p2VisibleActiveTab = 2 // other visible panes in active tab → after p1
-    case p3Background = 3       // hidden/background panes → bounded concurrency
+    case p0Visible = 0  // visible panes (active tab, drawer) → immediate
+    case p1Hidden = 1   // hidden/background panes → bounded concurrency
 
     static func < (lhs: Self, rhs: Self) -> Bool {
         lhs.rawValue < rhs.rawValue
@@ -2436,7 +2436,7 @@ enum VisibilityTier: Int, Comparable, Sendable {
 ```swift
 /// Tier assignment is a coordinator responsibility. The coordinator
 /// knows the active tab, the active pane within that tab, and which
-/// panes are in the active pane's drawer.
+/// panes are visible.
 ///
 /// The reducer calls back to a tier resolver — it does not read
 /// workspace state directly. This keeps the reducer testable without
@@ -2444,7 +2444,7 @@ enum VisibilityTier: Int, Comparable, Sendable {
 ///
 /// Contract:
 ///   1. Resolver MUST return a valid tier for any paneId. Unknown
-///      paneIds default to .p3Background (safe: delayed, never lost).
+///      paneIds default to .p1Hidden (safe: delayed, never lost).
 ///   2. Resolver reads workspace state at call time — tier can change
 ///      between events for the same pane (e.g., user switches tabs).
 ///   3. The resolver is injected into the NotificationReducer at
@@ -2458,10 +2458,8 @@ protocol VisibilityTierResolver: Sendable {
 
 | Tier | Critical Events | Lossy Events |
 |------|----------------|--------------|
-| `p0ActivePane` | Immediate delivery, processed first | Batched at frame rate, flushed first |
-| `p1ActiveDrawer` | Immediate delivery, processed after p0 | Batched at frame rate, flushed after p0 |
-| `p2VisibleActiveTab` | Immediate delivery, processed after p1 | Batched at frame rate, flushed after p1 |
-| `p3Background` | Immediate delivery, processed after p2 | Batched at frame rate, flushed last. Bounded concurrency: max N background panes processed per frame cycle |
+| `p0Visible` | Immediate delivery, processed first | Batched at frame rate, flushed first |
+| `p1Hidden` | Immediate delivery, processed after p0 | Batched at frame rate, flushed last. Bounded concurrency: max N background panes processed per frame cycle |
 
 #### Integration with NotificationReducer
 
@@ -2478,7 +2476,7 @@ protocol VisibilityTierResolver: Sendable {
 /// parameter and sorts output by tier. No existing contracts change.
 func submit(_ envelope: PaneEventEnvelope) {
     let paneId = envelope.source.paneId  // nil for system events → p0
-    let tier = paneId.map { tierResolver.tier(for: $0) } ?? .p0ActivePane
+    let tier = paneId.map { tierResolver.tier(for: $0) } ?? .p0Visible
 
     switch envelope.event.actionPolicy {
     case .critical:
@@ -2496,10 +2494,10 @@ func submit(_ envelope: PaneEventEnvelope) {
 #### Visibility-Tier Invariants
 
 1. **Tier assignment is ephemeral.** Tiers are not stored on the envelope. They are resolved at submission time and used for ordering within the reducer's internal queues. A pane's tier can change between events (user switches tabs).
-2. **System events are always p0.** Events with `source = .system(...)` (any tier: builtin, service, or plugin) have no paneId and default to `p0ActivePane`. System events are never deprioritized.
-3. **Tier ordering does not affect classification.** A p3 critical event is still processed immediately — it just goes after p0/p1/p2 critical events in the same cycle. Classification (critical/lossy) and scheduling (visibility tier) are independent axes.
-4. **Background bounded concurrency.** `p3Background` lossy events are rate-limited: at most N panes' worth of lossy events are flushed per frame cycle (N configurable, default 3). This prevents 20 background terminals from dominating frame budget.
-5. **Unknown paneId defaults to p3.** If the resolver cannot find a paneId (pane closing, race condition), it returns `.p3Background`. Events are delayed, never dropped.
+2. **System events are always p0.** Events with `source = .system(...)` (any tier: builtin, service, or plugin) have no paneId and default to `p0Visible`. System events are never deprioritized.
+3. **Tier ordering does not affect classification.** A p1 critical event is still processed immediately — it just goes after p0 critical events in the same cycle. Classification (critical/lossy) and scheduling (visibility tier) are independent axes.
+4. **Background bounded concurrency.** `p1Hidden` lossy events are rate-limited: at most N panes' worth of lossy events are flushed per frame cycle (N configurable, default 3). This prevents 20 background terminals from dominating frame budget.
+5. **Unknown paneId defaults to p1.** If the resolver cannot find a paneId (pane closing, race condition), it returns `.p1Hidden`. Events are delayed, never dropped.
 
 ### Contract 13: Workflow Engine (deferred)
 
@@ -2768,7 +2766,7 @@ PaneRuntimeEvent stream → Harness Event Gateway → adapters → agent
 
 > **Extensibility:** New per-pane derived streams (e.g., "pane git blame context", "pane dependency graph") follow the same projection pattern: filter an upstream source by pane-scoped criteria, expose a typed subscription. Adding a new projection does not change the upstream source or existing projections.
 
-> **Status:** Implemented as a main-actor projection over Contract 6. `PaneFilesystemProjectionStore` derives pane-scoped context events from worktree filesystem and git snapshot facts, maintains per-pane projection snapshots, and produces pane-scoped filesystem context envelopes for bus consumers.
+> **Status:** Implemented as `PaneFilesystemProjectionStore` in `Core/RuntimeEventSystem/Projection/PaneFilesystemProjectionStore.swift`. The store consumes `RuntimeEnvelope` events, filters filesystem changesets to each pane's CWD subtree, and exposes per-pane snapshots via `@Observable`.
 
 A derived, per-pane filesystem context stream based on the pane's current CWD. Separate from the terminal process request/response channel.
 
@@ -3099,7 +3097,7 @@ See [Directory Structure](directory_structure.md) for the full decision process 
 
 | Type | Directory | Rationale |
 |------|-----------|-----------|
-| **Contracts** (PaneRuntime protocol, PaneRuntimeEvent, PaneEventEnvelope, RuntimeCommand, RuntimeCommandEnvelope, PaneLifecycle, PaneMetadata, ActionPolicy, PaneCapability, per-kind event/command enums) | `Core/RuntimeEventSystem/Contracts/` | Imported by all features and App; change driver is pane system contract, not any specific feature |
+| **Contracts** (PaneRuntime protocol, PaneRuntimeEvent, PaneRuntimeTypes, RuntimeCommand, RuntimeEnvelope, RuntimeEnvelopeCore, RuntimeEnvelopeFactories, RuntimeEnvelopeMetadata, RuntimeEnvelopeSources, PaneKindEvent, PaneMetadata, PaneContextFacets, PaneId, WorkspaceActivityEvent, per-kind event/command enums) | `Core/RuntimeEventSystem/Contracts/` | Imported by all features and App; change driver is pane system contract, not any specific feature |
 | **RuntimeRegistry** | `Core/RuntimeEventSystem/Registry/` | Feature-agnostic lookup; consumed by PaneCoordinator in App/ |
 | **NotificationReducer**, VisibilityTier types | `Core/RuntimeEventSystem/Reduction/` | Feature-agnostic event processing; consumed by PaneCoordinator |
 | **EventReplayBuffer** | `Core/RuntimeEventSystem/Replay/` | Feature-agnostic buffering; consumed by PaneCoordinator |
@@ -3110,6 +3108,9 @@ See [Directory Structure](directory_structure.md) for the full decision process 
 | **WebviewRuntime** | `Features/Webview/Runtime/` | Webview-specific `PaneRuntime` conformance (serves .browser) |
 | **WebviewPaneController** | `Features/Webview/` | Per-pane WebKit page, navigation state (transport/view-side lifecycle) |
 | **SwiftPaneRuntime** | `Core/RuntimeEventSystem/Runtime/` | Native-pane `PaneRuntime` shared by direct AppKit/SwiftUI panes such as `.codeViewer`; kept in Core because it has no feature-specific transport/controller dependency |
+| **PaneRuntimeEventChannel** | `Core/RuntimeEventSystem/Runtime/` | Per-pane event channel with local subscribers and replay; bridges to global `EventBus` for cross-pane fanout |
+| **PaneFilesystemProjectionStore** | `Core/RuntimeEventSystem/Projection/` | C16 projection: derives per-pane filesystem snapshots from worktree-level C6 events, filtered to each pane's CWD subtree |
+| **EventChannels** (`PaneRuntimeEventBus`) | `Core/RuntimeEventSystem/Events/` | Singleton `EventBus<RuntimeEnvelope>` factory with replay configuration |
 | **FSEventsWatcher** (future) | `Core/RuntimeEventSystem/Filesystem/` | System-level filesystem watcher; produces FilesystemEvent envelopes |
 | **PaneCoordinator** | `App/Coordination/` | Imports from multiple features; composition root |
 

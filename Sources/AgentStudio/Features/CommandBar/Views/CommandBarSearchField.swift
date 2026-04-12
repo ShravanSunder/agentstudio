@@ -8,15 +8,14 @@ struct CommandBarSearchField: View {
     @Bindable var state: CommandBarState
     let onArrowUp: () -> Void
     let onArrowDown: () -> Void
-    let onEnter: () -> Void
+    let onEnter: (EnterModifier) -> Void
     let onBackspaceOnEmpty: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            if state.isNested {
+            if state.isNested, let pillLabel = state.scopePillLabel {
                 CommandBarScopePill(
-                    parent: state.scopePillParent,
-                    child: state.scopePillChild,
+                    label: pillLabel,
                     onDismiss: { state.popToRoot() }
                 )
             } else {

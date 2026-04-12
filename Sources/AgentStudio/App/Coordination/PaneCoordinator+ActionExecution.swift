@@ -1,5 +1,4 @@
 import AppKit
-import Foundation
 
 @MainActor
 extension PaneCoordinator {
@@ -24,9 +23,9 @@ extension PaneCoordinator {
     /// Returns the pane if a new one was created, nil if already open.
     @discardableResult
     func openTerminal(for worktree: Worktree, in repo: Repo) -> Pane? {
-        if let existingTab = store.tabs.first(where: { tab in
+        if let existingTab = store.tabLayoutAtom.tabs.first(where: { tab in
             tab.allPaneIds.contains { paneId in
-                store.pane(paneId)?.worktreeId == worktree.id
+                store.paneAtom.pane(paneId)?.worktreeId == worktree.id
             }
         }) {
             store.tabLayoutAtom.setActiveTab(existingTab.id)
@@ -55,8 +54,8 @@ extension PaneCoordinator {
     @discardableResult
     func openWorktreeInPane(for worktree: Worktree, in repo: Repo) -> Pane? {
         guard
-            let activeTabId = store.activeTabId,
-            let activeTab = store.tab(activeTabId),
+            let activeTabId = store.tabLayoutAtom.activeTabId,
+            let activeTab = store.tabLayoutAtom.tab(activeTabId),
             let targetPaneId = activeTab.activePaneId
         else {
             return openNewTerminal(for: worktree, in: repo)
@@ -114,7 +113,7 @@ extension PaneCoordinator {
             return nil
         }
 
-        let tab = Tab(paneId: pane.id)
+        let tab = Tab(paneId: pane.id, name: tabNameForPane(pane))
         store.tabLayoutAtom.appendTab(tab)
         store.tabLayoutAtom.setActiveTab(tab.id)
 
@@ -129,11 +128,11 @@ extension PaneCoordinator {
         url: URL,
         direction: SplitNewDirection = .right
     ) -> Pane? {
-        guard let targetPane = store.pane(sourcePaneId) else {
+        guard let targetPane = store.paneAtom.pane(sourcePaneId) else {
             Self.logger.warning("openContextualWebviewInPane: source pane \(sourcePaneId) not found")
             return nil
         }
-        guard store.tab(targetTabId) != nil else {
+        guard store.tabLayoutAtom.tab(targetTabId) != nil else {
             Self.logger.warning("openContextualWebviewInPane: target tab \(targetTabId) not found")
             return nil
         }
@@ -173,7 +172,7 @@ extension PaneCoordinator {
         parentPaneId: UUID,
         url: URL
     ) -> Pane? {
-        guard let parentPane = store.pane(parentPaneId) else {
+        guard let parentPane = store.paneAtom.pane(parentPaneId) else {
             Self.logger.warning("openContextualWebviewInDrawer: parent pane \(parentPaneId) not found")
             return nil
         }
@@ -215,7 +214,7 @@ extension PaneCoordinator {
         )
         viewRegistry.ensureSlot(for: pane.id)
 
-        let tab = Tab(paneId: pane.id)
+        let tab = Tab(paneId: pane.id, name: tabNameForPane(pane))
         store.tabLayoutAtom.appendTab(tab)
         store.tabLayoutAtom.setActiveTab(tab.id)
         ensureTerminalPaneView(pane)
@@ -240,21 +239,30 @@ extension PaneCoordinator {
 
         switch action {
         case .openWorktree(let worktreeId):
-            guard let worktree = store.worktree(worktreeId), let repo = store.repo(containing: worktreeId) else {
+            guard
+                let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
+                let repo = store.repositoryTopologyAtom.repo(containing: worktreeId)
+            else {
                 Self.logger.warning("openWorktree: worktree \(worktreeId) not found")
                 return
             }
             _ = openTerminal(for: worktree, in: repo)
 
         case .openNewTerminalInTab(let worktreeId, let launchDirectory, let title):
-            guard let worktree = store.worktree(worktreeId), let repo = store.repo(containing: worktreeId) else {
+            guard
+                let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
+                let repo = store.repositoryTopologyAtom.repo(containing: worktreeId)
+            else {
                 Self.logger.warning("openNewTerminalInTab: worktree \(worktreeId) not found")
                 return
             }
             _ = createTerminalTab(for: worktree, in: repo, cwdOverride: launchDirectory, titleOverride: title)
 
         case .openWorktreeInPane(let worktreeId):
-            guard let worktree = store.worktree(worktreeId), let repo = store.repo(containing: worktreeId) else {
+            guard
+                let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
+                let repo = store.repositoryTopologyAtom.repo(containing: worktreeId)
+            else {
                 Self.logger.warning("openWorktreeInPane: worktree \(worktreeId) not found")
                 return
             }
@@ -283,10 +291,17 @@ extension PaneCoordinator {
             executeClosePane(tabId: tabId, paneId: paneId)
 
         case .extractPaneToTab(let tabId, let paneId):
-            _ = store.tabLayoutAtom.extractPane(paneId, fromTab: tabId)
+            guard let newTab = store.tabLayoutAtom.extractPane(paneId, fromTab: tabId) else {
+                break
+            }
+            guard let pane = store.paneAtom.pane(paneId) else {
+                Self.logger.warning("extractPaneToTab: extracted pane \(paneId) missing after tab extraction")
+                break
+            }
+            store.tabLayoutAtom.renameTab(newTab.id, name: tabNameForPane(pane))
 
         case .focusPane(let tabId, let paneId):
-            if let tab = store.tab(tabId), tab.minimizedPaneIds.contains(paneId) {
+            if let tab = store.tabLayoutAtom.tab(tabId), tab.minimizedPaneIds.contains(paneId) {
                 store.tabLayoutAtom.expandPane(paneId, inTab: tabId)
                 restoreViewsForActiveTabIfNeeded()
                 reattachForViewSwitch(paneId: paneId)
@@ -345,7 +360,7 @@ extension PaneCoordinator {
             store.tabLayoutAtom.removeArrangement(arrangementId, inTab: tabId)
 
         case .switchArrangement(let tabId, let arrangementId):
-            guard let tab = store.tab(tabId) else {
+            guard let tab = store.tabLayoutAtom.tab(tabId) else {
                 Self.logger.warning("Cannot switch arrangement: tab \(tabId) not found")
                 break
             }
@@ -397,18 +412,20 @@ extension PaneCoordinator {
                 position: position
             )
             viewRegistry.ensureSlot(for: paneId)
-            if viewRegistry.view(for: paneId) == nil, let pane = store.pane(paneId) {
+            if viewRegistry.view(for: paneId) == nil, let pane = store.paneAtom.pane(paneId) {
                 ensureTerminalPaneView(pane)
             }
 
         case .purgeOrphanedPane(let paneId):
-            guard let pane = store.pane(paneId), pane.residency == .backgrounded else { break }
+            guard let pane = store.paneAtom.pane(paneId), pane.residency == .backgrounded else { break }
             teardownView(for: paneId)
             store.paneAtom.purgeOrphanedPane(paneId)
             viewRegistry.removeSlot(for: paneId)
 
         case .addDrawerPane(let parentPaneId):
-            let fallbackCWD = store.pane(parentPaneId)?.worktreeId.flatMap(store.worktree)?.path
+            let fallbackCWD = store.paneAtom.pane(parentPaneId)?.worktreeId.flatMap(
+                store.repositoryTopologyAtom.worktree)?
+                .path
             if let drawerPane = store.paneAtom.addDrawerPane(to: parentPaneId, parentFallbackCWD: fallbackCWD) {
                 viewRegistry.ensureSlot(for: drawerPane.id)
                 ensureTerminalPaneView(drawerPane)
@@ -422,7 +439,7 @@ extension PaneCoordinator {
 
         case .toggleDrawer(let paneId):
             store.paneAtom.toggleDrawer(for: paneId)
-            if let drawer = store.pane(paneId)?.drawer,
+            if let drawer = store.paneAtom.pane(paneId)?.drawer,
                 drawer.isExpanded,
                 let activeDrawerPaneId = drawer.activePaneId
             {
@@ -519,7 +536,10 @@ extension PaneCoordinator {
         )
         viewRegistry.ensureSlot(for: pane.id)
 
-        let tab = Tab(paneId: pane.id)
+        let tab = Tab(
+            paneId: pane.id,
+            name: tabNameForPane(pane)
+        )
         store.tabLayoutAtom.appendTab(tab)
         store.tabLayoutAtom.setActiveTab(tab.id)
         ensureTerminalPaneView(pane)
@@ -564,7 +584,7 @@ extension PaneCoordinator {
             Self.logger.warning("closeTab: snapshot failed for tab \(tabId); undo will be unavailable")
         }
 
-        if let tab = store.tab(tabId) {
+        if let tab = store.tabLayoutAtom.tab(tabId) {
             // Close-tab keeps pane models alive for undo snapshots, so teardown only
             // unregisters hosts. Slots are intentionally preserved until the panes
             // are permanently purged from the store.
@@ -602,10 +622,10 @@ extension PaneCoordinator {
 
     private func currentOwnedPaneIds() -> Set<UUID> {
         Set(
-            store.tabs.flatMap { tab in
+            store.tabLayoutAtom.tabs.flatMap { tab in
                 tab.allPaneIds.flatMap { paneId -> [UUID] in
                     var paneIds = [paneId]
-                    if let drawer = store.pane(paneId)?.drawer {
+                    if let drawer = store.paneAtom.pane(paneId)?.drawer {
                         paneIds.append(contentsOf: drawer.paneIds)
                     }
                     return paneIds
@@ -616,19 +636,24 @@ extension PaneCoordinator {
 
     private func executeBreakUpTab(_ tabId: UUID) {
         let newTabs = store.tabLayoutAtom.breakUpTab(tabId)
-        if newTabs.isEmpty {
-            Self.logger.debug("breakUpTab: tab has single pane, no-op")
+        for newTab in newTabs {
+            guard let paneId = newTab.activePaneId else { continue }
+            guard let pane = store.paneAtom.pane(paneId) else {
+                Self.logger.warning("breakUpTab: pane \(paneId) missing while naming new tab \(newTab.id)")
+                continue
+            }
+            store.tabLayoutAtom.renameTab(newTab.id, name: tabNameForPane(pane))
         }
     }
 
     private func executeClosePane(tabId: UUID, paneId: UUID) {
-        guard let closingPane = store.pane(paneId) else {
+        guard let closingPane = store.paneAtom.pane(paneId) else {
             Self.logger.warning("closePane: pane \(paneId) not found")
             return
         }
 
         let shouldCreateUndoEntry: Bool
-        if let tab = store.tab(tabId), tab.id == store.activeTabId {
+        if let tab = store.tabLayoutAtom.tab(tabId), tab.id == store.tabLayoutAtom.activeTabId {
             if closingPane.isDrawerChild {
                 shouldCreateUndoEntry = closingPane.parentPaneId.map { tab.activePaneIds.contains($0) } ?? false
             } else {
@@ -691,15 +716,15 @@ extension PaneCoordinator {
 
         switch source {
         case .existingPane(let paneId, let sourceTabId):
-            guard store.pane(paneId) != nil else {
+            guard store.paneAtom.pane(paneId) != nil else {
                 Self.logger.warning("insertPane existingPane: pane \(paneId) not found")
                 return
             }
-            guard store.tab(sourceTabId) != nil else {
+            guard store.tabLayoutAtom.tab(sourceTabId) != nil else {
                 Self.logger.warning("insertPane existingPane: source tab \(sourceTabId) not found")
                 return
             }
-            guard store.tab(targetTabId) != nil else {
+            guard store.tabLayoutAtom.tab(targetTabId) != nil else {
                 Self.logger.warning("insertPane existingPane: target tab \(targetTabId) not found")
                 return
             }
@@ -710,7 +735,7 @@ extension PaneCoordinator {
             )
 
         case .newTerminal:
-            let targetPane = store.pane(targetPaneId)
+            let targetPane = store.paneAtom.pane(targetPaneId)
             if let resolved = resolvedWorktreeContext(for: targetPane) {
                 let pane = store.paneAtom.createPane(
                     source: .worktree(
@@ -750,231 +775,4 @@ extension PaneCoordinator {
         }
     }
 
-    private func resolvedWorktreeContext(
-        for targetPane: Pane?
-    ) -> (repo: Repo, worktree: Worktree)? {
-        if let worktreeId = targetPane?.worktreeId,
-            let repoId = targetPane?.repoId,
-            let worktree = store.worktree(worktreeId),
-            let repo = store.repo(repoId)
-        {
-            return (repo, worktree)
-        }
-
-        return store.repoAndWorktree(containing: targetPane?.metadata.facets.cwd)
-    }
-
-    private func contextualBrowserMetadata(
-        from pane: Pane,
-        fallbackTitle: String
-    ) -> (
-        metadata: PaneMetadata,
-        repo: Repo?,
-        worktree: Worktree?
-    ) {
-        if let worktreeId = pane.worktreeId,
-            let repoId = pane.repoId,
-            let repo = store.repo(repoId),
-            let worktree = store.worktree(worktreeId)
-        {
-            return (
-                PaneMetadata(
-                    contentType: .browser,
-                    source: .worktree(
-                        worktreeId: worktree.id, repoId: repo.id,
-                        launchDirectory: worktree.path
-                    ),
-                    title: fallbackTitle,
-                    facets: PaneContextFacets(
-                        repoId: repo.id,
-                        repoName: repo.name,
-                        worktreeId: worktree.id,
-                        worktreeName: worktree.name,
-                        cwd: pane.metadata.cwd ?? worktree.path
-                    )
-                ),
-                repo,
-                worktree
-            )
-        }
-
-        if let resolved = store.repoAndWorktree(containing: pane.metadata.cwd) {
-            return (
-                PaneMetadata(
-                    contentType: .browser,
-                    source: .worktree(
-                        worktreeId: resolved.worktree.id, repoId: resolved.repo.id,
-                        launchDirectory: resolved.worktree.path
-                    ),
-                    title: fallbackTitle,
-                    facets: PaneContextFacets(
-                        repoId: resolved.repo.id,
-                        repoName: resolved.repo.name,
-                        worktreeId: resolved.worktree.id,
-                        worktreeName: resolved.worktree.name,
-                        cwd: pane.metadata.cwd ?? resolved.worktree.path
-                    )
-                ),
-                resolved.repo,
-                resolved.worktree
-            )
-        }
-
-        return (
-            PaneMetadata(
-                contentType: .browser,
-                source: .floating(launchDirectory: nil, title: fallbackTitle),
-                title: fallbackTitle
-            ),
-            nil,
-            nil
-        )
-    }
-
-    private func executeInsertDrawerPane(
-        parentPaneId: UUID,
-        targetDrawerPaneId: UUID,
-        direction: SplitNewDirection
-    ) {
-        let layoutDirection = bridgeDirection(direction)
-        let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
-
-        let fallbackCWD = store.pane(parentPaneId)?.worktreeId.flatMap(store.worktree)?.path
-
-        guard
-            let drawerPane = store.paneAtom.insertDrawerPane(
-                in: parentPaneId,
-                at: targetDrawerPaneId,
-                direction: layoutDirection,
-                position: position,
-                parentFallbackCWD: fallbackCWD
-            )
-        else {
-            Self.logger.warning(
-                "insertDrawerPane: failed to insert drawer pane under parent \(parentPaneId) at target \(targetDrawerPaneId)"
-            )
-            return
-        }
-
-        viewRegistry.ensureSlot(for: drawerPane.id)
-        ensureTerminalPaneView(drawerPane)
-        focusVisiblePaneHost(drawerPane.id)
-    }
-
-    private func ensureTerminalPaneView(_ pane: Pane) {
-        registerTerminalPlaceholderIfNeeded(for: pane, mode: .preparing)
-        if createViewForContentUsingCurrentGeometry(pane: pane) == nil {
-            RestoreTrace.log("ensureTerminalPaneView deferred pane=\(pane.id)")
-            restoreViewsForActiveTabIfNeeded()
-        }
-    }
-
-    private func focusVisiblePaneHost(_ paneId: UUID) {
-        if focusPaneHostIfReady(paneId) {
-            pendingFocusPaneIds.remove(paneId)
-        } else {
-            pendingFocusPaneIds.insert(paneId)
-        }
-    }
-
-    func handlePaneHostAttachedToWindow(_ paneId: UUID) {
-        guard pendingFocusPaneIds.contains(paneId) else { return }
-        if focusPaneHostIfReady(paneId) {
-            pendingFocusPaneIds.remove(paneId)
-        }
-    }
-
-    @discardableResult
-    private func focusPaneHostIfReady(_ paneId: UUID) -> Bool {
-        guard let paneView = viewRegistry.view(for: paneId), paneView.window != nil else {
-            return false
-        }
-
-        paneView.window?.makeFirstResponder(paneView)
-        if let terminalView = viewRegistry.terminalView(for: paneId) {
-            surfaceManager.syncFocus(activeSurfaceId: terminalView.surfaceId)
-        }
-        return true
-    }
-
-    private func executeMergeTab(
-        sourceTabId: UUID,
-        targetTabId: UUID,
-        targetPaneId: UUID,
-        direction: SplitNewDirection
-    ) {
-        let layoutDirection = bridgeDirection(direction)
-        let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
-
-        store.tabLayoutAtom.mergeTab(
-            sourceId: sourceTabId,
-            intoTarget: targetTabId,
-            at: targetPaneId,
-            direction: layoutDirection,
-            position: position
-        )
-    }
-
-    private func executeRepair(_ repairAction: RepairAction) {
-        switch repairAction {
-        case .recreateSurface(let paneId):
-            guard let pane = store.pane(paneId) else {
-                Self.logger.warning("repair \(String(describing: repairAction)): pane not in store")
-                return
-            }
-            teardownView(for: paneId, shouldUnregisterRuntime: false)
-            guard createViewForRepair(for: pane) != nil else {
-                Self.logger.error("repair recreateSurface failed for pane \(paneId)")
-                return
-            }
-            Self.logger.info("Repaired view for pane \(paneId)")
-
-        case .createMissingView(let paneId):
-            guard let pane = store.pane(paneId) else {
-                Self.logger.warning("repair \(String(describing: repairAction)): pane not in store")
-                return
-            }
-            if let existingView = viewRegistry.view(for: paneId),
-                existingView.mountedContent(as: TerminalPaneMountView.self)?.currentPlaceholderView == nil
-            {
-                Self.logger.info("repair createMissingView: pane \(paneId) already has a view")
-                return
-            }
-            guard createViewForRepair(for: pane) != nil else {
-                Self.logger.error("repair createMissingView failed for pane \(paneId)")
-                return
-            }
-            Self.logger.info("Created missing view for pane \(paneId)")
-
-        case .reattachZmx, .markSessionFailed, .cleanupOrphan:
-            Self.logger.warning("repair: \(String(describing: repairAction)) — not yet implemented")
-        }
-    }
-
-    /// Recreate a pane view during repair while preserving geometry requirements for terminals.
-    /// Terminal panes must use trusted current geometry; non-terminal panes can be recreated directly.
-    private func createViewForRepair(for pane: Pane) -> NSView? {
-        if case .terminal = pane.content {
-            return createViewForContentUsingCurrentGeometry(pane: pane)
-        }
-        return createViewForContent(pane: pane)
-    }
-
-    /// Teardown views for all drawer panes owned by a parent pane.
-    func teardownDrawerPanes(for parentPaneId: UUID) {
-        guard let pane = store.pane(parentPaneId),
-            let drawer = pane.drawer
-        else { return }
-        for drawerPaneId in drawer.paneIds {
-            teardownView(for: drawerPaneId)
-        }
-    }
-
-    /// Bridge SplitNewDirection → Layout.SplitDirection.
-    private func bridgeDirection(_ direction: SplitNewDirection) -> Layout.SplitDirection {
-        switch direction {
-        case .left, .right: return .horizontal
-        case .up, .down: return .vertical
-        }
-    }
 }

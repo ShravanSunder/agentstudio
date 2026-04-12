@@ -36,7 +36,7 @@ struct RepoSidebarContentView: View {
     private static let filterDebounceMilliseconds = 25
 
     private var sidebarRepos: [SidebarRepo] {
-        store.repos.map(SidebarRepo.init(repo:))
+        store.repositoryTopologyAtom.repos.map(SidebarRepo.init(repo:))
     }
 
     private var sidebarProjectionFingerprint: String {
@@ -107,7 +107,7 @@ struct RepoSidebarContentView: View {
                 switch event {
                 case .worktreeBellRang(let paneId):
                     guard
-                        let pane = store.pane(paneId),
+                        let pane = store.paneAtom.pane(paneId),
                         let worktreeId = pane.worktreeId
                     else { continue }
                     notificationCountsByWorktreeId[worktreeId, default: 0] += 1

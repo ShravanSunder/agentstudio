@@ -29,6 +29,12 @@ struct CommandBarResultRow: View {
                 Color.clear.frame(width: 16, height: 16)
             }
 
+            if let openState = item.worktreeOpenState, openState != .notOpen {
+                Circle()
+                    .fill(Color.green.opacity(isDimmed ? 0.3 : 0.7))
+                    .frame(width: 6, height: 6)
+            }
+
             // Title with match highlighting
             highlightedTitle
                 .lineLimit(1)

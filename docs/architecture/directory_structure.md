@@ -23,7 +23,8 @@ Sources/AgentStudio/
 │   ├── Commands/                     # App-owned command entry points
 │   ├── Coordination/                 # Cross-store / cross-feature sequencing
 │   ├── Events/                       # App-scoped notification bus types
-│   ├── Lifecycle/                    # App/window lifecycle stores and monitors
+│   ├── Lifecycle/                    # AppLifecycleStore, WindowLifecycleStore,
+│   │                                 #   ApplicationLifecycleMonitor, ManagementModeMonitor, WindowRestoreBridge
 │   ├── Panes/                        # App-owned pane hosting, tab management, empty states
 │   │   ├── Hosting/                  # PaneHostView, management-mode drag shield
 │   │   ├── Status/                   # Workspace status chips
@@ -32,13 +33,17 @@ Sources/AgentStudio/
 │
 ├── Core/                             # Shared domain — pane system, models, state, runtime contracts
 │   ├── Actions/                      # PaneActionCommand, WorkspaceCommandResolver, WorkspaceCommandValidator, command/action metadata
-│   ├── Models/                       # Pane, Layout, Tab, Repo, Worktree, arrangement models
+│   ├── Models/                       # Pane, Layout, Tab, Repo, Worktree, arrangement, FlatTabStripMetrics
 │   ├── RuntimeEventSystem/           # Shared pane-runtime contracts, buses, projectors
 │   ├── State/
 │   │   └── MainActor/
 │   │       ├── Atoms/                # Workspace atoms, RepoCacheAtom, UIStateAtom, WorkspaceFocusContextAtom
 │   │       └── Persistence/          # WorkspaceStore, RepoCacheStore, UIStateStore
 │   └── Views/                        # Shared split/tree/drawer primitives
+│       ├── Drawer/                   # DrawerLayout, DrawerPanel, DrawerOverlay, DrawerIconBar
+│       └── Splits/                   # FlatTabStripContainer, FlatPaneStripContent, CollapsedPaneBar,
+│                                     #   PaneLeafContainer, SplitContainerDropCaptureOverlay,
+│                                     #   PaneDragCoordinator, PaneDropTargetOverlay, SplitView
 │
 ├── Features/
 │   ├── Bridge/                       # React/WebView pane system
@@ -70,10 +75,15 @@ Sources/AgentStudio/
 │   └── Webview/                      # Plain browser pane controller/runtime/views
 │
 ├── Infrastructure/                   # Utilities used by anyone, domain-agnostic
-│   ├── ProcessExecutor.swift         # CLI execution protocol
-│   ├── CWDNormalizer.swift           # Path normalization
+│   ├── AtomLib/                      # AtomStore, AtomScope, AtomReader, Derived, DerivedSelector
+│   ├── Diagnostics/                  # RestoreTrace
+│   ├── Extensions/                   # Foundation/AppKit extensions, UniformType, NSColor+Hex
+│   ├── Icons/                        # OcticonImage, OcticonLoader
 │   ├── StateMachine/                 # Generic state machine + effects
-│   └── Extensions/                   # Foundation/AppKit extensions
+│   ├── CWDNormalizer.swift           # Path normalization
+│   ├── ProcessExecutor.swift         # CLI execution protocol
+│   ├── WorktreeReconciler.swift      # Pure-function worktree topology diffing
+│   └── WorktrunkService.swift        # Worktrunk CLI integration
 │
 ├── Resources/                        # Assets, xib, storyboard
 ├── main.swift
@@ -210,14 +220,15 @@ Manages `NSTabViewItems` containing pane views. Handles focus, layout, tab switc
 
 **Deletion test:** passes for any single feature. **Change driver:** tab management behavior changes, not new pane types.
 
-### PaneLeafContainer + Split Drop Components → `Core/Views/Splits/`
+### Split & Flat Tab Strip Components → `Core/Views/Splits/`
 
-`PaneLeafContainer`, `PaneDragCoordinator`, `SplitContainerDropDelegate`, and `PaneDropTargetOverlay`
+`FlatTabStripContainer`, `FlatPaneStripContent`, `CollapsedPaneBar`, `PaneLeafContainer`, `PaneDragCoordinator`, `SplitContainerDropCaptureOverlay`, and `PaneDropTargetOverlay`
 belong in `Core/Views/Splits/` because they are pane-type-agnostic split-system primitives:
 
-- They operate on pane IDs and frame geometry, not terminal/webview/bridge-specific APIs.
-- They are reused by any pane feature rendered inside split trees.
-- Their change driver is split interaction behavior, not any individual feature implementation.
+- They operate on pane IDs, tab metadata, and frame geometry — not terminal/webview/bridge-specific APIs.
+- They are reused by any pane feature rendered inside split trees or the flat tab strip.
+- Their change driver is split interaction or tab strip behavior, not any individual feature implementation.
+- `FlatTabStripMetrics` (the layout constants model) lives in `Core/Models/`.
 
 ### MainSplitViewController → `App/Windows/`
 

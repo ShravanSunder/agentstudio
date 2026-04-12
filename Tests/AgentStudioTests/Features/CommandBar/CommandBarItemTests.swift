@@ -77,6 +77,69 @@ struct CommandBarItemTests {
         #expect(key1 != key2)
     }
 
+    @Test
+    func test_itemKind_worktreeAction_isWorktree() {
+        let item = makeCommandBarItem(worktreePresence: makeWorktreePresence(paneCount: 0))
+
+        #expect(item.kind == .worktree)
+    }
+
+    @Test
+    func test_itemKind_dispatch_isCommand() {
+        let item = makeCommandBarItem(action: .dispatch(.toggleSidebar))
+
+        #expect(item.kind == .command)
+    }
+
+    @Test
+    func test_itemKind_navigateWithoutCommand_isOther() {
+        let item = makeCommandBarItem(action: .navigate(makeCommandBarLevel()))
+
+        #expect(item.kind == .other)
+    }
+
+    @Test
+    func test_itemKind_navigateWithCommand_isCommand() {
+        let item = CommandBarItem(
+            id: "cmd-nav",
+            title: "Navigate",
+            group: "Commands",
+            groupPriority: 0,
+            hasChildren: true,
+            action: .navigate(makeCommandBarLevel()),
+            command: .renameTab
+        )
+
+        #expect(item.kind == .command)
+    }
+
+    @Test
+    func test_itemKind_dispatchTargetedSelectTab_isTab() {
+        let item = makeCommandBarItem(
+            action: .dispatchTargeted(.selectTab, target: UUID(), targetType: .tab)
+        )
+
+        #expect(item.kind == .tab)
+    }
+
+    @Test
+    func test_itemKind_dispatchTargetedFocusPane_isPane() {
+        let item = makeCommandBarItem(
+            action: .dispatchTargeted(.focusPane, target: UUID(), targetType: .pane)
+        )
+
+        #expect(item.kind == .pane)
+    }
+
+    @Test
+    func test_itemKind_dispatchTargetedOtherCommand_isCommand() {
+        let item = makeCommandBarItem(
+            action: .dispatchTargeted(.openWorktreeInPane, target: UUID(), targetType: .worktree)
+        )
+
+        #expect(item.kind == .command)
+    }
+
     // MARK: - CommandBarItem Init
 
     @Test
@@ -95,6 +158,7 @@ struct CommandBarItemTests {
         #expect(item.groupPriority == 3)
         #expect(item.keywords.isEmpty)
         #expect(!item.hasChildren)
+        #expect(item.worktreeOpenState == nil)
     }
 
     @Test
@@ -128,6 +192,7 @@ struct CommandBarItemTests {
         #expect(item.groupPriority == 1)
         #expect(item.keywords == ["close", "remove"])
         #expect(item.hasChildren)
+        #expect(item.worktreeOpenState == nil)
     }
 
     // MARK: - CommandBarLevel Init
@@ -205,6 +270,25 @@ struct CommandBarItemTests {
         } else {
             Issue.record("Expected .navigate action")
         }
+    }
+
+    @Test
+    func test_item_action_worktreeAction_storesPresence() {
+        let worktreeId = UUID()
+        let presence = makeWorktreePresence(paneCount: 0, worktreeId: worktreeId)
+
+        let item = makeCommandBarItem(
+            action: .worktreeAction(presence: presence)
+        )
+
+        guard case .worktreeAction(let resolvedPresence) = item.action else {
+            Issue.record("Expected .worktreeAction action")
+            return
+        }
+
+        #expect(resolvedPresence.worktreeId == worktreeId)
+        #expect(resolvedPresence.openState == .notOpen)
+        #expect(item.worktreeOpenState == .notOpen)
     }
 
     // MARK: - CommandBarItemGroup

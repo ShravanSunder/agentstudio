@@ -217,7 +217,7 @@ final class ObservableStoreTests {
             source: .floating(launchDirectory: nil, title: "AutoRefresh"),
             title: "AutoRefresh"
         )
-        let tab = Tab(paneId: pane.id)
+        let tab = Tab(paneId: pane.id, name: "AutoRefresh")
 
         // Act — mutate store directly (no manual objectWillChange.send())
         store.appendTab(tab)

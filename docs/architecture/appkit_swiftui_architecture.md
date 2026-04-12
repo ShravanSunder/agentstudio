@@ -92,12 +92,21 @@ Services are created in `AppDelegate.applicationDidFinishLaunching()` in depende
 
 ```
 AppDelegate
-├── WorkspaceStore      ← @Observable, restore from disk
-├── SessionRuntime      ← runtime health tracking
-├── ViewRegistry        ← paneId → PaneViewSlot mapping (@Observable per-pane slots)
-├── PaneCoordinator     ← action dispatch + model↔view↔surface orchestration
-├── TabBarAdapter       ← bridges @Observable store via withObservationTracking
-├── CommandBarPanelController ← command bar lifecycle (⌘P/⌘⇧P/⌘⌥P)
+├── AtomStore                  ← composition root for all shared atoms
+├── WorkspaceStore             ← persistence wrapper, restore from disk
+├── RepoCacheStore             ← persistence wrapper for RepoCacheAtom
+├── UIStateStore               ← persistence wrapper for UIStateAtom
+├── AppLifecycleStore          ← app active/terminating state (in-memory)
+├── WindowLifecycleStore       ← key/focused window identity (in-memory)
+├── SessionRuntime             ← runtime health tracking
+├── WorkspaceCacheCoordinator  ← event bus consumer, updates stores
+├── ApplicationLifecycleMonitor ← AppKit lifecycle ingress → lifecycle stores
+├── ManagementModeMonitor      ← management mode state tracking
+├── ViewRegistry               ← paneId → PaneViewSlot mapping (@Observable per-pane slots)
+├── PaneCoordinator            ← action dispatch + model↔view↔surface orchestration
+├── ActionExecutor             ← validated action execution
+├── TabBarAdapter              ← bridges @Observable store via withObservationTracking
+├── CommandBarPanelController  ← command bar lifecycle (⌘P/⌘⇧P/⌘⌥P)
 └── MainWindowController
     └── MainSplitViewController
         └── PaneTabViewController
@@ -371,23 +380,25 @@ MainWindow
     ├── NSVisualEffectView (.sidebar material)
     └── NSHostingView
         └── CommandBarView (SwiftUI)
-            ├── CommandBarScopePill
-            ├── CommandBarSearchField
+            ├── CommandBarStatusStrip
+            ├── CommandBarSearchField (contains CommandBarScopePill)
+            ├── CommandBarBackRow (when nested)
             ├── CommandBarResultsList
             └── CommandBarFooter
 ```
 
 ### Keyboard Shortcuts
 
-Three shortcuts open the same command bar with different prefix scoping:
+Four scopes open the same command bar with different prefix scoping:
 
 | Shortcut | Prefix | Scope |
 |----------|--------|-------|
 | `⌘P` | _(none)_ | Everything — tabs, panes, commands, worktrees |
-| `⌘⇧P` | `>` | Commands only, grouped by category |
-| `⌘⌥P` | `@` | Panes and tabs, grouped by parent tab |
+| `⌘⇧P` | `> ` | Commands only, grouped by category |
+| `⌘⌥P` | `$ ` | Panes and tabs, grouped by parent tab |
+| _(programmatic)_ | `# ` | Repos and worktrees for opening |
 
-Shortcuts are registered as menu items in `AppDelegate` (responder chain routing). Pressing the same shortcut again while the bar is open toggles it closed. Pressing a different shortcut while open switches the prefix in-place.
+The first three shortcuts are registered as menu items in `AppDelegate` (responder chain routing). The repos scope (`# `) is triggered programmatically via `showCommandBarRepos()` (e.g., from the tab bar's "Open Repo/Worktree" button). Pressing the same shortcut again while the bar is open toggles it closed. Pressing a different shortcut while open switches the prefix in-place.
 
 ### Keyboard Interception
 
@@ -415,6 +426,7 @@ CommandBarView.executeItem()
   ├── .dispatch(command)         → CommandDispatcher.dispatch() → full pipeline
   ├── .dispatchTargeted(cmd,id)  → CommandDispatcher.dispatch(_:target:targetType:)
   ├── .navigate(level)           → state.pushLevel() (nested drill-in)
+  ├── .worktreeAction(presence)  → CommandBarWorktreeActionResolver → dispatch/navigate/choice
   └── .custom(closure)           → Direct execution (e.g., tab switching via Notification)
 ```
 
@@ -422,19 +434,36 @@ CommandBarView.executeItem()
 
 | Component | Role |
 |-----------|------|
-| `CommandBarPanelController` | Lifecycle: show/dismiss/toggle, backdrop, animation, state ownership |
-| `CommandBarState` | Observable state: visibility, prefix parsing, navigation stack, selection, recents |
+| `CommandBarPanelController` | Lifecycle: show/dismiss/toggle, backdrop, animation, state ownership. Depends on `WorkspaceStore` and `repoCache: RepoCacheAtom` |
+| `CommandBarState` | Observable state: visibility, prefix parsing (`> `, `$ `, `# `), navigation stack, selection, recents |
 | `CommandBarDataSource` | Builds `CommandBarItem` arrays from `WorkspaceStore`, `atom(\\.workspaceFocusContext).currentFocus`, and `CommandDispatcher` metadata |
+| `CommandBarWorktreeActionResolver` | Resolves worktree selection into dispatch/navigate/choice based on presence state and modifier keys |
 | `CommandBarSearch` | Custom fuzzy matching with score + character match ranges for highlighting |
 | `CommandBarPanel` | `NSPanel` subclass with `NSVisualEffectView` and `NSHostingView` |
 | `CommandBarView` | Root SwiftUI view composing search, results, shared focus context, and footer |
+
+Notable views: `CommandBarBackRow` (nested back navigation), `CommandBarScopePill` (scope indicator), `CommandBarStatusStrip` (app mode display), `CommandBarSearchField` (search input with pill), `CommandBarFooter` (contextual keyboard hints).
 
 The command bar no longer owns its own hidden-command or grouping switches. `AppCommand` remains
 the authoritative command ID, `CommandSpec` carries the authoritative metadata for dispatchable
 commands, and `WorkspaceFocusContextAtom.currentFocus` provides the shared app-wide focus context.
 The command bar consumes those shared models; it does not define commands itself.
 
-> **Files:** `CommandBar/CommandBarPanelController.swift`, `CommandBar/CommandBarState.swift`, `CommandBar/CommandBarPanel.swift`, `CommandBar/CommandBarDataSource.swift`, `CommandBar/CommandBarSearch.swift`, `CommandBar/CommandBarItem.swift`, `CommandBar/Views/*.swift`
+> **Files:** `CommandBar/CommandBarPanelController.swift`, `CommandBar/CommandBarState.swift`, `CommandBar/CommandBarPanel.swift`, `CommandBar/CommandBarDataSource.swift`, `CommandBar/CommandBarWorktreeActionResolver.swift`, `CommandBar/CommandBarSearch.swift`, `CommandBar/CommandBarItem.swift`, `CommandBar/Views/*.swift`
+
+---
+
+## Management Mode
+
+Management mode enables split insertion and pane rearrangement. Three components coordinate the feature:
+
+| Component | Location | Role |
+|-----------|----------|------|
+| `ManagementModeAtom` | `Core/State/MainActor/Atoms/ManagementModeAtom.swift` | Canonical active/inactive state |
+| `ManagementModeMonitor` | `App/Lifecycle/ManagementModeMonitor.swift` | Observes atom state changes, drives side effects |
+| `ManagementModeToolbarButton` | `App/Lifecycle/ManagementModeToolbarButton.swift` | Toolbar integration for toggling management mode |
+
+Toggled via the command pipeline or the toolbar button. The command bar's `CommandBarStatusStrip` also reflects the current mode.
 
 ---
 

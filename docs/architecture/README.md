@@ -101,7 +101,9 @@ UIStateAtom (presentation prefs — workspace.ui.json)
 ## Mutation Flow (Summary)
 
 ```
-User Action → PaneActionCommand → WorkspaceCommandResolver → WorkspaceCommandValidator
+User Action → PaneActionCommand
+  → WorkspaceCommandResolver.snapshot() builds ActionStateSnapshot
+  → WorkspaceCommandValidator.validate(action, snapshot) → ValidatedAction
   → PaneCoordinator → Store.mutate()
     → @Observable tracks → SwiftUI re-renders
     → markDirty() → debounced save (500ms)
@@ -109,8 +111,10 @@ User Action → PaneActionCommand → WorkspaceCommandResolver → WorkspaceComm
 Command Bar
   → CommandSpec visibility + metadata
   → CommandDispatcher.dispatch()
-  → WorkspaceCommandHandling
-  → WorkspaceCommandResolver → WorkspaceCommandValidator → PaneCoordinator
+  → WorkspaceCommandHandling (PaneTabViewController)
+  → WorkspaceCommandResolver.resolve() → PaneActionCommand
+  → WorkspaceCommandResolver.snapshot() → ActionStateSnapshot
+  → WorkspaceCommandValidator.validate() → PaneCoordinator
 
 Runtime command → PaneCoordinator.dispatchRuntimeCommand()
   → RuntimeRegistry.runtime(for:) → runtime.handleCommand(envelope)

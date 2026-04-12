@@ -25,13 +25,21 @@ struct CommandBarView: View {
                 state: state,
                 onArrowUp: { state.moveSelectionUp(totalItems: totalItems) },
                 onArrowDown: { state.moveSelectionDown(totalItems: totalItems) },
-                onEnter: { executeSelected() },
+                onEnter: { modifier in executeSelected(modifier: modifier) },
                 onBackspaceOnEmpty: { handleBackspace() }
             )
 
             // Separator
             Divider()
                 .opacity(0.3)
+
+            // Back row when nested
+            if state.isNested {
+                CommandBarBackRow(
+                    label: state.backRowLabel,
+                    onBack: { state.popToRoot() }
+                )
+            }
 
             // Results list
             CommandBarResultsList(
@@ -48,8 +56,7 @@ struct CommandBarView: View {
 
             // Footer
             CommandBarFooter(
-                isNested: state.isNested,
-                selectedHasChildren: selectedItem?.hasChildren ?? false
+                hints: footerHints
             )
         }
         .frame(maxWidth: .infinity)
@@ -62,7 +69,10 @@ struct CommandBarView: View {
     }
 
     private var currentContext: WorkspaceFocus {
-        atom(\.workspaceFocusContext).currentFocus
+        atom(\.workspaceFocus).currentFocus(
+            workspaceTabLayout: store.tabLayoutAtom,
+            workspacePane: store.paneAtom
+        )
     }
 
     private var allItems: [CommandBarItem] {
@@ -90,20 +100,24 @@ struct CommandBarView: View {
         CommandBarDataSource.grouped(filteredItems)
     }
 
+    private var displayedItems: [CommandBarItem] {
+        CommandBarDataSource.displayItems(from: groups)
+    }
+
     private var totalItems: Int {
-        filteredItems.count
+        displayedItems.count
     }
 
     private var selectedItem: CommandBarItem? {
-        guard state.selectedIndex >= 0, state.selectedIndex < filteredItems.count else { return nil }
-        return filteredItems[state.selectedIndex]
+        guard state.selectedIndex >= 0, state.selectedIndex < displayedItems.count else { return nil }
+        return displayedItems[state.selectedIndex]
     }
 
     /// IDs of items that should be dimmed (command not currently dispatchable).
     /// Checks both direct dispatch and navigate (drill-in) items via the `command` property.
     private var dimmedItemIds: Set<String> {
         var ids = Set<String>()
-        for item in filteredItems {
+        for item in displayedItems {
             if let command = item.command, !dispatcher.canDispatch(command) {
                 ids.insert(item.id)
             }
@@ -111,14 +125,35 @@ struct CommandBarView: View {
         return ids
     }
 
-    // MARK: - Actions
-
-    private func executeSelected() {
-        guard let item = selectedItem else { return }
-        executeItem(item)
+    private var footerHints: [FooterHint] {
+        FooterHintBuilder.hints(
+            for: selectedItem,
+            isNested: state.isNested,
+            canOpenInCurrentTab: canOpenWorktreeInCurrentTab,
+            scope: state.currentScope
+        )
     }
 
-    private func executeItem(_ item: CommandBarItem) {
+    private var canOpenWorktreeInCurrentTab: Bool {
+        let workspaceTabLayout = store.tabLayoutAtom
+        guard
+            let activeTabId = workspaceTabLayout.activeTabId,
+            let activeTab = workspaceTabLayout.tab(activeTabId),
+            activeTab.activePaneId != nil
+        else {
+            return false
+        }
+        return true
+    }
+
+    // MARK: - Actions
+
+    private func executeSelected(modifier: EnterModifier = .plain) {
+        guard let item = selectedItem else { return }
+        executeItem(item, modifier: modifier)
+    }
+
+    private func executeItem(_ item: CommandBarItem, modifier: EnterModifier = .plain) {
         // Block execution of dimmed (unavailable) commands
         if dimmedItemIds.contains(item.id) { return }
 
@@ -141,6 +176,38 @@ struct CommandBarView: View {
             state.recordRecent(itemId: item.id)
             onDismiss()
             closure()
+
+        case .worktreeAction(let presence):
+            executeResolvedWorktreeAction(
+                resolution: CommandBarWorktreeActionResolver.resolve(
+                    presence: presence,
+                    modifier: modifier,
+                    canOpenInCurrentTab: canOpenWorktreeInCurrentTab
+                ),
+                presence: presence,
+                itemId: item.id
+            )
+        }
+    }
+
+    private func executeResolvedWorktreeAction(
+        resolution: CommandBarWorktreeActionResolution,
+        presence: WorktreePresence,
+        itemId: String
+    ) {
+        switch resolution {
+        case .dispatch(let command, let target, let targetType):
+            state.recordRecent(itemId: itemId)
+            onDismiss()
+            dispatcher.dispatch(command, target: target, targetType: targetType)
+
+        case .showActionsMenu:
+            state.pushLevel(
+                CommandBarDataSource.buildWorktreeActionsLevel(
+                    presence: presence,
+                    canOpenInCurrentTab: canOpenWorktreeInCurrentTab
+                )
+            )
         }
     }
 

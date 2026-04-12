@@ -362,7 +362,8 @@ final class PaneCoordinator {
 
     private func handleTerminalRuntimeEvent(_ event: GhosttyEvent, sourcePaneId: PaneId) {
         let sourcePaneUUID = sourcePaneId.uuid
-        guard let sourceTabId = store.tabs.first(where: { $0.activePaneIds.contains(sourcePaneUUID) })?.id else {
+        let tabs = store.tabLayoutAtom.tabs
+        guard let sourceTabId = tabs.first(where: { $0.activePaneIds.contains(sourcePaneUUID) })?.id else {
             Self.logger.warning(
                 "Terminal runtime event dropped: source pane \(sourcePaneUUID.uuidString, privacy: .public) is not present in any tab. event=\(String(describing: event), privacy: .public)"
             )
@@ -385,7 +386,7 @@ final class PaneCoordinator {
             guard
                 let command = mapGotoSplitDirection(direction),
                 let action = WorkspaceCommandResolver.resolve(
-                    command: command, tabs: store.tabs, activeTabId: sourceTabId)
+                    command: command, tabs: tabs, activeTabId: sourceTabId)
             else {
                 Self.logger.debug(
                     "Unable to resolve gotoSplit runtime event for pane \(sourcePaneUUID.uuidString, privacy: .public) direction=\(String(describing: direction), privacy: .public)"
@@ -443,17 +444,18 @@ final class PaneCoordinator {
     }
 
     private func openNewTabFromSourcePane(_ sourcePaneId: UUID) {
-        if let sourcePane = store.pane(sourcePaneId),
+        let workspaceRepositoryTopology = store.repositoryTopologyAtom
+        if let sourcePane = store.paneAtom.pane(sourcePaneId),
             let worktreeId = sourcePane.worktreeId,
             let repoId = sourcePane.repoId,
-            let worktree = store.worktree(worktreeId),
-            let repo = store.repo(repoId)
+            let worktree = workspaceRepositoryTopology.worktree(worktreeId),
+            let repo = workspaceRepositoryTopology.repo(repoId)
         {
             _ = openNewTerminal(for: worktree, in: repo)
             return
         }
 
-        if let repo = store.repos.first, let worktree = repo.worktrees.first {
+        if let repo = workspaceRepositoryTopology.repos.first, let worktree = repo.worktrees.first {
             _ = openNewTerminal(for: worktree, in: repo)
             return
         }
@@ -464,7 +466,7 @@ final class PaneCoordinator {
     }
 
     private func executeCloseTabMode(_ mode: GhosttyCloseTabMode, sourceTabId: UUID) {
-        let tabs = store.tabs
+        let tabs = store.tabLayoutAtom.tabs
         switch mode {
         case .thisTab:
             execute(.closeTab(tabId: sourceTabId))
@@ -482,7 +484,7 @@ final class PaneCoordinator {
     }
 
     private func executeGotoTabTarget(_ target: GhosttyGotoTabTarget, sourceTabId: UUID) {
-        let tabs = store.tabs
+        let tabs = store.tabLayoutAtom.tabs
         guard !tabs.isEmpty else { return }
 
         let action: PaneActionCommand?
@@ -557,5 +559,18 @@ extension PaneCoordinator: TopologyEffectHandler {
             }
         }
         syncFilesystemRootsAndActivity()
+    }
+
+    // MARK: - Tab Name Derivation
+
+    /// Seed a stable tab name once at creation time from the pane's context.
+    /// Worktree-backed panes get "folder · branch", others get the pane title.
+    /// We intentionally do not auto-rename tabs later when enrichment changes.
+    func tabNameForPane(_ pane: Pane) -> String {
+        atom(\.tabDisplay).title(
+            for: pane,
+            workspaceRepositoryTopology: store.repositoryTopologyAtom,
+            repoCache: atom(\.repoCache)
+        )
     }
 }

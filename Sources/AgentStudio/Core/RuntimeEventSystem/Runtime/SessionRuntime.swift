@@ -138,7 +138,7 @@ final class SessionRuntime {
     /// Initializes statuses for new panes.
     func syncWithStore() {
         guard let store else { return }
-        let storePaneIds = Set(store.panes.keys)
+        let storePaneIds = Set(store.paneAtom.panes.keys)
         atom.sync(withPaneIds: storePaneIds)
     }
 
@@ -168,7 +168,7 @@ final class SessionRuntime {
     func runHealthCheck() async {
         guard let store else { return }
 
-        for (id, pane) in store.panes {
+        for (id, pane) in store.paneAtom.panes {
             guard atom.status(for: id) == .running else { continue }
             guard let provider = pane.provider,
                 let backend = backends[provider]

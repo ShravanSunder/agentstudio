@@ -131,11 +131,15 @@ struct WorkspaceFocusTests {
 }
 
 @MainActor
-@Suite("WorkspaceFocusProjector")
-struct WorkspaceFocusProjectorTests {
+@Suite("WorkspaceFocusDerivedProjection")
+struct WorkspaceFocusDerivedProjectionTests {
     @Test
     func emptyWorkspaceHasNoActiveContext() {
-        let focus = WorkspaceFocusProjector.project(store: WorkspaceStore())
+        let store = WorkspaceStore()
+        let focus = WorkspaceFocusDerived().currentFocus(
+            workspaceTabLayout: store.tabLayoutAtom,
+            workspacePane: store.paneAtom
+        )
 
         #expect(focus.paneContentType == .noActivePane)
         #expect(focus.satisfiedRequirements.isEmpty)
@@ -149,7 +153,10 @@ struct WorkspaceFocusProjectorTests {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        let focus = WorkspaceFocusProjector.project(store: store)
+        let focus = WorkspaceFocusDerived().currentFocus(
+            workspaceTabLayout: store.tabLayoutAtom,
+            workspacePane: store.paneAtom
+        )
 
         #expect(focus.paneContentType == .terminal)
         #expect(focus.satisfiedRequirements.contains(.hasActiveTab))
@@ -179,7 +186,10 @@ struct WorkspaceFocusProjectorTests {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        let focus = WorkspaceFocusProjector.project(store: store)
+        let focus = WorkspaceFocusDerived().currentFocus(
+            workspaceTabLayout: store.tabLayoutAtom,
+            workspacePane: store.paneAtom
+        )
 
         #expect(focus.paneContentType == .noActivePane)
         #expect(focus.satisfiedRequirements.contains(.hasActiveTab))
@@ -205,7 +215,10 @@ struct WorkspaceFocusProjectorTests {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        let focus = WorkspaceFocusProjector.project(store: store)
+        let focus = WorkspaceFocusDerived().currentFocus(
+            workspaceTabLayout: store.tabLayoutAtom,
+            workspacePane: store.paneAtom
+        )
 
         #expect(focus.paneContentType == .noActivePane)
         #expect(focus.satisfiedRequirements.contains(.hasActiveTab))
@@ -230,7 +243,10 @@ struct WorkspaceFocusProjectorTests {
         store.insertPane(paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after)
         _ = store.addDrawerPane(to: paneA.id)
 
-        let focus = WorkspaceFocusProjector.project(store: store)
+        let focus = WorkspaceFocusDerived().currentFocus(
+            workspaceTabLayout: store.tabLayoutAtom,
+            workspacePane: store.paneAtom
+        )
 
         #expect(focus.satisfiedRequirements.contains(.hasMultiplePanes))
         #expect(focus.satisfiedRequirements.contains(.hasArrangements))
@@ -249,75 +265,11 @@ struct WorkspaceFocusProjectorTests {
         store.appendTab(secondTab)
         store.setActiveTab(firstTab.id)
 
-        let focus = WorkspaceFocusProjector.project(store: store)
+        let focus = WorkspaceFocusDerived().currentFocus(
+            workspaceTabLayout: store.tabLayoutAtom,
+            workspacePane: store.paneAtom
+        )
 
         #expect(focus.satisfiedRequirements.contains(.hasMultipleTabs))
-    }
-}
-
-@MainActor
-@Suite("WorkspaceFocusContext")
-struct WorkspaceFocusContextAtomTests {
-    @Test
-    func defaultCurrentFocusHasNoActivePaneContext() {
-        let atom = WorkspaceFocusContextAtom()
-
-        #expect(atom.currentFocus.paneContentType == .noActivePane)
-        #expect(atom.currentFocus.satisfiedRequirements.isEmpty)
-    }
-
-    @Test
-    func recomputeFromEmptyWorkspaceKeepsEmptyFocus() {
-        let atom = WorkspaceFocusContextAtom()
-        let store = WorkspaceStore()
-
-        atom.startObserving(store: store)
-
-        #expect(atom.currentFocus.paneContentType == .noActivePane)
-        #expect(atom.currentFocus.satisfiedRequirements.isEmpty)
-    }
-
-    @Test
-    func recomputeFromActiveTerminalWorkspaceReportsTerminalFocus() {
-        let atom = WorkspaceFocusContextAtom()
-        let store = WorkspaceStore()
-        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
-        let tab = Tab(paneId: pane.id)
-        store.appendTab(tab)
-        store.setActiveTab(tab.id)
-
-        atom.startObserving(store: store)
-
-        #expect(atom.currentFocus.paneContentType == .terminal)
-        #expect(atom.currentFocus.satisfiedRequirements.contains(.hasActiveTab))
-        #expect(atom.currentFocus.satisfiedRequirements.contains(.hasActivePane))
-        #expect(atom.currentFocus.satisfiedRequirements.contains(.paneIsTerminal))
-    }
-
-    @Test
-    func recomputeTracksDrawerArrangementAndMultiPaneRequirements() {
-        let atom = WorkspaceFocusContextAtom()
-        let store = WorkspaceStore()
-        let paneA = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
-        let paneB = store.createPane(source: .floating(launchDirectory: nil, title: "Pane B"))
-        var tab = Tab(paneId: paneA.id)
-        let namedArrangement = PaneArrangement(
-            name: "Review",
-            isDefault: false,
-            layout: tab.layout,
-            visiblePaneIds: Set(tab.activePaneIds)
-        )
-        tab.arrangements.append(namedArrangement)
-        store.appendTab(tab)
-        store.setActiveTab(tab.id)
-        store.insertPane(paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after)
-        _ = store.addDrawerPane(to: paneA.id)
-
-        atom.startObserving(store: store)
-
-        #expect(atom.currentFocus.satisfiedRequirements.contains(.hasMultiplePanes))
-        #expect(atom.currentFocus.satisfiedRequirements.contains(.hasArrangements))
-        #expect(atom.currentFocus.satisfiedRequirements.contains(.hasDrawer))
-        #expect(atom.currentFocus.satisfiedRequirements.contains(.hasDrawerPanes))
     }
 }

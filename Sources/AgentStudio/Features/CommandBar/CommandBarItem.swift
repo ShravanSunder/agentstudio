@@ -1,4 +1,3 @@
-import Foundation
 import SwiftUI
 
 // MARK: - CommandBarScope
@@ -46,6 +45,14 @@ enum CommandBarAppMode {
     }
 }
 
+// MARK: - EnterModifier
+
+enum EnterModifier: Sendable {
+    case plain
+    case command
+    case option
+}
+
 // MARK: - CommandBarAction
 
 /// What happens when a command bar item is selected.
@@ -58,6 +65,16 @@ enum CommandBarAction {
     case navigate(CommandBarLevel)
     /// Arbitrary action (e.g., open URL, show dialog)
     case custom(@Sendable () -> Void)
+    /// Resolve worktree behavior at selection time based on presence and modifier keys.
+    case worktreeAction(presence: WorktreePresence)
+}
+
+enum CommandBarItemKind {
+    case tab
+    case pane
+    case worktree
+    case command
+    case other
 }
 
 // MARK: - CommandBarItem
@@ -105,6 +122,36 @@ struct CommandBarItem: Identifiable {
         self.action = action
         self.command = command
     }
+
+    var worktreeOpenState: WorktreeOpenState? {
+        switch action {
+        case .worktreeAction(let presence):
+            return presence.openState
+        case .dispatch, .dispatchTargeted, .navigate, .custom:
+            return nil
+        }
+    }
+
+    var kind: CommandBarItemKind {
+        switch action {
+        case .worktreeAction:
+            return .worktree
+        case .dispatch:
+            return .command
+        case .navigate:
+            return command == nil ? .other : .command
+        case .custom:
+            return .other
+        case .dispatchTargeted(let command, _, let targetType):
+            if command == .selectTab && targetType == .tab {
+                return .tab
+            }
+            if command == .focusPane && (targetType == .pane || targetType == .floatingTerminal) {
+                return .pane
+            }
+            return .command
+        }
+    }
 }
 
 // MARK: - ShortcutKey
@@ -128,16 +175,28 @@ struct ShortcutKey: Identifiable, Hashable {
 // MARK: - CommandBarLevel
 
 /// A navigation level in the command bar (for nested drill-in).
+///
+/// When `scopeLabel` is set, the pill shows the scope label (e.g. "Worktrees · Actions")
+/// and the back row shows `‹ {title}`. When `scopeLabel` is nil, the pill shows `title`
+/// and the back row shows a bare `‹`.
 struct CommandBarLevel: Identifiable {
     let id: String
     let title: String
     let parentLabel: String?
+    let scopeLabel: String?
     let items: [CommandBarItem]
 
-    init(id: String, title: String, parentLabel: String? = nil, items: [CommandBarItem]) {
+    init(
+        id: String,
+        title: String,
+        parentLabel: String? = nil,
+        scopeLabel: String? = nil,
+        items: [CommandBarItem]
+    ) {
         self.id = id
         self.title = title
         self.parentLabel = parentLabel
+        self.scopeLabel = scopeLabel
         self.items = items
     }
 }
@@ -150,4 +209,98 @@ struct CommandBarItemGroup: Identifiable {
     let name: String
     let priority: Int
     let items: [CommandBarItem]
+}
+
+// MARK: - FooterHint
+
+struct FooterHint: Identifiable, Equatable, Sendable {
+    let id: String
+    let shortcutKeys: [ShortcutKey]
+    let label: String
+    let isDivider: Bool
+
+    init(id: String, key: String, label: String, isDivider: Bool = false) {
+        self.id = id
+        self.shortcutKeys = [ShortcutKey(symbol: key)]
+        self.label = label
+        self.isDivider = isDivider
+    }
+
+    init(id: String, keys: [ShortcutKey], label: String, isDivider: Bool = false) {
+        self.id = id
+        self.shortcutKeys = keys
+        self.label = label
+        self.isDivider = isDivider
+    }
+
+    static func divider(_ id: String) -> Self {
+        Self(id: id, keys: [], label: "", isDivider: true)
+    }
+}
+
+// MARK: - FooterHintBuilder
+
+enum FooterHintBuilder {
+    static func hints(
+        for item: CommandBarItem?,
+        isNested: Bool,
+        canOpenInCurrentTab: Bool,
+        scope: CommandBarScope = .everything
+    ) -> [FooterHint] {
+        if isNested {
+            return [
+                FooterHint(id: "enter", key: "↵", label: "Select"),
+                FooterHint(id: "back", key: "⌫", label: "Back"),
+                .divider("div-dismiss"),
+                FooterHint(id: "dismiss", key: "esc", label: "Close"),
+            ]
+        }
+
+        // Action hints — item-specific
+        var actions: [FooterHint] = []
+
+        if let item {
+            if item.worktreeOpenState != nil {
+                actions = [
+                    FooterHint(id: "enter", key: "↵", label: "Actions"),
+                    FooterHint(
+                        id: "cmd-enter",
+                        keys: [ShortcutKey(symbol: "⌘"), ShortcutKey(symbol: "↵")],
+                        label: "New tab"
+                    ),
+                ]
+                if canOpenInCurrentTab {
+                    actions.append(
+                        FooterHint(
+                            id: "opt-enter",
+                            keys: [ShortcutKey(symbol: "⌥"), ShortcutKey(symbol: "↵")],
+                            label: "Open in tab"
+                        )
+                    )
+                }
+            } else {
+                let enterLabel = (item.kind == .tab || item.kind == .pane) ? "Go to" : "Open"
+                actions = [FooterHint(id: "enter", key: "↵", label: enterLabel)]
+                if item.hasChildren {
+                    actions.append(FooterHint(id: "drill-in", key: "→", label: "Drill in"))
+                }
+            }
+        }
+
+        // Assemble: actions | scopes | dismiss
+        var hints = actions
+        if scope == .everything {
+            if !hints.isEmpty { hints.append(.divider("div-scope")) }
+            hints.append(contentsOf: scopeHints)
+        }
+        hints.append(.divider("div-dismiss"))
+        hints.append(FooterHint(id: "dismiss", key: "esc", label: "Close"))
+        return hints
+    }
+
+    private static let scopeHints: [FooterHint] = [
+        FooterHint(id: "scope-commands", key: ">", label: "Commands"),
+        FooterHint(id: "scope-panes", key: "$", label: "Panes"),
+        FooterHint(id: "scope-repos", key: "#", label: "Repos"),
+    ]
 }

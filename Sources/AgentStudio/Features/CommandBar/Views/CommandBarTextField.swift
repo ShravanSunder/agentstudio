@@ -10,7 +10,7 @@ struct CommandBarTextField: NSViewRepresentable {
     let placeholder: String
     let onArrowUp: () -> Void
     let onArrowDown: () -> Void
-    let onEnter: () -> Void
+    let onEnter: (EnterModifier) -> Void
     let onBackspaceOnEmpty: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -84,7 +84,16 @@ struct CommandBarTextField: NSViewRepresentable {
                 parent.onArrowDown()
                 return true
             case #selector(NSResponder.insertNewline(_:)):
-                parent.onEnter()
+                let flags = NSApp.currentEvent?.modifierFlags ?? []
+                let modifier: EnterModifier
+                if flags.contains(.command) {
+                    modifier = .command
+                } else if flags.contains(.option) {
+                    modifier = .option
+                } else {
+                    modifier = .plain
+                }
+                parent.onEnter(modifier)
                 return true
             case #selector(NSResponder.deleteBackward(_:)):
                 if textView.string.isEmpty {
