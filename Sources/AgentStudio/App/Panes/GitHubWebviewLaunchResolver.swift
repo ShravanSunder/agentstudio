@@ -11,7 +11,7 @@ enum GitHubWebviewLaunchResolver {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> URL {
-        guard let pane = store.pane(paneId) else {
+        guard let pane = store.paneAtom.pane(paneId) else {
             logger.debug("Falling back to GitHub home because paneId=\(paneId.uuidString, privacy: .public) is missing")
             return fallbackURL
         }
@@ -24,8 +24,8 @@ enum GitHubWebviewLaunchResolver {
         repoCache: RepoCacheAtom
     ) -> URL {
         guard
-            let activeTabId = store.activeTabId,
-            let activePaneId = store.tab(activeTabId)?.activePaneId
+            let activeTabId = store.tabLayoutAtom.activeTabId,
+            let activePaneId = store.tabLayoutAtom.tab(activeTabId)?.activePaneId
         else {
             logger.debug("Falling back to GitHub home because there is no active pane")
             return fallbackURL
@@ -75,13 +75,14 @@ enum GitHubWebviewLaunchResolver {
         for pane: Pane,
         store: WorkspaceStore
     ) -> (repo: Repo, worktreeId: UUID?)? {
+        let workspaceRepositoryTopology = store.repositoryTopologyAtom
         if let repoId = pane.repoId,
-            let repo = store.repo(repoId)
+            let repo = workspaceRepositoryTopology.repo(repoId)
         {
             return (repo, pane.worktreeId)
         }
 
-        guard let resolved = store.repoAndWorktree(containing: pane.metadata.facets.cwd) else {
+        guard let resolved = workspaceRepositoryTopology.repoAndWorktree(containing: pane.metadata.facets.cwd) else {
             return nil
         }
         return (resolved.repo, resolved.worktree.id)

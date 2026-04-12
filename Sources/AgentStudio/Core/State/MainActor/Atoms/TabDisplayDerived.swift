@@ -1,15 +1,26 @@
 import Foundation
 
 @MainActor
-enum TabDisplayNameResolver {
-    static func displayTitle(for tab: Tab, store: WorkspaceStore, repoCache: RepoCacheAtom) -> String {
+struct TabDisplayDerived {
+    func displayTitle(
+        for tab: Tab,
+        workspacePane: WorkspacePaneAtom,
+        workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom,
+        repoCache: RepoCacheAtom
+    ) -> String {
         let normalizedName = Tab.normalizedName(tab.name)
         if !normalizedName.isEmpty, normalizedName != "Tab" {
             return normalizedName
         }
 
         let paneTitles = tab.activePaneIds.compactMap { paneId in
-            store.pane(paneId).map { title(for: $0, store: store, repoCache: repoCache) }
+            workspacePane.pane(paneId).map {
+                title(
+                    for: $0,
+                    workspaceRepositoryTopology: workspaceRepositoryTopology,
+                    repoCache: repoCache
+                )
+            }
         }
         if paneTitles.count > 1 {
             return paneTitles.joined(separator: " | ")
@@ -17,9 +28,13 @@ enum TabDisplayNameResolver {
         return paneTitles.first ?? "Terminal"
     }
 
-    static func title(for pane: Pane, store: WorkspaceStore, repoCache: RepoCacheAtom) -> String {
+    func title(
+        for pane: Pane,
+        workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom,
+        repoCache: RepoCacheAtom
+    ) -> String {
         if let worktreeId = pane.worktreeId,
-            let worktree = store.worktree(worktreeId)
+            let worktree = workspaceRepositoryTopology.worktree(worktreeId)
         {
             let branchName = atom(\.paneDisplay).resolvedBranchName(
                 worktree: worktree,
@@ -39,4 +54,5 @@ enum TabDisplayNameResolver {
         let title = pane.metadata.title.trimmingCharacters(in: .whitespacesAndNewlines)
         return title.isEmpty ? "Terminal" : title
     }
+
 }

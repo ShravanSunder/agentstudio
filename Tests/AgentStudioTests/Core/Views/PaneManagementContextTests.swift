@@ -19,9 +19,9 @@ struct PaneManagementContextTests {
             )
             persistor.ensureDirectory()
             let store = WorkspaceStore(
-                catalogAtom: atoms.workspaceCatalog,
-                graphAtom: atoms.workspaceGraph,
-                interactionAtom: atoms.workspaceInteraction,
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout,
                 persistor: persistor
             )
 
@@ -66,9 +66,9 @@ struct PaneManagementContextTests {
             )
             persistor.ensureDirectory()
             let store = WorkspaceStore(
-                catalogAtom: atoms.workspaceCatalog,
-                graphAtom: atoms.workspaceGraph,
-                interactionAtom: atoms.workspaceInteraction,
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout,
                 persistor: persistor
             )
 
@@ -100,9 +100,9 @@ struct PaneManagementContextTests {
             )
             persistor.ensureDirectory()
             let store = WorkspaceStore(
-                catalogAtom: atoms.workspaceCatalog,
-                graphAtom: atoms.workspaceGraph,
-                interactionAtom: atoms.workspaceInteraction,
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout,
                 persistor: persistor
             )
 
@@ -129,9 +129,9 @@ struct PaneManagementContextTests {
             )
             persistor.ensureDirectory()
             let store = WorkspaceStore(
-                catalogAtom: atoms.workspaceCatalog,
-                graphAtom: atoms.workspaceGraph,
-                interactionAtom: atoms.workspaceInteraction,
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout,
                 persistor: persistor
             )
 
@@ -159,9 +159,9 @@ struct PaneManagementContextTests {
             )
             persistor.ensureDirectory()
             let store = WorkspaceStore(
-                catalogAtom: atoms.workspaceCatalog,
-                graphAtom: atoms.workspaceGraph,
-                interactionAtom: atoms.workspaceInteraction,
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout,
                 persistor: persistor
             )
 

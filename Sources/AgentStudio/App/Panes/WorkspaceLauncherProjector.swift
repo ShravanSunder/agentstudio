@@ -44,16 +44,18 @@ struct WorkspaceEmptyStateModel: Equatable {
 enum WorkspaceLauncherProjector {
     static func project(store: WorkspaceStore) -> WorkspaceEmptyStateModel {
         let repoCache = atom(\.repoCache)
+        let repositoryTopology = store.repositoryTopologyAtom
+        let tabLayout = store.tabLayoutAtom
 
-        if let scanningPath = store.scanningPath, store.repos.isEmpty {
+        if let scanningPath = store.scanningPath, repositoryTopology.repos.isEmpty {
             return WorkspaceEmptyStateModel(kind: .scanning(scanningPath), recentCards: [])
         }
 
-        if store.repos.isEmpty {
+        if repositoryTopology.repos.isEmpty {
             return WorkspaceEmptyStateModel(kind: .noFolders, recentCards: [])
         }
 
-        if store.tabs.isEmpty {
+        if tabLayout.tabs.isEmpty {
             let checkoutColorHexByRepoId = projectCheckoutColorHexByRepoId(
                 store: store,
                 repoCache: repoCache
@@ -100,8 +102,8 @@ enum WorkspaceLauncherProjector {
         checkoutColorHexByRepoId: [UUID: String]
     ) -> WorkspaceRecentCardModel? {
         if let worktreeId = target.worktreeId,
-            let worktree = store.worktree(worktreeId),
-            let repo = store.repo(containing: worktreeId)
+            let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
+            let repo = store.repositoryTopologyAtom.repo(containing: worktreeId)
         {
             return makeWorktreeCard(
                 target: target,
@@ -112,7 +114,7 @@ enum WorkspaceLauncherProjector {
             )
         }
 
-        if let resolvedContext = store.repoAndWorktree(containing: target.path) {
+        if let resolvedContext = store.repositoryTopologyAtom.repoAndWorktree(containing: target.path) {
             return makeWorktreeCard(
                 target: target,
                 worktree: resolvedContext.worktree,
@@ -162,7 +164,7 @@ enum WorkspaceLauncherProjector {
         repoCache: RepoCacheAtom
     ) -> [UUID: String] {
         let sidebarRepos = RepoSidebarContentView.resolvedRepos(
-            store.repos.map(SidebarRepo.init(repo:)),
+            store.repositoryTopologyAtom.repos.map(SidebarRepo.init(repo:)),
             enrichmentByRepoId: repoCache.repoEnrichmentByRepoId
         )
         let metadataByRepoId = RepoSidebarContentView.buildRepoMetadata(

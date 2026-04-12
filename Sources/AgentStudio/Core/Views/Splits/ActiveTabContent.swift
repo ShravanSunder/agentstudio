@@ -32,8 +32,8 @@ struct ActiveTabContent: View {
     }
 
     var body: some View {
-        let activeTabId = store.activeTabId
-        let tab = activeTabId.flatMap { store.tab($0) }
+        let activeTabId = store.tabLayoutAtom.activeTabId
+        let tab = activeTabId.flatMap { store.tabLayoutAtom.tab($0) }
         let registeredPaneCount = tab?.activePaneIds.filter { viewRegistry.view(for: $0) != nil }.count ?? 0
         let tabPaneCount = tab?.activePaneIds.count ?? 0
         // swiftlint:disable:next redundant_discardable_let

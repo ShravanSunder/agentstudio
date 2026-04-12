@@ -7,10 +7,15 @@ private let commandBarWorktreeLogger = Logger(subsystem: "com.agentstudio", cate
 extension CommandBarDataSource {
     static func repoScopeItems(store: WorkspaceStore) -> [CommandBarItem] {
         var items: [CommandBarItem] = []
-        let singleWorktreeRepos = store.repos
+
+        let repos = store.repositoryTopologyAtom.repos
+        let singleWorktreeRepos =
+            repos
             .filter { $0.worktrees.count <= 1 }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-        let multiWorktreeRepos = store.repos
+
+        let multiWorktreeRepos =
+            repos
             .filter { $0.worktrees.count > 1 }
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
 
@@ -47,7 +52,7 @@ extension CommandBarDataSource {
     }
 
     static func everythingWorktreeItems(store: WorkspaceStore) -> [CommandBarItem] {
-        store.repos.flatMap { repo in
+        store.repositoryTopologyAtom.repos.flatMap { repo in
             repo.worktrees.map { worktree in
                 let presence = buildWorktreePresence(worktree: worktree, repo: repo, store: store)
                 return unifiedWorktreeItem(
@@ -87,41 +92,11 @@ extension CommandBarDataSource {
         repo: Repo,
         store: WorkspaceStore
     ) -> WorktreePresence {
-        let openPanes: [WorktreePaneLocation] = store.panes(for: worktree.id).compactMap { pane in
-            guard pane.residency == .active else {
-                return nil
-            }
-            guard let tab = store.tabContaining(paneId: pane.id),
-                let tabIndex = store.tabs.firstIndex(where: { $0.id == tab.id })
-            else {
-                commandBarWorktreeLogger.warning(
-                    "buildWorktreePresence: active pane \(pane.id.uuidString, privacy: .public) for worktree \(worktree.id.uuidString, privacy: .public) has no owning tab"
-                )
-                return nil
-            }
-
-            let paneIndexInTab =
-                tab.activePaneIds.firstIndex(of: pane.id)
-                ?? tab.allPaneIds.firstIndex(of: pane.id)
-                ?? 0
-
-            return WorktreePaneLocation(
-                paneId: pane.id,
-                tabId: tab.id,
-                tabIndex: tabIndex,
-                paneIndexInTab: paneIndexInTab,
-                isActiveInTab: tab.activePaneId == pane.id
-            )
-        }
-        .sorted { lhs, rhs in
-            if lhs.tabIndex != rhs.tabIndex {
-                return lhs.tabIndex < rhs.tabIndex
-            }
-            if lhs.paneIndexInTab != rhs.paneIndexInTab {
-                return lhs.paneIndexInTab < rhs.paneIndexInTab
-            }
-            return lhs.paneId.uuidString < rhs.paneId.uuidString
-        }
+        let openPanes = atom(\.workspaceLookup).paneLocations(
+            for: worktree.id,
+            workspacePane: store.paneAtom,
+            workspaceTabLayout: store.tabLayoutAtom
+        )
 
         return WorktreePresence(
             worktreeId: worktree.id,
@@ -209,7 +184,7 @@ extension CommandBarDataSource {
         }
     }
 
-    private static func locationSubtitle(for location: WorktreePaneLocation) -> String {
+    private static func locationSubtitle(for location: WorkspacePaneLocation) -> String {
         let base = "Tab \(location.tabIndex + 1) · Pane \(location.paneIndexInTab + 1)"
         return location.isActiveInTab ? "\(base) · Active" : base
     }

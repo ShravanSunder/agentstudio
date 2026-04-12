@@ -35,7 +35,7 @@ extension PaneCoordinator {
 
         let derivedEnvelopes = paneFilesystemProjectionStore.consume(
             envelope,
-            panesById: store.panes,
+            panesById: store.paneAtom.panes,
             worktreeRootsByWorktreeId: workspaceWorktreeContextsById().mapValues(\.rootPath)
         )
         if !derivedEnvelopes.isEmpty {
@@ -78,7 +78,7 @@ extension PaneCoordinator {
 
         let desiredContextsByWorktreeId = workspaceWorktreeContextsById()
         let activityByWorktreeId = desiredContextsByWorktreeId.keys.reduce(into: [UUID: Bool]()) { result, worktreeId in
-            result[worktreeId] = store.paneCount(for: worktreeId) > 0
+            result[worktreeId] = store.paneAtom.paneCount(for: worktreeId) > 0
         }
         let activePaneWorktreeId = activePaneWorktree()
         let existingContextsByWorktreeId = filesystemRegisteredContextsByWorktreeId
@@ -141,19 +141,19 @@ extension PaneCoordinator {
         filesystemLastActivePaneWorktreeId = activePaneWorktreeId
         let validWorktreeIds = Set(desiredContextsByWorktreeId.keys)
         paneFilesystemProjectionStore.prune(
-            validPaneIds: Set(store.panes.keys),
+            validPaneIds: Set(store.paneAtom.panes.keys),
             validWorktreeIds: validWorktreeIds
         )
     }
 
     private func activePaneWorktree() -> UUID? {
-        guard let activePaneId = store.activeTab?.activePaneId else { return nil }
-        return store.pane(activePaneId)?.worktreeId
+        guard let activePaneId = store.tabLayoutAtom.activeTab?.activePaneId else { return nil }
+        return store.paneAtom.pane(activePaneId)?.worktreeId
     }
 
     private func workspaceWorktreeContextsById() -> [UUID: WorktreeFilesystemContext] {
         var contextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
-        for repo in store.repos where !store.repositoryTopologyAtom.isRepoUnavailable(repo.id) {
+        for repo in store.repositoryTopologyAtom.repos where !store.repositoryTopologyAtom.isRepoUnavailable(repo.id) {
             for worktree in repo.worktrees {
                 contextsByWorktreeId[worktree.id] = WorktreeFilesystemContext(
                     repoId: repo.id,

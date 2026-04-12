@@ -92,12 +92,14 @@ final class ActionExecutor {
 
     /// Validate/canonicalize a PaneActionCommand against current state, then execute it.
     func execute(_ action: PaneActionCommand) {
+        let tabLayout = store.tabLayoutAtom
+        let repositoryTopology = store.repositoryTopologyAtom
         let snapshot = WorkspaceCommandResolver.snapshot(
-            from: store.tabs,
-            activeTabId: store.activeTabId,
+            from: tabLayout.tabs,
+            activeTabId: tabLayout.activeTabId,
             isManagementModeActive: atom(\.managementMode).isActive,
-            knownRepoIds: Set(store.repos.map(\.id)),
-            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
+            knownRepoIds: Set(repositoryTopology.repos.map(\.id)),
+            knownWorktreeIds: Set(repositoryTopology.repos.flatMap(\.worktrees).map(\.id))
         )
         switch WorkspaceCommandValidator.validate(action, state: snapshot) {
         case .success(let validated):

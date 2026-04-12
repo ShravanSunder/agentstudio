@@ -69,7 +69,10 @@ struct CommandBarView: View {
     }
 
     private var currentContext: WorkspaceFocus {
-        atom(\.workspaceFocusContext).currentFocus
+        atom(\.workspaceFocus).currentFocus(
+            workspaceTabLayout: store.tabLayoutAtom,
+            workspacePane: store.paneAtom
+        )
     }
 
     private var allItems: [CommandBarItem] {
@@ -132,9 +135,10 @@ struct CommandBarView: View {
     }
 
     private var canOpenWorktreeInCurrentTab: Bool {
+        let workspaceTabLayout = store.tabLayoutAtom
         guard
-            let activeTabId = store.activeTabId,
-            let activeTab = store.tab(activeTabId),
+            let activeTabId = workspaceTabLayout.activeTabId,
+            let activeTab = workspaceTabLayout.tab(activeTabId),
             activeTab.activePaneId != nil
         else {
             return false

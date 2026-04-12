@@ -360,7 +360,7 @@ Singletons:
 
 ### 3.2 WorkspaceStore
 
-Main-actor persistence aggregate for the workspace atoms. `WorkspaceStore` is **not** an `@Observable` store itself — it is a persistence wrapper that owns debounced persistence, restore, and flush. Workspace-domain mutations live on the owning atoms or `WorkspaceMutationCoordinator`.
+Main-actor persistence aggregate for the workspace atoms. `WorkspaceStore` is **not** an `@Observable` store itself — it is a persistence wrapper that owns debounced persistence, restore, and flush. Live workspace reads go through atoms or `derived`, and workspace-domain mutations live on the owning atoms or `WorkspaceMutationCoordinator`. Do not add convenience query or mutation facades to `WorkspaceStore`.
 
 **Owned atoms:**
 
@@ -372,28 +372,16 @@ Main-actor persistence aggregate for the workspace atoms. `WorkspaceStore` is **
 | `tabLayoutAtom: WorkspaceTabLayoutAtom` | Tabs, arrangements, active selection, zoom/minimize |
 | `mutationCoordinator: WorkspaceMutationCoordinator` | Cross-atom workspace mutations (remove pane, background, reactivate, close snapshots) |
 
-**Read aggregate** (computed properties delegating to atoms):
-- `repos`, `watchedPaths`, `panes`, `tabs`, `activeTabId`, `activeTab`, `activePaneIds`
-- `workspaceId`, `workspaceName`, `sidebarWidth`, `windowFrame`, `createdAt`
-- `unavailableRepoIds`, `orphanedPanes`
-- Lookup helpers: `pane(_)`, `tab(_)`, `repo(_)`, `worktree(_)`, `tabContaining(paneId:)`, `repoAndWorktree(containing:)`
-- Pane queries: `panes(for: worktreeId)`, `paneCount(for: worktreeId)`, `isWorktreeActive(_)`
+**Public role:**
+- owns the four canonical workspace atoms plus `WorkspaceMutationCoordinator`
+- restores persisted canonical state into those atoms
+- observes atom changes, marks canonical state dirty, and debounces persistence
+- flushes canonical state to disk on demand
 
-**Forwarding mutation API** (delegates to the appropriate atom or mutation coordinator):
-
-| Category | Methods |
-|----------|---------|
-| Pane | `createPane()`, `removePane()`, `updatePaneTitle()`, `updatePaneCWD()`, `setResidency()`, `backgroundPane()`, `reactivatePane()`, `purgeOrphanedPane()`, `orphanPanesForRepo()`, `orphanPanesForWorktree()` |
-| Pane Webview | `updatePaneWebviewState()`, `syncPaneWebviewState()` |
-| Tab | `appendTab()`, `removeTab()`, `insertTab()`, `moveTab()`, `moveTabByDelta()`, `setActiveTab()`, `renameTab()` |
-| Layout | `insertPane()`, `removePaneFromLayout()`, `resizePane()`, `resizePaneByDelta()`, `equalizePanes()`, `setActivePane()`, `toggleZoom()`, `minimizePane()`, `expandPane()` |
-| Compound | `breakUpTab()`, `extractPane()`, `mergeTab()` |
-| Arrangement | `createArrangement()`, `removeArrangement()`, `switchArrangement()`, `renameArrangement()` |
-| Drawer | `addDrawerPane()`, `insertDrawerPane()`, `moveDrawerPane()`, `removeDrawerPane()`, `toggleDrawer()`, `collapseAllDrawers()`, `setActiveDrawerPane()`, `resizeDrawerPane()`, `equalizeDrawerPanes()`, `minimizeDrawerPane()`, `expandDrawerPane()` |
-| Repo | `addRepo()`, `removeRepo()`, `markRepoUnavailable()`, `markRepoAvailable()`, `reassociateRepo()`, `reconcileDiscoveredWorktrees()` |
-| Watched Paths | `addWatchedPath()`, `removeWatchedPath()` |
-| Metadata | `setSidebarWidth()`, `setWindowFrame()` |
-| Undo Snapshots | `snapshotForClose()`, `snapshotForPaneClose()`, `restoreFromSnapshot()`, `restoreFromPaneSnapshot()` |
+**Not its role:**
+- serving as a query facade for UI, command, or runtime code
+- re-exporting atom state through convenience computed properties
+- forwarding mutation methods that belong to the owning atom or coordinator
 
 **Persistence:**
 - `restore()` — Load from disk via `WorkspacePersistor`, hydrate all four atoms through `WorkspacePersistenceTransformer`

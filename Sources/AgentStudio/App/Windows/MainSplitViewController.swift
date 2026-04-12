@@ -84,7 +84,7 @@ class MainSplitViewController: NSSplitViewController {
         addSplitViewItem(paneTabItem)
 
         // Restore sidebar collapsed state — force collapse if no repos
-        if store.repos.isEmpty {
+        if store.repositoryTopologyAtom.repos.isEmpty {
             sidebarItem.isCollapsed = true
         } else if UserDefaults.standard.bool(forKey: Self.sidebarCollapsedKey) {
             sidebarItem.isCollapsed = true

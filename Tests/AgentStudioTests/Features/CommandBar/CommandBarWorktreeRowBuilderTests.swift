@@ -32,14 +32,14 @@ struct CommandBarWorktreeRowBuilderTests {
             repoName: repo.name,
             isMainWorktree: true,
             openPanes: [
-                WorktreePaneLocation(
+                WorkspacePaneLocation(
                     paneId: UUID(),
                     tabId: tabId,
                     tabIndex: 0,
                     paneIndexInTab: 0,
                     isActiveInTab: true
                 ),
-                WorktreePaneLocation(
+                WorkspacePaneLocation(
                     paneId: UUID(),
                     tabId: UUID(),
                     tabIndex: 2,
@@ -106,14 +106,14 @@ struct CommandBarWorktreeRowBuilderTests {
             repoName: "repo",
             isMainWorktree: true,
             openPanes: [
-                WorktreePaneLocation(
+                WorkspacePaneLocation(
                     paneId: UUID(),
                     tabId: tabId,
                     tabIndex: 1,
                     paneIndexInTab: 0,
                     isActiveInTab: true
                 ),
-                WorktreePaneLocation(
+                WorkspacePaneLocation(
                     paneId: UUID(),
                     tabId: tabId,
                     tabIndex: 1,
@@ -146,14 +146,14 @@ struct CommandBarWorktreeRowBuilderTests {
             repoName: "repo",
             isMainWorktree: true,
             openPanes: [
-                WorktreePaneLocation(
+                WorkspacePaneLocation(
                     paneId: UUID(),
                     tabId: UUID(),
                     tabIndex: 0,
                     paneIndexInTab: 0,
                     isActiveInTab: true
                 ),
-                WorktreePaneLocation(
+                WorkspacePaneLocation(
                     paneId: UUID(),
                     tabId: UUID(),
                     tabIndex: 1,
@@ -211,14 +211,14 @@ struct CommandBarWorktreeRowBuilderTests {
             repoName: "repo",
             isMainWorktree: true,
             openPanes: [
-                WorktreePaneLocation(
+                WorkspacePaneLocation(
                     paneId: UUID(),
                     tabId: UUID(),
                     tabIndex: 1,
                     paneIndexInTab: 0,
                     isActiveInTab: false
                 ),
-                WorktreePaneLocation(
+                WorkspacePaneLocation(
                     paneId: UUID(),
                     tabId: UUID(),
                     tabIndex: 1,

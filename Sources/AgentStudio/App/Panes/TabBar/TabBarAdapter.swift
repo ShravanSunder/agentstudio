@@ -30,14 +30,14 @@ struct TabBarItem: Identifiable, Equatable {
     var minimizedCount: Int
 }
 
-/// Derives tab bar display state from WorkspaceStore.
+/// Derives tab bar display state from the workspace atoms.
 /// Replaces TabBarState as the observable source for CustomTabBar.
 /// Owns only transient UI state (dragging, drop targets).
 @MainActor
 @Observable
 final class TabBarAdapter {
 
-    // MARK: - Derived from WorkspaceStore
+    // MARK: - Derived From Workspace Atoms
 
     private(set) var tabs: [TabBarItem] = []
     private(set) var activeTabId: UUID?
@@ -113,11 +113,9 @@ final class TabBarAdapter {
         guard !isObservingStore else { return }
         isObservingStore = true
         withObservationTracking {
-            // Touch the store properties we derive state from.
-            // @Observable tracks these accesses and fires onChange when any mutate.
-            _ = self.store.tabs
-            _ = self.store.activeTabId
-            _ = self.store.panes
+            _ = self.store.tabLayoutAtom.tabs
+            _ = self.store.tabLayoutAtom.activeTabId
+            _ = self.store.paneAtom.panes
             _ = self.repoCache.worktreeEnrichmentByWorktreeId
         } onChange: { [weak self] in
             guard let self else { return }
@@ -146,10 +144,16 @@ final class TabBarAdapter {
     }
 
     private func refresh() {
-        let storeTabs = store.tabs
+        let tabLayout = store.tabLayoutAtom
+        let storeTabs = tabLayout.tabs
 
         tabs = storeTabs.map { tab in
-            let displayTitle = TabDisplayNameResolver.displayTitle(for: tab, store: store, repoCache: repoCache)
+            let displayTitle = atom(\.tabDisplay).displayTitle(
+                for: tab,
+                workspacePane: store.paneAtom,
+                workspaceRepositoryTopology: store.repositoryTopologyAtom,
+                repoCache: repoCache
+            )
             let dragTitle = displayTitle
 
             let activeArrangement = tab.activeArrangement
@@ -185,7 +189,7 @@ final class TabBarAdapter {
             )
         }
 
-        if let storeActiveTabId = store.activeTabId {
+        if let storeActiveTabId = tabLayout.activeTabId {
             activeTabId = storeActiveTabId
         } else {
             // Defensive UI fallback for transient restore/repair windows where tabs
@@ -196,7 +200,7 @@ final class TabBarAdapter {
     }
 
     private func paneDisplayTitle(for paneId: UUID) -> String {
-        guard let pane = store.pane(paneId) else {
+        guard let pane = store.paneAtom.pane(paneId) else {
             return "Terminal"
         }
 
@@ -205,8 +209,8 @@ final class TabBarAdapter {
 
         if let worktreeId = pane.worktreeId,
             let repoId = pane.repoId,
-            let repo = store.repo(repoId),
-            let worktree = store.worktree(worktreeId)
+            let repo = store.repositoryTopologyAtom.repo(repoId),
+            let worktree = store.repositoryTopologyAtom.worktree(worktreeId)
         {
             let repoName = pane.metadata.repoName ?? repo.name
             let branchName = atom(\.paneDisplay).resolvedBranchName(

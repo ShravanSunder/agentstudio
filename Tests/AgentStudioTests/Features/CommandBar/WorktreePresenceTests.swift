@@ -11,9 +11,7 @@ struct WorktreePresenceTests {
     }
 
     private func makeStore() -> WorkspaceStore {
-        let store = WorkspaceStore()
-        atom(\.workspaceFocusContext).startObserving(store: store)
-        return store
+        WorkspaceStore()
     }
 
     @Test

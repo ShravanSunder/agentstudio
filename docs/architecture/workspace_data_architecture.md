@@ -17,7 +17,7 @@ Data flows DOWN only — tier N never reads tier N+1.
 ```
 TIER A: CANONICAL CONFIG (source of truth, user intent)
   File: ~/.agentstudio/workspaces/<id>/workspace.state.json
-  Owner: WorkspaceStore (@MainActor, @Observable)
+  Owner: canonical workspace atoms + WorkspaceStore persistence wrapper
   Mutated by: explicit user actions + topology consumer (discovery events)
   Contains: canonical repos, canonical worktrees, panes, tabs, layouts
 
@@ -203,7 +203,7 @@ RepoCacheAtom (@Observable, passive)
   → persisted to cache file on debounced schedule
       │
       ▼
-SIDEBAR (pure reader of WorkspaceStore + RepoCacheAtom + UIStateAtom)
+SIDEBAR (pure reader of canonical atoms + RepoCacheAtom + UIStateAtom)
 ```
 
 ### Actor Responsibilities
@@ -525,7 +525,7 @@ The event bus is a **notification mechanism** — runtime actors produce facts, 
 
 **Events are facts about the world.** "A repo exists at this path." "Branch changed to X." "PR count is 3." Events carry data, not instructions.
 
-**Stores are mutated by their own methods.** `WorkspaceStore.addRepo(at:)` is a direct method call, not a command dispatched through the bus. The bus does not route mutations.
+**Canonical state is mutated by the owning atoms or `WorkspaceMutationCoordinator`.** The bus does not route mutations, and `WorkspaceStore` is not a convenience mutation facade.
 
 **The coordinator bridges events to store methods.** `WorkspaceCacheCoordinator` subscribes to the bus, pattern-matches on events, and calls the appropriate store methods. It contains no domain logic — just "when I see X, call Y."
 

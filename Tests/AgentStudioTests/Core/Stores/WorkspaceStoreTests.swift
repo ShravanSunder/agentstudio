@@ -81,9 +81,9 @@ final class WorkspaceStoreTests {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let atoms = AtomStore()
         let scopedStore = WorkspaceStore(
-            catalogAtom: atoms.workspaceCatalog,
-            graphAtom: atoms.workspaceGraph,
-            interactionAtom: atoms.workspaceInteraction,
+            catalogAtom: atoms.workspaceRepositoryTopology,
+            graphAtom: atoms.workspacePane,
+            interactionAtom: atoms.workspaceTabLayout,
             persistor: persistor
         )
 
@@ -94,9 +94,9 @@ final class WorkspaceStoreTests {
                 title: "Scoped"
             )
         )
-        atoms.workspaceGraph.addPane(pane)
+        atoms.workspacePane.addPane(pane)
 
-        #expect(scopedStore.graphAtom === atoms.workspaceGraph)
+        #expect(scopedStore.graphAtom === atoms.workspacePane)
         #expect(scopedStore.pane(pane.id)?.title == "Scoped")
 
         #expect(scopedStore.flush())

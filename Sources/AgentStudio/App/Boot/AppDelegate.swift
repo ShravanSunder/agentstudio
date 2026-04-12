@@ -84,7 +84,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         repoCacheStore = RepoCacheStore(atom: atomStore.repoCache)
         uiStateStore = UIStateStore(atom: atomStore.uiState)
         store.restore()
-        atomStore.workspaceFocusContext.startObserving(store: store)
         managementModeMonitor = ManagementModeMonitor()
         appLifecycleStore = AppLifecycleStore()
         windowLifecycleStore = WindowLifecycleStore()
@@ -93,19 +92,19 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             windowLifecycleStore: windowLifecycleStore
         )
         RestoreTrace.log(
-            "store.restore complete tabs=\(store.tabs.count) panes=\(store.panes.count) activeTab=\(store.activeTabId?.uuidString ?? "nil")"
+            "store.restore complete tabs=\(store.tabLayoutAtom.tabs.count) panes=\(store.paneAtom.panes.count) activeTab=\(store.tabLayoutAtom.activeTabId?.uuidString ?? "nil")"
         )
     }
 
     private func bootLoadCacheStore(persistor: WorkspacePersistor) {
         _ = persistor
-        repoCacheStore.restore(for: store.workspaceId)
+        repoCacheStore.restore(for: store.metadataAtom.workspaceId)
         pruneStaleCache(store: store, repoCache: repoCache)
     }
 
     private func bootLoadUIStore(persistor: WorkspacePersistor) {
         _ = persistor
-        uiStateStore.restore(for: store.workspaceId)
+        uiStateStore.restore(for: store.metadataAtom.workspaceId)
     }
 
     private func bootEstablishRuntimeBus(
@@ -185,8 +184,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: - Boot Helpers
 
     private func pruneStaleCache(store: WorkspaceStore, repoCache: RepoCacheAtom) {
-        let validRepoIds = Set(store.repos.map(\.id))
-        let validWorktreeIds = Set(store.repos.flatMap(\.worktrees).map(\.id))
+        let repos = store.repositoryTopologyAtom.repos
+        let validRepoIds = Set(repos.map(\.id))
+        let validWorktreeIds = Set(repos.flatMap(\.worktrees).map(\.id))
         for repoId in Array(repoCache.repoEnrichmentByRepoId.keys) where !validRepoIds.contains(repoId) {
             repoCache.removeRepo(repoId)
         }
@@ -197,12 +197,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func replayBootTopology(store: WorkspaceStore, coordinator: WorkspaceCacheCoordinator) async {
+        let tabLayout = store.tabLayoutAtom
+        let workspacePane = store.paneAtom
+        let repos = store.repositoryTopologyAtom.repos
+        let watchedPaths = store.repositoryTopologyAtom.watchedPaths
         let activePaneRepoIds: Set<UUID> = {
-            guard let activeTab = store.activeTab else { return [] }
-            let repoIds = activeTab.activePaneIds.compactMap { store.panes[$0]?.repoId }
+            guard let activeTab = tabLayout.activeTab else { return [] }
+            let repoIds = activeTab.activePaneIds.compactMap { workspacePane.panes[$0]?.repoId }
             return Set(repoIds)
         }()
-        let prioritizedRepos = store.repos.sorted { a, b in
+        let prioritizedRepos = repos.sorted { a, b in
             let aActive = activePaneRepoIds.contains(a.id)
             let bActive = activePaneRepoIds.contains(b.id)
             if aActive != bActive { return aActive }
@@ -218,22 +222,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             )
         }
 
-        if !store.watchedPaths.isEmpty {
+        if !watchedPaths.isEmpty {
             await coordinator.syncScope(
-                .updateWatchedFolders(paths: store.watchedPaths.map(\.path))
+                .updateWatchedFolders(paths: watchedPaths.map(\.path))
             )
         }
     }
 
     /// Seed pane slots immediately after canonical restore and before any hosting controller exists.
-    /// Restored panes already live in `store.panes`; creating their slots here ensures the first
+    /// Restored panes already live in `store.paneAtom.panes`; creating their slots here ensures the first
     /// SwiftUI read during tab-host creation sees stable slot identity instead of the lazy fallback.
     func seedSlotsForRestoredPanes() {
         guard store != nil, viewRegistry != nil else { return }
-        for paneId in store.panes.keys {
+        for paneId in store.paneAtom.panes.keys {
             viewRegistry.ensureSlot(for: paneId)
         }
-        RestoreTrace.log("seedSlotsForRestoredPanes count=\(store.panes.count)")
+        RestoreTrace.log("seedSlotsForRestoredPanes count=\(store.paneAtom.panes.count)")
     }
 
     private static var nextTopologySeq: UInt64 = 0
@@ -385,7 +389,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         // Collect known zmx session IDs from persisted panes. If any main pane cannot
         // resolve stable repo/worktree keys, skip cleanup to avoid deleting valid sessions.
-        let candidates: [ZmxOrphanCleanupCandidate] = store.panes.values
+        let candidates: [ZmxOrphanCleanupCandidate] = store.paneAtom.panes.values
             .filter { $0.provider == .zmx }
             .map { pane in
                 if let parentPaneId = pane.parentPaneId {
@@ -393,8 +397,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 }
                 let resolvedKeys: (repoStableKey: String?, worktreeStableKey: String?)
                 if let worktreeId = pane.worktreeId,
-                    let repo = store.repo(containing: worktreeId),
-                    let worktree = store.worktree(worktreeId)
+                    let repo = store.repositoryTopologyAtom.repo(containing: worktreeId),
+                    let worktree = store.repositoryTopologyAtom.worktree(worktreeId)
                 {
                     resolvedKeys = (repo.stableKey, worktree.stableKey)
                 } else if let cwd = pane.metadata.facets.cwd {
@@ -494,13 +498,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         guard let store else { return .terminateNow }
 
         do {
-            try repoCacheStore.flush(for: store.workspaceId)
+            try repoCacheStore.flush(for: store.metadataAtom.workspaceId)
         } catch {
             appLogger.warning("Workspace cache flush failed at termination: \(error.localizedDescription)")
         }
 
         do {
-            try uiStateStore.flush(for: store.workspaceId)
+            try uiStateStore.flush(for: store.metadataAtom.workspaceId)
         } catch {
             appLogger.warning("Workspace UI flush failed at termination: \(error.localizedDescription)")
         }
@@ -549,7 +553,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         let definition = CommandDispatcher.shared.definition(for: command)
-        let focus = atom(\.workspaceFocusContext).currentFocus
+        let focus = atom(\.workspaceFocus).currentFocus(
+            workspaceTabLayout: store.tabLayoutAtom,
+            workspacePane: store.paneAtom
+        )
         let isVisible = definition.isVisible(in: focus)
         menuItem.isHidden = !isVisible
         guard isVisible else { return false }
@@ -845,7 +852,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
 
             let refreshSummary = await self.watchedFolderCommands.refreshWatchedFolders(
-                self.store.watchedPaths.map(\.path)
+                self.store.repositoryTopologyAtom.watchedPaths.map(\.path)
             )
 
             let repoPaths = refreshSummary.repoPaths(in: rootURL)
@@ -866,7 +873,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         // Skip if the path is already a known worktree of an available repo.
         // Unavailable repos are excluded so re-adding the same path can reassociate them.
-        let isKnownWorktree = store.repos.contains { repo in
+        let isKnownWorktree = store.repositoryTopologyAtom.repos.contains { repo in
             !store.repositoryTopologyAtom.isRepoUnavailable(repo.id)
                 && repo.worktrees.contains { $0.path.standardizedFileURL == normalizedPath }
         }

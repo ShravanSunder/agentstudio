@@ -3,7 +3,7 @@ import SwiftUI
 
 // MARK: - CommandBarDataSource
 
-/// Builds CommandBarItem arrays from WorkspaceStore and CommandDispatcher.
+/// Builds CommandBarItem arrays from atom-backed live app state and CommandDispatcher.
 /// Single source of truth for all command bar content, filtered by scope.
 @MainActor
 enum CommandBarDataSource {
@@ -45,7 +45,10 @@ enum CommandBarDataSource {
         repoCache: RepoCacheAtom,
         dispatcher: CommandDispatcher
     ) -> [CommandBarItem] {
-        let focus = atom(\.workspaceFocusContext).currentFocus
+        let focus = atom(\.workspaceFocus).currentFocus(
+            workspaceTabLayout: store.tabLayoutAtom,
+            workspacePane: store.paneAtom
+        )
         return items(
             scope: scope,
             store: store,
@@ -124,9 +127,10 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> [CommandBarItem] {
-        store.tabs.enumerated().map { index, tab in
+        let workspaceTabLayout = store.tabLayoutAtom
+        return workspaceTabLayout.tabs.enumerated().map { index, tab in
             let title = tabDisplayTitle(tab: tab, store: store, repoCache: repoCache)
-            let isActive = tab.id == store.activeTabId
+            let isActive = tab.id == workspaceTabLayout.activeTabId
             let paneCount = tab.activePaneIds.count
             let subtitle: String = {
                 var parts: [String] = []
@@ -164,10 +168,12 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> [CommandBarItem] {
+        let workspaceTabLayout = store.tabLayoutAtom
+        let workspacePane = store.paneAtom
         var items: [CommandBarItem] = []
-        for (tabIndex, tab) in store.tabs.enumerated() {
+        for (tabIndex, tab) in workspaceTabLayout.tabs.enumerated() {
             for paneId in tab.activePaneIds {
-                guard let pane = store.pane(paneId) else { continue }
+                guard let pane = workspacePane.pane(paneId) else { continue }
                 let isActive = tab.activePaneId == paneId
 
                 let capturedPaneId = pane.id
@@ -207,11 +213,13 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> [CommandBarItem] {
+        let workspaceTabLayout = store.tabLayoutAtom
+        let workspacePane = store.paneAtom
         var items: [CommandBarItem] = []
-        for (tabIndex, tab) in store.tabs.enumerated() {
+        for (tabIndex, tab) in workspaceTabLayout.tabs.enumerated() {
             let tabTitle = tabDisplayTitle(tab: tab, store: store, repoCache: repoCache)
             let tabGroupName = "Tab \(tabIndex + 1): \(tabTitle)"
-            let isActiveTab = tab.id == store.activeTabId
+            let isActiveTab = tab.id == workspaceTabLayout.activeTabId
 
             // Tab as selectable item
             let tabId = tab.id
@@ -230,7 +238,7 @@ enum CommandBarDataSource {
 
             // Panes within this tab
             for paneId in tab.activePaneIds {
-                guard let pane = store.pane(paneId) else { continue }
+                guard let pane = workspacePane.pane(paneId) else { continue }
                 let isActive = tab.activePaneId == paneId
 
                 let capturedPaneId = pane.id
@@ -413,8 +421,9 @@ enum CommandBarDataSource {
         let appliesToWorktree = def.appliesTo.contains(.worktree)
 
         if appliesToTab {
+            let workspaceTabLayout = store.tabLayoutAtom
             items.append(
-                contentsOf: store.tabs.enumerated().map { index, tab in
+                contentsOf: workspaceTabLayout.tabs.enumerated().map { index, tab in
                     let title = tabDisplayTitle(tab: tab, store: store, repoCache: repoCache)
                     return CommandBarItem(
                         id: "target-tab-\(tab.id.uuidString)",
@@ -429,9 +438,11 @@ enum CommandBarDataSource {
         }
 
         if appliesToPane {
-            for (tabIndex, tab) in store.tabs.enumerated() {
+            let workspaceTabLayout = store.tabLayoutAtom
+            let workspacePane = store.paneAtom
+            for (tabIndex, tab) in workspaceTabLayout.tabs.enumerated() {
                 for paneId in tab.activePaneIds {
-                    guard let pane = store.pane(paneId) else { continue }
+                    guard let pane = workspacePane.pane(paneId) else { continue }
                     let targetType: SearchItemType
                     switch pane.source {
                     case .floating: targetType = .floatingTerminal
@@ -453,7 +464,7 @@ enum CommandBarDataSource {
         }
 
         if appliesToWorktree {
-            for (repoIndex, repo) in store.repos.enumerated() {
+            for (repoIndex, repo) in store.repositoryTopologyAtom.repos.enumerated() {
                 for worktree in repo.worktrees {
                     items.append(
                         CommandBarItem(
@@ -484,9 +495,11 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> CommandBarLevel {
-        let items: [CommandBarItem] = store.tabs.enumerated().flatMap { tabIndex, tab in
+        let workspaceTabLayout = store.tabLayoutAtom
+        let workspacePane = store.paneAtom
+        let items: [CommandBarItem] = workspaceTabLayout.tabs.enumerated().flatMap { tabIndex, tab in
             tab.activePaneIds.compactMap { paneId -> CommandBarItem? in
-                guard let pane = store.pane(paneId), !pane.isDrawerChild else { return nil }
+                guard let pane = workspacePane.pane(paneId), !pane.isDrawerChild else { return nil }
                 let destinationLevel = buildMovePaneDestinationLevel(
                     for: def,
                     store: store,
@@ -523,29 +536,16 @@ enum CommandBarDataSource {
         sourcePaneId: UUID,
         sourceTabId: UUID
     ) -> CommandBarLevel {
-        let items: [CommandBarItem] = store.tabs.enumerated().compactMap { tabIndex, tab -> CommandBarItem? in
-            guard tab.id != sourceTabId else { return nil }
-            guard tab.activePaneId ?? tab.activePaneIds.first != nil else { return nil }
-
-            let targetTabId = tab.id
-            let tabTitle = tabDisplayTitle(tab: tab, store: store, repoCache: repoCache)
-            return CommandBarItem(
-                id: "target-move-dest-tab-\(sourcePaneId.uuidString)-\(targetTabId.uuidString)",
-                title: tabTitle,
-                subtitle: "Tab \(tabIndex + 1)",
-                icon: "rectangle.stack",
-                group: "Tabs",
-                groupPriority: 0,
-                action: .custom {
-                    Task { @MainActor in
-                        CommandDispatcher.shared.dispatchMovePaneToTab(
-                            sourcePaneId: sourcePaneId,
-                            sourceTabId: sourceTabId,
-                            targetTabId: targetTabId
-                        )
-                    }
-                },
-                command: def.command
+        let workspaceTabLayout = store.tabLayoutAtom
+        let sourceContext = (paneId: sourcePaneId, tabId: sourceTabId)
+        let items: [CommandBarItem] = workspaceTabLayout.tabs.enumerated().compactMap { tabIndex, tab in
+            movePaneDestinationItem(
+                for: def,
+                store: store,
+                repoCache: repoCache,
+                sourceContext: sourceContext,
+                tabIndex: tabIndex,
+                tab: tab
             )
         }
 
@@ -557,14 +557,48 @@ enum CommandBarDataSource {
         )
     }
 
+    private static func movePaneDestinationItem(
+        for def: CommandSpec,
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom,
+        sourceContext: (paneId: UUID, tabId: UUID),
+        tabIndex: Int,
+        tab: Tab
+    ) -> CommandBarItem? {
+        guard tab.id != sourceContext.tabId else { return nil }
+        guard tab.activePaneId ?? tab.activePaneIds.first != nil else { return nil }
+
+        let targetTabId = tab.id
+        let tabTitle = tabDisplayTitle(tab: tab, store: store, repoCache: repoCache)
+        return CommandBarItem(
+            id: "target-move-dest-tab-\(sourceContext.paneId.uuidString)-\(targetTabId.uuidString)",
+            title: tabTitle,
+            subtitle: "Tab \(tabIndex + 1)",
+            icon: "rectangle.stack",
+            group: "Tabs",
+            groupPriority: 0,
+            action: .custom {
+                Task { @MainActor in
+                    CommandDispatcher.shared.dispatchMovePaneToTab(
+                        sourcePaneId: sourceContext.paneId,
+                        sourceTabId: sourceContext.tabId,
+                        targetTabId: targetTabId
+                    )
+                }
+            },
+            command: def.command
+        )
+    }
+
     /// Build a target level listing arrangements in the active tab for arrangement commands.
     private static func buildArrangementTargetLevel(
         for def: CommandSpec,
         store: WorkspaceStore
     ) -> CommandBarLevel {
+        let workspaceTabLayout = store.tabLayoutAtom
         var items: [CommandBarItem] = []
 
-        if let activeTabId = store.activeTabId, let tab = store.tab(activeTabId) {
+        if let activeTabId = workspaceTabLayout.activeTabId, let tab = workspaceTabLayout.tab(activeTabId) {
             items = tab.arrangements.compactMap { arrangement in
                 // Don't show default arrangement for delete/rename
                 guard !arrangement.isDefault || def.command == .switchArrangement else { return nil }
@@ -594,16 +628,18 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> CommandBarLevel {
+        let workspaceTabLayout = store.tabLayoutAtom
+        let workspacePane = store.paneAtom
         var items: [CommandBarItem] = []
 
-        if let activeTabId = store.activeTabId,
-            let tab = store.tab(activeTabId),
+        if let activeTabId = workspaceTabLayout.activeTabId,
+            let tab = workspaceTabLayout.tab(activeTabId),
             let activePaneId = tab.activePaneId,
-            let pane = store.pane(activePaneId),
+            let pane = workspacePane.pane(activePaneId),
             let drawer = pane.drawer
         {
             items = drawer.paneIds.enumerated().compactMap { index, drawerPaneId -> CommandBarItem? in
-                guard let drawerPane = store.pane(drawerPaneId) else { return nil }
+                guard let drawerPane = workspacePane.pane(drawerPaneId) else { return nil }
                 let isActive = drawer.activePaneId == drawerPaneId
                 return CommandBarItem(
                     id: "target-drawer-\(drawerPaneId.uuidString)",
@@ -645,6 +681,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> [String] {
+        let workspaceRepositoryTopology = store.repositoryTopologyAtom
         let parts = displayParts(for: pane, store: store, repoCache: repoCache)
         var keywords = ["pane"]
         if let repoName = parts.repoName {
@@ -667,7 +704,7 @@ enum CommandBarDataSource {
         } else {
             keywords.append("terminal")
         }
-        if let worktreeId = pane.worktreeId, let wt = store.worktree(worktreeId) {
+        if let worktreeId = pane.worktreeId, let wt = workspaceRepositoryTopology.worktree(worktreeId) {
             keywords.append(wt.name)
         }
         return keywords
@@ -720,7 +757,12 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> String {
-        TabDisplayNameResolver.displayTitle(for: tab, store: store, repoCache: repoCache)
+        atom(\.tabDisplay).displayTitle(
+            for: tab,
+            workspacePane: store.paneAtom,
+            workspaceRepositoryTopology: store.repositoryTopologyAtom,
+            repoCache: repoCache
+        )
     }
 
     private static func paneDisplaySubtitle(
@@ -742,7 +784,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> PaneDisplayParts {
-        guard let pane = store.pane(paneId) else {
+        guard let pane = store.paneAtom.pane(paneId) else {
             return PaneDisplayParts(
                 primaryLabel: "Terminal",
                 repoName: nil,
@@ -760,6 +802,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> PaneDisplayParts {
+        let workspaceRepositoryTopology = store.repositoryTopologyAtom
         let rawTitle = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let defaultLabel = rawTitle.isEmpty ? "Terminal" : rawTitle
         let cwdFolderName: String? = {
@@ -769,8 +812,8 @@ enum CommandBarDataSource {
 
         if let worktreeId = pane.worktreeId,
             let repoId = pane.repoId,
-            let repo = store.repo(repoId),
-            let worktree = store.worktree(worktreeId)
+            let repo = workspaceRepositoryTopology.repo(repoId),
+            let worktree = workspaceRepositoryTopology.worktree(worktreeId)
         {
             let repoName = pane.metadata.repoName ?? repo.name
             let branchName = atom(\.paneDisplay).resolvedBranchName(

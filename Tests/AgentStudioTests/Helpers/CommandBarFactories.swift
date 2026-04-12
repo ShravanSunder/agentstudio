@@ -48,13 +48,13 @@ func makeWorktreePresence(
     worktreeId: UUID = UUID(),
     repoId: UUID = UUID()
 ) -> WorktreePresence {
-    let openPanes: [WorktreePaneLocation]
+    let openPanes: [WorkspacePaneLocation]
     switch paneCount {
     case 0:
         openPanes = []
     case 1:
         openPanes = [
-            WorktreePaneLocation(
+            WorkspacePaneLocation(
                 paneId: UUID(),
                 tabId: UUID(),
                 tabIndex: 0,
@@ -65,14 +65,14 @@ func makeWorktreePresence(
     default:
         let tabId = UUID()
         openPanes = [
-            WorktreePaneLocation(
+            WorkspacePaneLocation(
                 paneId: UUID(),
                 tabId: tabId,
                 tabIndex: 0,
                 paneIndexInTab: 0,
                 isActiveInTab: true
             ),
-            WorktreePaneLocation(
+            WorkspacePaneLocation(
                 paneId: UUID(),
                 tabId: tabId,
                 tabIndex: 0,

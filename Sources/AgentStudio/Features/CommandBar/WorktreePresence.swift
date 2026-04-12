@@ -8,16 +8,6 @@ enum WorktreeOpenState: Equatable, Sendable {
     case multiplePanes
 }
 
-// MARK: - WorktreePaneLocation
-
-struct WorktreePaneLocation: Equatable, Sendable {
-    let paneId: UUID
-    let tabId: UUID
-    let tabIndex: Int
-    let paneIndexInTab: Int
-    let isActiveInTab: Bool
-}
-
 // MARK: - WorktreePresence
 
 struct WorktreePresence: Equatable, Sendable {
@@ -26,7 +16,7 @@ struct WorktreePresence: Equatable, Sendable {
     let worktreeName: String
     let repoName: String
     let isMainWorktree: Bool
-    let openPanes: [WorktreePaneLocation]
+    let openPanes: [WorkspacePaneLocation]
 
     var openState: WorktreeOpenState {
         switch openPanes.count {

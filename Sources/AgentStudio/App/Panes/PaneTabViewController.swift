@@ -206,7 +206,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 self?.dispatchAction(action)
             },
             onSaveArrangement: { [weak self] tabId in
-                guard let self, let tab = self.store.tab(tabId) else { return }
+                guard let self, let tab = self.store.tabLayoutAtom.tab(tabId) else { return }
                 let name = Self.nextArrangementName(existing: tab.arrangements)
                 self.dispatchAction(
                     .createArrangement(
@@ -337,9 +337,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     /// only handles things that live outside the SwiftUI tree (host visibility, firstResponder).
     private func observeForAppKitState() {
         withObservationTracking {
-            _ = self.store.tabs
-            _ = self.store.activeTabId
-            _ = self.store.repos
+            _ = self.store.tabLayoutAtom.tabs
+            _ = self.store.tabLayoutAtom.activeTabId
+            _ = self.store.repositoryTopologyAtom.repos
             _ = self.store.scanningPath
             _ = self.repoCache.recentTargets
             _ = atom(\.managementMode).isActive
@@ -368,8 +368,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         normalizeManagementNavigationScope()
 
         // Focus management: only refocus when active tab or pane actually changes
-        let currentTabId = store.activeTabId
-        let currentPaneId = currentTabId.flatMap { store.tab($0) }?.activePaneId
+        let currentTabId = store.tabLayoutAtom.activeTabId
+        let currentPaneId = currentTabId.flatMap { store.tabLayoutAtom.tab($0) }?.activePaneId
         let selectionChanged = currentTabId != lastFocusedTabId || currentPaneId != lastFocusedPaneId
         let activePaneViewMissing = currentPaneId.map { viewRegistry.view(for: $0) == nil } ?? false
 
@@ -417,18 +417,18 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return drawerPaneId
         }
 
-        return store.activeTabId
-            .flatMap { store.tab($0) }?
+        return store.tabLayoutAtom.activeTabId
+            .flatMap { store.tabLayoutAtom.tab($0) }?
             .activePaneId
     }
 
     private func normalizeManagementNavigationScope() {
         guard case .drawer(let parentPaneId) = managementNavigationScope else { return }
         guard
-            let activeTabId = store.activeTabId,
-            let activePaneId = store.tab(activeTabId)?.activePaneId,
+            let activeTabId = store.tabLayoutAtom.activeTabId,
+            let activePaneId = store.tabLayoutAtom.tab(activeTabId)?.activePaneId,
             activePaneId == parentPaneId,
-            store.pane(parentPaneId)?.drawer != nil
+            store.paneAtom.pane(parentPaneId)?.drawer != nil
         else {
             managementNavigationScope = .mainRow
             return
@@ -436,7 +436,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func visibleActiveDrawerPaneId(for parentPaneId: UUID) -> UUID? {
-        guard let drawer = store.pane(parentPaneId)?.drawer else { return nil }
+        guard let drawer = store.paneAtom.pane(parentPaneId)?.drawer else { return nil }
         guard drawer.isExpanded else { return nil }
         guard let drawerPaneId = drawer.activePaneId else { return nil }
         guard !drawer.minimizedPaneIds.contains(drawerPaneId) else { return nil }
@@ -463,14 +463,14 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func syncTabContentHosts() {
-        for paneId in store.panes.keys {
+        for paneId in store.paneAtom.panes.keys {
             viewRegistry.ensureSlot(for: paneId)
         }
 
-        let liveTabIds = Set(store.tabs.map(\.id))
+        let liveTabIds = Set(store.tabLayoutAtom.tabs.map(\.id))
         guard liveTabIds != Set(tabContentHosts.keys) else { return }
 
-        for tab in store.tabs where tabContentHosts[tab.id] == nil {
+        for tab in store.tabLayoutAtom.tabs where tabContentHosts[tab.id] == nil {
             let host = buildTabContentHost(for: tab.id)
             terminalContainer.addSubview(host)
             NSLayoutConstraint.activate([
@@ -489,14 +489,14 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func updateVisibleTabHost() {
-        let activeTabId = store.activeTabId
+        let activeTabId = store.tabLayoutAtom.activeTabId
         for (tabId, host) in tabContentHosts {
             host.isHidden = tabId != activeTabId
         }
     }
 
     private func activeTabHost() -> PersistentTabHostView? {
-        guard let activeTabId = store.activeTabId else { return nil }
+        guard let activeTabId = store.tabLayoutAtom.activeTabId else { return nil }
         return tabContentHosts[activeTabId]
     }
 
@@ -511,9 +511,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     func syncVisibleTerminalGeometry(reason: StaticString) {
-        guard let activeTabId = store.activeTabId else { return }
+        guard let activeTabId = store.tabLayoutAtom.activeTabId else { return }
         let visibleTerminalViews =
-            store.tab(activeTabId)?.paneIds.compactMap {
+            store.tabLayoutAtom.tab(activeTabId)?.paneIds.compactMap {
                 viewRegistry.terminalView(for: $0)
             }.filter { terminalView in
                 terminalView.window != nil && !terminalView.isHidden
@@ -548,10 +548,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         let snapshot = dragDropSnapshot()
         return Self.splitDropCommitPlan(
             payload: payload,
-            destinationPane: store.pane(destPaneId),
+            destinationPane: store.paneAtom.pane(destPaneId),
             destinationPaneId: destPaneId,
             zone: zone,
-            activeTabId: store.activeTabId,
+            activeTabId: store.tabLayoutAtom.activeTabId,
             state: snapshot
         ) != nil
     }
@@ -562,10 +562,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         guard
             let plan = Self.splitDropCommitPlan(
                 payload: payload,
-                destinationPane: store.pane(destPaneId),
+                destinationPane: store.paneAtom.pane(destPaneId),
                 destinationPaneId: destPaneId,
                 zone: zone,
-                activeTabId: store.activeTabId,
+                activeTabId: store.tabLayoutAtom.activeTabId,
                 state: snapshot
             )
         else {
@@ -575,16 +575,16 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func dragDropSnapshot() -> ActionStateSnapshot {
-        let drawerParentByPaneId = store.panes.values.reduce(into: [UUID: UUID]()) { result, pane in
+        let drawerParentByPaneId = store.paneAtom.panes.values.reduce(into: [UUID: UUID]()) { result, pane in
             guard let parentPaneId = pane.parentPaneId else { return }
             result[pane.id] = parentPaneId
         }
 
         return WorkspaceCommandResolver.snapshot(
-            from: store.tabs,
-            activeTabId: store.activeTabId,
+            from: store.tabLayoutAtom.tabs,
+            activeTabId: store.tabLayoutAtom.activeTabId,
             isManagementModeActive: atom(\.managementMode).isActive,
-            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id)),
+            knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
             drawerParentByPaneId: drawerParentByPaneId
         )
     }
@@ -597,11 +597,11 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             store.tabLayoutAtom.moveTab(fromId: tabId, toIndex: toIndex)
             store.tabLayoutAtom.setActiveTab(tabId)
         case .extractPaneToTabThenMove(let paneId, let sourceTabId, let toIndex):
-            let tabCountBefore = store.tabs.count
+            let tabCountBefore = store.tabLayoutAtom.tabs.count
             dispatchAction(.extractPaneToTab(tabId: sourceTabId, paneId: paneId))
             guard
-                store.tabs.count == tabCountBefore + 1,
-                let extractedTabId = store.activeTabId
+                store.tabLayoutAtom.tabs.count == tabCountBefore + 1,
+                let extractedTabId = store.tabLayoutAtom.activeTabId
             else {
                 return
             }
@@ -643,10 +643,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         destPaneId: UUID,
         zone: DropZone
     ) -> PaneActionCommand? {
-        let destinationPane = store.pane(destPaneId)
+        let destinationPane = store.paneAtom.pane(destPaneId)
         let sourcePane: Pane? =
             if case .existingPane(let sourcePaneId, _) = payload.kind {
-                store.pane(sourcePaneId)
+                store.paneAtom.pane(sourcePaneId)
             } else {
                 nil
             }
@@ -682,7 +682,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func updateEmptyState() {
-        let hasTabs = !store.tabs.isEmpty
+        let hasTabs = !store.tabLayoutAtom.tabs.isEmpty
         tabBarHostingView.isHidden = !hasTabs
         terminalContainer.isHidden = !hasTabs
         emptyStateView?.isHidden = hasTabs
@@ -704,13 +704,13 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private func openRecentTarget(_ target: RecentWorkspaceTarget) {
         let fileManager = FileManager.default
         if let worktreeId = target.worktreeId {
-            guard store.worktree(worktreeId) != nil else {
+            guard store.repositoryTopologyAtom.worktree(worktreeId) != nil else {
                 Self.logger.warning(
                     "Recent target removed because worktree is missing: \(target.id, privacy: .public)")
                 repoCache.removeRecentTarget(target.id)
                 return
             }
-            guard store.repo(containing: worktreeId) != nil else {
+            guard store.repositoryTopologyAtom.repo(containing: worktreeId) != nil else {
                 Self.logger.warning(
                     "Recent target removed because repo is missing for worktreeId=\(worktreeId.uuidString, privacy: .public)"
                 )
@@ -759,7 +759,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             store: store,
             repoCache: repoCache
         )
-        guard let targetTabId = store.activeTabId else {
+        guard let targetTabId = store.tabLayoutAtom.activeTabId else {
             executor.openWebview(url: url)
             return
         }
@@ -771,8 +771,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func activeMainPaneId() -> UUID? {
-        store.activeTabId
-            .flatMap { store.tab($0) }?
+        store.tabLayoutAtom.activeTabId
+            .flatMap { store.tabLayoutAtom.tab($0) }?
             .activePaneId
     }
 
@@ -788,7 +788,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func visibleDrawerPaneIds(for parentPaneId: UUID) -> [UUID] {
-        guard let drawer = store.pane(parentPaneId)?.drawer else { return [] }
+        guard let drawer = store.paneAtom.pane(parentPaneId)?.drawer else { return [] }
         return drawer.paneIds.filter { !drawer.minimizedPaneIds.contains($0) }
     }
 
@@ -829,7 +829,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
     private func handleManagementMoveDown() {
         guard let parentPaneId = activeMainPaneId() else { return }
-        let drawerIsExpanded = store.pane(parentPaneId)?.drawer?.isExpanded == true
+        let drawerIsExpanded = store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true
         if !drawerIsExpanded {
             dispatchAction(.toggleDrawer(paneId: parentPaneId))
         }
@@ -844,7 +844,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private func handleManagementMoveUp() {
         normalizeManagementNavigationScope()
         guard case .drawer(let parentPaneId) = managementNavigationScope else { return }
-        if store.pane(parentPaneId)?.drawer?.isExpanded == true {
+        if store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true {
             dispatchAction(.toggleDrawer(paneId: parentPaneId))
         }
         managementNavigationScope = .mainRow
@@ -911,7 +911,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             case .mainRow:
                 return canExecute(.newTerminalInTab)
             case .drawer(let parentPaneId):
-                return store.pane(parentPaneId)?.drawer != nil
+                return store.paneAtom.pane(parentPaneId)?.drawer != nil
             }
         case .managementCreateBrowser:
             return managementParentPaneId() != nil
@@ -938,10 +938,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     /// Falls back to the first available worktree if no active pane exists.
     private func addNewTab() {
         // Try to clone context from the active pane
-        if let activeTabId = store.activeTabId,
-            let tab = store.tab(activeTabId),
+        if let activeTabId = store.tabLayoutAtom.activeTabId,
+            let tab = store.tabLayoutAtom.tab(activeTabId),
             let activePaneId = tab.activePaneId,
-            let pane = store.pane(activePaneId)
+            let pane = store.paneAtom.pane(activePaneId)
         {
             if let worktreeId = worktreeIdForNewTab(from: pane) {
                 dispatchAction(
@@ -959,7 +959,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         }
 
         // Fallback: use the first worktree from the first repo
-        if let worktree = store.repos.first?.worktrees.first {
+        if let worktree = store.repositoryTopologyAtom.repos.first?.worktrees.first {
             dispatchAction(.openNewTerminalInTab(worktreeId: worktree.id, launchDirectory: nil, title: nil))
             return
         }
@@ -972,7 +972,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return worktreeId
         }
 
-        return store.repoAndWorktree(containing: pane.metadata.facets.cwd)?.worktree.id
+        return store.repositoryTopologyAtom.repoAndWorktree(containing: pane.metadata.facets.cwd)?.worktree.id
     }
 
     // MARK: - Terminal Management
@@ -992,9 +992,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     func closeTerminal(for worktreeId: UUID) {
         // Find the tab containing this worktree
         guard
-            let tab = store.tabs.first(where: { tab in
+            let tab = store.tabLayoutAtom.tabs.first(where: { tab in
                 tab.allPaneIds.contains { id in
-                    store.pane(id)?.worktreeId == worktreeId
+                    store.paneAtom.pane(id)?.worktreeId == worktreeId
                 }
             })
         else { return }
@@ -1004,7 +1004,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         if tab.allPaneIds.count > 1 {
             guard
                 let matchedPaneId = tab.allPaneIds.first(where: { id in
-                    store.pane(id)?.worktreeId == worktreeId
+                    store.paneAtom.pane(id)?.worktreeId == worktreeId
                 })
             else { return }
             dispatchAction(.closePane(tabId: tab.id, paneId: matchedPaneId))
@@ -1014,12 +1014,12 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     func closeActiveTab() {
-        guard let activeId = store.activeTabId else { return }
+        guard let activeId = store.tabLayoutAtom.activeTabId else { return }
         dispatchAction(.closeTab(tabId: activeId))
     }
 
     func selectTab(at index: Int) {
-        let tabs = store.tabs
+        let tabs = store.tabLayoutAtom.tabs
         guard index >= 0, index < tabs.count else { return }
         dispatchAction(.selectTab(tabId: tabs[index].id))
     }
@@ -1030,10 +1030,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     /// All input sources (keyboard, menu, drag-drop, commands) converge here.
     private func dispatchAction(_ action: PaneActionCommand) {
         let snapshot = WorkspaceCommandResolver.snapshot(
-            from: store.tabs,
-            activeTabId: store.activeTabId,
+            from: store.tabLayoutAtom.tabs,
+            activeTabId: store.tabLayoutAtom.activeTabId,
             isManagementModeActive: atom(\.managementMode).isActive,
-            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
+            knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id))
         )
 
         switch WorkspaceCommandValidator.validate(action, state: snapshot) {
@@ -1064,7 +1064,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             action = .equalizePanes(tabId: tabId)
         case .splitRight, .splitLeft:
             // Resolve split direction using the target tab's active pane
-            guard let tab = store.tab(tabId),
+            guard let tab = store.tabLayoutAtom.tab(tabId),
                 let paneId = tab.activePaneId
             else { return }
             let direction: SplitNewDirection = {
@@ -1088,7 +1088,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             action = nil
         case .saveArrangement:
             // Direct action — save current layout as a new arrangement
-            guard let tab = store.tab(tabId) else { return }
+            guard let tab = store.tabLayoutAtom.tab(tabId) else { return }
             let name = Self.nextArrangementName(existing: tab.arrangements)
             action = .createArrangement(
                 tabId: tabId, name: name, paneIds: Set(tab.activePaneIds)
@@ -1111,22 +1111,22 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     // MARK: - Drag Payload
 
     private func createDragPayload(for tabId: UUID) -> TabDragPayload? {
-        guard store.tab(tabId) != nil else { return nil }
+        guard store.tabLayoutAtom.tab(tabId) != nil else { return nil }
         return TabDragPayload(tabId: tabId)
     }
 
     // MARK: - Process Termination
 
     func handleTerminalProcessTerminated(paneId: UUID) {
-        if let pane = store.pane(paneId) {
+        if let pane = store.paneAtom.pane(paneId) {
             if let parentPaneId = pane.parentPaneId,
-                store.tabContaining(paneId: parentPaneId) != nil
+                store.tabLayoutAtom.tabContaining(paneId: parentPaneId) != nil
             {
                 dispatchAction(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
                 return
             }
 
-            if let tab = store.tabContaining(paneId: paneId) {
+            if let tab = store.tabLayoutAtom.tabContaining(paneId: paneId) {
                 if tab.allPaneIds.count > 1 {
                     dispatchAction(.closePane(tabId: tab.id, paneId: paneId))
                 } else {
@@ -1149,7 +1149,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private func handleExtractPaneRequested(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
         // Single-pane tabs cannot extract; treat tab-bar pane drag as tab reorder
         // so "single pane move ability" still works.
-        if let sourceTab = store.tab(tabId),
+        if let sourceTab = store.tabLayoutAtom.tab(tabId),
             sourceTab.activePaneIds.count == 1
         {
             if let targetTabIndex {
@@ -1159,13 +1159,13 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return
         }
 
-        let tabCountBefore = store.tabs.count
+        let tabCountBefore = store.tabLayoutAtom.tabs.count
         dispatchAction(.extractPaneToTab(tabId: tabId, paneId: paneId))
 
         // For tab-bar drops, place the newly extracted tab at the drop insertion index.
         guard let targetTabIndex,
-            store.tabs.count == tabCountBefore + 1,
-            let extractedTabId = store.activeTabId
+            store.tabLayoutAtom.tabs.count == tabCountBefore + 1,
+            let extractedTabId = store.tabLayoutAtom.activeTabId
         else {
             return
         }
@@ -1191,15 +1191,15 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         targetTabId: UUID
     ) -> PaneActionCommand? {
         let resolvedSourceTabId: UUID? =
-            if let sourceTabId, store.tab(sourceTabId)?.activePaneIds.contains(sourcePaneId) == true {
+            if let sourceTabId, store.tabLayoutAtom.tab(sourceTabId)?.activePaneIds.contains(sourcePaneId) == true {
                 sourceTabId
             } else {
-                store.tabs.first(where: { $0.activePaneIds.contains(sourcePaneId) })?.id
+                store.tabLayoutAtom.tabs.first(where: { $0.activePaneIds.contains(sourcePaneId) })?.id
             }
 
         guard let resolvedSourceTabId else { return nil }
         guard resolvedSourceTabId != targetTabId else { return nil }
-        guard let targetTab = store.tab(targetTabId) else { return nil }
+        guard let targetTab = store.tabLayoutAtom.tab(targetTabId) else { return nil }
         guard let targetPaneId = targetTab.activePaneId ?? targetTab.activePaneIds.first else { return nil }
 
         return .insertPane(
@@ -1254,7 +1254,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     func execute(_ command: AppCommand) {
         // Try the validated pipeline for pane/tab structural actions
         if let action = WorkspaceCommandResolver.resolve(
-            command: command, tabs: store.tabs, activeTabId: store.activeTabId
+            command: command, tabs: store.tabLayoutAtom.tabs, activeTabId: store.tabLayoutAtom.activeTabId
         ) {
             dispatchAction(action)
             return
@@ -1322,37 +1322,37 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         case .undoCloseTab:
             handleUndoCloseTab()
         case .renameTab:
-            guard let activeTabId = store.activeTabId else { break }
+            guard let activeTabId = store.tabLayoutAtom.activeTabId else { break }
             tabRenamePopoverState.present(for: activeTabId)
         case .addRepo, .addFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle:
             break
         case .addDrawerPane:
-            guard let tabId = store.activeTabId,
-                let tab = store.tab(tabId),
+            guard let tabId = store.tabLayoutAtom.activeTabId,
+                let tab = store.tabLayoutAtom.tab(tabId),
                 let paneId = tab.activePaneId
             else { break }
             dispatchAction(.addDrawerPane(parentPaneId: paneId))
 
         case .toggleDrawer:
-            guard let tabId = store.activeTabId,
-                let tab = store.tab(tabId),
+            guard let tabId = store.tabLayoutAtom.activeTabId,
+                let tab = store.tabLayoutAtom.tab(tabId),
                 let paneId = tab.activePaneId
             else { break }
             dispatchAction(.toggleDrawer(paneId: paneId))
 
         case .closeDrawerPane:
-            guard let tabId = store.activeTabId,
-                let tab = store.tab(tabId),
+            guard let tabId = store.tabLayoutAtom.activeTabId,
+                let tab = store.tabLayoutAtom.tab(tabId),
                 let paneId = tab.activePaneId,
-                let pane = store.pane(paneId),
+                let pane = store.paneAtom.pane(paneId),
                 let drawer = pane.drawer,
                 let activeDrawerPaneId = drawer.activePaneId
             else { break }
             dispatchAction(.removeDrawerPane(parentPaneId: paneId, drawerPaneId: activeDrawerPaneId))
 
         case .saveArrangement:
-            guard let tabId = store.activeTabId,
-                let tab = store.tab(tabId)
+            guard let tabId = store.tabLayoutAtom.activeTabId,
+                let tab = store.tabLayoutAtom.tab(tabId)
             else { break }
             let name = Self.nextArrangementName(existing: tab.arrangements)
             dispatchAction(
@@ -1361,8 +1361,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 ))
 
         case .newTerminalInTab:
-            guard let activeTabId = store.activeTabId,
-                let tab = store.tab(activeTabId),
+            guard let activeTabId = store.tabLayoutAtom.activeTabId,
+                let tab = store.tabLayoutAtom.tab(activeTabId),
                 let targetPaneId = tab.activePaneId
             else { break }
             dispatchAction(
@@ -1373,9 +1373,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                     direction: .right
                 ))
         case .newFloatingTerminal:
-            let activePaneCwd = store.activeTabId
-                .flatMap { store.tab($0)?.activePaneId }
-                .flatMap { store.pane($0)?.metadata.facets.cwd }
+            let activePaneCwd = store.tabLayoutAtom.activeTabId
+                .flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
+                .flatMap { store.paneAtom.pane($0)?.metadata.facets.cwd }
             dispatchAction(.openFloatingTerminal(launchDirectory: activePaneCwd, title: nil))
         case .openWebview:
             executor.openWebview()
@@ -1405,11 +1405,11 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         // Targeted non-pane commands (e.g. from command bar)
         switch (command, targetType) {
         case (.renameTab, .tab):
-            guard store.tab(target) != nil else {
+            guard store.tabLayoutAtom.tab(target) != nil else {
                 Self.logger.warning("renameTab targeted command ignored: tab \(target) not found")
                 return
             }
-            if store.activeTabId != target {
+            if store.tabLayoutAtom.activeTabId != target {
                 dispatchAction(.selectTab(tabId: target))
             }
             tabRenamePopoverState.present(for: target)
@@ -1419,8 +1419,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func focusTargetedPane(_ paneId: UUID) {
-        guard let tab = store.tabs.first(where: { $0.activePaneIds.contains(paneId) }) else { return }
-        if store.activeTabId != tab.id {
+        guard let tab = store.tabLayoutAtom.tabs.first(where: { $0.activePaneIds.contains(paneId) }) else { return }
+        if store.tabLayoutAtom.activeTabId != tab.id {
             dispatchAction(.selectTab(tabId: tab.id))
         }
         dispatchAction(.focusPane(tabId: tab.id, paneId: paneId))
@@ -1439,13 +1439,19 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         case (.breakUpTab, .tab):
             return .breakUpTab(tabId: target)
         case (.closePane, .pane), (.closePane, .floatingTerminal):
-            guard let tab = store.tabs.first(where: { $0.activePaneIds.contains(target) }) else { return nil }
+            guard let tab = store.tabLayoutAtom.tabs.first(where: { $0.activePaneIds.contains(target) }) else {
+                return nil
+            }
             return .closePane(tabId: tab.id, paneId: target)
         case (.extractPaneToTab, .pane), (.extractPaneToTab, .floatingTerminal):
-            guard let tab = store.tabs.first(where: { $0.activePaneIds.contains(target) }) else { return nil }
+            guard let tab = store.tabLayoutAtom.tabs.first(where: { $0.activePaneIds.contains(target) }) else {
+                return nil
+            }
             return .extractPaneToTab(tabId: tab.id, paneId: target)
         case (.movePaneToTab, .tab):
-            guard let activeTabId = store.activeTabId, let activePaneId = store.tab(activeTabId)?.activePaneId
+            guard
+                let activeTabId = store.tabLayoutAtom.activeTabId,
+                let activePaneId = store.tabLayoutAtom.tab(activeTabId)?.activePaneId
             else { return nil }
             return makeMovePaneToTabAction(
                 sourcePaneId: activePaneId,
@@ -1453,19 +1459,19 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 targetTabId: target
             )
         case (.switchArrangement, .tab):
-            guard let tabId = store.activeTabId else { return nil }
+            guard let tabId = store.tabLayoutAtom.activeTabId else { return nil }
             return .switchArrangement(tabId: tabId, arrangementId: target)
         case (.deleteArrangement, .tab):
-            guard let tabId = store.activeTabId else { return nil }
+            guard let tabId = store.tabLayoutAtom.activeTabId else { return nil }
             return .removeArrangement(tabId: tabId, arrangementId: target)
         case (.navigateDrawerPane, .pane):
-            guard let tabId = store.activeTabId,
-                let tab = store.tab(tabId),
+            guard let tabId = store.tabLayoutAtom.activeTabId,
+                let tab = store.tabLayoutAtom.tab(tabId),
                 let paneId = tab.activePaneId
             else { return nil }
             return .setActiveDrawerPane(parentPaneId: paneId, drawerPaneId: target)
         case (.newTerminalInTab, .tab):
-            guard let tab = store.tab(target), let targetPaneId = tab.activePaneId else { return nil }
+            guard let tab = store.tabLayoutAtom.tab(target), let targetPaneId = tab.activePaneId else { return nil }
             return .insertPane(
                 source: .newTerminal,
                 targetTabId: tab.id,
@@ -1506,7 +1512,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             .managementCreateTerminal, .managementCreateBrowser, .managementExitMode:
             return canExecuteManagementCommand(command)
         case .renameTab:
-            return store.activeTabId != nil
+            return store.tabLayoutAtom.activeTabId != nil
         case .addDrawerPane, .toggleDrawer, .closeDrawerPane:
             return canExecuteContextualCommand(command)
         default:
@@ -1515,14 +1521,14 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
         // Try resolving — if it resolves, validate it
         if let action = WorkspaceCommandResolver.resolve(
-            command: command, tabs: store.tabs, activeTabId: store.activeTabId
+            command: command, tabs: store.tabLayoutAtom.tabs, activeTabId: store.tabLayoutAtom.activeTabId
         ) {
             let snapshot = WorkspaceCommandResolver.snapshot(
-                from: store.tabs,
-                activeTabId: store.activeTabId,
+                from: store.tabLayoutAtom.tabs,
+                activeTabId: store.tabLayoutAtom.activeTabId,
                 isManagementModeActive: atom(\.managementMode).isActive,
-                knownRepoIds: Set(store.repos.map(\.id)),
-                knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
+                knownRepoIds: Set(store.repositoryTopologyAtom.repos.map(\.id)),
+                knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id))
             )
             switch WorkspaceCommandValidator.validate(action, state: snapshot) {
             case .success: return true

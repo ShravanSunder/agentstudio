@@ -13,7 +13,6 @@ struct CommandBarTabDisplayTitleTests {
     @Test
     func test_everythingScope_placeholderTabName_fallsBackToDerivedTitle() {
         let store = WorkspaceStore()
-        atom(\.workspaceFocusContext).startObserving(store: store)
 
         let repo = store.addRepo(at: URL(filePath: "/tmp/commandbar-placeholder"))
         let worktree = Worktree(

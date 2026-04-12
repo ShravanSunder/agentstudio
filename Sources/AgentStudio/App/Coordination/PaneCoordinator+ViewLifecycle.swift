@@ -54,8 +54,8 @@ extension PaneCoordinator {
         case .terminal:
             if let worktreeId = pane.worktreeId,
                 let repoId = pane.repoId,
-                let worktree = store.worktree(worktreeId),
-                let repo = store.repo(repoId)
+                let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
+                let repo = store.repositoryTopologyAtom.repo(repoId)
             {
                 return createView(
                     for: pane,
@@ -66,11 +66,11 @@ extension PaneCoordinator {
                 )
 
             } else if let parentPaneId = pane.parentPaneId,
-                let parentPane = store.pane(parentPaneId),
+                let parentPane = store.paneAtom.pane(parentPaneId),
                 let worktreeId = parentPane.worktreeId,
                 let repoId = parentPane.repoId,
-                let worktree = store.worktree(worktreeId),
-                let repo = store.repo(repoId)
+                let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
+                let repo = store.repositoryTopologyAtom.repo(repoId)
             {
                 return createView(
                     for: pane,
@@ -434,7 +434,7 @@ extension PaneCoordinator {
             return
         }
         terminal.displaySurface(surfaceView)
-        if let pane = store.pane(paneId) {
+        if let pane = store.paneAtom.pane(paneId) {
             registerTerminalRuntimeIfNeeded(for: pane)
         }
         Self.logger.debug("Reattached pane \(paneId.uuidString, privacy: .public) for view switch")
@@ -504,7 +504,10 @@ extension PaneCoordinator {
             return
         }
 
-        let fallbackCwd = store.worktree(worktreeId)?.path ?? pane.metadata.launchDirectory ?? pane.metadata.cwd
+        let fallbackCwd =
+            store.repositoryTopologyAtom.worktree(worktreeId)?.path
+            ?? pane.metadata.launchDirectory
+            ?? pane.metadata.cwd
         guard let fallbackCwd else {
             paneFilesystemProjectionStore.unregisterPaneContext(pane.id)
             return
@@ -584,11 +587,11 @@ extension PaneCoordinator {
             RestoreTrace.log("restoreAllViews inputBounds=nil")
         }
         let orderedPaneIds = TerminalRestoreScheduler.order(
-            Self.orderedUniquePaneIds(store.tabs.flatMap(\.allPaneIds)).map(PaneId.init(uuid:)),
+            Self.orderedUniquePaneIds(store.tabLayoutAtom.tabs.flatMap(\.allPaneIds)).map(PaneId.init(uuid:)),
             resolver: visibilityTierResolver
         ).map(\.uuid)
         RestoreTrace.log(
-            "restoreAllViews begin tabs=\(store.tabs.count) paneIds=\(orderedPaneIds.count) activeTab=\(store.activeTabId?.uuidString ?? "nil")"
+            "restoreAllViews begin tabs=\(store.tabLayoutAtom.tabs.count) paneIds=\(orderedPaneIds.count) activeTab=\(store.tabLayoutAtom.activeTabId?.uuidString ?? "nil")"
         )
         guard !orderedPaneIds.isEmpty else {
             Self.logger.info("No panes to restore views for")
@@ -600,11 +603,11 @@ extension PaneCoordinator {
         // Panes already exist in the store from store.restore().
         // SwiftUI body may run before restoreAllViews completes,
         // so slots must exist before the first createViewForContent call.
-        let allPaneIds = store.tabs.flatMap(\.activePaneIds)
+        let allPaneIds = store.tabLayoutAtom.tabs.flatMap(\.activePaneIds)
         for paneId in allPaneIds {
             viewRegistry.ensureSlot(for: paneId)
         }
-        for pane in store.panes.values {
+        for pane in store.paneAtom.panes.values {
             if let drawer = pane.drawer {
                 for drawerPaneId in drawer.layout.paneIds {
                     viewRegistry.ensureSlot(for: drawerPaneId)
@@ -632,7 +635,7 @@ extension PaneCoordinator {
             )
         }
 
-        if let activeTab = store.activeTab,
+        if let activeTab = store.tabLayoutAtom.activeTab,
             let activePaneId = activeTab.activePaneId,
             let terminalView = viewRegistry.terminalView(for: activePaneId)
         {
@@ -679,7 +682,7 @@ extension PaneCoordinator {
     }
 
     private func hiddenLiveSessionIds() async -> Set<String> {
-        let hiddenZmxPaneIds = store.panes.values.compactMap { pane -> UUID? in
+        let hiddenZmxPaneIds = store.paneAtom.panes.values.compactMap { pane -> UUID? in
             guard pane.provider == .zmx else { return nil }
             let paneId = PaneId(uuid: pane.id)
             return visibilityTierResolver.tier(for: paneId) == .p1Hidden ? pane.id : nil
@@ -713,7 +716,7 @@ extension PaneCoordinator {
         resolvedPaneFramesByTabId: [UUID: [UUID: CGRect]]
     ) -> NSRect? {
         let owningPaneId = pane.parentPaneId ?? pane.id
-        guard let tab = store.tabContaining(paneId: owningPaneId) else {
+        guard let tab = store.tabLayoutAtom.tabContaining(paneId: owningPaneId) else {
             return nil
         }
         guard let frame = resolvedPaneFramesByTabId[tab.id]?[pane.id], !frame.isEmpty else {
@@ -729,7 +732,7 @@ extension PaneCoordinator {
         progress: inout RestoreAllViewsProgress
     ) {
         guard progress.restoredPaneIds.insert(paneId).inserted else { return }
-        guard let pane = store.pane(paneId) else {
+        guard let pane = store.paneAtom.pane(paneId) else {
             Self.logger.warning("Skipping view restore for pane \(paneId) — not in store")
             RestoreTrace.log("restoreAllViews skip missing pane=\(paneId)")
             return
@@ -767,7 +770,7 @@ extension PaneCoordinator {
     }
 
     func restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: Bool = false) {
-        guard let activeTab = store.activeTab else { return }
+        guard let activeTab = store.tabLayoutAtom.activeTab else { return }
         if !windowLifecycleStore.isLaunchLayoutSettled {
             let hasPreparingPlaceholder = activeTab.activePaneIds.contains { paneId in
                 viewRegistry.terminalStatusPlaceholderView(for: paneId)?.shouldRetryCreationWhenBoundsChange == true
@@ -790,15 +793,15 @@ extension PaneCoordinator {
         )
         let resolvedPaneFramesByTabId = resolveInitialFramesByTabId(in: terminalContainerBounds)
         let visiblePaneIds = TerminalRestoreScheduler.order(
-            store.panes.keys.map(PaneId.init(uuid:)),
+            store.paneAtom.panes.keys.map(PaneId.init(uuid:)),
             resolver: visibilityTierResolver
         )
         .filter { visibilityTierResolver.tier(for: $0) == .p0Visible }
         .map(\.uuid)
 
         for paneId in visiblePaneIds {
-            guard let pane = store.pane(paneId) else { continue }
-            guard store.tabContaining(paneId: pane.parentPaneId ?? pane.id)?.id == activeTab.id else {
+            guard let pane = store.paneAtom.pane(paneId) else { continue }
+            guard store.tabLayoutAtom.tabContaining(paneId: pane.parentPaneId ?? pane.id)?.id == activeTab.id else {
                 continue
             }
             if let placeholder = viewRegistry.terminalStatusPlaceholderView(for: paneId) {
@@ -823,7 +826,7 @@ extension PaneCoordinator {
         guard let drawer = parentPane.drawer else { return }
         for drawerPaneId in drawer.paneIds {
             guard progress.restoredPaneIds.insert(drawerPaneId).inserted else { continue }
-            guard let drawerPane = store.pane(drawerPaneId) else {
+            guard let drawerPane = store.paneAtom.pane(drawerPaneId) else {
                 Self.logger.warning(
                     "restoreAllViews: drawer pane \(drawerPaneId) referenced by parent \(parentPane.id) is missing from store"
                 )
@@ -865,7 +868,7 @@ extension PaneCoordinator {
             return [:]
         }
 
-        return store.tabs.reduce(into: [UUID: [UUID: CGRect]]()) { result, tab in
+        return store.tabLayoutAtom.tabs.reduce(into: [UUID: [UUID: CGRect]]()) { result, tab in
             var resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
                 for: tab.layout,
                 in: terminalContainerBounds,
@@ -882,14 +885,14 @@ extension PaneCoordinator {
             for paneId in tab.activePaneIds {
                 guard
                     let parentFrame = resolvedFrames[paneId],
-                    let drawer = store.pane(paneId)?.drawer,
+                    let drawer = store.paneAtom.pane(paneId)?.drawer,
                     drawer.isExpanded,
                     let drawerContentRect = resolvedDrawerContentRect(
                         parentPaneFrame: parentFrame,
                         tabSize: terminalContainerBounds.size
                     )
                 else {
-                    if store.pane(paneId)?.drawer?.isExpanded == true {
+                    if store.paneAtom.pane(paneId)?.drawer?.isExpanded == true {
                         Self.logger.warning(
                             "resolveInitialFramesByTabId: missing expanded drawer geometry for parent pane \(paneId.uuidString, privacy: .public)"
                         )
