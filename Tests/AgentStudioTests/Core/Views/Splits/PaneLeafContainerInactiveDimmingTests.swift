@@ -48,14 +48,18 @@ struct PaneLeafContainerInactiveDimmingTests {
             let sampleY = 140
             let edgeX = 12
             let innerBandX = max(edgeX + 12, Int(AppStyle.inactivePaneDimmingDepth) - 20)
+            let cornerX = 20
+            let cornerY = 20
 
             let centerBrightness = try brightness(in: bitmap, x: centerX, y: sampleY)
             let edgeBrightness = try brightness(in: bitmap, x: edgeX, y: sampleY)
             let innerBandBrightness = try brightness(in: bitmap, x: innerBandX, y: sampleY)
+            let cornerBrightness = try brightness(in: bitmap, x: cornerX, y: cornerY)
 
             #expect(centerBrightness > edgeBrightness + 0.08)
             #expect(edgeBrightness < 0.85)
             #expect(centerBrightness > innerBandBrightness + 0.02)
+            #expect(cornerBrightness > edgeBrightness - 0.03)
         }
     }
 
