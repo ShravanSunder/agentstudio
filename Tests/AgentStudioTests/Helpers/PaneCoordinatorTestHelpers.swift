@@ -17,7 +17,7 @@ func makeTestPaneCoordinator(
         runtime: runtime,
         surfaceManager: surfaceManager,
         runtimeRegistry: runtimeRegistry,
-        windowLifecycleStore: WindowLifecycleStore()
+        windowLifecycleStore: WindowLifecycleAtom()
     )
 }
 

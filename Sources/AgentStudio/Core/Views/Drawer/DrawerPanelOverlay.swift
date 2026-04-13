@@ -98,7 +98,7 @@ struct DrawerPanelOverlay: View {
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let viewRegistry: ViewRegistry
-    let appLifecycleStore: AppLifecycleStore
+    let appLifecycleStore: AppLifecycleAtom
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let tabId: UUID
     let paneFrames: [UUID: CGRect]

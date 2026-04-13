@@ -58,7 +58,7 @@ struct DrawerPanel: View {
     let action: (PaneActionCommand) -> Void
     let onResize: (CGFloat) -> Void
     let onDismiss: () -> Void
-    let appLifecycleStore: AppLifecycleStore
+    let appLifecycleStore: AppLifecycleAtom
     let onOpenPaneGitHub: (UUID) -> Void
 
     @State private var drawerPaneFrames: [UUID: CGRect] = [:]
@@ -83,7 +83,7 @@ struct DrawerPanel: View {
         action: @escaping (PaneActionCommand) -> Void,
         onResize: @escaping (CGFloat) -> Void,
         onDismiss: @escaping () -> Void,
-        appLifecycleStore: AppLifecycleStore,
+        appLifecycleStore: AppLifecycleAtom,
         onOpenPaneGitHub: @escaping (UUID) -> Void
     ) {
         self.layout = layout
@@ -332,7 +332,7 @@ struct DrawerPanel: View {
                     action: { _ in },
                     onResize: { _ in },
                     onDismiss: {},
-                    appLifecycleStore: AppLifecycleStore(),
+                    appLifecycleStore: AppLifecycleAtom(),
                     onOpenPaneGitHub: { _ in }
                 )
                 Spacer()

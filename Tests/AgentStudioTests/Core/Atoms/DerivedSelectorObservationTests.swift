@@ -11,7 +11,7 @@ private final class ObservationFlag: @unchecked Sendable {
 struct DerivedSelectorObservationTests {
     @Test
     func paneDisplayDerived_tracksUnderlyingAtomReads() async throws {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let pane = Pane(
                 content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
                 metadata: PaneMetadata(

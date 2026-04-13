@@ -9,6 +9,7 @@ struct CommandBarSearchField: View {
     let onArrowUp: () -> Void
     let onArrowDown: () -> Void
     let onEnter: (EnterModifier) -> Void
+    let onShortcutTrigger: (ShortcutTrigger) -> Bool
     let onBackspaceOnEmpty: () -> Void
 
     var body: some View {
@@ -28,6 +29,7 @@ struct CommandBarSearchField: View {
                 onArrowUp: onArrowUp,
                 onArrowDown: onArrowDown,
                 onEnter: onEnter,
+                onShortcutTrigger: onShortcutTrigger,
                 onBackspaceOnEmpty: onBackspaceOnEmpty
             )
         }

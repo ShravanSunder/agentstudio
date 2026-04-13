@@ -44,8 +44,8 @@ final class PaneCoordinator {
     let runtimeTargetResolver: RuntimeTargetResolver
     let runtimeCommandClock: ContinuousClock
     let filesystemSource: any PaneCoordinatorFilesystemSourceManaging
-    let paneFilesystemProjectionStore: PaneFilesystemProjectionStore
-    let windowLifecycleStore: WindowLifecycleStore
+    let paneFilesystemProjectionStore: PaneFilesystemProjectionAtom
+    let windowLifecycleStore: WindowLifecycleAtom
     var removeRepoHandler: @MainActor (UUID) -> Void = { _ in }
     lazy var sessionConfig = SessionConfiguration.detect()
     lazy var terminalRestoreRuntime = TerminalRestoreRuntime(sessionConfiguration: sessionConfig)
@@ -75,7 +75,7 @@ final class PaneCoordinator {
         store: WorkspaceStore,
         viewRegistry: ViewRegistry,
         runtime: SessionRuntime,
-        windowLifecycleStore: WindowLifecycleStore
+        windowLifecycleStore: WindowLifecycleAtom
     ) {
         self.init(
             store: store,
@@ -98,8 +98,8 @@ final class PaneCoordinator {
         paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         runtimeCommandClock: ContinuousClock = ContinuousClock(),
         filesystemSource: (any PaneCoordinatorFilesystemSourceManaging)? = nil,
-        paneFilesystemProjectionStore: PaneFilesystemProjectionStore = PaneFilesystemProjectionStore(),
-        windowLifecycleStore: WindowLifecycleStore
+        paneFilesystemProjectionStore: PaneFilesystemProjectionAtom = PaneFilesystemProjectionAtom(),
+        windowLifecycleStore: WindowLifecycleAtom
     ) {
         let resolvedFilesystemSource =
             filesystemSource

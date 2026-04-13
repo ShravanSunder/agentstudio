@@ -17,7 +17,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         store: WorkspaceStore,
         actionExecutor: ActionExecutor,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
-        appLifecycleStore: AppLifecycleStore,
+        appLifecycleStore: AppLifecycleAtom,
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry
     ) {

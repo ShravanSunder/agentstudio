@@ -7,7 +7,7 @@ import Testing
 @MainActor
 struct WorkspaceLauncherProjectorTests {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
 
     private func makeStore() -> WorkspaceStore {
@@ -16,7 +16,7 @@ struct WorkspaceLauncherProjectorTests {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         persistor.ensureDirectory()
         atom(\.repoCache).clear()
-        let atoms = AtomStore()
+        let atoms = AtomRegistry()
         let store = WorkspaceStore(
             metadataAtom: atoms.workspaceMetadata,
             repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
@@ -31,7 +31,7 @@ struct WorkspaceLauncherProjectorTests {
 
     @Test
     func project_noRepos_returnsFolderIntakeState() {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
                 metadataAtom: atoms.workspaceMetadata,
                 repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
@@ -60,7 +60,7 @@ struct WorkspaceLauncherProjectorTests {
 
     @Test
     func project_reposButNoTabs_returnsLauncherStateWithEnrichedCards() {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
                 metadataAtom: atoms.workspaceMetadata,
                 repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
@@ -101,7 +101,7 @@ struct WorkspaceLauncherProjectorTests {
 
     @Test
     func project_reposAndTabsPresent_returnsEmptyLauncherModel() {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
                 metadataAtom: atoms.workspaceMetadata,
                 repositoryTopologyAtom: atoms.workspaceRepositoryTopology,

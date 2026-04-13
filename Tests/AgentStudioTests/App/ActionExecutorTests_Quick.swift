@@ -7,7 +7,7 @@ import Testing
 @Suite(.serialized)
 struct ActionExecutorTestsQuick {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
 
     private struct ActionExecutorHarness {
@@ -31,7 +31,7 @@ struct ActionExecutorTestsQuick {
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
-            windowLifecycleStore: WindowLifecycleStore()
+            windowLifecycleStore: WindowLifecycleAtom()
         )
         let executor = ActionExecutor(coordinator: coordinator, store: store)
         return ActionExecutorHarness(

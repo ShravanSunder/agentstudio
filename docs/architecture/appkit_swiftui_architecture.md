@@ -92,12 +92,12 @@ Services are created in `AppDelegate.applicationDidFinishLaunching()` in depende
 
 ```
 AppDelegate
-├── AtomStore                  ← composition root for all shared atoms
+├── AtomRegistry                  ← composition root for all shared atoms
 ├── WorkspaceStore             ← persistence wrapper, restore from disk
 ├── RepoCacheStore             ← persistence wrapper for RepoCacheAtom
 ├── UIStateStore               ← persistence wrapper for UIStateAtom
-├── AppLifecycleStore          ← app active/terminating state (in-memory)
-├── WindowLifecycleStore       ← key/focused window identity (in-memory)
+├── AppLifecycleAtom          ← app active/terminating state (in-memory)
+├── WindowLifecycleAtom       ← key/focused window identity (in-memory)
 ├── SessionRuntime             ← runtime health tracking
 ├── WorkspaceCacheCoordinator  ← event bus consumer, updates stores
 ├── ApplicationLifecycleMonitor ← AppKit lifecycle ingress → lifecycle stores
@@ -446,7 +446,7 @@ Notable views: `CommandBarBackRow` (nested back navigation), `CommandBarScopePil
 
 The command bar no longer owns its own hidden-command or grouping switches. `AppCommand` remains
 the authoritative command ID, `CommandSpec` carries the authoritative metadata for dispatchable
-commands, and `WorkspaceFocusContextAtom.currentFocus` provides the shared app-wide focus context.
+commands, and `atom(\.workspaceFocus).currentFocus(...)` provides the shared app-wide focus context.
 The command bar consumes those shared models; it does not define commands itself.
 
 > **Files:** `CommandBar/CommandBarPanelController.swift`, `CommandBar/CommandBarState.swift`, `CommandBar/CommandBarPanel.swift`, `CommandBar/CommandBarDataSource.swift`, `CommandBar/CommandBarWorktreeActionResolver.swift`, `CommandBar/CommandBarSearch.swift`, `CommandBar/CommandBarItem.swift`, `CommandBar/Views/*.swift`

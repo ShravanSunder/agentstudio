@@ -3,7 +3,7 @@ import Observation
 
 @Observable
 @MainActor
-final class WindowLifecycleStore {
+final class WindowLifecycleAtom {
     private(set) var registeredWindowIds: Set<UUID> = []
     private(set) var keyWindowId: UUID?
     private(set) var focusedWindowId: UUID?
@@ -42,14 +42,14 @@ final class WindowLifecycleStore {
         guard !bounds.isEmpty else { return }
         terminalContainerBounds = bounds
         RestoreTrace.log(
-            "WindowLifecycleStore.recordTerminalContainerBounds bounds=\(NSStringFromRect(bounds)) settled=\(isLaunchLayoutSettled) ready=\(isReadyForLaunchRestore)"
+            "WindowLifecycleAtom.recordTerminalContainerBounds bounds=\(NSStringFromRect(bounds)) settled=\(isLaunchLayoutSettled) ready=\(isReadyForLaunchRestore)"
         )
     }
 
     func recordLaunchLayoutSettled() {
         isLaunchLayoutSettled = true
         RestoreTrace.log(
-            "WindowLifecycleStore.recordLaunchLayoutSettled bounds=\(NSStringFromRect(terminalContainerBounds)) settled=\(isLaunchLayoutSettled) ready=\(isReadyForLaunchRestore)"
+            "WindowLifecycleAtom.recordLaunchLayoutSettled bounds=\(NSStringFromRect(terminalContainerBounds)) settled=\(isLaunchLayoutSettled) ready=\(isReadyForLaunchRestore)"
         )
     }
 }

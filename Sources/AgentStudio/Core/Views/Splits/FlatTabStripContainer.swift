@@ -12,7 +12,7 @@ struct FlatTabStripContainer: View {
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let viewRegistry: ViewRegistry
-    let appLifecycleStore: AppLifecycleStore
+    let appLifecycleStore: AppLifecycleAtom
     let onOpenPaneGitHub: (UUID) -> Void
 
     @State private var paneFrames: [UUID: CGRect] = [:]

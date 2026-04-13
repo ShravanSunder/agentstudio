@@ -28,7 +28,7 @@ struct GhosttyAppFocusSynchronizerTests {
 
     @Test("pushes lifecycle focus changes to Ghostty")
     func focusSynchronizer_pushesLifecycleFocusChangesToGhostty() async {
-        let appLifecycleStore = AppLifecycleStore()
+        let appLifecycleStore = AppLifecycleAtom()
         let focusSetter = RecordingFocusSetter()
         let synchronizer = Ghostty.AppFocusSynchronizer(focusSetter: focusSetter)
         var focusIterator = focusSetter.focusChanges.makeAsyncIterator()
@@ -50,8 +50,8 @@ struct GhosttyAppFocusSynchronizerTests {
 
     @Test("rejects rebinding to a different lifecycle store")
     func focusSynchronizer_rejectsRebindingToDifferentStore() async {
-        let initialStore = AppLifecycleStore()
-        let secondStore = AppLifecycleStore()
+        let initialStore = AppLifecycleAtom()
+        let secondStore = AppLifecycleAtom()
         let focusSetter = RecordingFocusSetter()
         let synchronizer = Ghostty.AppFocusSynchronizer(focusSetter: focusSetter)
         var focusIterator = focusSetter.focusChanges.makeAsyncIterator()

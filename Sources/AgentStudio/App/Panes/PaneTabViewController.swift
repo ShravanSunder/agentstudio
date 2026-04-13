@@ -65,7 +65,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private let store: WorkspaceStore
     private let repoCache: RepoCacheAtom
     private let applicationLifecycleMonitor: ApplicationLifecycleMonitor
-    private let appLifecycleStore: AppLifecycleStore
+    private let appLifecycleStore: AppLifecycleAtom
     private let executor: ActionExecutor
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
@@ -128,7 +128,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
-        appLifecycleStore: AppLifecycleStore,
+        appLifecycleStore: AppLifecycleAtom,
         executor: ActionExecutor,
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
@@ -1543,7 +1543,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 #if DEBUG
     extension PaneTabViewController {
         var splitHostingViewForTesting: NSView? { activeTabHost()?.hostingView }
-        var appLifecycleStoreForTesting: AppLifecycleStore { appLifecycleStore }
+        var appLifecycleStoreForTesting: AppLifecycleAtom { appLifecycleStore }
         func tabHostViewForTesting(tabId: UUID) -> NSView? {
             tabContentHosts[tabId]
         }

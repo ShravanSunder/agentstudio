@@ -9,7 +9,7 @@ import Testing
 @Suite(.serialized)
 struct PaneCoordinatorHardeningTests {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
 
     private let trustedBounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
@@ -39,7 +39,7 @@ struct PaneCoordinatorHardeningTests {
             runtime: runtime,
             surfaceManager: surfaceManager,
             runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleStore()
+            windowLifecycleStore: WindowLifecycleAtom()
         )
         return Harness(
             store: store,

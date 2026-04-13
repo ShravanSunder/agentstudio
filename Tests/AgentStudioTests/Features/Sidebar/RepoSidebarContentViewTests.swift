@@ -7,7 +7,7 @@ import Testing
 @Suite("RepoSidebarContentView")
 struct RepoSidebarContentViewTests {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
     @Test("flat list entries expand a resolved group into header and child rows")
     func flatListEntriesExpandResolvedGroupIntoHeaderAndChildRows() {

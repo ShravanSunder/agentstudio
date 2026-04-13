@@ -169,8 +169,8 @@ struct GitTopologyPipelineHarness {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: bus,
             filesystemSource: filesystemSource,
-            paneFilesystemProjectionStore: PaneFilesystemProjectionStore(),
-            windowLifecycleStore: WindowLifecycleStore()
+            paneFilesystemProjectionStore: PaneFilesystemProjectionAtom(),
+            windowLifecycleStore: WindowLifecycleAtom()
         )
         let coordinator = WorkspaceCacheCoordinator(
             bus: bus,

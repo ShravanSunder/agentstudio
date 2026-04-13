@@ -8,7 +8,7 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     struct BridgePaneControllerTests {
         init() {
-            installTestAtomScopeIfNeeded()
+            installTestAtomRegistryIfNeeded()
         }
 
         private struct DiffRequestFileContentsMethod: RPCMethod {

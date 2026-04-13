@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct WebviewPaneControllerTests {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
 
     private func settleEventLoop(turns: Int = 8) async {

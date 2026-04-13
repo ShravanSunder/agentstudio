@@ -7,12 +7,12 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceLookupDerivedTests {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
 
     @Test
     func tabContainingPane_returnsOwningTab() {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -30,7 +30,7 @@ struct WorkspaceLookupDerivedTests {
 
     @Test
     func repoAndWorktreeContainingCwd_resolvesNestedPath() {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -55,7 +55,7 @@ struct WorkspaceLookupDerivedTests {
 
     @Test
     func paneLocationsForWorktree_returnsTabAndPaneOrder() {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -113,7 +113,7 @@ struct WorkspaceLookupDerivedTests {
 
     @Test
     func paneLocationsForWorktree_excludesBackgroundedPanes() {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,

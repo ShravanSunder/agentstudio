@@ -4,11 +4,11 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("PaneFilesystemProjectionStore")
-struct PaneFilesystemProjectionStoreTests {
+@Suite("PaneFilesystemProjectionAtom")
+struct PaneFilesystemProjectionAtomTests {
     @Test("projects file changes by worktree and pane cwd subtree")
     func projectsByWorktreeAndSubtree() {
-        let store = PaneFilesystemProjectionStore()
+        let store = PaneFilesystemProjectionAtom()
         let repoId = UUID()
         let worktreeId = UUID()
         let worktreeRoot = URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)")
@@ -50,7 +50,7 @@ struct PaneFilesystemProjectionStoreTests {
 
     @Test("pane projection uses worktree scope for nil cwd and subtree scope when cwd is set")
     func projectionHandlesNilCwdFallbackAndSubtreeScope() {
-        let store = PaneFilesystemProjectionStore()
+        let store = PaneFilesystemProjectionAtom()
         let repoId = UUID()
         let worktreeId = UUID()
         let worktreeRoot = URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)")
@@ -92,7 +92,7 @@ struct PaneFilesystemProjectionStoreTests {
 
     @Test("ignores panes that are outside the worktree id")
     func ignoresUnrelatedWorktreePanes() {
-        let store = PaneFilesystemProjectionStore()
+        let store = PaneFilesystemProjectionAtom()
         let repoId = UUID()
         let worktreeId = UUID()
         let otherWorktreeId = UUID()
@@ -126,7 +126,7 @@ struct PaneFilesystemProjectionStoreTests {
 
     @Test("consume returns pane-scoped filesystem context envelopes for subtree matches")
     func consumeReturnsPaneFilesystemContextEnvelopes() {
-        let store = PaneFilesystemProjectionStore()
+        let store = PaneFilesystemProjectionAtom()
         let repoId = UUID()
         let worktreeId = UUID()
         let worktreeRoot = URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)")
@@ -164,7 +164,7 @@ struct PaneFilesystemProjectionStoreTests {
 
     @Test("consume returns pane-scoped git summary envelopes for worktree snapshots")
     func consumeReturnsPaneGitSummaryContextEnvelopes() {
-        let store = PaneFilesystemProjectionStore()
+        let store = PaneFilesystemProjectionAtom()
         let repoId = UUID()
         let worktreeId = UUID()
         let worktreeRoot = URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)")
@@ -206,7 +206,7 @@ struct PaneFilesystemProjectionStoreTests {
 
     @Test("derived filesystem context envelopes round-trip through the runtime bus harness")
     func derivedFilesystemContextEnvelopes_roundTripThroughBusHarness() async {
-        let store = PaneFilesystemProjectionStore()
+        let store = PaneFilesystemProjectionAtom()
         let repoId = UUID()
         let worktreeId = UUID()
         let worktreeRoot = URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)")
@@ -248,7 +248,7 @@ struct PaneFilesystemProjectionStoreTests {
 
     @Test("prune removes snapshots for missing panes and worktrees")
     func pruneRemovesStaleSnapshots() {
-        let store = PaneFilesystemProjectionStore()
+        let store = PaneFilesystemProjectionAtom()
         let repoId = UUID()
         let keepWorktreeId = UUID()
         let dropWorktreeId = UUID()

@@ -7,12 +7,12 @@ import Testing
 @Suite(.serialized)
 struct PaneDisplayDerivedTests {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
 
     @Test
     func worktreeBackedPane_usesRepoBranchAndFolderLabel() {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -49,7 +49,7 @@ struct PaneDisplayDerivedTests {
 
     @Test
     func floatingPane_usesCwdFolderFallback() {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,

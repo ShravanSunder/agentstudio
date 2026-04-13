@@ -48,7 +48,7 @@ Each contract (C1-C16) has a specific relationship to the EventBus:
 | C13 | Workflow Engine | Consumer (deferred) | EventBus → @MainActor | Future bus subscriber |
 | C14 | Replay Buffer | Internal | @MainActor | Per-runtime, filled at emit time |
 | C15 | Process Channel | Source (deferred) | Future boundary | Not through EventBus (request/response) |
-| C16 | Filesystem Context | Projection | @MainActor | `PaneFilesystemProjectionStore` derives per-pane snapshots from C6 events on MainActor |
+| C16 | Filesystem Context | Projection | @MainActor | `PaneFilesystemProjectionAtom` derives per-pane snapshots from C6 events on MainActor |
 
 ## Architecture Overview
 
@@ -311,7 +311,7 @@ Pane/tab lifecycle transitions. Originate on MainActor, rare, but multiple consu
 | `paneClosed` | `PaneCoordinator` | Rare | Yes |
 | `tabSwitched` | `WorkspaceStore` | Low | Yes |
 
-App shell lifecycle is intentionally separate from this bus. Application active/resign/terminate and window key/focus events are translated by `ApplicationLifecycleMonitor` into `AppLifecycleStore` and `WindowLifecycleStore` state instead of being published here.
+App shell lifecycle is intentionally separate from this bus. Application active/resign/terminate and window key/focus events are translated by `ApplicationLifecycleMonitor` into `AppLifecycleAtom` and `WindowLifecycleAtom` state instead of being published here.
 
 ## Actor Inventory
 
@@ -988,7 +988,7 @@ PROJECTION (C16: filesystem context → view):
        │  filter: source == .system(.builtin(.filesystemWatcher))
        │  filter: worktreeId matches pane's worktree
        ▼
-  PaneFilesystemProjectionStore (@MainActor, @Observable)
+  PaneFilesystemProjectionAtom (@MainActor, @Observable)
   ┌───────────────────────────────────────────────┐
   │  private(set) var snapshotsByPaneId: [...]    │◄─── updated from C6 events
   │  consume(_:panesById:worktreeRootsByWtId:)    │

@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct PaneCoordinatorTabNamingTests {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
 
     @Test

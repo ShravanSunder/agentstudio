@@ -17,30 +17,21 @@ enum CommandBarAppMode {
     case normal
     case management
 
-    var label: String {
+    var statusStripLabel: String? {
         switch self {
         case .normal:
-            return "Normal"
+            return nil
         case .management:
-            return "Manage"
+            return "Management"
         }
     }
 
-    var icon: String {
+    var statusStripIcon: String? {
         switch self {
         case .normal:
-            return "rectangle.split.2x2"
+            return nil
         case .management:
             return "rectangle.split.2x2.fill"
-        }
-    }
-
-    var isAccented: Bool {
-        switch self {
-        case .normal:
-            return false
-        case .management:
-            return true
         }
     }
 }
@@ -86,6 +77,7 @@ struct CommandBarItem: Identifiable {
     let subtitle: String?
     let icon: String?
     let iconColor: Color?
+    let shortcutTrigger: ShortcutTrigger?
     let shortcutKeys: [ShortcutKey]?
     let group: String
     let groupPriority: Int
@@ -101,6 +93,7 @@ struct CommandBarItem: Identifiable {
         subtitle: String? = nil,
         icon: String? = nil,
         iconColor: Color? = nil,
+        shortcutTrigger: ShortcutTrigger? = nil,
         shortcutKeys: [ShortcutKey]? = nil,
         group: String,
         groupPriority: Int,
@@ -114,13 +107,18 @@ struct CommandBarItem: Identifiable {
         self.subtitle = subtitle
         self.icon = icon
         self.iconColor = iconColor
-        self.shortcutKeys = shortcutKeys
+        self.shortcutTrigger = shortcutTrigger
+        self.shortcutKeys = shortcutKeys ?? shortcutTrigger.map(Self.shortcutKeys(for:))
         self.group = group
         self.groupPriority = groupPriority
         self.keywords = keywords
         self.hasChildren = hasChildren
         self.action = action
         self.command = command
+    }
+
+    private static func shortcutKeys(for trigger: ShortcutTrigger) -> [ShortcutKey] {
+        ShortcutKey.from(trigger: trigger)
     }
 
     var worktreeOpenState: WorktreeOpenState? {
@@ -170,6 +168,16 @@ struct ShortcutKey: Identifiable, Hashable {
         keys.append(Self(symbol: keyBinding.key.uppercased()))
         return keys
     }
+
+    static func from(trigger: ShortcutTrigger) -> [Self] {
+        var keys: [Self] = []
+        if trigger.modifiers.contains(.command) { keys.append(Self(symbol: "⌘")) }
+        if trigger.modifiers.contains(.shift) { keys.append(Self(symbol: "⇧")) }
+        if trigger.modifiers.contains(.option) { keys.append(Self(symbol: "⌥")) }
+        if trigger.modifiers.contains(.control) { keys.append(Self(symbol: "⌃")) }
+        keys.append(Self(symbol: trigger.key.displayString))
+        return keys
+    }
 }
 
 // MARK: - CommandBarLevel
@@ -213,29 +221,55 @@ struct CommandBarItemGroup: Identifiable {
 
 // MARK: - FooterHint
 
+enum FooterHintStyle: Equatable, Sendable {
+    case badge
+    case plain
+}
+
 struct FooterHint: Identifiable, Equatable, Sendable {
     let id: String
     let shortcutKeys: [ShortcutKey]
     let label: String
     let isDivider: Bool
+    let style: FooterHintStyle
 
-    init(id: String, key: String, label: String, isDivider: Bool = false) {
+    init(
+        id: String,
+        key: String,
+        label: String,
+        isDivider: Bool = false,
+        style: FooterHintStyle = .badge
+    ) {
         self.id = id
         self.shortcutKeys = [ShortcutKey(symbol: key)]
         self.label = label
         self.isDivider = isDivider
+        self.style = style
     }
 
-    init(id: String, keys: [ShortcutKey], label: String, isDivider: Bool = false) {
+    init(
+        id: String,
+        keys: [ShortcutKey],
+        label: String,
+        isDivider: Bool = false,
+        style: FooterHintStyle = .badge
+    ) {
         self.id = id
         self.shortcutKeys = keys
         self.label = label
         self.isDivider = isDivider
+        self.style = style
     }
 
     static func divider(_ id: String) -> Self {
-        Self(id: id, keys: [], label: "", isDivider: true)
+        Self(id: id, keys: [], label: "", isDivider: true, style: .plain)
     }
+}
+
+struct FooterHintLayout: Equatable, Sendable {
+    let primaryRow: [FooterHint]
+    let secondaryLeadingRow: [FooterHint]
+    let secondaryTrailingRow: [FooterHint]
 }
 
 // MARK: - FooterHintBuilder
@@ -249,10 +283,9 @@ enum FooterHintBuilder {
     ) -> [FooterHint] {
         if isNested {
             return [
-                FooterHint(id: "enter", key: "↵", label: "Select"),
-                FooterHint(id: "back", key: "⌫", label: "Back"),
                 .divider("div-dismiss"),
-                FooterHint(id: "dismiss", key: "esc", label: "Close"),
+                FooterHint(id: "back", key: "⌫", label: "Back", style: .plain),
+                FooterHint(id: "dismiss", key: "esc", label: "Close", style: .plain),
             ]
         }
 
@@ -262,12 +295,11 @@ enum FooterHintBuilder {
         if let item {
             if item.worktreeOpenState != nil {
                 actions = [
-                    FooterHint(id: "enter", key: "↵", label: "Actions"),
                     FooterHint(
                         id: "cmd-enter",
                         keys: [ShortcutKey(symbol: "⌘"), ShortcutKey(symbol: "↵")],
                         label: "New tab"
-                    ),
+                    )
                 ]
                 if canOpenInCurrentTab {
                     actions.append(
@@ -294,13 +326,36 @@ enum FooterHintBuilder {
             hints.append(contentsOf: scopeHints)
         }
         hints.append(.divider("div-dismiss"))
-        hints.append(FooterHint(id: "dismiss", key: "esc", label: "Close"))
+        hints.append(FooterHint(id: "dismiss", key: "esc", label: "Close", style: .plain))
         return hints
     }
 
+    static func layout(for hints: [FooterHint]) -> FooterHintLayout {
+        var primaryRow: [FooterHint] = []
+        var secondaryLeadingRow: [FooterHint] = []
+        var secondaryTrailingRow: [FooterHint] = []
+
+        for hint in hints where !hint.isDivider {
+            switch hint.id {
+            case "dismiss":
+                secondaryTrailingRow.append(hint)
+            case "scope-commands", "scope-panes", "scope-repos", "back":
+                secondaryLeadingRow.append(hint)
+            default:
+                primaryRow.append(hint)
+            }
+        }
+
+        return FooterHintLayout(
+            primaryRow: primaryRow,
+            secondaryLeadingRow: secondaryLeadingRow,
+            secondaryTrailingRow: secondaryTrailingRow
+        )
+    }
+
     private static let scopeHints: [FooterHint] = [
-        FooterHint(id: "scope-commands", key: ">", label: "Commands"),
-        FooterHint(id: "scope-panes", key: "$", label: "Panes"),
-        FooterHint(id: "scope-repos", key: "#", label: "Repos"),
+        FooterHint(id: "scope-commands", key: ">", label: "cmd", style: .plain),
+        FooterHint(id: "scope-panes", key: "$", label: "pane", style: .plain),
+        FooterHint(id: "scope-repos", key: "#", label: "repo", style: .plain),
     ]
 }

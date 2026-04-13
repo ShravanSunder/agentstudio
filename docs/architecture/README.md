@@ -17,7 +17,7 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 │  └───────┬───────┘  └────────┬────────┘  └───────────────┘            │
 │          │                   │                                         │
 │  ┌───────┴──────────┐  ┌─────┴────────────┐                           │
-│  │AppLifecycleStore │  │WindowLifecycleStore│                         │
+│  │AppLifecycleAtom │  │WindowLifecycleAtom│                         │
 │  │(active/terminate)│  │(focus/key + launch geometry)│                │
 │  └───────┬──────────┘  └─────┬────────────┘                           │
 │          │                   │                                         │
@@ -52,7 +52,7 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 - **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` store: `WorkspaceStore` (canonical associations), `RepoCacheAtom` (derived enrichment), `UIStateAtom` (presentation prefs), `SurfaceManager` (Ghostty surfaces), `SessionRuntime` (backends). No god-store. Each store owns one domain and has one reason to change.
 - **Unidirectional flow (Valtio-style)** — All store state is `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers.
 - **Coordinator for cross-store sequencing** — A coordinator sequences operations across stores for a single user action. Owns no state, contains no domain logic.
-- **Lifecycle ingress stays separate** — `ApplicationLifecycleMonitor` owns AppKit ingress only. It mutates `AppLifecycleStore` and `WindowLifecycleStore`, both `@Observable` atomic stores with `private(set)` mutation surfaces. `WindowLifecycleStore` holds transient window facts only: key/focus state, terminal container bounds, launch-layout-settle state, and derived readiness; none of those readiness properties are persisted.
+- **Lifecycle ingress stays separate** — `ApplicationLifecycleMonitor` owns AppKit ingress only. It mutates `AppLifecycleAtom` and `WindowLifecycleAtom`, both `@Observable` atomic stores with `private(set)` mutation surfaces. `WindowLifecycleAtom` holds transient window facts only: key/focus state, terminal container bounds, launch-layout-settle state, and derived readiness; none of those readiness properties are persisted.
 - **Immutable layout tree** — `Layout` is a pure value type; operations return new instances, never mutate
 - **Surface independence** — Ghostty surfaces are ephemeral runtime resources; the model layer never holds `NSView` references
 - **@MainActor everywhere** — Thread safety enforced at compile time, no runtime races
@@ -123,7 +123,7 @@ Runtime fact → PaneRuntimeEventBus.post(envelope)
   → WorkspaceCacheCoordinator / other consumers subscribe independently
 
 App-level notification that is not a command → AppEventBus
-AppKit/macOS lifecycle ingress → ApplicationLifecycleMonitor → AppLifecycleStore / WindowLifecycleStore
+AppKit/macOS lifecycle ingress → ApplicationLifecycleMonitor → AppLifecycleAtom / WindowLifecycleAtom
 ```
 
 ## Document Index

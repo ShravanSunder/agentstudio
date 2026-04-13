@@ -35,7 +35,7 @@ At the end of this refactor:
   - forwarding mutation helpers like `createPane(...)`, `appendTab(...)`, `removeTab(...)`
 - all read-side code uses atoms or `derived`
 - all mutation code calls the owning atom or `WorkspaceMutationCoordinator` directly
-- `WorkspaceFocusContextAtom` is removed. Focus becomes pure `WorkspaceFocusDerived`, read via `atom(\.workspaceFocus)`
+- the stored focus atom is removed. Shared focus types live in `WorkspaceFocus.swift`, and focus becomes pure `WorkspaceFocusDerived`, read via `atom(\.workspaceFocus)`
 
 ---
 
@@ -106,13 +106,13 @@ At the end of this refactor:
 
 #### Atoms / helpers that still depend on `WorkspaceStore`
 
-- [ ] `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocusContextAtom.swift`
+- [ ] `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocus.swift`
 - [ ] `Sources/AgentStudio/Core/State/MainActor/Atoms/TabDisplayNameResolver.swift`
 
 #### Persistence layer to slim down
 
 - [ ] `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift`
-- [ ] `Sources/AgentStudio/Infrastructure/AtomLib/AtomStore.swift`
+- [ ] `Sources/AgentStudio/Infrastructure/AtomLib/AtomRegistry.swift`
 
 #### Additional call sites / helper seams to rescan and update
 
@@ -145,10 +145,10 @@ At the end of this refactor:
 | Create | `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceLookupDerived.swift` | Centralize cross-atom lookups that were formerly hidden behind `WorkspaceStore` convenience APIs |
 | Create | `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocusDerived.swift` | Build `WorkspaceFocus` directly from atoms |
 | Create | `Sources/AgentStudio/Core/State/MainActor/Atoms/TabDisplayDerived.swift` | Resolve tab titles and pane-derived tab labels without `WorkspaceStore` |
-| Delete | `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocusContextAtom.swift` | Remove the stored focus atom; focus becomes pure `derived` |
+| Rename | `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocus.swift` | Keep shared focus types after removing the stored focus atom; focus becomes pure `derived` |
 | Modify | `Sources/AgentStudio/Core/State/MainActor/Atoms/TabDisplayNameResolver.swift` | Replace `WorkspaceStore` parameter with atom-backed reads or fold into `TabDisplayDerived` |
 | Modify | `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift` | Delete read aggregate and forwarding mutation APIs; keep restore / flush / dirty tracking |
-| Modify | `Sources/AgentStudio/Infrastructure/AtomLib/AtomStore.swift` | Expose new `derived` helpers; remove transitional aliases that encouraged facade-style access |
+| Modify | `Sources/AgentStudio/Infrastructure/AtomLib/AtomRegistry.swift` | Expose new `derived` helpers; remove transitional aliases that encouraged facade-style access |
 | Modify | `Sources/AgentStudio/Features/CommandBar/CommandBarDataSource.swift` | Read atoms / `derived` instead of `WorkspaceStore` queries |
 | Modify | `Sources/AgentStudio/Features/CommandBar/CommandBarDataSource+WorktreeRows.swift` | Replace worktree presence lookup with atom / `derived` reads |
 | Modify | `Sources/AgentStudio/Features/CommandBar/Views/CommandBarView.swift` | Remove `WorkspaceStore` reads from footer/action resolution |
@@ -211,7 +211,7 @@ Expected: non-zero exit because `WorkspaceStore.swift` still exposes facade read
 - Create: `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceLookupDerived.swift`
 - Create: `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocusDerived.swift`
 - Create: `Sources/AgentStudio/Core/State/MainActor/Atoms/TabDisplayDerived.swift`
-- Modify: `Sources/AgentStudio/Infrastructure/AtomLib/AtomStore.swift`
+- Modify: `Sources/AgentStudio/Infrastructure/AtomLib/AtomRegistry.swift`
 - Create: `Tests/AgentStudioTests/Core/Views/WorkspaceLookupDerivedTests.swift`
 - Create: `Tests/AgentStudioTests/Core/Views/WorkspaceFocusDerivedTests.swift`
 - Create: `Tests/AgentStudioTests/Core/Views/TabDisplayDerivedTests.swift`
@@ -266,7 +266,7 @@ struct TabDisplayDerived {
 }
 ```
 
-- [ ] **Step 4: Wire the new `derived` helpers into `AtomStore`**
+- [ ] **Step 4: Wire the new `derived` helpers into `AtomRegistry`**
 
 Expose:
 
@@ -315,12 +315,15 @@ Stop passing `WorkspaceStore`-backed queries into `RepoSidebarContentView` and `
 
 Update `TabBarAdapter` and tab-title helpers to consume `atom(\.tabDisplay)` and direct atoms instead of `store.tabs`, `store.pane(...)`, `store.repo(...)`, and `store.worktree(...)`.
 
-- [ ] **Step 4: Remove `WorkspaceStore` from `WorkspaceFocusContextAtom`**
+- [ ] **Step 4: Remove `WorkspaceStore` from the old focus atom path**
 
-Delete `WorkspaceFocusContextAtom` entirely and move its callers to:
+Delete the stored focus atom entirely, keep the shared focus types in `WorkspaceFocus.swift`, and move callers to:
 
 ```swift
-atom(\.workspaceFocus).currentFocus()
+atom(\.workspaceFocus).currentFocus(
+    workspaceTabLayout: atom(\.workspaceTabLayout),
+    workspacePane: atom(\.workspacePane)
+)
 ```
 
 Update any boot wiring or tests that still call `startObserving(store:)`.
@@ -476,7 +479,7 @@ convenience init(
 )
 ```
 
-and update all fixtures/tests to pass the canonical parameter names or construct `AtomStore`/atoms directly.
+and update all fixtures/tests to pass the canonical parameter names or construct `AtomRegistry`/atoms directly.
 
 - [ ] **Step 3: Update store-focused tests to validate the new narrow role**
 

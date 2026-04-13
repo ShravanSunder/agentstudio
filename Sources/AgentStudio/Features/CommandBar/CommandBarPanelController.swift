@@ -86,6 +86,14 @@ final class CommandBarPanelController {
         panel.onDismiss = { [weak self] in
             self?.dismiss()
         }
+        // The panel is the primary shortcut ingress because performKeyEquivalent
+        // fires before menu handling while the command bar is key. The view/text
+        // field also receives this closure as a fallback for selector-driven
+        // NSTextField command paths like modified Enter.
+        panel.onShortcutTrigger = { [weak self] trigger in
+            guard let self else { return false }
+            return self.handleShortcutTrigger(trigger)
+        }
 
         // Set SwiftUI content
         let contentView = CommandBarView(
@@ -93,8 +101,11 @@ final class CommandBarPanelController {
             store: store,
             repoCache: repoCache,
             dispatcher: dispatcher,
-            onDismiss: { [weak self] in
-                self?.dismiss()
+            onShortcutTrigger: { [weak self] trigger in
+                self?.handleShortcutTrigger(trigger) ?? false
+            },
+            onExecuteItem: { [weak self] item, modifier in
+                self?.executeItem(item, modifier: modifier)
             }
         )
         panel.setContent(contentView)
@@ -122,6 +133,137 @@ final class CommandBarPanelController {
         })
 
         controllerLogger.debug("Command bar panel presented")
+    }
+
+    private var currentContext: WorkspaceFocus {
+        atom(\.workspaceFocus).currentFocus(
+            workspaceTabLayout: store.tabLayoutAtom,
+            workspacePane: store.paneAtom
+        )
+    }
+
+    private var allItems: [CommandBarItem] {
+        if let level = state.currentLevel {
+            return level.items
+        }
+        return CommandBarDataSource.items(
+            scope: state.activeScope,
+            store: store,
+            repoCache: repoCache,
+            dispatcher: dispatcher,
+            focus: currentContext
+        )
+    }
+
+    private var filteredItems: [CommandBarItem] {
+        CommandBarSearch.filter(
+            items: allItems,
+            query: state.searchQuery,
+            recentIds: state.recentItemIds
+        )
+    }
+
+    private var groups: [CommandBarItemGroup] {
+        CommandBarDataSource.grouped(filteredItems)
+    }
+
+    private var displayedItems: [CommandBarItem] {
+        CommandBarDataSource.displayItems(from: groups)
+    }
+
+    private var selectedItem: CommandBarItem? {
+        guard state.selectedIndex >= 0, state.selectedIndex < displayedItems.count else { return nil }
+        return displayedItems[state.selectedIndex]
+    }
+
+    private var canOpenWorktreeInCurrentTab: Bool {
+        let workspaceTabLayout = store.tabLayoutAtom
+        guard
+            let activeTabId = workspaceTabLayout.activeTabId,
+            let activeTab = workspaceTabLayout.tab(activeTabId),
+            activeTab.activePaneId != nil
+        else {
+            return false
+        }
+        return true
+    }
+
+    private func handleShortcutTrigger(_ trigger: ShortcutTrigger) -> Bool {
+        switch CommandBarShortcutRouter.route(
+            trigger: trigger,
+            selectedItem: selectedItem,
+            displayedItems: displayedItems
+        ) {
+        case .dismiss:
+            dismiss()
+            return true
+        case .showPrefix(let prefix):
+            guard let parentWindow else { return false }
+            show(prefix: prefix, parentWindow: parentWindow)
+            return true
+        case .executeRow(let item):
+            executeItem(item)
+            return true
+        case .executeSelected(let modifier):
+            guard let selectedItem else { return false }
+            executeItem(selectedItem, modifier: modifier)
+            return true
+        case .unhandled:
+            return false
+        }
+    }
+
+    private func executeItem(_ item: CommandBarItem, modifier: EnterModifier = .plain) {
+        if let command = item.command, !dispatcher.canDispatch(command) {
+            return
+        }
+
+        switch item.action {
+        case .dispatch(let command):
+            state.recordRecent(itemId: item.id)
+            dismiss()
+            dispatcher.dispatch(command)
+        case .dispatchTargeted(let command, let target, let targetType):
+            state.recordRecent(itemId: item.id)
+            dismiss()
+            dispatcher.dispatch(command, target: target, targetType: targetType)
+        case .navigate(let level):
+            state.pushLevel(level)
+        case .custom(let closure):
+            state.recordRecent(itemId: item.id)
+            dismiss()
+            closure()
+        case .worktreeAction(let presence):
+            executeResolvedWorktreeAction(
+                resolution: CommandBarWorktreeActionResolver.resolve(
+                    presence: presence,
+                    modifier: modifier,
+                    canOpenInCurrentTab: canOpenWorktreeInCurrentTab
+                ),
+                presence: presence,
+                itemId: item.id
+            )
+        }
+    }
+
+    private func executeResolvedWorktreeAction(
+        resolution: CommandBarWorktreeActionResolution,
+        presence: WorktreePresence,
+        itemId: String
+    ) {
+        switch resolution {
+        case .dispatch(let command, let target, let targetType):
+            state.recordRecent(itemId: itemId)
+            dismiss()
+            dispatcher.dispatch(command, target: target, targetType: targetType)
+        case .showActionsMenu:
+            state.pushLevel(
+                CommandBarDataSource.buildWorktreeActionsLevel(
+                    presence: presence,
+                    canOpenInCurrentTab: canOpenWorktreeInCurrentTab
+                )
+            )
+        }
     }
 
     private func dismissPanel() {

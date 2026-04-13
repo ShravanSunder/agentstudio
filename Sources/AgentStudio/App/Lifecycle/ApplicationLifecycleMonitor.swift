@@ -2,12 +2,12 @@ import Foundation
 
 @MainActor
 final class ApplicationLifecycleMonitor {
-    private let appLifecycleStore: AppLifecycleStore
-    private let windowLifecycleStore: WindowLifecycleStore
+    private let appLifecycleStore: AppLifecycleAtom
+    private let windowLifecycleStore: WindowLifecycleAtom
 
     init(
-        appLifecycleStore: AppLifecycleStore,
-        windowLifecycleStore: WindowLifecycleStore
+        appLifecycleStore: AppLifecycleAtom,
+        windowLifecycleStore: WindowLifecycleAtom
     ) {
         self.appLifecycleStore = appLifecycleStore
         self.windowLifecycleStore = windowLifecycleStore

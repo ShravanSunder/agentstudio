@@ -4,11 +4,11 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("PaneFilesystemProjectionStore context tracking")
-struct PaneFilesystemProjectionStoreContextTests {
+@Suite("PaneFilesystemProjectionAtom context tracking")
+struct PaneFilesystemProjectionAtomContextTests {
     @Test("registerPaneContext stores context by pane id")
     func registerPaneContextStoresContext() {
-        let store = PaneFilesystemProjectionStore()
+        let store = PaneFilesystemProjectionAtom()
         let context = PaneFilesystemContext(
             paneId: PaneId(),
             repoId: UUID(),
@@ -24,7 +24,7 @@ struct PaneFilesystemProjectionStoreContextTests {
 
     @Test("unregisterPaneContext removes context and snapshot")
     func unregisterPaneContextRemovesContextAndSnapshot() {
-        let store = PaneFilesystemProjectionStore()
+        let store = PaneFilesystemProjectionAtom()
         let repoId = UUID()
         let worktreeId = UUID()
         let root = URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)")
@@ -52,7 +52,7 @@ struct PaneFilesystemProjectionStoreContextTests {
 
     @Test("updatePaneCwd clears stale snapshot when cwd changes")
     func updatePaneCwdClearsSnapshotWhenCwdChanges() {
-        let store = PaneFilesystemProjectionStore()
+        let store = PaneFilesystemProjectionAtom()
         let repoId = UUID()
         let worktreeId = UUID()
         let root = URL(fileURLWithPath: "/tmp/worktree-\(UUID().uuidString)")
@@ -76,7 +76,7 @@ struct PaneFilesystemProjectionStoreContextTests {
 
     @Test("updatePaneCwd is idempotent when cwd is unchanged")
     func updatePaneCwdIsIdempotentWhenUnchanged() {
-        let store = PaneFilesystemProjectionStore()
+        let store = PaneFilesystemProjectionAtom()
         let context = PaneFilesystemContext(
             paneId: PaneId(),
             repoId: UUID(),
@@ -92,7 +92,7 @@ struct PaneFilesystemProjectionStoreContextTests {
 
     @Test("prune and reset clean context tracking state")
     func pruneAndResetCleanContextTrackingState() {
-        let store = PaneFilesystemProjectionStore()
+        let store = PaneFilesystemProjectionAtom()
         let keepContext = PaneFilesystemContext(
             paneId: PaneId(),
             repoId: UUID(),

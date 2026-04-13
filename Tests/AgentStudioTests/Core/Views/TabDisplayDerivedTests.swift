@@ -7,12 +7,12 @@ import Testing
 @Suite(.serialized)
 struct TabDisplayDerivedTests {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
 
     @Test
     func placeholderTabName_fallsBackToDerivedWorktreeTitle() {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -55,7 +55,7 @@ struct TabDisplayDerivedTests {
 
     @Test
     func paneTitle_usesFolderOnlyWhenDetachedHead() {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,

@@ -13,7 +13,7 @@ final class TabBarAdapterTests {
     private var tempDir: URL!
 
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
         resetFixture()
     }
 

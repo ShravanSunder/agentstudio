@@ -10,7 +10,7 @@ struct ActiveTabContent: View {
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let viewRegistry: ViewRegistry
-    let appLifecycleStore: AppLifecycleStore
+    let appLifecycleStore: AppLifecycleAtom
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let onOpenPaneGitHub: (UUID) -> Void

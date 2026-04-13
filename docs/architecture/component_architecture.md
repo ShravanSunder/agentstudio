@@ -306,12 +306,12 @@ Templates define the initial pane layout when opening a worktree. Not yet wired 
 
 ```
 AppDelegate (creates all services in dependency order)
-├── AtomStore                     ← composition root for all shared atoms
+├── AtomRegistry                     ← composition root for all shared atoms
 ├── WorkspaceStore                ← persistence wrapper over four atoms
 ├── RepoCacheStore                ← persistence wrapper for RepoCacheAtom
 ├── UIStateStore                  ← persistence wrapper for UIStateAtom
-├── AppLifecycleStore             ← app active/terminating state (in-memory)
-├── WindowLifecycleStore          ← key/focused window identity, terminal geometry (in-memory)
+├── AppLifecycleAtom             ← app active/terminating state (in-memory)
+├── WindowLifecycleAtom          ← key/focused window identity, terminal geometry (in-memory)
 ├── ApplicationLifecycleMonitor   ← AppKit lifecycle ingress into lifecycle stores
 ├── ManagementModeMonitor         ← management mode state tracking
 ├── SessionRuntime                ← backend status tracking (zmx health)
@@ -852,7 +852,7 @@ The command bar is a presentation layer over the shared command and focus models
 └──────────────────────────────────────────────────────────────┘
 ```
 
-This architecture gives us one true command ID (`AppCommand`), one true command metadata record (`CommandSpec`), one shared focus surface (`WorkspaceFocusContextAtom.currentFocus`), and one shared UI metadata shape (`ActionSpec`).
+This architecture gives us one true command ID (`AppCommand`), one true command metadata record (`CommandSpec`), one shared focus surface (`atom(\.workspaceFocus).currentFocus(...)`), and one shared UI metadata shape (`ActionSpec`).
 
 ---
 
@@ -1042,7 +1042,8 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` | Pane registry, pane metadata/content/residency, drawers |
 | `Core/State/MainActor/Atoms/WorkspaceTabLayoutAtom.swift` | Tabs, arrangements, active selection, zoom/minimize |
 | `Core/State/MainActor/Atoms/WorkspaceMutationCoordinator.swift` | Cross-atom workspace mutations (remove pane, background, reactivate, close snapshots) |
-| `Core/State/MainActor/Atoms/WorkspaceFocusContextAtom.swift` | Shared app-wide focus context for command visibility and status UI |
+| `Core/State/MainActor/Atoms/WorkspaceFocus.swift` | Shared `WorkspaceFocus` and `FocusRequirement` domain types for command visibility and status UI |
+| `Core/State/MainActor/Atoms/WorkspaceFocusDerived.swift` | Shared app-wide focus reader for command visibility and status UI |
 | `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper around the canonical workspace atoms |
 | `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | JSON persistence I/O |
 | `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` | Runtime status tracking and health checks |

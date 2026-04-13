@@ -7,12 +7,12 @@ import Testing
 @MainActor
 struct PaneManagementContextTests {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
 
     @Test
     func targetPath_prefersLiveCwd_thenFallsBackToWorktreeRoot() {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let persistor = WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(
                     path: "pane-management-context-\(UUID().uuidString)")
@@ -59,7 +59,7 @@ struct PaneManagementContextTests {
 
     @Test
     func targetPath_fallsBackToWorktreeRoot_whenCwdMissing() {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let persistor = WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(
                     path: "pane-management-context-\(UUID().uuidString)")
@@ -93,7 +93,7 @@ struct PaneManagementContextTests {
 
     @Test
     func targetPath_isNil_whenNeitherCwdNorWorktreeExists() {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let persistor = WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(
                     path: "pane-management-context-\(UUID().uuidString)")
@@ -122,7 +122,7 @@ struct PaneManagementContextTests {
 
     @Test
     func genericBrowserPane_hidesIdentityBlock_whenNoWorkspaceAssociationExists() {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let persistor = WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(
                     path: "pane-management-context-\(UUID().uuidString)")
@@ -152,7 +152,7 @@ struct PaneManagementContextTests {
 
     @Test
     func contextualBrowserPane_showsIdentityBlock_whenWorkspaceAssociationExists() {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let persistor = WorkspacePersistor(
                 workspacesDir: FileManager.default.temporaryDirectory.appending(
                     path: "pane-management-context-\(UUID().uuidString)")
