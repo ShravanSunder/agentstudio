@@ -37,7 +37,7 @@ extension Ghostty {
     final class AppFocusSynchronizer {
         private let focusSetter: any GhosttyAppFocusSetting
         nonisolated(unsafe) private let appHandleBits = GhosttyAppHandleBits()
-        private var appLifecycleStore: AppLifecycleStore?
+        private var appLifecycleStore: AppLifecycleAtom?
         private var isObservingApplicationLifecycle = false
 
         init(focusSetter: any GhosttyAppFocusSetting = LiveGhosttyAppFocusSetter.shared) {
@@ -52,7 +52,7 @@ extension Ghostty {
             appHandleBits.update(nil)
         }
 
-        func bindApplicationLifecycleStore(_ appLifecycleStore: AppLifecycleStore) {
+        func bindApplicationLifecycleStore(_ appLifecycleStore: AppLifecycleAtom) {
             if let existingStore = self.appLifecycleStore {
                 guard existingStore !== appLifecycleStore else { return }
                 ghosttyLogger.error("Ghostty focus synchronizer rejected lifecycle store rebind")

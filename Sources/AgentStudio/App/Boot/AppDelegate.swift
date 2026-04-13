@@ -9,7 +9,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var mainWindowController: MainWindowController?
     // MARK: - Shared Services (created once at launch)
     // Module-internal to support focused same-type AppDelegate extensions.
-    var atomStore: AtomStore!
+    var atomStore: AtomRegistry!
     var store: WorkspaceStore!
     var repoCache: RepoCacheAtom! { atomStore.repoCache }
     var uiState: UIStateAtom! { atomStore.uiState }
@@ -22,8 +22,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var executor: ActionExecutor!
     private var tabBarAdapter: TabBarAdapter!
     private var runtime: SessionRuntime!
-    var appLifecycleStore: AppLifecycleStore!
-    var windowLifecycleStore: WindowLifecycleStore!
+    var appLifecycleStore: AppLifecycleAtom!
+    var windowLifecycleStore: WindowLifecycleAtom!
     var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
     var managementModeMonitor: ManagementModeMonitor!
     // MARK: - Command Bar
@@ -72,7 +72,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: - Boot Step Implementations
 
     private func bootLoadCanonicalStore() {
-        atomStore = AtomStore()
+        atomStore = AtomRegistry()
         AtomScope.setUp(atomStore)
         store = WorkspaceStore(
             metadataAtom: atomStore.workspaceMetadata,
@@ -85,8 +85,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         uiStateStore = UIStateStore(atom: atomStore.uiState)
         store.restore()
         managementModeMonitor = ManagementModeMonitor()
-        appLifecycleStore = AppLifecycleStore()
-        windowLifecycleStore = WindowLifecycleStore()
+        appLifecycleStore = AppLifecycleAtom()
+        windowLifecycleStore = WindowLifecycleAtom()
         applicationLifecycleMonitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore

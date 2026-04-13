@@ -702,7 +702,7 @@ Quick reference: which direction each contract's data flows and which actor boun
 | C13 | Workflow Engine | Consumer (deferred) | EventBus → @MainActor | Future bus subscriber |
 | C14 | Replay Buffer | Internal | @MainActor | Per-runtime replay |
 | C15 | Process Channel | Source (deferred) | Future boundary | Request/response, not bus |
-| C16 | Filesystem Context | Projection | @MainActor | `PaneFilesystemProjectionStore` derives per-pane snapshots from C6 |
+| C16 | Filesystem Context | Projection | @MainActor | `PaneFilesystemProjectionAtom` derives per-pane snapshots from C6 |
 
 ---
 
@@ -1359,8 +1359,8 @@ enum PaneRuntimeLifecycle: Sendable {
 
 Application/window lifecycle is separate from pane runtime lifecycle. AppKit ingress is owned by `ApplicationLifecycleMonitor`, which mutates two `@Observable` atomic stores with `private(set)` surfaces:
 
-- `AppLifecycleStore` for app-wide active/terminating state
-- `WindowLifecycleStore` for key/focused window identity, registration, transient terminal container geometry, and launch-layout-settle state
+- `AppLifecycleAtom` for app-wide active/terminating state
+- `WindowLifecycleAtom` for key/focused window identity, registration, transient terminal container geometry, and launch-layout-settle state
 
 Those stores are lifecycle ingress state, not runtime coordination state. The old `AppCommand -> AppEventBus -> controller -> PaneActionCommand` chain has been removed; user-triggered workspace work now enters the validated `PaneActionCommand` pipeline directly.
 
@@ -2766,7 +2766,7 @@ PaneRuntimeEvent stream → Harness Event Gateway → adapters → agent
 
 > **Extensibility:** New per-pane derived streams (e.g., "pane git blame context", "pane dependency graph") follow the same projection pattern: filter an upstream source by pane-scoped criteria, expose a typed subscription. Adding a new projection does not change the upstream source or existing projections.
 
-> **Status:** Implemented as `PaneFilesystemProjectionStore` in `Core/RuntimeEventSystem/Projection/PaneFilesystemProjectionStore.swift`. The store consumes `RuntimeEnvelope` events, filters filesystem changesets to each pane's CWD subtree, and exposes per-pane snapshots via `@Observable`.
+> **Status:** Implemented as `PaneFilesystemProjectionAtom` in `Core/State/MainActor/Atoms/PaneFilesystemProjectionAtom.swift`. The atom consumes `RuntimeEnvelope` events, filters filesystem changesets to each pane's CWD subtree, and exposes per-pane snapshots via `@Observable`.
 
 A derived, per-pane filesystem context stream based on the pane's current CWD. Separate from the terminal process request/response channel.
 
@@ -2943,7 +2943,7 @@ The historical codebase used `NotificationCenter` and `DispatchQueue.main.async`
 
 **No dual-path period (data-plane actions).** When a pane runtime action is migrated to the event bus, the corresponding `NotificationCenter.post()` call is deleted in the same commit. There is no compatibility shim where both paths fire. This migration remains per-action (one `GhosttyEvent` case at a time), not big-bang.
 
-**Lifecycle ingress now has its own boundary:** App/window lifecycle is no longer modeled as runtime `NotificationCenter.post` exceptions. `ApplicationLifecycleMonitor` owns AppKit ingress and writes `AppLifecycleStore` / `WindowLifecycleStore`, while Ghostty surface close/CWD/renderer-health handling uses typed local/runtime boundaries.
+**Lifecycle ingress now has its own boundary:** App/window lifecycle is no longer modeled as runtime `NotificationCenter.post` exceptions. `ApplicationLifecycleMonitor` owns AppKit ingress and writes `AppLifecycleAtom` / `WindowLifecycleAtom`, while Ghostty surface close/CWD/renderer-health handling uses typed local/runtime boundaries.
 
 ---
 
@@ -3109,7 +3109,7 @@ See [Directory Structure](directory_structure.md) for the full decision process 
 | **WebviewPaneController** | `Features/Webview/` | Per-pane WebKit page, navigation state (transport/view-side lifecycle) |
 | **SwiftPaneRuntime** | `Core/RuntimeEventSystem/Runtime/` | Native-pane `PaneRuntime` shared by direct AppKit/SwiftUI panes such as `.codeViewer`; kept in Core because it has no feature-specific transport/controller dependency |
 | **PaneRuntimeEventChannel** | `Core/RuntimeEventSystem/Runtime/` | Per-pane event channel with local subscribers and replay; bridges to global `EventBus` for cross-pane fanout |
-| **PaneFilesystemProjectionStore** | `Core/RuntimeEventSystem/Projection/` | C16 projection: derives per-pane filesystem snapshots from worktree-level C6 events, filtered to each pane's CWD subtree |
+| **PaneFilesystemProjectionAtom** | `Core/State/MainActor/Atoms/` | C16 projection: derives per-pane filesystem snapshots from worktree-level C6 events, filtered to each pane's CWD subtree |
 | **EventChannels** (`PaneRuntimeEventBus`) | `Core/RuntimeEventSystem/Events/` | Singleton `EventBus<RuntimeEnvelope>` factory with replay configuration |
 | **FSEventsWatcher** (future) | `Core/RuntimeEventSystem/Filesystem/` | System-level filesystem watcher; produces FilesystemEvent envelopes |
 | **PaneCoordinator** | `App/Coordination/` | Imports from multiple features; composition root |

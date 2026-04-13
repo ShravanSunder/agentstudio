@@ -67,6 +67,7 @@ enum ShortcutArrowKey: CaseIterable {
 enum ShortcutInputKey: Hashable {
     case character(ShortcutCharacterKey)
     case arrow(ShortcutArrowKey)
+    case enter
     case escape
 
     var displayString: String {
@@ -75,6 +76,8 @@ enum ShortcutInputKey: Hashable {
             return key.displayString
         case .arrow(let key):
             return key.displayString
+        case .enter:
+            return "↵"
         case .escape:
             return "Esc"
         }
@@ -220,39 +223,39 @@ enum AppShortcut: String, CaseIterable {
                 contexts: [.global, .terminalAppOwned]
             )
         case .selectTab1:
-            return Self.selectTabSpec(command: .selectTab1, key: .digit1)
+            return Self.selectTabSpec(key: .digit1)
         case .selectTab2:
-            return Self.selectTabSpec(command: .selectTab2, key: .digit2)
+            return Self.selectTabSpec(key: .digit2)
         case .selectTab3:
-            return Self.selectTabSpec(command: .selectTab3, key: .digit3)
+            return Self.selectTabSpec(key: .digit3)
         case .selectTab4:
-            return Self.selectTabSpec(command: .selectTab4, key: .digit4)
+            return Self.selectTabSpec(key: .digit4)
         case .selectTab5:
-            return Self.selectTabSpec(command: .selectTab5, key: .digit5)
+            return Self.selectTabSpec(key: .digit5)
         case .selectTab6:
-            return Self.selectTabSpec(command: .selectTab6, key: .digit6)
+            return Self.selectTabSpec(key: .digit6)
         case .selectTab7:
-            return Self.selectTabSpec(command: .selectTab7, key: .digit7)
+            return Self.selectTabSpec(key: .digit7)
         case .selectTab8:
-            return Self.selectTabSpec(command: .selectTab8, key: .digit8)
+            return Self.selectTabSpec(key: .digit8)
         case .selectTab9:
-            return Self.selectTabSpec(command: .selectTab9, key: .digit9)
+            return Self.selectTabSpec(key: .digit9)
         case .managementFocusLeft:
-            return Self.managementSpec(command: .managementFocusLeft, key: .arrow(.left))
+            return Self.managementSpec(key: .arrow(.left))
         case .managementFocusRight:
-            return Self.managementSpec(command: .managementFocusRight, key: .arrow(.right))
+            return Self.managementSpec(key: .arrow(.right))
         case .managementEnterDrawer:
-            return Self.managementSpec(command: .managementEnterDrawer, key: .arrow(.down))
+            return Self.managementSpec(key: .arrow(.down))
         case .managementExitDrawer:
-            return Self.managementSpec(command: .managementExitDrawer, key: .arrow(.up))
+            return Self.managementSpec(key: .arrow(.up))
         case .managementOpenDrawer:
-            return Self.managementSpec(command: .managementOpenDrawer, key: .character(.d))
+            return Self.managementSpec(key: .character(.d))
         case .managementCreateTerminal:
-            return Self.managementSpec(command: .managementCreateTerminal, key: .character(.p))
+            return Self.managementSpec(key: .character(.p))
         case .managementCreateBrowser:
-            return Self.managementSpec(command: .managementCreateBrowser, key: .character(.b))
+            return Self.managementSpec(key: .character(.b))
         case .managementExitMode:
-            return Self.managementSpec(command: .managementExitMode, key: .character(.r))
+            return Self.managementSpec(key: .character(.r))
         }
     }
 
@@ -268,14 +271,14 @@ enum AppShortcut: String, CaseIterable {
 }
 
 extension AppShortcut {
-    fileprivate static func selectTabSpec(command _: AppCommand, key: ShortcutCharacterKey) -> AppShortcutSpec {
+    fileprivate static func selectTabSpec(key: ShortcutCharacterKey) -> AppShortcutSpec {
         .init(
             trigger: .init(key: .character(key), modifiers: [.command]),
             contexts: [.global]
         )
     }
 
-    fileprivate static func managementSpec(command _: AppCommand, key: ShortcutInputKey) -> AppShortcutSpec {
+    fileprivate static func managementSpec(key: ShortcutInputKey) -> AppShortcutSpec {
         .init(
             trigger: .init(key: key, modifiers: []),
             contexts: [.managementMode]
@@ -300,6 +303,8 @@ enum ShortcutDecoder {
         let modifiers = shortcutModifiers(from: modifierFlags)
 
         switch keyCode {
+        case 36, 76:
+            return .init(key: .enter, modifiers: modifiers)
         case 53:
             return .init(key: .escape, modifiers: modifiers)
         case 123:

@@ -7,7 +7,7 @@ import Testing
 @Suite(.serialized)
 struct CommandBarDataSourceTests {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
 
     private let dispatcher = CommandDispatcher.shared

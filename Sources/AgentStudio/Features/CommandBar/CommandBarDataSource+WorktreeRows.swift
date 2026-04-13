@@ -113,12 +113,13 @@ extension CommandBarDataSource {
         canOpenInCurrentTab: Bool
     ) -> CommandBarLevel {
         let worktreeId = presence.worktreeId
+        let newTabShortcut = ShortcutTrigger(key: .enter, modifiers: [.command])
         var items = [
             CommandBarItem(
                 id: "wt-new-tab-\(worktreeId.uuidString)",
                 title: "New pane in new tab",
                 icon: "plus.rectangle",
-                shortcutKeys: [ShortcutKey(symbol: "⌘"), ShortcutKey(symbol: "↵")],
+                shortcutTrigger: newTabShortcut,
                 group: "Open",
                 groupPriority: 0,
                 action: .dispatchTargeted(.openNewTerminalInTab, target: worktreeId, targetType: .worktree),
@@ -127,12 +128,13 @@ extension CommandBarDataSource {
         ]
 
         if canOpenInCurrentTab {
+            let currentTabShortcut = ShortcutTrigger(key: .enter, modifiers: [.option])
             items.append(
                 CommandBarItem(
                     id: "wt-add-pane-\(worktreeId.uuidString)",
                     title: "New pane in current tab",
                     icon: "rectangle.split.2x1",
-                    shortcutKeys: [ShortcutKey(symbol: "⌥"), ShortcutKey(symbol: "↵")],
+                    shortcutTrigger: currentTabShortcut,
                     group: "Open",
                     groupPriority: 0,
                     action: .dispatchTargeted(.openWorktreeInPane, target: worktreeId, targetType: .worktree),

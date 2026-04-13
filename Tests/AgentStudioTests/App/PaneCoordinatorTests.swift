@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct PaneCoordinatorTests {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
 
     private struct PaneCoordinatorHarness {
@@ -29,7 +29,7 @@ struct PaneCoordinatorTests {
         let runtime = SessionRuntime(store: store)
         let coordinator = PaneCoordinator(
             store: store, viewRegistry: viewRegistry, runtime: runtime,
-            windowLifecycleStore: WindowLifecycleStore()
+            windowLifecycleStore: WindowLifecycleAtom()
         )
         return PaneCoordinatorHarness(
             store: store,
@@ -61,8 +61,8 @@ struct PaneCoordinatorTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            paneFilesystemProjectionStore: PaneFilesystemProjectionStore(),
-            windowLifecycleStore: WindowLifecycleStore()
+            paneFilesystemProjectionStore: PaneFilesystemProjectionAtom(),
+            windowLifecycleStore: WindowLifecycleAtom()
         )
     }
 
@@ -202,7 +202,7 @@ struct PaneCoordinatorTests {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store = WorkspaceStore(persistor: persistor)
         store.restore()
-        let paneFilesystemProjectionStore = PaneFilesystemProjectionStore()
+        let paneFilesystemProjectionStore = PaneFilesystemProjectionAtom()
         let coordinator = PaneCoordinator(
             store: store,
             viewRegistry: ViewRegistry(),
@@ -212,7 +212,7 @@ struct PaneCoordinatorTests {
             paneEventBus: EventBus<RuntimeEnvelope>(),
             filesystemSource: RecordingFilesystemSourceHarness(),
             paneFilesystemProjectionStore: paneFilesystemProjectionStore,
-            windowLifecycleStore: WindowLifecycleStore()
+            windowLifecycleStore: WindowLifecycleAtom()
         )
 
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -527,8 +527,8 @@ struct PaneCoordinatorTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            paneFilesystemProjectionStore: PaneFilesystemProjectionStore(),
-            windowLifecycleStore: WindowLifecycleStore()
+            paneFilesystemProjectionStore: PaneFilesystemProjectionAtom(),
+            windowLifecycleStore: WindowLifecycleAtom()
         )
 
         await waitUntilFilesystemState(
@@ -590,8 +590,8 @@ struct PaneCoordinatorTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            paneFilesystemProjectionStore: PaneFilesystemProjectionStore(),
-            windowLifecycleStore: WindowLifecycleStore()
+            paneFilesystemProjectionStore: PaneFilesystemProjectionAtom(),
+            windowLifecycleStore: WindowLifecycleAtom()
         )
         _ = coordinator
 

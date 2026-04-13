@@ -1,5 +1,5 @@
 @MainActor
-final class AtomStore {
+final class AtomRegistry {
     let workspaceMetadata: WorkspaceMetadataAtom
     let workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom
     let workspacePane: WorkspacePaneAtom

@@ -7,7 +7,7 @@ import Testing
 @Suite(.serialized)
 struct CommandBarWorktreeRowBuilderTests {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
 
     @Test

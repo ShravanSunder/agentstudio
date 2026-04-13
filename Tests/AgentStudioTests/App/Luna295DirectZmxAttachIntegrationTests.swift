@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct Luna295DirectZmxAttachIntegrationTests {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
 
     private let fixtureSessionConfiguration = SessionConfiguration(
@@ -25,7 +25,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let viewRegistry: ViewRegistry
         let runtime: SessionRuntime
         let coordinator: PaneCoordinator
-        let windowLifecycleStore: WindowLifecycleStore
+        let windowLifecycleStore: WindowLifecycleAtom
         let surfaceManager: CapturingSurfaceManager
         let tempDir: URL
     }
@@ -38,7 +38,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         store.restore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
-        let windowLifecycleStore = WindowLifecycleStore()
+        let windowLifecycleStore = WindowLifecycleAtom()
         let surfaceManager = CapturingSurfaceManager()
         let coordinator = PaneCoordinator(
             store: store,

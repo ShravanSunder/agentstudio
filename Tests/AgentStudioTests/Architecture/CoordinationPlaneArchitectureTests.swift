@@ -99,11 +99,15 @@ struct CoordinationPlaneArchitectureTests {
                 encoding: .utf8
             ),
             appLifecycleStoreSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Lifecycle/AppLifecycleStore.swift"),
+                contentsOf: projectRoot.appending(
+                    path: "Sources/AgentStudio/Core/State/MainActor/Atoms/AppLifecycleAtom.swift"
+                ),
                 encoding: .utf8
             ),
             windowLifecycleStoreSource: String(
-                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Lifecycle/WindowLifecycleStore.swift"),
+                contentsOf: projectRoot.appending(
+                    path: "Sources/AgentStudio/Core/State/MainActor/Atoms/WindowLifecycleAtom.swift"
+                ),
                 encoding: .utf8
             )
         )
@@ -143,10 +147,10 @@ struct CoordinationPlaneArchitectureTests {
             path: "Sources/AgentStudio/App/Lifecycle/ApplicationLifecycleMonitor.swift"
         )
         let appLifecycleStorePath = projectRoot.appending(
-            path: "Sources/AgentStudio/App/Lifecycle/AppLifecycleStore.swift"
+            path: "Sources/AgentStudio/Core/State/MainActor/Atoms/AppLifecycleAtom.swift"
         )
         let windowLifecycleStorePath = projectRoot.appending(
-            path: "Sources/AgentStudio/App/Lifecycle/WindowLifecycleStore.swift"
+            path: "Sources/AgentStudio/Core/State/MainActor/Atoms/WindowLifecycleAtom.swift"
         )
 
         let sources = try loadLifecycleCompositionSources(projectRoot: projectRoot)
@@ -158,29 +162,29 @@ struct CoordinationPlaneArchitectureTests {
         #expect(sources.appDelegateSource.contains("var applicationLifecycleMonitor: ApplicationLifecycleMonitor"))
         #expect(sources.appDelegateRoutingSource.contains("Ghostty.bindApplicationLifecycleStore(appLifecycleStore)"))
         #expect(
-            sources.paneTabViewControllerSource.contains("private let appLifecycleStore: AppLifecycleStore")
+            sources.paneTabViewControllerSource.contains("private let appLifecycleStore: AppLifecycleAtom")
         )
         #expect(
             !sources.paneTabViewControllerSource.contains(
-                "func setAppLifecycleStore(_ appLifecycleStore: AppLifecycleStore)"
+                "func setAppLifecycleStore(_ appLifecycleStore: AppLifecycleAtom)"
             )
         )
         #expect(!sources.paneTabViewControllerSource.contains("replaceSplitContentView()"))
         #expect(sources.paneTabViewControllerSource.contains("tabContentHosts"))
         #expect(sources.paneTabViewControllerSource.contains("PaneTabActionDispatcher"))
-        #expect(sources.mainWindowControllerSource.contains("appLifecycleStore: AppLifecycleStore"))
-        #expect(sources.splitViewControllerSource.contains("appLifecycleStore: AppLifecycleStore"))
+        #expect(sources.mainWindowControllerSource.contains("appLifecycleStore: AppLifecycleAtom"))
+        #expect(sources.splitViewControllerSource.contains("appLifecycleStore: AppLifecycleAtom"))
         #expect(!sources.appDelegateRoutingSource.contains("setAppLifecycleStore(appLifecycleStore)"))
-        #expect(sources.activeTabContentSource.contains("let appLifecycleStore: AppLifecycleStore"))
+        #expect(sources.activeTabContentSource.contains("let appLifecycleStore: AppLifecycleAtom"))
         #expect(sources.singleTabContentSource.contains("let actionDispatcher: PaneActionDispatching"))
         #expect(sources.flatTabStripContainerSource.contains("let actionDispatcher: PaneActionDispatching"))
         #expect(sources.flatPaneStripContentSource.contains("let actionDispatcher: PaneActionDispatching"))
         #expect(sources.paneLeafContainerSource.contains("let actionDispatcher: PaneActionDispatching"))
         #expect(sources.paneActionDispatchingSource.contains("protocol PaneActionDispatching"))
         #expect(sources.paneTabActionDispatcherSource.contains("final class PaneTabActionDispatcher"))
-        #expect(sources.flatTabStripContainerSource.contains("let appLifecycleStore: AppLifecycleStore"))
-        #expect(sources.drawerPanelOverlaySource.contains("let appLifecycleStore: AppLifecycleStore"))
-        #expect(sources.drawerPanelSource.contains("let appLifecycleStore: AppLifecycleStore"))
+        #expect(sources.flatTabStripContainerSource.contains("let appLifecycleStore: AppLifecycleAtom"))
+        #expect(sources.drawerPanelOverlaySource.contains("let appLifecycleStore: AppLifecycleAtom"))
+        #expect(sources.drawerPanelSource.contains("let appLifecycleStore: AppLifecycleAtom"))
         #expect(sources.viewRegistrySource.contains("PaneViewSlot"))
         #expect(sources.viewRegistrySource.contains("@Observable"))
         #expect(sources.viewRegistrySource.contains("ensureSlot"))
@@ -195,7 +199,7 @@ struct CoordinationPlaneArchitectureTests {
         } else {
             Issue.record("Expected AppDelegate to seed restored pane slots before main window creation")
         }
-        #expect(!sources.ghosttySource.contains("AppLifecycleStore.shared"))
+        #expect(!sources.ghosttySource.contains("AppLifecycleAtom.shared"))
         #expect(!sources.appLifecycleStoreSource.contains("static let shared"))
         #expect(!sources.windowLifecycleStoreSource.contains("static let shared"))
         #expect(sources.splitViewControllerSource.contains("willTerminateNotification") == false)
@@ -408,8 +412,8 @@ struct CoordinationPlaneArchitectureTests {
 
         #expect(readmeSource.contains("Coordination Planes"))
         #expect(readmeSource.contains("ApplicationLifecycleMonitor"))
-        #expect(readmeSource.contains("AppLifecycleStore"))
-        #expect(readmeSource.contains("WindowLifecycleStore"))
+        #expect(readmeSource.contains("AppLifecycleAtom"))
+        #expect(readmeSource.contains("WindowLifecycleAtom"))
         #expect(readmeSource.contains("@Observable"))
         #expect(readmeSource.contains("private(set)"))
         #expect(readmeSource.contains("AppCommand -> AppEventBus -> controller -> PaneActionCommand"))
@@ -417,16 +421,16 @@ struct CoordinationPlaneArchitectureTests {
         #expect(!readmeSource.contains("AppKit/macOS lifecycle only → NotificationCenter"))
 
         #expect(runtimeArchitectureSource.contains("ApplicationLifecycleMonitor"))
-        #expect(runtimeArchitectureSource.contains("AppLifecycleStore"))
-        #expect(runtimeArchitectureSource.contains("WindowLifecycleStore"))
+        #expect(runtimeArchitectureSource.contains("AppLifecycleAtom"))
+        #expect(runtimeArchitectureSource.contains("WindowLifecycleAtom"))
         #expect(runtimeArchitectureSource.contains("AppCommand -> AppEventBus -> controller -> PaneActionCommand"))
         #expect(!runtimeArchitectureSource.contains("two `NotificationCenter.post` calls remain in `Ghostty.App`"))
 
         #expect(eventBusDesignSource.contains("AppEventBus` carries app-level notifications"))
         #expect(eventBusDesignSource.contains(".worktreeBellRang"))
         #expect(eventBusDesignSource.contains("ApplicationLifecycleMonitor"))
-        #expect(eventBusDesignSource.contains("AppLifecycleStore"))
-        #expect(eventBusDesignSource.contains("WindowLifecycleStore"))
+        #expect(eventBusDesignSource.contains("AppLifecycleAtom"))
+        #expect(eventBusDesignSource.contains("WindowLifecycleAtom"))
         #expect(!eventBusDesignSource.contains(".repairSurfaceRequested"))
         #expect(!eventBusDesignSource.contains("defines both buses"))
     }

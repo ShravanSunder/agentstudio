@@ -152,7 +152,7 @@ User presses Cmd+Shift+T
 - `Ghostty.AppHandle` owns `ghostty_app_t` and config lifetime.
 - `Ghostty.CallbackRouter` owns the C callback table (`wakeup_cb`, `action_cb`, clipboard callbacks, `close_surface_cb`) and reconstructs Swift objects from userdata.
 - `Ghostty.ActionRouter` owns the action-tag switch, surface lookup, and runtime routing.
-- `Ghostty.AppFocusSynchronizer` observes `AppLifecycleStore.isActive` and mirrors app-level focus into `ghostty_app_set_focus`.
+- `Ghostty.AppFocusSynchronizer` observes `AppLifecycleAtom.isActive` and mirrors app-level focus into `ghostty_app_set_focus`.
 
 The boundary is intentionally split by isolation contract: callback trampolines stay nonisolated and capture stable identity synchronously; surface updates and runtime routing hop to `@MainActor`.
 

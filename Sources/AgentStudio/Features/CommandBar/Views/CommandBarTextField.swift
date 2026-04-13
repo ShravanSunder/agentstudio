@@ -11,6 +11,7 @@ struct CommandBarTextField: NSViewRepresentable {
     let onArrowUp: () -> Void
     let onArrowDown: () -> Void
     let onEnter: (EnterModifier) -> Void
+    let onShortcutTrigger: (ShortcutTrigger) -> Bool
     let onBackspaceOnEmpty: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -83,17 +84,27 @@ struct CommandBarTextField: NSViewRepresentable {
             case #selector(NSResponder.moveDown(_:)):
                 parent.onArrowDown()
                 return true
-            case #selector(NSResponder.insertNewline(_:)):
-                let flags = NSApp.currentEvent?.modifierFlags ?? []
-                let modifier: EnterModifier
-                if flags.contains(.command) {
-                    modifier = .command
-                } else if flags.contains(.option) {
-                    modifier = .option
-                } else {
-                    modifier = .plain
+            case #selector(NSResponder.insertNewline(_:)),
+                #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)),
+                #selector(NSResponder.insertLineBreak(_:)):
+                let flags = NSApplication.shared.currentEvent?.modifierFlags ?? []
+                // Modified Enter normally gets consumed earlier by the panel's
+                // performKeyEquivalent path. Keep this selector-based fallback
+                // so NSTextField command routing still reaches the same shortcut
+                // handler when AppKit sends text-system commands instead.
+                if let trigger = Self.shortcutTrigger(
+                    for: commandSelector,
+                    modifierFlags: flags
+                ) {
+                    return parent.onShortcutTrigger(trigger)
                 }
-                parent.onEnter(modifier)
+                guard
+                    let modifier = Self.enterModifier(
+                        for: commandSelector,
+                        modifierFlags: flags
+                    )
+                else { return false }
+                handleEnter(modifier)
                 return true
             case #selector(NSResponder.deleteBackward(_:)):
                 if textView.string.isEmpty {
@@ -103,6 +114,62 @@ struct CommandBarTextField: NSViewRepresentable {
                 return false
             default:
                 return false
+            }
+        }
+
+        @MainActor
+        func handleEnter(_ modifier: EnterModifier) {
+            parent.onEnter(modifier)
+        }
+
+        static func shortcutTrigger(
+            for commandSelector: Selector,
+            modifierFlags: NSEvent.ModifierFlags
+        ) -> ShortcutTrigger? {
+            switch commandSelector {
+            case #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
+                return .init(key: .enter, modifiers: [.option])
+            case #selector(NSResponder.insertLineBreak(_:)):
+                if modifierFlags.contains(.option) {
+                    return .init(key: .enter, modifiers: [.option])
+                }
+                if modifierFlags.contains(.command) {
+                    return .init(key: .enter, modifiers: [.command])
+                }
+                return nil
+            case #selector(NSResponder.insertNewline(_:)):
+                if modifierFlags.contains(.command) {
+                    return .init(key: .enter, modifiers: [.command])
+                }
+                if modifierFlags.contains(.option) {
+                    return .init(key: .enter, modifiers: [.option])
+                }
+                return nil
+            default:
+                return nil
+            }
+        }
+
+        static func enterModifier(
+            for commandSelector: Selector,
+            modifierFlags: NSEvent.ModifierFlags
+        ) -> EnterModifier? {
+            if let trigger = shortcutTrigger(
+                for: commandSelector,
+                modifierFlags: modifierFlags
+            ) {
+                if trigger.modifiers.contains(.command) {
+                    return .command
+                }
+                if trigger.modifiers.contains(.option) {
+                    return .option
+                }
+            }
+            switch commandSelector {
+            case #selector(NSResponder.insertNewline(_:)):
+                return .plain
+            default:
+                return nil
             }
         }
     }

@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct PaneTabViewControllerCommandTests {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
 
     private struct Harness {
@@ -18,7 +18,7 @@ struct PaneTabViewControllerCommandTests {
         let controller: PaneTabViewController
         let viewRegistry: ViewRegistry
         let surfaceManager: MockPaneTabCommandSurfaceManager
-        let windowLifecycleStore: WindowLifecycleStore
+        let windowLifecycleStore: WindowLifecycleAtom
         let tempDir: URL
         let tabRenamePopoverState: TabRenamePopoverState
     }
@@ -34,8 +34,8 @@ struct PaneTabViewControllerCommandTests {
         let runtime = SessionRuntime(store: store)
         let surfaceManager = MockPaneTabCommandSurfaceManager(createSurfaceResult: createSurfaceResult)
         let runtimeRegistry = RuntimeRegistry()
-        let appLifecycleStore = AppLifecycleStore()
-        let windowLifecycleStore = WindowLifecycleStore()
+        let appLifecycleStore = AppLifecycleAtom()
+        let windowLifecycleStore = WindowLifecycleAtom()
         let tabRenamePopoverState = TabRenamePopoverState()
         let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appLifecycleStore,

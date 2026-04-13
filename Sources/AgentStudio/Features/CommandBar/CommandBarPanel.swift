@@ -13,6 +13,7 @@ final class CommandBarPanel: NSPanel {
     /// Called when the panel wants to dismiss (e.g., Escape key).
     /// Set by the controller so dismissal always goes through the proper lifecycle.
     var onDismiss: (() -> Void)?
+    var onShortcutTrigger: ((ShortcutTrigger) -> Bool)?
 
     /// Visual effect backdrop for macOS blur.
     private let effectView: NSVisualEffectView = {
@@ -134,6 +135,15 @@ final class CommandBarPanel: NSPanel {
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let trigger = ShortcutDecoder.decode(event: event),
+            onShortcutTrigger?(trigger) == true
+        {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 
     override func cancelOperation(_ sender: Any?) {
         // Escape key — route through controller so backdrop + state are cleaned up

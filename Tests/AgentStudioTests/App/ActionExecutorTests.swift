@@ -24,7 +24,7 @@ final class ActionExecutorTests {
         runtime = SessionRuntime(store: store)
         coordinator = PaneCoordinator(
             store: store, viewRegistry: viewRegistry, runtime: runtime,
-            windowLifecycleStore: WindowLifecycleStore()
+            windowLifecycleStore: WindowLifecycleAtom()
         )
         executor = ActionExecutor(coordinator: coordinator, store: store)
     }

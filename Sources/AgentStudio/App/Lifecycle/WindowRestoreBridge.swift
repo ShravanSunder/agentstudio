@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import os.log
 
-/// Bridges `WindowLifecycleStore` launch-restore readiness into a one-shot async signal.
+/// Bridges `WindowLifecycleAtom` launch-restore readiness into a one-shot async signal.
 /// It observes the store using the repo's explicit observation re-registration pattern,
 /// yields the current live terminal container bounds once readiness becomes true, and
 /// then finishes the stream. `AppDelegate` owns retention and consumption.
@@ -14,10 +14,10 @@ final class WindowRestoreBridge {
     let stream: AsyncStream<CGRect>
 
     private let continuation: AsyncStream<CGRect>.Continuation
-    private let windowLifecycleStore: WindowLifecycleStore
+    private let windowLifecycleStore: WindowLifecycleAtom
     private var hasFinished = false
 
-    init(windowLifecycleStore: WindowLifecycleStore) {
+    init(windowLifecycleStore: WindowLifecycleAtom) {
         let (stream, continuation) = AsyncStream.makeStream(
             of: CGRect.self,
             bufferingPolicy: .bufferingNewest(1)

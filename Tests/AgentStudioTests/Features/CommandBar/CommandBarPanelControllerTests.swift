@@ -11,8 +11,8 @@ struct CommandBarPanelControllerTests {
     private let window: NSWindow
 
     init() {
-        installTestAtomScopeIfNeeded()
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
+        installTestAtomRegistryIfNeeded()
         // Offscreen window — never displayed, lightweight test double
         window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),

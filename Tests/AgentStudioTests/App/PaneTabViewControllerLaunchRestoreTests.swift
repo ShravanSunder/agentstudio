@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct PaneTabViewControllerLaunchRestoreTests {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
     private struct Harness {
         let store: WorkspaceStore
@@ -16,8 +16,8 @@ struct PaneTabViewControllerLaunchRestoreTests {
         let runtime: SessionRuntime
         let coordinator: PaneCoordinator
         let executor: ActionExecutor
-        let appLifecycleStore: AppLifecycleStore
-        let windowLifecycleStore: WindowLifecycleStore
+        let appLifecycleStore: AppLifecycleAtom
+        let windowLifecycleStore: WindowLifecycleAtom
         let applicationLifecycleMonitor: ApplicationLifecycleMonitor
         let controller: PaneTabViewController
         let surfaceManager: LaunchCapturingSurfaceManager
@@ -33,8 +33,8 @@ struct PaneTabViewControllerLaunchRestoreTests {
         store.restore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
-        let appLifecycleStore = AppLifecycleStore()
-        let windowLifecycleStore = WindowLifecycleStore()
+        let appLifecycleStore = AppLifecycleAtom()
+        let windowLifecycleStore = WindowLifecycleAtom()
         let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore

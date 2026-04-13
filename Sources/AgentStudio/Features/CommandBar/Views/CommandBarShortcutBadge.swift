@@ -57,16 +57,20 @@ struct CommandBarShortcutBadge: View {
     var body: some View {
         HStack(spacing: style.spacing) {
             ForEach(keys) { key in
-                Text(key.symbol)
-                    .font(.system(size: AppStyle.textXs, weight: .medium, design: .monospaced))
-                    .foregroundStyle(.primary.opacity(0.35))
-                    .padding(.horizontal, style.horizontalPadding)
-                    .padding(.vertical, style.verticalPadding)
-                    .background(
-                        RoundedRectangle(cornerRadius: style.cornerRadius)
-                            .fill(Color.primary.opacity(0.06))
-                    )
+                badgeText(key.symbol)
             }
         }
+    }
+
+    private func badgeText(_ value: String) -> some View {
+        Text(value)
+            .font(.system(size: AppStyle.textXs, weight: .medium, design: .monospaced))
+            .foregroundStyle(.primary.opacity(0.35))
+            .padding(.horizontal, style.horizontalPadding)
+            .padding(.vertical, style.verticalPadding)
+            .background(
+                RoundedRectangle(cornerRadius: style.cornerRadius)
+                    .fill(Color.primary.opacity(0.06))
+            )
     }
 }

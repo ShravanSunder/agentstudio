@@ -9,7 +9,8 @@ struct CommandBarView: View {
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let dispatcher: CommandDispatcher
-    let onDismiss: () -> Void
+    let onShortcutTrigger: (ShortcutTrigger) -> Bool
+    let onExecuteItem: (CommandBarItem, EnterModifier) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -26,6 +27,7 @@ struct CommandBarView: View {
                 onArrowUp: { state.moveSelectionUp(totalItems: totalItems) },
                 onArrowDown: { state.moveSelectionDown(totalItems: totalItems) },
                 onEnter: { modifier in executeSelected(modifier: modifier) },
+                onShortcutTrigger: onShortcutTrigger,
                 onBackspaceOnEmpty: { handleBackspace() }
             )
 
@@ -47,7 +49,7 @@ struct CommandBarView: View {
                 selectedIndex: state.selectedIndex,
                 searchQuery: state.searchQuery,
                 dimmedItemIds: dimmedItemIds,
-                onSelect: { item in executeItem(item) }
+                onSelect: { item in onExecuteItem(item, .plain) }
             )
 
             // Separator
@@ -150,65 +152,7 @@ struct CommandBarView: View {
 
     private func executeSelected(modifier: EnterModifier = .plain) {
         guard let item = selectedItem else { return }
-        executeItem(item, modifier: modifier)
-    }
-
-    private func executeItem(_ item: CommandBarItem, modifier: EnterModifier = .plain) {
-        // Block execution of dimmed (unavailable) commands
-        if dimmedItemIds.contains(item.id) { return }
-
-        switch item.action {
-        case .dispatch(let command):
-            state.recordRecent(itemId: item.id)
-            onDismiss()
-            dispatcher.dispatch(command)
-
-        case .dispatchTargeted(let command, let target, let targetType):
-            state.recordRecent(itemId: item.id)
-            onDismiss()
-            dispatcher.dispatch(command, target: target, targetType: targetType)
-
-        case .navigate(let level):
-            // Don't record intermediate navigation items as recent
-            state.pushLevel(level)
-
-        case .custom(let closure):
-            state.recordRecent(itemId: item.id)
-            onDismiss()
-            closure()
-
-        case .worktreeAction(let presence):
-            executeResolvedWorktreeAction(
-                resolution: CommandBarWorktreeActionResolver.resolve(
-                    presence: presence,
-                    modifier: modifier,
-                    canOpenInCurrentTab: canOpenWorktreeInCurrentTab
-                ),
-                presence: presence,
-                itemId: item.id
-            )
-        }
-    }
-
-    private func executeResolvedWorktreeAction(
-        resolution: CommandBarWorktreeActionResolution,
-        presence: WorktreePresence,
-        itemId: String
-    ) {
-        switch resolution {
-        case .dispatch(let command, let target, let targetType):
-            state.recordRecent(itemId: itemId)
-            onDismiss()
-            dispatcher.dispatch(command, target: target, targetType: targetType)
-
-        case .showActionsMenu:
-            state.pushLevel(
-                CommandBarDataSource.buildWorktreeActionsLevel(
-                    presence: presence,
-                    canOpenInCurrentTab: canOpenWorktreeInCurrentTab
-                )
-            )
-        }
+        onExecuteItem(item, modifier)
     }
 
     private func handleBackspace() {

@@ -67,7 +67,7 @@ final class MockAppCommandRouter: ShellCommandHandling {
 @Suite(.serialized)
 final class AppCommandTests {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
 
     // MARK: - AppCommand Enum

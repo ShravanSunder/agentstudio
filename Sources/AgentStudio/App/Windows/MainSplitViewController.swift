@@ -13,7 +13,7 @@ class MainSplitViewController: NSSplitViewController {
     private var uiState: UIStateAtom { atom(\.uiState) }
     private let actionExecutor: ActionExecutor
     private let applicationLifecycleMonitor: ApplicationLifecycleMonitor
-    private let appLifecycleStore: AppLifecycleStore
+    private let appLifecycleStore: AppLifecycleAtom
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
 
@@ -25,7 +25,7 @@ class MainSplitViewController: NSSplitViewController {
         store: WorkspaceStore,
         actionExecutor: ActionExecutor,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
-        appLifecycleStore: AppLifecycleStore,
+        appLifecycleStore: AppLifecycleAtom,
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry
     ) {

@@ -8,8 +8,8 @@ import Testing
 struct ApplicationLifecycleMonitorTests {
     @Test("can be created with lifecycle stores")
     func test_applicationLifecycleMonitor_initializesWithStores() {
-        let appStore = AppLifecycleStore()
-        let windowStore = WindowLifecycleStore()
+        let appStore = AppLifecycleAtom()
+        let windowStore = WindowLifecycleAtom()
 
         _ = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
@@ -19,8 +19,8 @@ struct ApplicationLifecycleMonitorTests {
 
     @Test("marks termination synchronously when willTerminate ingress arrives")
     func test_applicationLifecycleMonitor_marksTerminationSynchronously() {
-        let appStore = AppLifecycleStore()
-        let windowStore = WindowLifecycleStore()
+        let appStore = AppLifecycleAtom()
+        let windowStore = WindowLifecycleAtom()
         let monitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
             windowLifecycleStore: windowStore
@@ -33,8 +33,8 @@ struct ApplicationLifecycleMonitorTests {
 
     @Test("updates window lifecycle store through key-window ingress")
     func test_applicationLifecycleMonitor_updatesWindowLifecycleStore() {
-        let appStore = AppLifecycleStore()
-        let windowStore = WindowLifecycleStore()
+        let appStore = AppLifecycleAtom()
+        let windowStore = WindowLifecycleAtom()
         let monitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
             windowLifecycleStore: windowStore
@@ -52,8 +52,8 @@ struct ApplicationLifecycleMonitorTests {
 
     @Test("writes terminal container bounds to the window lifecycle store")
     func test_applicationLifecycleMonitor_writesTerminalContainerBounds() {
-        let appStore = AppLifecycleStore()
-        let windowStore = WindowLifecycleStore()
+        let appStore = AppLifecycleAtom()
+        let windowStore = WindowLifecycleAtom()
         let monitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
             windowLifecycleStore: windowStore
@@ -68,8 +68,8 @@ struct ApplicationLifecycleMonitorTests {
 
     @Test("ignores empty terminal container bounds")
     func test_applicationLifecycleMonitor_ignoresEmptyTerminalContainerBounds() {
-        let appStore = AppLifecycleStore()
-        let windowStore = WindowLifecycleStore()
+        let appStore = AppLifecycleAtom()
+        let windowStore = WindowLifecycleAtom()
         let monitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
             windowLifecycleStore: windowStore
@@ -84,8 +84,8 @@ struct ApplicationLifecycleMonitorTests {
 
     @Test("marks launch layout as settled in the window lifecycle store")
     func test_applicationLifecycleMonitor_marksLaunchLayoutSettled() {
-        let appStore = AppLifecycleStore()
-        let windowStore = WindowLifecycleStore()
+        let appStore = AppLifecycleAtom()
+        let windowStore = WindowLifecycleAtom()
         let monitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
             windowLifecycleStore: windowStore
@@ -99,8 +99,8 @@ struct ApplicationLifecycleMonitorTests {
 
     @Test("marking launch layout settled preserves previously recorded bounds")
     func test_applicationLifecycleMonitor_settledPreservesExistingBounds() {
-        let appStore = AppLifecycleStore()
-        let windowStore = WindowLifecycleStore()
+        let appStore = AppLifecycleAtom()
+        let windowStore = WindowLifecycleAtom()
         let monitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appStore,
             windowLifecycleStore: windowStore

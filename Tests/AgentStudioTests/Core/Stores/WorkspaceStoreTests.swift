@@ -79,7 +79,7 @@ final class WorkspaceStoreTests {
     @Test
     func test_workspaceStore_readsAndPersistsTheProvidedLiveAtomScope() throws {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
-        let atoms = AtomStore()
+        let atoms = AtomRegistry()
         let scopedStore = WorkspaceStore(
             catalogAtom: atoms.workspaceRepositoryTopology,
             graphAtom: atoms.workspacePane,

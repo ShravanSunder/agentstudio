@@ -7,7 +7,7 @@ import Testing
 @Suite(.serialized)
 struct CommandBarTabDisplayTitleTests {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
 
     @Test

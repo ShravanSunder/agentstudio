@@ -26,7 +26,7 @@ struct PaneCoordinatorViewFactoryTests {
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
-            windowLifecycleStore: WindowLifecycleStore()
+            windowLifecycleStore: WindowLifecycleAtom()
         )
         return PaneCoordinatorHarness(
             store: store,

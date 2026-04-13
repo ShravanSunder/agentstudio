@@ -8,7 +8,7 @@ import Testing
 @Suite(.serialized)
 struct TerminalPaneMountViewExitBehaviorTests {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
     private struct PaneTabControllerHarness {
         let store: WorkspaceStore
@@ -40,8 +40,8 @@ struct TerminalPaneMountViewExitBehaviorTests {
             runtimeRegistry: RuntimeRegistry()
         )
         let executor = ActionExecutor(coordinator: coordinator, store: store)
-        let appLifecycleStore = AppLifecycleStore()
-        let windowLifecycleStore = WindowLifecycleStore()
+        let appLifecycleStore = AppLifecycleAtom()
+        let windowLifecycleStore = WindowLifecycleAtom()
         let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore

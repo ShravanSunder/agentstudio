@@ -38,11 +38,11 @@ Instead:
 
 ## Architecture at a Glance
 
-AppKit-main architecture hosting SwiftUI views. Shared app state is actor-bound and accessed through `AtomStore` + `AtomScope`, with `atom(\.foo)` as the primary read path. Canonical mutable state lives in `@MainActor @Observable` atoms under `Core/State/MainActor/Atoms`, and persistence wrappers live under `Core/State/MainActor/Persistence`. Two coordinators handle cross-slice sequencing. An `EventBus<RuntimeEnvelope>` connects runtime actors to the main-actor state system, and a separate app lifecycle monitor owns AppKit ingress.
+AppKit-main architecture hosting SwiftUI views. Shared app state is actor-bound and accessed through `AtomRegistry` + `AtomScope`, with `atom(\.foo)` as the primary read path. Canonical mutable state lives in `@MainActor @Observable` atoms under `Core/State/MainActor/Atoms`, and persistence wrappers live under `Core/State/MainActor/Persistence`. Two coordinators handle cross-slice sequencing. An `EventBus<RuntimeEnvelope>` connects runtime actors to the main-actor state system, and a separate app lifecycle monitor owns AppKit ingress.
 
 | Component | Owns | Location |
 |-----------|------|----------|
-| `AtomStore` | composition root for shared main-actor atoms and derived helpers | `Infrastructure/AtomLib/AtomStore.swift` |
+| `AtomRegistry` | composition root for shared main-actor atoms and derived helpers | `Infrastructure/AtomLib/AtomRegistry.swift` |
 | `WorkspaceMetadataAtom` | workspace identity plus persisted window/sidebar metadata | `Core/State/MainActor/Atoms/WorkspaceMetadataAtom.swift` |
 | `WorkspaceRepositoryTopologyAtom` | repos, worktrees, watched paths, availability | `Core/State/MainActor/Atoms/WorkspaceRepositoryTopologyAtom.swift` |
 | `WorkspacePaneAtom` | panes, pane metadata/content/residency, drawer state | `Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` |
@@ -50,14 +50,15 @@ AppKit-main architecture hosting SwiftUI views. Shared app state is actor-bound 
 | `WorkspaceMutationCoordinator` | cross-atom workspace mutations spanning pane and tab layout state | `Core/State/MainActor/Atoms/WorkspaceMutationCoordinator.swift` |
 | `RepoCacheAtom` | repo enrichment, branches, git status, PR counts, recent targets | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
 | `UIStateAtom` | expanded groups, colors, filter state | `Core/State/MainActor/Atoms/UIStateAtom.swift` |
-| `WorkspaceFocusContextAtom` | shared app-wide focus context for command visibility and status UI | `Core/State/MainActor/Atoms/WorkspaceFocusContextAtom.swift` |
+| `WorkspaceFocusDerived` | shared app-wide focus reader for command visibility and status UI | `Core/State/MainActor/Atoms/WorkspaceFocusDerived.swift` |
 | `ManagementModeAtom` | management mode active/inactive state | `Core/State/MainActor/Atoms/ManagementModeAtom.swift` |
 | `SessionRuntimeAtom` | runtime status per pane | `Core/State/MainActor/Atoms/SessionRuntimeAtom.swift` |
 | `WorkspaceStore` | persistence wrapper over the workspace-domain atoms | `Core/State/MainActor/Persistence/WorkspaceStore.swift` |
 | `RepoCacheStore` | persistence wrapper for `RepoCacheAtom` | `Core/State/MainActor/Persistence/RepoCacheStore.swift` |
 | `UIStateStore` | persistence wrapper for `UIStateAtom` | `Core/State/MainActor/Persistence/UIStateStore.swift` |
-| `AppLifecycleStore` | application active/terminating state | in-memory |
-| `WindowLifecycleStore` | key/focused window identity, registration, transient terminal geometry, launch-settle facts | in-memory |
+| `AppLifecycleAtom` | application active/terminating state | `Core/State/MainActor/Atoms/AppLifecycleAtom.swift` |
+| `WindowLifecycleAtom` | key/focused window identity, registration, transient terminal geometry, launch-settle facts | `Core/State/MainActor/Atoms/WindowLifecycleAtom.swift` |
+| `PaneFilesystemProjectionAtom` | pane-scoped filesystem projection state derived from runtime envelopes | `Core/State/MainActor/Atoms/PaneFilesystemProjectionAtom.swift` |
 | `SurfaceManager` | Ghostty surface lifecycle, health, undo | `Features/Terminal/` |
 | `SessionRuntime` | backend coordination, health checks, zmx/runtime orchestration over `SessionRuntimeAtom` | `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` |
 
@@ -69,7 +70,7 @@ AppKit-main architecture hosting SwiftUI views. Shared app state is actor-bound 
 - `Ghostty.AppHandle` owns `ghostty_app_t` and config lifetime
 - `Ghostty.CallbackRouter` owns the C callback table and userdata reconstruction
 - `Ghostty.ActionRouter` owns the action switch and runtime routing seam
-- `Ghostty.AppFocusSynchronizer` owns app-level focus sync via `AppLifecycleStore.isActive`
+- `Ghostty.AppFocusSynchronizer` owns app-level focus sync via `AppLifecycleAtom.isActive`
 Future terminal event-routing expansion belongs in `Ghostty.ActionRouter` plus adapter/runtime layers, not back in `Ghostty.swift`.
 
 ### Architecture Docs
@@ -200,7 +201,7 @@ Use the narrowest plane that still preserves the architecture boundary.
 | Topology fact (repo/worktree discovered/removed) | `PaneRuntimeEventBus` | Fact fan-out. Coordinator is the single accumulator. Uses `WorktreeReconciler` + `TopologyEffectHandler`. |
 | Ordered post-topology effects (root sync, pane orphan) | `TopologyEffectHandler` | Direct handler call from coordinator to PaneCoordinator. NOT via bus — ordering must be deterministic. |
 | App-level notification that is not a command | `AppEventBus` | Notification fan-out only. Not a workspace command boundary. |
-| AppKit/macOS lifecycle ingress | `ApplicationLifecycleMonitor` | Owns AppKit ingress and writes `AppLifecycleStore` / `WindowLifecycleStore`. |
+| AppKit/macOS lifecycle ingress | `ApplicationLifecycleMonitor` | Owns AppKit ingress and writes `AppLifecycleAtom` / `WindowLifecycleAtom`. |
 | UI-only local state | Local `@Observable` state | Keep it in the owning view/controller. Do not bounce it through a bus or `NotificationCenter`. |
 
 The old `AppCommand -> AppEventBus -> controller -> PaneActionCommand` chain has been removed. User-triggered workspace work now enters through validated `PaneActionCommand` routing directly.

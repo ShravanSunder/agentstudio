@@ -8,7 +8,7 @@ import Testing
 struct WindowRestoreBridgeTests {
     @Test("stream yields latest bounds exactly once when store becomes ready")
     func test_windowRestoreBridge_streamYieldsLatestBoundsExactlyOnce() async throws {
-        let store = WindowLifecycleStore()
+        let store = WindowLifecycleAtom()
         let bridge = WindowRestoreBridge(windowLifecycleStore: store)
         var iterator = bridge.stream.makeAsyncIterator()
         let firstBounds = CGRect(x: 0, y: 0, width: 900, height: 500)
@@ -25,7 +25,7 @@ struct WindowRestoreBridgeTests {
 
     @Test("stream does not yield before store is ready")
     func test_windowRestoreBridge_streamDoesNotYieldBeforeStoreReady() async {
-        let store = WindowLifecycleStore()
+        let store = WindowLifecycleAtom()
         let bridge = WindowRestoreBridge(windowLifecycleStore: store)
         let probe = BridgeYieldProbe()
 
@@ -48,7 +48,7 @@ struct WindowRestoreBridgeTests {
 
     @Test("stream yields immediately when store is already ready at init")
     func test_windowRestoreBridge_streamYieldsImmediatelyWhenStoreAlreadyReady() async throws {
-        let store = WindowLifecycleStore()
+        let store = WindowLifecycleAtom()
         let readyBounds = CGRect(x: 0, y: 0, width: 1140, height: 824)
         store.recordTerminalContainerBounds(readyBounds)
         store.recordLaunchLayoutSettled()
@@ -63,7 +63,7 @@ struct WindowRestoreBridgeTests {
 
     @Test("stream yields when launch settles before bounds arrive")
     func test_windowRestoreBridge_streamYieldsWhenBoundsArriveAfterSettled() async throws {
-        let store = WindowLifecycleStore()
+        let store = WindowLifecycleAtom()
         let bridge = WindowRestoreBridge(windowLifecycleStore: store)
         var iterator = bridge.stream.makeAsyncIterator()
         let readyBounds = CGRect(x: 0, y: 0, width: 1140, height: 824)

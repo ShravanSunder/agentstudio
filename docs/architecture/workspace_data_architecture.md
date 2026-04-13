@@ -368,7 +368,7 @@ WorkspaceBootStep (in order):
  10. readyForReactiveSidebar  → prune stale cache entries, sidebar enters reactive mode
 ```
 
-After the boot sequence completes, `AppDelegate` calls `observeLaunchRestoreReadiness()` which creates a `WindowRestoreBridge`. The bridge observes `WindowLifecycleStore.isReadyForLaunchRestore` and yields trusted terminal container bounds once the window layout has settled. `AppDelegate` then calls `paneCoordinator.restoreAllViews(in: bounds)` to create views for all persisted panes. See [Deferred Launch Restore](#deferred-launch-restore) for the geometry gate that handles panes whose bounds are not yet available.
+After the boot sequence completes, `AppDelegate` calls `observeLaunchRestoreReadiness()` which creates a `WindowRestoreBridge`. The bridge observes `WindowLifecycleAtom.isReadyForLaunchRestore` and yields trusted terminal container bounds once the window layout has settled. `AppDelegate` then calls `paneCoordinator.restoreAllViews(in: bounds)` to create views for all persisted panes. See [Deferred Launch Restore](#deferred-launch-restore) for the geometry gate that handles panes whose bounds are not yet available.
 
 Boot replay uses the same `.repoDiscovered` event and same coordinator code path as live discovery. The cached data provides instant display; the replay validates and refreshes everything.
 
@@ -459,9 +459,9 @@ zmx terminal panes require a trusted `initialFrame` before Ghostty surface creat
 AppDelegate: WorkspaceBootSequence.run() → stores loaded, actors started, topology replayed
   ↓
 AppDelegate: observeLaunchRestoreReadiness()
-  → creates WindowRestoreBridge (observes WindowLifecycleStore)
+  → creates WindowRestoreBridge (observes WindowLifecycleAtom)
   ↓
-WindowLifecycleStore: recordTerminalContainerBounds() + recordLaunchLayoutSettled()
+WindowLifecycleAtom: recordTerminalContainerBounds() + recordLaunchLayoutSettled()
   → isReadyForLaunchRestore becomes true
   ↓
 WindowRestoreBridge: yields trusted bounds via AsyncStream
@@ -485,7 +485,7 @@ restoreViewsForActiveTabIfNeeded()
     → surface created, placeholder replaced
 ```
 
-**Timeout recovery.** `AppDelegateLaunchRestoreObservationState` installs a 10-second diagnostic timer. If `WindowRestoreBridge` has not yielded by then, the timer attempts restore with whatever bounds are currently recorded in `WindowLifecycleStore` as a fallback.
+**Timeout recovery.** `AppDelegateLaunchRestoreObservationState` installs a 10-second diagnostic timer. If `WindowRestoreBridge` has not yielded by then, the timer attempts restore with whatever bounds are currently recorded in `WindowLifecycleAtom` as a fallback.
 
 ---
 

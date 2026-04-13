@@ -44,7 +44,7 @@ extension E2ESerializedTests {
                 gitWorkingTreeProvider: ShellGitWorkingTreeStatusProvider(
                     processExecutor: DefaultProcessExecutor(timeout: 5))
             )
-            let paneProjectionStore = PaneFilesystemProjectionStore()
+            let paneProjectionStore = PaneFilesystemProjectionAtom()
             let repoCache = RepoCacheAtom()
             let cacheCoordinator = WorkspaceCacheCoordinator(
                 bus: paneEventBus,
@@ -64,7 +64,7 @@ extension E2ESerializedTests {
                 paneEventBus: paneEventBus,
                 filesystemSource: filesystemSource,
                 paneFilesystemProjectionStore: paneProjectionStore,
-                windowLifecycleStore: WindowLifecycleStore()
+                windowLifecycleStore: WindowLifecycleAtom()
             )
             coordinator.syncFilesystemRootsAndActivity()
 

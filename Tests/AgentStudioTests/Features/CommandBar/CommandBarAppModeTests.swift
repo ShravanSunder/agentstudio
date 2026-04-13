@@ -10,18 +10,16 @@ struct CommandBarAppModeTests {
     func normalModeProperties() {
         let mode = CommandBarAppMode.normal
 
-        #expect(mode.label == "Normal")
-        #expect(mode.icon == "rectangle.split.2x2")
-        #expect(mode.isAccented == false)
+        #expect(mode.statusStripLabel == nil)
+        #expect(mode.statusStripIcon == nil)
     }
 
     @Test
     func managementModeProperties() {
         let mode = CommandBarAppMode.management
 
-        #expect(mode.label == "Manage")
-        #expect(mode.icon == "rectangle.split.2x2.fill")
-        #expect(mode.isAccented == true)
+        #expect(mode.statusStripLabel == "Management")
+        #expect(mode.statusStripIcon == "rectangle.split.2x2.fill")
     }
 }
 

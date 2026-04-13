@@ -23,8 +23,8 @@ Sources/AgentStudio/
 │   ├── Commands/                     # App-owned command entry points
 │   ├── Coordination/                 # Cross-store / cross-feature sequencing
 │   ├── Events/                       # App-scoped notification bus types
-│   ├── Lifecycle/                    # AppLifecycleStore, WindowLifecycleStore,
-│   │                                 #   ApplicationLifecycleMonitor, ManagementModeMonitor, WindowRestoreBridge
+│   ├── Lifecycle/                    # ApplicationLifecycleMonitor, ManagementModeMonitor,
+│   │                                 #   ManagementModeToolbarButton, WindowRestoreBridge
 │   ├── Panes/                        # App-owned pane hosting, tab management, empty states
 │   │   ├── Hosting/                  # PaneHostView, management-mode drag shield
 │   │   ├── Status/                   # Workspace status chips
@@ -37,7 +37,7 @@ Sources/AgentStudio/
 │   ├── RuntimeEventSystem/           # Shared pane-runtime contracts, buses, projectors
 │   ├── State/
 │   │   └── MainActor/
-│   │       ├── Atoms/                # Workspace atoms, RepoCacheAtom, UIStateAtom, WorkspaceFocusContextAtom
+│   │       ├── Atoms/                # Workspace atoms, lifecycle atoms, repo/UI atoms, derived readers
 │   │       └── Persistence/          # WorkspaceStore, RepoCacheStore, UIStateStore
 │   └── Views/                        # Shared split/tree/drawer primitives
 │       ├── Drawer/                   # DrawerLayout, DrawerPanel, DrawerOverlay, DrawerIconBar
@@ -75,7 +75,7 @@ Sources/AgentStudio/
 │   └── Webview/                      # Plain browser pane controller/runtime/views
 │
 ├── Infrastructure/                   # Utilities used by anyone, domain-agnostic
-│   ├── AtomLib/                      # AtomStore, AtomScope, AtomReader, Derived, DerivedSelector
+│   ├── AtomLib/                      # AtomRegistry, AtomScope, AtomReader, Derived, DerivedSelector
 │   ├── Diagnostics/                  # RestoreTrace
 │   ├── Extensions/                   # Foundation/AppKit extensions, UniformType, NSColor+Hex
 │   ├── Icons/                        # OcticonImage, OcticonLoader
@@ -114,7 +114,7 @@ To keep ownership decisions consistent, use these terms:
 - **Core slice**
   - Reusable, feature-agnostic domain and infrastructure.
   - Usually belongs in `Core/` or `Infrastructure/`.
-  - Examples: `WorkspaceStore`, `Tab`, `Layout`, `WorkspaceCommandResolver`, `WorkspaceCommandValidator`, `WorkspaceFocusContextAtom`, `CommandSpec`, `ActionSpec`.
+  - Examples: `WorkspaceStore`, `Tab`, `Layout`, `WorkspaceCommandResolver`, `WorkspaceCommandValidator`, `WorkspaceFocus`, `CommandSpec`, `ActionSpec`.
 
 - **Vertical slice**
   - A user-facing slice that traverses multiple layers and orchestrates behavior for a flow.

@@ -40,7 +40,7 @@ enum Ghostty {
     }
 
     @MainActor
-    static func bindApplicationLifecycleStore(_ appLifecycleStore: AppLifecycleStore) {
+    static func bindApplicationLifecycleStore(_ appLifecycleStore: AppLifecycleAtom) {
         sharedApp?.bindApplicationLifecycleStore(appLifecycleStore)
     }
 }
@@ -93,7 +93,7 @@ extension Ghostty {
         }
 
         @MainActor
-        func bindApplicationLifecycleStore(_ appLifecycleStore: AppLifecycleStore) {
+        func bindApplicationLifecycleStore(_ appLifecycleStore: AppLifecycleAtom) {
             focusSynchronizer.bindApplicationLifecycleStore(appLifecycleStore)
         }
 

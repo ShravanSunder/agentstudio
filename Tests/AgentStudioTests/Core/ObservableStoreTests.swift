@@ -23,7 +23,7 @@ final class ObservableStoreTests {
     private var store: WorkspaceStore!
 
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
         let persistor = WorkspacePersistor(
             workspacesDir: FileManager.default.temporaryDirectory
                 .appending(path: "obs-tests-\(UUID().uuidString)")

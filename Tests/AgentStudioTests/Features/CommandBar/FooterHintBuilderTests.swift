@@ -9,6 +9,28 @@ struct FooterHintBuilderTests {
         hints.filter { !$0.isDivider }.map(\.label)
     }
 
+    private func layoutLabels(
+        _ hints: [FooterHint]
+    ) -> (primary: [String], secondaryLeading: [String], secondaryTrailing: [String]) {
+        let layout = FooterHintBuilder.layout(for: hints)
+        return (
+            layout.primaryRow.map(\.label),
+            layout.secondaryLeadingRow.map(\.label),
+            layout.secondaryTrailingRow.map(\.label)
+        )
+    }
+
+    private func displayRows(
+        _ hints: [FooterHint]
+    ) -> (topLeading: [String], topTrailing: [String], bottom: [String]) {
+        let rows = CommandBarFooter.displayRows(for: FooterHintBuilder.layout(for: hints))
+        return (
+            rows.topLeading.map(\.label),
+            rows.topTrailing.map(\.label),
+            rows.bottom.map(\.label)
+        )
+    }
+
     private func keysById(_ hints: [FooterHint]) -> [String: [String]] {
         hints.reduce(into: [:]) { result, hint in
             if !hint.isDivider {
@@ -22,10 +44,10 @@ struct FooterHintBuilderTests {
     }
 
     @Test
-    func test_nested_showsSelectBackAndClose() {
+    func test_nested_showsBackAndClose() {
         let hints = FooterHintBuilder.hints(for: nil, isNested: true, canOpenInCurrentTab: true)
 
-        #expect(labels(hints) == ["Select", "Back", "Close"])
+        #expect(labels(hints) == ["Back", "Close"])
         #expect(hasDivider(hints))
     }
 
@@ -33,7 +55,7 @@ struct FooterHintBuilderTests {
     func test_noSelection_everythingScope_showsScopeHintsAndClose() {
         let hints = FooterHintBuilder.hints(for: nil, isNested: false, canOpenInCurrentTab: true)
 
-        #expect(labels(hints) == ["Commands", "Panes", "Repos", "Close"])
+        #expect(labels(hints) == ["cmd", "pane", "repo", "Close"])
     }
 
     @Test
@@ -54,7 +76,7 @@ struct FooterHintBuilderTests {
         let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true)
 
         #expect(labels(hints).first == "Go to")
-        #expect(labels(hints).contains("Commands"))
+        #expect(labels(hints).contains("cmd"))
         #expect(labels(hints).last == "Close")
     }
 
@@ -91,7 +113,7 @@ struct FooterHintBuilderTests {
     }
 
     @Test
-    func test_worktreeWithoutCurrentTab_showsActionsAndNewTab() {
+    func test_worktreeWithoutCurrentTab_showsNewTab() {
         let item = makeCommandBarItem(
             id: "wt-1",
             title: "main",
@@ -99,11 +121,11 @@ struct FooterHintBuilderTests {
         )
         let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: false)
 
-        #expect(labels(hints) == ["Actions", "New tab", "Commands", "Panes", "Repos", "Close"])
+        #expect(labels(hints) == ["New tab", "cmd", "pane", "repo", "Close"])
     }
 
     @Test
-    func test_worktreeNotOpen_withCurrentTab_showsActionsAndModifiers() {
+    func test_worktreeNotOpen_withCurrentTab_showsModifiers() {
         let item = makeCommandBarItem(
             id: "wt-1",
             title: "main",
@@ -111,7 +133,7 @@ struct FooterHintBuilderTests {
         )
         let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true)
 
-        #expect(labels(hints) == ["Actions", "New tab", "Open in tab", "Commands", "Panes", "Repos", "Close"])
+        #expect(labels(hints) == ["New tab", "Open in tab", "cmd", "pane", "repo", "Close"])
         let keys = keysById(hints)
         #expect(keys["cmd-enter"] == ["⌘", "↵"])
         #expect(keys["opt-enter"] == ["⌥", "↵"])
@@ -126,7 +148,7 @@ struct FooterHintBuilderTests {
         )
         let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true)
 
-        #expect(labels(hints) == ["Actions", "New tab", "Open in tab", "Commands", "Panes", "Repos", "Close"])
+        #expect(labels(hints) == ["New tab", "Open in tab", "cmd", "pane", "repo", "Close"])
     }
 
     @Test
@@ -138,7 +160,7 @@ struct FooterHintBuilderTests {
         )
         let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true)
 
-        #expect(labels(hints) == ["Actions", "New tab", "Open in tab", "Commands", "Panes", "Repos", "Close"])
+        #expect(labels(hints) == ["New tab", "Open in tab", "cmd", "pane", "repo", "Close"])
     }
 
     @Test
@@ -147,7 +169,7 @@ struct FooterHintBuilderTests {
         let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true, scope: .panes)
 
         #expect(labels(hints) == ["Open", "Close"])
-        #expect(!labels(hints).contains("Commands"))
+        #expect(!labels(hints).contains("cmd"))
     }
 
     @Test
@@ -159,7 +181,7 @@ struct FooterHintBuilderTests {
         )
         let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true, scope: .repos)
 
-        #expect(labels(hints) == ["Actions", "New tab", "Open in tab", "Close"])
+        #expect(labels(hints) == ["New tab", "Open in tab", "Close"])
     }
 
     @Test
@@ -181,5 +203,88 @@ struct FooterHintBuilderTests {
         let keys = keysById(hints)
 
         #expect(keys["dismiss"] == ["esc"])
+    }
+
+    @Test
+    func test_everythingScope_layoutMovesScopeHintsToSecondaryLeadingAndDismissToTrailing() {
+        let hints = FooterHintBuilder.hints(for: nil, isNested: false, canOpenInCurrentTab: true)
+        let layout = layoutLabels(hints)
+
+        #expect(layout.primary.isEmpty)
+        #expect(layout.secondaryLeading == ["cmd", "pane", "repo"])
+        #expect(layout.secondaryTrailing == ["Close"])
+    }
+
+    @Test
+    func test_itemLayoutKeepsContextualActionsOnPrimaryRow() {
+        let item = makeCommandBarItem(
+            id: "wt-1",
+            title: "main",
+            worktreePresence: makeWorktreePresence(paneCount: 1)
+        )
+        let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true)
+        let layout = layoutLabels(hints)
+
+        #expect(layout.primary == ["New tab", "Open in tab"])
+        #expect(layout.secondaryLeading == ["cmd", "pane", "repo"])
+        #expect(layout.secondaryTrailing == ["Close"])
+    }
+
+    @Test
+    func test_nestedLayoutPutsDismissOnSecondaryTrailingOnly() {
+        let hints = FooterHintBuilder.hints(for: nil, isNested: true, canOpenInCurrentTab: true)
+        let layout = layoutLabels(hints)
+
+        #expect(layout.primary.isEmpty)
+        #expect(layout.secondaryLeading == ["Back"])
+        #expect(layout.secondaryTrailing == ["Close"])
+    }
+
+    @Test
+    func test_scopeHints_usePlainStyle() {
+        let hints = FooterHintBuilder.hints(for: nil, isNested: false, canOpenInCurrentTab: true)
+        let scopeHints = hints.filter { ["scope-commands", "scope-panes", "scope-repos"].contains($0.id) }
+
+        for hint in scopeHints {
+            #expect(hint.style == .plain)
+        }
+    }
+
+    @Test
+    func test_actionHints_useBadgeStyle() {
+        let item = makeCommandBarItem(
+            id: "wt-1",
+            title: "main",
+            worktreePresence: makeWorktreePresence(paneCount: 0)
+        )
+        let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true)
+        let actionHints = hints.filter { ["cmd-enter", "opt-enter"].contains($0.id) }
+
+        for hint in actionHints {
+            #expect(hint.style == .badge)
+        }
+    }
+
+    @Test
+    func test_dismissHint_usesPlainStyle() {
+        let hints = FooterHintBuilder.hints(for: nil, isNested: false, canOpenInCurrentTab: true)
+        let dismiss = hints.first { $0.id == "dismiss" }
+
+        #expect(dismiss?.style == .plain)
+    }
+
+    @Test
+    func test_displayRows_placesGlobalHintsAboveActionHints() {
+        let item = makeCommandBarItem(
+            id: "wt-1",
+            title: "main",
+            worktreePresence: makeWorktreePresence(paneCount: 1)
+        )
+        let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true)
+        let rows = displayRows(hints)
+
+        #expect(rows.topLeading == ["cmd", "pane", "repo"])
+        #expect(rows.topTrailing == ["Close"])
+        #expect(rows.bottom == ["New tab", "Open in tab"])
     }
 }

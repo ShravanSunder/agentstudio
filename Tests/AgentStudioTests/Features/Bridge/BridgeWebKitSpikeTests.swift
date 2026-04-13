@@ -81,7 +81,7 @@ extension WebKitSerializedTests {
     @Suite(.serialized)
     final class BridgeWebKitSpikeTests {
         init() {
-            installTestAtomScopeIfNeeded()
+            installTestAtomRegistryIfNeeded()
         }
 
         // MARK: - Item 1: WKContentWorld creation and identity

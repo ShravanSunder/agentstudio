@@ -3,7 +3,7 @@ import Observation
 
 @Observable
 @MainActor
-final class AppLifecycleStore {
+final class AppLifecycleAtom {
     private(set) var isActive = false
     private(set) var isTerminating = false
 

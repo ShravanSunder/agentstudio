@@ -30,7 +30,7 @@ final class DrawerCommandIntegrationTests {
             runtime: runtime,
             surfaceManager: surfaceManager,
             runtimeRegistry: RuntimeRegistry(),
-            windowLifecycleStore: WindowLifecycleStore()
+            windowLifecycleStore: WindowLifecycleAtom()
         )
         executor = ActionExecutor(coordinator: coordinator, store: store)
     }

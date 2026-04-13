@@ -68,6 +68,23 @@ struct CommandBarItemTests {
     }
 
     @Test
+    func test_shortcutKey_fromTrigger_allModifiersOrderedBeforeKey() {
+        let trigger = ShortcutTrigger(
+            key: .enter,
+            modifiers: [.command, .shift, .option, .control]
+        )
+
+        let keys = ShortcutKey.from(trigger: trigger)
+
+        #expect(keys.count == 5)
+        #expect(keys[0].symbol == "⌘")
+        #expect(keys[1].symbol == "⇧")
+        #expect(keys[2].symbol == "⌥")
+        #expect(keys[3].symbol == "⌃")
+        #expect(keys[4].symbol == "↵")
+    }
+
+    @Test
     func test_shortcutKey_hashable_sameSymbolNotEqual() {
         // Arrange — two ShortcutKeys with same symbol get different UUIDs
         let key1 = ShortcutKey(symbol: "⌘")
@@ -159,6 +176,23 @@ struct CommandBarItemTests {
         #expect(item.keywords.isEmpty)
         #expect(!item.hasChildren)
         #expect(item.worktreeOpenState == nil)
+    }
+
+    @Test
+    func test_item_init_derivesShortcutKeysFromTrigger() {
+        let trigger = ShortcutTrigger(key: .enter, modifiers: [.command])
+
+        let item = CommandBarItem(
+            id: "new-tab",
+            title: "New pane in new tab",
+            shortcutTrigger: trigger,
+            group: "Open",
+            groupPriority: 0,
+            action: .dispatch(.newTab)
+        )
+
+        #expect(item.shortcutTrigger == trigger)
+        #expect(item.shortcutKeys?.map(\.symbol) == ["⌘", "↵"])
     }
 
     @Test

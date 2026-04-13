@@ -4,8 +4,8 @@ import os
 
 @Observable
 @MainActor
-final class PaneFilesystemProjectionStore {
-    private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneFilesystemProjectionStore")
+final class PaneFilesystemProjectionAtom {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneFilesystemProjectionAtom")
     struct PaneSnapshot: Equatable, Sendable {
         let paneId: UUID
         let worktreeId: UUID

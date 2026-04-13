@@ -7,12 +7,12 @@ import Testing
 @Suite(.serialized)
 struct WorkspaceFocusDerivedTests {
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
     }
 
     @Test
     func emptyWorkspaceHasNoActiveContext() {
-        withTestAtomStore { _ in
+        withTestAtomRegistry { _ in
             let focus = atom(\.workspaceFocus).currentFocus(
                 workspaceTabLayout: atom(\.workspaceTabLayout),
                 workspacePane: atom(\.workspacePane)
@@ -25,7 +25,7 @@ struct WorkspaceFocusDerivedTests {
 
     @Test
     func activeTerminalTabReportsFocusRequirements() {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -55,7 +55,7 @@ struct WorkspaceFocusDerivedTests {
 
     @Test
     func drawerAndArrangementRequirementsAreReported() {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
@@ -96,7 +96,7 @@ struct WorkspaceFocusDerivedTests {
 
     @Test
     func worktreeBackedPane_populatesActiveRepoAndWorktreeIds() {
-        withTestAtomStore { atoms in
+        withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,

@@ -65,7 +65,7 @@ private final class InteractionTrackingPaneHostView: PaneHostView {
 struct ManagementModeDragShieldTests {
 
     init() {
-        installTestAtomScopeIfNeeded()
+        installTestAtomRegistryIfNeeded()
         // Ensure management mode is off before each test
         if atom(\.managementMode).isActive {
             atom(\.managementMode).deactivate()
