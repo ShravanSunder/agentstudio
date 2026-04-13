@@ -9,7 +9,7 @@ import Testing
 struct PaneLeafContainerInactiveDimmingTests {
     @Test("inactive split panes keep the center brighter than the edge dimming band")
     func inactiveSplitPane_centerStaysBrighterThanEdgeBand() throws {
-        try withTestAtomStore { _ in
+        try withInactivePaneDimmingTestAtomStore { _ in
             let paneId = UUID()
             let paneHost = PaneHostView(paneId: paneId)
             paneHost.mountContentView(WhiteMountedContentView())
@@ -89,6 +89,24 @@ struct PaneLeafContainerInactiveDimmingTests {
         }
 
         return ((color.redComponent + color.greenComponent + color.blueComponent) / 3.0)
+    }
+}
+
+@MainActor
+private var hasInstalledInactivePaneDimmingTestAtomScope = false
+
+@MainActor
+private func withInactivePaneDimmingTestAtomStore<T>(
+    _ body: (AtomStore) throws -> T
+) rethrows -> T {
+    if hasInstalledInactivePaneDimmingTestAtomScope == false {
+        AtomScope.setUp(AtomStore())
+        hasInstalledInactivePaneDimmingTestAtomScope = true
+    }
+
+    let atoms = AtomStore()
+    return try AtomScope.$override.withValue(atoms) {
+        try body(atoms)
     }
 }
 
