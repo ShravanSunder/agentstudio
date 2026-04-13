@@ -309,7 +309,7 @@ enum AppStyle {
     static let inactivePaneDimmingOpacity: CGFloat = 0.30
 
     /// Depth of the edge-only inactive-pane dimming band.
-    static let inactivePaneDimmingDepth: CGFloat = 150
+    static let inactivePaneDimmingDepth: CGFloat = 120
 
     /// Management mode dimming overlay on pane content.
     static let managementModeDimming: CGFloat = 0.35
