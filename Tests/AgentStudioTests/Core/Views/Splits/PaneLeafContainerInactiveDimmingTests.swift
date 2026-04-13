@@ -44,9 +44,14 @@ struct PaneLeafContainerInactiveDimmingTests {
                 size: CGSize(width: 360, height: 280)
             )
 
-            let centerBrightness = try brightness(in: bitmap, x: 180, y: 140)
-            let edgeBrightness = try brightness(in: bitmap, x: 12, y: 140)
-            let innerBandBrightness = try brightness(in: bitmap, x: 140, y: 140)
+            let centerX = 180
+            let sampleY = 140
+            let edgeX = 12
+            let innerBandX = max(edgeX + 12, Int(AppStyle.inactivePaneDimmingDepth) - 20)
+
+            let centerBrightness = try brightness(in: bitmap, x: centerX, y: sampleY)
+            let edgeBrightness = try brightness(in: bitmap, x: edgeX, y: sampleY)
+            let innerBandBrightness = try brightness(in: bitmap, x: innerBandX, y: sampleY)
 
             #expect(centerBrightness > edgeBrightness + 0.08)
             #expect(edgeBrightness < 0.85)
