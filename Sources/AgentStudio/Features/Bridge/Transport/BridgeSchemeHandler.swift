@@ -1,6 +1,15 @@
 import Foundation
 import WebKit
 
+/// Provides file content for `agentstudio://resource/file/<fileId>` requests.
+///
+/// Injected into `BridgeSchemeHandler` to make the data stream testable.
+/// Production implementations resolve file IDs against the workspace;
+/// test implementations return known content for known IDs.
+protocol BridgeFileProvider: Sendable {
+    func fileContent(for fileId: String) async throws -> (data: Data, mimeType: String)
+}
+
 /// URL scheme handler for `agentstudio://` custom scheme.
 ///
 /// Routes:
@@ -11,6 +20,10 @@ import WebKit
 /// from the app bundle comes in Phase 4.
 struct BridgeSchemeHandler: URLSchemeHandler {
     let paneId: UUID
+
+    /// Optional file content provider for the resource route.
+    /// When nil, the handler serves a placeholder response.
+    var fileProvider: (any BridgeFileProvider)? = nil
 
     // MARK: - URLSchemeHandler
 
@@ -39,17 +52,39 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 continuation.finish()
 
             case .resource(let fileId):
-                let placeholder = Data("resource:\(fileId)".utf8)
-                continuation.yield(
-                    .response(
-                        URLResponse(
-                            url: url,
-                            mimeType: "application/octet-stream",
-                            expectedContentLength: placeholder.count,
-                            textEncodingName: nil
-                        )))
-                continuation.yield(.data(placeholder))
-                continuation.finish()
+                if let provider = fileProvider {
+                    Task {
+                        do {
+                            let (fileData, fileMime) = try await provider.fileContent(for: fileId)
+                            continuation.yield(
+                                .response(
+                                    URLResponse(
+                                        url: url,
+                                        mimeType: fileMime,
+                                        expectedContentLength: fileData.count,
+                                        textEncodingName: nil
+                                    )))
+                            continuation.yield(.data(fileData))
+                            continuation.finish()
+                        } catch {
+                            continuation.finish(
+                                throwing: BridgeSchemeError.invalidRequest(
+                                    "File not found: \(fileId)"))
+                        }
+                    }
+                } else {
+                    let placeholder = Data("resource:\(fileId)".utf8)
+                    continuation.yield(
+                        .response(
+                            URLResponse(
+                                url: url,
+                                mimeType: "application/octet-stream",
+                                expectedContentLength: placeholder.count,
+                                textEncodingName: nil
+                            )))
+                    continuation.yield(.data(placeholder))
+                    continuation.finish()
+                }
 
             case .invalid:
                 continuation.finish(throwing: BridgeSchemeError.invalidRoute(url.absoluteString))
