@@ -23,15 +23,33 @@ struct FlatTabStripContainer: View {
         atom(\.managementMode)
     }
 
+    private var onSaveArrangement: (() -> Void)? {
+        guard store.tabLayoutAtom.tab(tabId) != nil else { return nil }
+
+        return {
+            guard let tab = store.tabLayoutAtom.tab(tabId) else { return }
+            let arrangementName = Self.nextArrangementName(existing: tab.arrangements)
+            actionDispatcher.dispatch(
+                .createArrangement(
+                    tabId: tabId,
+                    name: arrangementName,
+                    paneIds: Set(tab.activePaneIds)
+                )
+            )
+        }
+    }
+
     var body: some View {
         GeometryReader { tabGeometry in
             let containerBounds = CGRect(origin: .zero, size: tabGeometry.size)
+            let showMinimizedBars = managementMode.isActive || atom(\.uiState).showMinimizedBars
+            let effectiveCollapsedWidth: CGFloat = showMinimizedBars ? CollapsedPaneBar.barWidth : 0
             let metrics = FlatTabStripMetrics.compute(
                 layout: layout,
                 in: containerBounds,
                 dividerThickness: AppStyle.paneGap,
                 minimizedPaneIds: minimizedPaneIds,
-                collapsedPaneWidth: CollapsedPaneBar.barWidth
+                collapsedPaneWidth: effectiveCollapsedWidth
             )
             let closingPaneIds = closeTransitionCoordinator.closingPaneIds
 
@@ -51,19 +69,21 @@ struct FlatTabStripContainer: View {
                             .allowsHitTesting(false)
                     }
                 } else if metrics.allMinimized {
-                    HStack(spacing: 0) {
-                        ForEach(layout.paneIds, id: \.self) { paneId in
-                            CollapsedPaneBar(
-                                paneId: paneId,
-                                tabId: tabId,
-                                title: atom(\.paneDisplay).displayLabel(for: paneId),
-                                closeTransitionCoordinator: closeTransitionCoordinator,
-                                actionDispatcher: actionDispatcher,
-                                dropTargetCoordinateSpace: "tabContainer"
-                            )
-                            .frame(width: CollapsedPaneBar.barWidth)
+                    if showMinimizedBars {
+                        HStack(spacing: 0) {
+                            ForEach(layout.paneIds, id: \.self) { paneId in
+                                CollapsedPaneBar(
+                                    paneId: paneId,
+                                    tabId: tabId,
+                                    closeTransitionCoordinator: closeTransitionCoordinator,
+                                    actionDispatcher: actionDispatcher,
+                                    onSaveArrangement: onSaveArrangement,
+                                    dropTargetCoordinateSpace: "tabContainer"
+                                )
+                                .frame(width: CollapsedPaneBar.barWidth)
+                            }
+                            Spacer()
                         }
-                        Spacer()
                     }
                 } else {
                     FlatPaneStripContent(
@@ -71,6 +91,8 @@ struct FlatTabStripContainer: View {
                         tabId: tabId,
                         activePaneId: activePaneId,
                         minimizedPaneIds: minimizedPaneIds,
+                        collapsedPaneWidth: effectiveCollapsedWidth,
+                        onSaveArrangement: onSaveArrangement,
                         closeTransitionCoordinator: closeTransitionCoordinator,
                         actionDispatcher: actionDispatcher,
                         store: store,
@@ -134,6 +156,8 @@ struct FlatTabStripContainer: View {
                 stopDropTargetWatchdog()
             }
         }
+        .animation(.easeOut(duration: AppStyle.animationStandard), value: atom(\.uiState).showMinimizedBars)
+        .animation(.easeOut(duration: AppStyle.animationStandard), value: managementMode.isActive)
         .coordinateSpace(name: "tabContainer")
     }
 
@@ -177,5 +201,14 @@ struct FlatTabStripContainer: View {
     private func stopDropTargetWatchdog() {
         dropTargetWatchdogTask?.cancel()
         dropTargetWatchdogTask = nil
+    }
+
+    private static func nextArrangementName(existing: [PaneArrangement]) -> String {
+        let existingNames = Set(existing.map(\.name))
+        var index = existing.count
+        while existingNames.contains("Arrangement \(index)") {
+            index += 1
+        }
+        return "Arrangement \(index)"
     }
 }

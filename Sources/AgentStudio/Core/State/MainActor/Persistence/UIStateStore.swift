@@ -23,7 +23,8 @@ final class UIStateStore {
                 expandedGroups: state.expandedGroups,
                 checkoutColors: state.checkoutColors,
                 filterText: state.filterText,
-                isFilterVisible: state.isFilterVisible
+                isFilterVisible: state.isFilterVisible,
+                showMinimizedBars: state.showMinimizedBars
             )
         case .missing:
             break
@@ -42,7 +43,8 @@ final class UIStateStore {
                 expandedGroups: atom.expandedGroups,
                 checkoutColors: atom.checkoutColors,
                 filterText: atom.filterText,
-                isFilterVisible: atom.isFilterVisible
+                isFilterVisible: atom.isFilterVisible,
+                showMinimizedBars: atom.showMinimizedBars
             )
         )
     }

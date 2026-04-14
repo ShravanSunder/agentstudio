@@ -167,7 +167,7 @@ enum WorkspaceLauncherProjector {
             store.repositoryTopologyAtom.repos.map(SidebarRepo.init(repo:)),
             enrichmentByRepoId: repoCache.repoEnrichmentByRepoId
         )
-        let metadataByRepoId = RepoSidebarContentView.buildRepoMetadata(
+        let metadataByRepoId = SidebarRepoColoring.buildRepoMetadata(
             repos: sidebarRepos,
             repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId
         )
@@ -179,7 +179,7 @@ enum WorkspaceLauncherProjector {
         var checkoutColorHexByRepoId: [UUID: String] = [:]
         for group in groups {
             for repo in group.repos {
-                checkoutColorHexByRepoId[repo.id] = RepoSidebarContentView.checkoutColorHex(
+                checkoutColorHexByRepoId[repo.id] = SidebarRepoColoring.checkoutColorHex(
                     for: repo,
                     in: group
                 )
@@ -189,7 +189,7 @@ enum WorkspaceLauncherProjector {
     }
 
     private static func fallbackCheckoutColorHex(for repo: Repo) -> String {
-        RepoSidebarContentView.checkoutColorHex(
+        SidebarRepoColoring.checkoutColorHex(
             for: SidebarRepo(repo: repo),
             in: SidebarRepoGroup(
                 id: "path:\(repo.repoPath.standardizedFileURL.path)",

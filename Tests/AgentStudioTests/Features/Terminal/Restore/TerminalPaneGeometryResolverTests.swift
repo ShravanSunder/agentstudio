@@ -24,7 +24,8 @@ struct TerminalPaneGeometryResolverTests {
         let resolved = TerminalPaneGeometryResolver.resolveFrames(
             for: layout,
             in: CGRect(x: 0, y: 0, width: containerWidth, height: containerHeight),
-            dividerThickness: divider
+            dividerThickness: divider,
+            collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
 
         let gap = AppStyle.paneGap
@@ -44,9 +45,34 @@ struct TerminalPaneGeometryResolverTests {
         let resolved = TerminalPaneGeometryResolver.resolveFrames(
             for: layout,
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
-            dividerThickness: 1
+            dividerThickness: 1,
+            collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
 
         #expect(resolved[pane] != CGRect(x: 0, y: 0, width: 800, height: 600))
+    }
+
+    @Test
+    func geometryResolver_usesProvidedCollapsedPaneWidth_forMinimizedPanes() {
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(
+            panes: [
+                .init(paneId: paneA, ratio: 0.5),
+                .init(paneId: paneB, ratio: 0.5),
+            ],
+            dividerIds: [UUID()]
+        )
+
+        let resolved = TerminalPaneGeometryResolver.resolveFrames(
+            for: layout,
+            in: CGRect(x: 0, y: 0, width: 1000, height: 600),
+            dividerThickness: 1,
+            minimizedPaneIds: [paneB],
+            collapsedPaneWidth: 0
+        )
+
+        #expect((resolved[paneA]?.width ?? 0) > 980)
+        #expect((resolved[paneB]?.minX ?? 0) >= 999)
     }
 }

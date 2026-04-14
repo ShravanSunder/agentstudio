@@ -66,4 +66,47 @@ struct PaneDisplayDerivedTests {
             #expect(parts.primaryLabel == "project-dev")
         }
     }
+
+    @Test
+    func accentColorHex_returnsStablePaletteEntry_forRepoBackedPane() {
+        withTestAtomRegistry { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let repo = store.addRepo(at: URL(filePath: "/tmp/agent-studio-colors"))
+            let worktree = makeWorktree(
+                repoId: repo.id,
+                name: "main",
+                path: "/tmp/agent-studio-colors/main"
+            )
+            store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+            let pane = store.createPane(
+                source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+                title: "Color"
+            )
+
+            let first = atom(\.paneDisplay).accentColorHex(for: pane.id)
+            let second = atom(\.paneDisplay).accentColorHex(for: pane.id)
+
+            #expect(first == second)
+            #expect(first != nil)
+            #expect(AppStyle.accentPaletteHexes.contains(first!))
+        }
+    }
+
+    @Test
+    func accentColorHex_returnsNil_forPaneWithoutRepo() {
+        withTestAtomRegistry { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+
+            #expect(atom(\.paneDisplay).accentColorHex(for: pane.id) == nil)
+        }
+    }
 }

@@ -178,4 +178,48 @@ struct ActionExecutorTestsQuick {
         #expect(expanded.minimizedPaneIds == Set<UUID>())
         #expect(expanded.activePaneId == paneOne.id)
     }
+
+    @Test("expandPane does not restore unrelated missing visible views")
+    func expandPane_doesNotInvokeVisibleViewRestoreSweep() {
+        let harness = makeHarness()
+        let store = harness.store
+        let viewRegistry = harness.viewRegistry
+        let coordinator = harness.coordinator
+        let executor = harness.executor
+        let tempDir = harness.tempDir
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        coordinator.windowLifecycleStore.recordTerminalContainerBounds(CGRect(x: 0, y: 0, width: 1000, height: 600))
+        coordinator.windowLifecycleStore.recordLaunchLayoutSettled()
+
+        let paneOne = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com/one")!)),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "One"), title: "One")
+        )
+        let paneTwo = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com/two")!)),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Two"), title: "Two")
+        )
+        let tab = Tab(paneId: paneOne.id)
+        store.appendTab(tab)
+        store.insertPane(
+            paneTwo.id,
+            inTab: tab.id,
+            at: paneOne.id,
+            direction: .horizontal,
+            position: .after
+        )
+
+        _ = coordinator.createViewForContent(
+            pane: paneOne,
+            initialFrame: CGRect(x: 0, y: 0, width: 500, height: 600)
+        )
+        #expect(viewRegistry.view(for: paneOne.id) != nil)
+        #expect(viewRegistry.view(for: paneTwo.id) == nil)
+
+        executor.execute(.minimizePane(tabId: tab.id, paneId: paneOne.id))
+        executor.execute(.expandPane(tabId: tab.id, paneId: paneOne.id))
+
+        #expect(viewRegistry.view(for: paneTwo.id) == nil)
+    }
 }

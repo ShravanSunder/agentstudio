@@ -303,7 +303,6 @@ extension PaneCoordinator {
         case .focusPane(let tabId, let paneId):
             if let tab = store.tabLayoutAtom.tab(tabId), tab.minimizedPaneIds.contains(paneId) {
                 store.tabLayoutAtom.expandPane(paneId, inTab: tabId)
-                restoreViewsForActiveTabIfNeeded()
                 reattachForViewSwitch(paneId: paneId)
             }
             store.tabLayoutAtom.setActivePane(paneId, inTab: tabId)
@@ -336,7 +335,6 @@ extension PaneCoordinator {
 
         case .expandPane(let tabId, let paneId):
             store.tabLayoutAtom.expandPane(paneId, inTab: tabId)
-            restoreViewsForActiveTabIfNeeded()
             reattachForViewSwitch(paneId: paneId)
 
         case .resizePaneByDelta(let tabId, let paneId, let direction, let amount):
@@ -467,7 +465,6 @@ extension PaneCoordinator {
 
         case .expandDrawerPane(let parentPaneId, let drawerPaneId):
             store.paneAtom.expandDrawerPane(drawerPaneId, in: parentPaneId)
-            restoreViewsForActiveTabIfNeeded()
             reattachForViewSwitch(paneId: drawerPaneId)
 
         case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction):

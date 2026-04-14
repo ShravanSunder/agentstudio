@@ -139,14 +139,15 @@ struct PaneManagementContext: Equatable {
         }
 
         if let targetPath {
+            let compactPath = compactPathLabel(
+                for: targetPath,
+                worktreeRoot: resolvedContext?.worktree.path
+            )
             rows.append(
                 PaneManagementIdentityRow(
                     id: "cwd",
                     icon: .system("folder"),
-                    text: compactPathLabel(
-                        for: targetPath,
-                        worktreeRoot: resolvedContext?.worktree.path
-                    ),
+                    text: compactPath,
                     toolTip: targetPath.path
                 )
             )
@@ -172,7 +173,8 @@ struct PaneManagementContext: Equatable {
         if let worktreeRoot {
             let normalizedRoot = worktreeRoot.standardizedFileURL.path
             if normalizedTarget == normalizedRoot {
-                return "."
+                let folderName = targetPath.lastPathComponent
+                return folderName.isEmpty ? normalizedTarget : folderName
             }
             let prefix = normalizedRoot.hasSuffix("/") ? normalizedRoot : normalizedRoot + "/"
             if normalizedTarget.hasPrefix(prefix) {

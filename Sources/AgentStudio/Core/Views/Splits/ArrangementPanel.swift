@@ -4,28 +4,30 @@ import SwiftUI
 /// Shows pane visibility toggles, arrangement chips, and save controls.
 struct ArrangementPanel: View {
     let tabId: UUID
-    let panes: [TabBarPaneInfo]
-    let arrangements: [TabBarArrangementInfo]
+    let panes: [PaneVisibilityInfo]
+    let arrangements: [ArrangementInfo]
     let onPaneAction: (PaneActionCommand) -> Void
     let onSaveArrangement: () -> Void
+    let showMinimizedBarsBinding: Binding<Bool>
+    var highlightPaneId: UUID?
+    var showsMinimizedBarToggle = true
 
     @State private var renamingArrangementId: UUID?
     @State private var renameText: String = ""
+    @State private var highlightVisible = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // MARK: - Arrangement chips
             Text("Arrangements")
                 .font(.system(size: AppStyle.textSm, weight: .semibold))
                 .foregroundStyle(.tertiary)
                 .textCase(.uppercase)
 
             WrappingHStack(spacing: 4) {
-                ForEach(arrangements) { arr in
-                    arrangementChip(arr)
+                ForEach(arrangements) { arrangement in
+                    arrangementChip(arrangement)
                 }
 
-                // Save new arrangement button
                 if panes.count > 1 {
                     Button(action: onSaveArrangement) {
                         Image(systemName: "plus")
@@ -42,7 +44,6 @@ struct ArrangementPanel: View {
                 }
             }
 
-            // MARK: - Pane visibility
             if panes.count > 1 {
                 Divider()
                     .padding(.vertical, 2)
@@ -55,6 +56,34 @@ struct ArrangementPanel: View {
                 VStack(spacing: 2) {
                     ForEach(panes) { pane in
                         paneRow(pane)
+                    }
+                }
+
+                if showsMinimizedBarToggle {
+                    Divider()
+                        .padding(.vertical, 2)
+
+                    HStack {
+                        Text("Show minimized panes")
+                            .font(.system(size: AppStyle.textXs))
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+
+                        Toggle(
+                            "",
+                            isOn: showMinimizedBarsBinding
+                        )
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .labelsHidden()
+                    }
+
+                    if !showMinimizedBarsBinding.wrappedValue && atom(\.managementMode).isActive {
+                        Text("Minimized panes are always shown in management mode")
+                            .font(.system(size: AppStyle.textXs))
+                            .foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
             }
@@ -70,8 +99,8 @@ struct ArrangementPanel: View {
         ) {
             TextField("Name", text: $renameText)
             Button(LocalActionSpec.rename.actionSpec.label) {
-                if let id = renamingArrangementId, !renameText.isEmpty {
-                    onPaneAction(.renameArrangement(tabId: tabId, arrangementId: id, name: renameText))
+                if let arrangementId = renamingArrangementId, !renameText.isEmpty {
+                    onPaneAction(.renameArrangement(tabId: tabId, arrangementId: arrangementId, name: renameText))
                 }
                 renamingArrangementId = nil
             }
@@ -79,13 +108,17 @@ struct ArrangementPanel: View {
                 renamingArrangementId = nil
             }
         }
+        .onAppear {
+            guard highlightPaneId != nil else { return }
+            highlightVisible = true
+            withAnimation(.easeOut(duration: 0.6).delay(0.3)) {
+                highlightVisible = false
+            }
+        }
     }
 
-    // MARK: - Pane Row
-
-    private func paneRow(_ pane: TabBarPaneInfo) -> some View {
+    private func paneRow(_ pane: PaneVisibilityInfo) -> some View {
         HStack(spacing: AppStyle.spacingStandard) {
-            // Visibility indicator
             Circle()
                 .fill(pane.isMinimized ? Color.clear : Color.white.opacity(AppStyle.foregroundDim))
                 .stroke(Color.white.opacity(0.3), lineWidth: 1)
@@ -99,7 +132,6 @@ struct ArrangementPanel: View {
 
             Spacer()
 
-            // Toggle minimize/expand
             Button {
                 if pane.isMinimized {
                     onPaneAction(.expandPane(tabId: tabId, paneId: pane.id))
@@ -123,46 +155,45 @@ struct ArrangementPanel: View {
         .padding(.vertical, 3)
         .background(
             RoundedRectangle(cornerRadius: AppStyle.buttonCornerRadius)
-                .fill(Color.white.opacity(AppStyle.fillSubtle))
+                .fill(
+                    pane.id == highlightPaneId && highlightVisible
+                        ? Color.accentColor.opacity(0.15)
+                        : Color.white.opacity(AppStyle.fillSubtle)
+                )
         )
     }
 
-    // MARK: - Arrangement Chip
-
-    private func arrangementChip(_ arr: TabBarArrangementInfo) -> some View {
-        Text(arr.name)
-            .font(.system(size: AppStyle.textXs, weight: arr.isActive ? .semibold : .regular))
-            .foregroundStyle(arr.isActive ? .primary : .secondary)
+    private func arrangementChip(_ arrangement: ArrangementInfo) -> some View {
+        Text(arrangement.name)
+            .font(.system(size: AppStyle.textXs, weight: arrangement.isActive ? .semibold : .regular))
+            .foregroundStyle(arrangement.isActive ? .primary : .secondary)
             .padding(.horizontal, AppStyle.spacingLoose)
             .padding(.vertical, AppStyle.spacingTight)
             .background(
                 RoundedRectangle(cornerRadius: AppStyle.barCornerRadius)
                     .fill(
-                        arr.isActive
-                            ? Color.white.opacity(AppStyle.fillActive) : Color.white.opacity(AppStyle.fillSubtle))
+                        arrangement.isActive
+                            ? Color.white.opacity(AppStyle.fillActive) : Color.white.opacity(AppStyle.fillSubtle)
+                    )
             )
             .contentShape(Rectangle())
             .onTapGesture {
-                onPaneAction(.switchArrangement(tabId: tabId, arrangementId: arr.id))
+                onPaneAction(.switchArrangement(tabId: tabId, arrangementId: arrangement.id))
             }
             .contextMenu {
-                if !arr.isDefault {
+                if !arrangement.isDefault {
                     Button(LocalActionSpec.renameArrangement.actionSpec.label) {
-                        renameText = arr.name
-                        renamingArrangementId = arr.id
+                        renameText = arrangement.name
+                        renamingArrangementId = arrangement.id
                     }
                     Button(LocalActionSpec.deleteArrangement.actionSpec.label, role: .destructive) {
-                        onPaneAction(.removeArrangement(tabId: tabId, arrangementId: arr.id))
+                        onPaneAction(.removeArrangement(tabId: tabId, arrangementId: arrangement.id))
                     }
                 }
             }
     }
 }
 
-// MARK: - Wrapping HStack
-
-/// Simple wrapping horizontal stack that flows items to new lines when they exceed available width.
-/// Uses ViewThatFits-inspired approach compatible with macOS 14+.
 struct WrappingHStack<Content: View>: View {
     let spacing: CGFloat
     let content: Content
@@ -173,8 +204,6 @@ struct WrappingHStack<Content: View>: View {
     }
 
     var body: some View {
-        // For the arrangement panel, items usually fit in a single line.
-        // Use a simple HStack — panels are constrained to ~260px max width.
         HStack(spacing: spacing) {
             content
         }

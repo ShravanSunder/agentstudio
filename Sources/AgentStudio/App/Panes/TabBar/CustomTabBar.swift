@@ -435,8 +435,8 @@ private struct TabBarArrangementButton: View {
         .help(LocalActionSpec.arrangements.actionSpec.helpText)
         .popover(
             isPresented: $showPanel,
-            attachmentAnchor: .point(.bottomLeading),
-            arrowEdge: .bottom
+            attachmentAnchor: .point(.topLeading),
+            arrowEdge: .leading
         ) {
             if let tab = activeTab, let onPaneAction, let onSaveArrangement {
                 ArrangementPanel(
@@ -444,7 +444,11 @@ private struct TabBarArrangementButton: View {
                     panes: tab.panes,
                     arrangements: tab.arrangements,
                     onPaneAction: onPaneAction,
-                    onSaveArrangement: { onSaveArrangement(tab.id) }
+                    onSaveArrangement: { onSaveArrangement(tab.id) },
+                    showMinimizedBarsBinding: Binding(
+                        get: { atom(\.uiState).showMinimizedBars },
+                        set: { atom(\.uiState).setShowMinimizedBars($0) }
+                    )
                 )
             }
         }

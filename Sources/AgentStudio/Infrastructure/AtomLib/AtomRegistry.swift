@@ -54,6 +54,10 @@ final class AtomRegistry {
         TabDisplayDerived()
     }
 
+    var arrangement: ArrangementDerived {
+        ArrangementDerived()
+    }
+
     var dynamicView: DynamicViewDerived {
         DynamicViewDerived()
     }

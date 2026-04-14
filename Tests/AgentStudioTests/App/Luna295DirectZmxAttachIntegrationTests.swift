@@ -500,6 +500,43 @@ struct Luna295DirectZmxAttachIntegrationTests {
     }
 
     @Test
+    func resolveInitialFramesByTabId_ignoresShowMinimizedBarsToggle_forCanonicalMinimizedGeometry() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        let firstPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            provider: .zmx
+        )
+        let secondPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            provider: .zmx
+        )
+
+        let tab = Tab(paneId: firstPane.id, name: "Minimized")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        _ = harness.store.insertPane(
+            secondPane.id,
+            inTab: tab.id,
+            at: firstPane.id,
+            direction: .horizontal,
+            position: .after
+        )
+        _ = harness.store.minimizePane(secondPane.id, inTab: tab.id)
+        atom(\.uiState).setShowMinimizedBars(false)
+
+        let framesByTabId = harness.coordinator.resolveInitialFramesByTabId(
+            in: CGRect(x: 0, y: 0, width: 1000, height: 600)
+        )
+        let minimizedFrame = try #require(framesByTabId[tab.id]?[secondPane.id])
+
+        #expect(minimizedFrame.width == AppStyle.collapsedBarWidth - (AppStyle.paneGap * 2))
+    }
+
+    @Test
     func splitRight_newZmxPane_usesTrustedInitialFrame_notPlaceholderGeometry() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
@@ -534,7 +571,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
             for: activeTab.layout,
             in: harness.windowLifecycleStore.terminalContainerBounds,
             dividerThickness: AppStyle.paneGap,
-            minimizedPaneIds: activeTab.minimizedPaneIds
+            minimizedPaneIds: activeTab.minimizedPaneIds,
+            collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
 
         #expect(config.initialFrame != nil)
@@ -560,7 +598,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
             for: activeTab.layout,
             in: harness.windowLifecycleStore.terminalContainerBounds,
             dividerThickness: AppStyle.paneGap,
-            minimizedPaneIds: activeTab.minimizedPaneIds
+            minimizedPaneIds: activeTab.minimizedPaneIds,
+            collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
 
         #expect(config.initialFrame != nil)
@@ -586,7 +625,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
             for: activeTab.layout,
             in: harness.windowLifecycleStore.terminalContainerBounds,
             dividerThickness: AppStyle.paneGap,
-            minimizedPaneIds: activeTab.minimizedPaneIds
+            minimizedPaneIds: activeTab.minimizedPaneIds,
+            collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
 
         #expect(config.initialFrame != nil)
@@ -617,7 +657,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
             for: activeTab.layout,
             in: harness.windowLifecycleStore.terminalContainerBounds,
             dividerThickness: AppStyle.paneGap,
-            minimizedPaneIds: activeTab.minimizedPaneIds
+            minimizedPaneIds: activeTab.minimizedPaneIds,
+            collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
 
         #expect(config.initialFrame == resolvedFrames[pane.id])

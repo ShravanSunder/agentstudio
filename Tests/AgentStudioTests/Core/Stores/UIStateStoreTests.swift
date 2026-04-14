@@ -26,6 +26,7 @@ struct UIStateStoreTests {
         atom.setCheckoutColor("#ff6600", for: "repo:agent-studio")
         atom.setFilterText("terminal")
         atom.setFilterVisible(true)
+        atom.setShowMinimizedBars(false)
 
         try uiStateStore.flush(for: workspaceId)
 
@@ -37,6 +38,7 @@ struct UIStateStoreTests {
         #expect(restoredAtom.checkoutColors == ["repo:agent-studio": "#ff6600"])
         #expect(restoredAtom.filterText == "terminal")
         #expect(restoredAtom.isFilterVisible)
+        #expect(restoredAtom.showMinimizedBars == false)
     }
 
     @Test
@@ -47,6 +49,7 @@ struct UIStateStoreTests {
 
         atom.setFilterText("agent")
         atom.setFilterVisible(true)
+        atom.setShowMinimizedBars(false)
 
         try store.flush(for: workspaceId)
 
@@ -55,6 +58,7 @@ struct UIStateStoreTests {
 
         #expect(restoredAtom.filterText == "agent")
         #expect(restoredAtom.isFilterVisible)
+        #expect(restoredAtom.showMinimizedBars == false)
     }
 
     @Test
@@ -72,5 +76,46 @@ struct UIStateStoreTests {
         #expect(atom.checkoutColors.isEmpty)
         #expect(atom.filterText.isEmpty)
         #expect(!atom.isFilterVisible)
+        #expect(atom.showMinimizedBars)
+    }
+
+    @Test
+    func showMinimizedBars_defaultsToTrue() {
+        let atom = UIStateAtom()
+
+        #expect(atom.showMinimizedBars)
+    }
+
+    @Test
+    func setShowMinimizedBars_updatesValue() {
+        let atom = UIStateAtom()
+
+        atom.setShowMinimizedBars(false)
+
+        #expect(atom.showMinimizedBars == false)
+    }
+
+    @Test
+    func restore_missingShowMinimizedBars_defaultsToTrue() throws {
+        let workspaceId = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "workspaceId": "\(workspaceId.uuidString)",
+                "expandedGroups": [],
+                "checkoutColors": {},
+                "filterText": "",
+                "isFilterVisible": false
+            }
+            """
+        let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
+        try Data(json.utf8).write(to: uiURL, options: .atomic)
+
+        let atom = UIStateAtom()
+        let store = UIStateStore(atom: atom, persistor: persistor)
+
+        store.restore(for: workspaceId)
+
+        #expect(atom.showMinimizedBars)
     }
 }

@@ -418,6 +418,9 @@ enum AppStyle {
     /// Minimum pane size enforced while dragging split dividers.
     static let splitMinimumPaneSize: CGFloat = 10
 
+    /// Width of the collapsed pane bar.
+    static let collapsedBarWidth: CGFloat = 40
+
     /// Width of the edge insertion marker shown while dragging panes.
     static let dropTargetMarkerWidth: CGFloat = 8
 

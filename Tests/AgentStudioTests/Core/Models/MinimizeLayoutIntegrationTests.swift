@@ -75,7 +75,7 @@ final class MinimizeLayoutIntegrationTests {
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
             dividerThickness: AppStyle.paneGap,
             minimizedPaneIds: updated.minimizedPaneIds,
-            collapsedPaneWidth: CollapsedPaneBar.barWidth
+            collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
         #expect(renderInfo.allMinimized)
         #expect(renderInfo.paneSegments.count == 3)
@@ -110,7 +110,7 @@ final class MinimizeLayoutIntegrationTests {
             in: CGRect(x: 0, y: 0, width: 1200, height: 300),
             dividerThickness: AppStyle.paneGap,
             minimizedPaneIds: drawer.minimizedPaneIds,
-            collapsedPaneWidth: CollapsedPaneBar.barWidth
+            collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
         #expect(renderInfo.allMinimized)
     }
@@ -143,7 +143,7 @@ final class MinimizeLayoutIntegrationTests {
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
             dividerThickness: AppStyle.paneGap,
             minimizedPaneIds: updated.minimizedPaneIds,
-            collapsedPaneWidth: CollapsedPaneBar.barWidth
+            collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
         #expect(!(renderInfo.allMinimized))
     }
@@ -191,11 +191,73 @@ final class MinimizeLayoutIntegrationTests {
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
             dividerThickness: AppStyle.paneGap,
             minimizedPaneIds: updated.minimizedPaneIds,
-            collapsedPaneWidth: CollapsedPaneBar.barWidth
+            collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
 
         #expect(!(renderInfo.allMinimized))
-        #expect(renderInfo.dividerSegments.isEmpty)
+        #expect(renderInfo.dividerSegments.count == 2)
         #expect(renderInfo.paneSegments.filter(\.isMinimized).count == 1)
+    }
+
+    @Test
+    func test_flatStripMetrics_minimizedBetweenVisible_createsDividers() {
+        let (tab, paneIds) = createTabWithPanes(3)
+        store.minimizePane(paneIds[1], inTab: tab.id)
+
+        let updated = store.tab(tab.id)!
+        let renderInfo = FlatTabStripMetrics.compute(
+            layout: updated.layout,
+            in: CGRect(x: 0, y: 0, width: 1200, height: 700),
+            dividerThickness: AppStyle.paneGap,
+            minimizedPaneIds: updated.minimizedPaneIds,
+            collapsedPaneWidth: CollapsedPaneBar.barWidth
+        )
+
+        #expect(!renderInfo.dividerSegments.isEmpty)
+        #expect(renderInfo.dividerSegments.count == 2)
+    }
+
+    @Test
+    func test_flatStripMetrics_zeroCollapsedWidth_minimizedPanesTakeNoSpace() {
+        let (tab, paneIds) = createTabWithPanes(3)
+        store.minimizePane(paneIds[1], inTab: tab.id)
+
+        let updated = store.tab(tab.id)!
+        let renderInfo = FlatTabStripMetrics.compute(
+            layout: updated.layout,
+            in: CGRect(x: 0, y: 0, width: 1200, height: 700),
+            dividerThickness: AppStyle.paneGap,
+            minimizedPaneIds: updated.minimizedPaneIds,
+            collapsedPaneWidth: 0
+        )
+
+        let minimizedSegment = renderInfo.paneSegments.first { $0.isMinimized }
+        #expect(minimizedSegment != nil)
+        #expect(minimizedSegment?.frame.width == 0)
+        #expect(renderInfo.dividerSegments.isEmpty)
+
+        let visibleSegments = renderInfo.paneSegments.filter { !$0.isMinimized }
+        let totalVisibleWidth = visibleSegments.reduce(0) { $0 + $1.frame.width }
+        #expect(totalVisibleWidth > 1190)
+    }
+
+    @Test
+    func test_flatStripMetrics_adjacentMinimizedPanes_onlyVisibleBoundaryGetsDivider() {
+        let (tab, paneIds) = createTabWithPanes(3)
+        store.minimizePane(paneIds[0], inTab: tab.id)
+        store.minimizePane(paneIds[1], inTab: tab.id)
+
+        let updated = store.tab(tab.id)!
+        let renderInfo = FlatTabStripMetrics.compute(
+            layout: updated.layout,
+            in: CGRect(x: 0, y: 0, width: 1200, height: 700),
+            dividerThickness: AppStyle.paneGap,
+            minimizedPaneIds: updated.minimizedPaneIds,
+            collapsedPaneWidth: AppStyle.collapsedBarWidth
+        )
+
+        #expect(renderInfo.dividerSegments.count == 1)
+        #expect(renderInfo.dividerSegments[0].leftPaneId == paneIds[1])
+        #expect(renderInfo.dividerSegments[0].rightPaneId == paneIds[2])
     }
 }

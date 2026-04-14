@@ -163,13 +163,15 @@ struct WorkspacePersistor {
         var checkoutColors: [String: String]
         var filterText: String
         var isFilterVisible: Bool
+        var showMinimizedBars: Bool
 
         init(
             workspaceId: UUID,
             expandedGroups: Set<String> = [],
             checkoutColors: [String: String] = [:],
             filterText: String = "",
-            isFilterVisible: Bool = false
+            isFilterVisible: Bool = false,
+            showMinimizedBars: Bool = true
         ) {
             self.schemaVersion = WorkspacePersistor.currentSchemaVersion
             self.workspaceId = workspaceId
@@ -177,6 +179,28 @@ struct WorkspacePersistor {
             self.checkoutColors = checkoutColors
             self.filterText = filterText
             self.isFilterVisible = isFilterVisible
+            self.showMinimizedBars = showMinimizedBars
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case schemaVersion
+            case workspaceId
+            case expandedGroups
+            case checkoutColors
+            case filterText
+            case isFilterVisible
+            case showMinimizedBars
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+            self.workspaceId = try container.decode(UUID.self, forKey: .workspaceId)
+            self.expandedGroups = try container.decode(Set<String>.self, forKey: .expandedGroups)
+            self.checkoutColors = try container.decode([String: String].self, forKey: .checkoutColors)
+            self.filterText = try container.decode(String.self, forKey: .filterText)
+            self.isFilterVisible = try container.decode(Bool.self, forKey: .isFilterVisible)
+            self.showMinimizedBars = try container.decodeIfPresent(Bool.self, forKey: .showMinimizedBars) ?? true
         }
 
     }
