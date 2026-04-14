@@ -74,31 +74,6 @@ struct WorkspaceCommandValidatorOwnershipTests {
     }
 
     @Test
-    func focusPane_hiddenOwnedPane_fails() {
-        let tabId = UUID()
-        let visiblePaneId = UUIDv7.generate()
-        let hiddenPaneId = UUIDv7.generate()
-        let snapshot = makeSnapshot(
-            tabs: [
-                TabSnapshot(
-                    id: tabId,
-                    visiblePaneIds: [visiblePaneId],
-                    ownedPaneIds: [visiblePaneId, hiddenPaneId],
-                    activePaneId: visiblePaneId
-                )
-            ]
-        )
-
-        let result = WorkspaceCommandValidator.validate(
-            .focusPane(tabId: tabId, paneId: hiddenPaneId),
-            state: snapshot
-        )
-
-        if case .failure(.paneNotFound) = result { return }
-        Issue.record("Expected paneNotFound error")
-    }
-
-    @Test
     func insertPane_hiddenOwnedSource_visibleTarget_succeeds() {
         let sourceTabId = UUID()
         let visibleSourcePaneId = UUIDv7.generate()

@@ -123,8 +123,6 @@ struct DrawerPanel: View {
                                 direction: direction
                             )
                         )
-                    case .focusPane(_, let paneId):
-                        action(.setActiveDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
                     default:
                         action(paneAction)
                     }

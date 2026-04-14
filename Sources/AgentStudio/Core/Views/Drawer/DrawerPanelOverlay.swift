@@ -190,6 +190,7 @@ struct DrawerPanelOverlay: View {
                 )
                 .onTapGesture {
                     actionDispatcher.dispatch(.toggleDrawer(paneId: info.paneId))
+                    PaneFocusSystem.shared.handle(.drawer(.toggle(parentPaneId: info.paneId)))
                 }
                 .overlay {
                     VStack(spacing: 0) {
@@ -213,6 +214,7 @@ struct DrawerPanelOverlay: View {
                             },
                             onDismiss: {
                                 actionDispatcher.dispatch(.toggleDrawer(paneId: info.paneId))
+                                PaneFocusSystem.shared.handle(.drawer(.toggle(parentPaneId: info.paneId)))
                             },
                             appLifecycleStore: appLifecycleStore,
                             onOpenPaneGitHub: onOpenPaneGitHub

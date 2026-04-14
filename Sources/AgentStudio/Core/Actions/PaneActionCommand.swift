@@ -52,9 +52,6 @@ enum PaneActionCommand: Equatable, Hashable {
     case closePane(tabId: UUID, paneId: UUID)
     case extractPaneToTab(tabId: UUID, paneId: UUID)
 
-    // Pane focus
-    case focusPane(tabId: UUID, paneId: UUID)
-
     // Split operations
     case insertPane(
         source: PaneSource, targetTabId: UUID,

@@ -457,7 +457,7 @@ struct RepoSidebarContentView: View {
         isFilterFocused = false
         uiState.setFilterText("")
         uiState.setFilterVisible(false)
-        CommandDispatcher.shared.appCommandRouter?.refocusActivePane()
+        PaneFocusSystem.shared.requestRefocus(.explicit)
     }
 
     private func openRepoInFinder(_ path: URL) {

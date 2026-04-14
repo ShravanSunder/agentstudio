@@ -50,18 +50,6 @@ class PaneHostView: NSView, Identifiable {
 
     override var acceptsFirstResponder: Bool { true }
 
-    override func becomeFirstResponder() -> Bool {
-        guard let window, let mountedContentView else {
-            return super.becomeFirstResponder()
-        }
-
-        if mountedContentView.acceptsFirstResponder {
-            return window.makeFirstResponder(mountedContentView)
-        }
-
-        return super.becomeFirstResponder()
-    }
-
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !atom(\.managementMode).isActive else { return nil }
         return super.hitTest(point)
@@ -98,6 +86,27 @@ class PaneHostView: NSView, Identifiable {
 
     var mountedContentView: NSView? {
         contentContainerView.subviews.first
+    }
+
+    var mountedContentStateForPaneFocus: PaneFocusContext.MountedContentState {
+        if let terminalView = mountedContent(as: TerminalPaneMountView.self) {
+            return .terminal(surfaceId: terminalView.surfaceId)
+        }
+
+        if let mountedContentView {
+            return .nonTerminal(acceptsFirstResponder: mountedContentView.acceptsFirstResponder)
+        }
+
+        return .unmounted
+    }
+
+    var mountedTerminalSurfaceId: UUID? {
+        mountedContent(as: TerminalPaneMountView.self)?.surfaceId
+    }
+
+    var preferredFirstResponderViewForPaneFocus: NSView? {
+        guard let mountedContentView, mountedContentView.acceptsFirstResponder else { return nil }
+        return mountedContentView
     }
 
     func mountedContent<MountedContent: NSView>(as _: MountedContent.Type = MountedContent.self)

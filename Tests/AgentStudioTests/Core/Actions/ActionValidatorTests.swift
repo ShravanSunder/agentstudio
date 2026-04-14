@@ -332,45 +332,6 @@ final class WorkspaceCommandValidatorTests {
         Issue.record("Expected singlePaneTab error")
     }
 
-    // MARK: - focusPane
-
-    @Test
-
-    func test_focusPane_validPane_succeeds() {
-        // Arrange
-        let paneId = UUID()
-        let tabId = UUID()
-        let tab = TabSnapshot(id: tabId, visiblePaneIds: [paneId], ownedPaneIds: [paneId], activePaneId: paneId)
-        let snapshot = makeSnapshot(tabs: [tab])
-
-        // Act
-        let result = WorkspaceCommandValidator.validate(
-            .focusPane(tabId: tabId, paneId: paneId),
-            state: snapshot
-        )
-
-        // Assert
-        #expect((try? result.get()) != nil)
-    }
-
-    @Test
-
-    func test_focusPane_paneNotInTab_fails() {
-        // Arrange
-        let (tab, tabId, _) = makeSinglePaneTab()
-        let snapshot = makeSnapshot(tabs: [tab])
-
-        // Act
-        let result = WorkspaceCommandValidator.validate(
-            .focusPane(tabId: tabId, paneId: UUID()),
-            state: snapshot
-        )
-
-        // Assert
-        if case .failure(.paneNotFound) = result { return }
-        Issue.record("Expected paneNotFound error")
-    }
-
     // MARK: - insertPane (self-insertion bug fix)
 
     @Test

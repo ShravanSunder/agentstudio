@@ -377,8 +377,8 @@ final class WorkspaceCommandResolverTests {
             command: .focusPaneLeft, tabs: [tab], activeTabId: tabId
         )
 
-        // Assert
-        #expect(result == .focusPane(tabId: tabId, paneId: paneB))
+        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        #expect(result == nil)
     }
 
     @Test
@@ -414,8 +414,8 @@ final class WorkspaceCommandResolverTests {
             command: .focusNextPane, tabs: [tab], activeTabId: tabId
         )
 
-        // Assert
-        #expect(result == .focusPane(tabId: tabId, paneId: paneB))
+        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        #expect(result == nil)
     }
 
     @Test
@@ -433,8 +433,8 @@ final class WorkspaceCommandResolverTests {
             command: .focusPrevPane, tabs: [tab], activeTabId: tabId
         )
 
-        // Assert
-        #expect(result == .focusPane(tabId: tabId, paneId: paneA))
+        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        #expect(result == nil)
     }
 
     // MARK: - resolve(command:) — Split

@@ -83,27 +83,10 @@ enum WorkspaceCommandResolver {
             guard let tabId = activeTabId else { return nil }
             return .equalizePanes(tabId: tabId)
 
-        // Pane focus (directional → resolved ID)
-        case .focusPaneLeft:
-            return resolveFocusDirection(.left, tabs: tabs, activeTabId: activeTabId)
-        case .focusPaneRight:
-            return resolveFocusDirection(.right, tabs: tabs, activeTabId: activeTabId)
-        case .focusPaneUp:
-            return resolveFocusDirection(.up, tabs: tabs, activeTabId: activeTabId)
-        case .focusPaneDown:
-            return resolveFocusDirection(.down, tabs: tabs, activeTabId: activeTabId)
-
-        case .focusNextPane:
-            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId),
-                let nextId = tab.nextPaneId(after: paneId)
-            else { return nil }
-            return .focusPane(tabId: tab.id, paneId: nextId)
-
-        case .focusPrevPane:
-            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId),
-                let prevId = tab.previousPaneId(before: paneId)
-            else { return nil }
-            return .focusPane(tabId: tab.id, paneId: prevId)
+        // Pane focus now routes through PaneFocusTrigger / PaneFocusDecision in PaneTabViewController.
+        case .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
+            .focusNextPane, .focusPrevPane:
+            return nil
 
         // Split directions (horizontal only — vertical splits disabled for drawers)
         case .splitRight:
@@ -272,16 +255,6 @@ enum WorkspaceCommandResolver {
             tabs.count > 1
         else { return nil }
         return tabs[(idx - 1 + tabs.count) % tabs.count].id
-    }
-
-    private static func resolveFocusDirection<T: ResolvableTab>(
-        _ direction: SplitFocusDirection,
-        tabs: [T], activeTabId: UUID?
-    ) -> PaneActionCommand? {
-        guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId),
-            let neighborId = tab.neighborPaneId(of: paneId, direction: direction)
-        else { return nil }
-        return .focusPane(tabId: tab.id, paneId: neighborId)
     }
 
     private static func resolveSplit<T: ResolvableTab>(

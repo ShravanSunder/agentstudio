@@ -346,7 +346,23 @@ struct PaneLeafContainer: View {
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
             .onTapGesture {
-                actionDispatcher.dispatch(.focusPane(tabId: tabId, paneId: paneHost.id))
+                if let drawerParentPaneId {
+                    PaneFocusSystem.shared.handle(
+                        .drawer(
+                            .selectPane(parentPaneId: drawerParentPaneId, drawerPaneId: paneHost.id)
+                        )
+                    )
+                } else {
+                    PaneFocusSystem.shared.handle(
+                        .contentClick(
+                            PaneContentClickFocusTrigger(
+                                targetPaneId: paneHost.id,
+                                location: .content,
+                                clickPhase: .completed
+                            )
+                        )
+                    )
+                }
             }
             .opacity(isClosing ? 0.58 : 1)
             .scaleEffect(isClosing ? 0.985 : 1)

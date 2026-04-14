@@ -38,9 +38,6 @@ final class ManagementModeMonitor {
     /// Toggle management mode on/off.
     func toggle() {
         managementMode.toggle()
-        if managementMode.isActive {
-            resignPaneFirstResponder()
-        }
     }
 
     /// Explicitly deactivate management mode (e.g., from Escape key).
@@ -122,16 +119,5 @@ final class ManagementModeMonitor {
             return .consume
         }
         return shortcut == .managementExitMode ? .deactivateAndConsume : .dispatch(shortcut)
-    }
-
-    // MARK: - First Responder Management
-
-    /// Resign first responder from the key window's content to prevent
-    /// terminal cursors from blinking and pane content from appearing active.
-    private func resignPaneFirstResponder() {
-        guard let app: NSApplication = NSApp,
-            let window = app.keyWindow
-        else { return }
-        window.makeFirstResponder(window.contentView)
     }
 }

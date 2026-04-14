@@ -20,7 +20,10 @@ struct DrawerOverlay: View {
         DrawerIconBar(
             isExpanded: drawer?.isExpanded ?? false,
             onAdd: { addDrawerPane() },
-            onToggleExpand: { action(.toggleDrawer(paneId: paneId)) },
+            onToggleExpand: {
+                action(.toggleDrawer(paneId: paneId))
+                PaneFocusSystem.shared.handle(.drawer(.toggle(parentPaneId: paneId)))
+            },
             trailingActions: trailingActions
         )
     }
