@@ -3,7 +3,7 @@ import Foundation
 enum PaneDrawerFocusDecider {
     static func decide(
         trigger: PaneDrawerFocusTrigger,
-        context _: PaneFocusContext
+        context: PaneFocusContext
     ) -> PaneDrawerFocusDecision {
         switch trigger {
         case .selectPane(let parentPaneId, let drawerPaneId):
@@ -15,9 +15,15 @@ enum PaneDrawerFocusDecider {
             )
 
         case .toggle(let parentPaneId):
+            let responderPaneId =
+                if context.activeDrawerParentPaneId == parentPaneId {
+                    context.activeDrawerPaneId ?? parentPaneId
+                } else {
+                    parentPaneId
+                }
             return PaneDrawerFocusDecision(
                 selection: .keep,
-                responder: .focusPaneHost(paneId: parentPaneId),
+                responder: .focusPaneHost(paneId: responderPaneId),
                 runtime: .preserveRuntimeFocus,
                 reason: .drawerSelectionChanged
             )

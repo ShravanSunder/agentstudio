@@ -1,8 +1,10 @@
 import AppKit
 import Foundation
+import os
 
 @MainActor
 final class PaneFocusExecutor {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneFocusExecutor")
     typealias HostViewProvider = @MainActor (UUID) -> PaneHostView?
     typealias HostViewsProvider = @MainActor () -> [PaneHostView]
     typealias TabSelectionHandler = @MainActor (UUID) -> Void
@@ -20,12 +22,12 @@ final class PaneFocusExecutor {
     private let syncRuntimeFocus: RuntimeFocusHandler
 
     init(
-        hostViewProvider: @escaping HostViewProvider = { _ in nil },
-        hostViewsProvider: @escaping HostViewsProvider = { [] },
-        selectTab: @escaping TabSelectionHandler = { _ in },
-        selectPane: @escaping PaneSelectionHandler = { _, _ in },
-        selectDrawerPane: @escaping DrawerSelectionHandler = { _, _ in },
-        syncRuntimeFocus: @escaping RuntimeFocusHandler = { _ in }
+        hostViewProvider: @escaping HostViewProvider,
+        hostViewsProvider: @escaping HostViewsProvider,
+        selectTab: @escaping TabSelectionHandler,
+        selectPane: @escaping PaneSelectionHandler,
+        selectDrawerPane: @escaping DrawerSelectionHandler,
+        syncRuntimeFocus: @escaping RuntimeFocusHandler
     ) {
         self.hostViewProvider = hostViewProvider
         self.hostViewsProvider = hostViewsProvider
@@ -276,10 +278,16 @@ final class PaneFocusExecutor {
     @discardableResult
     private func focusPaneHostIfReady(_ paneId: UUID) -> Bool {
         guard let hostView = hostView(for: paneId), let window = hostView.window else {
+            Self.logger.debug(
+                "focusPaneHostIfReady skipped pane=\(paneId.uuidString, privacy: .public) reason=hostOrWindowMissing")
             return false
         }
         let targetResponder = hostView.preferredFirstResponderViewForPaneFocus ?? hostView
-        return window.makeFirstResponder(targetResponder)
+        let didFocus = window.makeFirstResponder(targetResponder)
+        if !didFocus {
+            Self.logger.debug("focusPaneHostIfReady failed pane=\(paneId.uuidString, privacy: .public)")
+        }
+        return didFocus
     }
 
     @discardableResult
@@ -290,10 +298,17 @@ final class PaneFocusExecutor {
             let mountedContentView = hostView.mountedContentView,
             mountedContentView.acceptsFirstResponder
         else {
+            Self.logger.debug(
+                "focusMountedContentIfReady skipped pane=\(paneId.uuidString, privacy: .public) reason=mountedContentUnavailable"
+            )
             return false
         }
 
-        return window.makeFirstResponder(mountedContentView)
+        let didFocus = window.makeFirstResponder(mountedContentView)
+        if !didFocus {
+            Self.logger.debug("focusMountedContentIfReady failed pane=\(paneId.uuidString, privacy: .public)")
+        }
+        return didFocus
     }
 
     @discardableResult
@@ -302,14 +317,22 @@ final class PaneFocusExecutor {
             let window = allHostViews().compactMap(\.window).first ?? NSApp.keyWindow,
             let contentView = window.contentView
         else {
+            Self.logger.debug("clearFirstResponderToWindowContent skipped reason=noWindow")
             return false
         }
 
-        return window.makeFirstResponder(contentView)
+        let didFocus = window.makeFirstResponder(contentView)
+        if !didFocus {
+            Self.logger.debug("clearFirstResponderToWindowContent failed")
+        }
+        return didFocus
     }
 
     private func syncTerminalRuntimeFocus(for paneId: UUID) {
         let surfaceId = hostView(for: paneId)?.mountedTerminalSurfaceId
+        if surfaceId == nil {
+            Self.logger.debug("syncTerminalRuntimeFocus nilSurface pane=\(paneId.uuidString, privacy: .public)")
+        }
         syncRuntimeFocus(surfaceId)
     }
 }
@@ -322,6 +345,7 @@ protocol PaneFocusRouting: AnyObject {
 
 @MainActor
 final class PaneFocusSystem {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneFocusSystem")
     static let shared = PaneFocusSystem()
 
     weak var handler: PaneFocusRouting?
@@ -329,10 +353,18 @@ final class PaneFocusSystem {
     private init() {}
 
     func handle(_ trigger: PaneFocusTrigger) {
-        handler?.handlePaneFocusTrigger(trigger)
+        guard let handler else {
+            Self.logger.error("PaneFocusSystem.handle dropped trigger because handler is nil")
+            return
+        }
+        handler.handlePaneFocusTrigger(trigger)
     }
 
     func requestRefocus(_ reason: PaneRefocusRequestTrigger.Reason = .explicit) {
-        handler?.requestPaneRefocus(reason)
+        guard let handler else {
+            Self.logger.error("PaneFocusSystem.requestRefocus dropped request because handler is nil")
+            return
+        }
+        handler.requestPaneRefocus(reason)
     }
 }

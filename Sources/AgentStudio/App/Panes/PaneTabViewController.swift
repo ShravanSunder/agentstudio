@@ -441,6 +441,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling, PaneFoc
                 if self.store.tabLayoutAtom.activeTabId != tabId {
                     self.store.tabLayoutAtom.setActiveTab(tabId)
                 }
+                if let tab = self.store.tabLayoutAtom.tab(tabId), tab.minimizedPaneIds.contains(paneId) {
+                    self.executor.execute(.expandPane(tabId: tabId, paneId: paneId))
+                }
                 self.store.tabLayoutAtom.setActivePane(paneId, inTab: tabId)
             },
             selectDrawerPane: { [weak self] parentPaneId, drawerPaneId in
@@ -469,7 +472,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling, PaneFoc
     func handlePaneFocusTrigger(_ trigger: PaneFocusTrigger) {
         guard let context = makePaneFocusContext(for: trigger) else { return }
         let decision = PaneFocusOrchestrator.decide(trigger: trigger, context: context)
-        _ = paneFocusExecutor.apply(decision)
+        if !paneFocusExecutor.apply(decision) {
+            Self.logger.debug(
+                "Pane focus apply returned false for trigger \(String(describing: trigger), privacy: .public)")
+        }
     }
 
     func requestPaneRefocus(_ reason: PaneRefocusRequestTrigger.Reason = .explicit) {
@@ -1712,16 +1718,16 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling, PaneFoc
             guard
                 let activeTabId = store.tabLayoutAtom.activeTabId,
                 let currentIndex = tabs.firstIndex(where: { $0.id == activeTabId }),
-                currentIndex + 1 < tabs.count
+                !tabs.isEmpty
             else { return nil }
-            return tabs[currentIndex + 1].id
+            return tabs[(currentIndex + 1) % tabs.count].id
         case .prevTab:
             guard
                 let activeTabId = store.tabLayoutAtom.activeTabId,
                 let currentIndex = tabs.firstIndex(where: { $0.id == activeTabId }),
-                currentIndex > 0
+                !tabs.isEmpty
             else { return nil }
-            return tabs[currentIndex - 1].id
+            return tabs[(currentIndex - 1 + tabs.count) % tabs.count].id
         case .selectTab1:
             return tabs.isEmpty ? nil : tabs[0].id
         case .selectTab2:

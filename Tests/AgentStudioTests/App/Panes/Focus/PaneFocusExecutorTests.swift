@@ -16,11 +16,11 @@ struct PaneFocusExecutorTests {
         let paneHost = PaneHostView(paneId: UUID())
         try attach(paneHost, to: window)
 
-        let executor = PaneFocusExecutor()
+        let executor = makeExecutor()
         executor.registerHostView(paneHost)
 
         executor.apply(
-            .contentClick(
+            PaneFocusDecision.contentClick(
                 PaneContentClickFocusDecision(
                     selection: .keep,
                     responder: .focusPaneHost(paneId: paneHost.paneId),
@@ -42,11 +42,11 @@ struct PaneFocusExecutorTests {
         paneHost.mountContentView(mountedContent)
         try attach(paneHost, to: window)
 
-        let executor = PaneFocusExecutor()
+        let executor = makeExecutor()
         executor.registerHostView(paneHost)
 
         executor.apply(
-            .refocusRequest(
+            PaneFocusDecision.refocusRequest(
                 PaneRefocusRequestDecision(
                     responder: .focusMountedContent(paneId: paneHost.paneId),
                     runtime: .preserveRuntimeFocus,
@@ -67,7 +67,7 @@ struct PaneFocusExecutorTests {
         try attach(paneHost, to: window)
         window.makeFirstResponder(mountedContent)
 
-        let executor = PaneFocusExecutor()
+        let executor = makeExecutor()
         executor.registerHostView(paneHost)
 
         let decision = PaneFocusOrchestrator.decide(
@@ -98,6 +98,17 @@ struct PaneFocusExecutorTests {
 
         #expect(window.firstResponder === mountedContent)
         #expect(window.firstResponder !== paneHost)
+    }
+
+    private func makeExecutor() -> PaneFocusExecutor {
+        PaneFocusExecutor(
+            hostViewProvider: { _ in nil },
+            hostViewsProvider: { [] },
+            selectTab: { _ in },
+            selectPane: { _, _ in },
+            selectDrawerPane: { _, _ in },
+            syncRuntimeFocus: { _ in }
+        )
     }
 
     private func makeWindow() throws -> NSWindow {

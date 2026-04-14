@@ -2,14 +2,14 @@
 import Foundation
 
 /// Resolves workspace commands into fully-specified pane actions.
-/// Uses live state (including flat pane-strip navigation) to resolve
-/// "active tab", "next pane", "neighbor in direction X" into concrete IDs.
+/// Uses live state to resolve structural tab/pane mutations into concrete IDs.
+/// Pane focus navigation commands no longer resolve here; they route through
+/// the Pane Focus System in PaneTabViewController.
 ///
 /// Generic over `ResolvableTab` so resolution logic can be tested
 /// with lightweight mocks (pure UUIDs, no NSViews).
 ///
-/// Returns nil if the intent cannot be meaningfully resolved
-/// (e.g., focusPaneLeft when there is no active tab).
+/// Returns nil if the intent cannot be meaningfully resolved.
 enum WorkspaceCommandResolver {
 
     // MARK: - From AppCommand

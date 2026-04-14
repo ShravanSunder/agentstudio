@@ -188,6 +188,9 @@ extension PaneCoordinator {
                 guard let self else { return [] }
                 return self.viewRegistry.registeredPaneIds.compactMap { self.viewRegistry.view(for: $0) }
             },
+            selectTab: { _ in },
+            selectPane: { _, _ in },
+            selectDrawerPane: { _, _ in },
             syncRuntimeFocus: { [weak self] surfaceId in
                 self?.surfaceManager.syncFocus(activeSurfaceId: surfaceId)
             }

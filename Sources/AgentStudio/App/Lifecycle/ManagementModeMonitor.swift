@@ -11,9 +11,6 @@ import Observation
 /// - **Any Command shortcut** → passes through to app/window handlers (menu, command pipeline)
 /// - **Everything else** → consumed so pane content cannot type/interact
 ///
-/// On activation, first responder is resigned from the key window so terminal
-/// cursors stop blinking and pane content doesn't appear to accept input.
-///
 /// ## Toggling
 ///
 /// Toggled via Cmd+R (command pipeline) or the toolbar/tab bar button.

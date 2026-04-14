@@ -49,7 +49,7 @@ enum PaneRefocusRequestFocusDecider {
             return .focusPaneHost(paneId: paneId)
 
         case .unmounted:
-            return .preserveCurrentResponder
+            return .focusPaneHost(paneId: paneId)
         }
     }
 }
