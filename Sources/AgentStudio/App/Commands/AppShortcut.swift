@@ -111,6 +111,7 @@ enum AppShortcut: String, CaseIterable {
     case undoCloseTab
     case nextTab
     case prevTab
+    case addDrawerPane
     case toggleDrawer
     case addRepo
     case addFolder
@@ -166,6 +167,11 @@ enum AppShortcut: String, CaseIterable {
             return .init(
                 trigger: .init(key: .character(.leftBracket), modifiers: [.command, .shift]),
                 contexts: [.global]
+            )
+        case .addDrawerPane:
+            return .init(
+                trigger: .init(key: .character(.d), modifiers: [.command, .shift]),
+                contexts: [.global, .terminalAppOwned]
             )
         case .toggleDrawer:
             return .init(

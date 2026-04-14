@@ -41,11 +41,14 @@ struct ShortcutCatalogTests {
     func commandSpecDerivesKeyBindingFromShortcut() {
         let managementDefinition = CommandDispatcher.shared.definition(for: .toggleManagementMode)
         let quickOpenDefinition = CommandDispatcher.shared.definition(for: .showCommandBarEverything)
+        let addDrawerPaneDefinition = CommandDispatcher.shared.definition(for: .addDrawerPane)
 
         #expect(managementDefinition.keyBinding?.key == "r")
         #expect(managementDefinition.keyBinding?.modifiers == [.command])
         #expect(quickOpenDefinition.keyBinding?.key == "p")
         #expect(quickOpenDefinition.keyBinding?.modifiers == [.command])
+        #expect(addDrawerPaneDefinition.keyBinding?.key == "d")
+        #expect(addDrawerPaneDefinition.keyBinding?.modifiers == [.command, .shift])
     }
 
     @Test
@@ -66,6 +69,16 @@ struct ShortcutCatalogTests {
         #expect(quickOpen == .showCommandBarEverything)
         #expect(commandPalette == .showCommandBarCommands)
         #expect(panePicker == .showCommandBarPanes)
+    }
+
+    @Test
+    func shortcutDecoder_decodesAddDrawerPaneShortcut() {
+        let addDrawerPane = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.d), modifiers: [.command, .shift]),
+            in: .global
+        )
+
+        #expect(addDrawerPane == .addDrawerPane)
     }
 
     @Test

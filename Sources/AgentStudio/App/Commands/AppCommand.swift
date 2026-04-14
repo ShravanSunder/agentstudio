@@ -654,6 +654,7 @@ extension AppCommand {
         case .addDrawerPane:
             return CommandSpec(
                 command: self,
+                shortcut: .addDrawerPane,
                 label: "Add Drawer Pane",
                 icon: "rectangle.bottomhalf.inset.filled",
                 helpText: "Add a drawer pane to the active pane",
