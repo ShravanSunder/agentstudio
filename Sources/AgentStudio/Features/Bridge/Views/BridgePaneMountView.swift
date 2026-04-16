@@ -31,7 +31,7 @@ final class BridgePaneMountView: NSView, PaneMountedContent {
 
     // MARK: - Content Interaction
 
-    /// Delegates management mode interaction suppression to the controller's
+    /// Delegates management layer interaction suppression to the controller's
     /// persistent user-script pipeline (current document + future navigations).
     func setContentInteractionEnabled(_ enabled: Bool) {
         controller.setWebContentInteractionEnabled(enabled)

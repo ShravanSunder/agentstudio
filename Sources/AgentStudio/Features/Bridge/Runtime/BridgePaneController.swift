@@ -101,7 +101,7 @@ final class BridgePaneController {
             paneId: runtimePaneId,
             metadata: resolvedMetadata
         )
-        let blockInteraction = atom(\.managementMode).isActive
+        let blockInteraction = atom(\.managementLayer).isActive
         let initialManagementScript = WebInteractionManagementScript.makeUserScript(
             blockInteraction: blockInteraction
         )
@@ -192,7 +192,7 @@ final class BridgePaneController {
 
     // MARK: - Content Interaction
 
-    /// Called by the pane view when management mode toggles. Keeps both the currently
+    /// Called by the pane view when management layer toggles. Keeps both the currently
     /// loaded bridge page and future navigations in sync with interaction suppression.
     func setWebContentInteractionEnabled(_ enabled: Bool) {
         let didChange = enabled != isContentInteractionEnabled

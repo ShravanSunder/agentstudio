@@ -25,7 +25,7 @@ struct PaneHostViewTests {
     }
 
     @Test
-    func paneHost_managementModeShieldStaysOnHostNotMountedContent() {
+    func paneHost_managementLayerShieldStaysOnHostNotMountedContent() {
         let host = PaneHostView(paneId: UUID())
         host.mountContentView(TestMountedContentView())
 

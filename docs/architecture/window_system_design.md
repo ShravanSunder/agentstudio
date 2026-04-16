@@ -550,7 +550,7 @@ Multiple UI surfaces that trigger operations through the same `PaneActionCommand
 
 A window-level toggle that enables pane manipulation controls. When off, panes show clean content with no distractions. When on, hover reveals controls for rearranging, splitting, minimizing, and closing panes.
 
-- Stored in `ManagementModeMonitor.shared` — singleton `@Observable` with `private(set) var isActive: Bool`
+- Stored in `ManagementLayerMonitor.shared` — singleton `@Observable` with `private(set) var isActive: Bool`
 - Toggled via toolbar button (separate button group, left of "Add Repo") or keyboard shortcut
 - Icon: `slider.horizontal.3`, highlighted when active
 

@@ -1,29 +1,26 @@
 import AppKit
 import Observation
 
-/// Manages management mode — a toggle that reveals close buttons, drag handles,
+/// Manages management layer — a toggle that reveals close buttons, drag handles,
 /// arrangement bar, and management borders on panes.
 ///
 /// ## Keyboard blocking
 ///
-/// During management mode, keyDown events are routed as:
-/// - **Escape** (keyCode 53) → deactivates management mode
+/// During management layer, keyDown events are routed as:
+/// - **Escape** (keyCode 53) → deactivates management layer
 /// - **Any Command shortcut** → passes through to app/window handlers (menu, command pipeline)
 /// - **Everything else** → consumed so pane content cannot type/interact
-///
-/// On activation, first responder is resigned from the key window so terminal
-/// cursors stop blinking and pane content doesn't appear to accept input.
 ///
 /// ## Toggling
 ///
 /// Toggled via Cmd+R (command pipeline) or the toolbar/tab bar button.
 @MainActor
 @Observable
-final class ManagementModeMonitor {
-    /// Whether management mode is currently active
-    private var managementMode: ManagementModeAtom { atom(\.managementMode) }
+final class ManagementLayerMonitor {
+    /// Whether management layer is currently active
+    private var managementLayer: ManagementLayerAtom { atom(\.managementLayer) }
 
-    var isActive: Bool { managementMode.isActive }
+    var isActive: Bool { managementLayer.isActive }
 
     private var keyboardMonitor: Any?
 
@@ -35,18 +32,15 @@ final class ManagementModeMonitor {
 
     // MARK: - Public API
 
-    /// Toggle management mode on/off.
+    /// Toggle management layer on/off.
     func toggle() {
-        managementMode.toggle()
-        if managementMode.isActive {
-            resignPaneFirstResponder()
-        }
+        managementLayer.toggle()
     }
 
-    /// Explicitly deactivate management mode (e.g., from Escape key).
+    /// Explicitly deactivate management layer (e.g., from Escape key).
     func deactivate() {
-        let wasActive = managementMode.isActive
-        managementMode.deactivate()
+        let wasActive = managementLayer.isActive
+        managementLayer.deactivate()
         guard wasActive else { return }
     }
 
@@ -59,7 +53,7 @@ final class ManagementModeMonitor {
 
     // MARK: - Keyboard Blocking
 
-    /// Monitors all keyDown events. During management mode:
+    /// Monitors all keyDown events. During management layer:
     /// - Escape → deactivate + consume
     /// - Any Command shortcut → pass through to app/window handlers
     /// - All other keys → consume (prevents typing in terminal/webview)
@@ -117,21 +111,10 @@ final class ManagementModeMonitor {
                 modifierFlags: sanitizedModifiers,
                 charactersIgnoringModifiers: charactersIgnoringModifiers
             ),
-            let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .managementMode)
+            let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .managementLayer)
         else {
             return .consume
         }
-        return shortcut == .managementExitMode ? .deactivateAndConsume : .dispatch(shortcut)
-    }
-
-    // MARK: - First Responder Management
-
-    /// Resign first responder from the key window's content to prevent
-    /// terminal cursors from blinking and pane content from appearing active.
-    private func resignPaneFirstResponder() {
-        guard let app: NSApplication = NSApp,
-            let window = app.keyWindow
-        else { return }
-        window.makeFirstResponder(window.contentView)
+        return shortcut == .managementLayerExit ? .deactivateAndConsume : .dispatch(shortcut)
     }
 }

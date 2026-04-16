@@ -327,7 +327,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore? = nil,
         repoCache: RepoCacheAtom
     ) -> CommandBarItem {
-        let commandIconColor: Color? = def.command == .managementExitMode ? .accentColor : nil
+        let commandIconColor: Color? = def.command == .managementLayerExit ? .accentColor : nil
 
         if def.command == .movePaneToTab, let store {
             let level = buildMovePaneSourceLevel(for: def, store: store, repoCache: repoCache)

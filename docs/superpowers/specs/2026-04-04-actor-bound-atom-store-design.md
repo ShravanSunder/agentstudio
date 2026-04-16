@@ -26,7 +26,7 @@ This is a Jotai-inspired + Valtio-inspired design translated into Swift 6.2’s 
 
 ### 1. Swift 6.2 actor correctness matters more than DI elegance
 
-The app’s canonical UI-facing state belongs on the main actor. `WorkspaceAtom`, `RepoCacheAtom`, `UIStateAtom`, `ManagementModeAtom`, and `SessionRuntimeAtom` are all UI/runtime state that directly drive SwiftUI/AppKit rendering and coordination. Making them fully `@MainActor` gives the strongest correctness story.
+The app’s canonical UI-facing state belongs on the main actor. `WorkspaceAtom`, `RepoCacheAtom`, `UIStateAtom`, `ManagementLayerAtom`, and `SessionRuntimeAtom` are all UI/runtime state that directly drive SwiftUI/AppKit rendering and coordination. Making them fully `@MainActor` gives the strongest correctness story.
 
 Generic DI frameworks are a bad fit for directly registering actor-isolated state holders because they typically rely on:
 
@@ -138,7 +138,7 @@ Sources/AgentStudio/
             │   ├── WorkspaceAtom.swift
             │   ├── RepoCacheAtom.swift
             │   ├── UIStateAtom.swift
-            │   ├── ManagementModeAtom.swift
+            │   ├── ManagementLayerAtom.swift
             │   ├── SessionRuntimeAtom.swift
             │   ├── PaneDisplayDerived.swift
             │   └── DynamicViewDerived.swift
@@ -178,20 +178,20 @@ final class AtomStore {
     let workspace: WorkspaceAtom
     let repoCache: RepoCacheAtom
     let uiState: UIStateAtom
-    let managementMode: ManagementModeAtom
+    let managementLayer: ManagementLayerAtom
     let sessionRuntime: SessionRuntimeAtom
 
     init(
         workspace: WorkspaceAtom = .init(),
         repoCache: RepoCacheAtom = .init(),
         uiState: UIStateAtom = .init(),
-        managementMode: ManagementModeAtom = .init(),
+        managementLayer: ManagementLayerAtom = .init(),
         sessionRuntime: SessionRuntimeAtom = .init()
     ) {
         self.workspace = workspace
         self.repoCache = repoCache
         self.uiState = uiState
-        self.managementMode = managementMode
+        self.managementLayer = managementLayer
         self.sessionRuntime = sessionRuntime
     }
 }
@@ -331,7 +331,7 @@ Examples:
 - `WorkspaceAtom`
 - `RepoCacheAtom`
 - `UIStateAtom`
-- `ManagementModeAtom`
+- `ManagementLayerAtom`
 - `SessionRuntimeAtom`
 
 Example:
@@ -979,7 +979,7 @@ func withTestAtomStore<T>(
         workspace: WorkspaceAtom(),
         repoCache: RepoCacheAtom(),
         uiState: UIStateAtom(),
-        managementMode: ManagementModeAtom(),
+        managementLayer: ManagementLayerAtom(),
         sessionRuntime: SessionRuntimeAtom()
     )
 

@@ -123,7 +123,7 @@ extension PaneCoordinator {
     }
 
     func focusVisiblePaneHost(_ paneId: UUID) {
-        if focusPaneHostIfReady(paneId) {
+        if applyPaneRefocusIfReady(for: paneId) {
             pendingFocusPaneIds.remove(paneId)
         } else {
             pendingFocusPaneIds.insert(paneId)
@@ -132,22 +132,63 @@ extension PaneCoordinator {
 
     func handlePaneHostAttachedToWindow(_ paneId: UUID) {
         guard pendingFocusPaneIds.contains(paneId) else { return }
-        if focusPaneHostIfReady(paneId) {
+        if applyPaneRefocusIfReady(for: paneId) {
             pendingFocusPaneIds.remove(paneId)
         }
     }
 
     @discardableResult
     func focusPaneHostIfReady(_ paneId: UUID) -> Bool {
-        guard let paneView = viewRegistry.view(for: paneId), paneView.window != nil else {
+        applyPaneRefocusIfReady(for: paneId)
+    }
+
+    @discardableResult
+    private func applyPaneRefocusIfReady(for paneId: UUID) -> Bool {
+        let paneKind = PaneFocusContext.PaneKind(content: store.paneAtom.pane(paneId)?.content)
+
+        let decision = PaneFocusOrchestrator.decide(
+            trigger: .refocusRequest(PaneRefocusRequestTrigger(reason: .explicit)),
+            context: PaneFocusContext(
+                activeTabId: store.tabLayoutAtom.activeTabId,
+                activePaneId: paneId,
+                activeDrawer: nil,
+                targetPaneId: paneId,
+                targetTabId: store.tabLayoutAtom.tabs.first { $0.paneIds.contains(paneId) }?.id,
+                targetPaneKind: paneKind,
+                targetPaneIsAlreadyActive: true,
+                targetMountedContent: viewRegistry.view(for: paneId)?.mountedContentStateForPaneFocus ?? .unmounted,
+                managementLayer: atom(\.managementLayer).isActive ? .active(scope: .mainRow) : .inactive,
+                windowState: viewRegistry.view(for: paneId)?.window?.isKeyWindow == true ? .key : .background
+            )
+        )
+
+        guard case .refocusRequest(let refocusDecision) = decision else {
+            Self.logger.error("pane refocus produced non-refocus decision for pane \(paneId)")
             return false
         }
 
-        paneView.window?.makeFirstResponder(paneView)
-        if let terminalView = viewRegistry.terminalView(for: paneId) {
-            surfaceManager.syncFocus(activeSurfaceId: terminalView.surfaceId)
-        }
-        return true
+        return makeRefocusOnlyPaneFocusExecutor().apply(.refocusRequest(refocusDecision))
+    }
+
+    private func makeRefocusOnlyPaneFocusExecutor() -> PaneFocusExecutor {
+        // Refocus decisions never carry selection actions, so these no-op
+        // closures are intentional and keep the coordinator path limited to
+        // responder/runtime repair work only.
+        PaneFocusExecutor(
+            hostViewProvider: { [weak self] targetPaneId in
+                self?.viewRegistry.view(for: targetPaneId)
+            },
+            hostViewsProvider: { [weak self] in
+                guard let self else { return [] }
+                return self.viewRegistry.registeredPaneIds.compactMap { self.viewRegistry.view(for: $0) }
+            },
+            selectTab: { _ in },
+            selectPane: { _, _ in },
+            selectDrawerPane: { _, _ in },
+            syncRuntimeFocus: { [weak self] surfaceId in
+                self?.surfaceManager.syncFocus(activeSurfaceId: surfaceId)
+            }
+        )
     }
 
     func executeMergeTab(

@@ -23,10 +23,10 @@ Sources/AgentStudio/
 │   ├── Commands/                     # App-owned command entry points
 │   ├── Coordination/                 # Cross-store / cross-feature sequencing
 │   ├── Events/                       # App-scoped notification bus types
-│   ├── Lifecycle/                    # ApplicationLifecycleMonitor, ManagementModeMonitor,
-│   │                                 #   ManagementModeToolbarButton, WindowRestoreBridge
+│   ├── Lifecycle/                    # ApplicationLifecycleMonitor, ManagementLayerMonitor,
+│   │                                 #   ManagementLayerToolbarButton, WindowRestoreBridge
 │   ├── Panes/                        # App-owned pane hosting, tab management, empty states
-│   │   ├── Hosting/                  # PaneHostView, management-mode drag shield
+│   │   ├── Hosting/                  # PaneHostView, management-layer drag shield
 │   │   ├── Status/                   # Workspace status chips
 │   │   └── TabBar/                   # Tab bar arrangement + adapter views
 │   └── Windows/                      # Main window / split-window controllers and settings
