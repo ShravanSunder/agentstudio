@@ -136,16 +136,19 @@ struct PaneDisplayDerived {
         let repoCache = atom(\.repoCache)
         let uiState = atom(\.uiState)
 
-        guard let pane = workspacePane.pane(paneId) else { return nil }
+        guard let pane = workspacePane.pane(paneId) else {
+            paneDisplayLogger.warning("accentColorHex: pane \(paneId.uuidString, privacy: .public) not found")
+            return nil
+        }
         guard let repoId = pane.repoId ?? pane.metadata.repoId else { return nil }
         guard let repo = workspaceRepositoryTopology.repo(repoId) else { return nil }
 
-        let sidebarRepo = SidebarRepo(repo: repo)
-        let repoMetadataById = SidebarRepoColoring.buildRepoMetadata(
+        let sidebarRepo = RepoPresentationItem(repo: repo)
+        let repoMetadataById = RepoPresentationColoring.buildRepoMetadata(
             repos: [sidebarRepo],
             repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId,
         )
-        let resolvedGroups = SidebarRepoGrouping.buildGroups(
+        let resolvedGroups = RepoPresentationGrouping.buildGroups(
             repos: [sidebarRepo],
             metadataByRepoId: repoMetadataById
         )
@@ -153,7 +156,7 @@ struct PaneDisplayDerived {
         if let group = resolvedGroups.first(where: { group in
             group.repos.contains(where: { $0.id == repoId })
         }) {
-            return SidebarRepoColoring.checkoutColorHex(
+            return RepoPresentationColoring.checkoutColorHex(
                 for: sidebarRepo,
                 in: group,
                 checkoutColorOverrides: uiState.checkoutColors

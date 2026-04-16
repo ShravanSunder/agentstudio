@@ -92,10 +92,14 @@ extension CommandBarDataSource {
         repo: Repo,
         store: WorkspaceStore
     ) -> WorktreePresence {
+        let workspaceTab = WorkspaceTabDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
         let openPanes = atom(\.workspaceLookup).paneLocations(
             for: worktree.id,
             workspacePane: store.paneAtom,
-            workspaceTabLayout: store.tabLayoutAtom
+            workspaceTab: workspaceTab
         )
 
         return WorktreePresence(

@@ -15,9 +15,9 @@ struct ArrangementDerived {
     }
 
     func paneVisibilityItems(for tabId: UUID) -> [PaneVisibilityInfo] {
-        let tabLayout = atom(\.workspaceTabLayout)
+        let workspaceTab = atom(\.workspaceTab)
         let paneDisplay = atom(\.paneDisplay)
-        guard let tab = tabLayout.tab(tabId) else {
+        guard let tab = workspaceTab.tab(tabId) else {
             arrangementDerivedLogger.warning("paneVisibilityItems: tab \(tabId) not found")
             return []
         }
@@ -32,8 +32,8 @@ struct ArrangementDerived {
     }
 
     func arrangementItems(for tabId: UUID) -> [ArrangementInfo] {
-        let tabLayout = atom(\.workspaceTabLayout)
-        guard let tab = tabLayout.tab(tabId) else {
+        let workspaceTab = atom(\.workspaceTab)
+        guard let tab = workspaceTab.tab(tabId) else {
             arrangementDerivedLogger.warning("arrangementItems: tab \(tabId) not found")
             return []
         }
@@ -49,8 +49,8 @@ struct ArrangementDerived {
     }
 
     func nextCustomArrangementName(for tabId: UUID) -> String? {
-        let tabLayout = atom(\.workspaceTabLayout)
-        guard let tab = tabLayout.tab(tabId) else {
+        let workspaceTab = atom(\.workspaceTab)
+        guard let tab = workspaceTab.tab(tabId) else {
             arrangementDerivedLogger.warning("nextCustomArrangementName: tab \(tabId) not found")
             return nil
         }

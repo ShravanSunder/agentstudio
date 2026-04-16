@@ -23,9 +23,13 @@ enum GitHubWebviewLaunchResolver {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> URL {
+        let workspaceTab = WorkspaceTabDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
         guard
-            let activeTabId = store.tabLayoutAtom.activeTabId,
-            let activePaneId = store.tabLayoutAtom.tab(activeTabId)?.activePaneId
+            let activeTabId = store.tabShellAtom.activeTabId,
+            let activePaneId = workspaceTab.tab(activeTabId)?.activePaneId
         else {
             logger.debug("Falling back to GitHub home because there is no active pane")
             return fallbackURL

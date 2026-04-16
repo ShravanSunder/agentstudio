@@ -405,7 +405,7 @@ enum AppStyle {
     // MARK: - Accent Palette
     //
     // Six-color palette for checkout/repo accent colors in the sidebar.
-    // Used by SidebarRepoGrouping and the welcome illustration.
+    // Used by RepoPresentationGrouping and the welcome illustration.
 
     static let accentPaletteHexes: [String] = [
         "#F5C451",  // Yellow

@@ -98,4 +98,43 @@ struct WorkspacePersistenceTransformerTests {
         #expect(state.tabs[0].paneIds == [persistentPane.id])
         #expect(state.activeTabId == tab.id)
     }
+
+    @Test
+    func makePersistableState_prunesTemporaryPanesFromArrangementMinimizedPaneIds() {
+        let metadataAtom = WorkspaceMetadataAtom()
+        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let paneAtom = WorkspacePaneAtom()
+        let tabLayoutAtom = WorkspaceTabLayoutAtom()
+
+        metadataAtom.hydrate(
+            workspaceId: UUID(),
+            workspaceName: "Workspace",
+            createdAt: Date(timeIntervalSince1970: 1000),
+            sidebarWidth: 250,
+            windowFrame: nil
+        )
+
+        let persistentPane = makePane(title: "Persistent")
+        let temporaryPane = makePane(title: "Temporary", lifetime: .temporary)
+        paneAtom.addPane(persistentPane)
+        paneAtom.addPane(temporaryPane)
+
+        var tab = makeTab(
+            paneIds: [persistentPane.id, temporaryPane.id],
+            activePaneId: persistentPane.id
+        )
+        tab.arrangements[tab.activeArrangementIndex].minimizedPaneIds = [persistentPane.id, temporaryPane.id]
+        tabLayoutAtom.appendTab(tab)
+        tabLayoutAtom.setActiveTab(tab.id)
+
+        let state = WorkspacePersistenceTransformer.makePersistableState(
+            metadataAtom: metadataAtom,
+            repositoryTopologyAtom: topologyAtom,
+            workspacePaneAtom: paneAtom,
+            workspaceTabLayoutAtom: tabLayoutAtom,
+            persistedAt: Date(timeIntervalSince1970: 2000)
+        )
+
+        #expect(state.tabs[0].activeMinimizedPaneIds == Set([persistentPane.id]))
+    }
 }

@@ -14,7 +14,7 @@ struct WorkspaceFocusDerivedTests {
     func emptyWorkspaceHasNoActiveContext() {
         withTestAtomRegistry { _ in
             let focus = atom(\.workspaceFocus).currentFocus(
-                workspaceTabLayout: atom(\.workspaceTabLayout),
+                workspaceTab: atom(\.workspaceTab),
                 workspacePane: atom(\.workspacePane)
             )
 
@@ -37,7 +37,7 @@ struct WorkspaceFocusDerivedTests {
             store.setActiveTab(tab.id)
 
             let focus = atom(\.workspaceFocus).currentFocus(
-                workspaceTabLayout: atom(\.workspaceTabLayout),
+                workspaceTab: atom(\.workspaceTab),
                 workspacePane: atom(\.workspacePane)
             )
 
@@ -83,7 +83,7 @@ struct WorkspaceFocusDerivedTests {
             _ = store.addDrawerPane(to: paneA.id)
 
             let focus = atom(\.workspaceFocus).currentFocus(
-                workspaceTabLayout: atom(\.workspaceTabLayout),
+                workspaceTab: atom(\.workspaceTab),
                 workspacePane: atom(\.workspacePane)
             )
 
@@ -118,7 +118,7 @@ struct WorkspaceFocusDerivedTests {
             store.setActiveTab(tab.id)
 
             let focus = atom(\.workspaceFocus).currentFocus(
-                workspaceTabLayout: atom(\.workspaceTabLayout),
+                workspaceTab: atom(\.workspaceTab),
                 workspacePane: atom(\.workspacePane)
             )
 

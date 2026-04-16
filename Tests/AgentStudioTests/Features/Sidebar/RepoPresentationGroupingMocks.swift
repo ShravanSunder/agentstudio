@@ -32,7 +32,7 @@ enum SidebarRepoGroupingMocks {
         )
     }
 
-    static func normalizedWorktreePaths(in group: SidebarRepoGroup) -> [String] {
+    static func normalizedWorktreePaths(in group: RepoPresentationGroup) -> [String] {
         group.repos
             .flatMap(\.worktrees)
             .map { $0.path.standardizedFileURL.path }

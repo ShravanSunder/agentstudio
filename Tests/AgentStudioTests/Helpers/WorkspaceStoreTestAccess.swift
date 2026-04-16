@@ -16,11 +16,14 @@ extension WorkspaceStore {
             metadataAtom: WorkspaceMetadataAtom(),
             repositoryTopologyAtom: catalogAtom,
             paneAtom: graphAtom,
+            tabShellAtom: interactionAtom.shellAtom,
+            tabArrangementAtom: interactionAtom.arrangementAtom,
             tabLayoutAtom: interactionAtom,
             mutationCoordinator: WorkspaceMutationCoordinator(
                 repositoryTopologyAtom: catalogAtom,
                 workspacePaneAtom: graphAtom,
-                workspaceTabLayoutAtom: interactionAtom
+                workspaceTabShellAtom: interactionAtom.shellAtom,
+                workspaceTabArrangementAtom: interactionAtom.arrangementAtom
             ),
             persistor: persistor,
             persistDebounceDuration: persistDebounceDuration,

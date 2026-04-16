@@ -3,21 +3,21 @@ import Foundation
 @MainActor
 struct WorkspaceFocusDerived {
     func currentFocus(
-        workspaceTabLayout: WorkspaceTabLayoutAtom,
+        workspaceTab: WorkspaceTabDerived,
         workspacePane: WorkspacePaneAtom
     ) -> WorkspaceFocus {
         var satisfiedRequirements: Set<FocusRequirement> = []
 
         guard
-            let activeTabId = workspaceTabLayout.activeTabId,
-            let tab = workspaceTabLayout.tab(activeTabId)
+            let activeTabId = workspaceTab.shellAtom.activeTabId,
+            let tab = workspaceTab.tab(activeTabId)
         else {
             return .empty
         }
 
         satisfiedRequirements.insert(.hasActiveTab)
 
-        if workspaceTabLayout.tabs.count > 1 {
+        if workspaceTab.tabs.count > 1 {
             satisfiedRequirements.insert(.hasMultipleTabs)
         }
 

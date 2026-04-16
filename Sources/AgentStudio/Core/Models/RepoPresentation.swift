@@ -1,18 +1,18 @@
 import AppKit
 import Foundation
 
-struct SidebarRepoGroup: Identifiable {
+struct RepoPresentationGroup: Identifiable {
     let id: String
     let repoTitle: String
     let organizationName: String?
-    let repos: [SidebarRepo]
+    let repos: [RepoPresentationItem]
 
     var checkoutCount: Int {
         repos.reduce(0) { $0 + $1.worktrees.count }
     }
 }
 
-struct SidebarRepo: Identifiable, Hashable, SidebarFilterableRepository {
+struct RepoPresentationItem: Identifiable, Hashable {
     let id: UUID
     let name: String
     let repoPath: URL
@@ -42,13 +42,6 @@ struct SidebarRepo: Identifiable, Hashable, SidebarFilterableRepository {
             worktrees: repo.worktrees
         )
     }
-
-    var sidebarRepoName: String { name }
-
-    var sidebarWorktrees: [Worktree] {
-        get { worktrees }
-        set { worktrees = newValue }
-    }
 }
 
 struct RepoIdentityMetadata: Sendable {
@@ -67,7 +60,7 @@ struct RepoIdentityMetadata: Sendable {
     let remoteSlug: String?
 }
 
-enum SidebarRepoGrouping {
+enum RepoPresentationGrouping {
     struct ColorPreset {
         let name: String
         let hex: String
@@ -101,9 +94,9 @@ enum SidebarRepoGrouping {
     }
 
     static func buildGroups(
-        repos: [SidebarRepo],
+        repos: [RepoPresentationItem],
         metadataByRepoId: [UUID: RepoIdentityMetadata]
-    ) -> [SidebarRepoGroup] {
+    ) -> [RepoPresentationGroup] {
         let grouped = Dictionary(grouping: repos) { repo in
             metadataByRepoId[repo.id]?.groupKey ?? "path:\(repo.repoPath.standardizedFileURL.path)"
         }
@@ -119,7 +112,7 @@ enum SidebarRepoGrouping {
                 ?? metadata?.lastPathComponent
                 ?? deduplicatedRepos.first?.name
                 ?? "Repository"
-            return SidebarRepoGroup(
+            return RepoPresentationGroup(
                 id: groupKey,
                 repoTitle: repoTitle,
                 organizationName: metadata?.organizationName,
@@ -145,7 +138,7 @@ enum SidebarRepoGrouping {
         return NSColor(calibratedHue: hue, saturation: saturation, brightness: brightness, alpha: 1.0).hexString
     }
 
-    private static func dedupeReposByCheckoutCwd(_ repos: [SidebarRepo]) -> [SidebarRepo] {
+    private static func dedupeReposByCheckoutCwd(_ repos: [RepoPresentationItem]) -> [RepoPresentationItem] {
         var ownerByCwd: [String: OwnerCandidate] = [:]
 
         for repo in repos {
@@ -169,7 +162,7 @@ enum SidebarRepoGrouping {
             }
         }
 
-        var deduplicatedRepos: [SidebarRepo] = []
+        var deduplicatedRepos: [RepoPresentationItem] = []
         for repo in repos {
             guard !repo.worktrees.isEmpty else { continue }
 
@@ -184,7 +177,7 @@ enum SidebarRepoGrouping {
             guard !deduplicatedWorktrees.isEmpty else { continue }
 
             var updated = repo
-            updated.sidebarWorktrees = deduplicatedWorktrees
+            updated.worktrees = deduplicatedWorktrees
             deduplicatedRepos.append(updated)
         }
 
@@ -210,9 +203,9 @@ enum SidebarRepoGrouping {
     }
 }
 
-enum SidebarRepoColoring {
+enum RepoPresentationColoring {
     static func buildRepoMetadata(
-        repos: [SidebarRepo],
+        repos: [RepoPresentationItem],
         repoEnrichmentByRepoId: [UUID: RepoEnrichment]
     ) -> [UUID: RepoIdentityMetadata] {
         var metadataByRepoId: [UUID: RepoIdentityMetadata] = [:]
@@ -274,8 +267,8 @@ enum SidebarRepoColoring {
     }
 
     static func checkoutColorHex(
-        for repo: SidebarRepo,
-        in group: SidebarRepoGroup,
+        for repo: RepoPresentationItem,
+        in group: RepoPresentationGroup,
         checkoutColorOverrides: [String: String] = [:]
     ) -> String {
         let overrideKey = repo.id.uuidString
@@ -290,14 +283,14 @@ enum SidebarRepoColoring {
         }
 
         guard orderedFamilies.count > 1 else {
-            return SidebarRepoGrouping.automaticPaletteHexes[0]
+            return RepoPresentationGrouping.automaticPaletteHexes[0]
         }
 
         guard let familyIndex = orderedFamilies.firstIndex(where: { $0.id == repo.id }) else {
-            return SidebarRepoGrouping.automaticPaletteHexes[0]
+            return RepoPresentationGrouping.automaticPaletteHexes[0]
         }
 
-        return SidebarRepoGrouping.colorHexForCheckoutIndex(
+        return RepoPresentationGrouping.colorHexForCheckoutIndex(
             familyIndex,
             seed: "\(group.id)|\(repo.stableKey)|\(repo.id.uuidString)"
         )

@@ -16,6 +16,14 @@ struct ArrangementPanel: View {
     @State private var highlightVisible = false
     @FocusState private var focusedArrangementId: UUID?
 
+    private var displayState: ArrangementPanelDisplayState {
+        ArrangementPanelDisplayState(
+            visiblePanes: panes,
+            arrangements: arrangements,
+            allowsMinimizedBarToggle: showsMinimizedBarToggle
+        )
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Arrangements")
@@ -23,12 +31,12 @@ struct ArrangementPanel: View {
                 .foregroundStyle(.tertiary)
                 .textCase(.uppercase)
 
-            WrappingHStack(spacing: 4) {
+            ArrangementChipRow(spacing: 4) {
                 ForEach(arrangements) { arrangement in
                     arrangementChip(arrangement)
                 }
 
-                if panes.count > 1 {
+                if displayState.showsSaveArrangementButton {
                     Button(action: onSaveArrangement) {
                         Image(systemName: "plus")
                             .font(.system(size: AppStyle.textSm, weight: .medium))
@@ -44,7 +52,7 @@ struct ArrangementPanel: View {
                 }
             }
 
-            if panes.count > 1 {
+            if displayState.showsPaneVisibilitySection {
                 Divider()
                     .padding(.vertical, 2)
 
@@ -59,7 +67,7 @@ struct ArrangementPanel: View {
                     }
                 }
 
-                if showsMinimizedBarToggle {
+                if displayState.showsMinimizedBarToggle {
                     Divider()
                         .padding(.vertical, 2)
 
@@ -227,7 +235,7 @@ struct ArrangementPanel: View {
     }
 }
 
-struct WrappingHStack<Content: View>: View {
+struct ArrangementChipRow<Content: View>: View {
     let spacing: CGFloat
     let content: Content
 

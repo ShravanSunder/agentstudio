@@ -145,6 +145,7 @@ enum WorkspacePersistenceTransformer {
                         tabs[tabIndex].arrangements[arrIndex].layout = Layout()
                     }
                     tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
+                    tabs[tabIndex].arrangements[arrIndex].minimizedPaneIds.remove(paneId)
                 }
             }
 

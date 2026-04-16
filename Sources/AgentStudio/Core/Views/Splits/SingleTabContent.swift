@@ -17,7 +17,11 @@ struct SingleTabContent: View {
     }
 
     var body: some View {
-        let tab = store.tabLayoutAtom.tab(tabId)
+        let workspaceTab = WorkspaceTabDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
+        let tab = workspaceTab.tab(tabId)
         // swiftlint:disable:next redundant_discardable_let
         let _ = tab == nil ? Self.traceMissingTab(tabId: tabId) : 0
         if let tab {

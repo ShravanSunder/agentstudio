@@ -159,8 +159,8 @@ struct CollapsedPaneBar: View {
                     }
                 }
             ),
-            attachmentAnchor: .point(.center),
-            arrowEdge: .leading
+            attachmentAnchor: ArrangementPanelPopoverPlacement.minimizedBar.attachmentAnchor,
+            arrowEdge: ArrangementPanelPopoverPlacement.minimizedBar.arrowEdge
         ) {
             ArrangementPanel(
                 tabId: tabId,
@@ -189,9 +189,11 @@ struct CollapsedPaneBar: View {
             for: labelParts,
             availableLabelWidth: maxLabelWidth
         )
+        let partsWithWidths = Array(zip(labelParts, allocatedTextWidths).enumerated())
 
         HStack(spacing: CollapsedBarTextAllocator.segmentSpacing) {
-            ForEach(Array(labelParts.enumerated()), id: \.offset) { index, part in
+            ForEach(partsWithWidths, id: \.offset) { index, element in
+                let (part, textWidth) = element
                 if index > 0 {
                     Text("·")
                         .font(.system(size: AppStyle.textSm))
@@ -209,7 +211,7 @@ struct CollapsedPaneBar: View {
                         .truncationMode(.tail)
                         .minimumScaleFactor(0.9)
                         .frame(
-                            width: allocatedTextWidths[index],
+                            width: textWidth,
                             alignment: .leading
                         )
                 }

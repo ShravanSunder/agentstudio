@@ -553,8 +553,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         let definition = CommandDispatcher.shared.definition(for: command)
+        let workspaceTab = WorkspaceTabDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
         let focus = atom(\.workspaceFocus).currentFocus(
-            workspaceTabLayout: store.tabLayoutAtom,
+            workspaceTab: workspaceTab,
             workspacePane: store.paneAtom
         )
         let isVisible = definition.isVisible(in: focus)

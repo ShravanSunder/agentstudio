@@ -251,6 +251,25 @@ final class WorkspaceStoreArrangementTests {
     }
 
     @Test
+    func test_switchArrangement_allTargetPanesMinimized_setsActivePaneIdNil() {
+        let (tab, paneIds) = createTabWithPanes(3)
+        let arrId = store.createArrangement(
+            name: "#1",
+            paneIds: Set([paneIds[0], paneIds[1]]),
+            inTab: tab.id
+        )!
+
+        store.switchArrangement(to: arrId, inTab: tab.id)
+        _ = store.minimizePane(paneIds[0], inTab: tab.id)
+        _ = store.minimizePane(paneIds[1], inTab: tab.id)
+        store.switchArrangement(to: tab.defaultArrangement.id, inTab: tab.id)
+
+        store.switchArrangement(to: arrId, inTab: tab.id)
+
+        #expect(store.tab(tab.id)!.activePaneId == nil)
+    }
+
+    @Test
 
     func test_switchArrangement_sameArrangement_noOp() {
         let (tab, _) = createTabWithPanes(2)

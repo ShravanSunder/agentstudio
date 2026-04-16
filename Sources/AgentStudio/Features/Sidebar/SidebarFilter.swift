@@ -4,43 +4,53 @@ import Foundation
 /// Extracted for testability and single source of truth.
 enum SidebarFilter {
 
+    static func filter(
+        repos: [Repo],
+        query: String
+    ) -> [Repo] {
+        guard !query.isEmpty else { return repos }
+
+        return repos.compactMap { repo in
+            if repo.name.localizedCaseInsensitiveContains(query) {
+                return repo
+            }
+            let matchingWorktrees = repo.worktrees.filter {
+                $0.name.localizedCaseInsensitiveContains(query)
+            }
+            guard !matchingWorktrees.isEmpty else { return nil }
+            return Repo(
+                id: repo.id,
+                name: repo.name,
+                repoPath: repo.repoPath,
+                worktrees: matchingWorktrees,
+                createdAt: repo.createdAt
+            )
+        }
+    }
+
     /// Filter repos by a search query with worktree-level granularity.
     ///
     /// - If `query` is empty, returns all repos unchanged.
     /// - If a repo's name matches, all its worktrees are included.
     /// - If only some worktrees match, only those are included under the parent repo.
     /// - Repos with no matches are excluded entirely.
-    static func filter<Repository: SidebarFilterableRepository>(
-        repos: [Repository],
+    static func filter(
+        repos: [RepoPresentationItem],
         query: String
-    ) -> [Repository] {
+    ) -> [RepoPresentationItem] {
         guard !query.isEmpty else { return repos }
 
         return repos.compactMap { repo in
-            if repo.sidebarRepoName.localizedCaseInsensitiveContains(query) {
+            if repo.name.localizedCaseInsensitiveContains(query) {
                 return repo
             }
-            let matchingWorktrees = repo.sidebarWorktrees.filter {
+            let matchingWorktrees = repo.worktrees.filter {
                 $0.name.localizedCaseInsensitiveContains(query)
             }
             guard !matchingWorktrees.isEmpty else { return nil }
             var filtered = repo
-            filtered.sidebarWorktrees = matchingWorktrees
+            filtered.worktrees = matchingWorktrees
             return filtered
         }
-    }
-}
-
-protocol SidebarFilterableRepository {
-    var sidebarRepoName: String { get }
-    var sidebarWorktrees: [Worktree] { get set }
-}
-
-extension Repo: SidebarFilterableRepository {
-    var sidebarRepoName: String { name }
-
-    var sidebarWorktrees: [Worktree] {
-        get { worktrees }
-        set { worktrees = newValue }
     }
 }

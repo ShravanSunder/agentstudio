@@ -6,8 +6,8 @@ import SwiftUI
 @MainActor
 struct RepoSidebarContentView: View {
     struct SidebarProjection {
-        let resolvedGroups: [SidebarRepoGroup]
-        let loadingRepos: [SidebarRepo]
+        let resolvedGroups: [RepoPresentationGroup]
+        let loadingRepos: [RepoPresentationItem]
         let showsNoResults: Bool
     }
 
@@ -34,8 +34,8 @@ struct RepoSidebarContentView: View {
 
     private static let filterDebounceMilliseconds = 25
 
-    private var sidebarRepos: [SidebarRepo] {
-        store.repositoryTopologyAtom.repos.map(SidebarRepo.init(repo:))
+    private var sidebarRepos: [RepoPresentationItem] {
+        store.repositoryTopologyAtom.repos.map(RepoPresentationItem.init(repo:))
     }
 
     private var sidebarProjectionFingerprint: String {
@@ -50,11 +50,11 @@ struct RepoSidebarContentView: View {
         )
     }
 
-    private var groups: [SidebarRepoGroup] {
+    private var groups: [RepoPresentationGroup] {
         sidebarProjection.resolvedGroups
     }
 
-    private var loadingReposList: [SidebarRepo] {
+    private var loadingReposList: [RepoPresentationItem] {
         sidebarProjection.loadingRepos
     }
 
@@ -352,8 +352,8 @@ struct RepoSidebarContentView: View {
         .transition(.opacity.animation(.easeOut(duration: 0.12)))
     }
 
-    private func colorForCheckout(repo: SidebarRepo, in group: SidebarRepoGroup) -> Color {
-        let colorHex = SidebarRepoColoring.checkoutColorHex(
+    private func colorForCheckout(repo: RepoPresentationItem, in group: RepoPresentationGroup) -> Color {
+        let colorHex = RepoPresentationColoring.checkoutColorHex(
             for: repo, in: group, checkoutColorOverrides: checkoutColorByRepoId
         )
         return Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
@@ -378,7 +378,7 @@ struct RepoSidebarContentView: View {
         groupId: String,
         repoId: UUID,
         worktreeId: UUID
-    ) -> (group: SidebarRepoGroup, repo: SidebarRepo, worktree: Worktree)? {
+    ) -> (group: RepoPresentationGroup, repo: RepoPresentationItem, worktree: Worktree)? {
         guard let group = groups.first(where: { $0.id == groupId }) else { return nil }
         guard let repo = group.repos.first(where: { $0.id == repoId }) else { return nil }
         guard let worktree = repo.worktrees.first(where: { $0.id == worktreeId }) else { return nil }
@@ -389,7 +389,7 @@ struct RepoSidebarContentView: View {
         notificationCountsByWorktreeId[worktreeId] = 0
     }
 
-    private func checkoutTitle(for worktree: Worktree, in repo: SidebarRepo) -> String {
+    private func checkoutTitle(for worktree: Worktree, in repo: RepoPresentationItem) -> String {
         let folderName = worktree.path.lastPathComponent
         if !folderName.isEmpty {
             return folderName
@@ -397,7 +397,7 @@ struct RepoSidebarContentView: View {
         return repo.name
     }
 
-    static func checkoutIconKind(for worktree: Worktree, in repo: SidebarRepo) -> SidebarCheckoutIconKind {
+    static func checkoutIconKind(for worktree: Worktree, in repo: RepoPresentationItem) -> SidebarCheckoutIconKind {
         let isMainCheckout =
             worktree.isMainWorktree
             || worktree.path.standardizedFileURL.path == repo.repoPath.standardizedFileURL.path
@@ -409,7 +409,7 @@ struct RepoSidebarContentView: View {
         return .mainCheckout
     }
 
-    private func checkoutIconKind(for worktree: Worktree, in repo: SidebarRepo) -> SidebarCheckoutIconKind {
+    private func checkoutIconKind(for worktree: Worktree, in repo: RepoPresentationItem) -> SidebarCheckoutIconKind {
         Self.checkoutIconKind(for: worktree, in: repo)
     }
 
@@ -436,7 +436,7 @@ struct RepoSidebarContentView: View {
 }
 
 enum SidebarListEntry: Identifiable {
-    case resolvedGroupHeader(SidebarRepoGroup)
+    case resolvedGroupHeader(RepoPresentationGroup)
     case resolvedWorktreeRow(groupId: String, repoId: UUID, worktreeId: UUID)
 
     var id: String {
@@ -517,11 +517,11 @@ struct GitBranchStatus: Equatable, Sendable {
 
 extension RepoSidebarContentView {
     static func checkoutColorHex(
-        for repo: SidebarRepo,
-        in group: SidebarRepoGroup,
+        for repo: RepoPresentationItem,
+        in group: RepoPresentationGroup,
         checkoutColorOverrides: [String: String] = [:]
     ) -> String {
-        SidebarRepoColoring.checkoutColorHex(
+        RepoPresentationColoring.checkoutColorHex(
             for: repo,
             in: group,
             checkoutColorOverrides: checkoutColorOverrides
@@ -529,17 +529,17 @@ extension RepoSidebarContentView {
     }
 
     static func buildRepoMetadata(
-        repos: [SidebarRepo],
+        repos: [RepoPresentationItem],
         repoEnrichmentByRepoId: [UUID: RepoEnrichment]
     ) -> [UUID: RepoIdentityMetadata] {
-        SidebarRepoColoring.buildRepoMetadata(
+        RepoPresentationColoring.buildRepoMetadata(
             repos: repos,
             repoEnrichmentByRepoId: repoEnrichmentByRepoId
         )
     }
 
     static func buildListEntries(
-        groups: [SidebarRepoGroup],
+        groups: [RepoPresentationGroup],
         expandedGroupIds: Set<String>,
         isFiltering: Bool
     ) -> [SidebarListEntry] {
@@ -586,7 +586,7 @@ extension RepoSidebarContentView {
     }
 
     static func projectSidebar(
-        repos: [SidebarRepo],
+        repos: [RepoPresentationItem],
         repoEnrichmentByRepoId: [UUID: RepoEnrichment],
         query: String
     ) -> SidebarProjection {
@@ -594,11 +594,11 @@ extension RepoSidebarContentView {
         let loadingRepos = loadingRepos(repos, enrichmentByRepoId: repoEnrichmentByRepoId)
         let filteredResolvedRepos = SidebarFilter.filter(repos: resolvedRepos, query: query)
         let filteredLoadingRepos = filterLoadingRepos(loadingRepos, query: query)
-        let repoMetadataById = SidebarRepoColoring.buildRepoMetadata(
+        let repoMetadataById = RepoPresentationColoring.buildRepoMetadata(
             repos: filteredResolvedRepos,
             repoEnrichmentByRepoId: repoEnrichmentByRepoId
         )
-        let resolvedGroups = SidebarRepoGrouping.buildGroups(
+        let resolvedGroups = RepoPresentationGrouping.buildGroups(
             repos: filteredResolvedRepos,
             metadataByRepoId: repoMetadataById
         )
@@ -611,9 +611,9 @@ extension RepoSidebarContentView {
     }
 
     static func resolvedRepos(
-        _ repos: [SidebarRepo],
+        _ repos: [RepoPresentationItem],
         enrichmentByRepoId: [UUID: RepoEnrichment]
-    ) -> [SidebarRepo] {
+    ) -> [RepoPresentationItem] {
         repos.filter { repo in
             switch enrichmentByRepoId[repo.id] {
             case .resolvedLocal, .resolvedRemote:
@@ -625,9 +625,9 @@ extension RepoSidebarContentView {
     }
 
     static func loadingRepos(
-        _ repos: [SidebarRepo],
+        _ repos: [RepoPresentationItem],
         enrichmentByRepoId: [UUID: RepoEnrichment]
-    ) -> [SidebarRepo] {
+    ) -> [RepoPresentationItem] {
         repos.filter { repo in
             switch enrichmentByRepoId[repo.id] {
             case .resolvedLocal, .resolvedRemote:
@@ -639,10 +639,10 @@ extension RepoSidebarContentView {
     }
 
     private static func filterLoadingRepos(
-        _ repos: [SidebarRepo],
+        _ repos: [RepoPresentationItem],
         query: String
-    ) -> [SidebarRepo] {
-        let filteredRepos: [SidebarRepo]
+    ) -> [RepoPresentationItem] {
+        let filteredRepos: [RepoPresentationItem]
         if query.isEmpty {
             filteredRepos = repos
         } else {
@@ -656,7 +656,7 @@ extension RepoSidebarContentView {
         }
     }
 
-    static func primaryRepoForGroup(_ group: SidebarRepoGroup) -> SidebarRepo? {
+    static func primaryRepoForGroup(_ group: RepoPresentationGroup) -> RepoPresentationItem? {
         group.repos.max { lhs, rhs in
             let lhsScore = primaryRepoScore(lhs)
             let rhsScore = primaryRepoScore(rhs)
@@ -667,7 +667,7 @@ extension RepoSidebarContentView {
         }
     }
 
-    private static func primaryRepoScore(_ repo: SidebarRepo) -> Int {
+    private static func primaryRepoScore(_ repo: RepoPresentationItem) -> Int {
         let normalizedRepoPath = repo.repoPath.standardizedFileURL.path
         if repo.worktrees.contains(where: { $0.path.standardizedFileURL.path == normalizedRepoPath }) {
             return 2
@@ -754,7 +754,7 @@ extension RepoSidebarContentView {
         )
     }
 
-    static func sortedWorktrees(for repo: SidebarRepo) -> [Worktree] {
+    static func sortedWorktrees(for repo: RepoPresentationItem) -> [Worktree] {
         repo.worktrees.sorted { lhs, rhs in
             if lhs.isMainWorktree != rhs.isMainWorktree {
                 return lhs.isMainWorktree

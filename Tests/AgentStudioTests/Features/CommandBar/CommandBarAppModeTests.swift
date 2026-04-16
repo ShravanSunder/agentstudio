@@ -135,7 +135,10 @@ struct WorkspaceFocusDerivedProjectionTests {
     func emptyWorkspaceHasNoActiveContext() {
         let store = WorkspaceStore()
         let focus = WorkspaceFocusDerived().currentFocus(
-            workspaceTabLayout: store.tabLayoutAtom,
+            workspaceTab: WorkspaceTabDerived(
+                shellAtom: store.tabShellAtom,
+                arrangementAtom: store.tabArrangementAtom
+            ),
             workspacePane: store.paneAtom
         )
 
@@ -152,7 +155,10 @@ struct WorkspaceFocusDerivedProjectionTests {
         store.setActiveTab(tab.id)
 
         let focus = WorkspaceFocusDerived().currentFocus(
-            workspaceTabLayout: store.tabLayoutAtom,
+            workspaceTab: WorkspaceTabDerived(
+                shellAtom: store.tabShellAtom,
+                arrangementAtom: store.tabArrangementAtom
+            ),
             workspacePane: store.paneAtom
         )
 
@@ -185,7 +191,10 @@ struct WorkspaceFocusDerivedProjectionTests {
         store.setActiveTab(tab.id)
 
         let focus = WorkspaceFocusDerived().currentFocus(
-            workspaceTabLayout: store.tabLayoutAtom,
+            workspaceTab: WorkspaceTabDerived(
+                shellAtom: store.tabShellAtom,
+                arrangementAtom: store.tabArrangementAtom
+            ),
             workspacePane: store.paneAtom
         )
 
@@ -214,7 +223,10 @@ struct WorkspaceFocusDerivedProjectionTests {
         store.setActiveTab(tab.id)
 
         let focus = WorkspaceFocusDerived().currentFocus(
-            workspaceTabLayout: store.tabLayoutAtom,
+            workspaceTab: WorkspaceTabDerived(
+                shellAtom: store.tabShellAtom,
+                arrangementAtom: store.tabArrangementAtom
+            ),
             workspacePane: store.paneAtom
         )
 
@@ -242,7 +254,10 @@ struct WorkspaceFocusDerivedProjectionTests {
         _ = store.addDrawerPane(to: paneA.id)
 
         let focus = WorkspaceFocusDerived().currentFocus(
-            workspaceTabLayout: store.tabLayoutAtom,
+            workspaceTab: WorkspaceTabDerived(
+                shellAtom: store.tabShellAtom,
+                arrangementAtom: store.tabArrangementAtom
+            ),
             workspacePane: store.paneAtom
         )
 
@@ -264,7 +279,10 @@ struct WorkspaceFocusDerivedProjectionTests {
         store.setActiveTab(firstTab.id)
 
         let focus = WorkspaceFocusDerived().currentFocus(
-            workspaceTabLayout: store.tabLayoutAtom,
+            workspaceTab: WorkspaceTabDerived(
+                shellAtom: store.tabShellAtom,
+                arrangementAtom: store.tabArrangementAtom
+            ),
             workspacePane: store.paneAtom
         )
 

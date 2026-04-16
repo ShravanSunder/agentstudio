@@ -423,10 +423,6 @@ private struct TabBarArrangementButton: View {
         return activeTab?.minimizedCount ?? 0
     }
 
-    private var popoverPlacement: ArrangementPanelPopoverPlacement {
-        .tabBar
-    }
-
     var body: some View {
         Button {
             popoverToggleGate.toggle(isPresented: &isPanelPresented)
@@ -473,8 +469,8 @@ private struct TabBarArrangementButton: View {
                     }
                 }
             ),
-            attachmentAnchor: popoverPlacement.attachmentAnchor,
-            arrowEdge: popoverPlacement.arrowEdge
+            attachmentAnchor: ArrangementPanelPopoverPlacement.tabBar.attachmentAnchor,
+            arrowEdge: ArrangementPanelPopoverPlacement.tabBar.arrowEdge
         ) {
             if let tab = activeTab, let onPaneAction, let onSaveArrangement {
                 ArrangementPanel(
