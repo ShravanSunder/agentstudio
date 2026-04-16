@@ -216,6 +216,11 @@ final class WorkspaceCacheCoordinator {
         case .recentTargetOpened(let target):
             Self.logger.debug("Recording recent target id=\(target.id, privacy: .public)")
             repoCache.recordRecentTarget(target)
+        case .folderScanFinished(let rootPath, let discoveredRepoCount):
+            workspaceStore.completeFolderScan(
+                rootPath: rootPath,
+                discoveredRepoCount: discoveredRepoCount
+            )
         }
     }
 

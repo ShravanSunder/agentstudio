@@ -256,7 +256,6 @@ extension MainWindowController: NSToolbarDelegate {
             .flexibleSpace,
             .managementMode,
             .space,
-            .addRepo,
             .addFolder,
         ]
     }
@@ -281,21 +280,6 @@ extension MainWindowController: NSToolbarDelegate {
             item.view = hostingView
             return item
 
-        case .addRepo:
-            let definition = CommandDispatcher.shared.definition(for: .addRepo)
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = definition.actionSpec.label
-            item.paletteLabel = definition.actionSpec.label
-            item.toolTip = definition.controlToolTip
-            item.isBordered = true
-            item.image = NSImage(
-                systemSymbolName: "folder.badge.plus",
-                accessibilityDescription: definition.actionSpec.label
-            )
-            item.action = #selector(addRepoAction)
-            item.target = self
-            return item
-
         case .addFolder:
             let definition = CommandDispatcher.shared.definition(for: .addFolder)
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
@@ -311,7 +295,7 @@ extension MainWindowController: NSToolbarDelegate {
             button.bezelColor = .systemTeal
             button.controlSize = .regular
             button.image = NSImage(
-                systemSymbolName: "folder.badge.questionmark",
+                systemSymbolName: "folder.fill.badge.plus",
                 accessibilityDescription: definition.actionSpec.label
             )
             button.imagePosition = .imageLeading
@@ -321,10 +305,6 @@ extension MainWindowController: NSToolbarDelegate {
         default:
             return nil
         }
-    }
-
-    @objc private func addRepoAction() {
-        CommandDispatcher.shared.dispatch(.addRepo)
     }
 
     @objc private func addFolderAction() {

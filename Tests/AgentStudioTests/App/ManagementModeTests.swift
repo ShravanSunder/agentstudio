@@ -283,10 +283,10 @@ struct ManagementModeTests {
         }
     }
 
-    @Test("addRepo does not require management mode")
-    func test_addRepo_doesNotRequireManagementMode() async {
+    @Test("addFolder does not require management mode")
+    func test_addFolder_doesNotRequireManagementMode() async {
         withTestAtomRegistry { _ in
-            let definition = CommandDispatcher.shared.definition(for: .addRepo)
+            let definition = CommandDispatcher.shared.definition(for: .addFolder)
             #expect(definition.requiresManagementMode == false)
         }
     }

@@ -199,6 +199,58 @@ final class WorkspaceCacheCoordinatorTests {
     }
 
     @Test
+    func workspaceActivity_folderScanFinishedWithZeroRepos_updatesWorkspaceStoreToEmptyState() {
+        let workspaceStore = makeWorkspaceStore()
+        let repoCache = RepoCacheAtom()
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: EventBus<RuntimeEnvelope>(),
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            scopeSyncHandler: { _ in }
+        )
+        let rootPath = URL(fileURLWithPath: "/tmp/empty-folder-scan")
+
+        workspaceStore.beginFolderScan(rootPath)
+        coordinator.consume(
+            .system(
+                .test(
+                    event: .workspaceActivity(
+                        .folderScanFinished(rootPath: rootPath, discoveredRepoCount: 0)
+                    )
+                )
+            )
+        )
+
+        #expect(workspaceStore.folderScanState == .empty(rootPath: rootPath))
+    }
+
+    @Test
+    func workspaceActivity_folderScanFinishedWithRepos_clearsWorkspaceStoreScanState() {
+        let workspaceStore = makeWorkspaceStore()
+        let repoCache = RepoCacheAtom()
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: EventBus<RuntimeEnvelope>(),
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            scopeSyncHandler: { _ in }
+        )
+        let rootPath = URL(fileURLWithPath: "/tmp/non-empty-folder-scan")
+
+        workspaceStore.beginFolderScan(rootPath)
+        coordinator.consume(
+            .system(
+                .test(
+                    event: .workspaceActivity(
+                        .folderScanFinished(rootPath: rootPath, discoveredRepoCount: 2)
+                    )
+                )
+            )
+        )
+
+        #expect(workspaceStore.folderScanState == .idle)
+    }
+
+    @Test
     func enrichment_snapshotChanged_updatesWorktreeCache() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()

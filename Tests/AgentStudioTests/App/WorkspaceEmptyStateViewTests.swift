@@ -4,28 +4,28 @@ import Testing
 
 @Suite("WorkspaceEmptyStateView")
 struct WorkspaceEmptyStateViewTests {
-    @Test("launcher quick actions section uses the agreed shortcuts boundary contract")
-    func launcherQuickActionsSectionUsesShortcutsBoundaryContract() {
-        #expect(WorkspaceEmptyStateLayout.launcherQuickActionsSectionTitle == "Shortcuts")
-        #expect(WorkspaceEmptyStateLayout.launcherQuickActionsDividerWidth == 220)
-        #expect(WorkspaceEmptyStateLayout.launcherQuickActionsSectionTopPadding > AppStyles.General.Spacing.loose)
-        #expect(WorkspaceEmptyStateLayout.launcherQuickActionsDividerBottomPadding > AppStyles.General.Spacing.loose)
-        #expect(WorkspaceEmptyStateLayout.launcherQuickActionsLabelBottomPadding > AppStyles.General.Spacing.loose)
+    @Test("launcher uses welcome one echo split layout tokens")
+    func launcherUsesWelcomeOneEchoSplitLayoutTokens() {
+        #expect(WorkspaceEmptyStateLayout.launcherStartFastTitle == "Start Fast")
+        #expect(AppStyles.Welcome.contentColumnsGap >= 56)
+        #expect(AppStyles.Welcome.teachingColumnWidth > AppStyles.Welcome.recentCardWidth)
+        #expect(AppStyles.Welcome.previewWidth > 300)
+        #expect(AppStyles.Welcome.shortcutBodyLeadingInset > AppStyles.Welcome.shortcutKeyColumnWidth)
     }
 
-    @Test("launcher recent grid uses 2 to 5 columns across width bands")
-    func launcherRecentGridUsesTwoToFiveColumnsAcrossWidthBands() {
+    @Test("launcher recent grid stays fixed at two columns")
+    func launcherRecentGridStaysFixedAtTwoColumns() {
         #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 800) == 2)
-        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 1600) == 3)
-        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 2200) == 4)
-        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 2700) == 5)
+        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 1600) == 2)
+        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 2200) == 2)
+        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 2700) == 2)
     }
 
-    @Test("launcher recent grid shows at most three rows")
+    @Test("launcher recent grid still shows at most three rows")
     func launcherRecentGridShowsAtMostThreeRows() {
         #expect(WorkspaceEmptyStateLayout.visibleRecentCardLimit(for: 800) == 6)
-        #expect(WorkspaceEmptyStateLayout.visibleRecentCardLimit(for: 1600) == 9)
-        #expect(WorkspaceEmptyStateLayout.visibleRecentCardLimit(for: 2200) == 12)
-        #expect(WorkspaceEmptyStateLayout.visibleRecentCardLimit(for: 2700) == 15)
+        #expect(WorkspaceEmptyStateLayout.visibleRecentCardLimit(for: 1600) == 6)
+        #expect(WorkspaceEmptyStateLayout.visibleRecentCardLimit(for: 2200) == 6)
+        #expect(WorkspaceEmptyStateLayout.visibleRecentCardLimit(for: 2700) == 6)
     }
 }

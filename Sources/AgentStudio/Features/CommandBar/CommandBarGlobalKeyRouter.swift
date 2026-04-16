@@ -3,6 +3,8 @@ import Foundation
 enum CommandBarGlobalKeyRouter {
     static func reservedPrefix(for trigger: ShortcutTrigger) -> String?? {
         switch trigger {
+        case AppShortcut.newTab.trigger:
+            return .some("#")
         case AppShortcut.showCommandBarEverything.trigger:
             return .some(nil)
         case AppShortcut.showCommandBarCommands.trigger:

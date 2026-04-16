@@ -85,21 +85,32 @@ struct PaneTabViewControllerCommandTests {
         return (repo, worktree)
     }
 
-    @Test("execute newTab resolves worktree context from floating pane cwd")
-    func executeNewTab_resolvesWorktreeContextFromFloatingPaneCwd() {
+    @Test("execute newTab uses first watched folder as cwd fallback")
+    func executeNewTab_usesFirstWatchedFolderAsFallback() {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
-        let pane = harness.store.createPane(
-            source: .floating(launchDirectory: worktree.path.appending(path: "nested"), title: "Pane A"),
-            title: "Pane A",
-            provider: .zmx,
-            facets: PaneContextFacets(cwd: worktree.path.appending(path: "nested"))
+        let watchedFolder = harness.tempDir.appending(path: "watched-root")
+        try? FileManager.default.createDirectory(at: watchedFolder, withIntermediateDirectories: true)
+        _ = harness.store.repositoryTopologyAtom.addWatchedPath(watchedFolder)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(CGRect(x: 0, y: 0, width: 1000, height: 600))
+        let initialPaneIds = Set(harness.store.panes.keys)
+
+        harness.controller.execute(.newTab)
+
+        #expect(Set(harness.store.panes.keys).count == initialPaneIds.count + 1)
+        #expect(harness.surfaceManager.createSurfaceCallCount == 1)
+        #expect(
+            harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd?.standardizedFileURL
+                == watchedFolder.standardizedFileURL
         )
-        let tab = Tab(paneId: pane.id)
-        harness.store.appendTab(tab)
-        harness.store.setActiveTab(tab.id)
+    }
+
+    @Test("execute newTab falls back to user home when no watched folder exists")
+    func executeNewTab_fallsBackToUserHome() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
         harness.windowLifecycleStore.recordTerminalContainerBounds(CGRect(x: 0, y: 0, width: 1000, height: 600))
         let initialPaneIds = Set(harness.store.panes.keys)
 
@@ -109,33 +120,8 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.surfaceManager.createSurfaceCallCount == 1)
         #expect(
             harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd
-                == worktree.path.appending(path: "nested"))
-    }
-
-    @Test("execute newTab falls back to floating terminal creation when no worktree matches cwd")
-    func executeNewTab_fallsBackToFloatingCreation() {
-        let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-
-        let unknownCwd = harness.tempDir.appending(path: "outside-known-repos")
-        try? FileManager.default.createDirectory(at: unknownCwd, withIntermediateDirectories: true)
-        let pane = harness.store.createPane(
-            source: .floating(launchDirectory: unknownCwd, title: "Pane A"),
-            title: "Pane A",
-            provider: .zmx,
-            facets: PaneContextFacets(cwd: unknownCwd)
+                == FileManager.default.homeDirectoryForCurrentUser
         )
-        let tab = Tab(paneId: pane.id)
-        harness.store.appendTab(tab)
-        harness.store.setActiveTab(tab.id)
-        harness.windowLifecycleStore.recordTerminalContainerBounds(CGRect(x: 0, y: 0, width: 1000, height: 600))
-        let initialPaneIds = Set(harness.store.panes.keys)
-
-        harness.controller.execute(.newTab)
-
-        #expect(Set(harness.store.panes.keys).count == initialPaneIds.count + 1)
-        #expect(harness.surfaceManager.createSurfaceCallCount == 1)
-        #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd == unknownCwd)
     }
 
     @Test("targeted renameTab presents the anchored popover for the selected tab")

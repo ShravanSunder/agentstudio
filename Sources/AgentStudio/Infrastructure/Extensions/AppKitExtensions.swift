@@ -17,6 +17,5 @@ extension NSPasteboard.PasteboardType {
 
 extension NSToolbarItem.Identifier {
     static let managementMode = NSToolbarItem.Identifier("managementMode")
-    static let addRepo = NSToolbarItem.Identifier("addRepo")
     static let addFolder = NSToolbarItem.Identifier("addFolder")
 }

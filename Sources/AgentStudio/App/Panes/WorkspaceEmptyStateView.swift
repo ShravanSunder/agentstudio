@@ -1,33 +1,18 @@
 import SwiftUI
 
 enum WorkspaceEmptyStateLayout {
-    static let launcherQuickActionsSectionTitle = "Shortcuts"
-    static let launcherQuickActionsSectionTopPadding: CGFloat = 20
-    static let launcherQuickActionsDividerWidth: CGFloat = 220
-    static let launcherQuickActionsDividerBottomPadding: CGFloat = 20
-    static let launcherQuickActionsLabelBottomPadding: CGFloat = 20
-    static let recentSectionWidthFraction: CGFloat = 0.6
-    static let recentGridSpacing: CGFloat = 16
-    static let recentCardWidth: CGFloat = 300
-    static let minimumRecentColumnCount = 2
-    static let maximumRecentColumnCount = 5
+    static let launcherStartFastTitle = "Start Fast"
     static let recentVisibleRowCount = 3
 
     static func recentSectionWidth(for availableWidth: CGFloat) -> CGFloat {
-        let fractionalWidth = availableWidth * recentSectionWidthFraction
-        let maximumGridWidth =
-            CGFloat(maximumRecentColumnCount) * recentCardWidth
-            + CGFloat(maximumRecentColumnCount - 1) * recentGridSpacing
-        return min(fractionalWidth, maximumGridWidth)
+        let availableGridWidth = max(
+            availableWidth - AppStyles.Welcome.teachingColumnWidth - AppStyles.Welcome.contentColumnsGap,
+            AppStyles.Welcome.recentCardWidth
+        )
+        return min(AppStyles.Welcome.recentsColumnWidth, availableGridWidth)
     }
 
-    static func recentColumnCount(for availableWidth: CGFloat) -> Int {
-        let sectionWidth = recentSectionWidth(for: availableWidth)
-        let fittingColumnCount = Int(
-            (sectionWidth + recentGridSpacing) / (recentCardWidth + recentGridSpacing)
-        )
-        return min(max(fittingColumnCount, minimumRecentColumnCount), maximumRecentColumnCount)
-    }
+    static func recentColumnCount(for _: CGFloat) -> Int { AppStyles.Welcome.recentsColumnCount }
 
     static func visibleRecentCardLimit(for availableWidth: CGFloat) -> Int {
         recentColumnCount(for: availableWidth) * recentVisibleRowCount
@@ -36,8 +21,8 @@ enum WorkspaceEmptyStateLayout {
     static func recentGridColumns(for availableWidth: CGFloat) -> [GridItem] {
         Array(
             repeating: GridItem(
-                .fixed(recentCardWidth),
-                spacing: recentGridSpacing,
+                .fixed(AppStyles.Welcome.recentCardWidth),
+                spacing: AppStyles.Welcome.recentCardGap,
                 alignment: .top
             ),
             count: recentColumnCount(for: availableWidth)
@@ -72,13 +57,27 @@ struct WorkspaceEmptyStateView: View {
                 .id("scanning")
                 .transition(.opacity)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            case .scanEmpty:
+                VStack(spacing: 0) {
+                    Spacer()
+                    scanEmptyBody
+                    Spacer()
+                }
+                .id("scanEmpty")
+                .transition(.opacity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .launcher:
                 GeometryReader { geometry in
                     ScrollView(.vertical, showsIndicators: false) {
-                        launcherBody(availableWidth: max(geometry.size.width - 80, 0))
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal, 40)
-                            .padding(.vertical, 48)
+                        launcherBody(
+                            availableWidth: max(
+                                geometry.size.width - (AppStyles.Welcome.pageHorizontalPadding * 2),
+                                0
+                            )
+                        )
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, AppStyles.Welcome.pageHorizontalPadding)
+                        .padding(.vertical, AppStyles.Welcome.pageVerticalPadding)
                     }
                 }
                 .id("launcher")
@@ -98,10 +97,10 @@ struct WorkspaceEmptyStateView: View {
                 AppLogoView(size: 96)
 
                 Text("Welcome to AgentStudio")
-                    .font(.system(size: 28, weight: .semibold))
+                    .font(.system(size: AppStyles.Welcome.titleFontSize, weight: .semibold))
 
                 Text("The terminal IDE built for coding agents.")
-                    .font(.system(size: AppStyles.General.Typography.textLg))
+                    .font(.system(size: AppStyles.Welcome.bodyFontSize))
                     .foregroundStyle(.secondary)
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -121,22 +120,56 @@ struct WorkspaceEmptyStateView: View {
     }
 
     private var scanningBody: some View {
-        VStack(spacing: 28) {
-            VStack(spacing: 12) {
+        VStack(spacing: AppStyles.Welcome.sectionSpacing) {
+            VStack(spacing: 14) {
                 ProgressView()
-                    .controlSize(.regular)
-                    .scaleEffect(1.2)
+                    .controlSize(.large)
+                    .scaleEffect(1.35)
 
                 Text("Scanning \(scanningFolderDisplayName)")
-                    .font(.system(size: 20, weight: .semibold))
+                    .font(.system(size: AppStyles.General.Typography.text2xl, weight: .semibold))
+
+                Text("Looking for git folders in the folder you selected.")
+                    .font(.system(size: AppStyles.Welcome.bodyFontSize))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
 
             scanningCallout
         }
+        .padding(.horizontal, 24)
     }
 
     private var scanningCallout: some View {
         QuickActionsCallout(header: "You don't need to wait.")
+    }
+
+    private var scanEmptyBody: some View {
+        VStack(spacing: AppStyles.Welcome.sectionSpacing) {
+            VStack(spacing: 14) {
+                Image(systemName: "folder.badge.questionmark")
+                    .font(.system(size: AppStyles.General.Typography.text2xl, weight: .semibold))
+                    .foregroundStyle(.secondary)
+
+                Text("No git folders found")
+                    .font(.system(size: AppStyles.General.Typography.text2xl, weight: .semibold))
+
+                Text(emptyFolderMessage)
+                    .font(.system(size: AppStyles.Welcome.bodyFontSize))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 560)
+            }
+
+            Button("Choose Another Folder to Scan…") {
+                onAddFolder()
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
+            QuickActionsCallout(header: "You can still keep moving.")
+        }
+        .padding(.horizontal, 24)
     }
 
     private var scanningFolderDisplayName: String {
@@ -149,78 +182,121 @@ struct WorkspaceEmptyStateView: View {
         return fullPath
     }
 
+    private var emptyFolderDisplayName: String {
+        guard let path = model.emptyFolderPath else { return "this folder" }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let fullPath = path.path
+        if fullPath.hasPrefix(home) {
+            return "~" + fullPath.dropFirst(home.count)
+        }
+        return fullPath
+    }
+
+    private var emptyFolderMessage: String {
+        "Nothing under \(emptyFolderDisplayName) contains a git repository yet. "
+            + "AgentStudio will keep watching this folder for future repos."
+    }
+
     private func launcherBody(availableWidth: CGFloat) -> some View {
         let recentSectionWidth = WorkspaceEmptyStateLayout.recentSectionWidth(for: availableWidth)
         let visibleRecentCards = Array(
             model.recentCards.prefix(WorkspaceEmptyStateLayout.visibleRecentCardLimit(for: availableWidth))
         )
+        let contentWidth = min(
+            availableWidth,
+            AppStyles.Welcome.teachingColumnWidth
+                + AppStyles.Welcome.contentColumnsGap
+                + recentSectionWidth
+        )
 
-        return VStack(spacing: 28) {
+        return VStack(spacing: AppStyles.Welcome.headerToContentGap) {
             WorkspaceHomeHeader(
                 title: "Your workspace",
-                subtitle: "Open a recent worktree, or pick one from the sidebar."
+                subtitle: "Start something new, or jump back into recent work."
             )
 
-            VStack(spacing: 18) {
-                recentSectionHeader
+            VStack(alignment: .leading, spacing: AppStyles.Welcome.sectionToContentGap) {
+                Text(WorkspaceEmptyStateLayout.launcherStartFastTitle)
+                    .font(.system(size: AppStyles.Welcome.sectionLabelFontSize, weight: .semibold))
+                    .foregroundStyle(.primary.opacity(AppStyles.Welcome.sectionLabelOpacity))
 
-                if visibleRecentCards.isEmpty {
-                    WorkspaceRecentPlaceholderCard()
-                        .frame(width: WorkspaceEmptyStateLayout.recentCardWidth)
-                } else if visibleRecentCards.count == 1,
-                    let card = visibleRecentCards.first
-                {
-                    WorkspaceRecentCardView(
-                        card: card,
-                        onOpen: { onOpenRecent(card.target) }
+                LauncherShortcutAction(
+                    key: "⌘T",
+                    title: "New tab or worktree",
+                    lines: [
+                        "Always opens the # picker.",
+                        "New Empty Tab is always the first row.",
+                    ],
+                    action: { CommandDispatcher.shared.dispatch(.showCommandBarRepos) }
+                )
+                .frame(maxWidth: AppStyles.Welcome.teachingColumnWidth, alignment: .leading)
+
+                HStack(alignment: .top, spacing: AppStyles.Welcome.contentColumnsGap) {
+                    launcherCommandPaletteSection
+                        .frame(maxWidth: AppStyles.Welcome.teachingColumnWidth, alignment: .leading)
+
+                    launcherRecentSection(
+                        availableWidth: availableWidth,
+                        recentSectionWidth: recentSectionWidth,
+                        visibleRecentCards: visibleRecentCards
                     )
-                    .frame(width: WorkspaceEmptyStateLayout.recentCardWidth)
-                } else {
-                    LazyVGrid(
-                        columns: WorkspaceEmptyStateLayout.recentGridColumns(for: availableWidth),
-                        alignment: .center,
-                        spacing: WorkspaceEmptyStateLayout.recentGridSpacing
-                    ) {
-                        ForEach(visibleRecentCards) { card in
-                            WorkspaceRecentCardView(
-                                card: card,
-                                onOpen: { onOpenRecent(card.target) }
-                            )
-                        }
-                    }
-                    .frame(maxWidth: recentSectionWidth)
+                    .frame(maxWidth: recentSectionWidth, alignment: .leading)
                 }
             }
-            .frame(maxWidth: .infinity)
-
-            launcherQuickActionsSection
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(maxWidth: contentWidth, alignment: .leading)
         .frame(maxWidth: .infinity)
     }
 
-    private var launcherQuickActionsSection: some View {
-        VStack(spacing: 0) {
-            Rectangle()
-                .fill(Color.white.opacity(AppStyles.General.Fill.active))
-                .frame(width: WorkspaceEmptyStateLayout.launcherQuickActionsDividerWidth, height: 1)
-                .padding(.bottom, WorkspaceEmptyStateLayout.launcherQuickActionsDividerBottomPadding)
+    private var launcherCommandPaletteSection: some View {
+        VStack(alignment: .leading, spacing: AppStyles.Welcome.previewTopGap) {
+            LauncherShortcutAction(
+                key: "⌘P",
+                title: "Command palette",
+                lines: ["Search the app using scoped prefixes."],
+                action: { CommandDispatcher.shared.dispatch(.showCommandBarEverything) }
+            )
 
-            Text(WorkspaceEmptyStateLayout.launcherQuickActionsSectionTitle)
-                .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
-                .foregroundStyle(.tertiary)
-                .padding(.bottom, WorkspaceEmptyStateLayout.launcherQuickActionsLabelBottomPadding)
-
-            QuickActionsCallout()
+            CommandBarEmbeddedPreview()
+                .padding(.leading, AppStyles.Welcome.shortcutBodyLeadingInset)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.top, WorkspaceEmptyStateLayout.launcherQuickActionsSectionTopPadding)
+    }
+
+    private func launcherRecentSection(
+        availableWidth: CGFloat,
+        recentSectionWidth: CGFloat,
+        visibleRecentCards: [WorkspaceRecentCardModel]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: AppStyles.Welcome.sectionToContentGap) {
+            recentSectionHeader
+
+            if visibleRecentCards.isEmpty {
+                WorkspaceRecentPlaceholderCard()
+                    .frame(width: AppStyles.Welcome.recentCardWidth)
+            } else {
+                LazyVGrid(
+                    columns: WorkspaceEmptyStateLayout.recentGridColumns(for: availableWidth),
+                    alignment: .leading,
+                    spacing: AppStyles.Welcome.recentCardGap
+                ) {
+                    ForEach(visibleRecentCards) { card in
+                        WorkspaceRecentCardView(
+                            card: card,
+                            onOpen: { onOpenRecent(card.target) }
+                        )
+                    }
+                }
+                .frame(maxWidth: recentSectionWidth, alignment: .leading)
+            }
+        }
     }
 
     private var recentSectionHeader: some View {
         HStack(alignment: .center, spacing: 16) {
             Text("Recent")
-                .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: AppStyles.Welcome.sectionLabelFontSize, weight: .semibold))
+                .foregroundStyle(.primary.opacity(AppStyles.Welcome.sectionLabelOpacity))
 
             if model.showsOpenAll {
                 Button(LocalActionSpec.openAllInTabs.actionSpec.label) {
@@ -238,18 +314,168 @@ private struct WorkspaceHomeHeader: View {
     let subtitle: String
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: AppStyles.Welcome.titleBodyGap) {
             Text(title)
-                .font(.system(size: 30, weight: .semibold))
+                .font(.system(size: AppStyles.Welcome.titleFontSize, weight: .semibold))
                 .multilineTextAlignment(.center)
 
             Text(subtitle)
-                .font(.system(size: AppStyles.General.Typography.textLg))
+                .font(.system(size: AppStyles.Welcome.bodyFontSize))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .frame(maxWidth: 620)
+                .frame(maxWidth: AppStyles.Welcome.headerMaxWidth)
         }
         .frame(maxWidth: .infinity)
+    }
+}
+
+private struct LauncherShortcutAction: View {
+    let key: String
+    let title: String
+    let lines: [String]
+    let action: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: AppStyles.Welcome.shortcutTitleBodyGap) {
+                HStack(alignment: .firstTextBaseline, spacing: AppStyles.Welcome.shortcutTextGap) {
+                    Text(key)
+                        .font(
+                            .system(
+                                size: AppStyles.Welcome.shortcutKeyFontSize,
+                                weight: .semibold,
+                                design: .monospaced
+                            )
+                        )
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: AppStyles.Welcome.shortcutKeyColumnWidth, alignment: .leading)
+
+                    Text(title)
+                        .font(.system(size: AppStyles.Welcome.shortcutTitleFontSize, weight: .semibold))
+                        .foregroundStyle(.primary)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(lines, id: \.self) { line in
+                        Text(line)
+                            .font(.system(size: AppStyles.Welcome.shortcutBodyFontSize))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.leading, AppStyles.Welcome.shortcutBodyLeadingInset)
+            }
+            .padding(.vertical, AppStyles.Welcome.shortcutRowVerticalPadding)
+            .padding(.horizontal, AppStyles.Welcome.shortcutRowHorizontalPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: AppStyles.Welcome.shortcutRowHoverRadius)
+                    .fill(
+                        isHovered
+                            ? Color.white.opacity(AppStyles.Welcome.interactiveHoverOpacity)
+                            : Color.clear
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .contentShape(RoundedRectangle(cornerRadius: AppStyles.Welcome.shortcutRowHoverRadius))
+        .onHover { isHovered = $0 }
+    }
+}
+
+private struct CommandBarEmbeddedPreview: View {
+    private let items: [CommandBarItem] = [
+        CommandBarItem(
+            id: "preview-commands",
+            title: "Commands",
+            subtitle: "Run actions and commands",
+            icon: nil,
+            shortcutKeys: [ShortcutKey(symbol: ">")],
+            group: "Preview",
+            groupPriority: 0,
+            action: .custom({})
+        ),
+        CommandBarItem(
+            id: "preview-panes",
+            title: "Panes",
+            subtitle: "Jump to open tabs and panes",
+            icon: nil,
+            shortcutKeys: [ShortcutKey(symbol: "$")],
+            group: "Preview",
+            groupPriority: 0,
+            action: .custom({})
+        ),
+        CommandBarItem(
+            id: "preview-repos",
+            title: "Repos/Worktrees",
+            subtitle: "Open a repo or worktree",
+            icon: nil,
+            shortcutKeys: [ShortcutKey(symbol: "#")],
+            group: "Preview",
+            groupPriority: 0,
+            action: .custom({})
+        ),
+    ]
+
+    private let footerHints: [FooterHint] = [
+        FooterHint(id: "enter", key: "↵", label: "Select"),
+        FooterHint(id: "move", key: "↑↓", label: "Move", style: .plain),
+        FooterHint(id: "dismiss", key: "esc", label: "Dismiss", style: .plain),
+    ]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            CommandBarStatusStrip(mode: .normal, context: .empty)
+
+            Divider()
+                .opacity(AppStyles.CommandBar.Panel.rootDividerOpacity)
+
+            HStack(spacing: AppStyles.Welcome.shortcutTextGap) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
+                    .foregroundStyle(.primary.opacity(0.35))
+                    .frame(width: 16, height: 16)
+
+                Text("Search or jump to…")
+                    .font(.system(size: AppStyles.General.Typography.textBase))
+                    .foregroundStyle(.primary.opacity(0.35))
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: AppStyles.Welcome.previewSearchRowHeight)
+
+            Divider()
+                .opacity(AppStyles.CommandBar.Panel.nestedDividerOpacity)
+
+            VStack(spacing: 0) {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    CommandBarResultRow(
+                        item: item,
+                        isSelected: index == 0,
+                        searchQuery: "",
+                        isDimmed: false
+                    )
+                }
+            }
+            .padding(.vertical, 4)
+
+            Divider()
+                .opacity(AppStyles.CommandBar.Panel.nestedDividerOpacity)
+
+            CommandBarFooter(hints: footerHints)
+        }
+        .frame(width: AppStyles.Welcome.previewWidth, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: AppStyles.Welcome.previewCornerRadius)
+                .fill(Color(nsColor: AppStyles.Shell.TabBar.titlebarBackground))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppStyles.Welcome.previewCornerRadius)
+                        .stroke(Color.white.opacity(AppStyles.Welcome.cardStrokeOpacity), lineWidth: 1)
+                )
+        )
+        .clipShape(RoundedRectangle(cornerRadius: AppStyles.Welcome.previewCornerRadius))
     }
 }
 
@@ -272,7 +498,7 @@ private struct WorkspaceRecentCardView: View {
     }
 
     private var cardBackground: some View {
-        RoundedRectangle(cornerRadius: 16)
+        RoundedRectangle(cornerRadius: AppStyles.Welcome.previewCornerRadius)
             .fill(
                 isHovered
                     ? Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity)
@@ -281,7 +507,7 @@ private struct WorkspaceRecentCardView: View {
     }
 
     private var cardBorder: some View {
-        RoundedRectangle(cornerRadius: 16)
+        RoundedRectangle(cornerRadius: AppStyles.Welcome.previewCornerRadius)
             .stroke(Color.white.opacity(AppStyles.General.Fill.active), lineWidth: 1)
     }
 
@@ -330,11 +556,11 @@ private struct WorkspaceRecentPlaceholderCard: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: AppStyles.Welcome.previewCornerRadius)
                 .fill(Color.white.opacity(AppStyles.General.Fill.muted))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: AppStyles.Welcome.previewCornerRadius)
                 .strokeBorder(
                     Color.white.opacity(AppStyles.General.Fill.active),
                     style: StrokeStyle(lineWidth: 1, dash: [8, 6])
@@ -369,30 +595,30 @@ private struct QuickActionsCallout: View {
     var header: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: AppStyles.General.Spacing.loose) {
             if let header {
                 Text(header)
                     .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
                     .foregroundStyle(.primary)
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                quickActionButton(key: "⌘T", label: "New terminal tab") {
-                    CommandDispatcher.shared.dispatch(.newTab)
+            VStack(alignment: .leading, spacing: AppStyles.General.Spacing.loose) {
+                quickActionButton(key: "⌘T", label: "New tab or worktree") {
+                    CommandDispatcher.shared.dispatch(.showCommandBarRepos)
                 }
                 quickActionButton(key: "⌘P", label: "Command palette") {
-                    CommandDispatcher.shared.dispatch(.showCommandBarCommands)
+                    CommandDispatcher.shared.dispatch(.showCommandBarEverything)
                 }
             }
         }
-        .padding(16)
-        .frame(maxWidth: 320, alignment: .leading)
+        .padding(AppStyles.Welcome.previewTopGap + 10)
+        .frame(maxWidth: AppStyles.Welcome.previewWidth, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.white.opacity(AppStyles.General.Fill.muted))
+            RoundedRectangle(cornerRadius: AppStyles.Welcome.previewCornerRadius)
+                .fill(Color.white.opacity(AppStyles.Welcome.cardFillOpacity))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.white.opacity(AppStyles.General.Fill.active), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: AppStyles.Welcome.previewCornerRadius)
+                        .stroke(Color.white.opacity(AppStyles.Welcome.cardStrokeOpacity), lineWidth: 1)
                 )
         )
     }
@@ -401,16 +627,17 @@ private struct QuickActionsCallout: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Text(key)
-                    .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold, design: .monospaced))
+                    .font(.system(size: AppStyles.Welcome.shortcutKeyFontSize, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Color.accentColor)
-                    .frame(width: 28, alignment: .trailing)
+                    .frame(width: AppStyles.Welcome.shortcutKeyColumnWidth, alignment: .trailing)
 
                 Text(label)
-                    .font(.system(size: AppStyles.General.Typography.textBase))
+                    .font(.system(size: AppStyles.Welcome.bodyFontSize))
                     .foregroundStyle(.secondary)
 
                 Spacer()
             }
+            .frame(minHeight: AppStyles.Welcome.previewResultRowHeight, alignment: .center)
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())

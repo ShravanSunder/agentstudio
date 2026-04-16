@@ -3,6 +3,7 @@ import Foundation
 enum WorkspaceEmptyStateKind: Equatable {
     case noFolders
     case scanning(URL)
+    case scanEmpty(URL)
     case launcher
 }
 
@@ -31,6 +32,11 @@ struct WorkspaceEmptyStateModel: Equatable {
         return nil
     }
 
+    var emptyFolderPath: URL? {
+        if case .scanEmpty(let url) = kind { return url }
+        return nil
+    }
+
     var recentTargets: [RecentWorkspaceTarget] {
         recentCards.map(\.target)
     }
@@ -47,12 +53,15 @@ enum WorkspaceLauncherProjector {
         let repositoryTopology = store.repositoryTopologyAtom
         let tabLayout = store.tabLayoutAtom
 
-        if let scanningPath = store.scanningPath, repositoryTopology.repos.isEmpty {
-            return WorkspaceEmptyStateModel(kind: .scanning(scanningPath), recentCards: [])
-        }
-
         if repositoryTopology.repos.isEmpty {
-            return WorkspaceEmptyStateModel(kind: .noFolders, recentCards: [])
+            switch store.folderScanState {
+            case .idle:
+                return WorkspaceEmptyStateModel(kind: .noFolders, recentCards: [])
+            case .scanning(let rootPath):
+                return WorkspaceEmptyStateModel(kind: .scanning(rootPath), recentCards: [])
+            case .empty(let rootPath):
+                return WorkspaceEmptyStateModel(kind: .scanEmpty(rootPath), recentCards: [])
+            }
         }
 
         if tabLayout.tabs.isEmpty {

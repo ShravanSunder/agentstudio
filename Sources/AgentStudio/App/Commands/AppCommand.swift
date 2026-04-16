@@ -48,7 +48,7 @@ enum AppCommand: String, CaseIterable {
     case closeDrawerPane
 
     // Repo commands
-    case addRepo, addFolder, removeRepo
+    case addFolder, removeRepo
     case openWorktree
     case openWorktreeInPane
 
@@ -210,7 +210,7 @@ protocol ShellCommandHandling: AnyObject {
     func execute(_ command: AppCommand) -> Bool
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
 
-    /// Show the repo-scoped command bar for "open repo in tab" affordances.
+    /// Show the repo/worktree-scoped command bar for discovered checkout actions.
     func showRepoCommandBar()
 
     /// Refresh watched folders / worktree discovery from an app-level UI entry point.
@@ -403,10 +403,9 @@ extension AppCommand {
         case .newTab:
             return CommandSpec(
                 command: self,
-                shortcut: .newTab,
                 label: "New Tab",
                 icon: "plus.square",
-                helpText: "Create a new tab",
+                helpText: "Create a new terminal tab",
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
@@ -696,23 +695,12 @@ extension AppCommand {
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
-        case .addRepo:
-            return CommandSpec(
-                command: self,
-                shortcut: .addRepo,
-                label: "Add Repo",
-                icon: "folder.badge.plus",
-                helpText: "Add a repository directly to the workspace",
-                appliesTo: [.repo],
-                commandBarGroupName: "Repo",
-                commandBarGroupPriority: CommandBarGroupPriority.repo
-            )
         case .addFolder:
             return CommandSpec(
                 command: self,
                 shortcut: .addFolder,
                 label: "Add Folder",
-                icon: "folder.badge.questionmark",
+                icon: "folder.fill.badge.plus",
                 helpText: "Add a folder to scan for repositories",
                 commandBarGroupName: "Repo",
                 commandBarGroupPriority: CommandBarGroupPriority.repo
@@ -864,9 +852,10 @@ extension AppCommand {
         case .showCommandBarRepos:
             return CommandSpec(
                 command: self,
-                label: "Open Repo or Worktree",
+                shortcut: .newTab,
+                label: "New Tab or Worktree",
                 icon: "folder",
-                helpText: "Open the repo picker",
+                helpText: "Open the repo and worktree picker",
                 commandBarGroupName: "Commands",
                 commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
                 isHiddenInCommandBar: true

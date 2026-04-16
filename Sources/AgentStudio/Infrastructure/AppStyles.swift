@@ -218,4 +218,53 @@ enum AppStyles {
             static let horizontalPadding: CGFloat = 12
         }
     }
+
+    enum Welcome {
+        static let pageHorizontalPadding: CGFloat = 56
+        static let pageVerticalPadding: CGFloat = 48
+        static let contentColumnsGap: CGFloat = 72
+        static let headerMaxWidth: CGFloat = 720
+        static let headerToContentGap: CGFloat = 40
+
+        static let titleFontSize: CGFloat = 30
+        static let bodyFontSize: CGFloat = AppStyles.General.Typography.textXl
+        static let titleBodyGap: CGFloat = 8
+
+        static let sectionLabelFontSize: CGFloat = 15
+        static let sectionLabelOpacity: CGFloat = 0.62
+        static let sectionToContentGap: CGFloat = 22
+
+        static let shortcutTitleFontSize: CGFloat = 24
+        static let shortcutBodyFontSize: CGFloat = bodyFontSize
+        static let shortcutKeyFontSize: CGFloat = 18
+        static let shortcutKeyColumnWidth: CGFloat = 44
+        static let shortcutTextGap: CGFloat = 12
+        static let shortcutTitleBodyGap: CGFloat = 6
+        static let shortcutRowHorizontalPadding: CGFloat = 10
+        static let shortcutRowVerticalPadding: CGFloat = 10
+        static let shortcutRowHoverRadius: CGFloat = 14
+        static let shortcutBodyLeadingInset: CGFloat = shortcutKeyColumnWidth + shortcutTextGap
+
+        static let sectionSpacing: CGFloat = 32
+        static let teachingColumnWidth: CGFloat = 520
+        static let recentsColumnWidth: CGFloat = 540
+        static let blockGap: CGFloat = 28
+        static let previewTopGap: CGFloat = 14
+
+        static let recentCardWidth: CGFloat = 260
+        static let recentCardGap: CGFloat = 20
+        static let recentsColumnCount = 2
+
+        static let previewWidth: CGFloat = 500
+        static let previewCornerRadius: CGFloat = 16
+        static let previewStatusRowHeight: CGFloat = 28
+        static let previewSearchRowHeight: CGFloat = 44
+        static let previewResultRowHeight: CGFloat = 36
+        static let previewFooterHeight: CGFloat = 28
+
+        static let cardFillOpacity: CGFloat = AppStyles.General.Fill.muted
+        static let cardStrokeOpacity: CGFloat = AppStyles.General.Fill.active
+        static let cardHoverOpacity: CGFloat = AppStyles.Shell.Sidebar.rowHoverOpacity
+        static let interactiveHoverOpacity: CGFloat = AppStyles.General.Fill.hover
+    }
 }

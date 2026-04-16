@@ -112,7 +112,6 @@ enum AppShortcut: String, CaseIterable {
     case nextTab
     case prevTab
     case toggleDrawer
-    case addRepo
     case addFolder
     case toggleManagementMode
     case toggleSidebar
@@ -171,11 +170,6 @@ enum AppShortcut: String, CaseIterable {
             return .init(
                 trigger: .init(key: .character(.d), modifiers: [.command]),
                 contexts: [.global, .terminalAppOwned]
-            )
-        case .addRepo:
-            return .init(
-                trigger: .init(key: .character(.o), modifiers: [.command, .shift]),
-                contexts: [.global]
             )
         case .addFolder:
             return .init(
@@ -261,10 +255,15 @@ enum AppShortcut: String, CaseIterable {
 
     var trigger: ShortcutTrigger { spec.trigger }
     var command: AppCommand {
-        guard let command = AppCommand(rawValue: rawValue) else {
-            fatalError("Missing AppCommand for shortcut \(rawValue)")
+        switch self {
+        case .newTab:
+            return .showCommandBarRepos
+        default:
+            guard let command = AppCommand(rawValue: rawValue) else {
+                fatalError("Missing AppCommand for shortcut \(rawValue)")
+            }
+            return command
         }
-        return command
     }
     var contexts: Set<ShortcutContext> { spec.contexts }
     var keyBinding: KeyBinding? { trigger.keyBinding }

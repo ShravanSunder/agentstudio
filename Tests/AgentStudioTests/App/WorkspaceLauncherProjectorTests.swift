@@ -50,12 +50,41 @@ struct WorkspaceLauncherProjectorTests {
     @Test
     func project_scanningWithoutRepos_returnsScanningState() {
         let store = makeStore()
-        store.beginScan(URL(fileURLWithPath: "/tmp/scanning-root"))
+        store.beginFolderScan(URL(fileURLWithPath: "/tmp/scanning-root"))
 
         let result = WorkspaceLauncherProjector.project(store: store)
 
         #expect(result.kind == .scanning(URL(fileURLWithPath: "/tmp/scanning-root")))
         #expect(result.recentCards.isEmpty)
+    }
+
+    @Test
+    func project_emptyFolderScanWithoutRepos_returnsEmptyScanState() {
+        let store = makeStore()
+        store.completeFolderScan(
+            rootPath: URL(fileURLWithPath: "/tmp/empty-root"),
+            discoveredRepoCount: 0
+        )
+
+        let result = WorkspaceLauncherProjector.project(store: store)
+
+        #expect(result.kind == .scanEmpty(URL(fileURLWithPath: "/tmp/empty-root")))
+        #expect(result.recentCards.isEmpty)
+        #expect(result.showsOpenAll == false)
+    }
+
+    @Test
+    func project_emptyFolderScanWithRepos_returnsLauncherState() {
+        let store = makeStore()
+        _ = store.repositoryTopologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
+        store.completeFolderScan(
+            rootPath: URL(fileURLWithPath: "/tmp/empty-root"),
+            discoveredRepoCount: 0
+        )
+
+        let result = WorkspaceLauncherProjector.project(store: store)
+
+        #expect(result.kind == .launcher)
     }
 
     @Test

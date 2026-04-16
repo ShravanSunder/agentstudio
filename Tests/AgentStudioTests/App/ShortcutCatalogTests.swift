@@ -41,11 +41,14 @@ struct ShortcutCatalogTests {
     func commandSpecDerivesKeyBindingFromShortcut() {
         let managementDefinition = CommandDispatcher.shared.definition(for: .toggleManagementMode)
         let quickOpenDefinition = CommandDispatcher.shared.definition(for: .showCommandBarEverything)
+        let startContextDefinition = CommandDispatcher.shared.definition(for: .showCommandBarRepos)
 
         #expect(managementDefinition.keyBinding?.key == "r")
         #expect(managementDefinition.keyBinding?.modifiers == [.command])
         #expect(quickOpenDefinition.keyBinding?.key == "p")
         #expect(quickOpenDefinition.keyBinding?.modifiers == [.command])
+        #expect(startContextDefinition.keyBinding?.key == "t")
+        #expect(startContextDefinition.keyBinding?.modifiers == [.command])
     }
 
     @Test
@@ -62,10 +65,15 @@ struct ShortcutCatalogTests {
             for: .init(key: .character(.p), modifiers: [.command, .option]),
             in: .global
         )
+        let smartNewTab = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.t), modifiers: [.command]),
+            in: .global
+        )
 
         #expect(quickOpen == .showCommandBarEverything)
         #expect(commandPalette == .showCommandBarCommands)
         #expect(panePicker == .showCommandBarPanes)
+        #expect(smartNewTab == .newTab)
     }
 
     @Test

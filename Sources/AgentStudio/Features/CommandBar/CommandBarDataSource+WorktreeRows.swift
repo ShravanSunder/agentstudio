@@ -6,7 +6,19 @@ private let commandBarWorktreeLogger = Logger(subsystem: "com.agentstudio", cate
 @MainActor
 extension CommandBarDataSource {
     static func repoScopeItems(store: WorkspaceStore) -> [CommandBarItem] {
-        var items: [CommandBarItem] = []
+        var items: [CommandBarItem] = [
+            CommandBarItem(
+                id: "repo-new-empty-tab",
+                title: "New Empty Tab",
+                subtitle: "Blank terminal in watched folder or home",
+                icon: "plus.square",
+                group: "Repos",
+                groupPriority: 0,
+                keywords: ["new", "empty", "tab", "blank", "terminal"],
+                action: .dispatch(.newTab),
+                command: .newTab
+            )
+        ]
 
         let repos = store.repositoryTopologyAtom.repos
         let singleWorktreeRepos =
