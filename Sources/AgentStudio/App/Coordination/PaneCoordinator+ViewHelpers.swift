@@ -144,43 +144,34 @@ extension PaneCoordinator {
 
     @discardableResult
     private func applyPaneRefocusIfReady(for paneId: UUID) -> Bool {
-        let paneKind: PaneFocusContext.PaneKind
-        if let pane = store.paneAtom.pane(paneId) {
-            switch pane.content {
-            case .terminal:
-                paneKind = .terminal
-            case .webview:
-                paneKind = .webview
-            case .bridgePanel:
-                paneKind = .bridge
-            case .codeViewer:
-                paneKind = .codeViewer
-            case .unsupported:
-                paneKind = .unknown
-            }
-        } else {
-            paneKind = .unknown
-        }
+        let paneKind = PaneFocusContext.PaneKind(content: store.paneAtom.pane(paneId)?.content)
 
         let decision = PaneFocusOrchestrator.decide(
             trigger: .refocusRequest(PaneRefocusRequestTrigger(reason: .explicit)),
             context: PaneFocusContext(
                 activeTabId: store.tabLayoutAtom.activeTabId,
                 activePaneId: paneId,
-                activeDrawerParentPaneId: nil,
-                activeDrawerPaneId: nil,
+                activeDrawer: nil,
                 targetPaneId: paneId,
                 targetTabId: store.tabLayoutAtom.tabs.first { $0.paneIds.contains(paneId) }?.id,
                 targetPaneKind: paneKind,
                 targetPaneIsAlreadyActive: true,
                 targetMountedContent: viewRegistry.view(for: paneId)?.mountedContentStateForPaneFocus ?? .unmounted,
                 managementMode: atom(\.managementMode).isActive ? .active(scope: .mainRow) : .inactive,
-                windowState: viewRegistry.view(for: paneId)?.window?.isKeyWindow == true ? .key : .background,
-                triggerSource: .refocusRequest
+                windowState: viewRegistry.view(for: paneId)?.window?.isKeyWindow == true ? .key : .background
             )
         )
 
-        let paneFocusExecutor = PaneFocusExecutor(
+        guard case .refocusRequest(let refocusDecision) = decision else {
+            Self.logger.error("pane refocus produced non-refocus decision for pane \(paneId)")
+            return false
+        }
+
+        return makeRefocusOnlyPaneFocusExecutor().apply(.refocusRequest(refocusDecision))
+    }
+
+    private func makeRefocusOnlyPaneFocusExecutor() -> PaneFocusExecutor {
+        PaneFocusExecutor(
             hostViewProvider: { [weak self] targetPaneId in
                 self?.viewRegistry.view(for: targetPaneId)
             },
@@ -195,8 +186,6 @@ extension PaneCoordinator {
                 self?.surfaceManager.syncFocus(activeSurfaceId: surfaceId)
             }
         )
-
-        return paneFocusExecutor.apply(decision)
     }
 
     func executeMergeTab(

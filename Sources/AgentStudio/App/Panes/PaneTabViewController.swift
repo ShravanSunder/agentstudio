@@ -52,7 +52,7 @@ private final class RestoreAwareTerminalContainerView: NSView {
 /// local. It also handles direct tab-order updates (`store.moveTab`) from drag
 /// interactions as a UI-only mutation.
 @MainActor
-class PaneTabViewController: NSViewController, WorkspaceCommandHandling, PaneFocusRouting {
+class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneTabViewController")
     private static let genericGitHubURL = URL(string: "https://github.com")!
 
@@ -269,7 +269,6 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling, PaneFoc
 
         // Register as command handler
         CommandDispatcher.shared.handler = self
-        PaneFocusSystem.shared.handler = self
 
         syncTabContentHosts()
         updateVisibleTabHost()
@@ -401,6 +400,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling, PaneFoc
             }
         }
 
+        // Management mode exit is intentionally a two-step sequence:
+        // the mode trigger releases content interaction, then refocus chooses
+        // the pane-specific responder target once the mode change has landed.
         if didExitManagementMode {
             requestPaneRefocus(.managementModeExited)
         }
@@ -434,6 +436,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling, PaneFoc
                 let paneId = self.store.tabLayoutAtom.tab(tabId)?.activePaneId
                 self.recordSelectionDrivenRefocusSuppression(tabId: tabId, paneId: paneId)
                 self.store.tabLayoutAtom.setActiveTab(tabId)
+                if atom(\.managementMode).isActive {
+                    self.managementNavigationScope = .mainRow
+                }
             },
             selectPane: { [weak self] tabId, paneId in
                 guard let self else { return }
@@ -445,6 +450,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling, PaneFoc
                     self.executor.execute(.expandPane(tabId: tabId, paneId: paneId))
                 }
                 self.store.tabLayoutAtom.setActivePane(paneId, inTab: tabId)
+                if atom(\.managementMode).isActive {
+                    self.managementNavigationScope = .mainRow
+                }
             },
             selectDrawerPane: { [weak self] parentPaneId, drawerPaneId in
                 guard let self else { return }
@@ -453,6 +461,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling, PaneFoc
                     paneId: drawerPaneId
                 )
                 self.store.paneAtom.setActiveDrawerPane(drawerPaneId, in: parentPaneId)
+                if atom(\.managementMode).isActive {
+                    self.managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+                }
             },
             syncRuntimeFocus: { surfaceId in
                 SurfaceManager.shared.syncFocus(activeSurfaceId: surfaceId)
@@ -470,10 +481,15 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling, PaneFoc
     }
 
     func handlePaneFocusTrigger(_ trigger: PaneFocusTrigger) {
-        guard let context = makePaneFocusContext(for: trigger) else { return }
+        guard let context = makePaneFocusContext(for: trigger) else {
+            Self.logger.warning(
+                "Pane focus trigger dropped because context assembly failed trigger=\(String(describing: trigger), privacy: .public)"
+            )
+            return
+        }
         let decision = PaneFocusOrchestrator.decide(trigger: trigger, context: context)
         if !paneFocusExecutor.apply(decision) {
-            Self.logger.debug(
+            Self.logger.warning(
                 "Pane focus apply returned false for trigger \(String(describing: trigger), privacy: .public)")
         }
     }
@@ -491,17 +507,24 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling, PaneFoc
             targetTabId: targetTabId,
             activePaneId: activePaneId
         )
-        let targetPaneKind = paneFocusPaneKind(for: targetPaneId)
+        guard targetPaneId == nil || targetTabId != nil else {
+            return nil
+        }
+        let targetPaneKind = PaneFocusContext.PaneKind(
+            content: targetPaneId.flatMap { store.paneAtom.pane($0)?.content }
+        )
         let targetMountedContent =
             targetPaneId
             .flatMap { viewRegistry.view(for: $0)?.mountedContentStateForPaneFocus }
             ?? .unmounted
+        let activeDrawerParentPaneId = activeMainPaneId()
 
         return PaneFocusContext(
             activeTabId: activeTabId,
             activePaneId: activePaneId,
-            activeDrawerParentPaneId: activeMainPaneId(),
-            activeDrawerPaneId: activeMainPaneId().flatMap { visibleActiveDrawerPaneId(for: $0) },
+            activeDrawer: activeDrawerParentPaneId.map {
+                .init(parentPaneId: $0, paneId: visibleActiveDrawerPaneId(for: $0))
+            },
             targetPaneId: targetPaneId,
             targetTabId: targetTabId,
             targetPaneKind: targetPaneKind,
@@ -515,8 +538,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling, PaneFoc
             managementMode: atom(\.managementMode).isActive
                 ? .active(scope: paneFocusManagementScope)
                 : .inactive,
-            windowState: paneFocusWindowState(for: targetPaneId),
-            triggerSource: paneFocusTriggerSource(for: trigger)
+            windowState: paneFocusWindowState(for: targetPaneId)
         )
     }
 
@@ -592,23 +614,6 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling, PaneFoc
         }
     }
 
-    private func paneFocusPaneKind(for paneId: UUID?) -> PaneFocusContext.PaneKind {
-        guard let paneId, let pane = store.paneAtom.pane(paneId) else { return .unknown }
-
-        switch pane.content {
-        case .terminal:
-            return .terminal
-        case .webview:
-            return .webview
-        case .bridgePanel:
-            return .bridge
-        case .codeViewer:
-            return .codeViewer
-        case .unsupported:
-            return .unknown
-        }
-    }
-
     private func paneFocusTargetIsAlreadyActive(
         trigger: PaneFocusTrigger,
         targetPaneId: UUID?,
@@ -640,25 +645,6 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling, PaneFoc
             return .focused
         }
         return .background
-    }
-
-    private func paneFocusTriggerSource(for trigger: PaneFocusTrigger) -> PaneFocusContext.TriggerSource {
-        switch trigger {
-        case .contentClick:
-            return .contentClick
-        case .tabClick:
-            return .tabClick
-        case .drawer:
-            return .drawerClick
-        case .keyboard:
-            return .keyboard
-        case .mode:
-            return .modeTransition
-        case .refocusRequest:
-            return .refocusRequest
-        case .command:
-            return .command
-        }
     }
 
     private func normalizeManagementNavigationScope() {
@@ -693,6 +679,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling, PaneFoc
             appLifecycleStore: appLifecycleStore,
             closeTransitionCoordinator: closeTransitionCoordinator,
             actionDispatcher: actionDispatcher,
+            onPaneFocusTrigger: { [weak self] trigger in
+                self?.handlePaneFocusTrigger(trigger)
+            },
             onOpenPaneGitHub: { [weak self] paneId in
                 self?.openGitHubWebview(for: paneId)
             }
@@ -1457,7 +1446,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling, PaneFoc
         executor.undoCloseTab()
     }
 
-    // MARK: - Refocus Terminal
+    // MARK: - Refocus Active Pane
 
     func refocusActivePane() {
         requestPaneRefocus(.explicit)
@@ -1681,7 +1670,12 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling, PaneFoc
             let activeTabId = store.tabLayoutAtom.activeTabId,
             let tab = store.tabLayoutAtom.tab(activeTabId),
             let activePaneId = tab.activePaneId
-        else { return nil }
+        else {
+            Self.logger.warning(
+                "Pane keyboard focus trigger dropped reason=activeSelectionUnavailable command=\(String(describing: command), privacy: .public)"
+            )
+            return nil
+        }
 
         let targetPaneId: UUID?
         switch command {
@@ -1701,17 +1695,27 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling, PaneFoc
             targetPaneId = nil
         }
 
-        guard let targetPaneId else { return nil }
+        guard let targetPaneId else {
+            Self.logger.warning(
+                "Pane keyboard focus trigger dropped reason=neighborUnavailable command=\(String(describing: command), privacy: .public) activePane=\(activePaneId.uuidString, privacy: .public)"
+            )
+            return nil
+        }
         return .moveToPane(
             tabId: activeTabId,
             paneId: targetPaneId,
-            paneKind: paneFocusPaneKind(for: targetPaneId)
+            paneKind: PaneFocusContext.PaneKind(content: store.paneAtom.pane(targetPaneId)?.content)
         )
     }
 
     private func resolvePaneFocusTabSelectionTarget(for command: AppCommand) -> UUID? {
         let tabs = store.tabLayoutAtom.tabs
-        guard !tabs.isEmpty else { return nil }
+        guard !tabs.isEmpty else {
+            Self.logger.warning(
+                "Pane tab selection trigger dropped reason=noTabs command=\(String(describing: command), privacy: .public)"
+            )
+            return nil
+        }
 
         switch command {
         case .nextTab:
@@ -1719,14 +1723,24 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling, PaneFoc
                 let activeTabId = store.tabLayoutAtom.activeTabId,
                 let currentIndex = tabs.firstIndex(where: { $0.id == activeTabId }),
                 !tabs.isEmpty
-            else { return nil }
+            else {
+                Self.logger.warning(
+                    "Pane tab selection trigger dropped reason=activeTabUnavailable command=\(String(describing: command), privacy: .public)"
+                )
+                return nil
+            }
             return tabs[(currentIndex + 1) % tabs.count].id
         case .prevTab:
             guard
                 let activeTabId = store.tabLayoutAtom.activeTabId,
                 let currentIndex = tabs.firstIndex(where: { $0.id == activeTabId }),
                 !tabs.isEmpty
-            else { return nil }
+            else {
+                Self.logger.warning(
+                    "Pane tab selection trigger dropped reason=activeTabUnavailable command=\(String(describing: command), privacy: .public)"
+                )
+                return nil
+            }
             return tabs[(currentIndex - 1 + tabs.count) % tabs.count].id
         case .selectTab1:
             return tabs.isEmpty ? nil : tabs[0].id

@@ -278,14 +278,14 @@ final class PaneFocusExecutor {
     @discardableResult
     private func focusPaneHostIfReady(_ paneId: UUID) -> Bool {
         guard let hostView = hostView(for: paneId), let window = hostView.window else {
-            Self.logger.debug(
+            Self.logger.warning(
                 "focusPaneHostIfReady skipped pane=\(paneId.uuidString, privacy: .public) reason=hostOrWindowMissing")
             return false
         }
         let targetResponder = hostView.preferredFirstResponderViewForPaneFocus ?? hostView
         let didFocus = window.makeFirstResponder(targetResponder)
         if !didFocus {
-            Self.logger.debug("focusPaneHostIfReady failed pane=\(paneId.uuidString, privacy: .public)")
+            Self.logger.warning("focusPaneHostIfReady failed pane=\(paneId.uuidString, privacy: .public)")
         }
         return didFocus
     }
@@ -298,7 +298,7 @@ final class PaneFocusExecutor {
             let mountedContentView = hostView.mountedContentView,
             mountedContentView.acceptsFirstResponder
         else {
-            Self.logger.debug(
+            Self.logger.warning(
                 "focusMountedContentIfReady skipped pane=\(paneId.uuidString, privacy: .public) reason=mountedContentUnavailable"
             )
             return false
@@ -306,7 +306,7 @@ final class PaneFocusExecutor {
 
         let didFocus = window.makeFirstResponder(mountedContentView)
         if !didFocus {
-            Self.logger.debug("focusMountedContentIfReady failed pane=\(paneId.uuidString, privacy: .public)")
+            Self.logger.warning("focusMountedContentIfReady failed pane=\(paneId.uuidString, privacy: .public)")
         }
         return didFocus
     }
@@ -317,13 +317,13 @@ final class PaneFocusExecutor {
             let window = allHostViews().compactMap(\.window).first ?? NSApp.keyWindow,
             let contentView = window.contentView
         else {
-            Self.logger.debug("clearFirstResponderToWindowContent skipped reason=noWindow")
+            Self.logger.warning("clearFirstResponderToWindowContent skipped reason=noWindow")
             return false
         }
 
         let didFocus = window.makeFirstResponder(contentView)
         if !didFocus {
-            Self.logger.debug("clearFirstResponderToWindowContent failed")
+            Self.logger.warning("clearFirstResponderToWindowContent failed")
         }
         return didFocus
     }
@@ -331,40 +331,8 @@ final class PaneFocusExecutor {
     private func syncTerminalRuntimeFocus(for paneId: UUID) {
         let surfaceId = hostView(for: paneId)?.mountedTerminalSurfaceId
         if surfaceId == nil {
-            Self.logger.debug("syncTerminalRuntimeFocus nilSurface pane=\(paneId.uuidString, privacy: .public)")
+            Self.logger.warning("syncTerminalRuntimeFocus nilSurface pane=\(paneId.uuidString, privacy: .public)")
         }
         syncRuntimeFocus(surfaceId)
-    }
-}
-
-@MainActor
-protocol PaneFocusRouting: AnyObject {
-    func handlePaneFocusTrigger(_ trigger: PaneFocusTrigger)
-    func requestPaneRefocus(_ reason: PaneRefocusRequestTrigger.Reason)
-}
-
-@MainActor
-final class PaneFocusSystem {
-    private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneFocusSystem")
-    static let shared = PaneFocusSystem()
-
-    weak var handler: PaneFocusRouting?
-
-    private init() {}
-
-    func handle(_ trigger: PaneFocusTrigger) {
-        guard let handler else {
-            Self.logger.error("PaneFocusSystem.handle dropped trigger because handler is nil")
-            return
-        }
-        handler.handlePaneFocusTrigger(trigger)
-    }
-
-    func requestRefocus(_ reason: PaneRefocusRequestTrigger.Reason = .explicit) {
-        guard let handler else {
-            Self.logger.error("PaneFocusSystem.requestRefocus dropped request because handler is nil")
-            return
-        }
-        handler.requestPaneRefocus(reason)
     }
 }

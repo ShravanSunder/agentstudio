@@ -16,8 +16,8 @@ enum PaneDrawerFocusDecider {
 
         case .toggle(let parentPaneId):
             let responderPaneId =
-                if context.activeDrawerParentPaneId == parentPaneId {
-                    context.activeDrawerPaneId ?? parentPaneId
+                if context.activeDrawer?.parentPaneId == parentPaneId {
+                    context.activeDrawer?.paneId ?? parentPaneId
                 } else {
                     parentPaneId
                 }

@@ -1,10 +1,12 @@
 # Pane Focus System Implementation Plan
 
+> Completed implementation note (2026-04-15): the shipped code diverged in a few intentional ways from the original plan. Pure trigger/context/decision/decider/orchestrator types live under `Sources/AgentStudio/Infrastructure/PaneFocus/`; the AppKit-facing `PaneFocusExecutor` lives under `Sources/AgentStudio/App/Panes/`; `PaneTabViewController` and `PaneCoordinator` assemble `PaneFocusContext` instead of the orchestrator; and the final `PaneFocusContext` uses `targetMountedContent` plus `windowState` rather than the earlier `targetPaneAcceptsFirstResponder` / `targetPaneHasMountedContent` / `targetTerminalSurfaceId` sketch.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the current ad hoc pane focus behavior with a pane-scoped focus system built from exhaustive trigger/decision enums, typed family deciders, and a single `@MainActor` executor.
 
-**Architecture:** Pane-affecting focus triggers become `PaneFocusTrigger` values, the orchestrator assembles one `PaneFocusContext` snapshot, typed family deciders return exhaustive `PaneFocusDecision` values, and `PaneFocusExecutor` applies all selection/responder/runtime effects. This is a full clean-cut change: pane-affecting focus stops flowing through `PaneActionCommand.focusPane(...)` and direct `refocusActivePane()` / `makeFirstResponder(...)` helpers.
+**Architecture:** Pane-affecting focus triggers become `PaneFocusTrigger` values, `PaneTabViewController` and `PaneCoordinator` assemble `PaneFocusContext` snapshots at the UI/runtime boundary, typed family deciders return exhaustive `PaneFocusDecision` values, and `PaneFocusExecutor` applies all selection/responder/runtime effects. This is a full clean-cut change: pane-affecting focus stops flowing through `PaneActionCommand.focusPane(...)` and direct `refocusActivePane()` / `makeFirstResponder(...)` helpers.
 
 **Tech Stack:** Swift 6.2, AppKit, SwiftUI, Observation, Swift Testing, actor-bound atoms/derived selectors
 
@@ -60,7 +62,7 @@ Test:
 - Tests/AgentStudioTests/Features/Webview/WebviewPaneControllerTests.swift
 ```
 
-The new code lives under `App/Panes/Focus/` because it is pane-scoped orchestration and AppKit/UI behavior, not canonical domain state.
+The final implementation split pure pane-focus types into `Infrastructure/PaneFocus/` and kept the AppKit-facing executor in `App/Panes/`.
 
 ---
 
@@ -1100,4 +1102,3 @@ git commit -m "feat: replace pane focus with policy-driven system"
 - effect applier: PaneFocusExecutor
 - family implementations use "Decider" suffix consistently
 ```
-

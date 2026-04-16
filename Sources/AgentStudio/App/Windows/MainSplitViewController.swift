@@ -47,6 +47,17 @@ class MainSplitViewController: NSSplitViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
+        let paneTabVC = PaneTabViewController(
+            store: store,
+            repoCache: repoCache,
+            applicationLifecycleMonitor: applicationLifecycleMonitor,
+            appLifecycleStore: appLifecycleStore,
+            executor: actionExecutor,
+            tabBarAdapter: tabBarAdapter,
+            viewRegistry: viewRegistry
+        )
+        self.paneTabViewController = paneTabVC
+
         // Configure split view
         splitView.isVertical = true
         splitView.dividerStyle = .thin
@@ -54,7 +65,10 @@ class MainSplitViewController: NSSplitViewController {
 
         // Create sidebar (SwiftUI via NSHostingController)
         let sidebarView = SidebarViewWrapper(
-            store: store
+            store: store,
+            onRefocusActivePane: { [weak paneTabVC] in
+                paneTabVC?.refocusActivePane()
+            }
         )
         let sidebarHosting = NSHostingController(rootView: AnyView(sidebarView))
         sidebarHosting.sizingOptions = []
@@ -66,18 +80,6 @@ class MainSplitViewController: NSSplitViewController {
         sidebarItem.canCollapse = true
         sidebarItem.collapseBehavior = .preferResizingSiblingsWithFixedSplitView
         addSplitViewItem(sidebarItem)
-
-        // Create pane tab area (pure AppKit)
-        let paneTabVC = PaneTabViewController(
-            store: store,
-            repoCache: repoCache,
-            applicationLifecycleMonitor: applicationLifecycleMonitor,
-            appLifecycleStore: appLifecycleStore,
-            executor: actionExecutor,
-            tabBarAdapter: tabBarAdapter,
-            viewRegistry: viewRegistry
-        )
-        self.paneTabViewController = paneTabVC
 
         let paneTabItem = NSSplitViewItem(viewController: paneTabVC)
         paneTabItem.minimumThickness = 400
@@ -172,8 +174,9 @@ class MainSplitViewController: NSSplitViewController {
 /// Uses WorkspaceStore instead of SessionManager.
 struct SidebarViewWrapper: View {
     let store: WorkspaceStore
+    let onRefocusActivePane: () -> Void
 
     var body: some View {
-        RepoSidebarContentView(store: store)
+        RepoSidebarContentView(store: store, onRefocusActivePane: onRefocusActivePane)
     }
 }

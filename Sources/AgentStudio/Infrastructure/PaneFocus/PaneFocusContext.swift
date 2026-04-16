@@ -19,16 +19,6 @@ struct PaneFocusContext: Sendable, Equatable {
         case active(scope: PaneManagementFocusScope)
     }
 
-    enum TriggerSource: Sendable, Equatable {
-        case contentClick
-        case tabClick
-        case drawerClick
-        case keyboard
-        case modeTransition
-        case refocusRequest
-        case command
-    }
-
     enum WindowState: Sendable, Equatable {
         case background
         case focused
@@ -41,10 +31,14 @@ struct PaneFocusContext: Sendable, Equatable {
         case terminal(surfaceId: UUID?)
     }
 
+    struct ActiveDrawerContext: Sendable, Equatable {
+        let parentPaneId: UUID
+        let paneId: UUID?
+    }
+
     let activeTabId: UUID?
     let activePaneId: UUID?
-    let activeDrawerParentPaneId: UUID?
-    let activeDrawerPaneId: UUID?
+    let activeDrawer: ActiveDrawerContext?
     let targetPaneId: UUID?
     let targetTabId: UUID?
     let targetPaneKind: PaneKind
@@ -52,5 +46,46 @@ struct PaneFocusContext: Sendable, Equatable {
     let targetMountedContent: MountedContentState
     let managementMode: ManagementModeState
     let windowState: WindowState
-    let triggerSource: TriggerSource
+
+    init(
+        activeTabId: UUID?,
+        activePaneId: UUID?,
+        activeDrawer: ActiveDrawerContext?,
+        targetPaneId: UUID?,
+        targetTabId: UUID?,
+        targetPaneKind: PaneKind,
+        targetPaneIsAlreadyActive: Bool,
+        targetMountedContent: MountedContentState,
+        managementMode: ManagementModeState,
+        windowState: WindowState
+    ) {
+        assert(targetPaneId == nil || targetTabId != nil || activeTabId == nil || targetPaneIsAlreadyActive)
+        self.activeTabId = activeTabId
+        self.activePaneId = activePaneId
+        self.activeDrawer = activeDrawer
+        self.targetPaneId = targetPaneId
+        self.targetTabId = targetTabId
+        self.targetPaneKind = targetPaneKind
+        self.targetPaneIsAlreadyActive = targetPaneIsAlreadyActive
+        self.targetMountedContent = targetMountedContent
+        self.managementMode = managementMode
+        self.windowState = windowState
+    }
+}
+
+extension PaneFocusContext.PaneKind {
+    init(content: PaneContent?) {
+        switch content {
+        case .terminal:
+            self = .terminal
+        case .webview:
+            self = .webview
+        case .bridgePanel:
+            self = .bridge
+        case .codeViewer:
+            self = .codeViewer
+        case .unsupported, .none:
+            self = .unknown
+        }
+    }
 }

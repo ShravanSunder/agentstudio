@@ -1,5 +1,7 @@
 # Pane Focus System Design
 
+> Implementation note (2026-04-15): the final code keeps the pure trigger/context/decision/decider/orchestrator types under `Sources/AgentStudio/Infrastructure/PaneFocus/`, while the AppKit-facing `PaneFocusExecutor` lives under `Sources/AgentStudio/App/Panes/`. `PaneTabViewController` assembles `PaneFocusContext` for UI-driven triggers, and `PaneCoordinator` assembles the narrower refocus contexts it needs for runtime/view lifecycle repair.
+
 **Problem**
 
 Pane focus behavior is currently spread across pane views, tab views, coordinators, management-mode code, and mounted content wrappers. A single user interaction can currently mutate pane selection, AppKit first responder, terminal runtime focus, and web/DOM focus through separate code paths. This makes the behavior hard to reason about, hard to test as scenarios, and easy to regress, as shown by the recent WebView text-input focus bug.
@@ -192,20 +194,22 @@ This keeps policy signatures stable, makes tests easy to set up, and avoids a fa
 
 ### Context Assembly
 
-`PaneFocusOrchestrator` is responsible for assembling `PaneFocusContext` immediately before policy dispatch.
+`PaneFocusContext` is assembled at the boundary where pane-focus triggers enter the system.
 
 ```text
 +-------------------------+-------------------------------------------+
 | Component               | Responsibility                            |
 +-------------------------+-------------------------------------------+
-| PaneFocusOrchestrator   | assemble PaneFocusContext                 |
+| PaneTabViewController   | assemble UI-driven PaneFocusContext       |
+| PaneCoordinator         | assemble explicit refocus contexts        |
+| PaneFocusOrchestrator   | dispatch trigger family to typed decider  |
 | typed family deciders   | consume already-built context             |
 | policy tests            | use hand-built contexts                   |
-| orchestrator tests      | verify assembly + dispatch               |
+| orchestrator tests      | verify dispatch                          |
 +-------------------------+-------------------------------------------+
 ```
 
-The orchestrator may read atoms, derived selectors, and injected view/runtime registries as needed to assemble the snapshot. Policies themselves stay free of those dependencies.
+The context builders may read atoms, derived selectors, and injected view/runtime registries as needed to assemble the snapshot. Policies themselves stay free of those dependencies.
 
 ## Decision Semantics
 

@@ -15,16 +15,14 @@ struct PaneTabClickFocusDeciderTests {
             context: PaneFocusContext(
                 activeTabId: nil,
                 activePaneId: nil,
-                activeDrawerParentPaneId: nil,
-                activeDrawerPaneId: nil,
+                activeDrawer: nil,
                 targetPaneId: nil,
                 targetTabId: tabId,
                 targetPaneKind: .terminal,
                 targetPaneIsAlreadyActive: false,
                 targetMountedContent: .unmounted,
                 managementMode: .inactive,
-                windowState: .key,
-                triggerSource: .tabClick
+                windowState: .key
             )
         )
 

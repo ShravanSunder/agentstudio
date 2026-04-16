@@ -19,16 +19,14 @@ struct PaneContentClickFocusDeciderTests {
         let context = PaneFocusContext(
             activeTabId: tabId,
             activePaneId: paneId,
-            activeDrawerParentPaneId: nil,
-            activeDrawerPaneId: nil,
+            activeDrawer: nil,
             targetPaneId: paneId,
             targetTabId: tabId,
             targetPaneKind: .webview,
             targetPaneIsAlreadyActive: true,
             targetMountedContent: .nonTerminal(acceptsFirstResponder: true),
             managementMode: .inactive,
-            windowState: .key,
-            triggerSource: .contentClick
+            windowState: .key
         )
 
         let decision = PaneContentClickFocusDecider.decide(

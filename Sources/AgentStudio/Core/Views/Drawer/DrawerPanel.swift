@@ -58,6 +58,7 @@ struct DrawerPanel: View {
     let action: (PaneActionCommand) -> Void
     let onResize: (CGFloat) -> Void
     let onDismiss: () -> Void
+    let onPaneFocusTrigger: PaneFocusTriggerHandler
     let appLifecycleStore: AppLifecycleAtom
     let onOpenPaneGitHub: (UUID) -> Void
 
@@ -83,6 +84,7 @@ struct DrawerPanel: View {
         action: @escaping (PaneActionCommand) -> Void,
         onResize: @escaping (CGFloat) -> Void,
         onDismiss: @escaping () -> Void,
+        onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         appLifecycleStore: AppLifecycleAtom,
         onOpenPaneGitHub: @escaping (UUID) -> Void
     ) {
@@ -99,6 +101,7 @@ struct DrawerPanel: View {
         self.action = action
         self.onResize = onResize
         self.onDismiss = onDismiss
+        self.onPaneFocusTrigger = onPaneFocusTrigger
         self.appLifecycleStore = appLifecycleStore
         self.onOpenPaneGitHub = onOpenPaneGitHub
         self._drawerActionDispatcher = State(
@@ -208,6 +211,7 @@ struct DrawerPanel: View {
                             minimizedPaneIds: minimizedPaneIds,
                             closeTransitionCoordinator: closeTransitionCoordinator,
                             actionDispatcher: drawerActionDispatcher,
+                            onPaneFocusTrigger: onPaneFocusTrigger,
                             store: store,
                             repoCache: repoCache,
                             viewRegistry: viewRegistry,
@@ -330,6 +334,7 @@ struct DrawerPanel: View {
                     action: { _ in },
                     onResize: { _ in },
                     onDismiss: {},
+                    onPaneFocusTrigger: { _ in },
                     appLifecycleStore: AppLifecycleAtom(),
                     onOpenPaneGitHub: { _ in }
                 )

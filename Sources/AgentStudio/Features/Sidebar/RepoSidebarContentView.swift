@@ -14,6 +14,7 @@ struct RepoSidebarContentView: View {
     }
 
     let store: WorkspaceStore
+    let onRefocusActivePane: () -> Void
 
     private var repoCache: RepoCacheAtom {
         atom(\.repoCache)
@@ -457,7 +458,7 @@ struct RepoSidebarContentView: View {
         isFilterFocused = false
         uiState.setFilterText("")
         uiState.setFilterVisible(false)
-        PaneFocusSystem.shared.requestRefocus(.explicit)
+        onRefocusActivePane()
     }
 
     private func openRepoInFinder(_ path: URL) {

@@ -9,6 +9,7 @@ struct FlatTabStripContainer: View {
     let minimizedPaneIds: Set<UUID>
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let onPaneFocusTrigger: PaneFocusTriggerHandler
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let viewRegistry: ViewRegistry
@@ -73,6 +74,7 @@ struct FlatTabStripContainer: View {
                         minimizedPaneIds: minimizedPaneIds,
                         closeTransitionCoordinator: closeTransitionCoordinator,
                         actionDispatcher: actionDispatcher,
+                        onPaneFocusTrigger: onPaneFocusTrigger,
                         store: store,
                         repoCache: repoCache,
                         viewRegistry: viewRegistry,
@@ -95,6 +97,7 @@ struct FlatTabStripContainer: View {
                     tabSize: tabGeometry.size,
                     iconBarFrame: iconBarFrame,
                     actionDispatcher: actionDispatcher,
+                    onPaneFocusTrigger: onPaneFocusTrigger,
                     onOpenPaneGitHub: onOpenPaneGitHub
                 )
 
@@ -152,6 +155,7 @@ struct FlatTabStripContainer: View {
             repoCache: repoCache,
             closeTransitionCoordinator: closeTransitionCoordinator,
             actionDispatcher: actionDispatcher,
+            onPaneFocusTrigger: onPaneFocusTrigger,
             onOpenPaneGitHub: onOpenPaneGitHub
         )
     }

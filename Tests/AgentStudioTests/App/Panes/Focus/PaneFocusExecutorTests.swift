@@ -81,16 +81,14 @@ struct PaneFocusExecutorTests {
             context: PaneFocusContext(
                 activeTabId: UUID(),
                 activePaneId: paneHost.paneId,
-                activeDrawerParentPaneId: nil,
-                activeDrawerPaneId: nil,
+                activeDrawer: nil,
                 targetPaneId: paneHost.paneId,
                 targetTabId: UUID(),
                 targetPaneKind: .webview,
                 targetPaneIsAlreadyActive: true,
                 targetMountedContent: .nonTerminal(acceptsFirstResponder: true),
                 managementMode: .inactive,
-                windowState: .key,
-                triggerSource: .contentClick
+                windowState: .key
             )
         )
 

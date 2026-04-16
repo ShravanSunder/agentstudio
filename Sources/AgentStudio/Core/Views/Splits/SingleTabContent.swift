@@ -8,6 +8,7 @@ struct SingleTabContent: View {
     let appLifecycleStore: AppLifecycleAtom
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let onPaneFocusTrigger: PaneFocusTriggerHandler
     let onOpenPaneGitHub: (UUID) -> Void
 
     private static func traceMissingTab(tabId: UUID) -> Int {
@@ -28,6 +29,7 @@ struct SingleTabContent: View {
                 minimizedPaneIds: tab.minimizedPaneIds,
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 actionDispatcher: actionDispatcher,
+                onPaneFocusTrigger: onPaneFocusTrigger,
                 store: store,
                 repoCache: repoCache,
                 viewRegistry: viewRegistry,

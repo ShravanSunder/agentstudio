@@ -25,6 +25,7 @@ struct PaneLeafContainer: View {
     let repoCache: RepoCacheAtom
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let onPaneFocusTrigger: PaneFocusTriggerHandler
     let onOpenPaneGitHub: (UUID) -> Void
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
@@ -48,6 +49,7 @@ struct PaneLeafContainer: View {
         repoCache: RepoCacheAtom,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
+        onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
         dropTargetCoordinateSpace: String? = "tabContainer",
         useDrawerFramePreference: Bool = false
@@ -61,6 +63,7 @@ struct PaneLeafContainer: View {
         self.repoCache = repoCache
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
+        self.onPaneFocusTrigger = onPaneFocusTrigger
         self.onOpenPaneGitHub = onOpenPaneGitHub
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
@@ -159,7 +162,8 @@ struct PaneLeafContainer: View {
                                 onOpenFinder: { openInFinder(managementContext) },
                                 onOpenCursor: { openInCursor(managementContext) }
                             ),
-                            action: actionDispatcher.dispatch
+                            action: actionDispatcher.dispatch,
+                            onPaneFocusTrigger: onPaneFocusTrigger
                         )
                         .fixedSize(horizontal: false, vertical: true)
                     }
@@ -347,13 +351,13 @@ struct PaneLeafContainer: View {
             .onHover { isHovered = $0 }
             .onTapGesture {
                 if let drawerParentPaneId {
-                    PaneFocusSystem.shared.handle(
+                    onPaneFocusTrigger(
                         .drawer(
                             .selectPane(parentPaneId: drawerParentPaneId, drawerPaneId: paneHost.id)
                         )
                     )
                 } else {
-                    PaneFocusSystem.shared.handle(
+                    onPaneFocusTrigger(
                         .contentClick(
                             PaneContentClickFocusTrigger(
                                 targetPaneId: paneHost.id,

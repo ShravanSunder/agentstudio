@@ -15,6 +15,7 @@ struct DrawerOverlay: View {
     let isIconBarVisible: Bool
     let trailingActions: TrailingActions?
     let action: (PaneActionCommand) -> Void
+    let onPaneFocusTrigger: PaneFocusTriggerHandler
 
     var body: some View {
         DrawerIconBar(
@@ -22,7 +23,7 @@ struct DrawerOverlay: View {
             onAdd: { addDrawerPane() },
             onToggleExpand: {
                 action(.toggleDrawer(paneId: paneId))
-                PaneFocusSystem.shared.handle(.drawer(.toggle(parentPaneId: paneId)))
+                onPaneFocusTrigger(.drawer(.toggle(parentPaneId: paneId)))
             },
             trailingActions: trailingActions
         )

@@ -15,16 +15,14 @@ struct PaneKeyboardFocusDeciderTests {
             context: PaneFocusContext(
                 activeTabId: UUID(),
                 activePaneId: paneId,
-                activeDrawerParentPaneId: nil,
-                activeDrawerPaneId: nil,
+                activeDrawer: nil,
                 targetPaneId: paneId,
                 targetTabId: UUID(),
                 targetPaneKind: .terminal,
                 targetPaneIsAlreadyActive: false,
                 targetMountedContent: .terminal(surfaceId: UUID()),
                 managementMode: .inactive,
-                windowState: .key,
-                triggerSource: .keyboard
+                windowState: .key
             )
         )
 
@@ -42,16 +40,14 @@ struct PaneKeyboardFocusDeciderTests {
             context: PaneFocusContext(
                 activeTabId: UUID(),
                 activePaneId: paneId,
-                activeDrawerParentPaneId: nil,
-                activeDrawerPaneId: nil,
+                activeDrawer: nil,
                 targetPaneId: paneId,
                 targetTabId: UUID(),
                 targetPaneKind: .webview,
                 targetPaneIsAlreadyActive: false,
                 targetMountedContent: .nonTerminal(acceptsFirstResponder: true),
                 managementMode: .inactive,
-                windowState: .key,
-                triggerSource: .keyboard
+                windowState: .key
             )
         )
 
