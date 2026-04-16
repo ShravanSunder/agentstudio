@@ -145,12 +145,7 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
-RUN_ID="${AGENT_RUN_ID:-}"
-if [ -z "$RUN_ID" ]; then
-  echo "[build] ERROR: AGENT_RUN_ID is required (example: AGENT_RUN_ID=abc123 mise run build)"
-  exit 2
-fi
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$RUN_ID}"
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$PPID}"
 echo "[build] BUILD_PATH=$BUILD_PATH"
 xcb_pipe=$(_xcb_pipe_cmd)
 swift build --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
@@ -162,12 +157,7 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
-RUN_ID="${AGENT_RUN_ID:-}"
-if [ -z "$RUN_ID" ]; then
-  echo "[build-release] ERROR: AGENT_RUN_ID is required (example: AGENT_RUN_ID=abc123 mise run build-release)"
-  exit 2
-fi
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build-release-agent-$RUN_ID}"
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-release-agent-$PPID}"
 echo "[build-release] BUILD_PATH=$BUILD_PATH"
 xcb_pipe=$(_xcb_pipe_cmd)
 swift build -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
@@ -178,12 +168,7 @@ description = "Run default test suite (excludes E2E + ZmxE2E by default)"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-RUN_ID="${AGENT_RUN_ID:-}"
-if [ -z "$RUN_ID" ]; then
-  echo "[test] ERROR: AGENT_RUN_ID is required (example: AGENT_RUN_ID=abc123 mise run test)"
-  exit 2
-fi
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$RUN_ID}"
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$PPID}"
 TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
 echo "[test] BUILD_PATH=$BUILD_PATH"
 echo "[test] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
@@ -241,12 +226,7 @@ description = "Run test suite with code coverage and print coverage JSON path"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-RUN_ID="${AGENT_RUN_ID:-}"
-if [ -z "$RUN_ID" ]; then
-  echo "[test-coverage] ERROR: AGENT_RUN_ID is required (example: AGENT_RUN_ID=abc123 mise run test-coverage)"
-  exit 2
-fi
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$RUN_ID}"
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$PPID}"
 TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
 echo "[test-coverage] BUILD_PATH=$BUILD_PATH"
 echo "[test-coverage] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
@@ -347,12 +327,7 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
-RUN_ID="${AGENT_RUN_ID:-}"
-if [ -z "$RUN_ID" ]; then
-  echo "[test-benchmark] ERROR: AGENT_RUN_ID is required (example: AGENT_RUN_ID=abc123 mise run test-benchmark)"
-  exit 2
-fi
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$RUN_ID}"
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$PPID}"
 export AGENT_STUDIO_BENCHMARK_MODE=benchmark
 xcb_pipe=$(_xcb_pipe_cmd)
 swift test --build-path "$BUILD_PATH" --filter "PushBenchmarkSupportTests" 2>&1 | $xcb_pipe
@@ -376,8 +351,7 @@ run = """
 #!/usr/bin/env bash
 set -e
 
-RUN_ID="${AGENT_RUN_ID:-manual}"
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build-release-agent-$RUN_ID}"
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-release-agent-$PPID}"
 APP_DIR="AgentStudio.app/Contents"
 rm -rf AgentStudio.app
 mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
