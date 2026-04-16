@@ -138,8 +138,16 @@ Every launcher section spans this same measure:
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-- Recents grid fills `contentColumnWidth` (card widths are computed so the
-  grid spans this exact measure at each column count).
+- Recents grid fills `contentColumnWidth` **exactly**. Cards are flexible-
+  width, not fixed. Card width at runtime:
+  ```
+  cardWidth(n) = (contentColumnWidth − recentCardGap · (n − 1)) / n
+  ```
+  - wide (n=3):   (1092 − 40) / 3 = 350.67 → ~350 px per card
+  - medium (n=2): (1092 − 20) / 2 = 536 px per card
+  - narrow (n=1): 1092 px per card (at the breakpoint; at smaller viewports
+    the card shrinks with the column)
+
 - `⌘T` hero row fills `contentColumnWidth`.
 - `⌘P` section fills `contentColumnWidth` (`teachingColumnWidth` on the left,
   `previewWidth` on the right, separated by `contentColumnsGap`).
@@ -147,6 +155,16 @@ Every launcher section spans this same measure:
 This is expressed as a computed static on `WorkspaceEmptyStateLayout`
 (existing file), not as a new `AppStyles.Welcome` token — it is derived
 geometry, not a visual value.
+
+### Role change for `recentCardWidth`
+
+`recentCardWidth = 260` in `AppStyles.Welcome` stops being a fixed card
+geometry. Its new role is a **minimum readable card width**. At very small
+viewports where the flexible card would otherwise shrink below this minimum,
+the grid stops subdividing columns (i.e. column count drops one level).
+Rename the token to `recentCardMinWidth` for clarity in the same change.
+The old name is removed — no compatibility alias (hard cutover, per repo
+convention).
 
 ## Structure
 
@@ -163,7 +181,18 @@ Uses the existing `WorkspaceHomeHeader` helper. Same tokens as today
 ### 2. Recent section (promoted to position 2, above teaching)
 
 - Section label `Recent` + optional "Open all in tabs" chip when
-  `model.showsOpenAll` is true (existing behavior).
+  `model.showsOpenAll` is true.
+
+  Chip style (explicit):
+  - SwiftUI `Button` with `.buttonStyle(.bordered)`, `.controlSize(.regular)`.
+  - Label from `LocalActionSpec.openAllInTabs.actionSpec.label` (existing).
+  - Placed in the same horizontal row as the `Recent` label via
+    `HStack(alignment: .center, spacing: 16)`, trailing the label.
+  - Does not wrap under the label. At narrow viewport
+    (`availableWidth < launcherNarrowBreakpoint`) it stays on the same row;
+    if space is insufficient, it truncates the label (not the chip) via
+    `minLength` on the spacer between them.
+  - When `model.showsOpenAll == false`, the chip is not rendered at all.
 - Grid:
   - **Wide window** (`availableWidth ≥ launcherWideBreakpoint`): 3 columns × 2
     rows = 6 visible.
@@ -228,6 +257,11 @@ Uses the existing `WorkspaceHomeHeader` helper. Same tokens as today
 - Horizontal layout: teaching column on the left, preview on the right,
   aligned tops. Same column widths as today (`teachingColumnWidth`,
   `previewWidth`, `contentColumnsGap`).
+- **Narrow-width fallback:** when
+  `availableWidth < launcherNarrowBreakpoint`, the horizontal pair collapses
+  to a `VStack`: teaching column on top, preview below at its full
+  `previewWidth`. Same content, stacked. This prevents the pair from
+  clipping the right edge at viewports below ~1012 px.
 - **Teaching column (left):** `⌘P` + title `Command palette` + one-line body
   `Scope your search with a prefix. →`. Clickable same as today (dispatches
   `.showCommandBarEverything`).
@@ -235,38 +269,86 @@ Uses the existing `WorkspaceHomeHeader` helper. Same tokens as today
   result row gains a richer body line explaining what the scope does. See
   "Preview row enrichment" below.
 
-#### Preview row enrichment
+#### Preview row enrichment — launcher-only variant
 
-Today's mock rows show only the scope name + one-line subtitle. Enriched rows
-keep the same `CommandBarResultRow` component with its existing subtitle slot,
-but the mock-preview subtitle is lengthened from a short label to an actual
-explanation, wrapped to two lines:
+The real `CommandBarResultRow` renders title + subtitle **inline in an HStack**
+at a fixed `rowHeight = 36pt` with `lineLimit(1)` on both. That layout cannot
+render a two-line explanation without breaking real-modal density. Attempting
+to loosen it via `lineLimit(2)` on the shared component is out of scope — the
+real modal must stay unchanged.
 
-| Prefix | Title              | Subtitle (new)                                |
+Resolution: the launcher preview uses a **separate row view** that lives only
+in `WorkspaceEmptyStateView.swift`:
+
+```swift
+private struct LauncherPreviewScopeRow: View {
+    let prefix: String
+    let title: String
+    let body: String
+    let isSelected: Bool
+}
+```
+
+Layout:
+- Outer `HStack(alignment: .top)`.
+- Left: caret column (`▸` for the selected row, empty for the rest) at the
+  same width as `CommandBarResultRow`'s icon column.
+- Middle: `VStack(alignment: .leading, spacing: scopeRowTitleBodyGap)`:
+  - Line 1: `prefix` in monospaced + `title` in medium weight.
+  - Line 2: `body` at `scopeRowBodySize` / secondary opacity, wrapping up to
+    two lines with `lineLimit(2)`.
+- Selected-row background: accent fill at 15% opacity, same treatment as
+  `CommandBarResultRow`'s selected state.
+
+Scope content:
+
+| Prefix | Title              | Body                                          |
 |--------|--------------------|-----------------------------------------------|
 | `>`    | Commands           | Run actions — open, close, toggle             |
 | `$`    | Panes              | Jump to any open tab or pane                  |
 | `#`    | Repos · Worktrees  | Open a repo, switch a worktree, or start new  |
 
-The result rows get a slight vertical spacing increase between rows in the
-preview `VStack` (`scopeRowVerticalSpacing`) so the two-line subtitle has
-breathing room. Inside the real command bar modal, rows stay at their current
-density — the enrichment is only applied in the launcher preview variant.
+Rows are stacked in a `VStack(spacing: scopeRowVerticalSpacing)` inside the
+preview between the search-row divider and the footer divider.
 
-#### CommandBarResultRow subtitle wrapping
-
-Open item to verify during implementation: `CommandBarResultRow` must accept a
-two-line subtitle (soft wrap on natural width) without truncating. If it
-currently truncates to a single line, the minimal fix is to allow the subtitle
-`Text` to wrap with `lineLimit(2)`. This is an additive change to the row
-component and must not alter the real command bar modal's behavior (the modal
-passes short subtitles that still fit on one line).
+`CommandBarStatusStrip`, `CommandBarFooter`, and the search-row mock in
+`CommandBarEmbeddedPreview` continue to use the real components unchanged.
 
 ### Non-launcher states
 
 `.noFolders`, `.scanning`, `.scanEmpty` remain visually and structurally
 unchanged. Any new `AppStyles.Welcome` token added by this redesign is
 launcher-only and cannot be consumed by these states.
+
+## Typography Contract
+
+The token names below lock to **these concrete values**. Changing a value
+counts as a Welcome-1 visual change and is out of scope for this spec. Tests
+assert the values at the token level.
+
+| Role                          | Size | Weight     | Opacity | Token                           |
+|-------------------------------|-----:|------------|--------:|---------------------------------|
+| Page title (`Your workspace`) |   30 | `.semibold`|    1.00 | `titleFontSize`                 |
+| Page subtitle                 |   16 | `.regular` |    .secondary | `bodyFontSize` (= `textXl`) |
+| Section label (`Recent`)      |   15 | `.semibold`|    0.62 | `sectionLabelFontSize`, `sectionLabelOpacity` |
+| ⌘T / ⌘P title                 |   24 | `.semibold`|    1.00 | `shortcutTitleFontSize`         |
+| ⌘T / ⌘P body                  |   16 | `.regular` |    .secondary | `shortcutBodyFontSize` (= `bodyFontSize`) |
+| ⌘T / ⌘P key (`⌘T`, `⌘P`)      |   18 | `.semibold` monospaced | accent | `shortcutKeyFontSize` |
+| Recent card title             |   13 | `.medium`  |    .primary | `General.Typography.textBase` |
+| Recent card branch            |   12 | `.regular` |    .secondary | `General.Typography.textSm` |
+| Preview scope title           |   13 | `.medium`  |    .primary | matches `CommandBarResultRow` |
+| Preview scope body            |   12 | `.regular` |    0.50 | new `scopeRowBodySize` |
+
+Hierarchy rules:
+
+- Page title is visually heaviest.
+- `⌘T` / `⌘P` titles are the second heaviest (24/semibold).
+- Section labels read as muted capitals-like headers (15/semibold @ 62%).
+- Body and card titles fall behind at 13–16 / regular–medium.
+
+If a reviewer sees the rendered page and the `⌘T` / `⌘P` titles do not read
+heavier than `Recent` card titles, the implementation is wrong even if the
+tokens match.
 
 ## AppStyles.Welcome Tokens
 
@@ -285,9 +367,13 @@ static let heroRowInnerHorizontalPadding: CGFloat = 24
 static let heroRowInnerVerticalPadding: CGFloat = 22
 static let heroRowChevronOpacity: CGFloat = 0.35
 
-// ⌘P preview scope rows (launcher-only enrichment)
+// ⌘P preview scope rows (launcher-only enrichment, used by LauncherPreviewScopeRow)
 static let scopeRowVerticalSpacing: CGFloat = 12
-static let scopeRowSubtitleLineSpacing: CGFloat = 2
+static let scopeRowTitleBodyGap: CGFloat = 2
+static let scopeRowBodySize: CGFloat = AppStyles.General.Typography.textSm
+static let scopeRowBodyOpacity: CGFloat = 0.50
+static let scopeRowBodyLineLimit: Int = 2
+static let scopeRowCaretColumnWidth: CGFloat = AppStyles.CommandBar.Rows.iconSize
 
 // Responsive breakpoints (driven by availableWidth inside the ScrollView)
 static let launcherWideBreakpoint: CGFloat = 1400
@@ -310,11 +396,17 @@ static let heroToCommandPaletteGap: CGFloat = 28
 `shortcutTitleBodyGap`, `shortcutRowHorizontalPadding`,
 `shortcutRowVerticalPadding`, `shortcutRowHoverRadius`,
 `shortcutBodyLeadingInset`, `teachingColumnWidth`, `recentsColumnWidth`,
-`recentCardWidth`, `recentCardGap`, `recentsColumnCount` (renamed role — see
-note), `previewWidth`, `previewCornerRadius`, `previewStatusRowHeight`,
+`recentCardGap`, `recentsColumnCount` (renamed role — see note),
+`previewWidth`, `previewCornerRadius`, `previewStatusRowHeight`,
 `previewSearchRowHeight`, `previewResultRowHeight`, `previewFooterHeight`,
 `cardFillOpacity`, `cardStrokeOpacity`, `cardHoverOpacity`,
 `interactiveHoverOpacity`.
+
+### Renamed
+
+- `recentCardWidth` → `recentCardMinWidth` (value `260` unchanged; role shift
+  from fixed card geometry to minimum card width). All consumers update in
+  the same PR. No alias remains.
 
 ### Token rename / role shift
 
@@ -343,6 +435,56 @@ static func recentColumnCount(for availableWidth: CGFloat) -> Int {
 `recentGridColumns(for:)`, `recentSectionWidth(for:)`, and
 `visibleRecentCardLimit(for:)` stay the same shape but consume the new
 responsive column count.
+
+## Target Viewport
+
+The design is tuned for a **default 14" MacBook Pro window**:
+
+```
+target viewport
+├── width  : 1240 px  (inside the app window, post-sidebar)
+└── height :  820 px  (pane-area height, post-title/tab bar)
+```
+
+### Height budget at target viewport
+
+```
+┌─────────────────────────────────────────┬──────┬──────┐
+│ Element                                 │  Δ   │  y   │
+├─────────────────────────────────────────┼──────┼──────┤
+│ pageVerticalPadding (top)               │  48  │   48 │
+│ header (title + subtitle + gap)         │  80  │  128 │
+│ headerToContentGap                      │  40  │  168 │
+│ Recent section label                    │  30  │  198 │
+│ sectionToContentGap                     │  22  │  220 │
+│ recent row 1                            │ 100  │  320 │
+│ recentCardGap                           │  20  │  340 │
+│ recent row 2                            │ 100  │  440 │
+│ recentCardGap                           │  20  │  460 │
+│ recent row 3                            │ 100  │  560 │
+│ recentsToHeroGap                        │  32  │  592 │
+│ ⌘T hero row                             │  92  │  684 │   ◀── fold at 820
+│ heroToCommandPaletteGap                 │  28  │  712 │
+│ ⌘P section (teaching col vs preview)    │ 340  │ 1052 │
+│ pageVerticalPadding (bottom)            │  48  │ 1100 │
+└─────────────────────────────────────────┴──────┴──────┘
+```
+
+### Contract
+
+At 1240 × 820 viewport, the following **must** be visible without scrolling:
+
+1. Page title + subtitle.
+2. All 6 recent cards (3 rows × 2 columns, or 2 rows × 3 columns at wider
+   viewports).
+3. The full `⌘T` hero row.
+
+The `⌘P` section is permitted to begin below the fold — returning users are
+optimized for recents, new users scroll to discover `⌘P`.
+
+This is testable in the view layer: a sized preview at 1240×820 with a full 6
+cards + hero must return an intrinsic-content height ≤ 820 px for the
+above-fold stack.
 
 ## Scroll Behavior
 
@@ -393,15 +535,28 @@ responsive column count.
 2. `.scanning` and `.scanEmpty` render unchanged.
 3. Launcher (`.launcher`) state:
    - Recents appear directly below the header, above the hero row.
+   - Recents grid fills `contentColumnWidth` exactly at each column count
+     (no orphan slack to the right).
    - `⌘T` row is a bordered hero block, full-width of the content column.
-   - `⌘P` text and preview are horizontally paired; preview shows enriched
-     two-line scope subtitles.
+   - `⌘P` text and preview are horizontally paired at
+     `availableWidth ≥ launcherNarrowBreakpoint`; stacked vertically below.
+   - Preview uses `LauncherPreviewScopeRow` (launcher-only); real
+     `CommandBarResultRow` is unmodified.
    - Responsive column counts match the breakpoint table.
-4. All existing tests green. New tests green.
-5. `mise run lint` passes with zero errors.
-6. Peekaboo visual checks captured for:
+4. **Typography contract.** All values in the typography table match at the
+   token level and render in the hierarchy stated. Tested via
+   `#expect` on `AppStyles.Welcome` values and a view-structure assertion
+   that `shortcutTitleFontSize > General.Typography.textBase` (preview scope
+   title font).
+5. **Height budget contract.** At 1240×820 viewport, the above-fold stack
+   (header → recents → `⌘T` hero) returns intrinsic height ≤ 820 px.
+   Asserted via a `ViewThatFits`-style measurement test in
+   `WorkspaceEmptyStateViewTests`.
+6. All existing tests green. New tests green.
+7. `mise run lint` passes with zero errors.
+8. Peekaboo visual checks captured for:
    - Welcome 1 before/after (must be identical).
-   - Launcher at wide (≥ 1400), medium (1100), narrow (850) widths.
+   - Launcher at wide (1600), medium (1240 target), narrow (950) widths.
    - Launcher in dark and light mode.
 
 ## Non-goals
