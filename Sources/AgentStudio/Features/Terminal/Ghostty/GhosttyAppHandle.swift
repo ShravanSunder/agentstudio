@@ -65,5 +65,9 @@ extension Ghostty {
         func tick() {
             ghostty_app_tick(appHandle)
         }
+
+        func hostConfigSnapshot() -> GhosttyHostConfigSnapshot {
+            GhosttyHostConfigSnapshot(configHandle: configHandle)
+        }
     }
 }

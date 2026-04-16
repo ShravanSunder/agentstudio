@@ -6,6 +6,26 @@ import Testing
 @Suite("ScrollToBottomIndicatorView")
 @MainActor
 struct ScrollToBottomIndicatorViewTests {
+    @Test("scroll-to-bottom indicator uses icon-only chrome")
+    func scrollToBottomIndicatorUsesIconOnlyChrome() {
+        let view = ScrollToBottomIndicatorView()
+
+        #expect(view.isBordered == false)
+    }
+
+    @Test("scroll-to-bottom indicator uses thicker icon pair")
+    func scrollToBottomIndicatorUsesThickerIconPair() {
+        let view = ScrollToBottomIndicatorView()
+
+        view.applyScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+        #expect(view.symbolNameForTesting == "chevron.down.circle")
+        #expect(view.tintColorForTesting == .systemBlue)
+
+        view.applyScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 210))
+        #expect(view.symbolNameForTesting == "chevron.down.circle.fill")
+        #expect(view.tintColorForTesting == .systemGreen)
+    }
+
     @Test("scroll-to-bottom indicator shows unread output while scrolled up")
     func scrollToBottomIndicatorShowsUnreadOutputWhileScrolledUp() {
         let view = ScrollToBottomIndicatorView()

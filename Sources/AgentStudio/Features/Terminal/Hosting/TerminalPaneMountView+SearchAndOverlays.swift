@@ -5,10 +5,6 @@ import Observation
 extension TerminalPaneMountView {
     func applyRuntimeStateSnapshot(_ runtime: TerminalRuntime) {
         if let scrollbarState = runtime.scrollbarState {
-            surfaceScrollView?.applyScrollbarState(
-                scrollbarState,
-                cellHeight: runtime.cellSize.height
-            )
             scrollToBottomIndicatorView?.applyScrollbarState(scrollbarState)
         }
         if let searchState = runtime.searchState {
@@ -84,8 +80,8 @@ extension TerminalPaneMountView {
         indicator.actionPerformer = currentActionPerformer
         addSubview(indicator)
         NSLayoutConstraint.activate([
-            indicator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
-            indicator.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
+            indicator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            indicator.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
         ])
         scrollToBottomIndicatorView = indicator
     }

@@ -80,6 +80,21 @@ struct TerminalPaneMountViewSearchTests {
         #expect(hitView !== mountView)
     }
 
+    @Test("scroll-to-bottom indicator sits 12 points from trailing and bottom edges")
+    func scrollToBottomIndicatorSitsTwelvePointsFromTrailingAndBottomEdges() {
+        let mountView = TerminalPaneMountView(paneId: UUID(), title: "Terminal")
+        mountView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+
+        mountView.ensureScrollToBottomIndicatorForTesting()
+        guard let indicatorFrame = mountView.scrollToBottomIndicatorFrameForTesting else {
+            Issue.record("Expected scroll-to-bottom indicator frame for spacing verification")
+            return
+        }
+
+        #expect(abs((800 - indicatorFrame.maxX) - 12) <= 1)
+        #expect(abs(indicatorFrame.minY - 12) <= 3)
+    }
+
     @Test("cancelOperation without search overlay falls through without emitting actions")
     func cancelOperationWithoutSearchOverlayDoesNotEmitActions() {
         let mountView = TerminalPaneMountView(paneId: UUID(), title: "Terminal")
@@ -91,8 +106,8 @@ struct TerminalPaneMountViewSearchTests {
         #expect(performer.actions.isEmpty)
     }
 
-    @Test("bind applies current runtime scrollbar snapshot immediately")
-    func bindAppliesCurrentRuntimeScrollbarSnapshotImmediately() {
+    @Test("bind does not drive the native scroll wrapper directly from runtime replay")
+    func bindDoesNotDriveTheNativeScrollWrapperDirectlyFromRuntimeReplay() {
         let mountView = TerminalPaneMountView(paneId: UUID(), title: "Terminal")
         let scrollView = TerminalSurfaceScrollView(actionPerformer: PaneScrollActionPerformer())
         scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
@@ -109,6 +124,6 @@ struct TerminalPaneMountViewSearchTests {
 
         mountView.bind(runtime: runtime)
 
-        #expect(scrollView.documentOffsetYForTesting == 1600)
+        #expect(scrollView.documentOffsetYForTesting == 0)
     }
 }

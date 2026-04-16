@@ -92,6 +92,10 @@ extension Ghostty {
             appHandle?.tick()
         }
 
+        func hostConfigSnapshot() -> GhosttyHostConfigSnapshot {
+            appHandle?.hostConfigSnapshot() ?? GhosttyHostConfigSnapshot(configHandle: nil)
+        }
+
         @MainActor
         func bindApplicationLifecycleStore(_ appLifecycleStore: AppLifecycleAtom) {
             focusSynchronizer.bindApplicationLifecycleStore(appLifecycleStore)

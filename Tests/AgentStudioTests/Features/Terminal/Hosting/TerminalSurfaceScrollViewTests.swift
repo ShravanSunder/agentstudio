@@ -14,6 +14,19 @@ private final class FakeSurfaceActionPerformer: TerminalSurfaceActionPerforming 
     }
 }
 
+@MainActor
+private final class FakeTerminalSurfaceHostStateView: NSView, TerminalSurfaceHostStateSource {
+    var hostScrollbarState: ScrollbarState?
+    var hostConfigSnapshot = GhosttyHostConfigSnapshot(configHandle: nil)
+    var reportedCellSize: NSSize?
+    var onHostScrollbarStateChanged: (@MainActor @Sendable (ScrollbarState) -> Void)?
+
+    func emitScrollbarState(_ state: ScrollbarState) {
+        hostScrollbarState = state
+        onHostScrollbarStateChanged?(state)
+    }
+}
+
 @Suite("TerminalSurfaceScrollView")
 @MainActor
 struct TerminalSurfaceScrollViewTests {
@@ -125,6 +138,66 @@ struct TerminalSurfaceScrollViewTests {
 
         #expect(scrollView.autohidesScrollersForTesting == false)
         #expect(scrollView.usesOverlayScrollerStyleForTesting == true)
+    }
+
+    @Test("scroll wrapper uses host config snapshot to decide vertical scroller visibility")
+    func scrollWrapperUsesHostConfigSnapshotToDecideVerticalScrollerVisibility() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+        let hostStateView = FakeTerminalSurfaceHostStateView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+
+        hostStateView.hostConfigSnapshot = GhosttyHostConfigSnapshot(
+            scrollbarPolicy: .never,
+            backgroundColor: .black
+        )
+
+        scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        scrollView.bindHostStateSourceForTesting(hostStateView)
+        scrollView.layoutSubtreeIfNeeded()
+
+        #expect(scrollView.hasVerticalScrollerForTesting == false)
+    }
+
+    @Test("scroll wrapper exposes a non-empty native scroller frame when scrollbar policy is system")
+    func scrollWrapperExposesNonEmptyNativeScrollerFrameWhenScrollbarPolicyIsSystem() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+        let hostStateView = FakeTerminalSurfaceHostStateView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+
+        hostStateView.hostConfigSnapshot = GhosttyHostConfigSnapshot(
+            scrollbarPolicy: .system,
+            backgroundColor: .black
+        )
+
+        scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        scrollView.bindHostStateSourceForTesting(hostStateView)
+        scrollView.layoutSubtreeIfNeeded()
+
+        guard let scrollerFrame = scrollView.verticalScrollerFrameForTesting else {
+            Issue.record("Expected a native vertical scroller frame")
+            return
+        }
+
+        #expect(scrollerFrame.width > 0)
+        #expect(scrollerFrame.height > 0)
+    }
+
+    @Test("scroll wrapper uses host scrollbar cache before runtime replay")
+    func scrollWrapperUsesHostScrollbarCacheBeforeRuntimeReplay() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+        let hostStateView = FakeTerminalSurfaceHostStateView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        hostStateView.reportedCellSize = NSSize(width: 8, height: 20)
+        hostStateView.hostConfigSnapshot = GhosttyHostConfigSnapshot(
+            scrollbarPolicy: .system,
+            backgroundColor: .black
+        )
+
+        scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        scrollView.bindHostStateSourceForTesting(hostStateView)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        #expect(scrollView.documentOffsetYForTesting == 1600)
     }
 
     @Test("zero cellHeight ignores update until valid metrics arrive")
