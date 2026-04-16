@@ -25,13 +25,14 @@ struct PaneLeafContainer: View {
     let repoCache: RepoCacheAtom
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let onPaneFocusTrigger: PaneFocusTriggerHandler
     let onOpenPaneGitHub: (UUID) -> Void
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
 
     @State private var isHovered: Bool = false
-    private var managementMode: ManagementModeAtom {
-        atom(\.managementMode)
+    private var managementLayer: ManagementLayerAtom {
+        atom(\.managementLayer)
     }
     @State private var isMinimizeHovered: Bool = false
     @State private var isCloseHovered: Bool = false
@@ -48,6 +49,7 @@ struct PaneLeafContainer: View {
         repoCache: RepoCacheAtom,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
+        onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
         dropTargetCoordinateSpace: String? = "tabContainer",
         useDrawerFramePreference: Bool = false
@@ -61,6 +63,7 @@ struct PaneLeafContainer: View {
         self.repoCache = repoCache
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
+        self.onPaneFocusTrigger = onPaneFocusTrigger
         self.onOpenPaneGitHub = onOpenPaneGitHub
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
@@ -87,14 +90,14 @@ struct PaneLeafContainer: View {
     }
 
     /// True when hover is active either via tracking events or by direct pointer query.
-    /// The direct pointer query fixes the Cmd+E case where management mode toggles
+    /// The direct pointer query fixes the Cmd+E case where management layer toggles
     /// while the pointer is already inside the pane and no hover transition fires.
     private var isManagementHovered: Bool {
         isHovered || isPointerInsidePaneView
     }
 
     private var isPointerInsidePaneView: Bool {
-        guard managementMode.isActive else { return false }
+        guard managementLayer.isActive else { return false }
         guard let window = paneHost.window else { return false }
         let pointInWindow = window.mouseLocationOutsideOfEventStream
         let pointInPane = paneHost.convert(pointInWindow, from: nil)
@@ -139,13 +142,13 @@ struct PaneLeafContainer: View {
                         // Without this, updateNSView is a no-op and the old NSView
                         // stays mounted.
                         .id(paneHost.hostIdentity)
-                        // In management mode, route drag targeting through the shared
+                        // In management layer, route drag targeting through the shared
                         // SwiftUI leaf container so pane type (WKWebView/Ghostty/etc.)
                         // cannot intercept drop updates differently.
-                        .allowsHitTesting(!managementMode.isActive)
+                        .allowsHitTesting(!managementLayer.isActive)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    if managementMode.isActive && !isDrawerChild && managementContext.showsIdentityBlock {
+                    if managementLayer.isActive && !isDrawerChild && managementContext.showsIdentityBlock {
                         ManagementPaneIdentityStrip(context: managementContext)
                     }
 
@@ -159,7 +162,8 @@ struct PaneLeafContainer: View {
                                 onOpenFinder: { openInFinder(managementContext) },
                                 onOpenCursor: { openInCursor(managementContext) }
                             ),
-                            action: actionDispatcher.dispatch
+                            action: actionDispatcher.dispatch,
+                            onPaneFocusTrigger: onPaneFocusTrigger
                         )
                         .fixedSize(horizontal: false, vertical: true)
                     }
@@ -170,26 +174,26 @@ struct PaneLeafContainer: View {
                     InactivePaneEdgeDimmingOverlay()
                 }
 
-                // Management mode dimming: persistent overlay signaling content is non-interactive
-                if managementMode.isActive {
+                // Management layer dimming: persistent overlay signaling content is non-interactive
+                if managementLayer.isActive {
                     Rectangle()
                         .fill(Color.black)
-                        .opacity(AppStyle.managementModeDimming)
+                        .opacity(AppStyle.managementLayerDimming)
                         .allowsHitTesting(false)
                 }
 
-                // Hover border: drag affordance in management mode
-                if managementMode.isActive && isManagementHovered && !isSplitResizing {
+                // Hover border: drag affordance in management layer
+                if managementLayer.isActive && isManagementHovered && !isSplitResizing {
                     RoundedRectangle(cornerRadius: AppStyle.panelCornerRadius)
                         .strokeBorder(Color.white.opacity(AppStyle.strokeVisible), lineWidth: 1)
                         .allowsHitTesting(false)
                         .animation(.easeInOut(duration: AppStyle.animationFast), value: isManagementHovered)
                 }
 
-                // Drag handle: compact centered pill in management mode.
+                // Drag handle: compact centered pill in management layer.
                 // The Color.clear fills the ZStack for centering; allowsHitTesting(false)
                 // ensures only the capsule itself intercepts mouse events.
-                if managementMode.isActive && !isSplitResizing {
+                if managementLayer.isActive && !isSplitResizing {
                     ZStack {
                         Color.clear
                             .allowsHitTesting(false)
@@ -230,8 +234,8 @@ struct PaneLeafContainer: View {
                     }
                 }
 
-                // Pane controls: minimize + close (top-left, management mode)
-                if managementMode.isActive && !isSplitResizing {
+                // Pane controls: minimize + close (top-left, management layer)
+                if managementLayer.isActive && !isSplitResizing {
                     VStack {
                         HStack(spacing: AppStyle.spacingStandard) {
                             Button {
@@ -303,8 +307,8 @@ struct PaneLeafContainer: View {
                     .transition(.opacity)
                 }
 
-                // Quarter-moon split and browser buttons (top-right, management mode)
-                if managementMode.isActive && !isSplitResizing {
+                // Quarter-moon split and browser buttons (top-right, management layer)
+                if managementLayer.isActive && !isSplitResizing {
                     VStack {
                         HStack {
                             Spacer()
@@ -346,7 +350,23 @@ struct PaneLeafContainer: View {
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
             .onTapGesture {
-                actionDispatcher.dispatch(.focusPane(tabId: tabId, paneId: paneHost.id))
+                if let drawerParentPaneId {
+                    onPaneFocusTrigger(
+                        .drawer(
+                            .selectPane(parentPaneId: drawerParentPaneId, drawerPaneId: paneHost.id)
+                        )
+                    )
+                } else {
+                    onPaneFocusTrigger(
+                        .contentClick(
+                            PaneContentClickFocusTrigger(
+                                targetPaneId: paneHost.id,
+                                location: .content,
+                                clickPhase: .completed
+                            )
+                        )
+                    )
+                }
             }
             .opacity(isClosing ? 0.58 : 1)
             .scaleEffect(isClosing ? 0.985 : 1)
@@ -354,7 +374,7 @@ struct PaneLeafContainer: View {
             .animation(.easeOut(duration: AppStyle.animationFast), value: isClosing)
             .allowsHitTesting(!isClosing)
             .contextMenu {
-                if managementMode.isActive && !isDrawerChild {
+                if managementLayer.isActive && !isDrawerChild {
                     Button(LocalActionSpec.extractPaneToNewTab.actionSpec.label) {
                         actionDispatcher.dispatch(.extractPaneToTab(tabId: tabId, paneId: paneHost.id))
                     }

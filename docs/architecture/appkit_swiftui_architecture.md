@@ -101,7 +101,7 @@ AppDelegate
 ├── SessionRuntime             ← runtime health tracking
 ├── WorkspaceCacheCoordinator  ← event bus consumer, updates stores
 ├── ApplicationLifecycleMonitor ← AppKit lifecycle ingress → lifecycle stores
-├── ManagementModeMonitor      ← management mode state tracking
+├── ManagementLayerMonitor      ← management layer state tracking
 ├── ViewRegistry               ← paneId → PaneViewSlot mapping (@Observable per-pane slots)
 ├── PaneCoordinator            ← action dispatch + model↔view↔surface orchestration
 ├── ActionExecutor             ← validated action execution
@@ -453,15 +453,15 @@ The command bar consumes those shared models; it does not define commands itself
 
 ---
 
-## Management Mode
+## Management Layer
 
-Management mode enables split insertion and pane rearrangement. Three components coordinate the feature:
+Management layer enables split insertion and pane rearrangement. Three components coordinate the feature:
 
 | Component | Location | Role |
 |-----------|----------|------|
-| `ManagementModeAtom` | `Core/State/MainActor/Atoms/ManagementModeAtom.swift` | Canonical active/inactive state |
-| `ManagementModeMonitor` | `App/Lifecycle/ManagementModeMonitor.swift` | Observes atom state changes, drives side effects |
-| `ManagementModeToolbarButton` | `App/Lifecycle/ManagementModeToolbarButton.swift` | Toolbar integration for toggling management mode |
+| `ManagementLayerAtom` | `Core/State/MainActor/Atoms/ManagementLayerAtom.swift` | Canonical active/inactive state |
+| `ManagementLayerMonitor` | `App/Lifecycle/ManagementLayerMonitor.swift` | Observes atom state changes, drives side effects |
+| `ManagementLayerToolbarButton` | `App/Lifecycle/ManagementLayerToolbarButton.swift` | Toolbar integration for toggling management layer |
 
 Toggled via the command pipeline or the toolbar button. The command bar's `CommandBarStatusStrip` also reflects the current mode.
 

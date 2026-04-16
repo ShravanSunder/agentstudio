@@ -302,14 +302,6 @@ extension PaneCoordinator {
             }
             store.tabLayoutAtom.renameTab(newTab.id, name: tabNameForPane(pane))
 
-        case .focusPane(let tabId, let paneId):
-            if let tab = store.tabLayoutAtom.tab(tabId), tab.activeMinimizedPaneIds.contains(paneId) {
-                store.tabLayoutAtom.expandPane(paneId, inTab: tabId)
-                reattachForViewSwitch(paneId: paneId)
-            }
-            store.tabLayoutAtom.setActivePane(paneId, inTab: tabId)
-            focusVisiblePaneHost(paneId)
-
         case .insertPane(let source, let targetTabId, let targetPaneId, let direction):
             executeInsertPane(
                 source: source,
@@ -491,10 +483,7 @@ extension PaneCoordinator {
                 direction: layoutDirection,
                 position: position
             )
-            if let terminalView = viewRegistry.terminalView(for: drawerPaneId) {
-                terminalView.window?.makeFirstResponder(terminalView)
-                surfaceManager.syncFocus(activeSurfaceId: terminalView.surfaceId)
-            }
+            focusVisiblePaneHost(drawerPaneId)
 
         case .expireUndoEntry:
             Self.logger.warning(

@@ -7,7 +7,7 @@ final class AtomRegistry {
     let workspaceMutationCoordinator: WorkspaceMutationCoordinator
     let repoCache: RepoCacheAtom
     let uiState: UIStateAtom
-    let managementMode: ManagementModeAtom
+    let managementLayer: ManagementLayerAtom
     let sessionRuntime: SessionRuntimeAtom
 
     init(
@@ -18,7 +18,7 @@ final class AtomRegistry {
         workspaceMutationCoordinator: WorkspaceMutationCoordinator? = nil,
         repoCache: RepoCacheAtom = .init(),
         uiState: UIStateAtom = .init(),
-        managementMode: ManagementModeAtom = .init(),
+        managementLayer: ManagementLayerAtom = .init(),
         sessionRuntime: SessionRuntimeAtom = .init()
     ) {
         self.workspaceMetadata = workspaceMetadata
@@ -34,7 +34,7 @@ final class AtomRegistry {
             )
         self.repoCache = repoCache
         self.uiState = uiState
-        self.managementMode = managementMode
+        self.managementLayer = managementLayer
         self.sessionRuntime = sessionRuntime
     }
 

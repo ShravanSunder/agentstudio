@@ -9,13 +9,13 @@ final class PaneDropPlannerTests {
     private func makeSnapshot(
         tabs: [TabSnapshot],
         activeTabId: UUID? = nil,
-        isManagementModeActive: Bool = true,
+        isManagementLayerActive: Bool = true,
         drawerParentByPaneId: [UUID: UUID] = [:]
     ) -> ActionStateSnapshot {
         ActionStateSnapshot(
             tabs: tabs,
             activeTabId: activeTabId,
-            isManagementModeActive: isManagementModeActive,
+            isManagementLayerActive: isManagementLayerActive,
             drawerParentByPaneId: drawerParentByPaneId
         )
     }
@@ -363,7 +363,7 @@ final class PaneDropPlannerTests {
     }
 
     @Test
-    func managementModeInactive_returnsIneligible() {
+    func managementLayerInactive_returnsIneligible() {
         let sourceTabId = UUID()
         let targetTabId = UUID()
         let sourcePaneId = UUID()
@@ -383,7 +383,7 @@ final class PaneDropPlannerTests {
         let state = makeSnapshot(
             tabs: [sourceTab, targetTab],
             activeTabId: targetTabId,
-            isManagementModeActive: false
+            isManagementLayerActive: false
         )
         let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId))
 

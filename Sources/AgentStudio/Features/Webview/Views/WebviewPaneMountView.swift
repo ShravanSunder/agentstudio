@@ -40,7 +40,7 @@ final class WebviewPaneMountView: NSView, PaneMountedContent {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        setContentInteractionEnabled(!atom(\.managementMode).isActive)
+        setContentInteractionEnabled(!atom(\.managementLayer).isActive)
         syncHostingViewFrame()
     }
 
@@ -51,7 +51,7 @@ final class WebviewPaneMountView: NSView, PaneMountedContent {
 
     // MARK: - Content Interaction
 
-    /// Delegates management mode interaction suppression to the controller's
+    /// Delegates management layer interaction suppression to the controller's
     /// persistent user-script pipeline (current document + future navigations).
     func setContentInteractionEnabled(_ enabled: Bool) {
         controller.setWebContentInteractionEnabled(enabled)

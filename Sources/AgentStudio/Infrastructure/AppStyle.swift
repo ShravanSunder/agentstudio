@@ -9,7 +9,7 @@ import SwiftUI
 /// ## Icon Size Hierarchy
 /// ```
 /// 22pt  — Pane action buttons (minimize, close)
-/// 16pt  — Toolbar actions (management mode toggle, window controls)
+/// 16pt  — Toolbar actions (management layer toggle, window controls)
 /// 14pt  — Split "+" half-moon button
 /// 12pt  — Compact bars (tab bar, drawer icon bar, arrangement bar)
 /// ```
@@ -31,7 +31,7 @@ enum AppStyle {
     /// Icons in compact bars: tab bar, drawer icon bar, arrangement bar.
     static let compactIconSize: CGFloat = 12
 
-    /// Icons in the main toolbar: management mode toggle, window-level actions.
+    /// Icons in the main toolbar: management layer toggle, window-level actions.
     static let toolbarIconSize: CGFloat = 16
 
     /// Icons for pane action buttons: minimize (−), close (×).
@@ -311,19 +311,19 @@ enum AppStyle {
     /// Depth of the edge-only inactive-pane dimming band.
     static let inactivePaneDimmingDepth: CGFloat = 120
 
-    /// Management mode dimming overlay on pane content.
-    static let managementModeDimming: CGFloat = 0.35
+    /// Management layer dimming overlay on pane content.
+    static let managementLayerDimming: CGFloat = 0.35
 
-    /// Fill opacity for management mode control backgrounds (action circles, half-moon, drag handle).
+    /// Fill opacity for management layer control backgrounds (action circles, half-moon, drag handle).
     /// Darker than the dimming overlay so controls stand out against the dimmed pane content.
     static let managementControlFill: CGFloat = 0.70
 
     /// Hover delta added to managementControlFill for interactive feedback.
     static let managementControlHoverDelta: CGFloat = 0.05
 
-    // MARK: - Management Mode Controls
+    // MARK: - Management Layer Controls
     //
-    // Sizes for the four management mode control elements. Each element has
+    // Sizes for the four management layer control elements. Each element has
     // its own natural shape; these constants set visually harmonious proportions
     // while allowing independent customization.
     //
@@ -333,10 +333,10 @@ enum AppStyle {
     // drag handle:      60×100pt pill, 16pt icon (reuses toolbarIconSize)
     // ```
 
-    /// Diameter of management mode action circles (minimize, close).
+    /// Diameter of management layer action circles (minimize, close).
     static let managementActionSize: CGFloat = 28
 
-    /// Icon font size inside management mode action circles.
+    /// Icon font size inside management layer action circles.
     static let managementActionIconSize: CGFloat = 13
 
     /// Drag handle pill width.

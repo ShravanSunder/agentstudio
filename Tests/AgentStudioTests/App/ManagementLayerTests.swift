@@ -4,13 +4,13 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-struct ManagementModeTests {
-    private func makeMonitor() -> ManagementModeMonitor {
-        ManagementModeMonitor(startKeyboardMonitoring: false)
+struct ManagementLayerTests {
+    private func makeMonitor() -> ManagementLayerMonitor {
+        ManagementLayerMonitor(startKeyboardMonitoring: false)
     }
 
     @Test("defaults to inactive")
-    func test_managementMode_defaultsToInactive() async {
+    func test_managementLayer_defaultsToInactive() async {
         withTestAtomRegistry { _ in
             let monitor = makeMonitor()
             monitor.deactivate()
@@ -19,7 +19,7 @@ struct ManagementModeTests {
     }
 
     @Test("toggles activate and deactivate")
-    func test_managementMode_toggleActivatesAndDeactivates() async {
+    func test_managementLayer_toggleActivatesAndDeactivates() async {
         withTestAtomRegistry { _ in
             let monitor = makeMonitor()
             monitor.deactivate()
@@ -32,7 +32,7 @@ struct ManagementModeTests {
     }
 
     @Test("deactivate disables mode")
-    func test_managementMode_deactivate() async {
+    func test_managementLayer_deactivate() async {
         withTestAtomRegistry { _ in
             let monitor = makeMonitor()
             monitor.deactivate()
@@ -43,7 +43,7 @@ struct ManagementModeTests {
     }
 
     @Test("deactivate clears active state immediately")
-    func test_managementMode_deactivate_clearsStateSynchronously() async {
+    func test_managementLayer_deactivate_clearsStateSynchronously() async {
         withTestAtomRegistry { _ in
             let monitor = makeMonitor()
             monitor.deactivate()
@@ -54,7 +54,7 @@ struct ManagementModeTests {
     }
 
     @Test("toggle updates active state immediately")
-    func test_managementMode_toggle_updatesStateSynchronously() async {
+    func test_managementLayer_toggle_updatesStateSynchronously() async {
         withTestAtomRegistry { _ in
             let monitor = makeMonitor()
             monitor.deactivate()
@@ -66,7 +66,7 @@ struct ManagementModeTests {
     }
 
     @Test("deactivate is no-op when already inactive")
-    func test_managementMode_deactivateWhenAlreadyInactive() async {
+    func test_managementLayer_deactivateWhenAlreadyInactive() async {
         withTestAtomRegistry { _ in
             let monitor = makeMonitor()
             monitor.deactivate()
@@ -75,8 +75,8 @@ struct ManagementModeTests {
         }
     }
 
-    @Test("management mode key policy passes through command shortcuts")
-    func test_managementMode_keyPolicy_commandShortcutPassesThrough() async {
+    @Test("management layer key policy passes through command shortcuts")
+    func test_managementLayer_keyPolicy_commandShortcutPassesThrough() async {
         withTestAtomRegistry { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
@@ -88,8 +88,8 @@ struct ManagementModeTests {
         }
     }
 
-    @Test("management mode key policy consumes plain typing")
-    func test_managementMode_keyPolicy_plainTypingConsumed() async {
+    @Test("management layer key policy consumes plain typing")
+    func test_managementLayer_keyPolicy_plainTypingConsumed() async {
         withTestAtomRegistry { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
@@ -101,8 +101,8 @@ struct ManagementModeTests {
         }
     }
 
-    @Test("management mode key policy dispatches P to create terminal")
-    func test_managementMode_keyPolicy_dispatchesCreateTerminal() async {
+    @Test("management layer key policy dispatches P to create terminal")
+    func test_managementLayer_keyPolicy_dispatchesCreateTerminal() async {
         withTestAtomRegistry { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
@@ -110,12 +110,12 @@ struct ManagementModeTests {
                 modifierFlags: [],
                 charactersIgnoringModifiers: "p"
             )
-            #expect(decision == .dispatch(.managementCreateTerminal))
+            #expect(decision == .dispatch(.managementLayerCreateTerminal))
         }
     }
 
-    @Test("management mode key policy dispatches B to create browser")
-    func test_managementMode_keyPolicy_dispatchesCreateBrowser() async {
+    @Test("management layer key policy dispatches B to create browser")
+    func test_managementLayer_keyPolicy_dispatchesCreateBrowser() async {
         withTestAtomRegistry { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
@@ -123,12 +123,12 @@ struct ManagementModeTests {
                 modifierFlags: [],
                 charactersIgnoringModifiers: "b"
             )
-            #expect(decision == .dispatch(.managementCreateBrowser))
+            #expect(decision == .dispatch(.managementLayerCreateBrowser))
         }
     }
 
-    @Test("management mode key policy dispatches D to open drawer")
-    func test_managementMode_keyPolicy_dispatchesDrawerOpenShortcut() async {
+    @Test("management layer key policy dispatches D to open drawer")
+    func test_managementLayer_keyPolicy_dispatchesDrawerOpenShortcut() async {
         withTestAtomRegistry { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
@@ -136,12 +136,12 @@ struct ManagementModeTests {
                 modifierFlags: [],
                 charactersIgnoringModifiers: "d"
             )
-            #expect(decision == .dispatch(.managementOpenDrawer))
+            #expect(decision == .dispatch(.managementLayerOpenDrawer))
         }
     }
 
-    @Test("management mode key policy dispatches R to exit mode")
-    func test_managementMode_keyPolicy_dispatchesExitModeShortcut() async {
+    @Test("management layer key policy dispatches R to exit mode")
+    func test_managementLayer_keyPolicy_dispatchesExitModeShortcut() async {
         withTestAtomRegistry { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
@@ -153,8 +153,8 @@ struct ManagementModeTests {
         }
     }
 
-    @Test("management mode key policy dispatches arrow keys")
-    func test_managementMode_keyPolicy_dispatchesArrowKeys() async {
+    @Test("management layer key policy dispatches arrow keys")
+    func test_managementLayer_keyPolicy_dispatchesArrowKeys() async {
         withTestAtomRegistry { _ in
             let monitor = makeMonitor()
 
@@ -163,34 +163,34 @@ struct ManagementModeTests {
                     keyCode: 123,
                     modifierFlags: [],
                     charactersIgnoringModifiers: nil
-                ) == .dispatch(.managementFocusLeft)
+                ) == .dispatch(.managementLayerFocusLeft)
             )
             #expect(
                 monitor.keyDownDecision(
                     keyCode: 124,
                     modifierFlags: [],
                     charactersIgnoringModifiers: nil
-                ) == .dispatch(.managementFocusRight)
+                ) == .dispatch(.managementLayerFocusRight)
             )
             #expect(
                 monitor.keyDownDecision(
                     keyCode: 125,
                     modifierFlags: [],
                     charactersIgnoringModifiers: nil
-                ) == .dispatch(.managementEnterDrawer)
+                ) == .dispatch(.managementLayerEnterDrawer)
             )
             #expect(
                 monitor.keyDownDecision(
                     keyCode: 126,
                     modifierFlags: [],
                     charactersIgnoringModifiers: nil
-                ) == .dispatch(.managementExitDrawer)
+                ) == .dispatch(.managementLayerExitDrawer)
             )
         }
     }
 
-    @Test("management mode key policy ignores numeric pad modifier on arrow keys")
-    func test_managementMode_keyPolicy_ignoresNumericPadModifierForArrowKeys() async {
+    @Test("management layer key policy ignores numeric pad modifier on arrow keys")
+    func test_managementLayer_keyPolicy_ignoresNumericPadModifierForArrowKeys() async {
         withTestAtomRegistry { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
@@ -198,12 +198,12 @@ struct ManagementModeTests {
                 modifierFlags: [.numericPad],
                 charactersIgnoringModifiers: nil
             )
-            #expect(decision == .dispatch(.managementFocusLeft))
+            #expect(decision == .dispatch(.managementLayerFocusLeft))
         }
     }
 
-    @Test("management mode key policy consumes shifted arrow keys")
-    func test_managementMode_keyPolicy_shiftedArrowConsumed() async {
+    @Test("management layer key policy consumes shifted arrow keys")
+    func test_managementLayer_keyPolicy_shiftedArrowConsumed() async {
         withTestAtomRegistry { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
@@ -215,8 +215,8 @@ struct ManagementModeTests {
         }
     }
 
-    @Test("management mode key policy consumes control combinations")
-    func test_managementMode_keyPolicy_controlCombinationConsumed() async {
+    @Test("management layer key policy consumes control combinations")
+    func test_managementLayer_keyPolicy_controlCombinationConsumed() async {
         withTestAtomRegistry { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
@@ -228,8 +228,8 @@ struct ManagementModeTests {
         }
     }
 
-    @Test("management mode key policy deactivates on escape")
-    func test_managementMode_keyPolicy_escapeDeactivates() async {
+    @Test("management layer key policy deactivates on escape")
+    func test_managementLayer_keyPolicy_escapeDeactivates() async {
         withTestAtomRegistry { _ in
             let monitor = makeMonitor()
             let decision = monitor.keyDownDecision(
@@ -241,53 +241,53 @@ struct ManagementModeTests {
         }
     }
 
-    @Test("toggleManagementMode has expected command definition")
-    func test_toggleManagementMode_commandDefinition() async {
+    @Test("toggleManagementLayer has expected command definition")
+    func test_toggleManagementLayer_commandDefinition() async {
         withTestAtomRegistry { _ in
-            let definition = CommandDispatcher.shared.definition(for: .toggleManagementMode)
+            let definition = CommandDispatcher.shared.definition(for: .toggleManagementLayer)
             #expect(definition.keyBinding?.key == "r")
             #expect(definition.keyBinding?.modifiers == [.command])
             #expect(definition.icon == "rectangle.split.2x2")
         }
     }
 
-    @Test("managementExitMode uses active management icon")
-    func test_managementExitMode_commandDefinition() async {
+    @Test("managementLayerExit uses active management icon")
+    func test_managementLayerExit_commandDefinition() async {
         withTestAtomRegistry { _ in
-            let definition = CommandDispatcher.shared.definition(for: .managementExitMode)
+            let definition = CommandDispatcher.shared.definition(for: .managementLayerExit)
             #expect(definition.icon == "rectangle.split.2x2.fill")
         }
     }
 
-    @Test("closePane command requires management mode")
-    func test_closePane_requiresManagementMode() async {
+    @Test("closePane command requires management layer")
+    func test_closePane_requiresManagementLayer() async {
         withTestAtomRegistry { _ in
             let definition = CommandDispatcher.shared.definition(for: .closePane)
-            #expect(definition.requiresManagementMode == true)
+            #expect(definition.requiresManagementLayer == true)
         }
     }
 
-    @Test("closeTab does not require management mode")
-    func test_closeTab_doesNotRequireManagementMode() async {
+    @Test("closeTab does not require management layer")
+    func test_closeTab_doesNotRequireManagementLayer() async {
         withTestAtomRegistry { _ in
             let definition = CommandDispatcher.shared.definition(for: .closeTab)
-            #expect(definition.requiresManagementMode == false)
+            #expect(definition.requiresManagementLayer == false)
         }
     }
 
-    @Test("splitRight does not require management mode")
-    func test_splitRight_doesNotRequireManagementMode() async {
+    @Test("splitRight does not require management layer")
+    func test_splitRight_doesNotRequireManagementLayer() async {
         withTestAtomRegistry { _ in
             let definition = CommandDispatcher.shared.definition(for: .splitRight)
-            #expect(definition.requiresManagementMode == false)
+            #expect(definition.requiresManagementLayer == false)
         }
     }
 
-    @Test("addRepo does not require management mode")
-    func test_addRepo_doesNotRequireManagementMode() async {
+    @Test("addRepo does not require management layer")
+    func test_addRepo_doesNotRequireManagementLayer() async {
         withTestAtomRegistry { _ in
             let definition = CommandDispatcher.shared.definition(for: .addRepo)
-            #expect(definition.requiresManagementMode == false)
+            #expect(definition.requiresManagementLayer == false)
         }
     }
 }

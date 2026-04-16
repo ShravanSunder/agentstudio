@@ -99,7 +99,7 @@ final class ActionExecutor {
         let snapshot = WorkspaceCommandResolver.snapshot(
             from: tabLayout.tabs,
             activeTabId: tabLayout.activeTabId,
-            isManagementModeActive: atom(\.managementMode).isActive,
+            isManagementLayerActive: atom(\.managementLayer).isActive,
             knownRepoIds: Set(repositoryTopology.repos.map(\.id)),
             knownWorktreeIds: Set(repositoryTopology.repos.flatMap(\.worktrees).map(\.id))
         )

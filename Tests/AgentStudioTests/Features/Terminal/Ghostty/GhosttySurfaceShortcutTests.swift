@@ -12,9 +12,11 @@ final class GhosttySurfaceShortcutTests {
 
     @Test
     func test_appOwnedShortcuts_containsAtLeast3() {
-        // Assert — at minimum the 3 command bar shortcuts are registered
+        // Assert — command bar shortcuts plus drawer-pane creation are registered
         #expect(
-            Ghostty.SurfaceView.appOwnedShortcuts.count >= 3, "Expected at least 3 app-owned shortcuts (⌘P, ⌘⇧P, ⌘⌥P)")
+            Ghostty.SurfaceView.appOwnedShortcuts.count >= 4,
+            "Expected app-owned shortcuts to include ⌘P, ⌘⇧P, ⌘⌥P, and ⌘⇧D"
+        )
     }
 
     @Test
@@ -41,6 +43,15 @@ final class GhosttySurfaceShortcutTests {
         #expect(
             Ghostty.SurfaceView.appOwnedShortcuts.contains(.showCommandBarPanes),
             "Expected pane picker in appOwnedShortcuts"
+        )
+    }
+
+    @Test
+    func test_appOwnedShortcuts_containsCmdShiftD() {
+        // Assert
+        #expect(
+            Ghostty.SurfaceView.appOwnedShortcuts.contains(.addDrawerPane),
+            "Expected add drawer pane in appOwnedShortcuts"
         )
     }
 }

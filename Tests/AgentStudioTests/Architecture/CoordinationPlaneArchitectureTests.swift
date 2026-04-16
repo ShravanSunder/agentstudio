@@ -239,7 +239,7 @@ struct CoordinationPlaneArchitectureTests {
         #expect(!source.contains("case filterSidebarRequested"))
         #expect(!source.contains("case refocusTerminalRequested"))
         #expect(!source.contains("case showCommandBarRepos"))
-        #expect(!source.contains("case managementModeChanged"))
+        #expect(!source.contains("case managementLayerChanged"))
         #expect(source.contains("case terminalProcessTerminated"))
         #expect(!source.contains("case repairSurfaceRequested"))
         #expect(source.contains("case worktreeBellRang"))
@@ -356,13 +356,13 @@ struct CoordinationPlaneArchitectureTests {
                 path: "Sources/AgentStudio/App/Panes/TabBar/DraggableTabBarHostingView.swift"),
             encoding: .utf8
         )
-        let managementModeMonitorSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Lifecycle/ManagementModeMonitor.swift"),
+        let managementLayerMonitorSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Lifecycle/ManagementLayerMonitor.swift"),
             encoding: .utf8
         )
-        let managementModeShieldSource = try String(
+        let managementLayerShieldSource = try String(
             contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/App/Panes/Hosting/ManagementModeDragShield.swift"),
+                path: "Sources/AgentStudio/App/Panes/Hosting/ManagementLayerDragShield.swift"),
             encoding: .utf8
         )
 
@@ -372,8 +372,8 @@ struct CoordinationPlaneArchitectureTests {
         #expect(!commandBarSource.contains("AppEventBus"))
         #expect(!paneLeafSource.contains("AppEventBus"))
         #expect(!draggableTabBarSource.contains("AppEventBus"))
-        #expect(!managementModeMonitorSource.contains("AppEventBus"))
-        #expect(!managementModeShieldSource.contains("AppEventBus"))
+        #expect(!managementLayerMonitorSource.contains("AppEventBus"))
+        #expect(!managementLayerShieldSource.contains("AppEventBus"))
         #expect(!paneTabSource.contains("case .selectTabById"))
         #expect(!paneTabSource.contains("case .undoCloseTabRequested"))
         #expect(!paneTabSource.contains("case .extractPaneRequested"))

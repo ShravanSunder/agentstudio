@@ -85,6 +85,7 @@ struct PaneCloseTransitionCoordinatorTests {
             minimizedPaneIds: [],
             closeTransitionCoordinator: coordinator,
             actionDispatcher: dispatcher,
+            onPaneFocusTrigger: { _ in },
             store: store,
             repoCache: RepoCacheAtom(),
             viewRegistry: viewRegistry,

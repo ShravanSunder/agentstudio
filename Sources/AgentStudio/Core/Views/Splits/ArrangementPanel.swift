@@ -79,7 +79,7 @@ struct ArrangementPanel: View {
                         .labelsHidden()
                     }
 
-                    if !showMinimizedBarsBinding.wrappedValue && atom(\.managementMode).isActive {
+                    if !showMinimizedBarsBinding.wrappedValue && atom(\.managementLayer).isActive {
                         Text("Minimized panes are always shown in management mode")
                             .font(.system(size: AppStyle.textXs))
                             .foregroundStyle(.tertiary)

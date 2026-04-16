@@ -93,15 +93,6 @@ enum WorkspaceCommandValidator {
             }
             return .success(ValidatedAction(action))
 
-        case .focusPane(let tabId, let paneId):
-            guard let tab = state.tab(tabId) else {
-                return .failure(.tabNotFound(tabId: tabId))
-            }
-            guard tab.showsPane(paneId) else {
-                return .failure(.paneNotFound(paneId: paneId, tabId: tabId))
-            }
-            return .success(ValidatedAction(action))
-
         case .insertPane(let source, let targetTabId, let targetPaneId, _):
             guard state.tab(targetTabId) != nil else {
                 return .failure(.tabNotFound(tabId: targetTabId))

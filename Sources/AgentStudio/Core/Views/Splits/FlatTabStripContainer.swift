@@ -9,6 +9,7 @@ struct FlatTabStripContainer: View {
     let minimizedPaneIds: Set<UUID>
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let onPaneFocusTrigger: PaneFocusTriggerHandler
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let viewRegistry: ViewRegistry
@@ -19,8 +20,8 @@ struct FlatTabStripContainer: View {
     @State private var iconBarFrame: CGRect = .zero
     @State private var dropTarget: PaneDropTarget?
     @State private var dropTargetWatchdogTask: Task<Void, Never>?
-    private var managementMode: ManagementModeAtom {
-        atom(\.managementMode)
+    private var managementLayer: ManagementLayerAtom {
+        atom(\.managementLayer)
     }
 
     private var onSaveArrangement: (() -> Void)? {
@@ -42,7 +43,7 @@ struct FlatTabStripContainer: View {
     var body: some View {
         GeometryReader { tabGeometry in
             let containerBounds = CGRect(origin: .zero, size: tabGeometry.size)
-            let showMinimizedBars = managementMode.isActive || atom(\.uiState).showMinimizedBars
+            let showMinimizedBars = managementLayer.isActive || atom(\.uiState).showMinimizedBars
             let effectiveCollapsedWidth: CGFloat = showMinimizedBars ? CollapsedPaneBar.barWidth : 0
             let metrics = FlatTabStripMetrics.compute(
                 layout: layout,
@@ -95,6 +96,7 @@ struct FlatTabStripContainer: View {
                         onSaveArrangement: onSaveArrangement,
                         closeTransitionCoordinator: closeTransitionCoordinator,
                         actionDispatcher: actionDispatcher,
+                        onPaneFocusTrigger: onPaneFocusTrigger,
                         store: store,
                         repoCache: repoCache,
                         viewRegistry: viewRegistry,
@@ -117,10 +119,11 @@ struct FlatTabStripContainer: View {
                     tabSize: tabGeometry.size,
                     iconBarFrame: iconBarFrame,
                     actionDispatcher: actionDispatcher,
+                    onPaneFocusTrigger: onPaneFocusTrigger,
                     onOpenPaneGitHub: onOpenPaneGitHub
                 )
 
-                if managementMode.isActive {
+                if managementLayer.isActive {
                     PaneDropTargetOverlay(target: dropTarget, paneFrames: paneFrames)
                         .allowsHitTesting(false)
                 }
@@ -129,13 +132,13 @@ struct FlatTabStripContainer: View {
                     paneFrames: paneFrames,
                     containerBounds: containerBounds,
                     target: $dropTarget,
-                    isManagementModeActive: managementMode.isActive,
+                    isManagementLayerActive: managementLayer.isActive,
                     actionDispatcher: actionDispatcher
                 )
             }
             .onPreferenceChange(PaneFramePreferenceKey.self) { paneFrames = $0 }
             .onPreferenceChange(DrawerIconBarFrameKey.self) { iconBarFrame = $0 }
-            .onChange(of: managementMode.isActive) { _, isActive in
+            .onChange(of: managementLayer.isActive) { _, isActive in
                 if !isActive {
                     dropTarget = nil
                 }
@@ -157,7 +160,7 @@ struct FlatTabStripContainer: View {
             }
         }
         .animation(.easeOut(duration: AppStyle.animationStandard), value: atom(\.uiState).showMinimizedBars)
-        .animation(.easeOut(duration: AppStyle.animationStandard), value: managementMode.isActive)
+        .animation(.easeOut(duration: AppStyle.animationStandard), value: managementLayer.isActive)
         .coordinateSpace(name: "tabContainer")
     }
 
@@ -176,6 +179,7 @@ struct FlatTabStripContainer: View {
             repoCache: repoCache,
             closeTransitionCoordinator: closeTransitionCoordinator,
             actionDispatcher: actionDispatcher,
+            onPaneFocusTrigger: onPaneFocusTrigger,
             onOpenPaneGitHub: onOpenPaneGitHub
         )
     }

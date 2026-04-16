@@ -9,6 +9,7 @@ struct FlatPaneStripContent: View {
     let onSaveArrangement: (() -> Void)?
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let onPaneFocusTrigger: PaneFocusTriggerHandler
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let viewRegistry: ViewRegistry
@@ -62,6 +63,7 @@ struct FlatPaneStripContent: View {
                             onSaveArrangement: onSaveArrangement,
                             closeTransitionCoordinator: closeTransitionCoordinator,
                             actionDispatcher: actionDispatcher,
+                            onPaneFocusTrigger: onPaneFocusTrigger,
                             store: store,
                             repoCache: repoCache,
                             isSplitResizing: isSplitResizing,
@@ -102,6 +104,7 @@ private struct PaneSegmentSlotView: View {
     let onSaveArrangement: (() -> Void)?
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let onPaneFocusTrigger: PaneFocusTriggerHandler
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let isSplitResizing: Bool
@@ -134,6 +137,7 @@ private struct PaneSegmentSlotView: View {
                 repoCache: repoCache,
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 actionDispatcher: actionDispatcher,
+                onPaneFocusTrigger: onPaneFocusTrigger,
                 onOpenPaneGitHub: onOpenPaneGitHub,
                 dropTargetCoordinateSpace: coordinateSpaceName,
                 useDrawerFramePreference: useDrawerFramePreference

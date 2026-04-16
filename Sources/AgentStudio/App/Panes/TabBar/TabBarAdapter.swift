@@ -54,9 +54,9 @@ final class TabBarAdapter {
     static let tabBarPadding: CGFloat = 16
     static let hysteresisBuffer: CGFloat = 50
 
-    // MARK: - Management Mode
+    // MARK: - Management Layer
 
-    private(set) var isManagementModeActive: Bool = false
+    private(set) var isManagementLayerActive: Bool = false
 
     // MARK: - Transient UI State
 
@@ -68,7 +68,7 @@ final class TabBarAdapter {
 
     private let store: WorkspaceStore
     private let repoCache: RepoCacheAtom
-    private var isObservingManagementMode = false
+    private var isObservingManagementLayer = false
     private var isObservingStore = false
 
     init(store: WorkspaceStore, repoCache: RepoCacheAtom) {
@@ -84,9 +84,9 @@ final class TabBarAdapter {
         // withObservationTracking fires once per registration, so we re-register
         // after each change. Task { @MainActor } satisfies @Sendable and ensures
         // we read new values (onChange has willSet semantics — old values only).
-        isManagementModeActive = atom(\.managementMode).isActive
+        isManagementLayerActive = atom(\.managementLayer).isActive
         observeStore()
-        observeManagementMode()
+        observeManagementLayer()
 
         // Initial sync
         refresh()
@@ -112,18 +112,18 @@ final class TabBarAdapter {
         }
     }
 
-    private func observeManagementMode() {
-        guard !isObservingManagementMode else { return }
-        isObservingManagementMode = true
+    private func observeManagementLayer() {
+        guard !isObservingManagementLayer else { return }
+        isObservingManagementLayer = true
         withObservationTracking {
             // Track only reads; writes stay in onChange.
-            _ = atom(\.managementMode).isActive
+            _ = atom(\.managementLayer).isActive
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.isObservingManagementMode = false
-                self.isManagementModeActive = atom(\.managementMode).isActive
-                self.observeManagementMode()
+                self.isObservingManagementLayer = false
+                self.isManagementLayerActive = atom(\.managementLayer).isActive
+                self.observeManagementLayer()
             }
         }
     }

@@ -67,7 +67,7 @@ struct CommandBarView: View {
     // MARK: - Data
 
     private var currentMode: CommandBarAppMode {
-        atom(\.managementMode).isActive ? .management : .normal
+        atom(\.managementLayer).isActive ? .management : .normal
     }
 
     private var currentContext: WorkspaceFocus {
