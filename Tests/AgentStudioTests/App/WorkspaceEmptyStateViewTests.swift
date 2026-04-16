@@ -1,3 +1,4 @@
+import CoreGraphics
 import Testing
 
 @testable import AgentStudio
@@ -192,5 +193,44 @@ struct WorkspaceEmptyStateViewTests {
         #expect(entries[2].prefix == "#")
         #expect(entries[2].title == "Repos · Worktrees")
         #expect(entries[2].body == "Open a repo, switch a worktree, or start a new one")
+    }
+
+    // MARK: - Launcher composition
+
+    @Test("launcher hero row tokens produce a visually bordered block")
+    func launcherHeroRowTokensProduceVisuallyBorderedBlock() {
+        #expect(AppStyles.Welcome.heroRowCornerRadius > AppStyles.Welcome.shortcutRowHoverRadius)
+        #expect(AppStyles.Welcome.heroRowStrokeOpacity > 0)
+        #expect(
+            AppStyles.Welcome.heroRowInnerVerticalPadding
+                > AppStyles.Welcome.shortcutRowVerticalPadding
+        )
+    }
+
+    @Test("launcher above-fold height budget fits 1240x820 viewport")
+    func launcherAboveFoldHeightBudgetFits1240x820Viewport() {
+        let headerBlock: CGFloat = 80
+        let recentRowHeight: CGFloat = 100
+        let gap = AppStyles.Welcome.recentCardGap
+        let sectionGap = AppStyles.Welcome.sectionToContentGap
+        let recentsToHero = AppStyles.Welcome.recentsToHeroGap
+        let heroHeight = AppStyles.Welcome.heroRowInnerVerticalPadding * 2 + 48
+
+        let pageTop = AppStyles.Welcome.pageVerticalPadding
+        let header = pageTop + headerBlock + AppStyles.Welcome.headerToContentGap
+        let recentLabel = header + 30 + sectionGap
+        let recentsEnd = recentLabel + recentRowHeight * 3 + gap * 2
+        let heroEnd = recentsEnd + recentsToHero + heroHeight
+
+        #expect(heroEnd <= 820)
+    }
+
+    @Test("launcher narrow breakpoint is below command-palette horizontal width")
+    func launcherNarrowBreakpointIsBelowCommandPaletteHorizontalWidth() {
+        let pairWidth =
+            AppStyles.Welcome.teachingColumnWidth
+            + AppStyles.Welcome.contentColumnsGap
+            + AppStyles.Welcome.previewWidth
+        #expect(AppStyles.Welcome.launcherNarrowBreakpoint < pairWidth)
     }
 }

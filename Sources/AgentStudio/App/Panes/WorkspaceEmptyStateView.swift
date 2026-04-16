@@ -209,74 +209,141 @@ struct WorkspaceEmptyStateView: View {
     }
 
     private func launcherBody(availableWidth: CGFloat) -> some View {
-        let recentSectionWidth = WorkspaceEmptyStateLayout.recentSectionWidth(for: availableWidth)
+        let columnCount = WorkspaceEmptyStateLayout.recentColumnCount(for: availableWidth)
         let visibleRecentCards = Array(
             model.recentCards.prefix(WorkspaceEmptyStateLayout.visibleRecentCardLimit(for: availableWidth))
         )
-        let contentWidth = min(
-            availableWidth,
-            AppStyles.Welcome.teachingColumnWidth
-                + AppStyles.Welcome.contentColumnsGap
-                + recentSectionWidth
-        )
+        let stacksVertically = availableWidth < AppStyles.Welcome.launcherNarrowBreakpoint
 
         return VStack(spacing: AppStyles.Welcome.headerToContentGap) {
             WorkspaceHomeHeader(
                 title: "Your workspace",
-                subtitle: "Start something new, or jump back into recent work."
+                subtitle: "Jump back in, or start something new."
             )
 
-            VStack(alignment: .leading, spacing: AppStyles.Welcome.sectionToContentGap) {
-                Text("Start Fast")
-                    .font(.system(size: AppStyles.Welcome.sectionLabelFontSize, weight: .semibold))
-                    .foregroundStyle(.primary.opacity(AppStyles.Welcome.sectionLabelOpacity))
-
-                LauncherShortcutAction(
-                    key: "⌘T",
-                    title: "New tab or worktree",
-                    lines: [
-                        "Always opens the # picker.",
-                        "New Empty Tab is always the first row.",
-                    ],
-                    action: { CommandDispatcher.shared.dispatch(.showCommandBarRepos) }
+            VStack(alignment: .leading, spacing: 0) {
+                launcherRecentSection(
+                    availableWidth: availableWidth,
+                    columnCount: columnCount,
+                    visibleRecentCards: visibleRecentCards
                 )
-                .frame(maxWidth: AppStyles.Welcome.teachingColumnWidth, alignment: .leading)
+                .padding(.bottom, AppStyles.Welcome.recentsToHeroGap)
 
-                HStack(alignment: .top, spacing: AppStyles.Welcome.contentColumnsGap) {
-                    launcherCommandPaletteSection
-                        .frame(maxWidth: AppStyles.Welcome.teachingColumnWidth, alignment: .leading)
+                launcherHeroRow
+                    .padding(.bottom, AppStyles.Welcome.heroToCommandPaletteGap)
 
-                    launcherRecentSection(
-                        availableWidth: availableWidth,
-                        recentSectionWidth: recentSectionWidth,
-                        visibleRecentCards: visibleRecentCards
-                    )
-                    .frame(maxWidth: recentSectionWidth, alignment: .leading)
-                }
+                launcherCommandPaletteSection(stacksVertically: stacksVertically)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(
+                maxWidth: WorkspaceEmptyStateLayout.contentColumnWidth,
+                alignment: .leading
+            )
         }
-        .frame(maxWidth: contentWidth, alignment: .leading)
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
-    private var launcherCommandPaletteSection: some View {
-        VStack(alignment: .leading, spacing: AppStyles.Welcome.previewTopGap) {
-            LauncherShortcutAction(
-                key: "⌘P",
-                title: "Command palette",
-                lines: ["Search the app using scoped prefixes."],
-                action: { CommandDispatcher.shared.dispatch(.showCommandBarEverything) }
-            )
+    private var launcherHeroRow: some View {
+        Button {
+            CommandDispatcher.shared.dispatch(.showCommandBarRepos)
+        } label: {
+            HStack(alignment: .center, spacing: AppStyles.Welcome.shortcutTextGap) {
+                Text("⌘T")
+                    .font(
+                        .system(
+                            size: AppStyles.Welcome.shortcutKeyFontSize,
+                            weight: .semibold,
+                            design: .monospaced
+                        )
+                    )
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: AppStyles.Welcome.shortcutKeyColumnWidth, alignment: .leading)
 
-            CommandBarEmbeddedPreview()
-                .padding(.leading, AppStyles.Welcome.shortcutBodyLeadingInset)
+                VStack(alignment: .leading, spacing: AppStyles.Welcome.shortcutTitleBodyGap) {
+                    Text("Start a new tab or worktree")
+                        .font(.system(size: AppStyles.Welcome.shortcutTitleFontSize, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Text("Opens the # picker. New Empty Tab is always first.")
+                        .font(.system(size: AppStyles.Welcome.shortcutBodyFontSize))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 16)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: AppStyles.General.Typography.textLg, weight: .medium))
+                    .foregroundStyle(.primary.opacity(AppStyles.Welcome.heroRowChevronOpacity))
+            }
+            .padding(.horizontal, AppStyles.Welcome.heroRowInnerHorizontalPadding)
+            .padding(.vertical, AppStyles.Welcome.heroRowInnerVerticalPadding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: AppStyles.Welcome.heroRowCornerRadius)
+                    .fill(Color.white.opacity(AppStyles.Welcome.heroRowFillOpacity))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AppStyles.Welcome.heroRowCornerRadius)
+                            .stroke(
+                                Color.white.opacity(AppStyles.Welcome.heroRowStrokeOpacity),
+                                lineWidth: 1
+                            )
+                    )
+            )
         }
+        .buttonStyle(.plain)
+        .contentShape(RoundedRectangle(cornerRadius: AppStyles.Welcome.heroRowCornerRadius))
+    }
+
+    @ViewBuilder
+    private func launcherCommandPaletteSection(stacksVertically: Bool) -> some View {
+        if stacksVertically {
+            VStack(alignment: .leading, spacing: AppStyles.Welcome.previewTopGap) {
+                launcherCommandPaletteTeaching
+                CommandBarEmbeddedPreview()
+            }
+        } else {
+            HStack(alignment: .top, spacing: AppStyles.Welcome.contentColumnsGap) {
+                launcherCommandPaletteTeaching
+                    .frame(width: AppStyles.Welcome.teachingColumnWidth, alignment: .leading)
+                CommandBarEmbeddedPreview()
+            }
+        }
+    }
+
+    private var launcherCommandPaletteTeaching: some View {
+        Button {
+            CommandDispatcher.shared.dispatch(.showCommandBarEverything)
+        } label: {
+            VStack(alignment: .leading, spacing: AppStyles.Welcome.shortcutTitleBodyGap) {
+                HStack(alignment: .firstTextBaseline, spacing: AppStyles.Welcome.shortcutTextGap) {
+                    Text("⌘P")
+                        .font(
+                            .system(
+                                size: AppStyles.Welcome.shortcutKeyFontSize,
+                                weight: .semibold,
+                                design: .monospaced
+                            )
+                        )
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: AppStyles.Welcome.shortcutKeyColumnWidth, alignment: .leading)
+
+                    Text("Command palette")
+                        .font(.system(size: AppStyles.Welcome.shortcutTitleFontSize, weight: .semibold))
+                        .foregroundStyle(.primary)
+                }
+
+                Text("Scope your search with a prefix.")
+                    .font(.system(size: AppStyles.Welcome.shortcutBodyFontSize))
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, AppStyles.Welcome.shortcutBodyLeadingInset)
+            }
+            .padding(.vertical, AppStyles.Welcome.shortcutRowVerticalPadding)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func launcherRecentSection(
         availableWidth: CGFloat,
-        recentSectionWidth: CGFloat,
+        columnCount: Int,
         visibleRecentCards: [WorkspaceRecentCardModel]
     ) -> some View {
         VStack(alignment: .leading, spacing: AppStyles.Welcome.sectionToContentGap) {
@@ -284,7 +351,7 @@ struct WorkspaceEmptyStateView: View {
 
             if visibleRecentCards.isEmpty {
                 WorkspaceRecentPlaceholderCard()
-                    .frame(width: AppStyles.Welcome.recentCardMinWidth)
+                    .frame(width: WorkspaceEmptyStateLayout.recentCardWidth(forColumns: columnCount))
             } else {
                 LazyVGrid(
                     columns: WorkspaceEmptyStateLayout.recentGridColumns(for: availableWidth),
@@ -298,7 +365,7 @@ struct WorkspaceEmptyStateView: View {
                         )
                     }
                 }
-                .frame(maxWidth: recentSectionWidth, alignment: .leading)
+                .frame(maxWidth: WorkspaceEmptyStateLayout.contentColumnWidth, alignment: .leading)
             }
         }
     }
@@ -316,6 +383,8 @@ struct WorkspaceEmptyStateView: View {
                 .buttonStyle(.bordered)
                 .controlSize(.regular)
             }
+
+            Spacer(minLength: 0)
         }
     }
 }
@@ -337,61 +406,6 @@ private struct WorkspaceHomeHeader: View {
                 .frame(maxWidth: AppStyles.Welcome.headerMaxWidth)
         }
         .frame(maxWidth: .infinity)
-    }
-}
-
-private struct LauncherShortcutAction: View {
-    let key: String
-    let title: String
-    let lines: [String]
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: AppStyles.Welcome.shortcutTitleBodyGap) {
-                HStack(alignment: .firstTextBaseline, spacing: AppStyles.Welcome.shortcutTextGap) {
-                    Text(key)
-                        .font(
-                            .system(
-                                size: AppStyles.Welcome.shortcutKeyFontSize,
-                                weight: .semibold,
-                                design: .monospaced
-                            )
-                        )
-                        .foregroundStyle(Color.accentColor)
-                        .frame(width: AppStyles.Welcome.shortcutKeyColumnWidth, alignment: .leading)
-
-                    Text(title)
-                        .font(.system(size: AppStyles.Welcome.shortcutTitleFontSize, weight: .semibold))
-                        .foregroundStyle(.primary)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(lines, id: \.self) { line in
-                        Text(line)
-                            .font(.system(size: AppStyles.Welcome.shortcutBodyFontSize))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.leading, AppStyles.Welcome.shortcutBodyLeadingInset)
-            }
-            .padding(.vertical, AppStyles.Welcome.shortcutRowVerticalPadding)
-            .padding(.horizontal, AppStyles.Welcome.shortcutRowHorizontalPadding)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: AppStyles.Welcome.shortcutRowHoverRadius)
-                    .fill(
-                        isHovered
-                            ? Color.white.opacity(AppStyles.Welcome.interactiveHoverOpacity)
-                            : Color.clear
-                    )
-            )
-        }
-        .buttonStyle(.plain)
-        .contentShape(RoundedRectangle(cornerRadius: AppStyles.Welcome.shortcutRowHoverRadius))
-        .onHover { isHovered = $0 }
     }
 }
 
