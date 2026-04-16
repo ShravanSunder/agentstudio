@@ -1,14 +1,6 @@
 import AppKit
 import SwiftUI
 
-private struct ArrangementButtonFramePreferenceKey: PreferenceKey {
-    static let defaultValue: CGRect = .zero
-
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        value = nextValue()
-    }
-}
-
 struct CollapsedPaneBar: View {
     let paneId: UUID
     let tabId: UUID
@@ -21,8 +13,8 @@ struct CollapsedPaneBar: View {
     @State private var isHovered = false
     @State private var isExpandHovered = false
     @State private var isArrangementHovered = false
-    @State private var showArrangementPanel = false
-    @State private var arrangementButtonFrame: CGRect = .zero
+    @State private var isArrangementPanelPresented = false
+    @State private var arrangementPopoverToggleGate = PopoverToggleGate()
 
     static let barWidth: CGFloat = AppStyle.collapsedBarWidth
     static let barHeight: CGFloat = AppStyle.collapsedBarWidth
@@ -51,24 +43,6 @@ struct CollapsedPaneBar: View {
 
     private var isDrawerChild: Bool {
         atom(\.workspacePane).pane(paneId)?.isDrawerChild ?? false
-    }
-
-    private var arrangementPopoverAnchor: PopoverAttachmentAnchor {
-        let screenFrame =
-            NSScreen.screens.first(where: { $0.frame.intersects(arrangementButtonFrame) })?.frame
-            ?? NSScreen.main?.frame
-            ?? .zero
-        return arrangementButtonFrame.midX >= screenFrame.midX
-            ? .point(.topTrailing)
-            : .point(.topLeading)
-    }
-
-    private var arrangementPopoverArrowEdge: Edge {
-        let screenFrame =
-            NSScreen.screens.first(where: { $0.frame.intersects(arrangementButtonFrame) })?.frame
-            ?? NSScreen.main?.frame
-            ?? .zero
-        return arrangementButtonFrame.midX >= screenFrame.midX ? .trailing : .leading
     }
 
     var body: some View {
@@ -158,7 +132,7 @@ struct CollapsedPaneBar: View {
         let arrangements = arrangement.arrangementItems(for: tabId)
 
         return Button {
-            showArrangementPanel.toggle()
+            arrangementPopoverToggleGate.toggle(isPresented: &isArrangementPanelPresented)
         } label: {
             Image(systemName: "rectangle.3.group")
                 .font(.system(size: AppStyle.compactIconSize, weight: .medium))
@@ -172,27 +146,28 @@ struct CollapsedPaneBar: View {
         }
         .buttonStyle(.plain)
         .onHover { isArrangementHovered = $0 }
-        .background(
-            GeometryReader { geo in
-                Color.clear.preference(
-                    key: ArrangementButtonFramePreferenceKey.self,
-                    value: geo.frame(in: .global)
-                )
-            }
-        )
-        .onPreferenceChange(ArrangementButtonFramePreferenceKey.self) { arrangementButtonFrame = $0 }
         .help(LocalActionSpec.arrangements.actionSpec.helpText)
         .popover(
-            isPresented: $showArrangementPanel,
-            attachmentAnchor: arrangementPopoverAnchor,
-            arrowEdge: arrangementPopoverArrowEdge
+            isPresented: Binding(
+                get: { isArrangementPanelPresented },
+                set: { newValue in
+                    if !newValue && isArrangementPanelPresented {
+                        isArrangementPanelPresented = false
+                        arrangementPopoverToggleGate.recordSystemDismissal()
+                    } else {
+                        isArrangementPanelPresented = newValue
+                    }
+                }
+            ),
+            attachmentAnchor: .point(.center),
+            arrowEdge: .leading
         ) {
             ArrangementPanel(
                 tabId: tabId,
                 panes: panes,
                 arrangements: arrangements,
                 onPaneAction: { action in
-                    showArrangementPanel = false
+                    isArrangementPanelPresented = false
                     actionDispatcher.dispatch(action)
                 },
                 onSaveArrangement: { onSaveArrangement?() },

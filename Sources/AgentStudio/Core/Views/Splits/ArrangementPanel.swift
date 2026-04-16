@@ -89,7 +89,7 @@ struct ArrangementPanel: View {
             }
         }
         .padding(10)
-        .frame(minWidth: 180, maxWidth: 260)
+        .frame(minWidth: 240, maxWidth: 340)
         .alert(
             "Rename Arrangement",
             isPresented: Binding(

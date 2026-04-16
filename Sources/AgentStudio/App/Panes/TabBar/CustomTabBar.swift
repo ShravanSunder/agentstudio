@@ -408,17 +408,28 @@ private struct TabBarArrangementButton: View {
     let onPaneAction: ((PaneActionCommand) -> Void)?
     let onSaveArrangement: ((UUID) -> Void)?
 
-    @State private var showPanel = false
+    @State private var isPanelPresented = false
     @State private var isHovered = false
+    @State private var popoverToggleGate = PopoverToggleGate()
 
     private var activeTab: TabBarItem? {
         guard let activeId = adapter.activeTabId else { return nil }
         return adapter.tabs.first { $0.id == activeId }
     }
 
+    private var hiddenMinimizedCount: Int {
+        guard !atom(\.uiState).showMinimizedBars else { return 0 }
+        guard !atom(\.managementMode).isActive else { return 0 }
+        return activeTab?.minimizedCount ?? 0
+    }
+
+    private var popoverPlacement: ArrangementPanelPopoverPlacement {
+        .tabBar
+    }
+
     var body: some View {
         Button {
-            showPanel.toggle()
+            popoverToggleGate.toggle(isPresented: &isPanelPresented)
         } label: {
             Image(systemName: "rectangle.3.group")
                 .font(.system(size: AppStyle.compactIconSize, weight: .medium))
@@ -429,14 +440,41 @@ private struct TabBarArrangementButton: View {
                         .fill(Color.white.opacity(isHovered ? AppStyle.fillPressed : AppStyle.fillMuted))
                 )
                 .contentShape(Circle())
+                .overlay(alignment: .topTrailing) {
+                    if hiddenMinimizedCount > 0 {
+                        Text("\(hiddenMinimizedCount)")
+                            .font(.system(size: AppStyle.textXs, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, AppStyle.spacingTight)
+                            .padding(.vertical, 1)
+                            .background(
+                                Capsule()
+                                    .fill(Color.white.opacity(AppStyle.fillHover))
+                            )
+                            .fixedSize()
+                            .offset(x: 10, y: -6)
+                            .transition(.opacity.combined(with: .scale))
+                    }
+                }
+                .animation(.easeOut(duration: AppStyle.animationFast), value: hiddenMinimizedCount)
         }
         .buttonStyle(.plain)
         .onHover { hovering in isHovered = hovering }
         .help(LocalActionSpec.arrangements.actionSpec.helpText)
         .popover(
-            isPresented: $showPanel,
-            attachmentAnchor: .point(.topLeading),
-            arrowEdge: .leading
+            isPresented: Binding(
+                get: { isPanelPresented },
+                set: { newValue in
+                    if !newValue && isPanelPresented {
+                        isPanelPresented = false
+                        popoverToggleGate.recordSystemDismissal()
+                    } else {
+                        isPanelPresented = newValue
+                    }
+                }
+            ),
+            attachmentAnchor: popoverPlacement.attachmentAnchor,
+            arrowEdge: popoverPlacement.arrowEdge
         ) {
             if let tab = activeTab, let onPaneAction, let onSaveArrangement {
                 ArrangementPanel(
