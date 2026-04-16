@@ -396,7 +396,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             if shouldSkipSelectionDrivenRefocus(currentTabId: currentTabId, currentPaneId: currentPaneId) {
                 suppressedSelectionDrivenRefocus = nil
             } else {
-                requestPaneRefocus(.explicit)
+                scheduleSelectionDrivenRefocus()
             }
         }
 
@@ -422,6 +422,14 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             .activePaneId
     }
 
+    private func scheduleSelectionDrivenRefocus() {
+        // Tab host visibility changes land after the active-tab mutation, so
+        // refocus on the next main-actor turn instead of racing the hidden host.
+        Task { @MainActor [weak self] in
+            self?.requestPaneRefocus(.explicit)
+        }
+    }
+
     private func makePaneFocusExecutor() -> PaneFocusExecutor {
         PaneFocusExecutor(
             hostViewProvider: { [weak self] paneId in
@@ -433,8 +441,6 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             },
             selectTab: { [weak self] tabId in
                 guard let self else { return }
-                let paneId = self.store.tabLayoutAtom.tab(tabId)?.activePaneId
-                self.recordSelectionDrivenRefocusSuppression(tabId: tabId, paneId: paneId)
                 self.store.tabLayoutAtom.setActiveTab(tabId)
                 if atom(\.managementLayer).isActive {
                     self.managementLayerNavigationScope = .mainRow

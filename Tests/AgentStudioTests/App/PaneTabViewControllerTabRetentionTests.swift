@@ -72,6 +72,14 @@ struct PaneTabViewControllerTabRetentionTests {
         harness.viewRegistry.register(PaneHostView(paneId: paneId), for: paneId)
     }
 
+    private func registerAttachedPaneHost(_ paneId: UUID, in harness: Harness) throws {
+        let host = PaneHostView(paneId: paneId)
+        harness.viewRegistry.register(host, for: paneId)
+        let contentView = try #require(harness.window.contentView)
+        host.frame = contentView.bounds
+        contentView.addSubview(host)
+    }
+
     @Test
     func switchingTabs_reusesPersistentHosts() throws {
         let harness = makeHarness()
@@ -115,6 +123,42 @@ struct PaneTabViewControllerTabRetentionTests {
         #expect(secondHost !== firstHost)
         #expect(firstHostAfterRoundTrip.isHidden == false)
         #expect(secondHost.isHidden)
+    }
+
+    @Test
+    func selectingTabViaCommand_focusesTheTargetTabPane() async throws {
+        let harness = makeHarness()
+        defer {
+            PaneViewRepresentable.onDismantleForTesting = nil
+            try? FileManager.default.removeItem(at: harness.tempDir)
+        }
+
+        let firstPane = harness.store.createPane(
+            source: .floating(launchDirectory: harness.tempDir, title: "First"),
+            provider: .zmx
+        )
+        let secondPane = harness.store.createPane(
+            source: .floating(launchDirectory: harness.tempDir, title: "Second"),
+            provider: .zmx
+        )
+        let firstTab = Tab(paneId: firstPane.id, name: "First")
+        let secondTab = Tab(paneId: secondPane.id, name: "Second")
+        harness.store.appendTab(firstTab)
+        harness.store.appendTab(secondTab)
+        try registerAttachedPaneHost(firstPane.id, in: harness)
+        try registerAttachedPaneHost(secondPane.id, in: harness)
+        harness.store.setActiveTab(firstTab.id)
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        harness.controller.selectTab(at: 1)
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        let secondHost = try #require(harness.viewRegistry.view(for: secondPane.id))
+        await eventually("command tab selection should refocus the target pane") {
+            harness.window.firstResponder === secondHost
+        }
+        #expect(harness.store.activeTabId == secondTab.id)
+        #expect(harness.window.firstResponder === secondHost)
     }
 
     @Test
