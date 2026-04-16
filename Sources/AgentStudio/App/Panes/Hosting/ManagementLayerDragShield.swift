@@ -1,7 +1,7 @@
 import AppKit
 import Observation
 
-/// Transparent overlay that suppresses file/media drag types during management mode,
+/// Transparent overlay that suppresses file/media drag types during management layer,
 /// preventing WKWebView-backed panes from showing "Drop files to upload."
 ///
 /// Placed as the topmost subview of ``PaneHostView`` (above WKWebView / Ghostty content).
@@ -15,25 +15,25 @@ import Observation
 /// ## hitTest behavior
 ///
 /// Always returns `nil` — transparent to mouse events (clicks, hover).
-/// ``PaneHostView/hitTest(_:)`` handles click blocking by returning `nil` during management mode.
+/// ``PaneHostView/hitTest(_:)`` handles click blocking by returning `nil` during management layer.
 /// NSDraggingDestination routing is **frame-based** (independent of hitTest), so the shield
 /// still receives drag callbacks for its registered types.
 ///
 /// ## Dynamic registration
 ///
-/// Registers/unregisters file/media drag types when management mode toggles
-/// by observing ``ManagementModeMonitor`` directly. Also notifies the parent
+/// Registers/unregisters file/media drag types when management layer toggles
+/// by observing ``ManagementLayerMonitor`` directly. Also notifies the parent
 /// ``PaneHostView`` to apply content-level interaction changes
 /// (e.g., CSS `pointer-events: none` for WKWebView).
 @MainActor
-final class ManagementModeDragShield: NSView {
+final class ManagementLayerDragShield: NSView {
 
     // MARK: - Drag Policy
 
     /// Drag type classification for the shield.
     ///
     /// **Allowlist strategy:** agent studio custom types pass through to SwiftUI
-    /// `.onDrop`. All other types are suppressed during management mode.
+    /// `.onDrop`. All other types are suppressed during management layer.
     ///
     /// To support a new custom drag type, add it to ``allowedTypes``.
     enum DragPolicy {
@@ -45,7 +45,7 @@ final class ManagementModeDragShield: NSView {
             .agentStudioTabInternal,
         ]
 
-        /// File/media types suppressed during management mode.
+        /// File/media types suppressed during management layer.
         /// These are the narrow types WKWebView registers for internally.
         ///
         /// **Critical:** Do NOT add supertypes like `public.data` or `public.content` —
@@ -63,7 +63,7 @@ final class ManagementModeDragShield: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        observeManagementMode()
+        observeManagementLayer()
         updateRegistration()
     }
 
@@ -75,7 +75,7 @@ final class ManagementModeDragShield: NSView {
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         // Ensure parent pane receives the current interaction state when the shield
-        // is first attached. Without this, panes created while management mode is
+        // is first attached. Without this, panes created while management layer is
         // already active could miss content interaction suppression.
         updateRegistration()
     }
@@ -93,13 +93,13 @@ final class ManagementModeDragShield: NSView {
     // MARK: - NSDraggingDestination
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard atom(\.managementMode).isActive else { return [] }
+        guard atom(\.managementLayer).isActive else { return [] }
         // Accept the drag to prevent WKWebView from seeing it.
         return .generic
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        guard atom(\.managementMode).isActive else { return [] }
+        guard atom(\.managementLayer).isActive else { return [] }
         return .generic
     }
 
@@ -112,24 +112,24 @@ final class ManagementModeDragShield: NSView {
         false
     }
 
-    // MARK: - Management Mode Events
+    // MARK: - Management Layer Events
 
-    private func observeManagementMode() {
+    private func observeManagementLayer() {
         withObservationTracking {
-            _ = atom(\.managementMode).isActive
+            _ = atom(\.managementLayer).isActive
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.updateRegistration()
-                self.observeManagementMode()
+                self.observeManagementLayer()
             }
         }
     }
 
-    /// Dynamically register/unregister drag types based on management mode.
+    /// Dynamically register/unregister drag types based on management layer.
     /// Also notifies the parent PaneHostView to apply content-level interaction changes.
     private func updateRegistration() {
-        let isActive = atom(\.managementMode).isActive
+        let isActive = atom(\.managementLayer).isActive
         if isActive {
             registerForDraggedTypes(DragPolicy.suppressedTypes)
         } else {

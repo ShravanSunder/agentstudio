@@ -226,7 +226,6 @@ correct — the bug reproduced in Ghostty's own app, proving it was a zmx issue.
 |------|------|
 | `vendor/zmx/src/util.zig` | `rewritePromptRedraw()` — OSC 133;A rewrite |
 | `vendor/zmx/src/main.zig` | Daemon broadcast path, handleInit, handleResize |
-| `docs/debugging/2026-03-29-terminal-startup-ratio-drift-and-redraw.md` | Full investigation log (21 epochs) |
 
 ## Upstream status
 

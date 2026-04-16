@@ -8,12 +8,12 @@ struct WorkspaceCommandValidatorOwnershipTests {
     private func makeSnapshot(
         tabs: [TabSnapshot],
         activeTabId: UUID? = nil,
-        isManagementModeActive: Bool = false
+        isManagementLayerActive: Bool = false
     ) -> ActionStateSnapshot {
         ActionStateSnapshot(
             tabs: tabs,
             activeTabId: activeTabId,
-            isManagementModeActive: isManagementModeActive
+            isManagementLayerActive: isManagementLayerActive
         )
     }
 
@@ -71,31 +71,6 @@ struct WorkspaceCommandValidatorOwnershipTests {
             return
         }
         #expect(validated.action == .closePane(tabId: tabId, paneId: visiblePaneId))
-    }
-
-    @Test
-    func focusPane_hiddenOwnedPane_fails() {
-        let tabId = UUID()
-        let visiblePaneId = UUIDv7.generate()
-        let hiddenPaneId = UUIDv7.generate()
-        let snapshot = makeSnapshot(
-            tabs: [
-                TabSnapshot(
-                    id: tabId,
-                    visiblePaneIds: [visiblePaneId],
-                    ownedPaneIds: [visiblePaneId, hiddenPaneId],
-                    activePaneId: visiblePaneId
-                )
-            ]
-        )
-
-        let result = WorkspaceCommandValidator.validate(
-            .focusPane(tabId: tabId, paneId: hiddenPaneId),
-            state: snapshot
-        )
-
-        if case .failure(.paneNotFound) = result { return }
-        Issue.record("Expected paneNotFound error")
     }
 
     @Test

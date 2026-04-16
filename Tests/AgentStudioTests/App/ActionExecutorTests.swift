@@ -271,36 +271,6 @@ final class ActionExecutorTests {
         #expect(store.tabs[1].name == "Second")
     }
 
-    // MARK: - Execute: focusPane
-
-    @Test
-    func test_execute_focusPane_setsActivePane() {
-        // Arrange
-        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        let layout = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
-        let arrangement = PaneArrangement(
-            name: "Default",
-            isDefault: true,
-            layout: layout,
-            visiblePaneIds: Set(layout.paneIds)
-        )
-        let tab = Tab(
-            panes: layout.paneIds,
-            arrangements: [arrangement],
-            activeArrangementId: arrangement.id,
-            activePaneId: p1.id
-        )
-        store.appendTab(tab)
-
-        // Act
-        executor.execute(.focusPane(tabId: tab.id, paneId: p2.id))
-
-        // Assert
-        #expect(store.tabs[0].activePaneId == p2.id)
-    }
-
     // MARK: - Execute: resizePane
 
     @Test

@@ -58,6 +58,7 @@ struct DrawerPanel: View {
     let action: (PaneActionCommand) -> Void
     let onResize: (CGFloat) -> Void
     let onDismiss: () -> Void
+    let onPaneFocusTrigger: PaneFocusTriggerHandler
     let appLifecycleStore: AppLifecycleAtom
     let onOpenPaneGitHub: (UUID) -> Void
 
@@ -65,8 +66,8 @@ struct DrawerPanel: View {
     @State private var dropTarget: PaneDropTarget?
     @State private var dropTargetWatchdogTask: Task<Void, Never>?
     @State private var drawerActionDispatcher: PaneTabActionDispatcher
-    private var managementMode: ManagementModeAtom {
-        atom(\.managementMode)
+    private var managementLayer: ManagementLayerAtom {
+        atom(\.managementLayer)
     }
 
     init(
@@ -83,6 +84,7 @@ struct DrawerPanel: View {
         action: @escaping (PaneActionCommand) -> Void,
         onResize: @escaping (CGFloat) -> Void,
         onDismiss: @escaping () -> Void,
+        onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         appLifecycleStore: AppLifecycleAtom,
         onOpenPaneGitHub: @escaping (UUID) -> Void
     ) {
@@ -99,6 +101,7 @@ struct DrawerPanel: View {
         self.action = action
         self.onResize = onResize
         self.onDismiss = onDismiss
+        self.onPaneFocusTrigger = onPaneFocusTrigger
         self.appLifecycleStore = appLifecycleStore
         self.onOpenPaneGitHub = onOpenPaneGitHub
         self._drawerActionDispatcher = State(
@@ -123,8 +126,6 @@ struct DrawerPanel: View {
                                 direction: direction
                             )
                         )
-                    case .focusPane(_, let paneId):
-                        action(.setActiveDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
                     default:
                         action(paneAction)
                     }
@@ -140,7 +141,7 @@ struct DrawerPanel: View {
                     let snapshot = WorkspaceCommandResolver.snapshot(
                         from: store.tabLayoutAtom.tabs,
                         activeTabId: store.tabLayoutAtom.activeTabId,
-                        isManagementModeActive: atom(\.managementMode).isActive,
+                        isManagementLayerActive: atom(\.managementLayer).isActive,
                         knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id))
                     )
                     let moveAction = PaneActionCommand.moveDrawerPane(
@@ -210,6 +211,7 @@ struct DrawerPanel: View {
                             minimizedPaneIds: minimizedPaneIds,
                             closeTransitionCoordinator: closeTransitionCoordinator,
                             actionDispatcher: drawerActionDispatcher,
+                            onPaneFocusTrigger: onPaneFocusTrigger,
                             store: store,
                             repoCache: repoCache,
                             viewRegistry: viewRegistry,
@@ -232,7 +234,7 @@ struct DrawerPanel: View {
                     }
                 }
 
-                if managementMode.isActive {
+                if managementLayer.isActive {
                     PaneDropTargetOverlay(target: dropTarget, paneFrames: drawerPaneFrames)
                         .allowsHitTesting(false)
                 }
@@ -243,12 +245,12 @@ struct DrawerPanel: View {
                     // available for left/right insertion around outermost panes.
                     containerBounds: containerBounds,
                     target: $dropTarget,
-                    isManagementModeActive: managementMode.isActive,
+                    isManagementLayerActive: managementLayer.isActive,
                     actionDispatcher: drawerActionDispatcher
                 )
             }
             .onPreferenceChange(DrawerPaneFramePreferenceKey.self) { drawerPaneFrames = $0 }
-            .onChange(of: managementMode.isActive) { _, isActive in
+            .onChange(of: managementLayer.isActive) { _, isActive in
                 if !isActive {
                     dropTarget = nil
                 }
@@ -332,6 +334,7 @@ struct DrawerPanel: View {
                     action: { _ in },
                     onResize: { _ in },
                     onDismiss: {},
+                    onPaneFocusTrigger: { _ in },
                     appLifecycleStore: AppLifecycleAtom(),
                     onOpenPaneGitHub: { _ in }
                 )

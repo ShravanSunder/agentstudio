@@ -235,8 +235,8 @@ final class WorkspaceCommandResolverTabConformanceTests {
             command: .focusNextPane, tabs: [tab], activeTabId: tab.id
         )
 
-        // Assert — should find next pane
-        #expect(result == .focusPane(tabId: tab.id, paneId: ids[1]))
+        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        #expect(result == nil)
     }
 
     @Test
@@ -251,8 +251,8 @@ final class WorkspaceCommandResolverTabConformanceTests {
             command: .focusPrevPane, tabs: [tab], activeTabId: tab.id
         )
 
-        // Assert — should find previous pane
-        #expect(result == .focusPane(tabId: tab.id, paneId: ids[0]))
+        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        #expect(result == nil)
     }
 
     @Test
@@ -267,8 +267,8 @@ final class WorkspaceCommandResolverTabConformanceTests {
             command: .focusPaneRight, tabs: [tab], activeTabId: tab.id
         )
 
-        // Assert — neighbor to right of ids[0] is ids[1]
-        #expect(result == .focusPane(tabId: tab.id, paneId: ids[1]))
+        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        #expect(result == nil)
     }
 
     @Test
@@ -299,7 +299,7 @@ final class WorkspaceCommandResolverTabConformanceTests {
 
         // Act
         let snapshot = WorkspaceCommandResolver.snapshot(
-            from: [tab1, tab2], activeTabId: tab1.id, isManagementModeActive: false
+            from: [tab1, tab2], activeTabId: tab1.id, isManagementLayerActive: false
         )
 
         // Assert

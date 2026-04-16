@@ -313,7 +313,7 @@ AppDelegate (creates all services in dependency order)
 ├── AppLifecycleAtom             ← app active/terminating state (in-memory)
 ├── WindowLifecycleAtom          ← key/focused window identity, terminal geometry (in-memory)
 ├── ApplicationLifecycleMonitor   ← AppKit lifecycle ingress into lifecycle stores
-├── ManagementModeMonitor         ← management mode state tracking
+├── ManagementLayerMonitor         ← management layer state tracking
 ├── SessionRuntime                ← backend status tracking (zmx health)
 ├── ViewRegistry                  ← paneId → PaneViewSlot mapping
 ├── PaneCoordinator               ← action dispatch + model↔view↔surface orchestration
@@ -438,7 +438,7 @@ There is no standalone `ViewResolver` type in code; this behavior is owned by th
 
 - `PaneTabViewController` observes app state and renders the active view arrangement.
 - `ViewRegistry` provides pane-to-view mapping used by split rendering.
-- `FlatTabStripContainer` handles split-drop routing in management mode using:
+- `FlatTabStripContainer` handles split-drop routing in management layer using:
   - `SplitContainerDropCaptureOverlay` (single drop input surface)
   - `PaneDragCoordinator` (pure drag target resolution)
   - `PaneDropTargetOverlay` (single target visualization layer)
@@ -747,7 +747,7 @@ Agent Studio has two typed presentation layers for user-triggerable UI:
 │ - helpText                                                   │
 │ - keyBinding                                                 │
 │ - appliesTo                                                  │
-│ - requiresManagementMode                                     │
+│ - requiresManagementLayer                                     │
 │ - visibleWhen                                                │
 │ - command bar group / priority                               │
 └──────────────────────────────────────────────────────────────┘
