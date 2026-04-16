@@ -608,6 +608,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // File menu
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(menuItem(command: .newWindow, action: #selector(newWindow)))
+        fileMenu.addItem(menuItem(command: .newTab, action: #selector(newTab)))
         fileMenu.addItem(menuItem(command: .showCommandBarRepos, action: #selector(showCommandBarRepos)))
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(menuItem(command: .closeTab, action: #selector(closeTab)))
@@ -742,6 +743,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc private func newWindow() {
         showOrCreateMainWindow()
+    }
+
+    @objc private func newTab() {
+        CommandDispatcher.shared.dispatch(.newTab)
     }
 
     @objc private func closeTab() {
