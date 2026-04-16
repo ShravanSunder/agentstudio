@@ -465,7 +465,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         )
 
         let config = try #require(harness.surfaceManager.createdConfigsByPaneId[pane.id])
-        let gap = AppStyle.paneGap
+        let gap = AppStyles.General.Layout.paneGap
         #expect(
             config.initialFrame
                 == CGRect(x: gap, y: gap, width: containerWidth - gap * 2, height: containerHeight - gap * 2))
@@ -533,7 +533,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
             for: activeTab.layout,
             in: harness.windowLifecycleStore.terminalContainerBounds,
-            dividerThickness: AppStyle.paneGap,
+            dividerThickness: AppStyles.General.Layout.paneGap,
             minimizedPaneIds: activeTab.minimizedPaneIds
         )
 
@@ -559,7 +559,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
             for: activeTab.layout,
             in: harness.windowLifecycleStore.terminalContainerBounds,
-            dividerThickness: AppStyle.paneGap,
+            dividerThickness: AppStyles.General.Layout.paneGap,
             minimizedPaneIds: activeTab.minimizedPaneIds
         )
 
@@ -585,7 +585,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
             for: activeTab.layout,
             in: harness.windowLifecycleStore.terminalContainerBounds,
-            dividerThickness: AppStyle.paneGap,
+            dividerThickness: AppStyles.General.Layout.paneGap,
             minimizedPaneIds: activeTab.minimizedPaneIds
         )
 
@@ -616,7 +616,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
             for: activeTab.layout,
             in: harness.windowLifecycleStore.terminalContainerBounds,
-            dividerThickness: AppStyle.paneGap,
+            dividerThickness: AppStyles.General.Layout.paneGap,
             minimizedPaneIds: activeTab.minimizedPaneIds
         )
 

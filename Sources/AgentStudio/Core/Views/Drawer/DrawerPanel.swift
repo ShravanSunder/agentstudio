@@ -182,12 +182,12 @@ struct DrawerPanel: View {
             action(.addDrawerPane(parentPaneId: parentPaneId))
         } label: {
             Image(systemName: "plus")
-                .font(.system(size: AppStyle.text2xl, weight: .medium))
+                .font(.system(size: AppStyles.General.Typography.text2xl, weight: .medium))
                 .foregroundStyle(.secondary)
                 .frame(width: 48, height: 48)
                 .background(
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.white.opacity(AppStyle.fillHover))
+                        .fill(Color.white.opacity(AppStyles.General.Fill.hover))
                 )
         }
         .buttonStyle(.plain)
@@ -224,7 +224,7 @@ struct DrawerPanel: View {
                             Spacer()
                             addDrawerButton
                             Text("Add a drawer terminal")
-                                .font(.system(size: AppStyle.textXs))
+                                .font(.system(size: AppStyles.General.Typography.textXs))
                                 .foregroundStyle(.tertiary)
                             Spacer()
                         }

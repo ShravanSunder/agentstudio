@@ -101,7 +101,7 @@ struct WorkspaceEmptyStateView: View {
                     .font(.system(size: 28, weight: .semibold))
 
                 Text("The terminal IDE built for coding agents.")
-                    .font(.system(size: AppStyle.textLg))
+                    .font(.system(size: AppStyles.General.Typography.textLg))
                     .foregroundStyle(.secondary)
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -112,7 +112,7 @@ struct WorkspaceEmptyStateView: View {
                     .controlSize(.large)
 
                     Text("AgentStudio watches the folder and discovers your repos automatically.")
-                        .font(.system(size: AppStyle.textXs))
+                        .font(.system(size: AppStyles.General.Typography.textXs))
                         .foregroundStyle(.tertiary)
                 }
                 .padding(.top, 8)
@@ -201,12 +201,12 @@ struct WorkspaceEmptyStateView: View {
     private var launcherQuickActionsSection: some View {
         VStack(spacing: 0) {
             Rectangle()
-                .fill(Color.white.opacity(AppStyle.fillActive))
+                .fill(Color.white.opacity(AppStyles.General.Fill.active))
                 .frame(width: WorkspaceEmptyStateLayout.launcherQuickActionsDividerWidth, height: 1)
                 .padding(.bottom, WorkspaceEmptyStateLayout.launcherQuickActionsDividerBottomPadding)
 
             Text(WorkspaceEmptyStateLayout.launcherQuickActionsSectionTitle)
-                .font(.system(size: AppStyle.textSm, weight: .medium))
+                .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
                 .foregroundStyle(.tertiary)
                 .padding(.bottom, WorkspaceEmptyStateLayout.launcherQuickActionsLabelBottomPadding)
 
@@ -219,7 +219,7 @@ struct WorkspaceEmptyStateView: View {
     private var recentSectionHeader: some View {
         HStack(alignment: .center, spacing: 16) {
             Text("Recent")
-                .font(.system(size: AppStyle.textBase, weight: .medium))
+                .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
                 .foregroundStyle(.tertiary)
 
             if model.showsOpenAll {
@@ -244,7 +244,7 @@ private struct WorkspaceHomeHeader: View {
                 .multilineTextAlignment(.center)
 
             Text(subtitle)
-                .font(.system(size: AppStyle.textLg))
+                .font(.system(size: AppStyles.General.Typography.textLg))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 620)
@@ -275,14 +275,14 @@ private struct WorkspaceRecentCardView: View {
         RoundedRectangle(cornerRadius: 16)
             .fill(
                 isHovered
-                    ? Color.accentColor.opacity(AppStyle.sidebarRowHoverOpacity)
-                    : Color.white.opacity(AppStyle.fillMuted)
+                    ? Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity)
+                    : Color.white.opacity(AppStyles.General.Fill.muted)
             )
     }
 
     private var cardBorder: some View {
         RoundedRectangle(cornerRadius: 16)
-            .stroke(Color.white.opacity(AppStyle.fillActive), lineWidth: 1)
+            .stroke(Color.white.opacity(AppStyles.General.Fill.active), lineWidth: 1)
     }
 
     private var worktreeContent: SidebarWorktreeRowContent {
@@ -314,15 +314,15 @@ private struct WorkspaceRecentCardView: View {
 
 private struct WorkspaceRecentPlaceholderCard: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: AppStyle.sidebarRowContentSpacing + 4) {
-            HStack(spacing: AppStyle.spacingTight) {
+        VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing + 4) {
+            HStack(spacing: AppStyles.General.Spacing.tight) {
                 Image(systemName: "clock.arrow.circlepath")
-                    .font(.system(size: AppStyle.textBase, weight: .medium))
+                    .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
                     .foregroundStyle(Color.accentColor)
-                    .frame(width: AppStyle.sidebarRowLeadingIconColumnWidth, alignment: .leading)
+                    .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
 
                 Text("No recent worktrees yet")
-                    .font(.system(size: AppStyle.textBase, weight: .medium))
+                    .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
@@ -331,12 +331,12 @@ private struct WorkspaceRecentPlaceholderCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Color.white.opacity(AppStyle.fillMuted))
+                .fill(Color.white.opacity(AppStyles.General.Fill.muted))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16)
                 .strokeBorder(
-                    Color.white.opacity(AppStyle.fillActive),
+                    Color.white.opacity(AppStyles.General.Fill.active),
                     style: StrokeStyle(lineWidth: 1, dash: [8, 6])
                 )
         )
@@ -372,7 +372,7 @@ private struct QuickActionsCallout: View {
         VStack(alignment: .leading, spacing: 14) {
             if let header {
                 Text(header)
-                    .font(.system(size: AppStyle.textBase, weight: .medium))
+                    .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
                     .foregroundStyle(.primary)
             }
 
@@ -389,10 +389,10 @@ private struct QuickActionsCallout: View {
         .frame(maxWidth: 320, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(Color.white.opacity(AppStyle.fillMuted))
+                .fill(Color.white.opacity(AppStyles.General.Fill.muted))
                 .overlay(
                     RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.white.opacity(AppStyle.fillActive), lineWidth: 1)
+                        .stroke(Color.white.opacity(AppStyles.General.Fill.active), lineWidth: 1)
                 )
         )
     }
@@ -401,12 +401,12 @@ private struct QuickActionsCallout: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Text(key)
-                    .font(.system(size: AppStyle.textSm, weight: .semibold, design: .monospaced))
+                    .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold, design: .monospaced))
                     .foregroundStyle(Color.accentColor)
                     .frame(width: 28, alignment: .trailing)
 
                 Text(label)
-                    .font(.system(size: AppStyle.textBase))
+                    .font(.system(size: AppStyles.General.Typography.textBase))
                     .foregroundStyle(.secondary)
 
                 Spacer()

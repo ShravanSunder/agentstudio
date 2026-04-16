@@ -22,7 +22,7 @@ struct PaneLeafContainerInactiveDimmingTests {
         let centerX = 180
         let sampleY = 140
         let edgeX = 12
-        let innerBandX = max(edgeX + 12, Int(AppStyle.inactivePaneDimmingDepth) - 20)
+        let innerBandX = max(edgeX + 12, Int(AppStyles.Shell.PaneChrome.inactivePaneDimmingDepth) - 20)
         let cornerX = 20
         let cornerY = 20
 

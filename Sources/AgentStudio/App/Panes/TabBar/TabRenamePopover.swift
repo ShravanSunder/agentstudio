@@ -19,13 +19,13 @@ struct TabRenamePopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Rename Tab")
-                .font(.system(size: AppStyle.textXl, weight: .semibold))
+                .font(.system(size: AppStyles.General.Typography.textXl, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .textCase(.uppercase)
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Name")
-                    .font(.system(size: AppStyle.textSm, weight: .medium))
+                    .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
                     .foregroundStyle(.tertiary)
                     .textCase(.uppercase)
 
@@ -39,7 +39,7 @@ struct TabRenamePopover: View {
                 .frame(minHeight: 112)
                 .background(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color.white.opacity(AppStyle.fillSubtle))
+                        .fill(Color.white.opacity(AppStyles.General.Fill.subtle))
                 )
                 .overlay {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -51,7 +51,7 @@ struct TabRenamePopover: View {
             }
 
             Text("Long names wrap while editing. The saved tab title stays on one line.")
-                .font(.system(size: AppStyle.textSm))
+                .font(.system(size: AppStyles.General.Typography.textSm))
                 .foregroundStyle(.tertiary)
 
             HStack {
@@ -210,7 +210,7 @@ final class RenameWrappingTextFieldContainer: NSView {
 
         textField.translatesAutoresizingMaskIntoConstraints = false
         textField.delegate = coordinator
-        textField.font = .systemFont(ofSize: AppStyle.textLg, weight: .medium)
+        textField.font = .systemFont(ofSize: AppStyles.General.Typography.textLg, weight: .medium)
         textField.textColor = .labelColor
         textField.alignment = .left
         textField.placeholderString = placeholder
@@ -226,7 +226,7 @@ final class RenameWrappingTextFieldContainer: NSView {
         textField.coordinator = coordinator
 
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
-        placeholderLabel.font = .systemFont(ofSize: AppStyle.textLg, weight: .medium)
+        placeholderLabel.font = .systemFont(ofSize: AppStyles.General.Typography.textLg, weight: .medium)
         placeholderLabel.textColor = .tertiaryLabelColor
         placeholderLabel.lineBreakMode = .byWordWrapping
 

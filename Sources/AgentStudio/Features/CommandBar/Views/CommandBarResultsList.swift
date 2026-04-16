@@ -67,10 +67,10 @@ struct CommandBarResultsList: View {
     private var emptyState: some View {
         VStack(spacing: 4) {
             Text("No results")
-                .font(.system(size: AppStyle.textBase, weight: .medium))
+                .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
                 .foregroundStyle(.primary.opacity(0.5))
             Text("Try a different search term")
-                .font(.system(size: AppStyle.textXs))
+                .font(.system(size: AppStyles.General.Typography.textXs))
                 .foregroundStyle(.primary.opacity(0.3))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

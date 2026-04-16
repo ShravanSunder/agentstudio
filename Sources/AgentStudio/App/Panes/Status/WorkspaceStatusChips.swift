@@ -40,7 +40,7 @@ struct WorkspaceStatusChipRow: View {
     }
 
     var body: some View {
-        HStack(spacing: AppStyle.sidebarChipRowSpacing) {
+        HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
             SidebarDiffChip(
                 linesAdded: model.branchStatus.linesAdded,
                 linesDeleted: model.branchStatus.linesDeleted,

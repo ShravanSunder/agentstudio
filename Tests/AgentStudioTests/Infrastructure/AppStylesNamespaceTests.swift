@@ -1,0 +1,38 @@
+import SwiftUI
+import Testing
+
+@testable import AgentStudio
+
+@Suite("AppStyles namespace")
+struct AppStylesNamespaceTests {
+    @Test("general namespace keeps shared spacing, typography, and pane geometry tokens")
+    func generalNamespaceKeepsSharedTokens() {
+        #expect(AppStyles.General.Spacing.tight == 4)
+        #expect(AppStyles.General.Spacing.loose == 8)
+        #expect(AppStyles.General.Typography.textBase == 13)
+        #expect(AppStyles.General.Layout.paneGap == 1)
+    }
+
+    @Test("shell namespace owns sidebar, pane chrome, and management layer tokens")
+    func shellNamespaceOwnsSidebarPaneChromeAndManagementLayerTokens() {
+        #expect(AppStyles.Shell.Sidebar.rowVerticalInset == 6)
+        #expect(AppStyles.Shell.Sidebar.groupIconSize == 14)
+        #expect(AppStyles.Shell.PaneChrome.inactivePaneDimmingDepth == 120)
+        #expect(AppStyles.Shell.ManagementLayer.actionSize == 28)
+    }
+
+    @Test("workspace focus namespaces own content-specific transient surfaces")
+    func workspaceFocusNamespacesOwnContentSpecificTokens() {
+        #expect(AppStyles.WorkspaceFocus.Terminal.startupOverlayPadding == 28)
+        #expect(AppStyles.WorkspaceFocus.Terminal.errorOverlayCornerRadius == 12)
+        #expect(AppStyles.WorkspaceFocus.Webview.navigationFieldCornerRadius == 6)
+    }
+
+    @Test("command bar namespace owns panel chrome and row styling")
+    func commandBarNamespaceOwnsPanelChromeAndRowStyling() {
+        #expect(AppStyles.CommandBar.Footer.separatorOpacity == 0.15)
+        #expect(AppStyles.CommandBar.Footer.rowHeight == 16)
+        #expect(AppStyles.CommandBar.Rows.selectedRowCornerRadius == 6)
+        #expect(AppStyles.CommandBar.Panel.horizontalPadding == 12)
+    }
+}

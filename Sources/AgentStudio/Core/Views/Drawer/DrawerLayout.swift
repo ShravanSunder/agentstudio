@@ -50,19 +50,19 @@ enum DrawerLayout {
     static let connectorHeight: CGFloat = 0
 
     /// Width and height of icon bar buttons (derived from AppStyle compact size).
-    static let iconButtonSize: CGFloat = AppStyle.compactButtonSize
+    static let iconButtonSize: CGFloat = AppStyles.General.Button.compact
 
     /// Corner radius for individual icon bar buttons.
-    static let iconButtonCornerRadius: CGFloat = AppStyle.buttonCornerRadius
+    static let iconButtonCornerRadius: CGFloat = AppStyles.General.CornerRadius.button
 
     /// Vertical padding around the icon bar button strip.
-    static let iconBarVerticalPadding: CGFloat = AppStyle.barPadding
+    static let iconBarVerticalPadding: CGFloat = AppStyles.General.Spacing.tight
 
     /// Horizontal padding around the icon bar button strip.
-    static let iconBarHorizontalPadding: CGFloat = AppStyle.barHorizontalPadding
+    static let iconBarHorizontalPadding: CGFloat = AppStyles.General.Spacing.standard
 
     /// Corner radius for the icon bar background shape.
-    static let iconBarCornerRadius: CGFloat = AppStyle.barCornerRadius
+    static let iconBarCornerRadius: CGFloat = AppStyles.General.CornerRadius.bar
 
     // MARK: - Resize Handle
 

@@ -48,8 +48,8 @@ struct CollapsedPaneBar: View {
                 actionDispatcher.dispatch(.expandPane(tabId: tabId, paneId: paneId))
             } label: {
                 Image(systemName: "arrow.right.to.line")
-                    .font(.system(size: AppStyle.textXs, weight: .medium))
-                    .foregroundStyle(.white.opacity(AppStyle.foregroundSecondary))
+                    .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
+                    .foregroundStyle(.white.opacity(AppStyles.General.Foreground.secondary))
                     .frame(width: 22, height: 22)
             }
             .buttonStyle(.plain)
@@ -72,8 +72,8 @@ struct CollapsedPaneBar: View {
                 }
             } label: {
                 Image(systemName: "line.3.horizontal")
-                    .font(.system(size: AppStyle.textSm))
-                    .foregroundStyle(.white.opacity(AppStyle.foregroundDim))
+                    .font(.system(size: AppStyles.General.Typography.textSm))
+                    .foregroundStyle(.white.opacity(AppStyles.General.Foreground.dim))
                     .frame(width: 22, height: 22)
             }
             .menuStyle(.borderlessButton)
@@ -84,8 +84,8 @@ struct CollapsedPaneBar: View {
 
             // Sideways text (bottom-to-top)
             Text(title)
-                .font(.system(size: AppStyle.textBase, weight: .bold))
-                .foregroundStyle(.white.opacity(AppStyle.foregroundSecondary))
+                .font(.system(size: AppStyles.General.Typography.textBase, weight: .bold))
+                .foregroundStyle(.white.opacity(AppStyles.General.Foreground.secondary))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .rotationEffect(Angle(degrees: -90))
@@ -97,13 +97,14 @@ struct CollapsedPaneBar: View {
         .frame(width: Self.barWidth)
         .frame(maxHeight: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: AppStyle.buttonCornerRadius)
-                .fill(Color.black.opacity(isHovered ? AppStyle.foregroundDim : 0.35))
+            RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.button)
+                .fill(Color.black.opacity(isHovered ? AppStyles.General.Foreground.dim : 0.35))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: AppStyle.buttonCornerRadius)
+            RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.button)
                 .strokeBorder(
-                    Color.white.opacity(isHovered ? AppStyle.strokeHover : AppStyle.strokeSubtle), lineWidth: 1)
+                    Color.white.opacity(isHovered ? AppStyles.General.Stroke.hover : AppStyles.General.Stroke.subtle),
+                    lineWidth: 1)
         )
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
@@ -112,9 +113,9 @@ struct CollapsedPaneBar: View {
         }
         .opacity(isClosing ? 0.58 : 1)
         .scaleEffect(isClosing ? 0.985 : 1)
-        .animation(.easeOut(duration: AppStyle.animationFast), value: isClosing)
+        .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: isClosing)
         .allowsHitTesting(!isClosing)
-        .padding(AppStyle.paneGap)
+        .padding(AppStyles.General.Layout.paneGap)
         .background(
             GeometryReader { geo in
                 if let dropTargetCoordinateSpace {

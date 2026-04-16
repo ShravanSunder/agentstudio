@@ -44,7 +44,7 @@ struct CommandBarSearchField: View {
                 .foregroundStyle(.primary.opacity(0.35))
         } else {
             Image(systemName: state.scopeIcon)
-                .font(.system(size: AppStyle.textBase, weight: .medium))
+                .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
                 .foregroundStyle(.primary.opacity(0.35))
                 .frame(width: 16, height: 16)
         }

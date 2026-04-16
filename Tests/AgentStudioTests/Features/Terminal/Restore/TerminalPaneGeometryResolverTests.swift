@@ -27,7 +27,7 @@ struct TerminalPaneGeometryResolverTests {
             dividerThickness: divider
         )
 
-        let gap = AppStyle.paneGap
+        let gap = AppStyles.General.Layout.paneGap
         let rawSplitWidth = (containerWidth - divider) / 2
         let paneWidth = rawSplitWidth - gap * 2
         let paneHeight = containerHeight - gap * 2

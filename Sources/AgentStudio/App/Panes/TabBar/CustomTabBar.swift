@@ -80,13 +80,13 @@ struct CustomTabBar: View {
     private static let tabMinWidth: CGFloat = 220
 
     /// Spacing between tab pills.
-    private static let tabSpacing: CGFloat = AppStyle.spacingTight
+    private static let tabSpacing: CGFloat = AppStyles.General.Spacing.tight
 
     /// Computed width for each tab pill based on available space.
     private var computedTabWidth: CGFloat {
         let count = CGFloat(max(1, adapter.tabs.count))
         let totalSpacing = (count - 1) * Self.tabSpacing
-        let scrollInset = AppStyle.spacingLoose * 2
+        let scrollInset = AppStyles.General.Spacing.loose * 2
         let available = max(0, scrollAreaWidth - totalSpacing - scrollInset)
         let perTab = available / count
         return min(Self.tabMaxWidth, max(Self.tabMinWidth, perTab))
@@ -101,7 +101,7 @@ struct CustomTabBar: View {
         GeometryReader { geometry in
             HStack(spacing: 0) {
                 // MARK: - Left-side controls (management mode, arrangement)
-                HStack(spacing: AppStyle.spacingStandard) {
+                HStack(spacing: AppStyles.General.Spacing.standard) {
                     TabBarManagementModeButton()
 
                     TabBarArrangementButton(
@@ -110,13 +110,13 @@ struct CustomTabBar: View {
                         onSaveArrangement: onSaveArrangement
                     )
                 }
-                .padding(.leading, AppStyle.spacingLoose)
+                .padding(.leading, AppStyles.General.Spacing.loose)
 
                 // MARK: - Scroll area with gradient overlays
                 ZStack {
                     ScrollViewReader { proxy in
                         ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: AppStyle.spacingTight) {
+                            HStack(spacing: AppStyles.General.Spacing.tight) {
                                 // Hidden anchor for scroll offset tracking
                                 GeometryReader { innerGeo in
                                     Color.clear.preference(
@@ -149,7 +149,7 @@ struct CustomTabBar: View {
 
                                 // Inline + button removed — now in fixed controls zone
                             }
-                            .padding(.horizontal, AppStyle.spacingLoose)
+                            .padding(.horizontal, AppStyles.General.Spacing.loose)
                             .background(
                                 GeometryReader { geo in
                                     Color.clear.preference(
@@ -172,7 +172,7 @@ struct CustomTabBar: View {
                         }
                         .onChange(of: adapter.activeTabId) { _, newId in
                             if let newId {
-                                withAnimation(.easeInOut(duration: AppStyle.animationStandard)) {
+                                withAnimation(.easeInOut(duration: AppStyles.General.Animation.standard)) {
                                     proxy.scrollTo(newId, anchor: .center)
                                 }
                             }
@@ -234,9 +234,11 @@ struct CustomTabBar: View {
                             scrollToAdjacentTab(direction: .left)
                         } label: {
                             Image(systemName: "chevron.left")
-                                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
                                 .foregroundStyle(.secondary)
-                                .frame(width: AppStyle.compactButtonSize, height: AppStyle.compactButtonSize)
+                                .frame(
+                                    width: AppStyles.General.Button.compact, height: AppStyles.General.Button.compact
+                                )
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -246,9 +248,11 @@ struct CustomTabBar: View {
                             scrollToAdjacentTab(direction: .right)
                         } label: {
                             Image(systemName: "chevron.right")
-                                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
                                 .foregroundStyle(.secondary)
-                                .frame(width: AppStyle.compactButtonSize, height: AppStyle.compactButtonSize)
+                                .frame(
+                                    width: AppStyles.General.Button.compact, height: AppStyles.General.Button.compact
+                                )
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -271,18 +275,18 @@ struct CustomTabBar: View {
                                 }
                             }
                         } label: {
-                            HStack(spacing: AppStyle.spacingTight) {
+                            HStack(spacing: AppStyles.General.Spacing.tight) {
                                 Image(systemName: "rectangle.stack")
-                                    .font(.system(size: AppStyle.textSm, weight: .medium))
+                                    .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
                                 Text("\(adapter.tabs.count)")
-                                    .font(.system(size: AppStyle.textSm, weight: .semibold))
+                                    .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
                             }
                             .foregroundStyle(.secondary)
-                            .padding(.horizontal, AppStyle.spacingLoose)
-                            .padding(.vertical, AppStyle.spacingTight)
+                            .padding(.horizontal, AppStyles.General.Spacing.loose)
+                            .padding(.vertical, AppStyles.General.Spacing.tight)
                             .background(
                                 Capsule()
-                                    .fill(Color.white.opacity(AppStyle.fillHover))
+                                    .fill(Color.white.opacity(AppStyles.General.Fill.hover))
                             )
                             .contentShape(Capsule())
                         }
@@ -300,10 +304,10 @@ struct CustomTabBar: View {
                         NewTabButton(onAdd: onAdd, onOpenRepoInTab: onOpenRepoInTab)
                     }
                 }
-                .padding(.horizontal, AppStyle.spacingTight)
+                .padding(.horizontal, AppStyles.General.Spacing.tight)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: AppStyle.tabBarHeight)
+            .frame(height: AppStyles.Shell.TabBar.height)
             .background(Color.clear)
             .coordinateSpace(name: "tabBar")
             .ignoresSafeArea()
@@ -314,7 +318,7 @@ struct CustomTabBar: View {
                 adapter.availableWidth = newWidth
             }
         }
-        .frame(height: AppStyle.tabBarHeight)
+        .frame(height: AppStyles.Shell.TabBar.height)
     }
 
     // MARK: - Scroll Navigation
@@ -337,7 +341,7 @@ struct CustomTabBar: View {
                 guard let frame = adapter.tabFrames[tab.id] else { return false }
                 return frame.maxX > scrollAreaWidth
             }) {
-                withAnimation(.easeInOut(duration: AppStyle.animationStandard)) {
+                withAnimation(.easeInOut(duration: AppStyles.General.Animation.standard)) {
                     proxy.scrollTo(target.id, anchor: .trailing)
                 }
             }
@@ -347,7 +351,7 @@ struct CustomTabBar: View {
                 guard let frame = adapter.tabFrames[tab.id] else { return false }
                 return frame.minX < 0
             }) {
-                withAnimation(.easeInOut(duration: AppStyle.animationStandard)) {
+                withAnimation(.easeInOut(duration: AppStyles.General.Animation.standard)) {
                     proxy.scrollTo(target.id, anchor: .leading)
                 }
             }
@@ -386,12 +390,14 @@ private struct GitHubTabButton: View {
             onOpenGitHub()
         } label: {
             Image(systemName: "globe")
-                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
                 .foregroundStyle(isHovered ? .primary : .secondary)
-                .frame(width: AppStyle.toolbarButtonSize, height: AppStyle.toolbarButtonSize)
+                .frame(width: AppStyles.General.Button.toolbar, height: AppStyles.General.Button.toolbar)
                 .background(
                     Circle()
-                        .fill(Color.white.opacity(isHovered ? AppStyle.fillPressed : AppStyle.fillMuted))
+                        .fill(
+                            Color.white.opacity(
+                                isHovered ? AppStyles.General.Fill.pressed : AppStyles.General.Fill.muted))
                 )
                 .contentShape(Circle())
         }
@@ -421,12 +427,14 @@ private struct TabBarArrangementButton: View {
             showPanel.toggle()
         } label: {
             Image(systemName: "rectangle.3.group")
-                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
                 .foregroundStyle(isHovered ? .primary : .secondary)
-                .frame(width: AppStyle.toolbarButtonSize, height: AppStyle.toolbarButtonSize)
+                .frame(width: AppStyles.General.Button.toolbar, height: AppStyles.General.Button.toolbar)
                 .background(
                     Circle()
-                        .fill(Color.white.opacity(isHovered ? AppStyle.fillPressed : AppStyle.fillMuted))
+                        .fill(
+                            Color.white.opacity(
+                                isHovered ? AppStyles.General.Fill.pressed : AppStyles.General.Fill.muted))
                 )
                 .contentShape(Circle())
         }
@@ -467,20 +475,20 @@ private struct TabBarManagementModeButton: View {
                     ? "rectangle.split.2x2.fill"
                     : "rectangle.split.2x2"
             )
-            .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+            .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
             .foregroundStyle(
                 isManagementModeActive
                     ? Color.accentColor
                     : (isHovered ? .primary : .secondary)
             )
-            .frame(width: AppStyle.toolbarButtonSize, height: AppStyle.toolbarButtonSize)
+            .frame(width: AppStyles.General.Button.toolbar, height: AppStyles.General.Button.toolbar)
             .background(
                 Circle()
                     .fill(
                         isManagementModeActive
-                            ? Color.accentColor.opacity(AppStyle.fillActive)
+                            ? Color.accentColor.opacity(AppStyles.General.Fill.active)
                             : Color.white.opacity(
-                                isHovered ? AppStyle.fillPressed : AppStyle.fillMuted)
+                                isHovered ? AppStyles.General.Fill.pressed : AppStyles.General.Fill.muted)
                     )
             )
             .contentShape(Circle())
@@ -509,12 +517,14 @@ private struct NewTabButton: View {
             }
         } label: {
             Image(systemName: "plus")
-                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
                 .foregroundStyle(isHovered ? .primary : .secondary)
-                .frame(width: AppStyle.toolbarButtonSize, height: AppStyle.toolbarButtonSize)
+                .frame(width: AppStyles.General.Button.toolbar, height: AppStyles.General.Button.toolbar)
                 .background(
                     Circle()
-                        .fill(Color.white.opacity(isHovered ? AppStyle.fillPressed : AppStyle.fillMuted))
+                        .fill(
+                            Color.white.opacity(
+                                isHovered ? AppStyles.General.Fill.pressed : AppStyles.General.Fill.muted))
                 )
                 .contentShape(Circle())
         } primaryAction: {
@@ -637,7 +647,7 @@ struct TabPillView: View {
             // Clear zones match the overlay positions so text is fully invisible
             // behind the shortcut label and close button.
             Text(tab.displayTitle)
-                .font(.system(size: AppStyle.textBase))
+                .font(.system(size: AppStyles.General.Typography.textBase))
                 .lineLimit(1)
                 .foregroundStyle(isActive ? .primary : .secondary)
                 .frame(maxWidth: .infinity)
@@ -651,14 +661,14 @@ struct TabPillView: View {
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
-                            .frame(width: AppStyle.maskFadeWidth)
+                            .frame(width: AppStyles.Shell.PaneChrome.maskFadeWidth)
                         } else {
                             LinearGradient(
                                 colors: [.clear, .black],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
-                            .frame(width: AppStyle.spacingLoose)
+                            .frame(width: AppStyles.General.Spacing.loose)
                         }
 
                         Color.black
@@ -669,7 +679,7 @@ struct TabPillView: View {
                             startPoint: .leading,
                             endPoint: .trailing
                         )
-                        .frame(width: AppStyle.maskFadeWidth)
+                        .frame(width: AppStyles.Shell.PaneChrome.maskFadeWidth)
                         if index < 9 {
                             Color.clear.frame(width: Self.shortcutLabelClearWidth)
                         }
@@ -681,12 +691,12 @@ struct TabPillView: View {
                 if isHovering {
                     Button(action: onClose) {
                         Image(systemName: "xmark")
-                            .font(.system(size: AppStyle.textXs, weight: .medium))
+                            .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
                             .foregroundStyle(.secondary)
                             .frame(width: 18, height: 18)
                             .background(
                                 Circle()
-                                    .fill(Color.white.opacity(AppStyle.fillPressed))
+                                    .fill(Color.white.opacity(AppStyles.General.Fill.pressed))
                             )
                     }
                     .buttonStyle(.plain)
@@ -697,20 +707,20 @@ struct TabPillView: View {
 
                 if index < 9 {
                     Text("⌘\(index + 1)")
-                        .font(.system(size: AppStyle.textSm, weight: .medium))
+                        .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
                         .foregroundStyle(.tertiary)
                         .fixedSize()
                 }
             }
         }
-        .padding(.horizontal, AppStyle.spacingStandard)
-        .padding(.vertical, AppStyle.spacingStandard)
+        .padding(.horizontal, AppStyles.General.Spacing.standard)
+        .padding(.vertical, AppStyles.General.Spacing.standard)
         .frame(width: tabWidth)
         .background(
-            RoundedRectangle(cornerRadius: AppStyle.pillCornerRadius)
+            RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.pill)
                 .fill(backgroundColor)
         )
-        .contentShape(RoundedRectangle(cornerRadius: AppStyle.pillCornerRadius))
+        .contentShape(RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.pill))
         .onTapGesture(perform: onSelect)
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.15)) {
@@ -720,9 +730,9 @@ struct TabPillView: View {
     }
 
     private var backgroundColor: Color {
-        if isActive { return Color.white.opacity(AppStyle.fillActive) }
-        if isHovering { return Color.white.opacity(AppStyle.fillHover) }
-        return Color.white.opacity(AppStyle.fillSubtle)
+        if isActive { return Color.white.opacity(AppStyles.General.Fill.active) }
+        if isHovering { return Color.white.opacity(AppStyles.General.Fill.hover) }
+        return Color.white.opacity(AppStyles.General.Fill.subtle)
     }
 }
 
@@ -733,15 +743,15 @@ struct TabBarEmptyState: View {
     var body: some View {
         HStack {
             Text("No terminals open")
-                .font(.system(size: AppStyle.textBase))
+                .font(.system(size: AppStyles.General.Typography.textBase))
                 .foregroundStyle(.secondary)
 
             Button(action: onAddTab) {
-                HStack(spacing: AppStyle.spacingTight) {
+                HStack(spacing: AppStyles.General.Spacing.tight) {
                     Image(systemName: "plus")
                     Text("New Tab")
                 }
-                .font(.system(size: AppStyle.textBase))
+                .font(.system(size: AppStyles.General.Typography.textBase))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
@@ -749,7 +759,7 @@ struct TabBarEmptyState: View {
             Spacer()
         }
         .padding(.horizontal, 12)
-        .frame(height: AppStyle.tabBarHeight)
+        .frame(height: AppStyles.Shell.TabBar.height)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 }

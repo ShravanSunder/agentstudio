@@ -45,7 +45,7 @@ final class PaneCloseTransitionCoordinator {
 
             await MainActor.run { [weak self] in
                 guard let self else { return }
-                withAnimation(.easeOut(duration: AppStyle.animationFast)) {
+                withAnimation(.easeOut(duration: AppStyles.General.Animation.fast)) {
                     performClose()
                 }
                 self.finishClosingPane(paneId)

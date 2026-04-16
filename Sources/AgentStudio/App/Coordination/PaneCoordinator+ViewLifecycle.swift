@@ -872,7 +872,7 @@ extension PaneCoordinator {
             var resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
                 for: tab.layout,
                 in: terminalContainerBounds,
-                dividerThickness: AppStyle.paneGap,
+                dividerThickness: AppStyles.General.Layout.paneGap,
                 minimizedPaneIds: tab.minimizedPaneIds
             )
             if resolvedFrames.isEmpty, !tab.layout.isEmpty {
@@ -903,7 +903,7 @@ extension PaneCoordinator {
                 let drawerFrames = TerminalPaneGeometryResolver.resolveFrames(
                     for: drawer.layout,
                     in: drawerContentRect,
-                    dividerThickness: AppStyle.paneGap,
+                    dividerThickness: AppStyles.General.Layout.paneGap,
                     minimizedPaneIds: drawer.minimizedPaneIds
                 )
 

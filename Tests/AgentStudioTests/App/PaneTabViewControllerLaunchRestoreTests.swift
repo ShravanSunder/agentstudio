@@ -157,7 +157,7 @@ struct PaneTabViewControllerLaunchRestoreTests {
         )
 
         let config = try #require(harness.surfaceManager.createdConfigsByPaneId[pane.id])
-        let gap = AppStyle.paneGap
+        let gap = AppStyles.General.Layout.paneGap
         #expect(
             config.initialFrame
                 == CGRect(x: gap, y: gap, width: containerWidth - gap * 2, height: containerHeight - gap * 2))

@@ -62,7 +62,7 @@ struct DrawerIconBar: View {
                         // Expand/collapse toggle (left)
                         Button(action: onToggleExpand) {
                             Image(systemName: "rectangle.bottomhalf.filled")
-                                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
                                 .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
                                 .contentShape(Rectangle())
                         }
@@ -72,13 +72,13 @@ struct DrawerIconBar: View {
                             RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
                                 .fill(
                                     isExpanded
-                                        ? Color.white.opacity(AppStyle.fillActive)
+                                        ? Color.white.opacity(AppStyles.General.Fill.active)
                                         : (isToggleHovered
-                                            ? Color.white.opacity(AppStyle.fillHover)
+                                            ? Color.white.opacity(AppStyles.General.Fill.hover)
                                             : Color.clear))
                         )
                         .onHover { hovering in
-                            withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
+                            withAnimation(.easeInOut(duration: AppStyles.General.Animation.fast)) {
                                 isToggleHovered = hovering
                             }
                         }
@@ -93,7 +93,7 @@ struct DrawerIconBar: View {
                         // Add button (right)
                         Button(action: onAdd) {
                             Image(systemName: "plus")
-                                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
                                 .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
                                 .contentShape(Rectangle())
                         }
@@ -101,10 +101,10 @@ struct DrawerIconBar: View {
                         .foregroundStyle(isAddHovered ? .primary : .secondary)
                         .background(
                             RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
-                                .fill(isAddHovered ? Color.white.opacity(AppStyle.fillHover) : Color.clear)
+                                .fill(isAddHovered ? Color.white.opacity(AppStyles.General.Fill.hover) : Color.clear)
                         )
                         .onHover { hovering in
-                            withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
+                            withAnimation(.easeInOut(duration: AppStyles.General.Animation.fast)) {
                                 isAddHovered = hovering
                             }
                         }
@@ -123,7 +123,7 @@ struct DrawerIconBar: View {
                                 )
                                 .disabled(!trailingActions.canOpenTarget)
                                 .onHover { hovering in
-                                    withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
+                                    withAnimation(.easeInOut(duration: AppStyles.General.Animation.fast)) {
                                         isFinderHovered = hovering
                                     }
                                 }
@@ -138,7 +138,7 @@ struct DrawerIconBar: View {
                                 )
                                 .disabled(!trailingActions.canOpenTarget)
                                 .onHover { hovering in
-                                    withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
+                                    withAnimation(.easeInOut(duration: AppStyles.General.Animation.fast)) {
                                         isCursorHovered = hovering
                                     }
                                 }
@@ -215,9 +215,9 @@ struct DrawerIconBar: View {
                 switch icon {
                 case .system(let systemName):
                     Image(systemName: systemName)
-                        .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                        .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
                 case .octicon(let octiconName):
-                    OcticonImage(name: octiconName, size: AppStyle.compactIconSize)
+                    OcticonImage(name: octiconName, size: AppStyles.General.Icon.compact)
                 }
             }
             .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
@@ -227,7 +227,7 @@ struct DrawerIconBar: View {
         .foregroundStyle(isHovered ? .primary : .secondary)
         .background(
             RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
-                .fill(isHovered ? Color.white.opacity(AppStyle.fillHover) : Color.clear)
+                .fill(isHovered ? Color.white.opacity(AppStyles.General.Fill.hover) : Color.clear)
         )
         .help(helpText)
     }
@@ -256,7 +256,7 @@ struct EmptyDrawerBar: View {
 
                     Button(action: onAdd) {
                         Image(systemName: "plus")
-                            .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                            .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
                             .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
                             .contentShape(Rectangle())
                     }
@@ -264,10 +264,10 @@ struct EmptyDrawerBar: View {
                     .foregroundStyle(isHovered ? .primary : .secondary)
                     .background(
                         RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
-                            .fill(isHovered ? Color.white.opacity(AppStyle.fillHover) : Color.clear)
+                            .fill(isHovered ? Color.white.opacity(AppStyles.General.Fill.hover) : Color.clear)
                     )
                     .onHover { hovering in
-                        withAnimation(.easeInOut(duration: AppStyle.animationFast)) {
+                        withAnimation(.easeInOut(duration: AppStyles.General.Animation.fast)) {
                             isHovered = hovering
                         }
                     }

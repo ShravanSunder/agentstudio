@@ -21,7 +21,7 @@ struct HoverTooltipBubble: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: AppStyle.textXs, weight: .medium))
+            .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
             .foregroundStyle(.primary)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
@@ -31,7 +31,7 @@ struct HoverTooltipBubble: View {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.white.opacity(AppStyle.fillActive), lineWidth: 1)
+                    .stroke(Color.white.opacity(AppStyles.General.Fill.active), lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
             .fixedSize()
