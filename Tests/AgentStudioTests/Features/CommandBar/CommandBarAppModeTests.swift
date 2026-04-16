@@ -15,7 +15,7 @@ struct CommandBarAppModeTests {
     }
 
     @Test
-    func managementModeProperties() {
+    func managementLayerProperties() {
         let mode = CommandBarAppMode.management
 
         #expect(mode.statusStripLabel == "Management")

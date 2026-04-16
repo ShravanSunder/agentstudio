@@ -22,7 +22,7 @@ struct PaneDrawerFocusDeciderTests {
                 targetPaneKind: .terminal,
                 targetPaneIsAlreadyActive: true,
                 targetMountedContent: .terminal(surfaceId: UUID()),
-                managementMode: .inactive,
+                managementLayer: .inactive,
                 windowState: .key
             )
         )
@@ -46,7 +46,7 @@ struct PaneDrawerFocusDeciderTests {
                 targetPaneKind: .terminal,
                 targetPaneIsAlreadyActive: false,
                 targetMountedContent: .terminal(surfaceId: UUID()),
-                managementMode: .inactive,
+                managementLayer: .inactive,
                 windowState: .key
             )
         )

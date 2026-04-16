@@ -21,7 +21,7 @@ struct PaneTabClickFocusDeciderTests {
                 targetPaneKind: .terminal,
                 targetPaneIsAlreadyActive: false,
                 targetMountedContent: .unmounted,
-                managementMode: .inactive,
+                managementLayer: .inactive,
                 windowState: .key
             )
         )

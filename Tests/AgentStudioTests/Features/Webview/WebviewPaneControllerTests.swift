@@ -17,18 +17,18 @@ struct WebviewPaneControllerTests {
         }
     }
 
-    private func setManagementMode(active: Bool) async {
+    private func setManagementLayer(active: Bool) async {
         for _ in 0..<6 {
             if active {
-                if !atom(\.managementMode).isActive {
-                    atom(\.managementMode).toggle()
+                if !atom(\.managementLayer).isActive {
+                    atom(\.managementLayer).toggle()
                 }
-            } else if atom(\.managementMode).isActive {
-                atom(\.managementMode).deactivate()
+            } else if atom(\.managementLayer).isActive {
+                atom(\.managementLayer).deactivate()
             }
 
             await settleEventLoop(turns: 10)
-            if atom(\.managementMode).isActive == active {
+            if atom(\.managementLayer).isActive == active {
                 return
             }
         }
@@ -156,12 +156,12 @@ struct WebviewPaneControllerTests {
         )
     }
 
-    // MARK: - Management Mode Interaction Regression Coverage
+    // MARK: - Management Layer Interaction Regression Coverage
 
     @Test
-    func test_managementModeToggle_updatesWebviewControllerInteractionState() async {
-        await withTestAtomRegistry { _ in
-            await setManagementMode(active: false)
+    func test_managementLayerToggle_updatesWebviewControllerInteractionState() async {
+        await withAsyncTestAtomRegistry { _ in
+            await setManagementLayer(active: false)
             let mountedView = WebviewPaneMountView(
                 paneId: UUIDv7.generate(),
                 state: WebviewState(url: URL(string: "about:blank")!)
@@ -172,12 +172,12 @@ struct WebviewPaneControllerTests {
             await settleEventLoop()
             #expect(mountedView.controller.isContentInteractionEnabled)
 
-            await setManagementMode(active: true)
-            #expect(atom(\.managementMode).isActive)
+            await setManagementLayer(active: true)
+            #expect(atom(\.managementLayer).isActive)
             #expect(!mountedView.controller.isContentInteractionEnabled)
 
-            await setManagementMode(active: false)
-            #expect(!atom(\.managementMode).isActive)
+            await setManagementLayer(active: false)
+            #expect(!atom(\.managementLayer).isActive)
             #expect(mountedView.controller.isContentInteractionEnabled)
         }
     }

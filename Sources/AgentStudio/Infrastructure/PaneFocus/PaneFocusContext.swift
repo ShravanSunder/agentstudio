@@ -14,7 +14,7 @@ struct PaneFocusContext: Sendable, Equatable {
         case unknown
     }
 
-    enum ManagementModeState: Sendable, Equatable {
+    enum ManagementLayerState: Sendable, Equatable {
         case inactive
         case active(scope: PaneManagementFocusScope)
     }
@@ -44,7 +44,7 @@ struct PaneFocusContext: Sendable, Equatable {
     let targetPaneKind: PaneKind
     let targetPaneIsAlreadyActive: Bool
     let targetMountedContent: MountedContentState
-    let managementMode: ManagementModeState
+    let managementLayer: ManagementLayerState
     let windowState: WindowState
 
     init(
@@ -56,7 +56,7 @@ struct PaneFocusContext: Sendable, Equatable {
         targetPaneKind: PaneKind,
         targetPaneIsAlreadyActive: Bool,
         targetMountedContent: MountedContentState,
-        managementMode: ManagementModeState,
+        managementLayer: ManagementLayerState,
         windowState: WindowState
     ) {
         assert(targetPaneId == nil || targetTabId != nil || activeTabId == nil || targetPaneIsAlreadyActive)
@@ -68,7 +68,7 @@ struct PaneFocusContext: Sendable, Equatable {
         self.targetPaneKind = targetPaneKind
         self.targetPaneIsAlreadyActive = targetPaneIsAlreadyActive
         self.targetMountedContent = targetMountedContent
-        self.managementMode = managementMode
+        self.managementLayer = managementLayer
         self.windowState = windowState
     }
 }

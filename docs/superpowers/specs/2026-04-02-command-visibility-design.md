@@ -2,7 +2,7 @@
 
 ## Problem
 
-The command bar shows all 61 commands regardless of workspace state. An empty workspace with no tabs or panes still shows "Add Drawer Pane", "Close Pane", "Equalize Panes", "Focus Pane Down", etc. The current `canDispatch` only checks management mode and a coarse handler chain — it conflates "is this safe to execute?" with "should this appear at all?"
+The command bar shows all 61 commands regardless of workspace state. An empty workspace with no tabs or panes still shows "Add Drawer Pane", "Close Pane", "Equalize Panes", "Focus Pane Down", etc. The current `canDispatch` only checks management layer and a coarse handler chain — it conflates "is this safe to execute?" with "should this appear at all?"
 
 The status strip shows "Terminal" even when no terminal exists because `WorkspaceFocus` (formerly `CommandBarAppContext`) maps `nil` to terminal.
 
@@ -19,7 +19,7 @@ The status strip shows "Terminal" even when no terminal exists because `Workspac
 | **Is it visible?** | Should it appear at all? | `visibleWhen` tags on `CommandDefinition` | Command bar: hidden. Menus: hidden or static. |
 | **Is it enabled?** | Can it execute right now? | Existing `canDispatch` chain | Command bar: dimmed. Menus: dimmed. |
 
-A command can be visible but disabled (e.g., "Close Pane" shows when a pane exists but is dimmed because management mode is off). A command that isn't visible never shows.
+A command can be visible but disabled (e.g., "Close Pane" shows when a pane exists but is dimmed because management layer is off). A command that isn't visible never shows.
 
 ### `FocusRequirement` — what workspace state a command needs
 
@@ -57,7 +57,7 @@ struct CommandDefinition {
     let label: String
     let icon: String?
     let appliesTo: Set<SearchItemType>
-    let requiresManagementMode: Bool
+    let requiresManagementLayer: Bool
     let visibleWhen: Set<FocusRequirement>  // empty = always visible
 }
 ```
@@ -181,7 +181,7 @@ These commands are valid regardless of workspace state:
 | `addFolder` | Add Folder | Always can add |
 | `toggleSidebar` | Toggle Sidebar | Always available |
 | `filterSidebar` | Filter Sidebar | Always available |
-| `toggleManagementMode` | Toggle Management Mode | Always available |
+| `toggleManagementLayer` | Toggle Management Layer | Always available |
 | `undoCloseTab` | Undo Close Tab | Shows always; `canDispatch` handles empty undo stack |
 
 ### Requires `[hasActiveTab]`
@@ -220,9 +220,9 @@ These commands are valid regardless of workspace state:
 |---------|-------|-------|
 | `splitRight` | Split Right | |
 | `splitLeft` | Split Left | |
-| `closePane` | Close Pane | Also requires management mode (existing) |
+| `closePane` | Close Pane | Also requires management layer (existing) |
 | `extractPaneToTab` | Extract Pane to Tab | |
-| `movePaneToTab` | Move Pane to Tab | Also requires management mode (existing) |
+| `movePaneToTab` | Move Pane to Tab | Also requires management layer (existing) |
 | `minimizePane` | Minimize Pane | |
 | `expandPane` | Expand Pane | |
 | `addDrawerPane` | Add Drawer Pane | |
@@ -293,7 +293,7 @@ Some command labels are unclear. Proposed renames:
 | Move Pane to Tab | Move Pane to Existing Tab | Distinguish from "to new tab" |
 | New Terminal in Tab | Add Terminal to Tab | Consistent "add" verb |
 | Open New Terminal in Tab | Open Terminal in New Tab | "New" modifies tab, not terminal |
-| Toggle Management Mode | Manage Workspace | Action-oriented, matches status strip |
+| Toggle Management Layer | Toggle Management Layer | Action-oriented, matches status strip |
 | Navigate to Drawer Pane | Switch Drawer Pane | Simpler |
 
 ---

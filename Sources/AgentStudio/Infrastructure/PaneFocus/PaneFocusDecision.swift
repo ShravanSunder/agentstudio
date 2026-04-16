@@ -18,7 +18,7 @@ struct PaneFocusNoOpDecision: Sendable, Equatable {
 enum PaneFocusReason: Sendable, Equatable {
     case activeContentClickPreservesOwnership
     case inactivePaneRequiresSelection
-    case managementModeEntered
+    case managementLayerEntered
     case explicitRefocus
     case commandTriggeredFocus
     case drawerSelectionChanged

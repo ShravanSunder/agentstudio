@@ -21,7 +21,7 @@ struct PaneRefocusRequestFocusDeciderTests {
                 targetPaneKind: .webview,
                 targetPaneIsAlreadyActive: true,
                 targetMountedContent: .unmounted,
-                managementMode: .inactive,
+                managementLayer: .inactive,
                 windowState: .key
             )
         )
@@ -44,7 +44,7 @@ struct PaneRefocusRequestFocusDeciderTests {
                 targetPaneKind: .terminal,
                 targetPaneIsAlreadyActive: true,
                 targetMountedContent: .terminal(surfaceId: UUID()),
-                managementMode: .inactive,
+                managementLayer: .inactive,
                 windowState: .key
             )
         )
@@ -68,7 +68,7 @@ struct PaneRefocusRequestFocusDeciderTests {
                 targetPaneKind: .webview,
                 targetPaneIsAlreadyActive: true,
                 targetMountedContent: .nonTerminal(acceptsFirstResponder: true),
-                managementMode: .inactive,
+                managementLayer: .inactive,
                 windowState: .key
             )
         )

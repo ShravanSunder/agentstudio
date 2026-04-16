@@ -299,7 +299,7 @@ final class WorkspaceCommandResolverTabConformanceTests {
 
         // Act
         let snapshot = WorkspaceCommandResolver.snapshot(
-            from: [tab1, tab2], activeTabId: tab1.id, isManagementModeActive: false
+            from: [tab1, tab2], activeTabId: tab1.id, isManagementLayerActive: false
         )
 
         // Assert

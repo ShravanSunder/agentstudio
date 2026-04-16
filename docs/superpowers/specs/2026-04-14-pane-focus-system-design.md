@@ -4,7 +4,7 @@
 
 **Problem**
 
-Pane focus behavior is currently spread across pane views, tab views, coordinators, management-mode code, and mounted content wrappers. A single user interaction can currently mutate pane selection, AppKit first responder, terminal runtime focus, and web/DOM focus through separate code paths. This makes the behavior hard to reason about, hard to test as scenarios, and easy to regress, as shown by the recent WebView text-input focus bug.
+Pane focus behavior is currently spread across pane views, tab views, coordinators, management-layer code, and mounted content wrappers. A single user interaction can currently mutate pane selection, AppKit first responder, terminal runtime focus, and web/DOM focus through separate code paths. This makes the behavior hard to reason about, hard to test as scenarios, and easy to regress, as shown by the recent WebView text-input focus bug.
 
 **Goal**
 
@@ -37,7 +37,7 @@ The Pane Focus System owns triggers that can affect pane-level focus state or pa
 | - keyboard pane-navigation triggers                                |
 | - command/menu-triggered pane or tab activation                    |
 | - explicit pane refocus requests                                   |
-| - management-mode entry/exit and management pane navigation        |
+| - management-layer entry/exit and management pane navigation        |
 +====================================================================+
 | Out of scope                                                       |
 +====================================================================+
@@ -57,7 +57,7 @@ The Pane Focus System owns triggers that can affect pane-level focus state or pa
 | Host responder       | NSWindow.firstResponder and mounted content   | PaneFocusExecutor  |
 | Terminal runtime     | active Ghostty surface                        | PaneFocusExecutor  |
 | Web content          | DOM/input ownership                           | WKWebView/page     |
-| Mode/navigation      | management mode and drawer navigation scope   | policies + atoms   |
+| Mode/navigation      | management layer and drawer navigation scope   | policies + atoms   |
 +----------------------+----------------------------------------------+--------------------+
 ```
 
@@ -182,7 +182,7 @@ This preserves compile-time exhaustiveness while avoiding seven implementations 
 +-------------------------- PaneFocusContext --------------------------+
 | active tab / pane / drawer selection                                |
 | pane kind and mounted-content capabilities                           |
-| management mode state and navigation scope                           |
+| management layer state and navigation scope                           |
 | window focus/key state                                               |
 | terminal surface identity where relevant                             |
 | whether target is already active                                     |
@@ -275,7 +275,7 @@ This avoids timing-dependent interleavings in ordinary click and keyboard focus 
 If:
 - trigger = content click
 - target pane is already active
-- management mode policy does not explicitly override
+- management layer policy does not explicitly override
 
 Then:
 - selection stays unchanged
@@ -340,7 +340,7 @@ The branch goal is a full clean-cut focus-system migration. The implementation o
    pane navigation and focus-changing shortcuts
 
 3. Mode triggers
-   management-mode entry/exit/navigation
+   management-layer entry/exit/navigation
 
 4. Command/refocus triggers
    command bar, menu, sidebar/filter-close, explicit refocus requests
@@ -376,7 +376,7 @@ The following seams currently perform pane-affecting focus work and should be mi
 - active-pane host focus in PaneTabViewController.focusActivePane()
 - explicit refocus in PaneTabViewController.refocusActivePane()
 - pane-host responder forwarding in PaneHostView.becomeFirstResponder()
-- management-mode first-responder clearing
+- management-layer first-responder clearing
 - drawer pane activation / drawer open-close focus paths
 - tab click selection paths
 - sidebar-filter-close refocus path
@@ -405,7 +405,7 @@ Representative scenarios:
 - click inactive terminal content -> select pane, host/runtime focus
 - click tab -> selection change, responder action explicit
 - click drawer pane -> drawer selection explicit
-- enter management mode -> mode policy decides responder/content behavior
+- enter management layer -> mode policy decides responder/content behavior
 - sidebar filter closes -> refocus request trigger, not direct helper call
 - app/window becomes key -> refocus request trigger, not direct helper call
 - pane creation/split/drawer add -> command-origin trigger with explicit focus policy

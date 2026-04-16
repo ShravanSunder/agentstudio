@@ -128,11 +128,11 @@ enum WorkspaceCommandResolver {
             .deleteArrangement, .renameArrangement,
             .addDrawerPane, .toggleDrawer,
             .navigateDrawerPane, .closeDrawerPane,
-            .toggleManagementMode,
-            .managementFocusLeft, .managementFocusRight,
-            .managementEnterDrawer, .managementExitDrawer,
-            .managementOpenDrawer, .managementCreateTerminal, .managementCreateBrowser,
-            .managementExitMode:
+            .toggleManagementLayer,
+            .managementLayerFocusLeft, .managementLayerFocusRight,
+            .managementLayerEnterDrawer, .managementLayerExitDrawer,
+            .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
+            .managementLayerExit:
             return true
         default:
             return false
@@ -198,7 +198,7 @@ enum WorkspaceCommandResolver {
     static func snapshot<T: ResolvableTab>(
         from tabs: [T],
         activeTabId: UUID?,
-        isManagementModeActive: Bool,
+        isManagementLayerActive: Bool,
         knownRepoIds: Set<UUID> = [],
         knownWorktreeIds: Set<UUID> = [],
         drawerParentByPaneId: [UUID: UUID] = [:]
@@ -213,7 +213,7 @@ enum WorkspaceCommandResolver {
                 )
             },
             activeTabId: activeTabId,
-            isManagementModeActive: isManagementModeActive,
+            isManagementLayerActive: isManagementLayerActive,
             knownRepoIds: knownRepoIds,
             knownWorktreeIds: knownWorktreeIds,
             drawerParentByPaneId: drawerParentByPaneId

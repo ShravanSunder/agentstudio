@@ -157,7 +157,7 @@ extension PaneCoordinator {
                 targetPaneKind: paneKind,
                 targetPaneIsAlreadyActive: true,
                 targetMountedContent: viewRegistry.view(for: paneId)?.mountedContentStateForPaneFocus ?? .unmounted,
-                managementMode: atom(\.managementMode).isActive ? .active(scope: .mainRow) : .inactive,
+                managementLayer: atom(\.managementLayer).isActive ? .active(scope: .mainRow) : .inactive,
                 windowState: viewRegistry.view(for: paneId)?.window?.isKeyWindow == true ? .key : .background
             )
         )

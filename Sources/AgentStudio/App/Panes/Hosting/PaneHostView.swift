@@ -1,19 +1,19 @@
 import AppKit
 
 /// Container NSView that blocks all AppKit event routing to pane content
-/// during management mode. When `hitTest` returns `nil`, the entire subtree
+/// during management layer. When `hitTest` returns `nil`, the entire subtree
 /// becomes invisible to AppKit.
 @MainActor
-final class ManagementModeContainerView: NSView {
+final class ManagementLayerContainerView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !atom(\.managementMode).isActive else { return nil }
+        guard !atom(\.managementLayer).isActive else { return nil }
         return super.hitTest(point)
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         RestoreTrace.log(
-            "ManagementModeContainerView.viewDidMoveToWindow window=\(window != nil) id=\(ObjectIdentifier(self)) superview=\(superview != nil)"
+            "ManagementLayerContainerView.viewDidMoveToWindow window=\(window != nil) id=\(ObjectIdentifier(self)) superview=\(superview != nil)"
         )
     }
 }
@@ -34,7 +34,7 @@ class PaneHostView: NSView, Identifiable {
     /// the NSViewRepresentable and remount the new view.
     var hostIdentity: ObjectIdentifier { ObjectIdentifier(self) }
 
-    private(set) var interactionShield: ManagementModeDragShield?
+    private(set) var interactionShield: ManagementLayerDragShield?
     private let contentContainerView = NSView(frame: .zero)
 
     init(paneId: UUID) {
@@ -51,7 +51,7 @@ class PaneHostView: NSView, Identifiable {
     override var acceptsFirstResponder: Bool { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !atom(\.managementMode).isActive else { return nil }
+        guard !atom(\.managementLayer).isActive else { return nil }
         return super.hitTest(point)
     }
 
@@ -134,7 +134,7 @@ class PaneHostView: NSView, Identifiable {
 
     private func installInteractionShield() {
         guard interactionShield == nil else { return }
-        let shield = ManagementModeDragShield()
+        let shield = ManagementLayerDragShield()
         shield.translatesAutoresizingMaskIntoConstraints = false
         addSubview(shield)
         NSLayoutConstraint.activate([
@@ -147,7 +147,7 @@ class PaneHostView: NSView, Identifiable {
     }
 
     private(set) lazy var swiftUIContainer: NSView = {
-        let container = ManagementModeContainerView()
+        let container = ManagementLayerContainerView()
         container.wantsLayer = true
         container.layer?.backgroundColor = NSColor.clear.cgColor
         self.translatesAutoresizingMaskIntoConstraints = false
@@ -166,7 +166,7 @@ class PaneHostView: NSView, Identifiable {
 
 @MainActor
 extension PaneHostView {
-    var interactionShieldForTesting: ManagementModeDragShield? { interactionShield }
+    var interactionShieldForTesting: ManagementLayerDragShield? { interactionShield }
     var contentContainerViewForTesting: NSView { contentContainerView }
     var mountedContentViewForTesting: NSView? { mountedContentView }
 }

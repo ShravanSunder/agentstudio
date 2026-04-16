@@ -25,7 +25,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var appLifecycleStore: AppLifecycleAtom!
     var windowLifecycleStore: WindowLifecycleAtom!
     var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
-    var managementModeMonitor: ManagementModeMonitor!
+    var managementLayerMonitor: ManagementLayerMonitor!
     // MARK: - Command Bar
     private(set) var commandBarController: CommandBarPanelController!
     // MARK: - OAuth
@@ -84,7 +84,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         repoCacheStore = RepoCacheStore(atom: atomStore.repoCache)
         uiStateStore = UIStateStore(atom: atomStore.uiState)
         store.restore()
-        managementModeMonitor = ManagementModeMonitor()
+        managementLayerMonitor = ManagementLayerMonitor()
         appLifecycleStore = AppLifecycleAtom()
         windowLifecycleStore = WindowLifecycleAtom()
         applicationLifecycleMonitor = ApplicationLifecycleMonitor(

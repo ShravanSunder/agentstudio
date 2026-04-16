@@ -22,7 +22,7 @@ func withTestAtomRegistry<T>(
 }
 
 @MainActor
-func withTestAtomRegistry<T>(
+func withAsyncTestAtomRegistry<T>(
     _ body: (AtomRegistry) async throws -> T
 ) async rethrows -> T {
     installTestAtomRegistryIfNeeded()

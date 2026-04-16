@@ -100,9 +100,9 @@ struct CustomTabBar: View {
     var body: some View {
         GeometryReader { geometry in
             HStack(spacing: 0) {
-                // MARK: - Left-side controls (management mode, arrangement)
+                // MARK: - Left-side controls (management layer, arrangement)
                 HStack(spacing: AppStyle.spacingStandard) {
-                    TabBarManagementModeButton()
+                    TabBarManagementLayerButton()
 
                     TabBarArrangementButton(
                         adapter: adapter,
@@ -451,25 +451,25 @@ private struct TabBarArrangementButton: View {
     }
 }
 
-/// Management mode toggle in the tab bar. Blue accent when active, standard hover otherwise.
-private struct TabBarManagementModeButton: View {
-    private var isManagementModeActive: Bool {
-        atom(\.managementMode).isActive
+/// Management layer toggle in the tab bar. Blue accent when active, standard hover otherwise.
+private struct TabBarManagementLayerButton: View {
+    private var isManagementLayerActive: Bool {
+        atom(\.managementLayer).isActive
     }
     @State private var isHovered = false
 
     var body: some View {
         Button {
-            atom(\.managementMode).toggle()
+            atom(\.managementLayer).toggle()
         } label: {
             Image(
-                systemName: isManagementModeActive
+                systemName: isManagementLayerActive
                     ? "rectangle.split.2x2.fill"
                     : "rectangle.split.2x2"
             )
             .font(.system(size: AppStyle.compactIconSize, weight: .medium))
             .foregroundStyle(
-                isManagementModeActive
+                isManagementLayerActive
                     ? Color.accentColor
                     : (isHovered ? .primary : .secondary)
             )
@@ -477,7 +477,7 @@ private struct TabBarManagementModeButton: View {
             .background(
                 Circle()
                     .fill(
-                        isManagementModeActive
+                        isManagementLayerActive
                             ? Color.accentColor.opacity(AppStyle.fillActive)
                             : Color.white.opacity(
                                 isHovered ? AppStyle.fillPressed : AppStyle.fillMuted)
@@ -487,7 +487,7 @@ private struct TabBarManagementModeButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .help(CommandDispatcher.shared.definition(for: .toggleManagementMode).controlToolTip)
+        .help(CommandDispatcher.shared.definition(for: .toggleManagementLayer).controlToolTip)
     }
 }
 

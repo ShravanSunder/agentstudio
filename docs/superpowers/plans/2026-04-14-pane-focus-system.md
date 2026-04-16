@@ -38,7 +38,7 @@ Modify:
 - Sources/AgentStudio/Core/Views/Splits/PaneLeafContainer.swift
 - Sources/AgentStudio/App/Panes/PaneTabViewController.swift
 - Sources/AgentStudio/App/Panes/Hosting/PaneHostView.swift
-- Sources/AgentStudio/App/Lifecycle/ManagementModeMonitor.swift
+- Sources/AgentStudio/App/Lifecycle/ManagementLayerMonitor.swift
 - Sources/AgentStudio/App/Windows/MainSplitViewController.swift
 - Sources/AgentStudio/App/Windows/MainWindowController.swift
 - Sources/AgentStudio/App/Boot/AppDelegate+LifecycleRouting.swift
@@ -57,7 +57,7 @@ Modify:
 - Sources/AgentStudio/App/Coordination/PaneCoordinator+ViewHelpers.swift
 
 Test:
-- Tests/AgentStudioTests/App/ManagementModeTests.swift
+- Tests/AgentStudioTests/App/ManagementLayerTests.swift
 - Tests/AgentStudioTests/App/PaneTabViewControllerCommandTests.swift
 - Tests/AgentStudioTests/Features/Webview/WebviewPaneControllerTests.swift
 ```
@@ -104,7 +104,7 @@ struct PaneContentClickFocusDeciderTests {
             targetPaneAcceptsFirstResponder: true,
             targetPaneHasMountedContent: true,
             targetTerminalSurfaceId: nil,
-            managementMode: .inactive,
+            managementLayer: .inactive,
             triggerSource: .contentClick
         )
 
@@ -131,10 +131,10 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct PaneModeFocusDeciderTests {
-    @Test("management mode entry for active webview clears pane-host ownership and blocks content")
-    func managementModeEntry_webviewBlocksContent() {
+    @Test("management layer entry for active webview clears pane-host ownership and blocks content")
+    func managementLayerEntry_webviewBlocksContent() {
         let trigger = PaneModeFocusTrigger(
-            transition: .enteredManagementMode,
+            transition: .enteredManagementLayer,
             source: .keyboardShortcut
         )
         let context = PaneFocusContext(
@@ -149,7 +149,7 @@ struct PaneModeFocusDeciderTests {
             targetPaneAcceptsFirstResponder: true,
             targetPaneHasMountedContent: true,
             targetTerminalSurfaceId: nil,
-            managementMode: .active(scope: .mainRow),
+            managementLayer: .active(scope: .mainRow),
             triggerSource: .modeTransition
         )
 
@@ -274,7 +274,7 @@ struct PaneFocusContext: Sendable, Equatable {
         case unknown
     }
 
-    enum ManagementModeState: Sendable, Equatable {
+    enum ManagementLayerState: Sendable, Equatable {
         case inactive
         case active(scope: PaneManagementFocusScope)
     }
@@ -300,7 +300,7 @@ struct PaneFocusContext: Sendable, Equatable {
     let targetPaneAcceptsFirstResponder: Bool
     let targetPaneHasMountedContent: Bool
     let targetTerminalSurfaceId: UUID?
-    let managementMode: ManagementModeState
+    let managementLayer: ManagementLayerState
     let triggerSource: TriggerSource
 }
 ```
@@ -328,7 +328,7 @@ struct PaneFocusNoOpDecision: Sendable, Equatable {
 enum PaneFocusReason: Sendable, Equatable {
     case activeContentClickPreservesOwnership
     case inactivePaneRequiresSelection
-    case managementModeEntered
+    case managementLayerEntered
     case explicitRefocus
     case commandTriggeredFocus
     case drawerSelectionChanged
@@ -582,24 +582,24 @@ enum PaneModeFocusDecider {
         context: PaneFocusContext
     ) -> PaneModeFocusDecision {
         switch trigger.transition {
-        case .enteredManagementMode:
+        case .enteredManagementLayer:
             switch context.targetPaneKind {
             case .terminal:
                 return PaneModeFocusDecision(
                     responder: .clearToWindowContent,
                     keyboard: .consume,
                     content: .block,
-                    reason: .managementModeEntered
+                    reason: .managementLayerEntered
                 )
             case .webview, .bridge, .codeViewer, .unknown:
                 return PaneModeFocusDecision(
                     responder: .none,
                     keyboard: .consume,
                     content: .block,
-                    reason: .managementModeEntered
+                    reason: .managementLayerEntered
                 )
             }
-        case .exitedManagementMode:
+        case .exitedManagementLayer:
             return PaneModeFocusDecision(
                 responder: .none,
                 keyboard: .passThrough,
@@ -685,7 +685,7 @@ Run:
 ```bash
 SWIFT_BUILD_DIR=.build-agent-pane-focus-nonclick \
 swift test --build-path "$SWIFT_BUILD_DIR" \
-  --filter "PaneModeFocusDeciderTests|ManagementModeTests|PaneFocusOrchestratorTests"
+  --filter "PaneModeFocusDeciderTests|ManagementLayerTests|PaneFocusOrchestratorTests"
 ```
 
 Expected: PASS for mode-family tests and compile coverage across all decider families.
@@ -710,7 +710,7 @@ git commit -m "feat: add pane keyboard and mode focus deciders"
 - Modify: `Sources/AgentStudio/App/Panes/Hosting/PaneHostView.swift`
 - Modify: `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
 - Modify: `Sources/AgentStudio/App/Coordination/PaneCoordinator+ViewHelpers.swift`
-- Modify: `Sources/AgentStudio/App/Lifecycle/ManagementModeMonitor.swift`
+- Modify: `Sources/AgentStudio/App/Lifecycle/ManagementLayerMonitor.swift`
 
 - [ ] **Step 1: Write failing executor tests**
 
@@ -831,7 +831,7 @@ Run:
 ```bash
 SWIFT_BUILD_DIR=.build-agent-pane-focus-executor \
 swift test --build-path "$SWIFT_BUILD_DIR" \
-  --filter "PaneFocusExecutorTests|WebviewPaneControllerTests|ManagementModeTests"
+  --filter "PaneFocusExecutorTests|WebviewPaneControllerTests|ManagementLayerTests"
 ```
 
 Expected: PASS, including the existing webview interaction regression coverage.
@@ -844,7 +844,7 @@ git add Sources/AgentStudio/App/Panes/Focus/PaneFocusExecutor.swift \
         Sources/AgentStudio/App/Panes/PaneTabViewController.swift \
         Sources/AgentStudio/App/Panes/Hosting/PaneHostView.swift \
         Sources/AgentStudio/App/Coordination/PaneCoordinator+ViewHelpers.swift \
-        Sources/AgentStudio/App/Lifecycle/ManagementModeMonitor.swift
+        Sources/AgentStudio/App/Lifecycle/ManagementLayerMonitor.swift
 git commit -m "feat: route pane focus effects through executor"
 ```
 
@@ -918,7 +918,7 @@ Run:
 ```bash
 SWIFT_BUILD_DIR=.build-agent-pane-focus-callers \
 swift test --build-path "$SWIFT_BUILD_DIR" \
-  --filter "PaneTabViewControllerCommandTests|WebviewPaneControllerTests|ManagementModeTests"
+  --filter "PaneTabViewControllerCommandTests|WebviewPaneControllerTests|ManagementLayerTests"
 ```
 
 Expected: PASS with click flows entering the new system instead of directly mutating focus.
@@ -1036,7 +1036,7 @@ Minimum expected scenarios:
 - click active GitHub "Go to file" input -> caret remains, typing works
 - click active Google search input -> caret remains, typing works
 - click inactive terminal pane -> pane activates and terminal focus syncs
-- enter management mode -> mode policy applies explicit responder/content behavior
+- enter management layer -> mode policy applies explicit responder/content behavior
 ```
 
 - [ ] **Step 4: Final commit**
@@ -1047,7 +1047,7 @@ git add Sources/AgentStudio/App/Panes/Focus \
         Sources/AgentStudio/Core/Views/Splits/PaneLeafContainer.swift \
         Sources/AgentStudio/App/Panes/PaneTabViewController.swift \
         Sources/AgentStudio/App/Panes/Hosting/PaneHostView.swift \
-        Sources/AgentStudio/App/Lifecycle/ManagementModeMonitor.swift \
+        Sources/AgentStudio/App/Lifecycle/ManagementLayerMonitor.swift \
         Sources/AgentStudio/App/Windows/MainSplitViewController.swift \
         Sources/AgentStudio/App/Windows/MainWindowController.swift \
         Sources/AgentStudio/App/Boot/AppDelegate+LifecycleRouting.swift \

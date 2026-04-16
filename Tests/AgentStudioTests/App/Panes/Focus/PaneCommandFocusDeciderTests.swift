@@ -22,7 +22,7 @@ struct PaneCommandFocusDeciderTests {
                 targetPaneKind: .terminal,
                 targetPaneIsAlreadyActive: false,
                 targetMountedContent: .terminal(surfaceId: UUID()),
-                managementMode: .inactive,
+                managementLayer: .inactive,
                 windowState: .key
             )
         )
@@ -47,7 +47,7 @@ struct PaneCommandFocusDeciderTests {
                 targetPaneKind: .unknown,
                 targetPaneIsAlreadyActive: false,
                 targetMountedContent: .unmounted,
-                managementMode: .inactive,
+                managementLayer: .inactive,
                 windowState: .key
             )
         )
@@ -72,7 +72,7 @@ struct PaneCommandFocusDeciderTests {
                 targetPaneKind: .terminal,
                 targetPaneIsAlreadyActive: false,
                 targetMountedContent: .terminal(surfaceId: UUID()),
-                managementMode: .inactive,
+                managementLayer: .inactive,
                 windowState: .key
             )
         )

@@ -2702,9 +2702,9 @@ Line 44: `let tab = activeTabId.flatMap { store.tab($0) }`. This reads the tab's
 
 Line 18. Nested `GeometryReader` means two levels of geometry-dependent re-evaluation.
 
-### Trigger 6: `managementMode.isActive` changes
+### Trigger 6: `managementLayer.isActive` changes
 
-`FlatTabStripContainer.body` reads `managementMode.isActive`. Toggling management mode triggers body re-evaluation.
+`FlatTabStripContainer.body` reads `managementLayer.isActive`. Toggling management layer triggers body re-evaluation.
 
 ### Trigger 7: `appLifecycleStore.isActive` changes
 

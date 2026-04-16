@@ -15,7 +15,7 @@ final class WorkspaceCommandResolverTests {
         ActionStateSnapshot(
             tabs: tabs,
             activeTabId: activeTabId,
-            isManagementModeActive: false
+            isManagementLayerActive: false
         )
     }
 
@@ -546,7 +546,7 @@ final class WorkspaceCommandResolverTests {
 
         // Act
         let snapshot = WorkspaceCommandResolver.snapshot(
-            from: [tab1, tab2], activeTabId: tab1Id, isManagementModeActive: false
+            from: [tab1, tab2], activeTabId: tab1Id, isManagementLayerActive: false
         )
 
         // Assert

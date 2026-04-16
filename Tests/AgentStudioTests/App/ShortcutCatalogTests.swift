@@ -39,12 +39,12 @@ struct ShortcutCatalogTests {
 
     @Test
     func commandSpecDerivesKeyBindingFromShortcut() {
-        let managementDefinition = CommandDispatcher.shared.definition(for: .toggleManagementMode)
+        let managementLayerDefinition = CommandDispatcher.shared.definition(for: .toggleManagementLayer)
         let quickOpenDefinition = CommandDispatcher.shared.definition(for: .showCommandBarEverything)
         let addDrawerPaneDefinition = CommandDispatcher.shared.definition(for: .addDrawerPane)
 
-        #expect(managementDefinition.keyBinding?.key == "r")
-        #expect(managementDefinition.keyBinding?.modifiers == [.command])
+        #expect(managementLayerDefinition.keyBinding?.key == "r")
+        #expect(managementLayerDefinition.keyBinding?.modifiers == [.command])
         #expect(quickOpenDefinition.keyBinding?.key == "p")
         #expect(quickOpenDefinition.keyBinding?.modifiers == [.command])
         #expect(addDrawerPaneDefinition.keyBinding?.key == "d")
@@ -102,25 +102,25 @@ struct ShortcutCatalogTests {
     func shortcutDecoder_decodesManagementShortcuts() {
         let focusLeft = ShortcutDecoder.shortcut(
             for: .init(key: .arrow(.left), modifiers: []),
-            in: .managementMode
+            in: .managementLayer
         )
         let enterDrawer = ShortcutDecoder.shortcut(
             for: .init(key: .arrow(.down), modifiers: []),
-            in: .managementMode
+            in: .managementLayer
         )
         let openDrawer = ShortcutDecoder.shortcut(
             for: .init(key: .character(.d), modifiers: []),
-            in: .managementMode
+            in: .managementLayer
         )
         let exitMode = ShortcutDecoder.shortcut(
             for: .init(key: .character(.r), modifiers: []),
-            in: .managementMode
+            in: .managementLayer
         )
 
-        #expect(focusLeft == .managementFocusLeft)
-        #expect(enterDrawer == .managementEnterDrawer)
-        #expect(openDrawer == .managementOpenDrawer)
-        #expect(exitMode == .managementExitMode)
+        #expect(focusLeft == .managementLayerFocusLeft)
+        #expect(enterDrawer == .managementLayerEnterDrawer)
+        #expect(openDrawer == .managementLayerOpenDrawer)
+        #expect(exitMode == .managementLayerExit)
     }
 
     @Test

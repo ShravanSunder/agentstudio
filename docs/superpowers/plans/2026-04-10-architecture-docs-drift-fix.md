@@ -90,7 +90,7 @@ This is the most stale doc. The entire data model section uses deleted types.
   - `ActionResolver.swift` — what `WorkspaceCommandResolver` actually does (builds `ActionStateSnapshot`, not resolves commands)
 
 - [ ] **Step 2: Rewrite Section 3.1 Ownership Hierarchy**
-  - Add missing services: `AtomStore`, `repoCacheStore`, `uiStateStore`, `workspaceCacheCoordinator`, `appLifecycleStore`, `windowLifecycleStore`, `applicationLifecycleMonitor`, `managementModeMonitor`
+  - Add missing services: `AtomStore`, `repoCacheStore`, `uiStateStore`, `workspaceCacheCoordinator`, `appLifecycleStore`, `windowLifecycleStore`, `applicationLifecycleMonitor`, `managementLayerMonitor`
   - Update `CommandBarPanelController` constructor to include `repoCache: RepoCacheAtom`
   - List PaneCoordinator extensions: `+ActionExecution`, `+FilesystemSource`, `+RuntimeDispatch`, `+TerminalPlaceholders`, `+Undo`, `+ViewLifecycle`
 
@@ -278,7 +278,7 @@ This is the most stale doc. The entire data model section uses deleted types.
   - Compare against actual `Sources/AgentStudio/` tree
   - Add any missing subdirectories or key files
   - Add `Features/Terminal/Restore/` if missing
-  - Add `App/Lifecycle/ManagementModeMonitor.swift` and `ManagementModeToolbarButton.swift` if applicable
+  - Add `App/Lifecycle/ManagementLayerMonitor.swift` and `ManagementLayerToolbarButton.swift` if applicable
   - Ensure `Infrastructure/CWDNormalizer.swift` is listed correctly
 
 - [ ] **Step 3: Add flat tab strip components to Core/Views/Splits or Core/Models**
@@ -323,7 +323,7 @@ This is the most stale doc. The entire data model section uses deleted types.
 **What to change:**
 
 - [ ] **Step 1: Update Ownership Hierarchy**
-  - Add missing services: `AtomStore`, `repoCacheStore`, `uiStateStore`, `workspaceCacheCoordinator`, `appLifecycleStore`, `windowLifecycleStore`, `applicationLifecycleMonitor`, `managementModeMonitor`
+  - Add missing services: `AtomStore`, `repoCacheStore`, `uiStateStore`, `workspaceCacheCoordinator`, `appLifecycleStore`, `windowLifecycleStore`, `applicationLifecycleMonitor`, `managementLayerMonitor`
 
 - [ ] **Step 2: Update Command Bar section**
   - Add repos scope (`# ` prefix, `⌘⌥⇧P` or however it's triggered) to the keyboard shortcuts table
@@ -331,15 +331,15 @@ This is the most stale doc. The entire data model section uses deleted types.
   - Add `CommandBarWorktreeActionResolver`, `WorktreePresence` to key components table
   - Add new views: `CommandBarBackRow`, `CommandBarScopePill`, `CommandBarStatusStrip`, `CommandBarSearchField`, `CommandBarFooter`
 
-- [ ] **Step 3: Add Management Mode section**
-  - Brief description of `ManagementModeMonitor` at `App/Lifecycle/ManagementModeMonitor.swift`
-  - `ManagementModeToolbarButton` for toolbar integration
-  - `ManagementModeAtom` for state
+- [ ] **Step 3: Add Management Layer section**
+  - Brief description of `ManagementLayerMonitor` at `App/Lifecycle/ManagementLayerMonitor.swift`
+  - `ManagementLayerToolbarButton` for toolbar integration
+  - `ManagementLayerAtom` for state
 
 - [ ] **Step 4: Commit**
   ```
   git add docs/architecture/appkit_swiftui_architecture.md
-  git commit -m "docs: update appkit_swiftui with ownership hierarchy, repos scope, management mode"
+  git commit -m "docs: update appkit_swiftui with ownership hierarchy, repos scope, management layer"
   ```
 
 ---

@@ -2,7 +2,7 @@ import Foundation
 import WebKit
 
 /// JavaScript contract used to suppress WKWebView content interaction during
-/// management mode while keeping pages live and rendering.
+/// management layer while keeping pages live and rendering.
 ///
 /// The script installs a stable window-scoped controller once, then toggles
 /// behavior via `setBlocked(_)`:

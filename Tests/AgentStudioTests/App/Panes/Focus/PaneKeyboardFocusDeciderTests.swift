@@ -21,7 +21,7 @@ struct PaneKeyboardFocusDeciderTests {
                 targetPaneKind: .terminal,
                 targetPaneIsAlreadyActive: false,
                 targetMountedContent: .terminal(surfaceId: UUID()),
-                managementMode: .inactive,
+                managementLayer: .inactive,
                 windowState: .key
             )
         )
@@ -46,7 +46,7 @@ struct PaneKeyboardFocusDeciderTests {
                 targetPaneKind: .webview,
                 targetPaneIsAlreadyActive: false,
                 targetMountedContent: .nonTerminal(acceptsFirstResponder: true),
-                managementMode: .inactive,
+                managementLayer: .inactive,
                 windowState: .key
             )
         )

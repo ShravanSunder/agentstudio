@@ -66,8 +66,8 @@ struct DrawerPanel: View {
     @State private var dropTarget: PaneDropTarget?
     @State private var dropTargetWatchdogTask: Task<Void, Never>?
     @State private var drawerActionDispatcher: PaneTabActionDispatcher
-    private var managementMode: ManagementModeAtom {
-        atom(\.managementMode)
+    private var managementLayer: ManagementLayerAtom {
+        atom(\.managementLayer)
     }
 
     init(
@@ -141,7 +141,7 @@ struct DrawerPanel: View {
                     let snapshot = WorkspaceCommandResolver.snapshot(
                         from: store.tabLayoutAtom.tabs,
                         activeTabId: store.tabLayoutAtom.activeTabId,
-                        isManagementModeActive: atom(\.managementMode).isActive,
+                        isManagementLayerActive: atom(\.managementLayer).isActive,
                         knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id))
                     )
                     let moveAction = PaneActionCommand.moveDrawerPane(
@@ -234,7 +234,7 @@ struct DrawerPanel: View {
                     }
                 }
 
-                if managementMode.isActive {
+                if managementLayer.isActive {
                     PaneDropTargetOverlay(target: dropTarget, paneFrames: drawerPaneFrames)
                         .allowsHitTesting(false)
                 }
@@ -245,12 +245,12 @@ struct DrawerPanel: View {
                     // available for left/right insertion around outermost panes.
                     containerBounds: containerBounds,
                     target: $dropTarget,
-                    isManagementModeActive: managementMode.isActive,
+                    isManagementLayerActive: managementLayer.isActive,
                     actionDispatcher: drawerActionDispatcher
                 )
             }
             .onPreferenceChange(DrawerPaneFramePreferenceKey.self) { drawerPaneFrames = $0 }
-            .onChange(of: managementMode.isActive) { _, isActive in
+            .onChange(of: managementLayer.isActive) { _, isActive in
                 if !isActive {
                     dropTarget = nil
                 }

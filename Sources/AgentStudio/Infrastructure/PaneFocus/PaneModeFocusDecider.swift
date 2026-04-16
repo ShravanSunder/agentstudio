@@ -6,15 +6,15 @@ enum PaneModeFocusDecider {
         context: PaneFocusContext
     ) -> PaneModeFocusDecision {
         switch trigger.transition {
-        case .enteredManagementMode:
+        case .enteredManagementLayer:
             return PaneModeFocusDecision(
-                responder: enteredManagementModeResponderAction(context: context),
+                responder: enteredManagementLayerResponderAction(context: context),
                 keyboard: .consume,
                 content: .block,
-                reason: .managementModeEntered
+                reason: .managementLayerEntered
             )
 
-        case .exitedManagementMode:
+        case .exitedManagementLayer:
             return PaneModeFocusDecision(
                 responder: .preserveCurrentResponder,
                 keyboard: .passThrough,
@@ -24,7 +24,7 @@ enum PaneModeFocusDecider {
         }
     }
 
-    private static func enteredManagementModeResponderAction(
+    private static func enteredManagementLayerResponderAction(
         context: PaneFocusContext
     ) -> PaneModeResponderAction {
         switch context.targetPaneKind {

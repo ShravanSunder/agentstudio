@@ -8,12 +8,12 @@ struct WorkspaceCommandValidatorOwnershipTests {
     private func makeSnapshot(
         tabs: [TabSnapshot],
         activeTabId: UUID? = nil,
-        isManagementModeActive: Bool = false
+        isManagementLayerActive: Bool = false
     ) -> ActionStateSnapshot {
         ActionStateSnapshot(
             tabs: tabs,
             activeTabId: activeTabId,
-            isManagementModeActive: isManagementModeActive
+            isManagementLayerActive: isManagementLayerActive
         )
     }
 

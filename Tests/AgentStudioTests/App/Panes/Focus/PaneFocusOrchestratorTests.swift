@@ -30,7 +30,7 @@ struct PaneFocusOrchestratorTests {
                 targetPaneKind: .webview,
                 targetPaneIsAlreadyActive: true,
                 targetMountedContent: .nonTerminal(acceptsFirstResponder: true),
-                managementMode: .inactive,
+                managementLayer: .inactive,
                 windowState: .key
             )
         )

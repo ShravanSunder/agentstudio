@@ -169,7 +169,7 @@ struct PaneCoordinatorTests {
         let snapshot = WorkspaceCommandResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
-            isManagementModeActive: false
+            isManagementLayerActive: false
         )
         let validated = try? WorkspaceCommandValidator.validate(
             .closePane(tabId: tab.id, paneId: pane.id),

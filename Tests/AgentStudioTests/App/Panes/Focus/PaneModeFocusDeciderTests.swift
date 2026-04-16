@@ -6,11 +6,11 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct PaneModeFocusDeciderTests {
-    @Test("management mode entry for active webview blocks content")
-    func managementModeEntry_webviewBlocksContent() {
+    @Test("management layer entry for active webview blocks content")
+    func managementLayerEntry_webviewBlocksContent() {
         let paneId = UUID()
         let trigger = PaneModeFocusTrigger(
-            transition: .enteredManagementMode,
+            transition: .enteredManagementLayer,
             source: .keyboardShortcut
         )
 
@@ -21,11 +21,11 @@ struct PaneModeFocusDeciderTests {
         #expect(decision.content == .block)
     }
 
-    @Test("management mode entry for active terminal clears responder ownership")
-    func managementModeEntry_terminalClearsResponder() {
+    @Test("management layer entry for active terminal clears responder ownership")
+    func managementLayerEntry_terminalClearsResponder() {
         let paneId = UUID()
         let trigger = PaneModeFocusTrigger(
-            transition: .enteredManagementMode,
+            transition: .enteredManagementLayer,
             source: .keyboardShortcut
         )
 
@@ -40,7 +40,7 @@ struct PaneModeFocusDeciderTests {
                 targetPaneKind: .terminal,
                 targetPaneIsAlreadyActive: true,
                 targetMountedContent: .terminal(surfaceId: UUID()),
-                managementMode: .active(scope: .mainRow),
+                managementLayer: .active(scope: .mainRow),
                 windowState: .key
             )
         )
@@ -50,11 +50,11 @@ struct PaneModeFocusDeciderTests {
         #expect(decision.content == .block)
     }
 
-    @Test("management mode exit releases content without moving responder directly")
-    func managementModeExit_releasesContent() {
+    @Test("management layer exit releases content without moving responder directly")
+    func managementLayerExit_releasesContent() {
         let paneId = UUID()
         let trigger = PaneModeFocusTrigger(
-            transition: .exitedManagementMode,
+            transition: .exitedManagementLayer,
             source: .command
         )
 
@@ -78,7 +78,7 @@ struct PaneModeFocusDeciderTests {
             targetPaneKind: .webview,
             targetPaneIsAlreadyActive: true,
             targetMountedContent: .nonTerminal(acceptsFirstResponder: true),
-            managementMode: .active(scope: .mainRow),
+            managementLayer: .active(scope: .mainRow),
             windowState: .key
         )
     }

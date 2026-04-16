@@ -40,8 +40,8 @@ enum PaneKeyboardFocusTrigger: Sendable, Equatable {
 
 struct PaneModeFocusTrigger: Sendable, Equatable {
     enum Transition: Sendable, Equatable {
-        case enteredManagementMode
-        case exitedManagementMode
+        case enteredManagementLayer
+        case exitedManagementLayer
     }
 
     enum Source: Sendable, Equatable {
@@ -57,7 +57,7 @@ struct PaneRefocusRequestTrigger: Sendable, Equatable {
     enum Reason: Sendable, Equatable {
         case explicit
         case windowBecameKey
-        case managementModeExited
+        case managementLayerExited
     }
 
     let reason: Reason
