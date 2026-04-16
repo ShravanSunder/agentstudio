@@ -443,6 +443,213 @@ struct PaneTabViewControllerCommandTests {
         )
     }
 
+    @Test("managementCreateTerminal in main row adds a split pane to the active tab")
+    func executeManagementCreateTerminal_mainRowTargetsActiveTab() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(
+            source: .floating(launchDirectory: nil, title: "Parent"),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+
+        harness.controller.execute(.toggleManagementMode)
+
+        let paneIdsBefore = Set(harness.store.panes.keys)
+        let tabPaneIdsBefore = Set(harness.store.tab(tab.id)?.paneIds ?? [])
+
+        harness.controller.execute(.managementCreateTerminal)
+
+        let paneIdsAfter = Set(harness.store.panes.keys)
+        let createdPaneIds = paneIdsAfter.subtracting(paneIdsBefore)
+        #expect(createdPaneIds.count == 1)
+        let createdPaneId = try #require(createdPaneIds.first)
+        let tabPaneIdsAfter = Set(harness.store.tab(tab.id)?.paneIds ?? [])
+
+        #expect(tabPaneIdsAfter == tabPaneIdsBefore.union([createdPaneId]))
+        #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds.isEmpty ?? true)
+        #expect(harness.controller.managementNavigationScopeDescriptionForTesting == "mainRow")
+    }
+
+    @Test("management mode entry adopts expanded drawer scope for create terminal")
+    func executeManagementCreateTerminal_afterEnteringManagementModeWithExpandedDrawer_targetsDrawer() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(
+            source: .floating(launchDirectory: nil, title: "Parent"),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        guard let existingDrawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
+            Issue.record("Expected drawer pane creation")
+            return
+        }
+
+        harness.controller.execute(.toggleManagementMode)
+
+        let paneIdsBefore = Set(harness.store.panes.keys)
+        let tabPaneIdsBefore = Set(harness.store.tab(tab.id)?.paneIds ?? [])
+        let drawerPaneIdsBefore = Set(harness.store.pane(parentPane.id)?.drawer?.paneIds ?? [])
+
+        harness.controller.execute(.managementCreateTerminal)
+
+        let paneIdsAfter = Set(harness.store.panes.keys)
+        let createdPaneIds = paneIdsAfter.subtracting(paneIdsBefore)
+        #expect(createdPaneIds.count == 1)
+        let createdPaneId = try #require(createdPaneIds.first)
+
+        let tabPaneIdsAfter = Set(harness.store.tab(tab.id)?.paneIds ?? [])
+        let drawerPaneIdsAfter = Set(harness.store.pane(parentPane.id)?.drawer?.paneIds ?? [])
+
+        #expect(tabPaneIdsAfter == tabPaneIdsBefore)
+        #expect(drawerPaneIdsAfter == drawerPaneIdsBefore.union([createdPaneId]))
+        #expect(
+            harness.controller.managementNavigationScopeDescriptionForTesting
+                == "drawer:\(parentPane.id.uuidString)"
+        )
+        #expect(harness.store.pane(existingDrawerPane.id) != nil)
+    }
+
+    @Test("managementCreateBrowser targets drawer after drawer pane selection")
+    func executeManagementCreateBrowser_selectedDrawerTargetsDrawer() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(
+            source: .floating(launchDirectory: nil, title: "Parent"),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        guard let drawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
+            Issue.record("Expected drawer pane creation")
+            return
+        }
+
+        atom(\.managementMode).activate()
+
+        harness.controller.handlePaneFocusTrigger(
+            .drawer(.selectPane(parentPaneId: parentPane.id, drawerPaneId: drawerPane.id))
+        )
+
+        let paneIdsBefore = Set(harness.store.panes.keys)
+        let tabPaneIdsBefore = Set(harness.store.tab(tab.id)?.paneIds ?? [])
+        let drawerPaneIdsBefore = Set(harness.store.pane(parentPane.id)?.drawer?.paneIds ?? [])
+
+        harness.controller.execute(.managementCreateBrowser)
+
+        let paneIdsAfter = Set(harness.store.panes.keys)
+        let createdPaneIds = paneIdsAfter.subtracting(paneIdsBefore)
+        #expect(createdPaneIds.count == 1)
+        let createdPaneId = try #require(createdPaneIds.first)
+        let createdPane = try #require(harness.store.pane(createdPaneId))
+
+        let tabPaneIdsAfter = Set(harness.store.tab(tab.id)?.paneIds ?? [])
+        let drawerPaneIdsAfter = Set(harness.store.pane(parentPane.id)?.drawer?.paneIds ?? [])
+
+        #expect(tabPaneIdsAfter == tabPaneIdsBefore)
+        #expect(drawerPaneIdsAfter == drawerPaneIdsBefore.union([createdPaneId]))
+        if case .webview = createdPane.content {
+        } else {
+            Issue.record("Expected created drawer pane to be a webview")
+        }
+        #expect(
+            harness.controller.managementNavigationScopeDescriptionForTesting
+                == "drawer:\(parentPane.id.uuidString)"
+        )
+    }
+
+    @Test("managementCreateBrowser in main row adds a split webview pane to the active tab")
+    func executeManagementCreateBrowser_mainRowTargetsActiveTab() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(
+            source: .floating(launchDirectory: nil, title: "Parent"),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+
+        harness.controller.execute(.toggleManagementMode)
+
+        let paneIdsBefore = Set(harness.store.panes.keys)
+        let tabPaneIdsBefore = Set(harness.store.tab(tab.id)?.paneIds ?? [])
+
+        harness.controller.execute(.managementCreateBrowser)
+
+        let paneIdsAfter = Set(harness.store.panes.keys)
+        let createdPaneIds = paneIdsAfter.subtracting(paneIdsBefore)
+        #expect(createdPaneIds.count == 1)
+        let createdPaneId = try #require(createdPaneIds.first)
+        let createdPane = try #require(harness.store.pane(createdPaneId))
+        let tabPaneIdsAfter = Set(harness.store.tab(tab.id)?.paneIds ?? [])
+
+        #expect(tabPaneIdsAfter == tabPaneIdsBefore.union([createdPaneId]))
+        #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds.isEmpty ?? true)
+        if case .webview = createdPane.content {
+        } else {
+            Issue.record("Expected created main-row pane to be a webview")
+        }
+        #expect(harness.controller.managementNavigationScopeDescriptionForTesting == "mainRow")
+    }
+
+    @Test("management mode entry adopts expanded drawer scope for create browser")
+    func executeManagementCreateBrowser_afterEnteringManagementModeWithExpandedDrawer_targetsDrawer() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(
+            source: .floating(launchDirectory: nil, title: "Parent"),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        _ = harness.store.addDrawerPane(to: parentPane.id)
+
+        harness.controller.execute(.toggleManagementMode)
+
+        let paneIdsBefore = Set(harness.store.panes.keys)
+        let tabPaneIdsBefore = Set(harness.store.tab(tab.id)?.paneIds ?? [])
+        let drawerPaneIdsBefore = Set(harness.store.pane(parentPane.id)?.drawer?.paneIds ?? [])
+
+        harness.controller.execute(.managementCreateBrowser)
+
+        let paneIdsAfter = Set(harness.store.panes.keys)
+        let createdPaneIds = paneIdsAfter.subtracting(paneIdsBefore)
+        #expect(createdPaneIds.count == 1)
+        let createdPaneId = try #require(createdPaneIds.first)
+        let createdPane = try #require(harness.store.pane(createdPaneId))
+
+        let tabPaneIdsAfter = Set(harness.store.tab(tab.id)?.paneIds ?? [])
+        let drawerPaneIdsAfter = Set(harness.store.pane(parentPane.id)?.drawer?.paneIds ?? [])
+
+        #expect(tabPaneIdsAfter == tabPaneIdsBefore)
+        #expect(drawerPaneIdsAfter == drawerPaneIdsBefore.union([createdPaneId]))
+        if case .webview = createdPane.content {
+        } else {
+            Issue.record("Expected created drawer pane to be a webview")
+        }
+        #expect(
+            harness.controller.managementNavigationScopeDescriptionForTesting
+                == "drawer:\(parentPane.id.uuidString)"
+        )
+    }
+
 }
 
 private final class MockPaneTabCommandSurfaceManager: PaneCoordinatorSurfaceManaging {

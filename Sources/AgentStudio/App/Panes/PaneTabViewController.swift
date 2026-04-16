@@ -375,7 +375,13 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         }
 
         if !lastManagementModeActive && isManagementModeActive {
-            managementNavigationScope = .mainRow
+            if let parentPaneId = activeMainPaneId(),
+                store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true
+            {
+                managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+            } else {
+                managementNavigationScope = .mainRow
+            }
         }
         lastManagementModeActive = isManagementModeActive
         normalizeManagementNavigationScope()
@@ -1015,6 +1021,22 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         }
     }
 
+    private func managementCreationScope() -> ManagementNavigationScope {
+        normalizeManagementNavigationScope()
+
+        if case .drawer = managementNavigationScope {
+            return managementNavigationScope
+        }
+
+        if let parentPaneId = activeMainPaneId(),
+            store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true
+        {
+            return .drawer(parentPaneId: parentPaneId)
+        }
+
+        return .mainRow
+    }
+
     private func visibleDrawerPaneIds(for parentPaneId: UUID) -> [UUID] {
         guard let drawer = store.paneAtom.pane(parentPaneId)?.drawer else { return [] }
         return drawer.paneIds.filter { !drawer.minimizedPaneIds.contains($0) }
@@ -1081,24 +1103,22 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func handleManagementCreateTerminal() {
-        normalizeManagementNavigationScope()
-
-        switch managementNavigationScope {
+        switch managementCreationScope() {
         case .mainRow:
             execute(.newTerminalInTab)
         case .drawer(let parentPaneId):
+            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
             dispatchAction(.addDrawerPane(parentPaneId: parentPaneId))
         }
     }
 
     private func handleManagementCreateBrowser() {
-        normalizeManagementNavigationScope()
-
-        switch managementNavigationScope {
+        switch managementCreationScope() {
         case .mainRow:
             guard let paneId = activeMainPaneId() else { return }
             openGitHubWebview(for: paneId)
         case .drawer(let parentPaneId):
+            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
             let url = GitHubWebviewLaunchResolver.url(
                 for: parentPaneId,
                 store: store,
@@ -1137,7 +1157,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             }
             return command == .managementExitMode
         case .managementCreateTerminal:
-            switch managementNavigationScope {
+            switch managementCreationScope() {
             case .mainRow:
                 return canExecute(.newTerminalInTab)
             case .drawer(let parentPaneId):
@@ -1492,7 +1512,13 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             let wasManagementModeActive = atom(\.managementMode).isActive
             atom(\.managementMode).toggle()
             if !wasManagementModeActive {
-                managementNavigationScope = .mainRow
+                if let parentPaneId = activeMainPaneId(),
+                    store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true
+                {
+                    managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+                } else {
+                    managementNavigationScope = .mainRow
+                }
             }
             return true
 
