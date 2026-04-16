@@ -266,5 +266,32 @@ enum AppStyles {
         static let cardStrokeOpacity: CGFloat = AppStyles.General.Fill.active
         static let cardHoverOpacity: CGFloat = AppStyles.Shell.Sidebar.rowHoverOpacity
         static let interactiveHoverOpacity: CGFloat = AppStyles.General.Fill.hover
+
+        // ⌘T hero row
+        static let heroRowCornerRadius: CGFloat = 18
+        static let heroRowStrokeOpacity: CGFloat = AppStyles.General.Stroke.hover
+        static let heroRowFillOpacity: CGFloat = AppStyles.General.Fill.subtle
+        static let heroRowHoverFillOpacity: CGFloat = AppStyles.General.Fill.hover
+        static let heroRowInnerHorizontalPadding: CGFloat = 24
+        static let heroRowInnerVerticalPadding: CGFloat = 22
+        static let heroRowChevronOpacity: CGFloat = 0.35
+
+        // ⌘P preview scope rows (launcher-only)
+        static let scopeRowVerticalSpacing: CGFloat = 12
+        static let scopeRowTitleBodyGap: CGFloat = 2
+        static let scopeRowBodySize: CGFloat = AppStyles.General.Typography.textSm
+        static let scopeRowBodyOpacity: CGFloat = 0.50
+        static let scopeRowBodyLineLimit: Int = 2
+        static let scopeRowCaretColumnWidth: CGFloat = AppStyles.CommandBar.Rows.iconSize
+
+        // Responsive breakpoints
+        static let launcherWideBreakpoint: CGFloat = 1400
+        static let launcherNarrowBreakpoint: CGFloat = 900
+        static let recentsColumnCountWide: Int = 3
+        static let recentsColumnCountNarrow: Int = 1
+
+        // Section ordering gaps
+        static let recentsToHeroGap: CGFloat = 32
+        static let heroToCommandPaletteGap: CGFloat = 28
     }
 }
