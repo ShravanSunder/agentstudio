@@ -142,7 +142,6 @@ final class WorkspaceTabLayoutAtom {
         if tabs[tabIndex].zoomedPaneId == paneId {
             tabs[tabIndex].zoomedPaneId = nil
         }
-        tabs[tabIndex].minimizedPaneIds.remove(paneId)
 
         for arrangementIndex in tabs[tabIndex].arrangements.indices {
             if let newLayout = tabs[tabIndex].arrangements[arrangementIndex].layout.removing(paneId: paneId) {
@@ -151,11 +150,12 @@ final class WorkspaceTabLayoutAtom {
                 tabs[tabIndex].arrangements[arrangementIndex].layout = Layout()
             }
             tabs[tabIndex].arrangements[arrangementIndex].visiblePaneIds.remove(paneId)
+            tabs[tabIndex].arrangements[arrangementIndex].minimizedPaneIds.remove(paneId)
         }
 
         if tabs[tabIndex].activePaneId == paneId {
             let remainingVisiblePaneIds = tabs[tabIndex].activeArrangement.layout.paneIds.filter {
-                !tabs[tabIndex].minimizedPaneIds.contains($0)
+                !tabs[tabIndex].activeArrangement.minimizedPaneIds.contains($0)
             }
             tabs[tabIndex].activePaneId = remainingVisiblePaneIds.first
         }
@@ -163,7 +163,7 @@ final class WorkspaceTabLayoutAtom {
         if tabs[tabIndex].activeArrangement.layout.isEmpty && !tabs[tabIndex].defaultArrangement.layout.isEmpty {
             tabs[tabIndex].activeArrangementId = tabs[tabIndex].defaultArrangement.id
             let fallbackVisiblePaneIds = tabs[tabIndex].activeArrangement.layout.paneIds.filter {
-                !tabs[tabIndex].minimizedPaneIds.contains($0)
+                !tabs[tabIndex].activeArrangement.minimizedPaneIds.contains($0)
             }
             tabs[tabIndex].activePaneId = fallbackVisiblePaneIds.first
         }
@@ -179,6 +179,7 @@ final class WorkspaceTabLayoutAtom {
             tabs[tabIndex].allPaneIds.removeAll { $0 == paneId }
             for arrIndex in tabs[tabIndex].arrangements.indices {
                 tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
+                tabs[tabIndex].arrangements[arrIndex].minimizedPaneIds.remove(paneId)
                 if let newLayout = tabs[tabIndex].arrangements[arrIndex].layout.removing(paneId: paneId) {
                     tabs[tabIndex].arrangements[arrIndex].layout = newLayout
                 } else {
@@ -186,12 +187,13 @@ final class WorkspaceTabLayoutAtom {
                 }
             }
             if tabs[tabIndex].activePaneId == paneId {
-                tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
+                tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first {
+                    !tabs[tabIndex].activeArrangement.minimizedPaneIds.contains($0)
+                }
             }
             if tabs[tabIndex].zoomedPaneId == paneId {
                 tabs[tabIndex].zoomedPaneId = nil
             }
-            tabs[tabIndex].minimizedPaneIds.remove(paneId)
         }
         tabs.removeAll { $0.defaultArrangement.layout.isEmpty }
         if let activeTabId, !tabs.contains(where: { $0.id == activeTabId }) {
@@ -261,7 +263,8 @@ final class WorkspaceTabLayoutAtom {
             name: name,
             isDefault: false,
             layout: filteredLayout,
-            visiblePaneIds: paneIds
+            visiblePaneIds: paneIds,
+            minimizedPaneIds: tabs[tabIndex].activeArrangement.minimizedPaneIds.intersection(paneIds)
         )
         tabs[tabIndex].arrangements.append(arrangement)
         return arrangement.id
@@ -288,7 +291,9 @@ final class WorkspaceTabLayoutAtom {
             if let activePaneId = tabs[tabIndex].activePaneId,
                 !tabs[tabIndex].defaultArrangement.layout.contains(activePaneId)
             {
-                tabs[tabIndex].activePaneId = tabs[tabIndex].defaultArrangement.layout.paneIds.first
+                tabs[tabIndex].activePaneId = tabs[tabIndex].defaultArrangement.layout.paneIds.first {
+                    !tabs[tabIndex].defaultArrangement.minimizedPaneIds.contains($0)
+                }
             }
         }
         tabs[tabIndex].arrangements.remove(at: arrIndex)
@@ -308,12 +313,16 @@ final class WorkspaceTabLayoutAtom {
         guard tabs[tabIndex].activeArrangementId != arrangementId else { return }
 
         tabs[tabIndex].zoomedPaneId = nil
-        tabs[tabIndex].minimizedPaneIds = []
         tabs[tabIndex].activeArrangementId = arrangementId
+        let activeArrangement = tabs[tabIndex].activeArrangement
         if let activePaneId = tabs[tabIndex].activePaneId,
-            !tabs[tabIndex].activeArrangement.layout.contains(activePaneId)
+            activeArrangement.layout.contains(activePaneId),
+            !activeArrangement.minimizedPaneIds.contains(activePaneId)
         {
-            tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
+            return
+        }
+        tabs[tabIndex].activePaneId = activeArrangement.layout.paneIds.first {
+            !activeArrangement.minimizedPaneIds.contains($0)
         }
     }
 
@@ -369,9 +378,12 @@ final class WorkspaceTabLayoutAtom {
             return false
         }
 
-        tabs[tabIndex].minimizedPaneIds.insert(paneId)
+        let arrIndex = tabs[tabIndex].activeArrangementIndex
+        tabs[tabIndex].arrangements[arrIndex].minimizedPaneIds.insert(paneId)
         if tabs[tabIndex].activePaneId == paneId {
-            let nonMinimized = visiblePaneIds.filter { !tabs[tabIndex].minimizedPaneIds.contains($0) }
+            let nonMinimized = visiblePaneIds.filter {
+                !tabs[tabIndex].arrangements[arrIndex].minimizedPaneIds.contains($0)
+            }
             tabs[tabIndex].activePaneId = nonMinimized.first
         }
         if tabs[tabIndex].zoomedPaneId == paneId {
@@ -385,8 +397,9 @@ final class WorkspaceTabLayoutAtom {
             workspaceTabLayoutLogger.warning("expandPane: tab \(tabId) not found")
             return
         }
-        guard tabs[tabIndex].minimizedPaneIds.contains(paneId) else { return }
-        tabs[tabIndex].minimizedPaneIds.remove(paneId)
+        let arrIndex = tabs[tabIndex].activeArrangementIndex
+        guard tabs[tabIndex].arrangements[arrIndex].minimizedPaneIds.contains(paneId) else { return }
+        tabs[tabIndex].arrangements[arrIndex].minimizedPaneIds.remove(paneId)
         tabs[tabIndex].activePaneId = paneId
     }
 
@@ -441,11 +454,14 @@ final class WorkspaceTabLayoutAtom {
             if let newLayout = tabs[tabIndex].arrangements[arrIndex].layout.removing(paneId: paneId) {
                 tabs[tabIndex].arrangements[arrIndex].layout = newLayout
                 tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
+                tabs[tabIndex].arrangements[arrIndex].minimizedPaneIds.remove(paneId)
             }
         }
         tabs[tabIndex].allPaneIds.removeAll { $0 == paneId }
         if tabs[tabIndex].activePaneId == paneId {
-            tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
+            tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first {
+                !tabs[tabIndex].activeArrangement.minimizedPaneIds.contains($0)
+            }
         }
 
         let newTab = Tab(paneId: paneId)
@@ -511,10 +527,13 @@ final class WorkspaceTabLayoutAtom {
                         tabs[tabIndex].arrangements[arrIndex].layout = Layout()
                     }
                     tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
+                    tabs[tabIndex].arrangements[arrIndex].minimizedPaneIds.remove(paneId)
                 }
             }
             if let activePaneId = tabs[tabIndex].activePaneId, !validPaneIds.contains(activePaneId) {
-                tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
+                tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first {
+                    !tabs[tabIndex].activeArrangement.minimizedPaneIds.contains($0)
+                }
             }
         }
 
@@ -571,12 +590,18 @@ final class WorkspaceTabLayoutAtom {
                 tabs[tabIndex].activeArrangementId = tabs[tabIndex].defaultArrangement.id
             }
 
-            tabs[tabIndex].minimizedPaneIds.formIntersection(validPaneIds)
+            for arrangementIndex in tabs[tabIndex].arrangements.indices {
+                let arrangementPaneIds = Set(tabs[tabIndex].arrangements[arrangementIndex].layout.paneIds)
+                tabs[tabIndex].arrangements[arrangementIndex].minimizedPaneIds.formIntersection(validPaneIds)
+                tabs[tabIndex].arrangements[arrangementIndex].minimizedPaneIds.formIntersection(arrangementPaneIds)
+            }
             if let zoomedPaneId = tabs[tabIndex].zoomedPaneId, !validPaneIds.contains(zoomedPaneId) {
                 tabs[tabIndex].zoomedPaneId = nil
             }
             if let activePaneId = tabs[tabIndex].activePaneId, !validPaneIds.contains(activePaneId) {
-                tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
+                tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first {
+                    !tabs[tabIndex].activeArrangement.minimizedPaneIds.contains($0)
+                }
             }
 
             seenPaneIds.formUnion(validPaneIds)

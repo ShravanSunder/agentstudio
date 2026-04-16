@@ -28,7 +28,7 @@ struct FlatTabStripContainer: View {
 
         return {
             guard let tab = store.tabLayoutAtom.tab(tabId) else { return }
-            let arrangementName = Self.nextArrangementName(existing: tab.arrangements)
+            let arrangementName = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
             actionDispatcher.dispatch(
                 .createArrangement(
                     tabId: tabId,
@@ -201,14 +201,5 @@ struct FlatTabStripContainer: View {
     private func stopDropTargetWatchdog() {
         dropTargetWatchdogTask?.cancel()
         dropTargetWatchdogTask = nil
-    }
-
-    private static func nextArrangementName(existing: [PaneArrangement]) -> String {
-        let existingNames = Set(existing.map(\.name))
-        var index = existing.count
-        while existingNames.contains("Arrangement \(index)") {
-            index += 1
-        }
-        return "Arrangement \(index)"
     }
 }

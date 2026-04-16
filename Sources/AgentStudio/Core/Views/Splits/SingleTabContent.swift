@@ -25,7 +25,7 @@ struct SingleTabContent: View {
                 tabId: tabId,
                 activePaneId: tab.activePaneId,
                 zoomedPaneId: tab.zoomedPaneId,
-                minimizedPaneIds: tab.minimizedPaneIds,
+                minimizedPaneIds: tab.activeMinimizedPaneIds,
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 actionDispatcher: actionDispatcher,
                 store: store,

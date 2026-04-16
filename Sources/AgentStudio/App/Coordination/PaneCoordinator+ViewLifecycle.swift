@@ -873,7 +873,7 @@ extension PaneCoordinator {
                 for: tab.layout,
                 in: terminalContainerBounds,
                 dividerThickness: AppStyle.paneGap,
-                minimizedPaneIds: tab.minimizedPaneIds,
+                minimizedPaneIds: tab.activeMinimizedPaneIds,
                 collapsedPaneWidth: AppStyle.collapsedBarWidth
             )
             if resolvedFrames.isEmpty, !tab.layout.isEmpty {

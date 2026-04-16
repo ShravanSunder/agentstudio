@@ -110,4 +110,155 @@ final class ArrangementDerivedTests {
             #expect(items.first(where: { $0.id != arrangementId })?.isActive == false)
         }
     }
+
+    @Test
+    func nextCustomArrangementName_startsAtHashOne() {
+        AtomScope.$override.withValue(registry) {
+            let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let tab = Tab(paneId: pane.id)
+            store.appendTab(tab)
+
+            let derived = ArrangementDerived()
+            #expect(derived.nextCustomArrangementName(for: tab.id) == "#1")
+        }
+    }
+
+    @Test
+    func nextCustomArrangementName_skipsUsedIndexes() throws {
+        try AtomScope.$override.withValue(registry) {
+            let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let tab = Tab(paneId: firstPane.id)
+            store.appendTab(tab)
+
+            let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let thirdPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            _ = store.insertPane(
+                secondPane.id,
+                inTab: tab.id,
+                at: firstPane.id,
+                direction: .horizontal,
+                position: .after
+            )
+            _ = store.insertPane(
+                thirdPane.id,
+                inTab: tab.id,
+                at: secondPane.id,
+                direction: .horizontal,
+                position: .after
+            )
+
+            _ = try #require(
+                store.createArrangement(
+                    name: "#1",
+                    paneIds: [firstPane.id],
+                    inTab: tab.id
+                )
+            )
+            _ = try #require(
+                store.createArrangement(
+                    name: "#2",
+                    paneIds: [secondPane.id],
+                    inTab: tab.id
+                )
+            )
+
+            let derived = ArrangementDerived()
+            #expect(derived.nextCustomArrangementName(for: tab.id) == "#3")
+        }
+    }
+
+    @Test
+    func paneVisibilityItems_restoresMinimizedStateWhenSwitchingBackToArrangement() throws {
+        try AtomScope.$override.withValue(registry) {
+            let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let tab = Tab(paneId: firstPane.id)
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+
+            let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let thirdPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+            _ = store.insertPane(
+                secondPane.id,
+                inTab: tab.id,
+                at: firstPane.id,
+                direction: .horizontal,
+                position: .after
+            )
+            _ = store.insertPane(
+                thirdPane.id,
+                inTab: tab.id,
+                at: secondPane.id,
+                direction: .horizontal,
+                position: .after
+            )
+
+            _ = store.minimizePane(secondPane.id, inTab: tab.id)
+            let focusArrangementId = try #require(
+                store.createArrangement(
+                    name: "Focus",
+                    paneIds: [firstPane.id, thirdPane.id],
+                    inTab: tab.id
+                )
+            )
+
+            store.switchArrangement(to: focusArrangementId, inTab: tab.id)
+            store.switchArrangement(to: tab.defaultArrangement.id, inTab: tab.id)
+
+            let items = ArrangementDerived().paneVisibilityItems(for: tab.id)
+            #expect(items.first(where: { $0.id == secondPane.id })?.isMinimized == true)
+        }
+    }
+
+    @Test
+    func paneVisibilityItems_restoresMinimizedStateAfterPersistenceRoundTrip() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "arrangement-derived-persist-\(UUID().uuidString)")
+        let persistor = WorkspacePersistor(workspacesDir: tempDir)
+
+        let firstRegistry = AtomRegistry()
+        let firstStore = WorkspaceStore(
+            metadataAtom: firstRegistry.workspaceMetadata,
+            repositoryTopologyAtom: firstRegistry.workspaceRepositoryTopology,
+            paneAtom: firstRegistry.workspacePane,
+            tabLayoutAtom: firstRegistry.workspaceTabLayout,
+            persistor: persistor
+        )
+
+        let secondPaneId = AtomScope.$override.withValue(firstRegistry) {
+            let firstPane = firstStore.createPane(source: .floating(launchDirectory: nil, title: nil))
+            let tab = Tab(paneId: firstPane.id)
+            firstStore.appendTab(tab)
+            firstStore.setActiveTab(tab.id)
+
+            let secondPane = firstStore.createPane(source: .floating(launchDirectory: nil, title: nil))
+            _ = firstStore.insertPane(
+                secondPane.id,
+                inTab: tab.id,
+                at: firstPane.id,
+                direction: .horizontal,
+                position: .after
+            )
+            _ = firstStore.minimizePane(secondPane.id, inTab: tab.id)
+            #expect(firstStore.flush())
+            return secondPane.id
+        }
+
+        let restoredRegistry = AtomRegistry()
+        let restoredStore = WorkspaceStore(
+            metadataAtom: restoredRegistry.workspaceMetadata,
+            repositoryTopologyAtom: restoredRegistry.workspaceRepositoryTopology,
+            paneAtom: restoredRegistry.workspacePane,
+            tabLayoutAtom: restoredRegistry.workspaceTabLayout,
+            persistor: persistor
+        )
+        restoredStore.restore()
+
+        try AtomScope.$override.withValue(restoredRegistry) {
+            let restoredTabId = try #require(restoredStore.activeTabId)
+            let items = ArrangementDerived().paneVisibilityItems(for: restoredTabId)
+            #expect(items.first(where: { $0.id == secondPaneId })?.isMinimized == true)
+        }
+
+        try? FileManager.default.removeItem(at: tempDir)
+    }
 }

@@ -224,7 +224,7 @@ A tab in the workspace. Contains panes organized into arrangements. Order is imp
 | `activeArrangementId` | `UUID` | yes | Currently active arrangement |
 | `activePaneId` | `UUID?` | yes | Focused pane within this tab. Nil only during construction. |
 | `zoomedPaneId` | `UUID?` | no | Display-only zoom state. Zoomed pane fills the tab. |
-| `minimizedPaneIds` | `Set<UUID>` | no | Panes collapsed to narrow bars. Transient. |
+| `activeMinimizedPaneIds` | `Set<UUID>` | no | Derived from the active arrangement's `minimizedPaneIds`. |
 
 **Derived state:**
 - `defaultArrangement` — The arrangement with `isDefault == true` (exactly one per tab)
@@ -242,6 +242,7 @@ A tab in the workspace. Contains panes organized into arrangements. Order is imp
 | `isDefault` | `Bool` | Exactly one per tab must be `true` |
 | `layout` | `Layout` | Spatial layout of panes |
 | `visiblePaneIds` | `Set<UUID>` | Subset of tab's panes visible in this arrangement |
+| `minimizedPaneIds` | `Set<UUID>` | Visible panes collapsed to narrow bars in this arrangement. Persisted. |
 
 > **Files:** `Core/Models/Tab.swift`, `Core/Models/PaneArrangement.swift`
 

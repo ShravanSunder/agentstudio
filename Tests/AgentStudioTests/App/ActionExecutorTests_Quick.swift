@@ -167,7 +167,7 @@ struct ActionExecutorTestsQuick {
             Issue.record("Expected tab \(tab.id) after minimizing pane")
             return
         }
-        #expect(minimized.minimizedPaneIds == Set([paneOne.id]))
+        #expect(minimized.activeMinimizedPaneIds == Set([paneOne.id]))
         #expect(minimized.activePaneId == paneTwo.id)
 
         executor.execute(.expandPane(tabId: tab.id, paneId: paneOne.id))
@@ -175,7 +175,7 @@ struct ActionExecutorTestsQuick {
             Issue.record("Expected tab \(tab.id) after expanding pane")
             return
         }
-        #expect(expanded.minimizedPaneIds == Set<UUID>())
+        #expect(expanded.activeMinimizedPaneIds == Set<UUID>())
         #expect(expanded.activePaneId == paneOne.id)
     }
 

@@ -532,7 +532,8 @@ final class ActionExecutorTests {
         let transitions = ActionExecutor.computeSwitchArrangementTransitions(
             previousVisiblePaneIds: previousVisiblePaneIds,
             previouslyMinimizedPaneIds: previouslyMinimizedPaneIds,
-            newVisiblePaneIds: newVisiblePaneIds
+            newVisiblePaneIds: newVisiblePaneIds,
+            newMinimizedPaneIds: []
         )
 
         // Assert
@@ -554,12 +555,34 @@ final class ActionExecutorTests {
         let transitions = ActionExecutor.computeSwitchArrangementTransitions(
             previousVisiblePaneIds: previousVisiblePaneIds,
             previouslyMinimizedPaneIds: previouslyMinimizedPaneIds,
-            newVisiblePaneIds: newVisiblePaneIds
+            newVisiblePaneIds: newVisiblePaneIds,
+            newMinimizedPaneIds: []
         )
 
         // Assert
         #expect(transitions.hiddenPaneIds == Set([paneA]))
         #expect(transitions.paneIdsToReattach == Set([paneC]))
+    }
+
+    @Test
+    func test_computeSwitchArrangementTransitions_skipsTargetMinimizedPaneFromReattachSet() {
+        let paneA = UUID()
+        let paneB = UUID()
+        let paneC = UUID()
+        let previousVisiblePaneIds: Set<UUID> = [paneA, paneB]
+        let previouslyMinimizedPaneIds: Set<UUID> = []
+        let newVisiblePaneIds: Set<UUID> = [paneB, paneC]
+        let newMinimizedPaneIds: Set<UUID> = [paneC]
+
+        let transitions = ActionExecutor.computeSwitchArrangementTransitions(
+            previousVisiblePaneIds: previousVisiblePaneIds,
+            previouslyMinimizedPaneIds: previouslyMinimizedPaneIds,
+            newVisiblePaneIds: newVisiblePaneIds,
+            newMinimizedPaneIds: newMinimizedPaneIds
+        )
+
+        #expect(transitions.hiddenPaneIds == Set([paneA]))
+        #expect(transitions.paneIdsToReattach.isEmpty)
     }
 
     @Test

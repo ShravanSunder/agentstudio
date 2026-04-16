@@ -648,7 +648,7 @@ When a pane is minimized, it collapses to a narrow bar. Not gated on edit mode â
 - Width: 30px (horizontal splits) / Height: 30px (vertical splits)
 - Click body: expands the pane (dispatches `.expandPane`)
 - Hamburger menu: Expand, Close options
-- Minimize state: `minimizedPaneIds: Set<UUID>` on Tab (transient, not persisted)
+- Minimize state: `minimizedPaneIds: Set<UUID>` on `PaneArrangement` (arrangement-scoped and persisted)
 
 ### Tab Bar Layout
 

@@ -157,7 +157,7 @@ final class TabBarAdapter {
                 arrangementCount: tab.arrangements.count,
                 panes: paneInfos,
                 arrangements: arrangementInfos,
-                minimizedCount: tab.minimizedPaneIds.count
+                minimizedCount: tab.activeMinimizedPaneIds.count
             )
         }
 

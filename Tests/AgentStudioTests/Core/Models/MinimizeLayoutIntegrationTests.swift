@@ -67,14 +67,14 @@ final class MinimizeLayoutIntegrationTests {
 
         // Assert
         let updated = store.tab(tab.id)!
-        #expect(updated.minimizedPaneIds == Set(paneIds))
+        #expect(updated.activeMinimizedPaneIds == Set(paneIds))
         #expect((updated.activePaneId) == nil)
 
         let renderInfo = FlatTabStripMetrics.compute(
             layout: updated.layout,
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
             dividerThickness: AppStyle.paneGap,
-            minimizedPaneIds: updated.minimizedPaneIds,
+            minimizedPaneIds: updated.activeMinimizedPaneIds,
             collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
         #expect(renderInfo.allMinimized)
@@ -134,15 +134,15 @@ final class MinimizeLayoutIntegrationTests {
 
         // Assert
         let updated = store.tab(tab.id)!
-        #expect(!(updated.minimizedPaneIds.contains(paneIds[0])))
-        #expect(updated.minimizedPaneIds.contains(paneIds[1]))
+        #expect(!(updated.activeMinimizedPaneIds.contains(paneIds[0])))
+        #expect(updated.activeMinimizedPaneIds.contains(paneIds[1]))
         #expect(updated.activePaneId == paneIds[0])
 
         let renderInfo = FlatTabStripMetrics.compute(
             layout: updated.layout,
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
             dividerThickness: AppStyle.paneGap,
-            minimizedPaneIds: updated.minimizedPaneIds,
+            minimizedPaneIds: updated.activeMinimizedPaneIds,
             collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
         #expect(!(renderInfo.allMinimized))
@@ -170,8 +170,8 @@ final class MinimizeLayoutIntegrationTests {
 
         // Assert: tab NOT empty, B and C remain minimized (no auto-expand)
         let updated = store.tab(tab.id)!
-        #expect(updated.minimizedPaneIds.contains(b))
-        #expect(updated.minimizedPaneIds.contains(c))
+        #expect(updated.activeMinimizedPaneIds.contains(b))
+        #expect(updated.activeMinimizedPaneIds.contains(c))
         #expect((updated.activePaneId) == nil)
     }
 
@@ -190,13 +190,13 @@ final class MinimizeLayoutIntegrationTests {
             layout: updated.layout,
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
             dividerThickness: AppStyle.paneGap,
-            minimizedPaneIds: updated.minimizedPaneIds,
+            minimizedPaneIds: updated.activeMinimizedPaneIds,
             collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
 
         #expect(!(renderInfo.allMinimized))
         #expect(renderInfo.dividerSegments.count == 2)
-        #expect(renderInfo.paneSegments.filter(\.isMinimized).count == 1)
+        #expect(renderInfo.paneSegments.filter { $0.isMinimized }.count == 1)
     }
 
     @Test
@@ -209,7 +209,7 @@ final class MinimizeLayoutIntegrationTests {
             layout: updated.layout,
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
             dividerThickness: AppStyle.paneGap,
-            minimizedPaneIds: updated.minimizedPaneIds,
+            minimizedPaneIds: updated.activeMinimizedPaneIds,
             collapsedPaneWidth: CollapsedPaneBar.barWidth
         )
 
@@ -227,7 +227,7 @@ final class MinimizeLayoutIntegrationTests {
             layout: updated.layout,
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
             dividerThickness: AppStyle.paneGap,
-            minimizedPaneIds: updated.minimizedPaneIds,
+            minimizedPaneIds: updated.activeMinimizedPaneIds,
             collapsedPaneWidth: 0
         )
 
@@ -252,7 +252,7 @@ final class MinimizeLayoutIntegrationTests {
             layout: updated.layout,
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
             dividerThickness: AppStyle.paneGap,
-            minimizedPaneIds: updated.minimizedPaneIds,
+            minimizedPaneIds: updated.activeMinimizedPaneIds,
             collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
 

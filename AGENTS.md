@@ -107,12 +107,12 @@ Swift compile times are long. A wrong UX assumption wastes minutes per iteration
 
 ### Visual Verification
 
-Agents **must** visually verify all UI/UX changes using Peekaboo. **Never target apps by name** when testing debug builds — use PID targeting:
+Agents **must** visually verify all UI/UX changes using Peekaboo. **Never target apps by name** when testing debug builds — use PID targeting. **Never `pkill` AgentStudio** — it kills the user's running app. Each agent session builds to its own `.build-agent-$PPID/` directory; launch from there:
 
 ```bash
-pkill -9 -f "AgentStudio"
-.build/debug/AgentStudio &
-PID=$(pgrep -f ".build/debug/AgentStudio")
+BUILD_PATH=".build-agent-$PPID"
+"$BUILD_PATH/debug/AgentStudio" &
+PID=$!
 peekaboo see --app "PID:$PID" --json
 ```
 

@@ -591,6 +591,19 @@ final class WorkspaceStoreTests {
     }
 
     @Test
+    func test_extractPane_removesPaneFromSourceArrangementMinimizedSet() {
+        let s1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let s2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = makeTab(paneIds: [s1.id, s2.id])
+        store.appendTab(tab)
+        _ = store.minimizePane(s2.id, inTab: tab.id)
+
+        _ = store.extractPane(s2.id, fromTab: tab.id)
+
+        #expect(store.tabs[0].activeMinimizedPaneIds.isEmpty)
+    }
+
+    @Test
 
     func test_extractPane_singlePane_noOp() {
         // Arrange

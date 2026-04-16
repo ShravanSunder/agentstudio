@@ -12,9 +12,9 @@ struct ArrangementPanel: View {
     var highlightPaneId: UUID?
     var showsMinimizedBarToggle = true
 
-    @State private var renamingArrangementId: UUID?
-    @State private var renameText: String = ""
+    @State private var inlineRenameState = ArrangementInlineRenameState()
     @State private var highlightVisible = false
+    @FocusState private var focusedArrangementId: UUID?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -89,25 +89,7 @@ struct ArrangementPanel: View {
             }
         }
         .padding(10)
-        .frame(minWidth: 240, maxWidth: 340)
-        .alert(
-            "Rename Arrangement",
-            isPresented: Binding(
-                get: { renamingArrangementId != nil },
-                set: { if !$0 { renamingArrangementId = nil } }
-            )
-        ) {
-            TextField("Name", text: $renameText)
-            Button(LocalActionSpec.rename.actionSpec.label) {
-                if let arrangementId = renamingArrangementId, !renameText.isEmpty {
-                    onPaneAction(.renameArrangement(tabId: tabId, arrangementId: arrangementId, name: renameText))
-                }
-                renamingArrangementId = nil
-            }
-            Button(LocalActionSpec.cancel.actionSpec.label, role: .cancel) {
-                renamingArrangementId = nil
-            }
-        }
+        .frame(minWidth: 320, idealWidth: 380, maxWidth: 460)
         .onAppear {
             guard highlightPaneId != nil else { return }
             highlightVisible = true
@@ -164,33 +146,84 @@ struct ArrangementPanel: View {
     }
 
     private func arrangementChip(_ arrangement: ArrangementInfo) -> some View {
-        Text(arrangement.name)
-            .font(.system(size: AppStyle.textXs, weight: arrangement.isActive ? .semibold : .regular))
-            .foregroundStyle(arrangement.isActive ? .primary : .secondary)
-            .padding(.horizontal, AppStyle.spacingLoose)
-            .padding(.vertical, AppStyle.spacingTight)
-            .background(
-                RoundedRectangle(cornerRadius: AppStyle.barCornerRadius)
-                    .fill(
-                        arrangement.isActive
-                            ? Color.white.opacity(AppStyle.fillActive) : Color.white.opacity(AppStyle.fillSubtle)
+        Group {
+            if inlineRenameState.editingArrangementId == arrangement.id {
+                TextField(
+                    "Arrangement name",
+                    text: Binding(
+                        get: { inlineRenameState.draftName },
+                        set: { inlineRenameState.draftName = $0 }
                     )
-            )
-            .contentShape(Rectangle())
-            .onTapGesture {
-                onPaneAction(.switchArrangement(tabId: tabId, arrangementId: arrangement.id))
-            }
-            .contextMenu {
-                if !arrangement.isDefault {
-                    Button(LocalActionSpec.renameArrangement.actionSpec.label) {
-                        renameText = arrangement.name
-                        renamingArrangementId = arrangement.id
-                    }
-                    Button(LocalActionSpec.deleteArrangement.actionSpec.label, role: .destructive) {
-                        onPaneAction(.removeArrangement(tabId: tabId, arrangementId: arrangement.id))
+                )
+                .textFieldStyle(.plain)
+                .font(.system(size: AppStyle.textXs, weight: .semibold))
+                .foregroundStyle(.primary)
+                .focused($focusedArrangementId, equals: arrangement.id)
+                .frame(minWidth: 72)
+                .onSubmit(commitInlineRename)
+                .onExitCommand(perform: cancelInlineRename)
+                .onAppear {
+                    focusedArrangementId = arrangement.id
+                }
+                .onChange(of: focusedArrangementId) { _, newValue in
+                    if newValue != arrangement.id,
+                        inlineRenameState.editingArrangementId == arrangement.id
+                    {
+                        cancelInlineRename()
                     }
                 }
+            } else {
+                Text(arrangement.name)
+                    .font(.system(size: AppStyle.textXs, weight: arrangement.isActive ? .semibold : .regular))
+                    .foregroundStyle(arrangement.isActive ? .primary : .secondary)
             }
+        }
+        .padding(.horizontal, AppStyle.spacingLoose)
+        .padding(.vertical, AppStyle.spacingTight)
+        .background(
+            RoundedRectangle(cornerRadius: AppStyle.barCornerRadius)
+                .fill(
+                    arrangement.isActive
+                        ? Color.white.opacity(AppStyle.fillActive) : Color.white.opacity(AppStyle.fillSubtle)
+                )
+        )
+        .contentShape(Rectangle())
+        .gesture(arrangementGesture(arrangement))
+        .contextMenu {
+            if !arrangement.isDefault {
+                Button(LocalActionSpec.deleteArrangement.actionSpec.label, role: .destructive) {
+                    onPaneAction(.removeArrangement(tabId: tabId, arrangementId: arrangement.id))
+                }
+            }
+        }
+    }
+
+    private func arrangementGesture(_ arrangement: ArrangementInfo) -> some Gesture {
+        ExclusiveGesture(TapGesture(count: 2), TapGesture())
+            .onEnded { value in
+                switch value {
+                case .first:
+                    inlineRenameState.beginEditing(
+                        arrangementId: arrangement.id,
+                        currentName: arrangement.name,
+                        isDefault: arrangement.isDefault
+                    )
+                case .second:
+                    guard inlineRenameState.editingArrangementId == nil else { return }
+                    onPaneAction(.switchArrangement(tabId: tabId, arrangementId: arrangement.id))
+                }
+            }
+    }
+
+    private func commitInlineRename() {
+        guard let payload = inlineRenameState.commit() else { return }
+        focusedArrangementId = nil
+        onPaneAction(.renameArrangement(tabId: tabId, arrangementId: payload.arrangementId, name: payload.name))
+    }
+
+    private func cancelInlineRename() {
+        focusedArrangementId = nil
+        inlineRenameState.cancel()
     }
 }
 

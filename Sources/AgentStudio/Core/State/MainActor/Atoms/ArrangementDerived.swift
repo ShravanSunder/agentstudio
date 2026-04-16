@@ -5,6 +5,15 @@ private let arrangementDerivedLogger = Logger(subsystem: "com.agentstudio", cate
 
 @MainActor
 struct ArrangementDerived {
+    static func nextCustomArrangementName(existing: [PaneArrangement]) -> String {
+        let existingNames = Set(existing.map(\.name))
+        var index = 1
+        while existingNames.contains("#\(index)") {
+            index += 1
+        }
+        return "#\(index)"
+    }
+
     func paneVisibilityItems(for tabId: UUID) -> [PaneVisibilityInfo] {
         let tabLayout = atom(\.workspaceTabLayout)
         let paneDisplay = atom(\.paneDisplay)
@@ -17,7 +26,7 @@ struct ArrangementDerived {
             PaneVisibilityInfo(
                 id: paneId,
                 title: paneDisplay.displayLabel(for: paneId),
-                isMinimized: tab.minimizedPaneIds.contains(paneId)
+                isMinimized: tab.activeMinimizedPaneIds.contains(paneId)
             )
         }
     }
@@ -37,5 +46,14 @@ struct ArrangementDerived {
                 isActive: arrangement.id == tab.activeArrangementId
             )
         }
+    }
+
+    func nextCustomArrangementName(for tabId: UUID) -> String? {
+        let tabLayout = atom(\.workspaceTabLayout)
+        guard let tab = tabLayout.tab(tabId) else {
+            arrangementDerivedLogger.warning("nextCustomArrangementName: tab \(tabId) not found")
+            return nil
+        }
+        return Self.nextCustomArrangementName(existing: tab.arrangements)
     }
 }

@@ -207,7 +207,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             },
             onSaveArrangement: { [weak self] tabId in
                 guard let self, let tab = self.store.tabLayoutAtom.tab(tabId) else { return }
-                let name = Self.nextArrangementName(existing: tab.arrangements)
+                let name = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
                 self.dispatchAction(
                     .createArrangement(
                         tabId: tabId, name: name, paneIds: Set(tab.activePaneIds)
@@ -1089,7 +1089,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         case .saveArrangement:
             // Direct action — save current layout as a new arrangement
             guard let tab = store.tabLayoutAtom.tab(tabId) else { return }
-            let name = Self.nextArrangementName(existing: tab.arrangements)
+            let name = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
             action = .createArrangement(
                 tabId: tabId, name: name, paneIds: Set(tab.activePaneIds)
             )
@@ -1237,18 +1237,6 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         }
     }
 
-    // MARK: - Arrangement Naming
-
-    /// Generate a unique arrangement name by finding the next unused index.
-    static func nextArrangementName(existing: [PaneArrangement]) -> String {
-        let existingNames = Set(existing.map(\.name))
-        var index = existing.count
-        while existingNames.contains("Arrangement \(index)") {
-            index += 1
-        }
-        return "Arrangement \(index)"
-    }
-
     // MARK: - WorkspaceCommandHandling Conformance
 
     func execute(_ command: AppCommand) {
@@ -1354,7 +1342,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             guard let tabId = store.tabLayoutAtom.activeTabId,
                 let tab = store.tabLayoutAtom.tab(tabId)
             else { break }
-            let name = Self.nextArrangementName(existing: tab.arrangements)
+            let name = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
             dispatchAction(
                 .createArrangement(
                     tabId: tabId, name: name, paneIds: Set(tab.activePaneIds)

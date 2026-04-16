@@ -571,7 +571,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
             for: activeTab.layout,
             in: harness.windowLifecycleStore.terminalContainerBounds,
             dividerThickness: AppStyle.paneGap,
-            minimizedPaneIds: activeTab.minimizedPaneIds,
+            minimizedPaneIds: activeTab.activeMinimizedPaneIds,
             collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
 
@@ -598,7 +598,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
             for: activeTab.layout,
             in: harness.windowLifecycleStore.terminalContainerBounds,
             dividerThickness: AppStyle.paneGap,
-            minimizedPaneIds: activeTab.minimizedPaneIds,
+            minimizedPaneIds: activeTab.activeMinimizedPaneIds,
             collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
 
@@ -625,7 +625,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
             for: activeTab.layout,
             in: harness.windowLifecycleStore.terminalContainerBounds,
             dividerThickness: AppStyle.paneGap,
-            minimizedPaneIds: activeTab.minimizedPaneIds,
+            minimizedPaneIds: activeTab.activeMinimizedPaneIds,
             collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
 
@@ -657,7 +657,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
             for: activeTab.layout,
             in: harness.windowLifecycleStore.terminalContainerBounds,
             dividerThickness: AppStyle.paneGap,
-            minimizedPaneIds: activeTab.minimizedPaneIds,
+            minimizedPaneIds: activeTab.activeMinimizedPaneIds,
             collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
 
