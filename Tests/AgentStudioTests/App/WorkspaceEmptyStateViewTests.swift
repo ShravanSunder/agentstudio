@@ -67,4 +67,33 @@ struct WorkspaceEmptyStateViewTests {
     func recentCardMinWidthTokenExistsAt260() {
         #expect(AppStyles.Welcome.recentCardMinWidth == 260)
     }
+
+    // MARK: - Typography contract (locked values, pixel-level hierarchy)
+
+    @Test("typography tokens match the spec contract values")
+    func typographyTokensMatchSpecContractValues() {
+        #expect(AppStyles.Welcome.titleFontSize == 30)
+        #expect(AppStyles.Welcome.bodyFontSize == 16)
+        #expect(AppStyles.Welcome.sectionLabelFontSize == 15)
+        #expect(AppStyles.Welcome.sectionLabelOpacity == 0.62)
+        #expect(AppStyles.Welcome.shortcutTitleFontSize == 24)
+        #expect(AppStyles.Welcome.shortcutBodyFontSize == AppStyles.Welcome.bodyFontSize)
+        #expect(AppStyles.Welcome.shortcutKeyFontSize == 18)
+    }
+
+    @Test("typography hierarchy: shortcut title outranks general body text")
+    func typographyHierarchyShortcutTitleOutranksGeneralBodyText() {
+        #expect(AppStyles.Welcome.shortcutTitleFontSize > AppStyles.Welcome.bodyFontSize)
+        #expect(AppStyles.Welcome.shortcutTitleFontSize > AppStyles.General.Typography.textBase)
+    }
+
+    @Test("typography hierarchy: page title outranks shortcut titles")
+    func typographyHierarchyPageTitleOutranksShortcutTitles() {
+        #expect(AppStyles.Welcome.titleFontSize > AppStyles.Welcome.shortcutTitleFontSize)
+    }
+
+    @Test("typography hierarchy: preview scope body stays below title")
+    func typographyHierarchyPreviewScopeBodyStaysBelowTitle() {
+        #expect(AppStyles.Welcome.scopeRowBodySize < AppStyles.General.Typography.textBase)
+    }
 }
