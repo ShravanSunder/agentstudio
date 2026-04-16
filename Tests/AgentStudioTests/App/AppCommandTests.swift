@@ -274,6 +274,20 @@ final class AppCommandTests {
     @MainActor
 
     @Test
+    func test_scrollToBottom_definition_usesPaneCommandGroupAndShortcut() {
+        let def = CommandDispatcher.shared.definition(for: .scrollToBottom)
+
+        #expect(def.command == .scrollToBottom)
+        #expect(def.shortcut == .scrollToBottom)
+        #expect(def.label == "Scroll to Bottom")
+        #expect(def.commandBarGroupName == "Pane")
+        #expect(def.requiresManagementLayer == false)
+        #expect(def.visibleWhen == [.hasActivePane])
+    }
+
+    @MainActor
+
+    @Test
     func test_dispatcher_commands_forRepo_includesExpected() {
         // Act
         let repoCommands = CommandDispatcher.shared.commands(for: .repo)

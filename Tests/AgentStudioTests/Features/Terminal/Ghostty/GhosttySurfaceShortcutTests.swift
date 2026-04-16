@@ -12,10 +12,10 @@ final class GhosttySurfaceShortcutTests {
 
     @Test
     func test_appOwnedShortcuts_containsAtLeast3() {
-        // Assert — command bar shortcuts plus drawer-pane creation are registered
+        // Assert — command bar shortcuts, drawer-pane creation, and terminal navigation are registered
         #expect(
-            Ghostty.SurfaceView.appOwnedShortcuts.count >= 4,
-            "Expected app-owned shortcuts to include ⌘P, ⌘⇧P, ⌘⌥P, and ⌘⇧D"
+            Ghostty.SurfaceView.appOwnedShortcuts.count >= 5,
+            "Expected app-owned shortcuts to include ⌘P, ⌘⇧P, ⌘⌥P, ⌘⇧D, and ⌘⌥K"
         )
     }
 
@@ -52,6 +52,14 @@ final class GhosttySurfaceShortcutTests {
         #expect(
             Ghostty.SurfaceView.appOwnedShortcuts.contains(.addDrawerPane),
             "Expected add drawer pane in appOwnedShortcuts"
+        )
+    }
+
+    @Test
+    func test_appOwnedShortcuts_containsCmdOptionKScrollToBottom() {
+        #expect(
+            Ghostty.SurfaceView.appOwnedShortcuts.contains(.scrollToBottom),
+            "Expected scroll-to-bottom in appOwnedShortcuts"
         )
     }
 }

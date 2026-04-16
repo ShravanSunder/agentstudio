@@ -70,6 +70,10 @@ extension Ghostty.SurfaceView {
             let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .terminalAppOwned),
             Self.appOwnedShortcuts.contains(shortcut)
         {
+            if CommandDispatcher.shared.canDispatch(shortcut.command) {
+                CommandDispatcher.shared.dispatch(shortcut.command)
+                return true
+            }
             return false
         }
 

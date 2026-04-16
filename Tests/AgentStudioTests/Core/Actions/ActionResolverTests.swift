@@ -360,6 +360,24 @@ final class WorkspaceCommandResolverTests {
         #expect(result == .equalizePanes(tabId: tabId))
     }
 
+    @Test
+    func test_resolve_scrollToBottom_returnsActionWithActivePane() {
+        // Arrange
+        let tabId = UUID()
+        let paneId = UUIDv7.generate()
+        let tab = MockTab(id: tabId, activePaneId: paneId, allPaneIds: [paneId])
+
+        // Act
+        let result = WorkspaceCommandResolver.resolve(
+            command: .scrollToBottom,
+            tabs: [tab],
+            activeTabId: tabId
+        )
+
+        // Assert
+        #expect(result == .scrollToBottom(tabId: tabId, paneId: paneId))
+    }
+
     // MARK: - resolve(command:) — Pane Focus
 
     @Test

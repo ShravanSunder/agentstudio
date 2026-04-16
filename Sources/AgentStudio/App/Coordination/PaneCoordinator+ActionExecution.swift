@@ -300,6 +300,15 @@ extension PaneCoordinator {
             }
             store.tabLayoutAtom.renameTab(newTab.id, name: tabNameForPane(pane))
 
+        case .scrollToBottom(_, let paneId):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                _ = await self.dispatchRuntimeCommand(
+                    .terminal(.scrollToBottom),
+                    target: .pane(PaneId(uuid: paneId))
+                )
+            }
+
         case .insertPane(let source, let targetTabId, let targetPaneId, let direction):
             executeInsertPane(
                 source: source,
