@@ -395,37 +395,85 @@ private struct LauncherShortcutAction: View {
     }
 }
 
-private struct CommandBarEmbeddedPreview: View {
-    private let items: [CommandBarItem] = [
-        CommandBarItem(
+struct LauncherPreviewScopeRow: View {
+    let prefix: String
+    let title: String
+    let bodyText: String
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(alignment: .top, spacing: AppStyles.CommandBar.Rows.iconSpacing) {
+            Text(isSelected ? "▸" : " ")
+                .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
+                .foregroundStyle(Color.accentColor)
+                .frame(
+                    width: AppStyles.Welcome.scopeRowCaretColumnWidth,
+                    alignment: .leading
+                )
+
+            VStack(alignment: .leading, spacing: AppStyles.Welcome.scopeRowTitleBodyGap) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(prefix)
+                        .font(
+                            .system(
+                                size: AppStyles.General.Typography.textBase,
+                                weight: .semibold,
+                                design: .monospaced
+                            )
+                        )
+                        .foregroundStyle(Color.primary.opacity(0.88))
+
+                    Text(title)
+                        .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
+                        .foregroundStyle(Color.primary.opacity(0.88))
+                }
+
+                Text(bodyText)
+                    .font(.system(size: AppStyles.Welcome.scopeRowBodySize))
+                    .foregroundStyle(Color.primary.opacity(AppStyles.Welcome.scopeRowBodyOpacity))
+                    .lineLimit(AppStyles.Welcome.scopeRowBodyLineLimit)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 4)
+        }
+        .padding(.horizontal, AppStyles.CommandBar.Rows.horizontalPadding)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: AppStyles.CommandBar.Rows.selectedRowCornerRadius)
+                .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+                .padding(.horizontal, AppStyles.CommandBar.Rows.selectedRowHorizontalInset)
+        )
+        .contentShape(Rectangle())
+    }
+}
+
+struct CommandBarEmbeddedPreview: View {
+    struct ScopeEntry: Identifiable {
+        let id: String
+        let prefix: String
+        let title: String
+        let body: String
+    }
+
+    static let scopeEntries: [ScopeEntry] = [
+        ScopeEntry(
             id: "preview-commands",
+            prefix: ">",
             title: "Commands",
-            subtitle: "Run actions and commands",
-            icon: nil,
-            shortcutKeys: [ShortcutKey(symbol: ">")],
-            group: "Preview",
-            groupPriority: 0,
-            action: .custom({})
+            body: "Run actions — open, close, toggle"
         ),
-        CommandBarItem(
+        ScopeEntry(
             id: "preview-panes",
+            prefix: "$",
             title: "Panes",
-            subtitle: "Jump to open tabs and panes",
-            icon: nil,
-            shortcutKeys: [ShortcutKey(symbol: "$")],
-            group: "Preview",
-            groupPriority: 0,
-            action: .custom({})
+            body: "Jump to any open tab or pane"
         ),
-        CommandBarItem(
+        ScopeEntry(
             id: "preview-repos",
-            title: "Repos/Worktrees",
-            subtitle: "Open a repo or worktree",
-            icon: nil,
-            shortcutKeys: [ShortcutKey(symbol: "#")],
-            group: "Preview",
-            groupPriority: 0,
-            action: .custom({})
+            prefix: "#",
+            title: "Repos · Worktrees",
+            body: "Open a repo, switch a worktree, or start a new one"
         ),
     ]
 
@@ -460,17 +508,17 @@ private struct CommandBarEmbeddedPreview: View {
             Divider()
                 .opacity(AppStyles.CommandBar.Panel.nestedDividerOpacity)
 
-            VStack(spacing: 0) {
-                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                    CommandBarResultRow(
-                        item: item,
-                        isSelected: index == 0,
-                        searchQuery: "",
-                        isDimmed: false
+            VStack(spacing: AppStyles.Welcome.scopeRowVerticalSpacing) {
+                ForEach(Array(Self.scopeEntries.enumerated()), id: \.element.id) { index, entry in
+                    LauncherPreviewScopeRow(
+                        prefix: entry.prefix,
+                        title: entry.title,
+                        bodyText: entry.body,
+                        isSelected: index == 0
                     )
                 }
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, 8)
 
             Divider()
                 .opacity(AppStyles.CommandBar.Panel.nestedDividerOpacity)

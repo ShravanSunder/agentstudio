@@ -160,4 +160,37 @@ struct WorkspaceEmptyStateViewTests {
         let clamped = WorkspaceEmptyStateLayout.recentCardWidth(forColumns: 8)
         #expect(clamped >= AppStyles.Welcome.recentCardMinWidth)
     }
+
+    // MARK: - Launcher preview scope row
+
+    @Test("launcher preview scope row compiles with title and body text")
+    @MainActor
+    func launcherPreviewScopeRowCompilesWithTitleAndBodyText() {
+        let row = LauncherPreviewScopeRow(
+            prefix: ">",
+            title: "Commands",
+            bodyText: "Run actions — open, close, toggle",
+            isSelected: true
+        )
+        #expect(row.prefix == ">")
+        #expect(row.title == "Commands")
+        #expect(row.bodyText == "Run actions — open, close, toggle")
+        #expect(row.isSelected == true)
+    }
+
+    @Test("command bar embedded preview exposes three scope entries")
+    @MainActor
+    func commandBarEmbeddedPreviewExposesThreeScopeEntries() {
+        let entries = CommandBarEmbeddedPreview.scopeEntries
+        #expect(entries.count == 3)
+        #expect(entries[0].prefix == ">")
+        #expect(entries[0].title == "Commands")
+        #expect(entries[0].body == "Run actions — open, close, toggle")
+        #expect(entries[1].prefix == "$")
+        #expect(entries[1].title == "Panes")
+        #expect(entries[1].body == "Jump to any open tab or pane")
+        #expect(entries[2].prefix == "#")
+        #expect(entries[2].title == "Repos · Worktrees")
+        #expect(entries[2].body == "Open a repo, switch a worktree, or start a new one")
+    }
 }
