@@ -160,7 +160,7 @@ struct FlatTabStripContainer: View {
             }
         }
         .animation(.easeOut(duration: AppStyle.animationStandard), value: atom(\.uiState).showMinimizedBars)
-        .animation(.easeOut(duration: AppStyle.animationStandard), value: managementLayer.isActive)
+        .animation(.easeOut(duration: AppStyle.animationFast), value: managementLayer.isActive)
         .coordinateSpace(name: "tabContainer")
     }
 

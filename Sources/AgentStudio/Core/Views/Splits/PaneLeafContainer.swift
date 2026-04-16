@@ -34,6 +34,7 @@ struct PaneLeafContainer: View {
     private var managementLayer: ManagementLayerAtom {
         atom(\.managementLayer)
     }
+    @State private var isDragHandleHovered: Bool = false
     @State private var isMinimizeHovered: Bool = false
     @State private var isCloseHovered: Bool = false
     @State private var isSplitHovered: Bool = false
@@ -198,20 +199,27 @@ struct PaneLeafContainer: View {
                         Color.clear
                             .allowsHitTesting(false)
                         ZStack {
-                            RoundedRectangle(cornerRadius: AppStyle.managementDragHandleCornerRadius)
-                                .fill(Color.black.opacity(AppStyle.managementControlFill))
+                            RoundedRectangle(cornerRadius: AppStyle.managementLayerDragHandleCornerRadius)
+                                .fill(
+                                    Color.black.opacity(
+                                        AppStyle.managementLayerBackgroundOpacity(isHovered: isDragHandleHovered))
+                                )
                                 .shadow(color: .black.opacity(AppStyle.strokeVisible), radius: 4, y: 2)
                             Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
                                 .font(.system(size: AppStyle.toolbarIconSize, weight: .medium))
-                                .foregroundStyle(.white.opacity(AppStyle.foregroundMuted))
+                                .foregroundStyle(
+                                    .white.opacity(
+                                        AppStyle.managementLayerIconOpacity(isHovered: isDragHandleHovered))
+                                )
                         }
                         .frame(
-                            width: AppStyle.managementDragHandleWidth,
-                            height: AppStyle.managementDragHandleHeight
+                            width: AppStyle.managementLayerDragHandleWidth,
+                            height: AppStyle.managementLayerDragHandleHeight
                         )
                         .contentShape(
-                            RoundedRectangle(cornerRadius: AppStyle.managementDragHandleCornerRadius)
+                            RoundedRectangle(cornerRadius: AppStyle.managementLayerDragHandleCornerRadius)
                         )
+                        .onHover { isDragHandleHovered = $0 }
                         .draggable(
                             PaneDragPayload(
                                 paneId: paneHost.id,
@@ -220,15 +228,15 @@ struct PaneLeafContainer: View {
                             )
                         ) {
                             ZStack {
-                                RoundedRectangle(cornerRadius: AppStyle.managementDragHandleCornerRadius)
+                                RoundedRectangle(cornerRadius: AppStyle.managementLayerDragHandleCornerRadius)
                                     .fill(Color(.windowBackgroundColor).opacity(0.8))
                                 Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
                                     .font(.system(size: AppStyle.toolbarIconSize, weight: .medium))
                                     .foregroundStyle(.secondary)
                             }
                             .frame(
-                                width: AppStyle.managementDragHandleWidth,
-                                height: AppStyle.managementDragHandleHeight
+                                width: AppStyle.managementLayerDragHandleWidth,
+                                height: AppStyle.managementLayerDragHandleHeight
                             )
                         }
                     }
@@ -242,25 +250,21 @@ struct PaneLeafContainer: View {
                                 actionDispatcher.dispatch(.minimizePane(tabId: tabId, paneId: paneHost.id))
                             } label: {
                                 Image(systemName: "minus")
-                                    .font(.system(size: AppStyle.managementActionIconSize, weight: .bold))
+                                    .font(.system(size: AppStyle.managementLayerActionIconSize, weight: .bold))
                                     .foregroundStyle(
                                         .white.opacity(
-                                            isMinimizeHovered
-                                                ? AppStyle.foregroundSecondary
-                                                : AppStyle.foregroundMuted)
+                                            AppStyle.managementLayerIconOpacity(isHovered: isMinimizeHovered))
                                     )
                                     .frame(
-                                        width: AppStyle.managementActionSize,
-                                        height: AppStyle.managementActionSize
+                                        width: AppStyle.managementLayerActionSize,
+                                        height: AppStyle.managementLayerActionSize
                                     )
                                     .background(
                                         Circle()
                                             .fill(
                                                 Color.black.opacity(
-                                                    isMinimizeHovered
-                                                        ? AppStyle.managementControlFill
-                                                            + AppStyle.managementControlHoverDelta
-                                                        : AppStyle.managementControlFill))
+                                                    AppStyle.managementLayerBackgroundOpacity(
+                                                        isHovered: isMinimizeHovered)))
                                     )
                                     .contentShape(Circle())
                             }
@@ -272,25 +276,21 @@ struct PaneLeafContainer: View {
                                 beginCloseTransition()
                             } label: {
                                 Image(systemName: "xmark")
-                                    .font(.system(size: AppStyle.managementActionIconSize, weight: .bold))
+                                    .font(.system(size: AppStyle.managementLayerActionIconSize, weight: .bold))
                                     .foregroundStyle(
                                         .white.opacity(
-                                            isCloseHovered
-                                                ? AppStyle.foregroundSecondary
-                                                : AppStyle.foregroundMuted)
+                                            AppStyle.managementLayerIconOpacity(isHovered: isCloseHovered))
                                     )
                                     .frame(
-                                        width: AppStyle.managementActionSize,
-                                        height: AppStyle.managementActionSize
+                                        width: AppStyle.managementLayerActionSize,
+                                        height: AppStyle.managementLayerActionSize
                                     )
                                     .background(
                                         Circle()
                                             .fill(
                                                 Color.black.opacity(
-                                                    isCloseHovered
-                                                        ? AppStyle.managementControlFill
-                                                            + AppStyle.managementControlHoverDelta
-                                                        : AppStyle.managementControlFill))
+                                                    AppStyle.managementLayerBackgroundOpacity(
+                                                        isHovered: isCloseHovered)))
                                     )
                                     .contentShape(Circle())
                             }
@@ -460,10 +460,7 @@ struct PaneLeafContainer: View {
             Image(systemName: systemName)
                 .font(.system(size: AppStyle.paneSplitIconSize, weight: .bold))
                 .foregroundStyle(
-                    .white.opacity(
-                        isHovered
-                            ? AppStyle.foregroundSecondary
-                            : AppStyle.foregroundMuted)
+                    .white.opacity(AppStyle.managementLayerIconOpacity(isHovered: isHovered))
                 )
                 .frame(
                     width: AppStyle.paneSplitButtonSize,
@@ -478,10 +475,7 @@ struct PaneLeafContainer: View {
                     )
                     .fill(
                         Color.black.opacity(
-                            isHovered
-                                ? AppStyle.managementControlFill
-                                    + AppStyle.managementControlHoverDelta
-                                : AppStyle.managementControlFill
+                            AppStyle.managementLayerBackgroundOpacity(isHovered: isHovered)
                         )
                     )
                 )
