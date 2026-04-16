@@ -1,31 +1,42 @@
 import SwiftUI
 
 enum WorkspaceEmptyStateLayout {
-    static let launcherStartFastTitle = "Start Fast"
-    static let recentVisibleRowCount = 3
-
-    static func recentSectionWidth(for availableWidth: CGFloat) -> CGFloat {
-        let availableGridWidth = max(
-            availableWidth - AppStyles.Welcome.teachingColumnWidth - AppStyles.Welcome.contentColumnsGap,
-            AppStyles.Welcome.recentCardMinWidth
-        )
-        return min(AppStyles.Welcome.recentsColumnWidth, availableGridWidth)
+    static func recentColumnCount(for availableWidth: CGFloat) -> Int {
+        if availableWidth >= AppStyles.Welcome.launcherWideBreakpoint {
+            return AppStyles.Welcome.recentsColumnCountWide
+        }
+        if availableWidth < AppStyles.Welcome.launcherNarrowBreakpoint {
+            return AppStyles.Welcome.recentsColumnCountNarrow
+        }
+        return AppStyles.Welcome.recentsColumnCount
     }
 
-    static func recentColumnCount(for _: CGFloat) -> Int { AppStyles.Welcome.recentsColumnCount }
+    static func visibleRecentCardLimit(for _: CGFloat) -> Int { 6 }
 
-    static func visibleRecentCardLimit(for availableWidth: CGFloat) -> Int {
-        recentColumnCount(for: availableWidth) * recentVisibleRowCount
+    static func recentSectionWidth(for _: CGFloat) -> CGFloat { contentColumnWidth }
+
+    static let contentColumnWidth: CGFloat =
+        AppStyles.Welcome.teachingColumnWidth
+        + AppStyles.Welcome.contentColumnsGap
+        + AppStyles.Welcome.previewWidth
+
+    static func recentCardWidth(forColumns columns: Int) -> CGFloat {
+        let count = max(columns, 1)
+        let totalGaps = AppStyles.Welcome.recentCardGap * CGFloat(count - 1)
+        let raw = (contentColumnWidth - totalGaps) / CGFloat(count)
+        return max(raw, AppStyles.Welcome.recentCardMinWidth)
     }
 
     static func recentGridColumns(for availableWidth: CGFloat) -> [GridItem] {
-        Array(
+        let count = recentColumnCount(for: availableWidth)
+        let cardWidth = recentCardWidth(forColumns: count)
+        return Array(
             repeating: GridItem(
-                .fixed(AppStyles.Welcome.recentCardMinWidth),
+                .fixed(cardWidth),
                 spacing: AppStyles.Welcome.recentCardGap,
                 alignment: .top
             ),
-            count: recentColumnCount(for: availableWidth)
+            count: count
         )
     }
 }
@@ -216,7 +227,7 @@ struct WorkspaceEmptyStateView: View {
             )
 
             VStack(alignment: .leading, spacing: AppStyles.Welcome.sectionToContentGap) {
-                Text(WorkspaceEmptyStateLayout.launcherStartFastTitle)
+                Text("Start Fast")
                     .font(.system(size: AppStyles.Welcome.sectionLabelFontSize, weight: .semibold))
                     .foregroundStyle(.primary.opacity(AppStyles.Welcome.sectionLabelOpacity))
 

@@ -96,4 +96,68 @@ struct WorkspaceEmptyStateViewTests {
     func typographyHierarchyPreviewScopeBodyStaysBelowTitle() {
         #expect(AppStyles.Welcome.scopeRowBodySize < AppStyles.General.Typography.textBase)
     }
+
+    // MARK: - Responsive recent grid
+
+    @Test("recent column count is 3 at wide viewports")
+    func recentColumnCountIs3AtWideViewports() {
+        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 1400) == 3)
+        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 1600) == 3)
+        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 2400) == 3)
+    }
+
+    @Test("recent column count is 2 at medium viewports")
+    func recentColumnCountIs2AtMediumViewports() {
+        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 900) == 2)
+        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 1100) == 2)
+        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 1399) == 2)
+    }
+
+    @Test("recent column count is 1 at narrow viewports")
+    func recentColumnCountIs1AtNarrowViewports() {
+        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 500) == 1)
+        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 899) == 1)
+    }
+
+    @Test("visible recent card limit stays at 6 across all viewports")
+    func visibleRecentCardLimitStaysAt6AcrossAllViewports() {
+        #expect(WorkspaceEmptyStateLayout.visibleRecentCardLimit(for: 500) == 6)
+        #expect(WorkspaceEmptyStateLayout.visibleRecentCardLimit(for: 1100) == 6)
+        #expect(WorkspaceEmptyStateLayout.visibleRecentCardLimit(for: 1600) == 6)
+    }
+
+    // MARK: - Flexible card width
+
+    @Test("content column width equals teaching + gap + preview")
+    func contentColumnWidthEqualsTeachingPlusGapPlusPreview() {
+        let expected =
+            AppStyles.Welcome.teachingColumnWidth
+            + AppStyles.Welcome.contentColumnsGap
+            + AppStyles.Welcome.previewWidth
+        let actual = WorkspaceEmptyStateLayout.contentColumnWidth
+        let diff = abs(actual - expected)
+        #expect(diff < 0.001, "actual=\(actual) expected=\(expected) diff=\(diff)")
+        #expect(abs(actual - 1092) < 0.001)
+    }
+
+    @Test("recent card width fills content column at each breakpoint")
+    func recentCardWidthFillsContentColumnAtEachBreakpoint() {
+        let gap = AppStyles.Welcome.recentCardGap
+        let total = WorkspaceEmptyStateLayout.contentColumnWidth
+
+        let wide3 = WorkspaceEmptyStateLayout.recentCardWidth(forColumns: 3)
+        #expect(abs((wide3 * 3 + gap * 2) - total) < 0.001)
+
+        let medium2 = WorkspaceEmptyStateLayout.recentCardWidth(forColumns: 2)
+        #expect(abs((medium2 * 2 + gap) - total) < 0.001)
+
+        let narrow1 = WorkspaceEmptyStateLayout.recentCardWidth(forColumns: 1)
+        #expect(abs(narrow1 - total) < 0.001)
+    }
+
+    @Test("recent card width never goes below min width")
+    func recentCardWidthNeverGoesBelowMinWidth() {
+        let clamped = WorkspaceEmptyStateLayout.recentCardWidth(forColumns: 8)
+        #expect(clamped >= AppStyles.Welcome.recentCardMinWidth)
+    }
 }
