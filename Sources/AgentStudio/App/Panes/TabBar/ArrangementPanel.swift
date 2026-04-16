@@ -16,7 +16,7 @@ struct ArrangementPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             // MARK: - Arrangement chips
             Text("Arrangements")
-                .font(.system(size: AppStyle.textSm, weight: .semibold))
+                .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
                 .foregroundStyle(.tertiary)
                 .textCase(.uppercase)
 
@@ -29,12 +29,12 @@ struct ArrangementPanel: View {
                 if panes.count > 1 {
                     Button(action: onSaveArrangement) {
                         Image(systemName: "plus")
-                            .font(.system(size: AppStyle.textSm, weight: .medium))
+                            .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
                             .foregroundStyle(.secondary)
                             .frame(width: 22, height: 22)
                             .background(
                                 RoundedRectangle(cornerRadius: 5)
-                                    .strokeBorder(Color.white.opacity(AppStyle.strokeMuted), lineWidth: 1)
+                                    .strokeBorder(Color.white.opacity(AppStyles.General.Stroke.muted), lineWidth: 1)
                             )
                     }
                     .buttonStyle(.plain)
@@ -48,7 +48,7 @@ struct ArrangementPanel: View {
                     .padding(.vertical, 2)
 
                 Text("Pane Visibility")
-                    .font(.system(size: AppStyle.textSm, weight: .semibold))
+                    .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
                     .foregroundStyle(.tertiary)
                     .textCase(.uppercase)
 
@@ -84,15 +84,15 @@ struct ArrangementPanel: View {
     // MARK: - Pane Row
 
     private func paneRow(_ pane: TabBarPaneInfo) -> some View {
-        HStack(spacing: AppStyle.spacingStandard) {
+        HStack(spacing: AppStyles.General.Spacing.standard) {
             // Visibility indicator
             Circle()
-                .fill(pane.isMinimized ? Color.clear : Color.white.opacity(AppStyle.foregroundDim))
+                .fill(pane.isMinimized ? Color.clear : Color.white.opacity(AppStyles.General.Foreground.dim))
                 .stroke(Color.white.opacity(0.3), lineWidth: 1)
                 .frame(width: 8, height: 8)
 
             Text(pane.title)
-                .font(.system(size: AppStyle.textXs))
+                .font(.system(size: AppStyles.General.Typography.textXs))
                 .foregroundStyle(pane.isMinimized ? .tertiary : .primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -108,7 +108,7 @@ struct ArrangementPanel: View {
                 }
             } label: {
                 Image(systemName: pane.isMinimized ? "eye" : "eye.slash")
-                    .font(.system(size: AppStyle.textSm))
+                    .font(.system(size: AppStyles.General.Typography.textSm))
                     .foregroundStyle(.secondary)
                     .frame(width: 20, height: 20)
             }
@@ -119,11 +119,11 @@ struct ArrangementPanel: View {
                     : LocalActionSpec.hidePane.actionSpec.helpText
             )
         }
-        .padding(.horizontal, AppStyle.spacingStandard)
+        .padding(.horizontal, AppStyles.General.Spacing.standard)
         .padding(.vertical, 3)
         .background(
-            RoundedRectangle(cornerRadius: AppStyle.buttonCornerRadius)
-                .fill(Color.white.opacity(AppStyle.fillSubtle))
+            RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.button)
+                .fill(Color.white.opacity(AppStyles.General.Fill.subtle))
         )
     }
 
@@ -131,15 +131,16 @@ struct ArrangementPanel: View {
 
     private func arrangementChip(_ arr: TabBarArrangementInfo) -> some View {
         Text(arr.name)
-            .font(.system(size: AppStyle.textXs, weight: arr.isActive ? .semibold : .regular))
+            .font(.system(size: AppStyles.General.Typography.textXs, weight: arr.isActive ? .semibold : .regular))
             .foregroundStyle(arr.isActive ? .primary : .secondary)
-            .padding(.horizontal, AppStyle.spacingLoose)
-            .padding(.vertical, AppStyle.spacingTight)
+            .padding(.horizontal, AppStyles.General.Spacing.loose)
+            .padding(.vertical, AppStyles.General.Spacing.tight)
             .background(
-                RoundedRectangle(cornerRadius: AppStyle.barCornerRadius)
+                RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.bar)
                     .fill(
                         arr.isActive
-                            ? Color.white.opacity(AppStyle.fillActive) : Color.white.opacity(AppStyle.fillSubtle))
+                            ? Color.white.opacity(AppStyles.General.Fill.active)
+                            : Color.white.opacity(AppStyles.General.Fill.subtle))
             )
             .contentShape(Rectangle())
             .onTapGesture {

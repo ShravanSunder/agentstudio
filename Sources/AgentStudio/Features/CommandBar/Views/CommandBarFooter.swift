@@ -8,22 +8,17 @@ import SwiftUI
 struct CommandBarFooter: View {
     let hints: [FooterHint]
 
-    private let primaryOpacity: Double = 0.40
-    private let secondaryOpacity: Double = 0.25
-    private let separatorOpacity: Double = 0.15
-    private let rowHeight: CGFloat = 16
-
     var body: some View {
         let rows = Self.displayRows(for: FooterHintBuilder.layout(for: hints))
 
-        VStack(spacing: 6) {
+        VStack(spacing: AppStyles.CommandBar.Footer.rowSpacing) {
             HStack(spacing: 0) {
                 ForEach(Array(rows.topLeading.enumerated()), id: \.element.id) { index, hint in
                     if index > 0 {
                         Text("·")
-                            .font(.system(size: AppStyle.textXs))
-                            .foregroundStyle(.primary.opacity(separatorOpacity))
-                            .padding(.horizontal, 6)
+                            .font(.system(size: AppStyles.General.Typography.textXs))
+                            .foregroundStyle(.primary.opacity(AppStyles.CommandBar.Footer.separatorOpacity))
+                            .padding(.horizontal, AppStyles.CommandBar.Footer.separatorHorizontalPadding)
                     }
                     plainHint(hint)
                 }
@@ -34,20 +29,20 @@ struct CommandBarFooter: View {
                     trailingHint(hint)
                 }
             }
-            .frame(height: rowHeight)
+            .frame(height: AppStyles.CommandBar.Footer.rowHeight)
 
-            HStack(spacing: 14) {
+            HStack(spacing: AppStyles.CommandBar.Footer.bottomRowSpacing) {
                 ForEach(rows.bottom) { hint in
                     badgeHint(hint)
                 }
                 Spacer(minLength: 0)
             }
-            .frame(height: rowHeight)
+            .frame(height: AppStyles.CommandBar.Footer.rowHeight)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 6)
-        .padding(.bottom, 8)
-        .padding(.horizontal, 12)
+        .padding(.top, AppStyles.CommandBar.Footer.topPadding)
+        .padding(.bottom, AppStyles.CommandBar.Footer.bottomPadding)
+        .padding(.horizontal, AppStyles.CommandBar.Footer.horizontalPadding)
     }
 
     struct DisplayRows {
@@ -65,25 +60,25 @@ struct CommandBarFooter: View {
     }
 
     private func badgeHint(_ hint: FooterHint) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: AppStyles.CommandBar.Footer.hintSpacing) {
             CommandBarShortcutBadge(
                 keys: hint.shortcutKeys,
                 style: .row
             )
             Text(hint.label)
-                .font(.system(size: AppStyle.textXs))
+                .font(.system(size: AppStyles.General.Typography.textXs))
         }
-        .foregroundStyle(.primary.opacity(primaryOpacity))
+        .foregroundStyle(.primary.opacity(AppStyles.CommandBar.Footer.primaryOpacity))
     }
 
     private func plainHint(_ hint: FooterHint) -> some View {
-        HStack(spacing: 4) {
+        HStack(spacing: AppStyles.CommandBar.Footer.hintSpacing) {
             Text(hint.shortcutKeys.map(\.symbol).joined())
-                .font(.system(size: AppStyle.textXs, weight: .medium, design: .monospaced))
+                .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium, design: .monospaced))
             Text(hint.label)
-                .font(.system(size: AppStyle.textXs))
+                .font(.system(size: AppStyles.General.Typography.textXs))
         }
-        .foregroundStyle(.primary.opacity(secondaryOpacity))
+        .foregroundStyle(.primary.opacity(AppStyles.CommandBar.Footer.secondaryOpacity))
     }
 
     @ViewBuilder
@@ -95,9 +90,9 @@ struct CommandBarFooter: View {
                     style: .row
                 )
                 Text(hint.label)
-                    .font(.system(size: AppStyle.textXs))
+                    .font(.system(size: AppStyles.General.Typography.textXs))
             }
-            .foregroundStyle(.primary.opacity(secondaryOpacity))
+            .foregroundStyle(.primary.opacity(AppStyles.CommandBar.Footer.secondaryOpacity))
         } else {
             plainHint(hint)
         }

@@ -18,21 +18,30 @@ struct CommandBarResultRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: AppStyles.CommandBar.Rows.iconSpacing) {
             // Icon
             if let iconName = item.icon {
                 Image(systemName: iconName)
-                    .font(.system(size: AppStyle.textBase, weight: .medium))
+                    .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
                     .foregroundStyle(iconColor)
-                    .frame(width: 16, height: 16)
+                    .frame(
+                        width: AppStyles.CommandBar.Rows.iconSize,
+                        height: AppStyles.CommandBar.Rows.iconSize
+                    )
             } else {
-                Color.clear.frame(width: 16, height: 16)
+                Color.clear.frame(
+                    width: AppStyles.CommandBar.Rows.iconSize,
+                    height: AppStyles.CommandBar.Rows.iconSize
+                )
             }
 
             if let openState = item.worktreeOpenState, openState != .notOpen {
                 Circle()
                     .fill(Color.green.opacity(isDimmed ? 0.3 : 0.7))
-                    .frame(width: 6, height: 6)
+                    .frame(
+                        width: AppStyles.CommandBar.Rows.worktreeOpenIndicatorSize,
+                        height: AppStyles.CommandBar.Rows.worktreeOpenIndicatorSize
+                    )
             }
 
             // Title with match highlighting
@@ -42,7 +51,7 @@ struct CommandBarResultRow: View {
             // Subtitle
             if let subtitle = item.subtitle {
                 Text(subtitle)
-                    .font(.system(size: AppStyle.textSm))
+                    .font(.system(size: AppStyles.General.Typography.textSm))
                     .foregroundStyle(.primary.opacity(isDimmed ? 0.25 : 0.5))
                     .lineLimit(1)
             }
@@ -52,8 +61,8 @@ struct CommandBarResultRow: View {
             // Drill-in chevron
             if item.hasChildren {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: AppStyle.textXs, weight: .medium))
-                    .foregroundStyle(.primary.opacity(0.3))
+                    .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
+                    .foregroundStyle(.primary.opacity(AppStyles.CommandBar.Rows.chevronOpacity))
             }
 
             // Shortcut badges
@@ -61,12 +70,12 @@ struct CommandBarResultRow: View {
                 CommandBarShortcutBadge(keys: keys)
             }
         }
-        .padding(.horizontal, 12)
-        .frame(height: 36)
+        .padding(.horizontal, AppStyles.CommandBar.Rows.horizontalPadding)
+        .frame(height: AppStyles.CommandBar.Rows.rowHeight)
         .background(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: AppStyles.CommandBar.Rows.selectedRowCornerRadius)
                 .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
-                .padding(.horizontal, 4)
+                .padding(.horizontal, AppStyles.CommandBar.Rows.selectedRowHorizontalInset)
         )
         .contentShape(Rectangle())
         .opacity(isDimmed ? 0.5 : 1.0)
@@ -79,26 +88,26 @@ struct CommandBarResultRow: View {
         let title = displayTitle
         if searchQuery.isEmpty {
             Text(title)
-                .font(.system(size: AppStyle.textBase, weight: .medium))
+                .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
                 .foregroundStyle(Color.primary.opacity(isDimmed ? 0.4 : 0.88))
         } else if let matchResult = CommandBarSearch.fuzzyMatch(pattern: searchQuery, in: title) {
             buildHighlightedText(title, ranges: matchResult.matchedRanges)
         } else {
             Text(title)
-                .font(.system(size: AppStyle.textBase, weight: .medium))
+                .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
                 .foregroundStyle(Color.primary.opacity(isDimmed ? 0.4 : 0.88))
         }
     }
 
     private func buildHighlightedText(_ text: String, ranges: [Range<String.Index>]) -> some View {
         var result = AttributedString(text)
-        result.font = .system(size: AppStyle.textBase, weight: .medium)
+        result.font = .system(size: AppStyles.General.Typography.textBase, weight: .medium)
         result.foregroundColor = Color.primary.opacity(isDimmed ? 0.4 : 0.58)
 
         for range in ranges {
             guard let attrRange = Range(range, in: result) else { continue }
             result[attrRange].foregroundColor = Color.primary.opacity(isDimmed ? 0.6 : 0.95)
-            result[attrRange].font = .system(size: AppStyle.textBase, weight: .bold)
+            result[attrRange].font = .system(size: AppStyles.General.Typography.textBase, weight: .bold)
         }
 
         return Text(result)

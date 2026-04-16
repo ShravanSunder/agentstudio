@@ -59,7 +59,7 @@ struct ActiveTabContent: View {
                 appLifecycleStore: appLifecycleStore,
                 onOpenPaneGitHub: onOpenPaneGitHub
             )
-            .background(AppStyle.chromeBackground)
+            .background(AppStyles.Shell.PaneChrome.background)
         }
         // Empty/no-tab state handled by AppKit (PaneTabViewController toggles NSView visibility)
     }

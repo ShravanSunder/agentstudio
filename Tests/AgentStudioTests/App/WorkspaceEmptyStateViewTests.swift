@@ -8,9 +8,9 @@ struct WorkspaceEmptyStateViewTests {
     func launcherQuickActionsSectionUsesShortcutsBoundaryContract() {
         #expect(WorkspaceEmptyStateLayout.launcherQuickActionsSectionTitle == "Shortcuts")
         #expect(WorkspaceEmptyStateLayout.launcherQuickActionsDividerWidth == 220)
-        #expect(WorkspaceEmptyStateLayout.launcherQuickActionsSectionTopPadding > AppStyle.spacingLoose)
-        #expect(WorkspaceEmptyStateLayout.launcherQuickActionsDividerBottomPadding > AppStyle.spacingLoose)
-        #expect(WorkspaceEmptyStateLayout.launcherQuickActionsLabelBottomPadding > AppStyle.spacingLoose)
+        #expect(WorkspaceEmptyStateLayout.launcherQuickActionsSectionTopPadding > AppStyles.General.Spacing.loose)
+        #expect(WorkspaceEmptyStateLayout.launcherQuickActionsDividerBottomPadding > AppStyles.General.Spacing.loose)
+        #expect(WorkspaceEmptyStateLayout.launcherQuickActionsLabelBottomPadding > AppStyles.General.Spacing.loose)
     }
 
     @Test("launcher recent grid uses 2 to 5 columns across width bands")

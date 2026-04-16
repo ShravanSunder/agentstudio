@@ -20,7 +20,7 @@ struct CommandBarView: View {
             )
 
             Divider()
-                .opacity(0.15)
+                .opacity(AppStyles.CommandBar.Panel.rootDividerOpacity)
 
             CommandBarSearchField(
                 state: state,
@@ -33,7 +33,7 @@ struct CommandBarView: View {
 
             // Separator
             Divider()
-                .opacity(0.3)
+                .opacity(AppStyles.CommandBar.Panel.nestedDividerOpacity)
 
             // Back row when nested
             if state.isNested {
@@ -54,7 +54,7 @@ struct CommandBarView: View {
 
             // Separator
             Divider()
-                .opacity(0.3)
+                .opacity(AppStyles.CommandBar.Panel.nestedDividerOpacity)
 
             // Footer
             CommandBarFooter(

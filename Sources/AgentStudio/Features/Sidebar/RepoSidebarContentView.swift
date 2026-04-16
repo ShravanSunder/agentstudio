@@ -157,12 +157,12 @@ struct RepoSidebarContentView: View {
     private var filterBar: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: AppStyle.textXs))
+                .font(.system(size: AppStyles.General.Typography.textXs))
                 .foregroundStyle(.tertiary)
 
             TextField("Filter...", text: $filterText)
                 .textFieldStyle(.plain)
-                .font(.system(size: AppStyle.textSm))
+                .font(.system(size: AppStyles.General.Typography.textSm))
                 .foregroundStyle(.primary)
                 .focused($isFilterFocused)
                 .onExitCommand {
@@ -178,7 +178,7 @@ struct RepoSidebarContentView: View {
                     filterText = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: AppStyle.textSm))
+                        .font(.system(size: AppStyles.General.Typography.textSm))
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -204,12 +204,12 @@ struct RepoSidebarContentView: View {
     private var noResultsView: some View {
         VStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: AppStyle.text2xl))
+                .font(.system(size: AppStyles.General.Typography.text2xl))
                 .foregroundStyle(.secondary)
                 .opacity(0.5)
 
             Text("No results")
-                .font(.system(size: AppStyle.textSm, weight: .medium))
+                .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -235,7 +235,7 @@ struct RepoSidebarContentView: View {
                     .listRowInsets(
                         EdgeInsets(
                             top: 0,
-                            leading: AppStyle.sidebarListRowLeadingInset,
+                            leading: AppStyles.Shell.Sidebar.listRowLeadingInset,
                             bottom: 0,
                             trailing: 0
                         )
@@ -317,7 +317,7 @@ struct RepoSidebarContentView: View {
                         .listRowInsets(
                             EdgeInsets(
                                 top: 0,
-                                leading: AppStyle.sidebarGroupChildRowLeadingInset,
+                                leading: AppStyles.Shell.Sidebar.groupChildRowLeadingInset,
                                 bottom: 0,
                                 trailing: 0
                             )
@@ -333,7 +333,7 @@ struct RepoSidebarContentView: View {
                             .listRowInsets(
                                 EdgeInsets(
                                     top: 0,
-                                    leading: AppStyle.sidebarGroupChildRowLeadingInset,
+                                    leading: AppStyles.Shell.Sidebar.groupChildRowLeadingInset,
                                     bottom: 0,
                                     trailing: 8
                                 )
@@ -482,21 +482,21 @@ enum SidebarListEntry: Identifiable {
 
 private struct SidebarLoadingSectionHeaderRow: View {
     var body: some View {
-        HStack(spacing: AppStyle.spacingStandard) {
+        HStack(spacing: AppStyles.General.Spacing.standard) {
             Rectangle()
                 .fill(Color.primary.opacity(0.12))
                 .frame(height: 1)
 
-            HStack(spacing: AppStyle.spacingTight) {
+            HStack(spacing: AppStyles.General.Spacing.tight) {
                 ProgressView()
                     .controlSize(.small)
 
                 Text("Scanning...")
-                    .font(.system(size: AppStyle.textXs, weight: .medium))
+                    .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
                     .foregroundStyle(.secondary)
             }
             .fixedSize(horizontal: true, vertical: false)
-            .padding(.horizontal, AppStyle.spacingStandard)
+            .padding(.horizontal, AppStyles.General.Spacing.standard)
             .padding(.vertical, 4)
             .background(
                 Capsule()
@@ -515,9 +515,9 @@ private struct SidebarLoadingRepoRow: View {
     let repoName: String
 
     var body: some View {
-        HStack(spacing: AppStyle.spacingStandard) {
+        HStack(spacing: AppStyles.General.Spacing.standard) {
             Text(repoName)
-                .font(.system(size: AppStyle.textBase))
+                .font(.system(size: AppStyles.General.Typography.textBase))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .foregroundStyle(.secondary)
@@ -915,7 +915,7 @@ enum SidebarRepoGrouping {
         let stableTieBreaker: String
     }
 
-    static let automaticPaletteHexes: [String] = AppStyle.accentPaletteHexes
+    static let automaticPaletteHexes: [String] = AppStyles.Shell.Sidebar.accentPaletteHexes
 
     static let colorPresets: [ColorPreset] = [
         ColorPreset(name: "Yellow", hex: "#F5C451"),
