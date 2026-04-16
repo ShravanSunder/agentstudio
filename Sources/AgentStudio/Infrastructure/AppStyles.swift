@@ -251,7 +251,7 @@ enum AppStyles {
         static let blockGap: CGFloat = 28
         static let previewTopGap: CGFloat = 14
 
-        static let recentCardWidth: CGFloat = 260
+        static let recentCardMinWidth: CGFloat = 260
         static let recentCardGap: CGFloat = 20
         static let recentsColumnCount = 2
 

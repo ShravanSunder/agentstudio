@@ -7,7 +7,7 @@ enum WorkspaceEmptyStateLayout {
     static func recentSectionWidth(for availableWidth: CGFloat) -> CGFloat {
         let availableGridWidth = max(
             availableWidth - AppStyles.Welcome.teachingColumnWidth - AppStyles.Welcome.contentColumnsGap,
-            AppStyles.Welcome.recentCardWidth
+            AppStyles.Welcome.recentCardMinWidth
         )
         return min(AppStyles.Welcome.recentsColumnWidth, availableGridWidth)
     }
@@ -21,7 +21,7 @@ enum WorkspaceEmptyStateLayout {
     static func recentGridColumns(for availableWidth: CGFloat) -> [GridItem] {
         Array(
             repeating: GridItem(
-                .fixed(AppStyles.Welcome.recentCardWidth),
+                .fixed(AppStyles.Welcome.recentCardMinWidth),
                 spacing: AppStyles.Welcome.recentCardGap,
                 alignment: .top
             ),
@@ -273,7 +273,7 @@ struct WorkspaceEmptyStateView: View {
 
             if visibleRecentCards.isEmpty {
                 WorkspaceRecentPlaceholderCard()
-                    .frame(width: AppStyles.Welcome.recentCardWidth)
+                    .frame(width: AppStyles.Welcome.recentCardMinWidth)
             } else {
                 LazyVGrid(
                     columns: WorkspaceEmptyStateLayout.recentGridColumns(for: availableWidth),

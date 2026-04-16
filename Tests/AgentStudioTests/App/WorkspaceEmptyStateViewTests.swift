@@ -62,4 +62,9 @@ struct WorkspaceEmptyStateViewTests {
         #expect(AppStyles.Welcome.recentsToHeroGap == 32)
         #expect(AppStyles.Welcome.heroToCommandPaletteGap == 28)
     }
+
+    @Test("recent card min width token exists at 260")
+    func recentCardMinWidthTokenExistsAt260() {
+        #expect(AppStyles.Welcome.recentCardMinWidth == 260)
+    }
 }
