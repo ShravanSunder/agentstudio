@@ -20,3 +20,14 @@ func withTestAtomRegistry<T>(
         try body(atoms)
     }
 }
+
+@MainActor
+func withTestAtomRegistry<T>(
+    _ body: (AtomRegistry) async throws -> T
+) async rethrows -> T {
+    installTestAtomRegistryIfNeeded()
+    let atoms = AtomRegistry()
+    return try await AtomScope.$override.withValue(atoms) {
+        try await body(atoms)
+    }
+}

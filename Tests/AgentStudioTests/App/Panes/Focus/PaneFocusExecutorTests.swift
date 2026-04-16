@@ -98,6 +98,34 @@ struct PaneFocusExecutorTests {
         #expect(window.firstResponder !== paneHost)
     }
 
+    @Test("executor does not unfocus all terminal runtime surfaces when mounted surface is missing")
+    func executorDoesNotSyncRuntimeWhenMountedSurfaceIsMissing() throws {
+        let paneHost = PaneHostView(paneId: UUID())
+        var syncedSurfaceIds: [UUID?] = []
+
+        let executor = PaneFocusExecutor(
+            hostViewProvider: { _ in nil },
+            hostViewsProvider: { [] },
+            selectTab: { _ in },
+            selectPane: { _, _ in },
+            selectDrawerPane: { _, _ in },
+            syncRuntimeFocus: { syncedSurfaceIds.append($0) }
+        )
+        executor.registerHostView(paneHost)
+
+        executor.apply(
+            .refocusRequest(
+                PaneRefocusRequestDecision(
+                    responder: .preserveCurrentResponder,
+                    runtime: .syncTerminalSurface(paneId: paneHost.paneId),
+                    reason: .explicitRefocus
+                )
+            )
+        )
+
+        #expect(syncedSurfaceIds.isEmpty)
+    }
+
     private func makeExecutor() -> PaneFocusExecutor {
         PaneFocusExecutor(
             hostViewProvider: { _ in nil },

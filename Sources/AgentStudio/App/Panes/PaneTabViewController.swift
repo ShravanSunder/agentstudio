@@ -375,16 +375,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         }
 
         if !lastManagementModeActive && isManagementModeActive {
-            if let parentPaneId = activeMainPaneId(),
-                store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true
-            {
-                managementNavigationScope = .drawer(parentPaneId: parentPaneId)
-            } else {
-                managementNavigationScope = .mainRow
-            }
+            managementNavigationScope = initialManagementNavigationScope()
         }
         lastManagementModeActive = isManagementModeActive
-        normalizeManagementNavigationScope()
+        managementNavigationScope = normalizedManagementNavigationScope()
 
         // Focus management: only refocus when active tab or pane actually changes
         let currentTabId = store.tabLayoutAtom.activeTabId
@@ -415,9 +409,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func preferredVisibleFocusPaneId() -> UUID? {
-        normalizeManagementNavigationScope()
+        let navigationScope = normalizedManagementNavigationScope()
 
-        if case .drawer(let parentPaneId) = managementNavigationScope,
+        if case .drawer(let parentPaneId) = navigationScope,
             let drawerPaneId = visibleActiveDrawerPaneId(for: parentPaneId)
         {
             return drawerPaneId
@@ -653,17 +647,18 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         return .background
     }
 
-    private func normalizeManagementNavigationScope() {
-        guard case .drawer(let parentPaneId) = managementNavigationScope else { return }
+    private func normalizedManagementNavigationScope() -> ManagementNavigationScope {
+        guard case .drawer(let parentPaneId) = managementNavigationScope else { return managementNavigationScope }
         guard
             let activeTabId = store.tabLayoutAtom.activeTabId,
             let activePaneId = store.tabLayoutAtom.tab(activeTabId)?.activePaneId,
             activePaneId == parentPaneId,
-            store.paneAtom.pane(parentPaneId)?.drawer != nil
+            let drawer = store.paneAtom.pane(parentPaneId)?.drawer,
+            drawer.isExpanded
         else {
-            managementNavigationScope = .mainRow
-            return
+            return .mainRow
         }
+        return managementNavigationScope
     }
 
     private func visibleActiveDrawerPaneId(for parentPaneId: UUID) -> UUID? {
@@ -1011,9 +1006,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func managementParentPaneId() -> UUID? {
-        normalizeManagementNavigationScope()
-
-        switch managementNavigationScope {
+        switch normalizedManagementNavigationScope() {
         case .mainRow:
             return activeMainPaneId()
         case .drawer(let parentPaneId):
@@ -1021,13 +1014,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         }
     }
 
-    private func managementCreationScope() -> ManagementNavigationScope {
-        normalizeManagementNavigationScope()
-
-        if case .drawer = managementNavigationScope {
-            return managementNavigationScope
-        }
-
+    private func initialManagementNavigationScope() -> ManagementNavigationScope {
         if let parentPaneId = activeMainPaneId(),
             store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true
         {
@@ -1035,6 +1022,19 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         }
 
         return .mainRow
+    }
+
+    private func managementCreationScope() -> ManagementNavigationScope {
+        // Intentional: creation follows the normalized navigation scope first,
+        // then upgrades main-row scope to an already-expanded drawer so
+        // management-layer create commands act in visible drawer context.
+        let navigationScope = normalizedManagementNavigationScope()
+
+        if case .drawer = navigationScope {
+            return navigationScope
+        }
+
+        return initialManagementNavigationScope()
     }
 
     private func visibleDrawerPaneIds(for parentPaneId: UUID) -> [UUID] {
@@ -1056,9 +1056,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func handleManagementMoveLeft() {
-        normalizeManagementNavigationScope()
-
-        switch managementNavigationScope {
+        switch normalizedManagementNavigationScope() {
         case .mainRow:
             execute(.focusPaneLeft)
         case .drawer(let parentPaneId):
@@ -1067,9 +1065,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func handleManagementMoveRight() {
-        normalizeManagementNavigationScope()
-
-        switch managementNavigationScope {
+        switch normalizedManagementNavigationScope() {
         case .mainRow:
             execute(.focusPaneRight)
         case .drawer(let parentPaneId):
@@ -1078,7 +1074,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func handleManagementMoveDown() {
-        guard let parentPaneId = activeMainPaneId() else { return }
+        guard let parentPaneId = activeMainPaneId() else {
+            Self.logger.warning("management move down ignored because active main pane is unavailable")
+            return
+        }
         let drawerIsExpanded = store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true
         if !drawerIsExpanded {
             dispatchAction(.toggleDrawer(paneId: parentPaneId))
@@ -1093,8 +1092,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func handleManagementMoveUp() {
-        normalizeManagementNavigationScope()
-        guard case .drawer(let parentPaneId) = managementNavigationScope else { return }
+        guard case .drawer(let parentPaneId) = normalizedManagementNavigationScope() else { return }
         if store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true {
             dispatchAction(.toggleDrawer(paneId: parentPaneId))
             handlePaneFocusTrigger(.drawer(.toggle(parentPaneId: parentPaneId)))
@@ -1105,6 +1103,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private func handleManagementCreateTerminal() {
         switch managementCreationScope() {
         case .mainRow:
+            managementNavigationScope = .mainRow
             execute(.newTerminalInTab)
         case .drawer(let parentPaneId):
             managementNavigationScope = .drawer(parentPaneId: parentPaneId)
@@ -1115,7 +1114,11 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private func handleManagementCreateBrowser() {
         switch managementCreationScope() {
         case .mainRow:
-            guard let paneId = activeMainPaneId() else { return }
+            managementNavigationScope = .mainRow
+            guard let paneId = activeMainPaneId() else {
+                Self.logger.warning("management create browser ignored because active main pane is unavailable")
+                return
+            }
             openGitHubWebview(for: paneId)
         case .drawer(let parentPaneId):
             managementNavigationScope = .drawer(parentPaneId: parentPaneId)
@@ -1132,18 +1135,18 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func canExecuteManagementCommand(_ command: AppCommand) -> Bool {
-        normalizeManagementNavigationScope()
+        let navigationScope = normalizedManagementNavigationScope()
 
         switch command {
         case .managementFocusLeft:
-            switch managementNavigationScope {
+            switch navigationScope {
             case .mainRow:
                 return canExecute(.focusPaneLeft)
             case .drawer(let parentPaneId):
                 return visibleDrawerPaneIds(for: parentPaneId).count > 1
             }
         case .managementFocusRight:
-            switch managementNavigationScope {
+            switch navigationScope {
             case .mainRow:
                 return canExecute(.focusPaneRight)
             case .drawer(let parentPaneId):
@@ -1152,7 +1155,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         case .managementEnterDrawer, .managementOpenDrawer:
             return activeMainPaneId() != nil
         case .managementExitDrawer, .managementExitMode:
-            if case .drawer = managementNavigationScope {
+            if case .drawer = navigationScope {
                 return true
             }
             return command == .managementExitMode
@@ -1164,7 +1167,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 return store.paneAtom.pane(parentPaneId)?.drawer != nil
             }
         case .managementCreateBrowser:
-            return managementParentPaneId() != nil
+            return managementCreationScope() != .mainRow || activeMainPaneId() != nil
         default:
             return false
         }
@@ -1512,13 +1515,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             let wasManagementModeActive = atom(\.managementMode).isActive
             atom(\.managementMode).toggle()
             if !wasManagementModeActive {
-                if let parentPaneId = activeMainPaneId(),
-                    store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == true
-                {
-                    managementNavigationScope = .drawer(parentPaneId: parentPaneId)
-                } else {
-                    managementNavigationScope = .mainRow
-                }
+                managementNavigationScope = initialManagementNavigationScope()
             }
             return true
 
@@ -1631,9 +1628,11 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             .switchArrangement, .deleteArrangement, .renameArrangement,
             .navigateDrawerPane, .movePaneToTab,
             .selectTab, .focusPane:
-            break  // Handled via drill-in (target selection in command bar)
+            return  // Handled via drill-in (target selection in command bar)
         default:
-            break
+            Self.logger.warning(
+                "PaneTabViewController.handleDirectCommand ignored unhandled command=\(String(describing: command), privacy: .public)"
+            )
         }
     }
 

@@ -171,6 +171,9 @@ extension PaneCoordinator {
     }
 
     private func makeRefocusOnlyPaneFocusExecutor() -> PaneFocusExecutor {
+        // Refocus decisions never carry selection actions, so these no-op
+        // closures are intentional and keep the coordinator path limited to
+        // responder/runtime repair work only.
         PaneFocusExecutor(
             hostViewProvider: { [weak self] targetPaneId in
                 self?.viewRegistry.view(for: targetPaneId)

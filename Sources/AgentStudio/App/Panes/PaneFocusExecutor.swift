@@ -332,6 +332,7 @@ final class PaneFocusExecutor {
         let surfaceId = hostView(for: paneId)?.mountedTerminalSurfaceId
         if surfaceId == nil {
             Self.logger.warning("syncTerminalRuntimeFocus nilSurface pane=\(paneId.uuidString, privacy: .public)")
+            return
         }
         syncRuntimeFocus(surfaceId)
     }

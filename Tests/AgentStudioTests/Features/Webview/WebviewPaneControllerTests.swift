@@ -160,24 +160,26 @@ struct WebviewPaneControllerTests {
 
     @Test
     func test_managementModeToggle_updatesWebviewControllerInteractionState() async {
-        await setManagementMode(active: false)
-        let mountedView = WebviewPaneMountView(
-            paneId: UUIDv7.generate(),
-            state: WebviewState(url: URL(string: "about:blank")!)
-        )
-        let host = PaneHostView(paneId: mountedView.paneId)
-        host.mountContentView(mountedView)
-        _ = host.swiftUIContainer
-        await settleEventLoop()
-        #expect(mountedView.controller.isContentInteractionEnabled)
+        await withTestAtomRegistry { _ in
+            await setManagementMode(active: false)
+            let mountedView = WebviewPaneMountView(
+                paneId: UUIDv7.generate(),
+                state: WebviewState(url: URL(string: "about:blank")!)
+            )
+            let host = PaneHostView(paneId: mountedView.paneId)
+            host.mountContentView(mountedView)
+            _ = host.swiftUIContainer
+            await settleEventLoop()
+            #expect(mountedView.controller.isContentInteractionEnabled)
 
-        await setManagementMode(active: true)
-        #expect(atom(\.managementMode).isActive)
-        #expect(!mountedView.controller.isContentInteractionEnabled)
+            await setManagementMode(active: true)
+            #expect(atom(\.managementMode).isActive)
+            #expect(!mountedView.controller.isContentInteractionEnabled)
 
-        await setManagementMode(active: false)
-        #expect(!atom(\.managementMode).isActive)
-        #expect(mountedView.controller.isContentInteractionEnabled)
+            await setManagementMode(active: false)
+            #expect(!atom(\.managementMode).isActive)
+            #expect(mountedView.controller.isContentInteractionEnabled)
+        }
     }
 
     @Test
