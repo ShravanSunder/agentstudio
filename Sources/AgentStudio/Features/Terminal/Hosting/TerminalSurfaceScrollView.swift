@@ -134,7 +134,6 @@ final class TerminalSurfaceScrollView: NSView {
         surfaceView?.frame.size = scrollView.bounds.size
         documentView.frame.size.width = scrollView.bounds.width
 
-        synchronizeAppearance()
         synchronizeScrollView()
         synchronizeSurfaceFrame()
         synchronizeCoreSurface()
@@ -149,6 +148,7 @@ final class TerminalSurfaceScrollView: NSView {
     func bindHostStateSource(_ hostStateSource: any TerminalSurfaceHostStateSource) {
         self.hostStateSource?.onHostScrollbarStateChanged = nil
         self.hostStateSource = hostStateSource
+        synchronizeAppearance()
         hostStateSource.onHostScrollbarStateChanged = { [weak self] _ in
             guard let self else { return }
             self.synchronizeAppearance()
@@ -182,13 +182,14 @@ final class TerminalSurfaceScrollView: NSView {
     }
 
     private func handleLiveScroll() {
-        guard let state = previousScrollbarState, cellHeight > 0 else { return }
+        let effectiveCellHeight = currentCellHeight()
+        guard let state = currentScrollbarState(), effectiveCellHeight > 0 else { return }
 
         let visibleRect = scrollView.contentView.documentVisibleRect
         let documentHeight = documentView.frame.height
         let offsetFromTop = max(0, documentHeight - visibleRect.origin.y - visibleRect.height)
         let maximumTopRow = max(0, state.total - state.visibleRowCount)
-        let row = max(0, min(Int(offsetFromTop / cellHeight), maximumTopRow))
+        let row = max(0, min(Int(offsetFromTop / effectiveCellHeight), maximumTopRow))
         guard row != lastSentRow else { return }
         lastSentRow = row
         _ = actionPerformer?.performBindingAction(.scrollToRow(row))
@@ -267,7 +268,6 @@ final class TerminalSurfaceScrollView: NSView {
     override func mouseMoved(with event: NSEvent) {
         guard NSScroller.preferredScrollerStyle == .legacy else { return }
         scrollView.flashScrollers()
-        super.mouseMoved(with: event)
     }
 
     override func updateTrackingAreas() {

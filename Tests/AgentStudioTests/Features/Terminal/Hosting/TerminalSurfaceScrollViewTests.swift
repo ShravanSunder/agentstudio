@@ -200,6 +200,26 @@ struct TerminalSurfaceScrollViewTests {
         #expect(scrollView.documentOffsetYForTesting == 1600)
     }
 
+    @Test("scroll wrapper converts live drag into scroll_to_row from host state source")
+    func scrollWrapperConvertsLiveDragIntoScrollToRowFromHostStateSource() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+        let hostStateView = FakeTerminalSurfaceHostStateView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        hostStateView.reportedCellSize = NSSize(width: 8, height: 20)
+        hostStateView.hostConfigSnapshot = GhosttyHostConfigSnapshot(
+            scrollbarPolicy: .system,
+            backgroundColor: .black
+        )
+
+        scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        scrollView.bindHostStateSourceForTesting(hostStateView)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        scrollView.simulateLiveScrollForTesting(documentOffsetY: 1200)
+
+        #expect(performer.actions.last == .scrollToRow(100))
+    }
+
     @Test("zero cellHeight ignores update until valid metrics arrive")
     func zeroCellHeightIgnoresUpdateUntilValidMetricsArrive() {
         let performer = FakeSurfaceActionPerformer()
