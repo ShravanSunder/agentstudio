@@ -1,5 +1,13 @@
 import SwiftUI
 
+// MARK: - Pinned Constants
+
+enum WelcomeSidebarIllustrationConstants {
+    static let frameWidth: CGFloat = 300
+    static let ghosttyPaletteIndex: Int = 0
+    static let uvPaletteIndex: Int = 3
+}
+
 // MARK: - Mock Data
 
 private let ghosttyRepoId = UUID()
@@ -86,8 +94,8 @@ private func paletteColor(at index: Int) -> Color {
     Color(nsColor: NSColor(hex: AppStyles.Shell.Sidebar.accentPaletteHexes[index]) ?? .controlAccentColor)
 }
 
-private let ghosttyColor = paletteColor(at: 0)
-private let uvColor = paletteColor(at: 3)
+private let ghosttyColor = paletteColor(at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex)
+private let uvColor = paletteColor(at: WelcomeSidebarIllustrationConstants.uvPaletteIndex)
 
 // MARK: - Public View
 
@@ -98,7 +106,7 @@ struct WelcomeSidebarIllustration: View {
             uvGroup
         }
         .padding(16)
-        .frame(width: 300, alignment: .leading)
+        .frame(width: WelcomeSidebarIllustrationConstants.frameWidth, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color.white.opacity(AppStyles.General.Fill.muted))
