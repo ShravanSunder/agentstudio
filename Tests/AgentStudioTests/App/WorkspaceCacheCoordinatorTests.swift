@@ -15,15 +15,28 @@ final class WorkspaceCacheCoordinatorTests {
         return WorkspaceStore(persistor: persistor)
     }
 
+    private func makeCoordinator(
+        workspaceStore: WorkspaceStore,
+        repoCache: RepoCacheAtom,
+        welcomeAtom: WelcomeAtom
+    ) -> WorkspaceCacheCoordinator {
+        WorkspaceCacheCoordinator(
+            bus: EventBus<RuntimeEnvelope>(),
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            welcomeAtom: welcomeAtom,
+            scopeSyncHandler: { _ in }
+        )
+    }
+
     @Test
     func topology_repoDiscovered_addsRepoToWorkspaceStore() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
-        let coordinator = WorkspaceCacheCoordinator(
-            bus: EventBus<RuntimeEnvelope>(),
+        let coordinator = makeCoordinator(
             workspaceStore: workspaceStore,
             repoCache: repoCache,
-            scopeSyncHandler: { _ in }
+            welcomeAtom: WelcomeAtom()
         )
 
         let repoPath = URL(fileURLWithPath: "/tmp/luna-repo")
@@ -44,11 +57,10 @@ final class WorkspaceCacheCoordinatorTests {
     func topology_worktreeRegistered_unknownRepo_isIgnored() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
-        let coordinator = WorkspaceCacheCoordinator(
-            bus: EventBus<RuntimeEnvelope>(),
+        let coordinator = makeCoordinator(
             workspaceStore: workspaceStore,
             repoCache: repoCache,
-            scopeSyncHandler: { _ in }
+            welcomeAtom: WelcomeAtom()
         )
 
         let repoCountBefore = workspaceStore.repos.count
@@ -71,11 +83,10 @@ final class WorkspaceCacheCoordinatorTests {
     func topology_repoDiscovered_duplicatePath_doesNotDuplicateRepo() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
-        let coordinator = WorkspaceCacheCoordinator(
-            bus: EventBus<RuntimeEnvelope>(),
+        let coordinator = makeCoordinator(
             workspaceStore: workspaceStore,
             repoCache: repoCache,
-            scopeSyncHandler: { _ in }
+            welcomeAtom: WelcomeAtom()
         )
 
         let repoPath = URL(fileURLWithPath: "/tmp/luna-duplicate-repo")
@@ -93,11 +104,10 @@ final class WorkspaceCacheCoordinatorTests {
     func topology_worktreeUnregistered_unknownRepo_isIgnored() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
-        let coordinator = WorkspaceCacheCoordinator(
-            bus: EventBus<RuntimeEnvelope>(),
+        let coordinator = makeCoordinator(
             workspaceStore: workspaceStore,
             repoCache: repoCache,
-            scopeSyncHandler: { _ in }
+            welcomeAtom: WelcomeAtom()
         )
 
         let envelope = SystemEnvelope.test(
@@ -118,11 +128,10 @@ final class WorkspaceCacheCoordinatorTests {
     func topology_worktreeUnregistered_prunesWorktreeCaches() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
-        let coordinator = WorkspaceCacheCoordinator(
-            bus: EventBus<RuntimeEnvelope>(),
+        let coordinator = makeCoordinator(
             workspaceStore: workspaceStore,
             repoCache: repoCache,
-            scopeSyncHandler: { _ in }
+            welcomeAtom: WelcomeAtom()
         )
 
         let repoPath = URL(fileURLWithPath: "/tmp/luna-unregister-prune")
@@ -159,11 +168,10 @@ final class WorkspaceCacheCoordinatorTests {
     func workspaceActivity_recentTargetOpened_recordsRecentTargetInCache() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
-        let coordinator = WorkspaceCacheCoordinator(
-            bus: EventBus<RuntimeEnvelope>(),
+        let coordinator = makeCoordinator(
             workspaceStore: workspaceStore,
             repoCache: repoCache,
-            scopeSyncHandler: { _ in }
+            welcomeAtom: WelcomeAtom()
         )
 
         let repoId = UUID()
@@ -202,15 +210,15 @@ final class WorkspaceCacheCoordinatorTests {
     func workspaceActivity_folderScanFinishedWithZeroRepos_updatesWorkspaceStoreToEmptyState() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
-        let coordinator = WorkspaceCacheCoordinator(
-            bus: EventBus<RuntimeEnvelope>(),
+        let welcomeAtom = WelcomeAtom()
+        let coordinator = makeCoordinator(
             workspaceStore: workspaceStore,
             repoCache: repoCache,
-            scopeSyncHandler: { _ in }
+            welcomeAtom: welcomeAtom
         )
         let rootPath = URL(fileURLWithPath: "/tmp/empty-folder-scan")
 
-        workspaceStore.beginFolderScan(rootPath)
+        welcomeAtom.beginFolderScan(rootPath)
         coordinator.consume(
             .system(
                 .test(
@@ -221,22 +229,22 @@ final class WorkspaceCacheCoordinatorTests {
             )
         )
 
-        #expect(workspaceStore.folderScanState == .empty(rootPath: rootPath))
+        #expect(welcomeAtom.folderScanState == .empty(rootPath: rootPath))
     }
 
     @Test
     func workspaceActivity_folderScanFinishedWithRepos_clearsWorkspaceStoreScanState() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
-        let coordinator = WorkspaceCacheCoordinator(
-            bus: EventBus<RuntimeEnvelope>(),
+        let welcomeAtom = WelcomeAtom()
+        let coordinator = makeCoordinator(
             workspaceStore: workspaceStore,
             repoCache: repoCache,
-            scopeSyncHandler: { _ in }
+            welcomeAtom: welcomeAtom
         )
         let rootPath = URL(fileURLWithPath: "/tmp/non-empty-folder-scan")
 
-        workspaceStore.beginFolderScan(rootPath)
+        welcomeAtom.beginFolderScan(rootPath)
         coordinator.consume(
             .system(
                 .test(
@@ -247,7 +255,7 @@ final class WorkspaceCacheCoordinatorTests {
             )
         )
 
-        #expect(workspaceStore.folderScanState == .idle)
+        #expect(welcomeAtom.folderScanState == .idle)
     }
 
     @Test

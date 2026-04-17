@@ -44,23 +44,16 @@ struct WorkspaceEmptyStateView: View {
     let onOpenRecent: (RecentWorkspaceTarget) -> Void
     let onOpenAllRecent: () -> Void
 
-    // Instant click feedback for the folder-intake button. Flips the action
-    // region to a spinner BEFORE the store observation cycle propagates
-    // .scanning — otherwise users perceive a dead 1–2 second gap between
-    // the click and Welcome 2 appearing.
-    @State private var isBusy: Bool = false
-    @State private var busyTimeoutTask: Task<Void, Never>?
-
     var body: some View {
         Group {
             switch model.kind {
-            case .noFolders where isBusy:
+            case .choosingFolder:
                 VStack(spacing: 0) {
                     Spacer()
                     folderIntakeBusyBody
                     Spacer()
                 }
-                .id("noFoldersBusy")
+                .id("choosingFolder")
                 .transition(.opacity)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .noFolders:
@@ -109,45 +102,16 @@ struct WorkspaceEmptyStateView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: model.kind)
-        .animation(.easeInOut(duration: 0.25), value: isBusy)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
-        .onChange(of: model.kind) { _, newKind in
-            // Once the store state has actually moved past .noFolders, the
-            // busy placeholder has served its purpose — yield to the real UI.
-            if newKind != .noFolders {
-                endBusy()
-            }
-        }
-        .onDisappear { endBusy() }
-    }
-
-    private func beginBusy() {
-        isBusy = true
-        busyTimeoutTask?.cancel()
-        busyTimeoutTask = Task { @MainActor in
-            try? await Task.sleep(for: .seconds(AppStyles.Welcome.intakeBusyTimeoutSeconds))
-            guard !Task.isCancelled else { return }
-            isBusy = false
-            busyTimeoutTask = nil
-        }
-    }
-
-    private func endBusy() {
-        busyTimeoutTask?.cancel()
-        busyTimeoutTask = nil
-        isBusy = false
     }
 
     private var folderIntakeBody: some View {
         folderIntakeLayout {
             VStack(alignment: .leading, spacing: AppStyles.Welcome.intakeActionRowSpacing) {
-                Button(LocalActionSpec.chooseFolderToScan.actionSpec.label) {
-                    beginBusy()
-                    onAddFolder()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                Button(LocalActionSpec.chooseFolderToScan.actionSpec.label, action: onAddFolder)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
 
                 Text(WorkspaceEmptyStateCopy.intakeHelper)
                     .font(.system(size: AppStyles.General.Typography.textXs))
@@ -208,12 +172,9 @@ struct WorkspaceEmptyStateView: View {
                         .primary.opacity(AppStyles.Welcome.intakeScanningTitleOpacity)
                     )
 
-                Button(WorkspaceEmptyStateCopy.scanEmptyRetryButton) {
-                    beginBusy()
-                    onAddFolder()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                Button(WorkspaceEmptyStateCopy.scanEmptyRetryButton, action: onAddFolder)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
 
                 Text(WorkspaceEmptyStateCopy.scanEmptyHelper)
                     .font(.system(size: AppStyles.General.Typography.textXs))
@@ -288,7 +249,7 @@ struct WorkspaceEmptyStateView: View {
 
     private var launcherShortcutsBlock: some View {
         VStack(alignment: .leading, spacing: AppStyles.General.Spacing.loose + 4) {
-            Text("Start")
+            Text("Shortcuts")
                 .font(AppStyles.Welcome.Typography.h2)
                 .foregroundStyle(.primary.opacity(AppStyles.Welcome.TextColor.h2Opacity))
 

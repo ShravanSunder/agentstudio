@@ -330,10 +330,5 @@ enum AppStyles {
         static let intakeActionRowSpacing: CGFloat = 10
         static let intakeScanningSpinnerGap: CGFloat = 10
         static let intakeScanningTitleOpacity: CGFloat = 0.88
-
-        // Instant-feedback timeout for the folder-intake click. If the store
-        // state never transitions (user cancels NSOpenPanel), auto-reset so
-        // the spinner doesn't hang forever.
-        static let intakeBusyTimeoutSeconds: Double = 5
     }
 }

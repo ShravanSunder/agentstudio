@@ -2,6 +2,7 @@ import Foundation
 
 enum WorkspaceEmptyStateKind: Equatable {
     case noFolders
+    case choosingFolder
     case scanning(URL)
     case scanEmpty(URL)
     case launcher
@@ -52,13 +53,15 @@ struct WorkspaceEmptyStateModel: Equatable {
 enum WorkspaceLauncherProjector {
     static func project(store: WorkspaceStore) -> WorkspaceEmptyStateModel {
         let repoCache = atom(\.repoCache)
+        let welcome = atom(\.welcome)
         let repositoryTopology = store.repositoryTopologyAtom
         let tabLayout = store.tabLayoutAtom
 
         if repositoryTopology.repos.isEmpty {
-            switch store.folderScanState {
+            switch welcome.folderScanState {
             case .idle:
-                return WorkspaceEmptyStateModel(kind: .noFolders, recentCards: [])
+                let kind: WorkspaceEmptyStateKind = welcome.isChoosingFolder ? .choosingFolder : .noFolders
+                return WorkspaceEmptyStateModel(kind: kind, recentCards: [])
             case .scanning(let rootPath):
                 return WorkspaceEmptyStateModel(kind: .scanning(rootPath), recentCards: [])
             case .empty(let rootPath):

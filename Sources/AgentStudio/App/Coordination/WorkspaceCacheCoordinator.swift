@@ -13,6 +13,7 @@ final class WorkspaceCacheCoordinator {
     private let bus: EventBus<RuntimeEnvelope>
     private let workspaceStore: WorkspaceStore
     private let repoCache: RepoCacheAtom
+    private let welcomeAtom: WelcomeAtom
     private let topologyEffectHandler: (any TopologyEffectHandler)?
     private let scopeSyncHandler: @Sendable (ScopeChange) async -> Void
     private var consumeTask: Task<Void, Never>?
@@ -21,12 +22,14 @@ final class WorkspaceCacheCoordinator {
         bus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         workspaceStore: WorkspaceStore,
         repoCache: RepoCacheAtom,
+        welcomeAtom: WelcomeAtom = .init(),
         topologyEffectHandler: (any TopologyEffectHandler)? = nil,
         scopeSyncHandler: @escaping @Sendable (ScopeChange) async -> Void
     ) {
         self.bus = bus
         self.workspaceStore = workspaceStore
         self.repoCache = repoCache
+        self.welcomeAtom = welcomeAtom
         self.topologyEffectHandler = topologyEffectHandler
         self.scopeSyncHandler = scopeSyncHandler
     }
@@ -217,7 +220,7 @@ final class WorkspaceCacheCoordinator {
             Self.logger.debug("Recording recent target id=\(target.id, privacy: .public)")
             repoCache.recordRecentTarget(target)
         case .folderScanFinished(let rootPath, let discoveredRepoCount):
-            workspaceStore.completeFolderScan(
+            welcomeAtom.completeFolderScan(
                 rootPath: rootPath,
                 discoveredRepoCount: discoveredRepoCount
             )

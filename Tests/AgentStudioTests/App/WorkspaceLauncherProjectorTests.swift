@@ -10,13 +10,12 @@ struct WorkspaceLauncherProjectorTests {
         installTestAtomRegistryIfNeeded()
     }
 
-    private func makeStore() -> WorkspaceStore {
+    private func makeStore(atoms: AtomRegistry) -> WorkspaceStore {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "workspace-launcher-projector-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         persistor.ensureDirectory()
-        atom(\.repoCache).clear()
-        let atoms = AtomRegistry()
+        atoms.repoCache.clear()
         let store = WorkspaceStore(
             metadataAtom: atoms.workspaceMetadata,
             repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
@@ -49,42 +48,87 @@ struct WorkspaceLauncherProjectorTests {
 
     @Test
     func project_scanningWithoutRepos_returnsScanningState() {
-        let store = makeStore()
-        store.beginFolderScan(URL(fileURLWithPath: "/tmp/scanning-root"))
+        withTestAtomRegistry { atoms in
+            let store = makeStore(atoms: atoms)
+            atoms.welcome.beginFolderScan(URL(fileURLWithPath: "/tmp/scanning-root"))
 
-        let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store)
 
-        #expect(result.kind == .scanning(URL(fileURLWithPath: "/tmp/scanning-root")))
-        #expect(result.recentCards.isEmpty)
+            #expect(result.kind == .scanning(URL(fileURLWithPath: "/tmp/scanning-root")))
+            #expect(result.recentCards.isEmpty)
+        }
     }
 
     @Test
     func project_emptyFolderScanWithoutRepos_returnsEmptyScanState() {
-        let store = makeStore()
-        store.completeFolderScan(
-            rootPath: URL(fileURLWithPath: "/tmp/empty-root"),
-            discoveredRepoCount: 0
-        )
+        withTestAtomRegistry { atoms in
+            let store = makeStore(atoms: atoms)
+            atoms.welcome.completeFolderScan(
+                rootPath: URL(fileURLWithPath: "/tmp/empty-root"),
+                discoveredRepoCount: 0
+            )
 
-        let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store)
 
-        #expect(result.kind == .scanEmpty(URL(fileURLWithPath: "/tmp/empty-root")))
-        #expect(result.recentCards.isEmpty)
-        #expect(result.showsOpenAll == false)
+            #expect(result.kind == .scanEmpty(URL(fileURLWithPath: "/tmp/empty-root")))
+            #expect(result.recentCards.isEmpty)
+            #expect(result.showsOpenAll == false)
+        }
     }
 
     @Test
     func project_emptyFolderScanWithRepos_returnsLauncherState() {
-        let store = makeStore()
-        _ = store.repositoryTopologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
-        store.completeFolderScan(
-            rootPath: URL(fileURLWithPath: "/tmp/empty-root"),
-            discoveredRepoCount: 0
-        )
+        withTestAtomRegistry { atoms in
+            let store = makeStore(atoms: atoms)
+            _ = store.repositoryTopologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
+            atoms.welcome.completeFolderScan(
+                rootPath: URL(fileURLWithPath: "/tmp/empty-root"),
+                discoveredRepoCount: 0
+            )
 
-        let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store)
 
-        #expect(result.kind == .launcher)
+            #expect(result.kind == .launcher)
+        }
+    }
+
+    @Test
+    func project_choosingFolderWithoutRepos_returnsChoosingFolderState() {
+        withTestAtomRegistry { atoms in
+            let store = makeStore(atoms: atoms)
+            atoms.welcome.beginChoosingFolder()
+
+            let result = WorkspaceLauncherProjector.project(store: store)
+
+            #expect(result.kind == .choosingFolder)
+            #expect(result.recentCards.isEmpty)
+        }
+    }
+
+    @Test
+    func project_scanningOutranksChoosingFolderWhenReposAreEmpty() {
+        withTestAtomRegistry { atoms in
+            let store = makeStore(atoms: atoms)
+            atoms.welcome.beginChoosingFolder()
+            atoms.welcome.beginFolderScan(URL(fileURLWithPath: "/tmp/scanning-root"))
+
+            let result = WorkspaceLauncherProjector.project(store: store)
+
+            #expect(result.kind == .scanning(URL(fileURLWithPath: "/tmp/scanning-root")))
+        }
+    }
+
+    @Test
+    func project_launcherWinsWhenReposExistEvenIfChoosingFolderIsTrue() {
+        withTestAtomRegistry { atoms in
+            let store = makeStore(atoms: atoms)
+            _ = store.repositoryTopologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
+            atoms.welcome.beginChoosingFolder()
+
+            let result = WorkspaceLauncherProjector.project(store: store)
+
+            #expect(result.kind == .launcher)
+        }
     }
 
     @Test
@@ -161,42 +205,46 @@ struct WorkspaceLauncherProjectorTests {
 
     @Test
     func project_launcherCapsAtFifteenAndShowsOpenAllForTwoOrMoreTargets() {
-        let store = makeStore()
-        let repo = store.repositoryTopologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
-        guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
-            Issue.record("Expected main worktree")
-            return
-        }
+        withTestAtomRegistry { atoms in
+            let store = makeStore(atoms: atoms)
+            let repo = store.repositoryTopologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
+            guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
+                Issue.record("Expected main worktree")
+                return
+            }
 
-        let cache = atom(\.repoCache)
-        for index in 0..<20 {
-            cache.recordRecentTarget(
-                .forCwd(
-                    worktree.path.appending(path: "nested-\(index)"),
-                    title: "nested-\(index)",
-                    subtitle: repo.name
+            let cache = atoms.repoCache
+            for index in 0..<20 {
+                cache.recordRecentTarget(
+                    .forCwd(
+                        worktree.path.appending(path: "nested-\(index)"),
+                        title: "nested-\(index)",
+                        subtitle: repo.name
+                    )
                 )
-            )
+            }
+
+            let result = WorkspaceLauncherProjector.project(store: store)
+
+            #expect(result.recentCards.count == 15)
+            #expect(result.showsOpenAll == true)
         }
-
-        let result = WorkspaceLauncherProjector.project(store: store)
-
-        #expect(result.recentCards.count == 15)
-        #expect(result.showsOpenAll == true)
     }
 
     @Test
     func project_unresolvedRecentTarget_isDroppedFromLauncherCards() {
-        let store = makeStore()
-        _ = store.repositoryTopologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
+        withTestAtomRegistry { atoms in
+            let store = makeStore(atoms: atoms)
+            _ = store.repositoryTopologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/agent-studio"))
 
-        let cache = atom(\.repoCache)
-        cache.recordRecentTarget(.forCwd(URL(fileURLWithPath: "/tmp/missing-project")))
+            let cache = atoms.repoCache
+            cache.recordRecentTarget(.forCwd(URL(fileURLWithPath: "/tmp/missing-project")))
 
-        let result = WorkspaceLauncherProjector.project(store: store)
+            let result = WorkspaceLauncherProjector.project(store: store)
 
-        #expect(result.kind == .launcher)
-        #expect(result.recentCards.isEmpty)
-        #expect(result.showsOpenAll == false)
+            #expect(result.kind == .launcher)
+            #expect(result.recentCards.isEmpty)
+            #expect(result.showsOpenAll == false)
+        }
     }
 }

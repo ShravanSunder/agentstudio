@@ -4,12 +4,6 @@ import os.log
 
 private let workspaceStoreLogger = Logger(subsystem: "com.agentstudio", category: "WorkspaceStore")
 
-enum WorkspaceFolderScanState: Equatable {
-    case idle
-    case scanning(rootPath: URL)
-    case empty(rootPath: URL)
-}
-
 /// Main-actor persistence aggregate for the workspace atoms.
 ///
 /// This type owns debounced persistence, restore, and flush. Workspace-domain
@@ -28,7 +22,6 @@ final class WorkspaceStore {
     private var debouncedSaveTask: Task<Void, Never>?
     private var isObservingPersistedState = false
     private var isRestoringState = false
-    private(set) var folderScanState: WorkspaceFolderScanState = .idle
     private(set) var isDirty: Bool = false
 
     init(
@@ -92,23 +85,6 @@ final class WorkspaceStore {
         case .missing:
             workspaceStoreLogger.info("No workspace files found — first launch")
         }
-    }
-
-    func beginFolderScan(_ path: URL) {
-        folderScanState = .scanning(rootPath: path.standardizedFileURL)
-    }
-
-    func completeFolderScan(rootPath: URL, discoveredRepoCount: Int) {
-        let normalizedRootPath = rootPath.standardizedFileURL
-        if discoveredRepoCount == 0 {
-            folderScanState = .empty(rootPath: normalizedRootPath)
-            return
-        }
-        folderScanState = .idle
-    }
-
-    func clearFolderScanState() {
-        folderScanState = .idle
     }
 
     @discardableResult

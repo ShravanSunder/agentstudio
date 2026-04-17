@@ -149,13 +149,6 @@ struct WorkspaceEmptyStateViewTests {
         #expect(WorkspaceEmptyStateCopy.intakeBusyHelper.lowercased().contains("folder"))
     }
 
-    @Test("intake busy timeout is long enough to cover modal interaction")
-    func intakeBusyTimeoutIsLongEnough() {
-        // User needs time to actually pick a folder in the NSOpenPanel. A
-        // too-short timeout resets the spinner mid-selection.
-        #expect(AppStyles.Welcome.intakeBusyTimeoutSeconds >= 3)
-    }
-
     @Test("scanning copy mentions the folder and what we're looking for")
     func scanningCopyMentionsFolder() {
         let title = WorkspaceEmptyStateCopy.scanningTitle(folder: "~/code/project")

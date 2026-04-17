@@ -340,7 +340,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             _ = self.store.tabLayoutAtom.tabs
             _ = self.store.tabLayoutAtom.activeTabId
             _ = self.store.repositoryTopologyAtom.repos
-            _ = self.store.folderScanState
+            _ = atom(\.welcome).isChoosingFolder
+            _ = atom(\.welcome).folderScanState
             _ = self.repoCache.recentTargets
             _ = atom(\.managementMode).isActive
         } onChange: {

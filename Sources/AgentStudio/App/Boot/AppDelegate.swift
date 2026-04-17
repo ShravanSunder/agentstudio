@@ -134,6 +134,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             bus: paneRuntimeBus,
             workspaceStore: store,
             repoCache: repoCache,
+            welcomeAtom: atomStore.welcome,
             topologyEffectHandler: paneCoordinator,
             scopeSyncHandler: { [weak pipeline] change in
                 guard let pipeline else { return }
@@ -768,6 +769,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: - Repo/Folder Intake
 
     private func handleAddFolderRequested(startingAt initialURL: URL? = nil) async {
+        let welcome = atomStore.welcome
+        welcome.beginChoosingFolder()
+        defer { welcome.endChoosingFolder() }
+
         let rootURL: URL
         if let initialURL {
             rootURL = initialURL.standardizedFileURL
@@ -790,7 +795,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         // 2. Signal scanning state for UI. Sidebar stays collapsed until
         //    the first repo is discovered — never show an empty sidebar.
-        store.beginFolderScan(rootURL)
+        welcome.beginFolderScan(rootURL)
 
         // Expand sidebar when a repo from this folder is discovered.
         // Scoped to rootURL so unrelated discoveries don't trigger it.
@@ -812,10 +817,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard let self else { return }
             defer {
                 sidebarExpandTask.cancel()
-                if case .scanning(let rootPath) = self.store.folderScanState,
+                if case .scanning(let rootPath) = welcome.folderScanState,
                     rootPath == rootURL.standardizedFileURL
                 {
-                    self.store.clearFolderScanState()
+                    welcome.clearFolderScanState()
                 }
             }
 

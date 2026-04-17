@@ -9,6 +9,7 @@ final class AtomRegistry {
     let uiState: UIStateAtom
     let managementMode: ManagementModeAtom
     let sessionRuntime: SessionRuntimeAtom
+    let welcome: WelcomeAtom
 
     init(
         workspaceMetadata: WorkspaceMetadataAtom = .init(),
@@ -19,7 +20,8 @@ final class AtomRegistry {
         repoCache: RepoCacheAtom = .init(),
         uiState: UIStateAtom = .init(),
         managementMode: ManagementModeAtom = .init(),
-        sessionRuntime: SessionRuntimeAtom = .init()
+        sessionRuntime: SessionRuntimeAtom = .init(),
+        welcome: WelcomeAtom = .init()
     ) {
         self.workspaceMetadata = workspaceMetadata
         self.workspaceRepositoryTopology = workspaceRepositoryTopology
@@ -36,6 +38,7 @@ final class AtomRegistry {
         self.uiState = uiState
         self.managementMode = managementMode
         self.sessionRuntime = sessionRuntime
+        self.welcome = welcome
     }
 
     var paneDisplay: PaneDisplayDerived {
