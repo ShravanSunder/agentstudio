@@ -299,6 +299,12 @@ extension MainWindowController: NSToolbarDelegate {
                 accessibilityDescription: definition.actionSpec.label
             )
             button.imagePosition = .imageLeading
+            // NSButton crams the image against the title on .rounded bezels.
+            // An attributed title with leading padding gives a proper gap.
+            button.attributedTitle = NSAttributedString(
+                string: "  " + definition.actionSpec.label,
+                attributes: [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)]
+            )
             item.view = button
             return item
 

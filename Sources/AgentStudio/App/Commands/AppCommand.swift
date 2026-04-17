@@ -699,9 +699,9 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 shortcut: .addFolder,
-                label: "Add Folder",
+                label: "Watch Folder",
                 icon: "folder.fill.badge.plus",
-                helpText: "Add a folder to scan for repositories",
+                helpText: "Watch a folder and scan it for repositories",
                 commandBarGroupName: "Repo",
                 commandBarGroupPriority: CommandBarGroupPriority.repo
             )
