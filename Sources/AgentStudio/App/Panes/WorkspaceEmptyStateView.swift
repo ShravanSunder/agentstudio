@@ -175,18 +175,16 @@ struct WorkspaceEmptyStateView: View {
         let visibleRecentCards = Array(
             model.recentCards.prefix(WorkspaceEmptyStateLayout.visibleRecentCardLimit)
         )
-        let hasRecents = !visibleRecentCards.isEmpty
-        let subtitle = hasRecents ? "Jump back in, fast." : "Get started."
+        let subtitle =
+            visibleRecentCards.isEmpty ? "Get started." : "Jump back in, fast."
 
         return VStack(alignment: .leading, spacing: AppStyles.Welcome.launcherSectionGap) {
             launcherHeader(subtitle: subtitle)
 
-            if hasRecents {
-                launcherRecentSection(visibleRecentCards: visibleRecentCards)
+            launcherRecentSection(visibleRecentCards: visibleRecentCards)
 
-                Divider()
-                    .opacity(AppStyles.Welcome.launcherDividerOpacity)
-            }
+            Divider()
+                .opacity(AppStyles.Welcome.launcherDividerOpacity)
 
             launcherShortcutsBlock
         }
@@ -226,7 +224,7 @@ struct WorkspaceEmptyStateView: View {
                 )
 
                 launcherShortcutRow(
-                    key: "+",
+                    keyImage: "folder.badge.plus",
                     title: "Add folder",
                     subtitle: "Scan a new folder for repos.",
                     action: { CommandDispatcher.shared.dispatch(.addFolder) }
@@ -237,17 +235,26 @@ struct WorkspaceEmptyStateView: View {
     }
 
     private func launcherShortcutRow(
-        key: String,
+        key: String? = nil,
+        keyImage: String? = nil,
         title: String,
         subtitle: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             HStack(alignment: .firstTextBaseline, spacing: AppStyles.Welcome.launcherShortcutKeyTitleGap) {
-                Text(key)
-                    .font(AppStyles.Welcome.Typography.key)
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: AppStyles.Welcome.launcherShortcutKeyColumnWidth, alignment: .leading)
+                Group {
+                    if let keyImage {
+                        Image(systemName: keyImage)
+                            .font(AppStyles.Welcome.Typography.key)
+                            .foregroundStyle(Color.accentColor)
+                    } else {
+                        Text(key ?? "")
+                            .font(AppStyles.Welcome.Typography.key)
+                            .foregroundStyle(Color.accentColor)
+                    }
+                }
+                .frame(width: AppStyles.Welcome.launcherShortcutKeyColumnWidth, alignment: .leading)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
@@ -272,12 +279,16 @@ struct WorkspaceEmptyStateView: View {
         VStack(alignment: .leading, spacing: AppStyles.General.Spacing.loose + 4) {
             recentSectionHeader
 
-            VStack(spacing: AppStyles.Welcome.recentCardGap) {
-                ForEach(visibleRecentCards) { card in
-                    WorkspaceRecentCardView(
-                        card: card,
-                        onOpen: { onOpenRecent(card.target) }
-                    )
+            if visibleRecentCards.isEmpty {
+                WorkspaceRecentPlaceholderCard()
+            } else {
+                VStack(spacing: AppStyles.Welcome.recentCardGap) {
+                    ForEach(visibleRecentCards) { card in
+                        WorkspaceRecentCardView(
+                            card: card,
+                            onOpen: { onOpenRecent(card.target) }
+                        )
+                    }
                 }
             }
         }
@@ -555,6 +566,33 @@ private struct WorkspaceRecentCardView: View {
                     notificationCount: 0
                 ),
             accentColor: iconColor
+        )
+    }
+}
+
+private struct WorkspaceRecentPlaceholderCard: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(AppStyles.Welcome.Typography.h3)
+                .foregroundStyle(.secondary)
+                .frame(width: 14, alignment: .leading)
+
+            Text("No recent worktrees yet.")
+                .font(AppStyles.Welcome.Typography.h3)
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .strokeBorder(
+                    Color.white.opacity(AppStyles.General.Fill.active),
+                    style: StrokeStyle(lineWidth: 1, dash: [6, 4])
+                )
         )
     }
 }
