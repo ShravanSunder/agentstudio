@@ -179,4 +179,54 @@ struct WorkspacePersistenceTransformerTests {
         #expect(state.tabs.count == 1)
         #expect(state.tabs[0].activePaneId == nil)
     }
+
+    @Test
+    func makePersistableState_fallsBackToDefaultWhenActiveCustomArrangementBecomesEmpty() throws {
+        let metadataAtom = WorkspaceMetadataAtom()
+        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let paneAtom = WorkspacePaneAtom()
+        let tabLayoutAtom = WorkspaceTabLayoutAtom()
+
+        metadataAtom.hydrate(
+            workspaceId: UUID(),
+            workspaceName: "Workspace",
+            createdAt: Date(timeIntervalSince1970: 1000),
+            sidebarWidth: 250,
+            windowFrame: nil
+        )
+
+        let persistentPane = makePane(title: "Persistent")
+        let temporaryPane = makePane(title: "Temporary", lifetime: .temporary)
+        paneAtom.addPane(persistentPane)
+        paneAtom.addPane(temporaryPane)
+
+        let tab = makeTab(
+            paneIds: [persistentPane.id, temporaryPane.id],
+            activePaneId: temporaryPane.id
+        )
+        tabLayoutAtom.appendTab(tab)
+        tabLayoutAtom.setActiveTab(tab.id)
+
+        let customArrangementId = try #require(
+            tabLayoutAtom.createArrangement(
+                name: "Temporary Only",
+                paneIds: [temporaryPane.id],
+                inTab: tab.id
+            )
+        )
+        tabLayoutAtom.switchArrangement(to: customArrangementId, inTab: tab.id)
+
+        let state = WorkspacePersistenceTransformer.makePersistableState(
+            metadataAtom: metadataAtom,
+            repositoryTopologyAtom: topologyAtom,
+            workspacePaneAtom: paneAtom,
+            workspaceTabLayoutAtom: tabLayoutAtom,
+            persistedAt: Date(timeIntervalSince1970: 2000)
+        )
+
+        #expect(state.tabs.count == 1)
+        #expect(state.tabs[0].activeArrangementId == state.tabs[0].defaultArrangement.id)
+        #expect(state.tabs[0].activeArrangement.layout.paneIds == [persistentPane.id])
+        #expect(state.tabs[0].activePaneId == persistentPane.id)
+    }
 }

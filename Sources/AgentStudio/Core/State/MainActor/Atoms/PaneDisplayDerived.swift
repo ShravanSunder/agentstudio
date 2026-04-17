@@ -141,15 +141,15 @@ struct PaneDisplayDerived {
             return nil
         }
         guard let repoId = pane.repoId ?? pane.metadata.repoId else { return nil }
-        guard let repo = workspaceRepositoryTopology.repo(repoId) else { return nil }
+        let sidebarRepos = workspaceRepositoryTopology.repos.map(RepoPresentationItem.init(repo:))
+        guard let sidebarRepo = sidebarRepos.first(where: { $0.id == repoId }) else { return nil }
 
-        let sidebarRepo = RepoPresentationItem(repo: repo)
         let repoMetadataById = RepoPresentationColoring.buildRepoMetadata(
-            repos: [sidebarRepo],
+            repos: sidebarRepos,
             repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId,
         )
         let resolvedGroups = RepoPresentationGrouping.buildGroups(
-            repos: [sidebarRepo],
+            repos: sidebarRepos,
             metadataByRepoId: repoMetadataById
         )
 

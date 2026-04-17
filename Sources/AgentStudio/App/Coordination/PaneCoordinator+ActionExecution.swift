@@ -329,7 +329,10 @@ extension PaneCoordinator {
 
         case .expandPane(let tabId, let paneId):
             store.tabLayoutAtom.expandPane(paneId, inTab: tabId)
-            reattachForViewSwitch(paneId: paneId)
+            restoreVisiblePaneIfNeeded(paneId, forceWhenBoundsExist: true)
+            if viewRegistry.terminalView(for: paneId) != nil {
+                reattachForViewSwitch(paneId: paneId)
+            }
 
         case .resizePaneByDelta(let tabId, let paneId, let direction, let amount):
             store.tabLayoutAtom.resizePaneByDelta(tabId: tabId, paneId: paneId, direction: direction, amount: amount)
@@ -464,7 +467,10 @@ extension PaneCoordinator {
 
         case .expandDrawerPane(let parentPaneId, let drawerPaneId):
             store.paneAtom.expandDrawerPane(drawerPaneId, in: parentPaneId)
-            reattachForViewSwitch(paneId: drawerPaneId)
+            restoreVisiblePaneIfNeeded(drawerPaneId, forceWhenBoundsExist: true)
+            if viewRegistry.terminalView(for: drawerPaneId) != nil {
+                reattachForViewSwitch(paneId: drawerPaneId)
+            }
 
         case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction):
             executeInsertDrawerPane(

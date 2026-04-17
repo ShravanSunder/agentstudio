@@ -149,7 +149,18 @@ enum WorkspacePersistenceTransformer {
                 }
             }
 
+            if tabs[tabIndex].activeArrangement.layout.isEmpty && !tabs[tabIndex].defaultArrangement.layout.isEmpty {
+                tabs[tabIndex].activeArrangementId = tabs[tabIndex].defaultArrangement.id
+            }
+
             if let activePaneId = tabs[tabIndex].activePaneId, !validPaneIds.contains(activePaneId) {
+                tabs[tabIndex].activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(
+                    in: tabs[tabIndex].activeArrangement
+                )
+            } else if let activePaneId = tabs[tabIndex].activePaneId,
+                !tabs[tabIndex].activeArrangement.layout.contains(activePaneId)
+                    || tabs[tabIndex].activeArrangement.minimizedPaneIds.contains(activePaneId)
+            {
                 tabs[tabIndex].activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(
                     in: tabs[tabIndex].activeArrangement
                 )

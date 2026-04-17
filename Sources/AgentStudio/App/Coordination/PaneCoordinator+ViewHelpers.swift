@@ -122,6 +122,46 @@ extension PaneCoordinator {
         }
     }
 
+    func restoreVisiblePaneIfNeeded(_ paneId: UUID, forceWhenBoundsExist: Bool = false) {
+        guard let activeTab = store.tabLayoutAtom.activeTab else { return }
+        if !windowLifecycleStore.isLaunchLayoutSettled {
+            let hasPreparingPlaceholder =
+                viewRegistry.terminalStatusPlaceholderView(for: paneId)?.shouldRetryCreationWhenBoundsChange == true
+            guard forceWhenBoundsExist || hasPreparingPlaceholder || windowLifecycleStore.isReadyForLaunchRestore else {
+                RestoreTrace.log(
+                    "restoreVisiblePaneIfNeeded skipped launchLayoutUnsettled pane=\(paneId) bounds=\(NSStringFromRect(windowLifecycleStore.terminalContainerBounds)) settled=\(windowLifecycleStore.isLaunchLayoutSettled)"
+                )
+                return
+            }
+        }
+
+        let terminalContainerBounds = windowLifecycleStore.terminalContainerBounds
+        guard !terminalContainerBounds.isEmpty else {
+            RestoreTrace.log("restoreVisiblePaneIfNeeded skipped boundsUnavailable pane=\(paneId)")
+            return
+        }
+
+        let runtimePaneId = PaneId(uuid: paneId)
+        guard visibilityTierResolver.tier(for: runtimePaneId) == .p0Visible else { return }
+        guard let pane = store.paneAtom.pane(paneId) else { return }
+        guard store.tabLayoutAtom.tabContaining(paneId: pane.parentPaneId ?? pane.id)?.id == activeTab.id else {
+            return
+        }
+
+        if let placeholder = viewRegistry.terminalStatusPlaceholderView(for: paneId) {
+            guard placeholder.shouldRetryCreationWhenBoundsChange else { return }
+        } else if viewRegistry.view(for: paneId) != nil {
+            return
+        }
+
+        let resolvedPaneFramesByTabId = resolveInitialFramesByTabId(in: terminalContainerBounds)
+        _ = createViewForContent(
+            pane: pane,
+            initialFrame: initialFrame(for: pane, resolvedPaneFramesByTabId: resolvedPaneFramesByTabId),
+            treatAsRestoredSessionStart: true
+        )
+    }
+
     func focusVisiblePaneHost(_ paneId: UUID) {
         if applyPaneRefocusIfReady(for: paneId) {
             pendingFocusPaneIds.remove(paneId)
