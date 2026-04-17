@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import Testing
 
 @testable import AgentStudio
@@ -106,5 +107,85 @@ struct WorkspaceEmptyStateViewTests {
     @MainActor
     func previewQueryIsShort() {
         #expect(CommandBarEmbeddedPreview.previewQuery == "gho")
+    }
+
+    // MARK: - Folder-intake layout tokens (noFolders/scanning/scanEmpty share)
+
+    @Test("intake layout tokens are defined")
+    func intakeLayoutTokensAreDefined() {
+        // These tokens back the shared layout used by noFolders, scanning,
+        // and scanEmpty — the illustration + logo + title + body stay put
+        // across all three states, so these must be stable.
+        #expect(AppStyles.Welcome.intakeColumnSpacing == 56)
+        #expect(AppStyles.Welcome.intakeRightColumnSpacing == 20)
+        #expect(AppStyles.Welcome.intakeLogoSize == 96)
+        #expect(AppStyles.Welcome.intakeActionTopPadding == 8)
+        #expect(AppStyles.Welcome.intakeActionRowSpacing == 10)
+        #expect(AppStyles.Welcome.intakeScanningSpinnerGap == 10)
+    }
+
+    @Test("intake scanning title opacity reuses h3 readability")
+    func intakeScanningTitleOpacityIsReadable() {
+        // Scanning/scanEmpty titles are h3-weight text — must stay readable,
+        // not fade into the background.
+        #expect(AppStyles.Welcome.intakeScanningTitleOpacity >= 0.8)
+    }
+
+    // MARK: - Copy locks
+
+    @Test("intake copy is stable")
+    func intakeCopyIsStable() {
+        #expect(WorkspaceEmptyStateCopy.intakeTitle == "Welcome to AgentStudio")
+        #expect(WorkspaceEmptyStateCopy.intakeBody == "The terminal IDE built for coding agents.")
+        #expect(WorkspaceEmptyStateCopy.intakeHelper.contains("watches"))
+        #expect(WorkspaceEmptyStateCopy.intakeHelper.contains("automatically"))
+    }
+
+    @Test("scanning copy mentions the folder and what we're looking for")
+    func scanningCopyMentionsFolder() {
+        let title = WorkspaceEmptyStateCopy.scanningTitle(folder: "~/code/project")
+        #expect(title == "Scanning ~/code/project")
+        #expect(WorkspaceEmptyStateCopy.scanningHelper.contains("git folders"))
+    }
+
+    @Test("scan empty copy mentions the folder and offers a retry")
+    func scanEmptyCopyMentionsFolder() {
+        let title = WorkspaceEmptyStateCopy.scanEmptyTitle(folder: "~/code/project")
+        #expect(title == "No git folders found in ~/code/project")
+        #expect(WorkspaceEmptyStateCopy.scanEmptyRetryButton.contains("Choose"))
+        #expect(WorkspaceEmptyStateCopy.scanEmptyHelper.contains("watching"))
+    }
+
+    @Test("displayName collapses the user's home directory to a tilde")
+    func displayNameCollapsesHomeToTilde() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let nested = home.appendingPathComponent("code/project")
+        #expect(
+            WorkspaceEmptyStateCopy.displayName(for: nested, fallback: "") == "~/code/project"
+        )
+    }
+
+    @Test("displayName preserves paths outside the home directory")
+    func displayNamePreservesNonHomePaths() {
+        let external = URL(fileURLWithPath: "/tmp/work/repo")
+        #expect(
+            WorkspaceEmptyStateCopy.displayName(for: external, fallback: "") == "/tmp/work/repo"
+        )
+    }
+
+    @Test("displayName falls back when no path is present")
+    func displayNameFallsBackWhenPathMissing() {
+        #expect(
+            WorkspaceEmptyStateCopy.displayName(for: nil, fallback: "this folder") == "this folder"
+        )
+    }
+
+    // MARK: - Watch Folder rename
+
+    @Test("addFolder command label is Watch Folder")
+    @MainActor
+    func addFolderCommandLabelIsWatchFolder() {
+        let definition = CommandDispatcher.shared.definition(for: .addFolder)
+        #expect(definition.actionSpec.label == "Watch Folder")
     }
 }

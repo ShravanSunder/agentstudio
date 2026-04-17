@@ -4,6 +4,37 @@ enum WorkspaceEmptyStateLayout {
     static let visibleRecentCardLimit: Int = 6
 }
 
+enum WorkspaceEmptyStateCopy {
+    static let intakeTitle = "Welcome to AgentStudio"
+    static let intakeBody = "The terminal IDE built for coding agents."
+    static let intakeHelper =
+        "AgentStudio watches the folder and discovers your repos automatically."
+
+    static let scanningHelper = "Looking for git folders…"
+
+    static let scanEmptyRetryButton = "Choose Another Folder to Scan…"
+    static let scanEmptyHelper =
+        "AgentStudio will keep watching this folder and add repos as they appear."
+
+    static func scanningTitle(folder: String) -> String {
+        "Scanning \(folder)"
+    }
+
+    static func scanEmptyTitle(folder: String) -> String {
+        "No git folders found in \(folder)"
+    }
+
+    static func displayName(for path: URL?, fallback: String) -> String {
+        guard let path else { return fallback }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let fullPath = path.path
+        if fullPath.hasPrefix(home) {
+            return "~" + fullPath.dropFirst(home.count)
+        }
+        return fullPath
+    }
+}
+
 struct WorkspaceEmptyStateView: View {
     let model: WorkspaceEmptyStateModel
     let onAddFolder: () -> Void
@@ -64,111 +95,94 @@ struct WorkspaceEmptyStateView: View {
     }
 
     private var folderIntakeBody: some View {
-        HStack(alignment: .center, spacing: 56) {
-            WelcomeSidebarIllustration()
-
-            VStack(alignment: .leading, spacing: 20) {
-                AppLogoView(size: 96)
-
-                Text("Welcome to AgentStudio")
-                    .font(.system(size: AppStyles.Welcome.titleFontSize, weight: .semibold))
-
-                Text("The terminal IDE built for coding agents.")
-                    .font(.system(size: AppStyles.Welcome.bodyFontSize))
-                    .foregroundStyle(.secondary)
-
-                VStack(alignment: .leading, spacing: 10) {
-                    Button(LocalActionSpec.chooseFolderToScan.actionSpec.label) {
-                        onAddFolder()
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-
-                    Text("AgentStudio watches the folder and discovers your repos automatically.")
-                        .font(.system(size: AppStyles.General.Typography.textXs))
-                        .foregroundStyle(.tertiary)
+        folderIntakeLayout {
+            VStack(alignment: .leading, spacing: AppStyles.Welcome.intakeActionRowSpacing) {
+                Button(LocalActionSpec.chooseFolderToScan.actionSpec.label) {
+                    onAddFolder()
                 }
-                .padding(.top, 8)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                Text(WorkspaceEmptyStateCopy.intakeHelper)
+                    .font(.system(size: AppStyles.General.Typography.textXs))
+                    .foregroundStyle(.tertiary)
             }
+            .padding(.top, AppStyles.Welcome.intakeActionTopPadding)
         }
     }
 
     private var scanningBody: some View {
-        VStack(spacing: AppStyles.Welcome.sectionSpacing) {
-            VStack(spacing: 14) {
-                ProgressView()
-                    .controlSize(.large)
-                    .scaleEffect(1.35)
+        folderIntakeLayout {
+            VStack(alignment: .leading, spacing: AppStyles.Welcome.intakeActionRowSpacing) {
+                HStack(spacing: AppStyles.Welcome.intakeScanningSpinnerGap) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(WorkspaceEmptyStateCopy.scanningTitle(folder: scanningFolderDisplayName))
+                        .font(AppStyles.Welcome.Typography.h3)
+                        .foregroundStyle(
+                            .primary.opacity(AppStyles.Welcome.intakeScanningTitleOpacity)
+                        )
+                }
 
-                Text("Scanning \(scanningFolderDisplayName)")
-                    .font(.system(size: AppStyles.General.Typography.text2xl, weight: .semibold))
-
-                Text("Looking for git folders in the folder you selected.")
-                    .font(.system(size: AppStyles.Welcome.bodyFontSize))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                Text(WorkspaceEmptyStateCopy.scanningHelper)
+                    .font(.system(size: AppStyles.General.Typography.textXs))
+                    .foregroundStyle(.tertiary)
             }
-
-            scanningCallout
+            .padding(.top, AppStyles.Welcome.intakeActionTopPadding)
         }
-        .padding(.horizontal, 24)
-    }
-
-    private var scanningCallout: some View {
-        QuickActionsCallout(header: "You don't need to wait.")
     }
 
     private var scanEmptyBody: some View {
-        VStack(spacing: AppStyles.Welcome.sectionSpacing) {
-            VStack(spacing: 14) {
-                Image(systemName: "folder.badge.questionmark")
-                    .font(.system(size: AppStyles.General.Typography.text2xl, weight: .semibold))
-                    .foregroundStyle(.secondary)
+        folderIntakeLayout {
+            VStack(alignment: .leading, spacing: AppStyles.Welcome.intakeActionRowSpacing) {
+                Text(WorkspaceEmptyStateCopy.scanEmptyTitle(folder: emptyFolderDisplayName))
+                    .font(AppStyles.Welcome.Typography.h3)
+                    .foregroundStyle(
+                        .primary.opacity(AppStyles.Welcome.intakeScanningTitleOpacity)
+                    )
 
-                Text("No git folders found")
-                    .font(.system(size: AppStyles.General.Typography.text2xl, weight: .semibold))
+                Button(WorkspaceEmptyStateCopy.scanEmptyRetryButton) {
+                    onAddFolder()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
 
-                Text(emptyFolderMessage)
+                Text(WorkspaceEmptyStateCopy.scanEmptyHelper)
+                    .font(.system(size: AppStyles.General.Typography.textXs))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.top, AppStyles.Welcome.intakeActionTopPadding)
+        }
+    }
+
+    @ViewBuilder
+    private func folderIntakeLayout<Action: View>(
+        @ViewBuilder actionRegion: () -> Action
+    ) -> some View {
+        HStack(alignment: .center, spacing: AppStyles.Welcome.intakeColumnSpacing) {
+            WelcomeSidebarIllustration()
+
+            VStack(alignment: .leading, spacing: AppStyles.Welcome.intakeRightColumnSpacing) {
+                AppLogoView(size: AppStyles.Welcome.intakeLogoSize)
+
+                Text(WorkspaceEmptyStateCopy.intakeTitle)
+                    .font(.system(size: AppStyles.Welcome.titleFontSize, weight: .semibold))
+
+                Text(WorkspaceEmptyStateCopy.intakeBody)
                     .font(.system(size: AppStyles.Welcome.bodyFontSize))
                     .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 560)
-            }
 
-            Button("Choose Another Folder to Scan…") {
-                onAddFolder()
+                actionRegion()
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-
-            QuickActionsCallout(header: "You can still keep moving.")
         }
-        .padding(.horizontal, 24)
     }
 
     private var scanningFolderDisplayName: String {
-        guard let path = model.scanningFolderPath else { return "" }
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let fullPath = path.path
-        if fullPath.hasPrefix(home) {
-            return "~" + fullPath.dropFirst(home.count)
-        }
-        return fullPath
+        WorkspaceEmptyStateCopy.displayName(for: model.scanningFolderPath, fallback: "")
     }
 
     private var emptyFolderDisplayName: String {
-        guard let path = model.emptyFolderPath else { return "this folder" }
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        let fullPath = path.path
-        if fullPath.hasPrefix(home) {
-            return "~" + fullPath.dropFirst(home.count)
-        }
-        return fullPath
-    }
-
-    private var emptyFolderMessage: String {
-        "Nothing under \(emptyFolderDisplayName) contains a git repository yet. "
-            + "AgentStudio will keep watching this folder for future repos."
+        WorkspaceEmptyStateCopy.displayName(for: model.emptyFolderPath, fallback: "this folder")
     }
 
     private func launcherBody(availableWidth _: CGFloat) -> some View {
@@ -300,26 +314,6 @@ struct WorkspaceEmptyStateView: View {
 
             Spacer(minLength: 0)
         }
-    }
-}
-
-private struct WorkspaceHomeHeader: View {
-    let title: String
-    let subtitle: String
-
-    var body: some View {
-        VStack(spacing: AppStyles.Welcome.titleBodyGap) {
-            Text(title)
-                .font(.system(size: AppStyles.Welcome.titleFontSize, weight: .semibold))
-                .multilineTextAlignment(.center)
-
-            Text(subtitle)
-                .font(.system(size: AppStyles.Welcome.bodyFontSize))
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: AppStyles.Welcome.headerMaxWidth)
-        }
-        .frame(maxWidth: .infinity)
     }
 }
 
@@ -713,58 +707,5 @@ private struct AppLogoView: View {
             }
         }
         .frame(width: size, height: size)
-    }
-}
-
-private struct QuickActionsCallout: View {
-    var header: String?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: AppStyles.General.Spacing.loose) {
-            if let header {
-                Text(header)
-                    .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
-                    .foregroundStyle(.primary)
-            }
-
-            VStack(alignment: .leading, spacing: AppStyles.General.Spacing.loose) {
-                quickActionButton(key: "⌘T", label: "New tab or worktree") {
-                    CommandDispatcher.shared.dispatch(.showCommandBarRepos)
-                }
-                quickActionButton(key: "⌘P", label: "Command palette") {
-                    CommandDispatcher.shared.dispatch(.showCommandBarEverything)
-                }
-            }
-        }
-        .padding(24)
-        .frame(maxWidth: AppStyles.Welcome.previewWidth, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: AppStyles.Welcome.previewCornerRadius)
-                .fill(Color.white.opacity(AppStyles.Welcome.cardFillOpacity))
-                .overlay(
-                    RoundedRectangle(cornerRadius: AppStyles.Welcome.previewCornerRadius)
-                        .stroke(Color.white.opacity(AppStyles.Welcome.cardStrokeOpacity), lineWidth: 1)
-                )
-        )
-    }
-
-    private func quickActionButton(key: String, label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Text(key)
-                    .font(.system(size: AppStyles.Welcome.shortcutKeyFontSize, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: AppStyles.Welcome.shortcutKeyColumnWidth, alignment: .trailing)
-
-                Text(label)
-                    .font(.system(size: AppStyles.Welcome.bodyFontSize))
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-            }
-            .frame(minHeight: AppStyles.Welcome.previewResultRowHeight, alignment: .center)
-        }
-        .buttonStyle(.plain)
-        .contentShape(Rectangle())
     }
 }

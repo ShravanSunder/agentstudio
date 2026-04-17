@@ -317,5 +317,18 @@ enum AppStyles {
         static let launcherShortcutRowCornerRadius: CGFloat = 10
         static let launcherShortcutRowHorizontalPadding: CGFloat = 16
         static let launcherShortcutRowVerticalPadding: CGFloat = 12
+
+        // Folder-intake layout — shared by .noFolders, .scanning, .scanEmpty.
+        // The illustration + logo + title + body stay fixed across all three
+        // states; only the bottom action region swaps. Keeping the scene
+        // continuous avoids the jarring layout rupture users saw on
+        // transition between "no folders" → "scanning" → "launcher".
+        static let intakeColumnSpacing: CGFloat = 56
+        static let intakeRightColumnSpacing: CGFloat = 20
+        static let intakeLogoSize: CGFloat = 96
+        static let intakeActionTopPadding: CGFloat = 8
+        static let intakeActionRowSpacing: CGFloat = 10
+        static let intakeScanningSpinnerGap: CGFloat = 10
+        static let intakeScanningTitleOpacity: CGFloat = 0.88
     }
 }
