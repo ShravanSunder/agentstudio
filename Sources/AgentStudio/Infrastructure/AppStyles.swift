@@ -288,13 +288,19 @@ enum AppStyles {
         // Launcher composition (new — supersedes hero/scope geometry)
         // Welcome 2 is a top-aligned page, not a centered splash. Comfortable
         // top padding puts the header below the toolbar without floating.
-        static let launcherContentMaxWidth: CGFloat = 780
+        //
+        // The shortcuts block mirrors Welcome 1: cmd-P chrome on the left
+        // (the "real artifact" illustration), ⌘ shortcut rows on the right
+        // (the "action column"). ContentMaxWidth accommodates both side-by-side:
+        //   previewWidth (500) + columnsGap (40) + shortcuts column (≥320)
+        static let launcherContentMaxWidth: CGFloat = 900
         static let launcherPageTopPadding: CGFloat = 72
         static let launcherRowGap: CGFloat = 20
         static let launcherSectionGap: CGFloat = 28
+        static let launcherShortcutsColumnsGap: CGFloat = 40
         static let launcherDividerOpacity: CGFloat =
             AppStyles.CommandBar.Panel.nestedDividerOpacity
-        static let launcherShortcutKeyColumnWidth: CGFloat = 40
+        static let launcherShortcutKeyColumnWidth: CGFloat = 32
         static let launcherShortcutKeyTitleGap: CGFloat = 12
         static let launcherPreviewSubtitleOpacity: CGFloat = 0.50
     }

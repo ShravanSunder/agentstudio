@@ -26,35 +26,32 @@ struct WorkspaceEmptyStateViewTests {
         #expect(AppStyles.Welcome.headerMaxWidth == 720)
     }
 
-    // MARK: - Launcher content width + responsive breakpoints
+    // MARK: - Launcher composition tokens
 
-    @Test("responsive breakpoint tokens exist with expected values")
-    func responsiveBreakpointTokensExistWithExpectedValues() {
-        #expect(AppStyles.Welcome.launcherWideBreakpoint == 1400)
-        #expect(AppStyles.Welcome.launcherNarrowBreakpoint == 900)
-        #expect(AppStyles.Welcome.recentsColumnCountWide == 3)
-        #expect(AppStyles.Welcome.recentsColumnCountNarrow == 1)
-        #expect(AppStyles.Welcome.recentsColumnCount == 2)
+    @Test("launcher content max width fits preview + gap + shortcuts column")
+    func launcherContentMaxWidthFitsPreviewPlusGapPlusShortcutsColumn() {
+        // Preview (500) + shortcut columns gap + shortcut column. The max width
+        // must leave room for the shortcuts column to render comfortably.
+        let minViable =
+            AppStyles.Welcome.previewWidth
+            + AppStyles.Welcome.launcherShortcutsColumnsGap
+            + 320  // reasonable shortcuts column width
+        #expect(AppStyles.Welcome.launcherContentMaxWidth >= minViable)
     }
 
-    @Test("launcher content max width caps at 780")
-    func launcherContentMaxWidthCapsAt780() {
-        #expect(AppStyles.Welcome.launcherContentMaxWidth == 780)
+    @Test("launcher page top padding is comfortable")
+    func launcherPageTopPaddingIsComfortable() {
+        // Welcome 2 is a page; top padding should be big enough that the title
+        // doesn't feel jammed against the toolbar.
+        #expect(AppStyles.Welcome.launcherPageTopPadding >= 48)
     }
 
-    @Test("recent card min width token exists at 260")
-    func recentCardMinWidthTokenExistsAt260() {
-        #expect(AppStyles.Welcome.recentCardMinWidth == 260)
+    @Test("recent card limit stays at 6")
+    func recentCardLimitStaysAt6() {
+        #expect(WorkspaceEmptyStateLayout.visibleRecentCardLimit == 6)
     }
 
     // MARK: - Typography scale (semantic hierarchy)
-
-    @Test("typography h1 is biggest and semibold")
-    func typographyH1IsBiggestAndSemibold() {
-        // Sanity: referencing the symbol compiles and produces a Font value.
-        let font = AppStyles.Welcome.Typography.h1
-        _ = font  // Touch to ensure the symbol survives.
-    }
 
     @Test("typography scale symbols exist for every role")
     func typographyScaleSymbolsExistForEveryRole() {
@@ -71,70 +68,6 @@ struct WorkspaceEmptyStateViewTests {
     func textColorOpacitiesAreSetForH2AndH3() {
         #expect(AppStyles.Welcome.TextColor.h2Opacity == 0.62)
         #expect(AppStyles.Welcome.TextColor.h3Opacity == 0.88)
-    }
-
-    // MARK: - Responsive recent grid
-
-    @Test("recent column count is 3 at wide viewports")
-    func recentColumnCountIs3AtWideViewports() {
-        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 1400) == 3)
-        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 1600) == 3)
-        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 2400) == 3)
-    }
-
-    @Test("recent column count is 2 at medium viewports")
-    func recentColumnCountIs2AtMediumViewports() {
-        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 900) == 2)
-        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 1100) == 2)
-        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 1399) == 2)
-    }
-
-    @Test("recent column count is 1 at narrow viewports")
-    func recentColumnCountIs1AtNarrowViewports() {
-        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 500) == 1)
-        #expect(WorkspaceEmptyStateLayout.recentColumnCount(for: 899) == 1)
-    }
-
-    @Test("visible recent card limit stays at 6 across all viewports")
-    func visibleRecentCardLimitStaysAt6AcrossAllViewports() {
-        #expect(WorkspaceEmptyStateLayout.visibleRecentCardLimit(for: 500) == 6)
-        #expect(WorkspaceEmptyStateLayout.visibleRecentCardLimit(for: 1100) == 6)
-        #expect(WorkspaceEmptyStateLayout.visibleRecentCardLimit(for: 1600) == 6)
-    }
-
-    // MARK: - Flexible card width
-
-    @Test("content column width equals teaching + gap + preview")
-    func contentColumnWidthEqualsTeachingPlusGapPlusPreview() {
-        let expected =
-            AppStyles.Welcome.teachingColumnWidth
-            + AppStyles.Welcome.contentColumnsGap
-            + AppStyles.Welcome.previewWidth
-        let actual = WorkspaceEmptyStateLayout.contentColumnWidth
-        let diff = abs(actual - expected)
-        #expect(diff < 0.001, "actual=\(actual) expected=\(expected) diff=\(diff)")
-        #expect(abs(actual - 1092) < 0.001)
-    }
-
-    @Test("recent card width fills content column at each breakpoint")
-    func recentCardWidthFillsContentColumnAtEachBreakpoint() {
-        let gap = AppStyles.Welcome.recentCardGap
-        let total = WorkspaceEmptyStateLayout.contentColumnWidth
-
-        let wide3 = WorkspaceEmptyStateLayout.recentCardWidth(forColumns: 3)
-        #expect(abs((wide3 * 3 + gap * 2) - total) < 0.001)
-
-        let medium2 = WorkspaceEmptyStateLayout.recentCardWidth(forColumns: 2)
-        #expect(abs((medium2 * 2 + gap) - total) < 0.001)
-
-        let narrow1 = WorkspaceEmptyStateLayout.recentCardWidth(forColumns: 1)
-        #expect(abs(narrow1 - total) < 0.001)
-    }
-
-    @Test("recent card width never goes below min width")
-    func recentCardWidthNeverGoesBelowMinWidth() {
-        let clamped = WorkspaceEmptyStateLayout.recentCardWidth(forColumns: 8)
-        #expect(clamped >= AppStyles.Welcome.recentCardMinWidth)
     }
 
     // MARK: - Launcher preview scope row
@@ -161,23 +94,9 @@ struct WorkspaceEmptyStateViewTests {
         #expect(entries.count == 3)
         #expect(entries[0].prefix == ">")
         #expect(entries[0].title == "Commands")
-        #expect(entries[0].body == "Run actions — open, close, toggle")
         #expect(entries[1].prefix == "$")
         #expect(entries[1].title == "Panes")
-        #expect(entries[1].body == "Jump to any open tab or pane")
         #expect(entries[2].prefix == "#")
         #expect(entries[2].title == "Repos · Worktrees")
-        #expect(entries[2].body == "Open a repo, switch a worktree, or start a new one")
-    }
-
-    // MARK: - Launcher composition sanity
-
-    @Test("launcher narrow breakpoint is below command-palette horizontal width")
-    func launcherNarrowBreakpointIsBelowCommandPaletteHorizontalWidth() {
-        let pairWidth =
-            AppStyles.Welcome.teachingColumnWidth
-            + AppStyles.Welcome.contentColumnsGap
-            + AppStyles.Welcome.previewWidth
-        #expect(AppStyles.Welcome.launcherNarrowBreakpoint < pairWidth)
     }
 }

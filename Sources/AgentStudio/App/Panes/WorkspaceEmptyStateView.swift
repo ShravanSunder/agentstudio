@@ -1,44 +1,7 @@
 import SwiftUI
 
 enum WorkspaceEmptyStateLayout {
-    static func recentColumnCount(for availableWidth: CGFloat) -> Int {
-        if availableWidth >= AppStyles.Welcome.launcherWideBreakpoint {
-            return AppStyles.Welcome.recentsColumnCountWide
-        }
-        if availableWidth < AppStyles.Welcome.launcherNarrowBreakpoint {
-            return AppStyles.Welcome.recentsColumnCountNarrow
-        }
-        return AppStyles.Welcome.recentsColumnCount
-    }
-
-    static func visibleRecentCardLimit(for _: CGFloat) -> Int { 6 }
-
-    static func recentSectionWidth(for _: CGFloat) -> CGFloat { contentColumnWidth }
-
-    static let contentColumnWidth: CGFloat =
-        AppStyles.Welcome.teachingColumnWidth
-        + AppStyles.Welcome.contentColumnsGap
-        + AppStyles.Welcome.previewWidth
-
-    static func recentCardWidth(forColumns columns: Int) -> CGFloat {
-        let count = max(columns, 1)
-        let totalGaps = AppStyles.Welcome.recentCardGap * CGFloat(count - 1)
-        let raw = (contentColumnWidth - totalGaps) / CGFloat(count)
-        return max(raw, AppStyles.Welcome.recentCardMinWidth)
-    }
-
-    static func recentGridColumns(for availableWidth: CGFloat) -> [GridItem] {
-        let count = recentColumnCount(for: availableWidth)
-        let cardWidth = recentCardWidth(forColumns: count)
-        return Array(
-            repeating: GridItem(
-                .fixed(cardWidth),
-                spacing: AppStyles.Welcome.recentCardGap,
-                alignment: .top
-            ),
-            count: count
-        )
-    }
+    static let visibleRecentCardLimit: Int = 6
 }
 
 struct WorkspaceEmptyStateView: View {
@@ -208,8 +171,10 @@ struct WorkspaceEmptyStateView: View {
             + "AgentStudio will keep watching this folder for future repos."
     }
 
-    private func launcherBody(availableWidth: CGFloat) -> some View {
-        let visibleRecentCards = Array(model.recentCards.prefix(6))
+    private func launcherBody(availableWidth _: CGFloat) -> some View {
+        let visibleRecentCards = Array(
+            model.recentCards.prefix(WorkspaceEmptyStateLayout.visibleRecentCardLimit)
+        )
         let hasRecents = !visibleRecentCards.isEmpty
         let subtitle = hasRecents ? "Jump back in, fast." : "Get started."
 
@@ -217,10 +182,7 @@ struct WorkspaceEmptyStateView: View {
             launcherHeader(subtitle: subtitle)
 
             if hasRecents {
-                launcherRecentSection(
-                    availableWidth: availableWidth,
-                    visibleRecentCards: visibleRecentCards
-                )
+                launcherRecentSection(visibleRecentCards: visibleRecentCards)
 
                 Divider()
                     .opacity(AppStyles.Welcome.launcherDividerOpacity)
@@ -245,23 +207,32 @@ struct WorkspaceEmptyStateView: View {
     }
 
     private var launcherShortcutsBlock: some View {
-        VStack(alignment: .leading, spacing: AppStyles.Welcome.launcherRowGap) {
-            launcherShortcutRow(
-                key: "⌘T",
-                title: "New tab or worktree",
-                subtitle: "Opens the # picker. New Empty Tab is always first.",
-                action: { CommandDispatcher.shared.dispatch(.showCommandBarRepos) }
-            )
-
-            launcherShortcutRow(
-                key: "⌘P",
-                title: "Command palette",
-                subtitle: "Everything in the app, one keypress away.",
-                action: { CommandDispatcher.shared.dispatch(.showCommandBarEverything) }
-            )
-
+        HStack(alignment: .top, spacing: AppStyles.Welcome.launcherShortcutsColumnsGap) {
             CommandBarEmbeddedPreview()
-                .padding(.top, 4)
+
+            VStack(alignment: .leading, spacing: AppStyles.Welcome.launcherRowGap) {
+                launcherShortcutRow(
+                    key: "⌘T",
+                    title: "New tab or worktree",
+                    subtitle: "Opens the # picker. New Empty Tab is always first.",
+                    action: { CommandDispatcher.shared.dispatch(.showCommandBarRepos) }
+                )
+
+                launcherShortcutRow(
+                    key: "⌘P",
+                    title: "Command palette",
+                    subtitle: "Everything in the app, one keypress away.",
+                    action: { CommandDispatcher.shared.dispatch(.showCommandBarEverything) }
+                )
+
+                launcherShortcutRow(
+                    key: "+",
+                    title: "Add folder",
+                    subtitle: "Scan a new folder for repos.",
+                    action: { CommandDispatcher.shared.dispatch(.addFolder) }
+                )
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -296,17 +267,12 @@ struct WorkspaceEmptyStateView: View {
     }
 
     private func launcherRecentSection(
-        availableWidth: CGFloat,
         visibleRecentCards: [WorkspaceRecentCardModel]
     ) -> some View {
         VStack(alignment: .leading, spacing: AppStyles.General.Spacing.loose + 4) {
             recentSectionHeader
 
-            LazyVGrid(
-                columns: WorkspaceEmptyStateLayout.recentGridColumns(for: availableWidth),
-                alignment: .leading,
-                spacing: AppStyles.Welcome.recentCardGap
-            ) {
+            VStack(spacing: AppStyles.Welcome.recentCardGap) {
                 ForEach(visibleRecentCards) { card in
                     WorkspaceRecentCardView(
                         card: card,
@@ -500,12 +466,17 @@ private struct WorkspaceRecentCardView: View {
 
     var body: some View {
         Button(action: onOpen) {
-            VStack(alignment: .leading, spacing: 6) {
-                titleRow
-                branchRow
+            HStack(alignment: .center, spacing: 14) {
+                VStack(alignment: .leading, spacing: 2) {
+                    titleRow
+                    branchRow
+                }
+
+                Spacer(minLength: 12)
+
                 chipsRow
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 16)
             .padding(.vertical, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(cardBackground)
@@ -537,7 +508,7 @@ private struct WorkspaceRecentCardView: View {
     private var iconSymbol: String {
         switch card.checkoutIconKind ?? .gitWorktree {
         case .mainCheckout: return "star.fill"
-        case .gitWorktree: return "point.3.filled.connected.trianglepath.dotted"
+        case .gitWorktree: return "arrow.triangle.branch"
         }
     }
 
@@ -559,8 +530,6 @@ private struct WorkspaceRecentCardView: View {
             Text(card.worktreeDisplayName)
                 .font(AppStyles.Welcome.Typography.h3)
                 .foregroundStyle(.primary.opacity(AppStyles.Welcome.TextColor.h3Opacity))
-
-            Spacer(minLength: 0)
         }
     }
 
@@ -587,7 +556,6 @@ private struct WorkspaceRecentCardView: View {
                 ),
             accentColor: iconColor
         )
-        .padding(.leading, 20)
     }
 }
 
