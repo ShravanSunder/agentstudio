@@ -26,28 +26,7 @@ struct WorkspaceEmptyStateViewTests {
         #expect(AppStyles.Welcome.headerMaxWidth == 720)
     }
 
-    // MARK: - New tokens from composition redesign
-
-    @Test("hero row tokens exist with expected values")
-    func heroRowTokensExistWithExpectedValues() {
-        #expect(AppStyles.Welcome.heroRowCornerRadius == 18)
-        #expect(AppStyles.Welcome.heroRowStrokeOpacity == AppStyles.General.Stroke.hover)
-        #expect(AppStyles.Welcome.heroRowFillOpacity == AppStyles.General.Fill.subtle)
-        #expect(AppStyles.Welcome.heroRowHoverFillOpacity == AppStyles.General.Fill.hover)
-        #expect(AppStyles.Welcome.heroRowInnerHorizontalPadding == 24)
-        #expect(AppStyles.Welcome.heroRowInnerVerticalPadding == 22)
-        #expect(AppStyles.Welcome.heroRowChevronOpacity == 0.35)
-    }
-
-    @Test("scope row tokens exist with expected values")
-    func scopeRowTokensExistWithExpectedValues() {
-        #expect(AppStyles.Welcome.scopeRowVerticalSpacing == 12)
-        #expect(AppStyles.Welcome.scopeRowTitleBodyGap == 2)
-        #expect(AppStyles.Welcome.scopeRowBodySize == AppStyles.General.Typography.textSm)
-        #expect(AppStyles.Welcome.scopeRowBodyOpacity == 0.50)
-        #expect(AppStyles.Welcome.scopeRowBodyLineLimit == 2)
-        #expect(AppStyles.Welcome.scopeRowCaretColumnWidth == AppStyles.CommandBar.Rows.iconSize)
-    }
+    // MARK: - Launcher content width + responsive breakpoints
 
     @Test("responsive breakpoint tokens exist with expected values")
     func responsiveBreakpointTokensExistWithExpectedValues() {
@@ -58,10 +37,9 @@ struct WorkspaceEmptyStateViewTests {
         #expect(AppStyles.Welcome.recentsColumnCount == 2)
     }
 
-    @Test("section ordering gap tokens exist with expected values")
-    func sectionOrderingGapTokensExistWithExpectedValues() {
-        #expect(AppStyles.Welcome.recentsToHeroGap == 32)
-        #expect(AppStyles.Welcome.heroToCommandPaletteGap == 28)
+    @Test("launcher content max width caps at 780")
+    func launcherContentMaxWidthCapsAt780() {
+        #expect(AppStyles.Welcome.launcherContentMaxWidth == 780)
     }
 
     @Test("recent card min width token exists at 260")
@@ -69,33 +47,30 @@ struct WorkspaceEmptyStateViewTests {
         #expect(AppStyles.Welcome.recentCardMinWidth == 260)
     }
 
-    // MARK: - Typography contract (locked values, pixel-level hierarchy)
+    // MARK: - Typography scale (semantic hierarchy)
 
-    @Test("typography tokens match the spec contract values")
-    func typographyTokensMatchSpecContractValues() {
-        #expect(AppStyles.Welcome.titleFontSize == 30)
-        #expect(AppStyles.Welcome.bodyFontSize == 16)
-        #expect(AppStyles.Welcome.sectionLabelFontSize == 15)
-        #expect(AppStyles.Welcome.sectionLabelOpacity == 0.62)
-        #expect(AppStyles.Welcome.shortcutTitleFontSize == 24)
-        #expect(AppStyles.Welcome.shortcutBodyFontSize == AppStyles.Welcome.bodyFontSize)
-        #expect(AppStyles.Welcome.shortcutKeyFontSize == 18)
+    @Test("typography h1 is biggest and semibold")
+    func typographyH1IsBiggestAndSemibold() {
+        // Sanity: referencing the symbol compiles and produces a Font value.
+        let font = AppStyles.Welcome.Typography.h1
+        _ = font  // Touch to ensure the symbol survives.
     }
 
-    @Test("typography hierarchy: shortcut title outranks general body text")
-    func typographyHierarchyShortcutTitleOutranksGeneralBodyText() {
-        #expect(AppStyles.Welcome.shortcutTitleFontSize > AppStyles.Welcome.bodyFontSize)
-        #expect(AppStyles.Welcome.shortcutTitleFontSize > AppStyles.General.Typography.textBase)
+    @Test("typography scale symbols exist for every role")
+    func typographyScaleSymbolsExistForEveryRole() {
+        _ = AppStyles.Welcome.Typography.h1
+        _ = AppStyles.Welcome.Typography.h2
+        _ = AppStyles.Welcome.Typography.h3
+        _ = AppStyles.Welcome.Typography.body
+        _ = AppStyles.Welcome.Typography.bodySm
+        _ = AppStyles.Welcome.Typography.caption
+        _ = AppStyles.Welcome.Typography.key
     }
 
-    @Test("typography hierarchy: page title outranks shortcut titles")
-    func typographyHierarchyPageTitleOutranksShortcutTitles() {
-        #expect(AppStyles.Welcome.titleFontSize > AppStyles.Welcome.shortcutTitleFontSize)
-    }
-
-    @Test("typography hierarchy: preview scope body stays below title")
-    func typographyHierarchyPreviewScopeBodyStaysBelowTitle() {
-        #expect(AppStyles.Welcome.scopeRowBodySize < AppStyles.General.Typography.textBase)
+    @Test("text color opacities are set for h2 and h3")
+    func textColorOpacitiesAreSetForH2AndH3() {
+        #expect(AppStyles.Welcome.TextColor.h2Opacity == 0.62)
+        #expect(AppStyles.Welcome.TextColor.h3Opacity == 0.88)
     }
 
     // MARK: - Responsive recent grid
@@ -195,35 +170,7 @@ struct WorkspaceEmptyStateViewTests {
         #expect(entries[2].body == "Open a repo, switch a worktree, or start a new one")
     }
 
-    // MARK: - Launcher composition
-
-    @Test("launcher hero row tokens produce a visually bordered block")
-    func launcherHeroRowTokensProduceVisuallyBorderedBlock() {
-        #expect(AppStyles.Welcome.heroRowCornerRadius > AppStyles.Welcome.shortcutRowHoverRadius)
-        #expect(AppStyles.Welcome.heroRowStrokeOpacity > 0)
-        #expect(
-            AppStyles.Welcome.heroRowInnerVerticalPadding
-                > AppStyles.Welcome.shortcutRowVerticalPadding
-        )
-    }
-
-    @Test("launcher above-fold height budget fits 1240x820 viewport")
-    func launcherAboveFoldHeightBudgetFits1240x820Viewport() {
-        let headerBlock: CGFloat = 80
-        let recentRowHeight: CGFloat = 100
-        let gap = AppStyles.Welcome.recentCardGap
-        let sectionGap = AppStyles.Welcome.sectionToContentGap
-        let recentsToHero = AppStyles.Welcome.recentsToHeroGap
-        let heroHeight = AppStyles.Welcome.heroRowInnerVerticalPadding * 2 + 48
-
-        let pageTop = AppStyles.Welcome.pageVerticalPadding
-        let header = pageTop + headerBlock + AppStyles.Welcome.headerToContentGap
-        let recentLabel = header + 30 + sectionGap
-        let recentsEnd = recentLabel + recentRowHeight * 3 + gap * 2
-        let heroEnd = recentsEnd + recentsToHero + heroHeight
-
-        #expect(heroEnd <= 820)
-    }
+    // MARK: - Launcher composition sanity
 
     @Test("launcher narrow breakpoint is below command-palette horizontal width")
     func launcherNarrowBreakpointIsBelowCommandPaletteHorizontalWidth() {

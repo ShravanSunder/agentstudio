@@ -21,6 +21,8 @@ struct WorkspaceRecentCardModel: Equatable, Identifiable {
     let statusChips: WorkspaceStatusChipsModel?
     let checkoutIconKind: SidebarCheckoutIconKind?
     let iconColorHex: String?
+    let repoName: String
+    let worktreeDisplayName: String
 }
 
 struct WorkspaceEmptyStateModel: Equatable {
@@ -156,6 +158,15 @@ enum WorkspaceLauncherProjector {
             enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
         )
 
+        let worktreeDisplayName: String = {
+            if worktree.isMainWorktree { return "main" }
+            let prefix = "\(repo.name)."
+            if worktree.name.hasPrefix(prefix) {
+                return String(worktree.name.dropFirst(prefix.count))
+            }
+            return worktree.name
+        }()
+
         return WorkspaceRecentCardModel(
             id: target.id,
             target: target,
@@ -164,7 +175,9 @@ enum WorkspaceLauncherProjector {
             icon: worktree.isMainWorktree ? .mainWorktree : .gitWorktree,
             statusChips: chipModel,
             checkoutIconKind: worktree.isMainWorktree ? .mainCheckout : .gitWorktree,
-            iconColorHex: iconColorHex ?? fallbackCheckoutColorHex(for: repo)
+            iconColorHex: iconColorHex ?? fallbackCheckoutColorHex(for: repo),
+            repoName: repo.name,
+            worktreeDisplayName: worktreeDisplayName
         )
     }
 

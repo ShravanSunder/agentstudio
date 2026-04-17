@@ -230,26 +230,13 @@ enum AppStyles {
         static let bodyFontSize: CGFloat = AppStyles.General.Typography.textXl
         static let titleBodyGap: CGFloat = 8
 
-        static let sectionLabelFontSize: CGFloat = 15
-        static let sectionLabelOpacity: CGFloat = 0.62
-        static let sectionToContentGap: CGFloat = 22
-
-        static let shortcutTitleFontSize: CGFloat = 24
-        static let shortcutBodyFontSize: CGFloat = bodyFontSize
+        // Still used by QuickActionsCallout (scanning/scanEmpty states only)
         static let shortcutKeyFontSize: CGFloat = 18
         static let shortcutKeyColumnWidth: CGFloat = 44
-        static let shortcutTextGap: CGFloat = 12
-        static let shortcutTitleBodyGap: CGFloat = 6
-        static let shortcutRowHorizontalPadding: CGFloat = 10
-        static let shortcutRowVerticalPadding: CGFloat = 10
-        static let shortcutRowHoverRadius: CGFloat = 14
-        static let shortcutBodyLeadingInset: CGFloat = shortcutKeyColumnWidth + shortcutTextGap
 
         static let sectionSpacing: CGFloat = 32
         static let teachingColumnWidth: CGFloat = 520
         static let recentsColumnWidth: CGFloat = 540
-        static let blockGap: CGFloat = 28
-        static let previewTopGap: CGFloat = 14
 
         static let recentCardMinWidth: CGFloat = 260
         static let recentCardGap: CGFloat = 20
@@ -267,31 +254,45 @@ enum AppStyles {
         static let cardHoverOpacity: CGFloat = AppStyles.Shell.Sidebar.rowHoverOpacity
         static let interactiveHoverOpacity: CGFloat = AppStyles.General.Fill.hover
 
-        // ⌘T hero row
-        static let heroRowCornerRadius: CGFloat = 18
-        static let heroRowStrokeOpacity: CGFloat = AppStyles.General.Stroke.hover
-        static let heroRowFillOpacity: CGFloat = AppStyles.General.Fill.subtle
-        static let heroRowHoverFillOpacity: CGFloat = AppStyles.General.Fill.hover
-        static let heroRowInnerHorizontalPadding: CGFloat = 24
-        static let heroRowInnerVerticalPadding: CGFloat = 22
-        static let heroRowChevronOpacity: CGFloat = 0.35
-
-        // ⌘P preview scope rows (launcher-only)
-        static let scopeRowVerticalSpacing: CGFloat = 12
-        static let scopeRowTitleBodyGap: CGFloat = 2
-        static let scopeRowBodySize: CGFloat = AppStyles.General.Typography.textSm
-        static let scopeRowBodyOpacity: CGFloat = 0.50
-        static let scopeRowBodyLineLimit: Int = 2
-        static let scopeRowCaretColumnWidth: CGFloat = AppStyles.CommandBar.Rows.iconSize
-
         // Responsive breakpoints
         static let launcherWideBreakpoint: CGFloat = 1400
         static let launcherNarrowBreakpoint: CGFloat = 900
         static let recentsColumnCountWide: Int = 3
         static let recentsColumnCountNarrow: Int = 1
 
-        // Section ordering gaps
-        static let recentsToHeroGap: CGFloat = 32
-        static let heroToCommandPaletteGap: CGFloat = 28
+        // MARK: - Typographic scale (semantic)
+        //
+        // Rules:
+        //   - h1 appears exactly once per screen (page title).
+        //   - h2 appears only when there are ≥2 sections to label.
+        //   - h3 is for item/row titles.
+        //   - body is page copy; bodySm is row subtitle.
+        //   - caption is metadata (chips, footnotes).
+        //   - key is keyboard-shortcut glyphs, monospaced and accent-colored.
+
+        enum Typography {
+            static let h1: Font = .system(size: 30, weight: .semibold)
+            static let h2: Font = .system(size: 15, weight: .semibold)
+            static let h3: Font = .system(size: 13, weight: .medium)
+            static let body: Font = .system(size: 16)
+            static let bodySm: Font = .system(size: 12)
+            static let caption: Font = .system(size: 11)
+            static let key: Font = .system(size: 13, weight: .semibold, design: .monospaced)
+        }
+
+        enum TextColor {
+            static let h2Opacity: CGFloat = 0.62
+            static let h3Opacity: CGFloat = 0.88
+        }
+
+        // Launcher composition (new — supersedes hero/scope geometry)
+        static let launcherContentMaxWidth: CGFloat = 780
+        static let launcherRowGap: CGFloat = 20
+        static let launcherSectionGap: CGFloat = 28
+        static let launcherDividerOpacity: CGFloat =
+            AppStyles.CommandBar.Panel.nestedDividerOpacity
+        static let launcherShortcutKeyColumnWidth: CGFloat = 40
+        static let launcherShortcutKeyTitleGap: CGFloat = 12
+        static let launcherPreviewSubtitleOpacity: CGFloat = 0.50
     }
 }
