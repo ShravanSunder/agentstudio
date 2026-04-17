@@ -70,33 +70,41 @@ struct WorkspaceEmptyStateViewTests {
         #expect(AppStyles.Welcome.TextColor.h3Opacity == 0.88)
     }
 
-    // MARK: - Launcher preview scope row
+    // MARK: - Embedded cmd-P preview
 
-    @Test("launcher preview scope row compiles with title and body text")
+    @Test("preview mocks five ghost-themed worktrees so every row matches the query")
     @MainActor
-    func launcherPreviewScopeRowCompilesWithTitleAndBodyText() {
-        let row = LauncherPreviewScopeRow(
-            prefix: ">",
-            title: "Commands",
-            bodyText: "Run actions — open, close, toggle",
-            isSelected: true
-        )
-        #expect(row.prefix == ">")
-        #expect(row.title == "Commands")
-        #expect(row.bodyText == "Run actions — open, close, toggle")
-        #expect(row.isSelected == true)
+    func previewMocksFiveGhostThemedWorktrees() {
+        let items = CommandBarEmbeddedPreview.mockItems
+        let titles = items.map(\.title)
+        #expect(
+            titles == [
+                "ghostty",
+                "ghostrider",
+                "ghostty.gpu-renderer",
+                "ghostty.fix-keybinds",
+                "ghostrider.fix-engine",
+            ])
+        // Every row must contain the preview query so the highlight demo
+        // reads cleanly — no unmatched rows cluttering the mock.
+        for title in titles {
+            #expect(title.contains(CommandBarEmbeddedPreview.previewQuery))
+        }
     }
 
-    @Test("command bar embedded preview exposes three scope entries")
+    @Test("preview groups worktrees by repo")
     @MainActor
-    func commandBarEmbeddedPreviewExposesThreeScopeEntries() {
-        let entries = CommandBarEmbeddedPreview.scopeEntries
-        #expect(entries.count == 3)
-        #expect(entries[0].prefix == ">")
-        #expect(entries[0].title == "Commands")
-        #expect(entries[1].prefix == "$")
-        #expect(entries[1].title == "Panes")
-        #expect(entries[2].prefix == "#")
-        #expect(entries[2].title == "Repos · Worktrees")
+    func previewGroupsWorktreesByRepo() {
+        let groups = CommandBarEmbeddedPreview.mockGroups
+        #expect(groups.map(\.name) == ["Repos", "ghostty (worktrees)", "ghostrider (worktrees)"])
+        #expect(groups[0].items.count == 2)
+        #expect(groups[1].items.count == 2)
+        #expect(groups[2].items.count == 1)
+    }
+
+    @Test("preview query is short so it still feels like the user is typing")
+    @MainActor
+    func previewQueryIsShort() {
+        #expect(CommandBarEmbeddedPreview.previewQuery == "gho")
     }
 }

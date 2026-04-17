@@ -303,5 +303,19 @@ enum AppStyles {
         static let launcherShortcutKeyColumnWidth: CGFloat = 32
         static let launcherShortcutKeyTitleGap: CGFloat = 12
         static let launcherPreviewSubtitleOpacity: CGFloat = 0.50
+
+        // Embedded cmd-P preview — mirrors the real modal with mock data
+        // (five worktrees matching WelcomeSidebarIllustration). Height must
+        // fit 3 group headers (~23pt) + 5 result rows (36pt) + internal padding
+        // with a small margin for breathing room.
+        static let previewResultsHeight: CGFloat = 264
+        static let launcherPreviewCalloutGap: CGFloat = 12
+        static let scopesCalloutItemGap: CGFloat = 20
+
+        // Shortcut rows in the right column get the same faint-outlined card
+        // chrome as the preview + scopes callout, so they read as clickable.
+        static let launcherShortcutRowCornerRadius: CGFloat = 10
+        static let launcherShortcutRowHorizontalPadding: CGFloat = 16
+        static let launcherShortcutRowVerticalPadding: CGFloat = 12
     }
 }
