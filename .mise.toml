@@ -132,9 +132,10 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 git config core.hooksPath .githooks
-chmod +x .githooks/pre-commit
+chmod +x .githooks/pre-commit .githooks/pre-push
 echo "Configured git hooks path: .githooks"
 echo "Installed pre-commit hook: .githooks/pre-commit"
+echo "Installed pre-push hook: .githooks/pre-push"
 """
 
 # --- Composite build tasks ---
