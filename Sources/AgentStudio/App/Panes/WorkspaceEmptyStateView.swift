@@ -205,6 +205,16 @@ struct WorkspaceEmptyStateView: View {
     }
 
     private var launcherShortcutsBlock: some View {
+        VStack(alignment: .leading, spacing: AppStyles.General.Spacing.loose + 4) {
+            Text("Start")
+                .font(AppStyles.Welcome.Typography.h2)
+                .foregroundStyle(.primary.opacity(AppStyles.Welcome.TextColor.h2Opacity))
+
+            launcherShortcutsColumns
+        }
+    }
+
+    private var launcherShortcutsColumns: some View {
         HStack(alignment: .center, spacing: AppStyles.Welcome.launcherShortcutsColumnsGap) {
             CommandBarEmbeddedPreview()
 
