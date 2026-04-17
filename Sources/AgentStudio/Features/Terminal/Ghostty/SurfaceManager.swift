@@ -568,6 +568,28 @@ final class SurfaceManager {
         }
     }
 
+    func scrollToBottom(forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
+        guard let surfaceId = surfaceId(forPaneId: paneId) else {
+            return .failure(.surfaceNotFound)
+        }
+
+        let action = TerminalSurfaceAction.scrollToBottom.bindingActionString
+        let didPerform = withSurface(surfaceId) { surface in
+            action.withCString { ptr in
+                ghostty_surface_binding_action(surface, ptr, UInt(action.utf8.count))
+            }
+        }
+
+        switch didPerform {
+        case .success(true):
+            return .success(())
+        case .success(false):
+            return .failure(.operationFailed("Ghostty rejected scroll_to_bottom binding action"))
+        case .failure(let error):
+            return .failure(error)
+        }
+    }
+
     // MARK: - Checkpoint Persistence
 
     /// Save checkpoint to disk

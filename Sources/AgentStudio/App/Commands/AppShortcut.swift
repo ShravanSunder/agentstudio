@@ -8,6 +8,7 @@ enum ShortcutCharacterKey: String, CaseIterable {
     case d
     case e
     case f
+    case k
     case m
     case n
     case o
@@ -96,7 +97,7 @@ struct ShortcutTrigger: Hashable {
 
 enum ShortcutContext: CaseIterable, Hashable {
     case global
-    case managementMode
+    case managementLayer
     case terminalAppOwned
 }
 
@@ -111,9 +112,12 @@ enum AppShortcut: String, CaseIterable {
     case undoCloseTab
     case nextTab
     case prevTab
+    case addDrawerPane
     case toggleDrawer
+    case scrollToBottom
+    case addRepo
     case addFolder
-    case toggleManagementMode
+    case toggleManagementLayer
     case toggleSidebar
     case filterSidebar
     case newWindow
@@ -130,14 +134,14 @@ enum AppShortcut: String, CaseIterable {
     case selectTab7
     case selectTab8
     case selectTab9
-    case managementFocusLeft
-    case managementFocusRight
-    case managementEnterDrawer
-    case managementExitDrawer
-    case managementOpenDrawer
-    case managementCreateTerminal
-    case managementCreateBrowser
-    case managementExitMode
+    case managementLayerFocusLeft
+    case managementLayerFocusRight
+    case managementLayerEnterDrawer
+    case managementLayerExitDrawer
+    case managementLayerOpenDrawer
+    case managementLayerCreateTerminal
+    case managementLayerCreateBrowser
+    case managementLayerExit
 
     var spec: AppShortcutSpec {
         switch self {
@@ -166,17 +170,32 @@ enum AppShortcut: String, CaseIterable {
                 trigger: .init(key: .character(.leftBracket), modifiers: [.command, .shift]),
                 contexts: [.global]
             )
+        case .addDrawerPane:
+            return .init(
+                trigger: .init(key: .character(.d), modifiers: [.command, .shift]),
+                contexts: [.global, .terminalAppOwned]
+            )
         case .toggleDrawer:
             return .init(
                 trigger: .init(key: .character(.d), modifiers: [.command]),
                 contexts: [.global, .terminalAppOwned]
+            )
+        case .scrollToBottom:
+            return .init(
+                trigger: .init(key: .character(.k), modifiers: [.command, .option]),
+                contexts: [.terminalAppOwned]
+            )
+        case .addRepo:
+            return .init(
+                trigger: .init(key: .character(.o), modifiers: [.command, .shift]),
+                contexts: [.global]
             )
         case .addFolder:
             return .init(
                 trigger: .init(key: .character(.o), modifiers: [.command, .shift, .option]),
                 contexts: [.global]
             )
-        case .toggleManagementMode:
+        case .toggleManagementLayer:
             return .init(
                 trigger: .init(key: .character(.r), modifiers: [.command]),
                 contexts: [.global, .terminalAppOwned]
@@ -234,21 +253,21 @@ enum AppShortcut: String, CaseIterable {
             return Self.selectTabSpec(key: .digit8)
         case .selectTab9:
             return Self.selectTabSpec(key: .digit9)
-        case .managementFocusLeft:
+        case .managementLayerFocusLeft:
             return Self.managementSpec(key: .arrow(.left))
-        case .managementFocusRight:
+        case .managementLayerFocusRight:
             return Self.managementSpec(key: .arrow(.right))
-        case .managementEnterDrawer:
+        case .managementLayerEnterDrawer:
             return Self.managementSpec(key: .arrow(.down))
-        case .managementExitDrawer:
+        case .managementLayerExitDrawer:
             return Self.managementSpec(key: .arrow(.up))
-        case .managementOpenDrawer:
+        case .managementLayerOpenDrawer:
             return Self.managementSpec(key: .character(.d))
-        case .managementCreateTerminal:
+        case .managementLayerCreateTerminal:
             return Self.managementSpec(key: .character(.p))
-        case .managementCreateBrowser:
+        case .managementLayerCreateBrowser:
             return Self.managementSpec(key: .character(.b))
-        case .managementExitMode:
+        case .managementLayerExit:
             return Self.managementSpec(key: .character(.r))
         }
     }
@@ -280,7 +299,7 @@ extension AppShortcut {
     fileprivate static func managementSpec(key: ShortcutInputKey) -> AppShortcutSpec {
         .init(
             trigger: .init(key: key, modifiers: []),
-            contexts: [.managementMode]
+            contexts: [.managementLayer]
         )
     }
 }

@@ -663,7 +663,14 @@ extension Ghostty {
             let surfaceViewObjectId = ObjectIdentifier(resolvedSurfaceView)
             // Returning `true` here preserves Ghostty's synchronous "handled" contract
             // while the actual runtime delivery completes on MainActor.
-            Task { @MainActor in
+            Task { @MainActor [weak resolvedSurfaceView] in
+                if let resolvedSurfaceView {
+                    updateSurfaceHostCache(
+                        actionTag: actionTag,
+                        payload: payload,
+                        surfaceView: resolvedSurfaceView
+                    )
+                }
                 let routingLookup = routingLookupProvider()
                 _ = routeActionToTerminalRuntimeOnMainActor(
                     actionTag: actionTag,
@@ -673,6 +680,31 @@ extension Ghostty {
                 )
             }
             return handledResult
+        }
+
+        @MainActor
+        private static func updateSurfaceHostCache(
+            actionTag: UInt32,
+            payload: GhosttyAdapter.ActionPayload,
+            surfaceView: SurfaceView
+        ) {
+            guard let knownActionTag = GhosttyActionTag(rawValue: actionTag) else { return }
+
+            switch knownActionTag {
+            case .scrollbar:
+                guard case .scrollbar(let total, let offset, let length) = payload else { return }
+                surfaceView.updateHostScrollbarState(
+                    ScrollbarState(
+                        top: Int(offset),
+                        bottom: Int(offset + length),
+                        total: Int(total)
+                    )
+                )
+            case .configChange, .reloadConfig:
+                surfaceView.updateHostConfigSnapshot(Ghostty.shared.hostConfigSnapshot())
+            default:
+                return
+            }
         }
 
         @MainActor

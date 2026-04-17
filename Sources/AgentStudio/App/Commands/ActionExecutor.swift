@@ -20,12 +20,14 @@ final class ActionExecutor {
     static func computeSwitchArrangementTransitions(
         previousVisiblePaneIds: Set<UUID>,
         previouslyMinimizedPaneIds: Set<UUID>,
-        newVisiblePaneIds: Set<UUID>
+        newVisiblePaneIds: Set<UUID>,
+        newMinimizedPaneIds: Set<UUID>
     ) -> SwitchArrangementTransitions {
         PaneCoordinator.computeSwitchArrangementTransitions(
             previousVisiblePaneIds: previousVisiblePaneIds,
             previouslyMinimizedPaneIds: previouslyMinimizedPaneIds,
-            newVisiblePaneIds: newVisiblePaneIds
+            newVisiblePaneIds: newVisiblePaneIds,
+            newMinimizedPaneIds: newMinimizedPaneIds
         )
     }
 
@@ -97,7 +99,7 @@ final class ActionExecutor {
         let snapshot = WorkspaceCommandResolver.snapshot(
             from: tabLayout.tabs,
             activeTabId: tabLayout.activeTabId,
-            isManagementModeActive: atom(\.managementMode).isActive,
+            isManagementLayerActive: atom(\.managementLayer).isActive,
             knownRepoIds: Set(repositoryTopology.repos.map(\.id)),
             knownWorktreeIds: Set(repositoryTopology.repos.flatMap(\.worktrees).map(\.id))
         )

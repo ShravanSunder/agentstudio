@@ -254,7 +254,7 @@ extension MainWindowController: NSToolbarDelegate {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
             .flexibleSpace,
-            .managementMode,
+            .managementLayer,
             .space,
             .addFolder,
         ]
@@ -269,13 +269,13 @@ extension MainWindowController: NSToolbarDelegate {
         willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
         switch itemIdentifier {
-        case .managementMode:
-            let presentation = CommandDispatcher.shared.definition(for: .toggleManagementMode).actionSpec
+        case .managementLayer:
+            let presentation = CommandDispatcher.shared.definition(for: .toggleManagementLayer).actionSpec
             let item = NSToolbarItem(itemIdentifier: itemIdentifier)
             item.label = presentation.label
             item.paletteLabel = presentation.label
             // SwiftUI hosting for reactive toggle state
-            let hostingView = NSHostingView(rootView: ManagementModeToolbarButton())
+            let hostingView = NSHostingView(rootView: ManagementLayerToolbarButton())
             hostingView.sizingOptions = .intrinsicContentSize
             item.view = hostingView
             return item

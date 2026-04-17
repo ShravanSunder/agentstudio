@@ -21,8 +21,6 @@ struct Tab: Codable, Identifiable, Hashable {
     var activePaneId: UUID?
     /// Display-only zoom state — NOT persisted. When set, the zoomed pane fills the tab.
     var zoomedPaneId: UUID?
-    /// Panes currently minimized (collapsed to a narrow bar). Transient — NOT persisted.
-    var minimizedPaneIds: Set<UUID> = []
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -31,7 +29,7 @@ struct Tab: Codable, Identifiable, Hashable {
         case arrangements
         case activeArrangementId
         case activePaneId
-        // zoomedPaneId, minimizedPaneIds excluded — transient, not persisted
+        // zoomedPaneId excluded — transient, not persisted
     }
 
     /// Create a tab with a single pane.
@@ -61,8 +59,7 @@ struct Tab: Codable, Identifiable, Hashable {
         arrangements: [PaneArrangement],
         activeArrangementId: UUID,
         activePaneId: UUID?,
-        zoomedPaneId: UUID? = nil,
-        minimizedPaneIds: Set<UUID> = []
+        zoomedPaneId: UUID? = nil
     ) {
         precondition(!arrangements.isEmpty, "Tab must have at least one arrangement")
         precondition(arrangements.filter(\.isDefault).count == 1, "Tab must have exactly one default arrangement")
@@ -73,7 +70,6 @@ struct Tab: Codable, Identifiable, Hashable {
         self.activeArrangementId = activeArrangementId
         self.activePaneId = activePaneId
         self.zoomedPaneId = zoomedPaneId
-        self.minimizedPaneIds = minimizedPaneIds
     }
 
     init(
@@ -83,8 +79,7 @@ struct Tab: Codable, Identifiable, Hashable {
         arrangements: [PaneArrangement],
         activeArrangementId: UUID,
         activePaneId: UUID?,
-        zoomedPaneId: UUID? = nil,
-        minimizedPaneIds: Set<UUID> = []
+        zoomedPaneId: UUID? = nil
     ) {
         self.init(
             id: id,
@@ -93,8 +88,7 @@ struct Tab: Codable, Identifiable, Hashable {
             arrangements: arrangements,
             activeArrangementId: activeArrangementId,
             activePaneId: activePaneId,
-            zoomedPaneId: zoomedPaneId,
-            minimizedPaneIds: minimizedPaneIds
+            zoomedPaneId: zoomedPaneId
         )
     }
 
@@ -116,6 +110,9 @@ struct Tab: Codable, Identifiable, Hashable {
 
     /// Pane IDs in the active arrangement's layout (left-to-right traversal).
     var activePaneIds: [UUID] { activeArrangement.layout.paneIds }
+
+    /// Pane IDs minimized in the active arrangement.
+    var activeMinimizedPaneIds: Set<UUID> { activeArrangement.minimizedPaneIds }
 
     /// Whether the active arrangement has a split layout (more than one pane).
     var isSplit: Bool { activeArrangement.layout.isSplit }

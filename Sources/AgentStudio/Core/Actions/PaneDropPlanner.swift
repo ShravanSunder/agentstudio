@@ -27,7 +27,7 @@ enum PaneDropPlanner {
         destination: PaneDropDestination,
         state: ActionStateSnapshot
     ) -> PaneDropPreviewDecision {
-        guard state.isManagementModeActive else {
+        guard state.isManagementLayerActive else {
             return .ineligible
         }
 

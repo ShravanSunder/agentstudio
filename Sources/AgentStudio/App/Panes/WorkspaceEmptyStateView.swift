@@ -31,7 +31,10 @@ enum WorkspaceEmptyStateCopy {
         guard let path else { return fallback }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let fullPath = path.path
-        if fullPath.hasPrefix(home) {
+        if fullPath == home {
+            return "~"
+        }
+        if fullPath.hasPrefix(home + "/") {
             return "~" + fullPath.dropFirst(home.count)
         }
         return fullPath
@@ -84,18 +87,11 @@ struct WorkspaceEmptyStateView: View {
                 .transition(.opacity)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .launcher:
-                GeometryReader { geometry in
-                    ScrollView(.vertical, showsIndicators: false) {
-                        launcherBody(
-                            availableWidth: max(
-                                geometry.size.width - (AppStyles.Welcome.pageHorizontalPadding * 2),
-                                0
-                            )
-                        )
+                ScrollView(.vertical, showsIndicators: false) {
+                    launcherBody()
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, AppStyles.Welcome.pageHorizontalPadding)
                         .padding(.bottom, AppStyles.Welcome.pageVerticalPadding)
-                    }
                 }
                 .id("launcher")
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -214,7 +210,7 @@ struct WorkspaceEmptyStateView: View {
         WorkspaceEmptyStateCopy.displayName(for: model.emptyFolderPath, fallback: "this folder")
     }
 
-    private func launcherBody(availableWidth _: CGFloat) -> some View {
+    private func launcherBody() -> some View {
         let visibleRecentCards = Array(
             model.recentCards.prefix(WorkspaceEmptyStateLayout.visibleRecentCardLimit)
         )
@@ -354,7 +350,9 @@ struct CommandBarEmbeddedPreview: View {
             id: "preview-ghostty",
             title: "ghostty",
             icon: "star.fill",
-            iconColor: welcomePaletteColor(at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex),
+            iconColor: AppStyles.Shell.Sidebar.paletteColor(
+                at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex
+            ),
             group: "Repos",
             groupPriority: 10,
             action: .custom {}
@@ -363,7 +361,9 @@ struct CommandBarEmbeddedPreview: View {
             id: "preview-ghostrider",
             title: "ghostrider",
             icon: "star.fill",
-            iconColor: welcomePaletteColor(at: WelcomeSidebarIllustrationConstants.uvPaletteIndex),
+            iconColor: AppStyles.Shell.Sidebar.paletteColor(
+                at: WelcomeSidebarIllustrationConstants.uvPaletteIndex
+            ),
             group: "Repos",
             groupPriority: 10,
             action: .custom {}
@@ -372,7 +372,9 @@ struct CommandBarEmbeddedPreview: View {
             id: "preview-ghostty-gpu-renderer",
             title: "ghostty.gpu-renderer",
             icon: "arrow.triangle.branch",
-            iconColor: welcomePaletteColor(at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex),
+            iconColor: AppStyles.Shell.Sidebar.paletteColor(
+                at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex
+            ),
             group: "ghostty (worktrees)",
             groupPriority: 20,
             action: .custom {}
@@ -381,7 +383,9 @@ struct CommandBarEmbeddedPreview: View {
             id: "preview-ghostty-fix-keybinds",
             title: "ghostty.fix-keybinds",
             icon: "arrow.triangle.branch",
-            iconColor: welcomePaletteColor(at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex),
+            iconColor: AppStyles.Shell.Sidebar.paletteColor(
+                at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex
+            ),
             group: "ghostty (worktrees)",
             groupPriority: 20,
             action: .custom {}
@@ -390,7 +394,9 @@ struct CommandBarEmbeddedPreview: View {
             id: "preview-ghostrider-fix-engine",
             title: "ghostrider.fix-engine",
             icon: "arrow.triangle.branch",
-            iconColor: welcomePaletteColor(at: WelcomeSidebarIllustrationConstants.uvPaletteIndex),
+            iconColor: AppStyles.Shell.Sidebar.paletteColor(
+                at: WelcomeSidebarIllustrationConstants.uvPaletteIndex
+            ),
             group: "ghostrider (worktrees)",
             groupPriority: 30,
             action: .custom {}
@@ -581,12 +587,6 @@ struct LauncherScopesCallout: View {
                 )
         )
     }
-}
-
-private func welcomePaletteColor(at index: Int) -> Color {
-    let hexes = AppStyles.Shell.Sidebar.accentPaletteHexes
-    let hex = hexes.indices.contains(index) ? hexes[index] : hexes.first ?? ""
-    return Color(nsColor: NSColor(hex: hex) ?? .controlAccentColor)
 }
 
 private struct WorkspaceRecentCardView: View {

@@ -8,6 +8,7 @@ struct SingleTabContent: View {
     let appLifecycleStore: AppLifecycleAtom
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let onPaneFocusTrigger: PaneFocusTriggerHandler
     let onOpenPaneGitHub: (UUID) -> Void
 
     private static func traceMissingTab(tabId: UUID) -> Int {
@@ -16,7 +17,11 @@ struct SingleTabContent: View {
     }
 
     var body: some View {
-        let tab = store.tabLayoutAtom.tab(tabId)
+        let workspaceTab = WorkspaceTabDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
+        let tab = workspaceTab.tab(tabId)
         // swiftlint:disable:next redundant_discardable_let
         let _ = tab == nil ? Self.traceMissingTab(tabId: tabId) : 0
         if let tab {
@@ -25,9 +30,10 @@ struct SingleTabContent: View {
                 tabId: tabId,
                 activePaneId: tab.activePaneId,
                 zoomedPaneId: tab.zoomedPaneId,
-                minimizedPaneIds: tab.minimizedPaneIds,
+                minimizedPaneIds: tab.activeMinimizedPaneIds,
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 actionDispatcher: actionDispatcher,
+                onPaneFocusTrigger: onPaneFocusTrigger,
                 store: store,
                 repoCache: repoCache,
                 viewRegistry: viewRegistry,

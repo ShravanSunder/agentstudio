@@ -70,6 +70,10 @@ extension Ghostty.SurfaceView {
             let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .terminalAppOwned),
             Self.appOwnedShortcuts.contains(shortcut)
         {
+            if CommandDispatcher.shared.canDispatch(shortcut.command) {
+                CommandDispatcher.shared.dispatch(shortcut.command)
+                return true
+            }
             return false
         }
 
@@ -241,7 +245,7 @@ extension Ghostty.SurfaceView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        guard !atom(\.managementMode).isActive else { return }
+        guard !atom(\.managementLayer).isActive else { return }
         sendMousePos(event)
     }
 

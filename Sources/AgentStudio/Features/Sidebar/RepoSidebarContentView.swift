@@ -2,18 +2,17 @@ import AppKit
 import Foundation
 import SwiftUI
 
-// swiftlint:disable file_length
-
 /// Redesigned sidebar content grouped by repository identity (worktree family / remote).
 @MainActor
 struct RepoSidebarContentView: View {
     struct SidebarProjection {
-        let resolvedGroups: [SidebarRepoGroup]
-        let loadingRepos: [SidebarRepo]
+        let resolvedGroups: [RepoPresentationGroup]
+        let loadingRepos: [RepoPresentationItem]
         let showsNoResults: Bool
     }
 
     let store: WorkspaceStore
+    let onRefocusActivePane: () -> Void
 
     private var repoCache: RepoCacheAtom {
         atom(\.repoCache)
@@ -35,8 +34,8 @@ struct RepoSidebarContentView: View {
 
     private static let filterDebounceMilliseconds = 25
 
-    private var sidebarRepos: [SidebarRepo] {
-        store.repositoryTopologyAtom.repos.map(SidebarRepo.init(repo:))
+    private var sidebarRepos: [RepoPresentationItem] {
+        store.repositoryTopologyAtom.repos.map(RepoPresentationItem.init(repo:))
     }
 
     private var sidebarProjectionFingerprint: String {
@@ -51,11 +50,11 @@ struct RepoSidebarContentView: View {
         )
     }
 
-    private var groups: [SidebarRepoGroup] {
+    private var groups: [RepoPresentationGroup] {
         sidebarProjection.resolvedGroups
     }
 
-    private var loadingReposList: [SidebarRepo] {
+    private var loadingReposList: [RepoPresentationItem] {
         sidebarProjection.loadingRepos
     }
 
@@ -353,38 +352,8 @@ struct RepoSidebarContentView: View {
         .transition(.opacity.animation(.easeOut(duration: 0.12)))
     }
 
-    static func checkoutColorHex(
-        for repo: SidebarRepo,
-        in group: SidebarRepoGroup,
-        checkoutColorOverrides: [String: String] = [:]
-    ) -> String {
-        let overrideKey = repo.id.uuidString
-        if let hex = checkoutColorOverrides[overrideKey],
-            let nsColor = NSColor(hex: hex)
-        {
-            return nsColor.hexString
-        }
-
-        let orderedFamilies = group.repos.sorted { lhs, rhs in
-            lhs.stableKey.localizedCaseInsensitiveCompare(rhs.stableKey) == .orderedAscending
-        }
-
-        guard orderedFamilies.count > 1 else {
-            return SidebarRepoGrouping.automaticPaletteHexes[0]
-        }
-
-        guard let familyIndex = orderedFamilies.firstIndex(where: { $0.id == repo.id }) else {
-            return SidebarRepoGrouping.automaticPaletteHexes[0]
-        }
-
-        return SidebarRepoGrouping.colorHexForCheckoutIndex(
-            familyIndex,
-            seed: "\(group.id)|\(repo.stableKey)|\(repo.id.uuidString)"
-        )
-    }
-
-    private func colorForCheckout(repo: SidebarRepo, in group: SidebarRepoGroup) -> Color {
-        let colorHex = Self.checkoutColorHex(
+    private func colorForCheckout(repo: RepoPresentationItem, in group: RepoPresentationGroup) -> Color {
+        let colorHex = RepoPresentationColoring.checkoutColorHex(
             for: repo, in: group, checkoutColorOverrides: checkoutColorByRepoId
         )
         return Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
@@ -409,7 +378,7 @@ struct RepoSidebarContentView: View {
         groupId: String,
         repoId: UUID,
         worktreeId: UUID
-    ) -> (group: SidebarRepoGroup, repo: SidebarRepo, worktree: Worktree)? {
+    ) -> (group: RepoPresentationGroup, repo: RepoPresentationItem, worktree: Worktree)? {
         guard let group = groups.first(where: { $0.id == groupId }) else { return nil }
         guard let repo = group.repos.first(where: { $0.id == repoId }) else { return nil }
         guard let worktree = repo.worktrees.first(where: { $0.id == worktreeId }) else { return nil }
@@ -420,7 +389,7 @@ struct RepoSidebarContentView: View {
         notificationCountsByWorktreeId[worktreeId] = 0
     }
 
-    private func checkoutTitle(for worktree: Worktree, in repo: SidebarRepo) -> String {
+    private func checkoutTitle(for worktree: Worktree, in repo: RepoPresentationItem) -> String {
         let folderName = worktree.path.lastPathComponent
         if !folderName.isEmpty {
             return folderName
@@ -428,7 +397,7 @@ struct RepoSidebarContentView: View {
         return repo.name
     }
 
-    static func checkoutIconKind(for worktree: Worktree, in repo: SidebarRepo) -> SidebarCheckoutIconKind {
+    static func checkoutIconKind(for worktree: Worktree, in repo: RepoPresentationItem) -> SidebarCheckoutIconKind {
         let isMainCheckout =
             worktree.isMainWorktree
             || worktree.path.standardizedFileURL.path == repo.repoPath.standardizedFileURL.path
@@ -440,7 +409,7 @@ struct RepoSidebarContentView: View {
         return .mainCheckout
     }
 
-    private func checkoutIconKind(for worktree: Worktree, in repo: SidebarRepo) -> SidebarCheckoutIconKind {
+    private func checkoutIconKind(for worktree: Worktree, in repo: RepoPresentationItem) -> SidebarCheckoutIconKind {
         Self.checkoutIconKind(for: worktree, in: repo)
     }
 
@@ -457,7 +426,7 @@ struct RepoSidebarContentView: View {
         isFilterFocused = false
         uiState.setFilterText("")
         uiState.setFilterVisible(false)
-        CommandDispatcher.shared.appCommandRouter?.refocusActivePane()
+        onRefocusActivePane()
     }
 
     private func openRepoInFinder(_ path: URL) {
@@ -467,7 +436,7 @@ struct RepoSidebarContentView: View {
 }
 
 enum SidebarListEntry: Identifiable {
-    case resolvedGroupHeader(SidebarRepoGroup)
+    case resolvedGroupHeader(RepoPresentationGroup)
     case resolvedWorktreeRow(groupId: String, repoId: UUID, worktreeId: UUID)
 
     var id: String {
@@ -527,72 +496,6 @@ private struct SidebarLoadingRepoRow: View {
     }
 }
 
-struct SidebarRepoGroup: Identifiable {
-    let id: String
-    let repoTitle: String
-    let organizationName: String?
-    let repos: [SidebarRepo]
-
-    var checkoutCount: Int {
-        repos.reduce(0) { $0 + $1.worktrees.count }
-    }
-}
-
-struct SidebarRepo: Identifiable, Hashable, SidebarFilterableRepository {
-    let id: UUID
-    let name: String
-    let repoPath: URL
-    let stableKey: String
-    var worktrees: [Worktree]
-
-    init(
-        id: UUID,
-        name: String,
-        repoPath: URL,
-        stableKey: String,
-        worktrees: [Worktree]
-    ) {
-        self.id = id
-        self.name = name
-        self.repoPath = repoPath
-        self.stableKey = stableKey
-        self.worktrees = worktrees
-    }
-
-    init(repo: Repo) {
-        self.init(
-            id: repo.id,
-            name: repo.name,
-            repoPath: repo.repoPath,
-            stableKey: repo.stableKey,
-            worktrees: repo.worktrees
-        )
-    }
-
-    var sidebarRepoName: String { name }
-
-    var sidebarWorktrees: [Worktree] {
-        get { worktrees }
-        set { worktrees = newValue }
-    }
-}
-
-struct RepoIdentityMetadata: Sendable {
-    let groupKey: String
-    let displayName: String
-    let repoName: String
-    let worktreeCommonDirectory: String?
-    let folderCwd: String
-    let parentFolder: String
-    let organizationName: String?
-    let originRemote: String?
-    let upstreamRemote: String?
-    let lastPathComponent: String
-    let worktreeCwds: [String]
-    let remoteFingerprint: String?
-    let remoteSlug: String?
-}
-
 struct GitBranchStatus: Equatable, Sendable {
     enum SyncState: Equatable, Sendable {
         case synced
@@ -613,8 +516,30 @@ struct GitBranchStatus: Equatable, Sendable {
 }
 
 extension RepoSidebarContentView {
+    static func checkoutColorHex(
+        for repo: RepoPresentationItem,
+        in group: RepoPresentationGroup,
+        checkoutColorOverrides: [String: String] = [:]
+    ) -> String {
+        RepoPresentationColoring.checkoutColorHex(
+            for: repo,
+            in: group,
+            checkoutColorOverrides: checkoutColorOverrides
+        )
+    }
+
+    static func buildRepoMetadata(
+        repos: [RepoPresentationItem],
+        repoEnrichmentByRepoId: [UUID: RepoEnrichment]
+    ) -> [UUID: RepoIdentityMetadata] {
+        RepoPresentationColoring.buildRepoMetadata(
+            repos: repos,
+            repoEnrichmentByRepoId: repoEnrichmentByRepoId
+        )
+    }
+
     static func buildListEntries(
-        groups: [SidebarRepoGroup],
+        groups: [RepoPresentationGroup],
         expandedGroupIds: Set<String>,
         isFiltering: Bool
     ) -> [SidebarListEntry] {
@@ -661,7 +586,7 @@ extension RepoSidebarContentView {
     }
 
     static func projectSidebar(
-        repos: [SidebarRepo],
+        repos: [RepoPresentationItem],
         repoEnrichmentByRepoId: [UUID: RepoEnrichment],
         query: String
     ) -> SidebarProjection {
@@ -669,11 +594,11 @@ extension RepoSidebarContentView {
         let loadingRepos = loadingRepos(repos, enrichmentByRepoId: repoEnrichmentByRepoId)
         let filteredResolvedRepos = SidebarFilter.filter(repos: resolvedRepos, query: query)
         let filteredLoadingRepos = filterLoadingRepos(loadingRepos, query: query)
-        let repoMetadataById = buildRepoMetadata(
+        let repoMetadataById = RepoPresentationColoring.buildRepoMetadata(
             repos: filteredResolvedRepos,
             repoEnrichmentByRepoId: repoEnrichmentByRepoId
         )
-        let resolvedGroups = SidebarRepoGrouping.buildGroups(
+        let resolvedGroups = RepoPresentationGrouping.buildGroups(
             repos: filteredResolvedRepos,
             metadataByRepoId: repoMetadataById
         )
@@ -686,9 +611,9 @@ extension RepoSidebarContentView {
     }
 
     static func resolvedRepos(
-        _ repos: [SidebarRepo],
+        _ repos: [RepoPresentationItem],
         enrichmentByRepoId: [UUID: RepoEnrichment]
-    ) -> [SidebarRepo] {
+    ) -> [RepoPresentationItem] {
         repos.filter { repo in
             switch enrichmentByRepoId[repo.id] {
             case .resolvedLocal, .resolvedRemote:
@@ -700,9 +625,9 @@ extension RepoSidebarContentView {
     }
 
     static func loadingRepos(
-        _ repos: [SidebarRepo],
+        _ repos: [RepoPresentationItem],
         enrichmentByRepoId: [UUID: RepoEnrichment]
-    ) -> [SidebarRepo] {
+    ) -> [RepoPresentationItem] {
         repos.filter { repo in
             switch enrichmentByRepoId[repo.id] {
             case .resolvedLocal, .resolvedRemote:
@@ -714,10 +639,10 @@ extension RepoSidebarContentView {
     }
 
     private static func filterLoadingRepos(
-        _ repos: [SidebarRepo],
+        _ repos: [RepoPresentationItem],
         query: String
-    ) -> [SidebarRepo] {
-        let filteredRepos: [SidebarRepo]
+    ) -> [RepoPresentationItem] {
+        let filteredRepos: [RepoPresentationItem]
         if query.isEmpty {
             filteredRepos = repos
         } else {
@@ -731,7 +656,7 @@ extension RepoSidebarContentView {
         }
     }
 
-    static func primaryRepoForGroup(_ group: SidebarRepoGroup) -> SidebarRepo? {
+    static func primaryRepoForGroup(_ group: RepoPresentationGroup) -> RepoPresentationItem? {
         group.repos.max { lhs, rhs in
             let lhsScore = primaryRepoScore(lhs)
             let rhsScore = primaryRepoScore(rhs)
@@ -742,7 +667,7 @@ extension RepoSidebarContentView {
         }
     }
 
-    private static func primaryRepoScore(_ repo: SidebarRepo) -> Int {
+    private static func primaryRepoScore(_ repo: RepoPresentationItem) -> Int {
         let normalizedRepoPath = repo.repoPath.standardizedFileURL.path
         if repo.worktrees.contains(where: { $0.path.standardizedFileURL.path == normalizedRepoPath }) {
             return 2
@@ -753,67 +678,6 @@ extension RepoSidebarContentView {
         return 0
     }
 
-    static func buildRepoMetadata(
-        repos: [SidebarRepo],
-        repoEnrichmentByRepoId: [UUID: RepoEnrichment]
-    ) -> [UUID: RepoIdentityMetadata] {
-        var metadataByRepoId: [UUID: RepoIdentityMetadata] = [:]
-        metadataByRepoId.reserveCapacity(repos.count)
-
-        for repo in repos {
-            let enrichment = repoEnrichmentByRepoId[repo.id]
-            let normalizedRepoPath = repo.repoPath.standardizedFileURL.path
-
-            let groupKey: String
-            let displayName: String
-            let organizationName: String?
-            let originRemote: String?
-            let upstreamRemote: String?
-            let remoteSlug: String?
-
-            switch enrichment {
-            case .resolvedRemote(_, let raw, let identity, _):
-                groupKey = identity.groupKey
-                displayName = identity.displayName
-                organizationName = identity.organizationName
-                originRemote = raw.origin
-                upstreamRemote = raw.upstream
-                remoteSlug = identity.remoteSlug
-            case .resolvedLocal(_, let identity, _):
-                groupKey = identity.groupKey
-                displayName = identity.displayName
-                organizationName = identity.organizationName
-                originRemote = nil
-                upstreamRemote = nil
-                remoteSlug = identity.remoteSlug
-            case .awaitingOrigin, nil:
-                groupKey = "path:\(normalizedRepoPath)"
-                displayName = repo.name
-                organizationName = nil
-                originRemote = nil
-                upstreamRemote = nil
-                remoteSlug = nil
-            }
-
-            metadataByRepoId[repo.id] = RepoIdentityMetadata(
-                groupKey: groupKey,
-                displayName: displayName,
-                repoName: displayName,
-                worktreeCommonDirectory: nil,
-                folderCwd: normalizedRepoPath,
-                parentFolder: repo.repoPath.deletingLastPathComponent().lastPathComponent,
-                organizationName: organizationName,
-                originRemote: originRemote,
-                upstreamRemote: upstreamRemote,
-                lastPathComponent: repo.repoPath.lastPathComponent,
-                worktreeCwds: repo.worktrees.map { $0.path.standardizedFileURL.path },
-                remoteFingerprint: originRemote,
-                remoteSlug: remoteSlug
-            )
-        }
-
-        return metadataByRepoId
-    }
     static func mergeBranchStatuses(
         worktreeEnrichmentsByWorktreeId: [UUID: WorktreeEnrichment],
         pullRequestCountsByWorktreeId: [UUID: Int]
@@ -890,159 +754,12 @@ extension RepoSidebarContentView {
         )
     }
 
-    static func sortedWorktrees(for repo: SidebarRepo) -> [Worktree] {
+    static func sortedWorktrees(for repo: RepoPresentationItem) -> [Worktree] {
         repo.worktrees.sorted { lhs, rhs in
             if lhs.isMainWorktree != rhs.isMainWorktree {
                 return lhs.isMainWorktree
             }
             return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
         }
-    }
-
-}
-
-enum SidebarRepoGrouping {
-    struct ColorPreset {
-        let name: String
-        let hex: String
-    }
-
-    private struct OwnerCandidate {
-        let repoId: UUID
-        let repoWorktreeCount: Int
-        let repoPathMatchesWorktree: Bool
-        let isMainWorktree: Bool
-        let stableTieBreaker: String
-    }
-
-    static let automaticPaletteHexes: [String] = AppStyles.Shell.Sidebar.accentPaletteHexes
-
-    static let colorPresets: [ColorPreset] = [
-        ColorPreset(name: "Yellow", hex: "#F5C451"),
-        ColorPreset(name: "Sky", hex: "#58C4FF"),
-        ColorPreset(name: "Violet", hex: "#A78BFA"),
-        ColorPreset(name: "Green", hex: "#4ADE80"),
-        ColorPreset(name: "Orange", hex: "#FB923C"),
-        ColorPreset(name: "Pink", hex: "#F472B6"),
-    ]
-
-    static func colorHexForCheckoutIndex(_ index: Int, seed: String) -> String {
-        if index < automaticPaletteHexes.count {
-            return automaticPaletteHexes[index]
-        }
-
-        return generatedColorHex(seed: seed)
-    }
-
-    private static func generatedColorHex(seed: String) -> String {
-        let hash = seed.unicodeScalars.reduce(0) { partial, scalar in
-            (partial &* 33 &+ Int(scalar.value)) & 0x7fff_ffff
-        }
-        let hue = CGFloat(hash % 360) / 360.0
-        let saturation: CGFloat = 0.58
-        let brightness: CGFloat = 0.94
-        return NSColor(calibratedHue: hue, saturation: saturation, brightness: brightness, alpha: 1.0).hexString
-    }
-
-    static func buildGroups(
-        repos: [SidebarRepo],
-        metadataByRepoId: [UUID: RepoIdentityMetadata]
-    ) -> [SidebarRepoGroup] {
-        let grouped = Dictionary(grouping: repos) { repo in
-            metadataByRepoId[repo.id]?.groupKey ?? "path:\(repo.repoPath.standardizedFileURL.path)"
-        }
-
-        return grouped.compactMap { groupKey, groupRepos in
-            let deduplicatedRepos = dedupeReposByCheckoutCwd(groupRepos)
-            guard !deduplicatedRepos.isEmpty else { return nil }
-
-            let firstRepoId = deduplicatedRepos.first?.id ?? groupRepos.first?.id
-            let metadata = firstRepoId.flatMap { metadataByRepoId[$0] }
-            let repoTitle =
-                metadata?.repoName
-                ?? metadata?.lastPathComponent
-                ?? deduplicatedRepos.first?.name
-                ?? "Repository"
-            return SidebarRepoGroup(
-                id: groupKey,
-                repoTitle: repoTitle,
-                organizationName: metadata?.organizationName,
-                repos: deduplicatedRepos.sorted {
-                    $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
-                }
-            )
-        }
-        .sorted { lhs, rhs in
-            let leftTitle = lhs.organizationName.map { "\(lhs.repoTitle)\($0)" } ?? lhs.repoTitle
-            let rightTitle = rhs.organizationName.map { "\(rhs.repoTitle)\($0)" } ?? rhs.repoTitle
-            return leftTitle.localizedCaseInsensitiveCompare(rightTitle) == .orderedAscending
-        }
-    }
-
-    private static func dedupeReposByCheckoutCwd(_ repos: [SidebarRepo]) -> [SidebarRepo] {
-        var ownerByCwd: [String: OwnerCandidate] = [:]
-
-        for repo in repos {
-            for worktree in repo.worktrees {
-                let checkoutCwd = normalizedCwdPath(worktree.path)
-                let candidate = OwnerCandidate(
-                    repoId: repo.id,
-                    repoWorktreeCount: repo.worktrees.count,
-                    repoPathMatchesWorktree: normalizedCwdPath(repo.repoPath) == checkoutCwd,
-                    isMainWorktree: worktree.isMainWorktree,
-                    stableTieBreaker: "\(repo.id.uuidString)|\(worktree.id.uuidString)"
-                )
-
-                if let existing = ownerByCwd[checkoutCwd] {
-                    if shouldPrefer(candidate: candidate, over: existing) {
-                        ownerByCwd[checkoutCwd] = candidate
-                    }
-                } else {
-                    ownerByCwd[checkoutCwd] = candidate
-                }
-            }
-        }
-
-        var deduplicatedRepos: [SidebarRepo] = []
-        for repo in repos {
-            guard !repo.worktrees.isEmpty else { continue }
-
-            var seenWorktreeCwds: Set<String> = []
-            let deduplicatedWorktrees = repo.worktrees.filter { worktree in
-                let checkoutCwd = normalizedCwdPath(worktree.path)
-                guard !seenWorktreeCwds.contains(checkoutCwd) else { return false }
-                seenWorktreeCwds.insert(checkoutCwd)
-                return ownerByCwd[checkoutCwd]?.repoId == repo.id
-            }
-
-            guard !deduplicatedWorktrees.isEmpty else { continue }
-
-            var updated = repo
-            updated.worktrees = deduplicatedWorktrees
-            deduplicatedRepos.append(updated)
-        }
-
-        return deduplicatedRepos
-    }
-
-    private static func shouldPrefer(
-        candidate: OwnerCandidate,
-        over existing: OwnerCandidate
-    ) -> Bool {
-        if candidate.repoWorktreeCount != existing.repoWorktreeCount {
-            return candidate.repoWorktreeCount > existing.repoWorktreeCount
-        }
-        if candidate.repoPathMatchesWorktree != existing.repoPathMatchesWorktree {
-            return candidate.repoPathMatchesWorktree
-        }
-        if candidate.isMainWorktree != existing.isMainWorktree {
-            return candidate.isMainWorktree
-        }
-        return candidate.stableTieBreaker.localizedCaseInsensitiveCompare(existing.stableTieBreaker)
-            == .orderedAscending
-    }
-
-    private static func normalizedCwdPath(_ url: URL) -> String {
-        url.standardizedFileURL.path
     }
 }

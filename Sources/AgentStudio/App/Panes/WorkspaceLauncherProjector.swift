@@ -55,7 +55,10 @@ enum WorkspaceLauncherProjector {
         let repoCache = atom(\.repoCache)
         let welcome = atom(\.welcome)
         let repositoryTopology = store.repositoryTopologyAtom
-        let tabLayout = store.tabLayoutAtom
+        let workspaceTab = WorkspaceTabDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
 
         if repositoryTopology.repos.isEmpty {
             switch welcome.folderScanState {
@@ -69,7 +72,7 @@ enum WorkspaceLauncherProjector {
             }
         }
 
-        if tabLayout.tabs.isEmpty {
+        if workspaceTab.tabs.isEmpty {
             let checkoutColorHexByRepoId = projectCheckoutColorHexByRepoId(
                 store: store,
                 repoCache: repoCache
@@ -189,14 +192,14 @@ enum WorkspaceLauncherProjector {
         repoCache: RepoCacheAtom
     ) -> [UUID: String] {
         let sidebarRepos = RepoSidebarContentView.resolvedRepos(
-            store.repositoryTopologyAtom.repos.map(SidebarRepo.init(repo:)),
+            store.repositoryTopologyAtom.repos.map(RepoPresentationItem.init(repo:)),
             enrichmentByRepoId: repoCache.repoEnrichmentByRepoId
         )
-        let metadataByRepoId = RepoSidebarContentView.buildRepoMetadata(
+        let metadataByRepoId = RepoPresentationColoring.buildRepoMetadata(
             repos: sidebarRepos,
             repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId
         )
-        let groups = SidebarRepoGrouping.buildGroups(
+        let groups = RepoPresentationGrouping.buildGroups(
             repos: sidebarRepos,
             metadataByRepoId: metadataByRepoId
         )
@@ -204,7 +207,7 @@ enum WorkspaceLauncherProjector {
         var checkoutColorHexByRepoId: [UUID: String] = [:]
         for group in groups {
             for repo in group.repos {
-                checkoutColorHexByRepoId[repo.id] = RepoSidebarContentView.checkoutColorHex(
+                checkoutColorHexByRepoId[repo.id] = RepoPresentationColoring.checkoutColorHex(
                     for: repo,
                     in: group
                 )
@@ -214,13 +217,13 @@ enum WorkspaceLauncherProjector {
     }
 
     private static func fallbackCheckoutColorHex(for repo: Repo) -> String {
-        RepoSidebarContentView.checkoutColorHex(
-            for: SidebarRepo(repo: repo),
-            in: SidebarRepoGroup(
+        RepoPresentationColoring.checkoutColorHex(
+            for: RepoPresentationItem(repo: repo),
+            in: RepoPresentationGroup(
                 id: "path:\(repo.repoPath.standardizedFileURL.path)",
                 repoTitle: repo.name,
                 organizationName: nil,
-                repos: [SidebarRepo(repo: repo)]
+                repos: [RepoPresentationItem(repo: repo)]
             )
         )
     }

@@ -156,6 +156,96 @@ final class TabBarAdapterTests {
     }
 
     @Test
+    func test_activeArrangementBadgeNumber_hiddenForDefaultArrangement() async throws {
+        resetFixture()
+
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+
+        await waitForAdapterRefresh()
+
+        let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
+        #expect(tabItem.activeArrangementBadgeNumber == nil)
+    }
+
+    @Test
+    func test_activeArrangementBadgeNumber_isOneForFirstCustomArrangement() async throws {
+        resetFixture()
+
+        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = makeTab(paneIds: [firstPane.id, secondPane.id], activePaneId: firstPane.id)
+        store.appendTab(tab)
+        let arrangementId = try #require(
+            store.createArrangement(name: "#1", paneIds: [firstPane.id], inTab: tab.id),
+            "Expected arrangement to be created"
+        )
+        store.switchArrangement(to: arrangementId, inTab: tab.id)
+
+        await waitForAdapterRefresh()
+
+        let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
+        #expect(tabItem.activeArrangementBadgeNumber == 1)
+    }
+
+    @Test
+    func test_activeArrangementBadgeNumber_usesCustomArrangementOrder() async throws {
+        resetFixture()
+
+        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = makeTab(paneIds: [firstPane.id, secondPane.id], activePaneId: firstPane.id)
+        store.appendTab(tab)
+        _ = store.createArrangement(name: "#1", paneIds: [firstPane.id], inTab: tab.id)
+        let secondArrangementId = try #require(
+            store.createArrangement(name: "#2", paneIds: [secondPane.id], inTab: tab.id),
+            "Expected second arrangement to be created"
+        )
+        store.switchArrangement(to: secondArrangementId, inTab: tab.id)
+
+        await waitForAdapterRefresh()
+
+        let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
+        #expect(tabItem.activeArrangementBadgeNumber == 2)
+    }
+
+    @Test
+    func test_activeArrangementName_populatedForCustomActive() async throws {
+        resetFixture()
+
+        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = makeTab(paneIds: [firstPane.id, secondPane.id], activePaneId: firstPane.id)
+        store.appendTab(tab)
+        let arrangementId = try #require(
+            store.createArrangement(name: "coding", paneIds: [firstPane.id], inTab: tab.id),
+            "Expected arrangement to be created"
+        )
+        store.switchArrangement(to: arrangementId, inTab: tab.id)
+
+        await waitForAdapterRefresh()
+
+        let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
+        #expect(tabItem.activeArrangementName == "coding")
+        #expect(tabItem.activeArrangementBadgeNumber == 1)
+    }
+
+    @Test
+    func test_activeArrangementName_nilForDefaultArrangement() async throws {
+        resetFixture()
+
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+
+        await waitForAdapterRefresh()
+
+        let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
+        #expect(tabItem.activeArrangementName == nil)
+    }
+
+    @Test
 
     func test_tabRemoved_adapterUpdates() async throws {
         resetFixture()

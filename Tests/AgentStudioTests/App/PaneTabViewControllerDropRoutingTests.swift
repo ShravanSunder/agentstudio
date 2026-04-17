@@ -8,13 +8,13 @@ struct PaneTabViewControllerDropRoutingTests {
     private func makeSnapshot(
         tabs: [TabSnapshot],
         activeTabId: UUID?,
-        isManagementModeActive: Bool = true,
+        isManagementLayerActive: Bool = true,
         drawerParentByPaneId: [UUID: UUID] = [:]
     ) -> ActionStateSnapshot {
         ActionStateSnapshot(
             tabs: tabs,
             activeTabId: activeTabId,
-            isManagementModeActive: isManagementModeActive,
+            isManagementLayerActive: isManagementLayerActive,
             drawerParentByPaneId: drawerParentByPaneId
         )
     }

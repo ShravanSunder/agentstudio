@@ -18,6 +18,8 @@ mise run lint                 # Lint (swift-format + swiftlint + boundary checks
 
 First-time setup: `mise install && mise run doctor-mac && mise run setup && mise run build`. See [Agent Resources](docs/guides/agent_resources.md) for full bootstrap.
 
+> **Time-based note (2026-04): Xcode 26.4+ breaks vendored zig 0.15.2 builds.** Apple's Xcode 26.4 `MacOSX.sdk/usr/lib/libSystem.B.tbd` drops `arm64-macos` from top-level targets → zig 0.15.2's linker fails with `undefined symbol: _abort`, `_getenv`, etc. on Apple Silicon when building ghostty/zmx. Xcode 26.5 beta is also affected. Fixed in zig 0.16 (which ghostty hasn't adopted). Workaround: install **Xcode 26.3** side-by-side, `sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer`, `xcodebuild -downloadComponent MetalToolchain`, `rm -rf ~/.cache/zig`. If `mise run setup` surfaces `undefined symbol: _abort` or similar libSystem errors, this is the cause. Refs: [ghostty#11991](https://github.com/ghostty-org/ghostty/issues/11991), [zig#31658](https://codeberg.org/ziglang/zig/issues/31658). Delete this note once ghostty bumps to zig 0.16 or Apple fixes the SDK.
+
 Testing: Swift 6 `Testing` only — `@Suite`, `@Test`, `#expect`. No XCTest. A PostToolUse hook (`.claude/hooks/check.sh`) runs swift-format and swiftlint automatically after every Edit/Write on `.swift` files.
 
 ### No Wall-Clock Tests
@@ -107,12 +109,12 @@ Swift compile times are long. A wrong UX assumption wastes minutes per iteration
 
 ### Visual Verification
 
-Agents **must** visually verify all UI/UX changes using Peekaboo. **Never target apps by name** when testing debug builds — use PID targeting:
+Agents **must** visually verify all UI/UX changes using Peekaboo. **Never target apps by name** when testing debug builds — use PID targeting. **Never `pkill` AgentStudio** — it kills the user's running app. Each agent session builds to its own `.build-agent-$PPID/` directory; launch from there:
 
 ```bash
-pkill -9 -f "AgentStudio"
-.build/debug/AgentStudio &
-PID=$(pgrep -f ".build/debug/AgentStudio")
+BUILD_PATH=".build-agent-$PPID"
+"$BUILD_PATH/debug/AgentStudio" &
+PID=$!
 peekaboo see --app "PID:$PID" --json
 ```
 
@@ -324,13 +326,12 @@ See [EventBus Design — Swift 6.2 concurrency rules](docs/architecture/pane_run
 
 **For filtered test runs:**
 ```bash
-SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)"
-swift test --build-path "$SWIFT_BUILD_DIR" --filter "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"
+swift test --build-path ".build-agent-$PPID" --filter "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"
 ```
 
 | Env Var | Default | Purpose |
 |---------|---------|---------|
-| `SWIFT_BUILD_DIR` | `.build-agent-$RANDOM` | Build path isolation between agent sessions |
+| `SWIFT_BUILD_DIR` | `.build-agent-$PPID` | Build path isolation — auto-derived from parent process ID, stable per agent session |
 | `SWIFT_TEST_PARALLEL` | `1` (enabled) | Set to `0` to disable parallel workers |
 | `SWIFT_TEST_WORKERS` | `hw.ncpu / 2` (max 4) | Parallel test worker count |
 

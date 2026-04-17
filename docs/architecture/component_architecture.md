@@ -224,7 +224,7 @@ A tab in the workspace. Contains panes organized into arrangements. Order is imp
 | `activeArrangementId` | `UUID` | yes | Currently active arrangement |
 | `activePaneId` | `UUID?` | yes | Focused pane within this tab. Nil only during construction. |
 | `zoomedPaneId` | `UUID?` | no | Display-only zoom state. Zoomed pane fills the tab. |
-| `minimizedPaneIds` | `Set<UUID>` | no | Panes collapsed to narrow bars. Transient. |
+| `activeMinimizedPaneIds` | `Set<UUID>` | no | Derived from the active arrangement's `minimizedPaneIds`. |
 
 **Derived state:**
 - `defaultArrangement` — The arrangement with `isDefault == true` (exactly one per tab)
@@ -242,6 +242,7 @@ A tab in the workspace. Contains panes organized into arrangements. Order is imp
 | `isDefault` | `Bool` | Exactly one per tab must be `true` |
 | `layout` | `Layout` | Spatial layout of panes |
 | `visiblePaneIds` | `Set<UUID>` | Subset of tab's panes visible in this arrangement |
+| `minimizedPaneIds` | `Set<UUID>` | Visible panes collapsed to narrow bars in this arrangement. Persisted. |
 
 > **Files:** `Core/Models/Tab.swift`, `Core/Models/PaneArrangement.swift`
 
@@ -313,7 +314,7 @@ AppDelegate (creates all services in dependency order)
 ├── AppLifecycleAtom             ← app active/terminating state (in-memory)
 ├── WindowLifecycleAtom          ← key/focused window identity, terminal geometry (in-memory)
 ├── ApplicationLifecycleMonitor   ← AppKit lifecycle ingress into lifecycle stores
-├── ManagementModeMonitor         ← management mode state tracking
+├── ManagementLayerMonitor         ← management layer state tracking
 ├── SessionRuntime                ← backend status tracking (zmx health)
 ├── ViewRegistry                  ← paneId → PaneViewSlot mapping
 ├── PaneCoordinator               ← action dispatch + model↔view↔surface orchestration
@@ -438,7 +439,7 @@ There is no standalone `ViewResolver` type in code; this behavior is owned by th
 
 - `PaneTabViewController` observes app state and renders the active view arrangement.
 - `ViewRegistry` provides pane-to-view mapping used by split rendering.
-- `FlatTabStripContainer` handles split-drop routing in management mode using:
+- `FlatTabStripContainer` handles split-drop routing in management layer using:
   - `SplitContainerDropCaptureOverlay` (single drop input surface)
   - `PaneDragCoordinator` (pure drag target resolution)
   - `PaneDropTargetOverlay` (single target visualization layer)
@@ -747,7 +748,7 @@ Agent Studio has two typed presentation layers for user-triggerable UI:
 │ - helpText                                                   │
 │ - keyBinding                                                 │
 │ - appliesTo                                                  │
-│ - requiresManagementMode                                     │
+│ - requiresManagementLayer                                     │
 │ - visibleWhen                                                │
 │ - command bar group / priority                               │
 └──────────────────────────────────────────────────────────────┘

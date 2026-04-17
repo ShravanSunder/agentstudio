@@ -1,5 +1,12 @@
 # Welcome Launcher Composition Redesign — Spec
 
+> Status note: This document is historical design context, not the current
+> implementation contract. The shipped launcher in
+> `Sources/AgentStudio/App/Panes/WorkspaceEmptyStateView.swift` now uses a
+> single-column `VStack` for recent worktrees rather than the responsive
+> multi-column grid described below. Treat the current code and
+> `AppStyles.Welcome` as the source of truth for the live layout.
+
 ## Hard Invariant
 
 **Welcome 1 is pixel-identical before and after.**

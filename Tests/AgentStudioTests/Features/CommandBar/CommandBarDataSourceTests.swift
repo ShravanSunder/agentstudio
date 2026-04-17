@@ -188,6 +188,26 @@ struct CommandBarDataSourceTests {
         #expect(!withShortcuts.isEmpty)
     }
 
+    @Test
+    func test_commandsScope_includesScrollToBottomInPaneGroup() {
+        let store = makeStore()
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let items = CommandBarDataSource.items(
+            scope: .commands,
+            store: store,
+            repoCache: RepoCacheAtom(),
+            dispatcher: dispatcher
+        )
+
+        let item = items.first { $0.command == .scrollToBottom }
+        #expect(item?.group == "Pane")
+        #expect(item?.shortcutTrigger == AppShortcut.scrollToBottom.trigger)
+    }
+
     // MARK: - Panes Scope
 
     @Test

@@ -85,6 +85,9 @@ extension Ghostty {
 
         /// The ghostty app reference
         private weak var ghosttyApp: App?
+        private(set) var hostScrollbarState: ScrollbarState?
+        private(set) var hostConfigSnapshot: GhosttyHostConfigSnapshot
+        var onHostScrollbarStateChanged: (@MainActor @Sendable (ScrollbarState) -> Void)?
 
         /// Marked text for input method
         var markedText = NSMutableAttributedString()
@@ -155,6 +158,7 @@ extension Ghostty {
             }
             config.requireInitialFrameForSurfaceCreation()
             self.ghosttyApp = app
+            self.hostConfigSnapshot = app.hostConfigSnapshot()
             super.init(frame: config.initialFrame!)
             let startupCommandForSurface = config.startupStrategy.startupCommandForSurface
             RestoreTrace.log(
@@ -303,6 +307,15 @@ extension Ghostty {
             }
         }
 
+        func updateHostConfigSnapshot(_ snapshot: GhosttyHostConfigSnapshot) {
+            hostConfigSnapshot = snapshot
+        }
+
+        func updateHostScrollbarState(_ state: ScrollbarState) {
+            hostScrollbarState = state
+            onHostScrollbarStateChanged?(state)
+        }
+
         // MARK: - View Lifecycle
 
         override var acceptsFirstResponder: Bool { true }
@@ -398,13 +411,13 @@ extension Ghostty {
         }
 
         override func mouseEntered(with event: NSEvent) {
-            // Block hover tracking during management mode — pane content is non-interactive.
-            guard !atom(\.managementMode).isActive else { return }
+            // Block hover tracking during management layer — pane content is non-interactive.
+            guard !atom(\.managementLayer).isActive else { return }
             sendMousePos(event)
         }
 
         override func mouseExited(with event: NSEvent) {
-            guard !atom(\.managementMode).isActive else { return }
+            guard !atom(\.managementLayer).isActive else { return }
             guard let surface else { return }
             let mods = ghosttyMods(from: event.modifierFlags)
             // Send -1,-1 to indicate cursor left the viewport

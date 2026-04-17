@@ -183,6 +183,7 @@ extension WebKitSerializedTests {
             let didNavigateToAppURL = await waitUntil {
                 controller.page.url?.absoluteString == "agentstudio://app/index.html"
             }
+            try await waitForPageLoad(controller.page)
             let didResolveTitle = await waitForTitle(controller.page, equals: "Bridge")
 
             // Assert — page loaded from custom scheme with expected URL
@@ -291,6 +292,15 @@ extension WebKitSerializedTests {
                 await Task.yield()
             }
             return page.title == expectedTitle
+        }
+
+        private func waitForPageLoad(_ page: WebPage, timeout: Duration = .seconds(5)) async throws {
+            for _ in 0..<50_000 {
+                if !page.isLoading { break }
+                await Task.yield()
+            }
+            try #require(!page.isLoading, "Page did not finish loading within \(timeout)")
+            await settleAsyncCallbacks(turns: 40)
         }
 
         private func waitForMessageCount(

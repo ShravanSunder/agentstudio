@@ -11,12 +11,12 @@ final class WorkspaceCommandValidatorTests {
     private func makeSnapshot(
         tabs: [TabSnapshot] = [],
         activeTabId: UUID? = nil,
-        isManagementModeActive: Bool = false
+        isManagementLayerActive: Bool = false
     ) -> ActionStateSnapshot {
         ActionStateSnapshot(
             tabs: tabs,
             activeTabId: activeTabId,
-            isManagementModeActive: isManagementModeActive
+            isManagementLayerActive: isManagementLayerActive
         )
     }
 
@@ -295,6 +295,41 @@ final class WorkspaceCommandValidatorTests {
         Issue.record("Expected tabNotFound error")
     }
 
+    @Test
+
+    func test_scrollToBottom_existingPane_succeeds() {
+        // Arrange
+        let (tab, tabId, paneIds) = makeMultiPaneTab()
+        let snapshot = makeSnapshot(tabs: [tab])
+
+        // Act
+        let result = WorkspaceCommandValidator.validate(
+            .scrollToBottom(tabId: tabId, paneId: paneIds[0]),
+            state: snapshot
+        )
+
+        // Assert
+        #expect((try? result.get()) != nil)
+    }
+
+    @Test
+
+    func test_scrollToBottom_missingPane_fails() {
+        // Arrange
+        let (tab, tabId, _) = makeMultiPaneTab()
+        let snapshot = makeSnapshot(tabs: [tab])
+
+        // Act
+        let result = WorkspaceCommandValidator.validate(
+            .scrollToBottom(tabId: tabId, paneId: UUID()),
+            state: snapshot
+        )
+
+        // Assert
+        if case .failure(.paneNotFound) = result { return }
+        Issue.record("Expected paneNotFound error")
+    }
+
     // MARK: - extractPaneToTab
 
     @Test
@@ -330,45 +365,6 @@ final class WorkspaceCommandValidatorTests {
         // Assert
         if case .failure(.singlePaneTab) = result { return }
         Issue.record("Expected singlePaneTab error")
-    }
-
-    // MARK: - focusPane
-
-    @Test
-
-    func test_focusPane_validPane_succeeds() {
-        // Arrange
-        let paneId = UUID()
-        let tabId = UUID()
-        let tab = TabSnapshot(id: tabId, visiblePaneIds: [paneId], ownedPaneIds: [paneId], activePaneId: paneId)
-        let snapshot = makeSnapshot(tabs: [tab])
-
-        // Act
-        let result = WorkspaceCommandValidator.validate(
-            .focusPane(tabId: tabId, paneId: paneId),
-            state: snapshot
-        )
-
-        // Assert
-        #expect((try? result.get()) != nil)
-    }
-
-    @Test
-
-    func test_focusPane_paneNotInTab_fails() {
-        // Arrange
-        let (tab, tabId, _) = makeSinglePaneTab()
-        let snapshot = makeSnapshot(tabs: [tab])
-
-        // Act
-        let result = WorkspaceCommandValidator.validate(
-            .focusPane(tabId: tabId, paneId: UUID()),
-            state: snapshot
-        )
-
-        // Assert
-        if case .failure(.paneNotFound) = result { return }
-        Issue.record("Expected paneNotFound error")
     }
 
     // MARK: - insertPane (self-insertion bug fix)

@@ -25,14 +25,16 @@ struct PaneLeafContainer: View {
     let repoCache: RepoCacheAtom
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let onPaneFocusTrigger: PaneFocusTriggerHandler
     let onOpenPaneGitHub: (UUID) -> Void
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
 
     @State private var isHovered: Bool = false
-    private var managementMode: ManagementModeAtom {
-        atom(\.managementMode)
+    private var managementLayer: ManagementLayerAtom {
+        atom(\.managementLayer)
     }
+    @State private var isDragHandleHovered: Bool = false
     @State private var isMinimizeHovered: Bool = false
     @State private var isCloseHovered: Bool = false
     @State private var isSplitHovered: Bool = false
@@ -48,6 +50,7 @@ struct PaneLeafContainer: View {
         repoCache: RepoCacheAtom,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
+        onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
         dropTargetCoordinateSpace: String? = "tabContainer",
         useDrawerFramePreference: Bool = false
@@ -61,6 +64,7 @@ struct PaneLeafContainer: View {
         self.repoCache = repoCache
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
+        self.onPaneFocusTrigger = onPaneFocusTrigger
         self.onOpenPaneGitHub = onOpenPaneGitHub
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
@@ -87,14 +91,14 @@ struct PaneLeafContainer: View {
     }
 
     /// True when hover is active either via tracking events or by direct pointer query.
-    /// The direct pointer query fixes the Cmd+E case where management mode toggles
+    /// The direct pointer query fixes the Cmd+E case where management layer toggles
     /// while the pointer is already inside the pane and no hover transition fires.
     private var isManagementHovered: Bool {
         isHovered || isPointerInsidePaneView
     }
 
     private var isPointerInsidePaneView: Bool {
-        guard managementMode.isActive else { return false }
+        guard managementLayer.isActive else { return false }
         guard let window = paneHost.window else { return false }
         let pointInWindow = window.mouseLocationOutsideOfEventStream
         let pointInPane = paneHost.convert(pointInWindow, from: nil)
@@ -139,13 +143,13 @@ struct PaneLeafContainer: View {
                         // Without this, updateNSView is a no-op and the old NSView
                         // stays mounted.
                         .id(paneHost.hostIdentity)
-                        // In management mode, route drag targeting through the shared
+                        // In management layer, route drag targeting through the shared
                         // SwiftUI leaf container so pane type (WKWebView/Ghostty/etc.)
                         // cannot intercept drop updates differently.
-                        .allowsHitTesting(!managementMode.isActive)
+                        .allowsHitTesting(!managementLayer.isActive)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                    if managementMode.isActive && !isDrawerChild && managementContext.showsIdentityBlock {
+                    if managementLayer.isActive && !isDrawerChild && managementContext.showsIdentityBlock {
                         ManagementPaneIdentityStrip(context: managementContext)
                     }
 
@@ -159,7 +163,8 @@ struct PaneLeafContainer: View {
                                 onOpenFinder: { openInFinder(managementContext) },
                                 onOpenCursor: { openInCursor(managementContext) }
                             ),
-                            action: actionDispatcher.dispatch
+                            action: actionDispatcher.dispatch,
+                            onPaneFocusTrigger: onPaneFocusTrigger
                         )
                         .fixedSize(horizontal: false, vertical: true)
                     }
@@ -170,36 +175,45 @@ struct PaneLeafContainer: View {
                     InactivePaneEdgeDimmingOverlay()
                 }
 
-                // Management mode dimming: persistent overlay signaling content is non-interactive
-                if managementMode.isActive {
+                // Management layer dimming: persistent overlay signaling content is non-interactive
+                if managementLayer.isActive {
                     Rectangle()
                         .fill(Color.black)
                         .opacity(AppStyles.Shell.ManagementLayer.modeDimmingOpacity)
                         .allowsHitTesting(false)
                 }
 
-                // Hover border: drag affordance in management mode
-                if managementMode.isActive && isManagementHovered && !isSplitResizing {
+                // Hover border: drag affordance in management layer
+                if managementLayer.isActive && isManagementHovered && !isSplitResizing {
                     RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.panel)
                         .strokeBorder(Color.white.opacity(AppStyles.General.Stroke.visible), lineWidth: 1)
                         .allowsHitTesting(false)
                         .animation(.easeInOut(duration: AppStyles.General.Animation.fast), value: isManagementHovered)
                 }
 
-                // Drag handle: compact centered pill in management mode.
+                // Drag handle: compact centered pill in management layer.
                 // The Color.clear fills the ZStack for centering; allowsHitTesting(false)
                 // ensures only the capsule itself intercepts mouse events.
-                if managementMode.isActive && !isSplitResizing {
+                if managementLayer.isActive && !isSplitResizing {
                     ZStack {
                         Color.clear
                             .allowsHitTesting(false)
                         ZStack {
                             RoundedRectangle(cornerRadius: AppStyles.Shell.ManagementLayer.dragHandleCornerRadius)
-                                .fill(Color.black.opacity(AppStyles.Shell.ManagementLayer.controlFillOpacity))
+                                .fill(
+                                    Color.black.opacity(
+                                        AppStyles.Shell.ManagementLayer.backgroundOpacity(
+                                            isHovered: isDragHandleHovered
+                                        )
+                                    )
+                                )
                                 .shadow(color: .black.opacity(AppStyles.General.Stroke.visible), radius: 4, y: 2)
                             Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
                                 .font(.system(size: AppStyles.General.Icon.toolbar, weight: .medium))
-                                .foregroundStyle(.white.opacity(AppStyles.General.Foreground.muted))
+                                .foregroundStyle(
+                                    .white.opacity(
+                                        AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: isDragHandleHovered))
+                                )
                         }
                         .frame(
                             width: AppStyles.Shell.ManagementLayer.dragHandleWidth,
@@ -208,6 +222,7 @@ struct PaneLeafContainer: View {
                         .contentShape(
                             RoundedRectangle(cornerRadius: AppStyles.Shell.ManagementLayer.dragHandleCornerRadius)
                         )
+                        .onHover { isDragHandleHovered = $0 }
                         .draggable(
                             PaneDragPayload(
                                 paneId: paneHost.id,
@@ -230,8 +245,8 @@ struct PaneLeafContainer: View {
                     }
                 }
 
-                // Pane controls: minimize + close (top-left, management mode)
-                if managementMode.isActive && !isSplitResizing {
+                // Pane controls: minimize + close (top-left, management layer)
+                if managementLayer.isActive && !isSplitResizing {
                     VStack {
                         HStack(spacing: AppStyles.General.Spacing.standard) {
                             Button {
@@ -241,9 +256,7 @@ struct PaneLeafContainer: View {
                                     .font(.system(size: AppStyles.Shell.ManagementLayer.actionIconSize, weight: .bold))
                                     .foregroundStyle(
                                         .white.opacity(
-                                            isMinimizeHovered
-                                                ? AppStyles.General.Foreground.secondary
-                                                : AppStyles.General.Foreground.muted)
+                                            AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: isMinimizeHovered))
                                     )
                                     .frame(
                                         width: AppStyles.Shell.ManagementLayer.actionSize,
@@ -253,10 +266,8 @@ struct PaneLeafContainer: View {
                                         Circle()
                                             .fill(
                                                 Color.black.opacity(
-                                                    isMinimizeHovered
-                                                        ? AppStyles.Shell.ManagementLayer.controlFillOpacity
-                                                            + AppStyles.Shell.ManagementLayer.controlHoverDelta
-                                                        : AppStyles.Shell.ManagementLayer.controlFillOpacity))
+                                                    AppStyles.Shell.ManagementLayer.backgroundOpacity(
+                                                        isHovered: isMinimizeHovered)))
                                     )
                                     .contentShape(Circle())
                             }
@@ -271,9 +282,7 @@ struct PaneLeafContainer: View {
                                     .font(.system(size: AppStyles.Shell.ManagementLayer.actionIconSize, weight: .bold))
                                     .foregroundStyle(
                                         .white.opacity(
-                                            isCloseHovered
-                                                ? AppStyles.General.Foreground.secondary
-                                                : AppStyles.General.Foreground.muted)
+                                            AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: isCloseHovered))
                                     )
                                     .frame(
                                         width: AppStyles.Shell.ManagementLayer.actionSize,
@@ -283,10 +292,8 @@ struct PaneLeafContainer: View {
                                         Circle()
                                             .fill(
                                                 Color.black.opacity(
-                                                    isCloseHovered
-                                                        ? AppStyles.Shell.ManagementLayer.controlFillOpacity
-                                                            + AppStyles.Shell.ManagementLayer.controlHoverDelta
-                                                        : AppStyles.Shell.ManagementLayer.controlFillOpacity))
+                                                    AppStyles.Shell.ManagementLayer.backgroundOpacity(
+                                                        isHovered: isCloseHovered)))
                                     )
                                     .contentShape(Circle())
                             }
@@ -303,8 +310,8 @@ struct PaneLeafContainer: View {
                     .transition(.opacity)
                 }
 
-                // Quarter-moon split and browser buttons (top-right, management mode)
-                if managementMode.isActive && !isSplitResizing {
+                // Quarter-moon split and browser buttons (top-right, management layer)
+                if managementLayer.isActive && !isSplitResizing {
                     VStack {
                         HStack {
                             Spacer()
@@ -346,7 +353,23 @@ struct PaneLeafContainer: View {
             .contentShape(Rectangle())
             .onHover { isHovered = $0 }
             .onTapGesture {
-                actionDispatcher.dispatch(.focusPane(tabId: tabId, paneId: paneHost.id))
+                if let drawerParentPaneId {
+                    onPaneFocusTrigger(
+                        .drawer(
+                            .selectPane(parentPaneId: drawerParentPaneId, drawerPaneId: paneHost.id)
+                        )
+                    )
+                } else {
+                    onPaneFocusTrigger(
+                        .contentClick(
+                            PaneContentClickFocusTrigger(
+                                targetPaneId: paneHost.id,
+                                location: .content,
+                                clickPhase: .completed
+                            )
+                        )
+                    )
+                }
             }
             .opacity(isClosing ? 0.58 : 1)
             .scaleEffect(isClosing ? 0.985 : 1)
@@ -354,7 +377,7 @@ struct PaneLeafContainer: View {
             .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: isClosing)
             .allowsHitTesting(!isClosing)
             .contextMenu {
-                if managementMode.isActive && !isDrawerChild {
+                if managementLayer.isActive && !isDrawerChild {
                     Button(LocalActionSpec.extractPaneToNewTab.actionSpec.label) {
                         actionDispatcher.dispatch(.extractPaneToTab(tabId: tabId, paneId: paneHost.id))
                     }
@@ -440,10 +463,7 @@ struct PaneLeafContainer: View {
             Image(systemName: systemName)
                 .font(.system(size: AppStyles.Shell.PaneChrome.paneSplitIconSize, weight: .bold))
                 .foregroundStyle(
-                    .white.opacity(
-                        isHovered
-                            ? AppStyles.General.Foreground.secondary
-                            : AppStyles.General.Foreground.muted)
+                    .white.opacity(AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: isHovered))
                 )
                 .frame(
                     width: AppStyles.Shell.PaneChrome.paneSplitButtonSize,
@@ -458,10 +478,7 @@ struct PaneLeafContainer: View {
                     )
                     .fill(
                         Color.black.opacity(
-                            isHovered
-                                ? AppStyles.Shell.ManagementLayer.controlFillOpacity
-                                    + AppStyles.Shell.ManagementLayer.controlHoverDelta
-                                : AppStyles.Shell.ManagementLayer.controlFillOpacity
+                            AppStyles.Shell.ManagementLayer.backgroundOpacity(isHovered: isHovered)
                         )
                     )
                 )

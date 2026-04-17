@@ -122,8 +122,48 @@ extension PaneCoordinator {
         }
     }
 
+    func restoreVisiblePaneIfNeeded(_ paneId: UUID, forceWhenBoundsExist: Bool = false) {
+        guard let activeTab = store.tabLayoutAtom.activeTab else { return }
+        if !windowLifecycleStore.isLaunchLayoutSettled {
+            let hasPreparingPlaceholder =
+                viewRegistry.terminalStatusPlaceholderView(for: paneId)?.shouldRetryCreationWhenBoundsChange == true
+            guard forceWhenBoundsExist || hasPreparingPlaceholder || windowLifecycleStore.isReadyForLaunchRestore else {
+                RestoreTrace.log(
+                    "restoreVisiblePaneIfNeeded skipped launchLayoutUnsettled pane=\(paneId) bounds=\(NSStringFromRect(windowLifecycleStore.terminalContainerBounds)) settled=\(windowLifecycleStore.isLaunchLayoutSettled)"
+                )
+                return
+            }
+        }
+
+        let terminalContainerBounds = windowLifecycleStore.terminalContainerBounds
+        guard !terminalContainerBounds.isEmpty else {
+            RestoreTrace.log("restoreVisiblePaneIfNeeded skipped boundsUnavailable pane=\(paneId)")
+            return
+        }
+
+        let runtimePaneId = PaneId(uuid: paneId)
+        guard visibilityTierResolver.tier(for: runtimePaneId) == .p0Visible else { return }
+        guard let pane = store.paneAtom.pane(paneId) else { return }
+        guard store.tabLayoutAtom.tabContaining(paneId: pane.parentPaneId ?? pane.id)?.id == activeTab.id else {
+            return
+        }
+
+        if let placeholder = viewRegistry.terminalStatusPlaceholderView(for: paneId) {
+            guard placeholder.shouldRetryCreationWhenBoundsChange else { return }
+        } else if viewRegistry.view(for: paneId) != nil {
+            return
+        }
+
+        let resolvedPaneFramesByTabId = resolveInitialFramesByTabId(in: terminalContainerBounds)
+        _ = createViewForContent(
+            pane: pane,
+            initialFrame: initialFrame(for: pane, resolvedPaneFramesByTabId: resolvedPaneFramesByTabId),
+            treatAsRestoredSessionStart: true
+        )
+    }
+
     func focusVisiblePaneHost(_ paneId: UUID) {
-        if focusPaneHostIfReady(paneId) {
+        if applyPaneRefocusIfReady(for: paneId) {
             pendingFocusPaneIds.remove(paneId)
         } else {
             pendingFocusPaneIds.insert(paneId)
@@ -132,22 +172,63 @@ extension PaneCoordinator {
 
     func handlePaneHostAttachedToWindow(_ paneId: UUID) {
         guard pendingFocusPaneIds.contains(paneId) else { return }
-        if focusPaneHostIfReady(paneId) {
+        if applyPaneRefocusIfReady(for: paneId) {
             pendingFocusPaneIds.remove(paneId)
         }
     }
 
     @discardableResult
     func focusPaneHostIfReady(_ paneId: UUID) -> Bool {
-        guard let paneView = viewRegistry.view(for: paneId), paneView.window != nil else {
+        applyPaneRefocusIfReady(for: paneId)
+    }
+
+    @discardableResult
+    private func applyPaneRefocusIfReady(for paneId: UUID) -> Bool {
+        let paneKind = PaneFocusContext.PaneKind(content: store.paneAtom.pane(paneId)?.content)
+
+        let decision = PaneFocusOrchestrator.decide(
+            trigger: .refocusRequest(PaneRefocusRequestTrigger(reason: .explicit)),
+            context: PaneFocusContext(
+                activeTabId: store.tabLayoutAtom.activeTabId,
+                activePaneId: paneId,
+                activeDrawer: nil,
+                targetPaneId: paneId,
+                targetTabId: store.tabLayoutAtom.tabs.first { $0.paneIds.contains(paneId) }?.id,
+                targetPaneKind: paneKind,
+                targetPaneIsAlreadyActive: true,
+                targetMountedContent: viewRegistry.view(for: paneId)?.mountedContentStateForPaneFocus ?? .unmounted,
+                managementLayer: atom(\.managementLayer).isActive ? .active(scope: .mainRow) : .inactive,
+                windowState: viewRegistry.view(for: paneId)?.window?.isKeyWindow == true ? .key : .background
+            )
+        )
+
+        guard case .refocusRequest(let refocusDecision) = decision else {
+            Self.logger.error("pane refocus produced non-refocus decision for pane \(paneId)")
             return false
         }
 
-        paneView.window?.makeFirstResponder(paneView)
-        if let terminalView = viewRegistry.terminalView(for: paneId) {
-            surfaceManager.syncFocus(activeSurfaceId: terminalView.surfaceId)
-        }
-        return true
+        return makeRefocusOnlyPaneFocusExecutor().apply(.refocusRequest(refocusDecision))
+    }
+
+    private func makeRefocusOnlyPaneFocusExecutor() -> PaneFocusExecutor {
+        // Refocus decisions never carry selection actions, so these no-op
+        // closures are intentional and keep the coordinator path limited to
+        // responder/runtime repair work only.
+        PaneFocusExecutor(
+            hostViewProvider: { [weak self] targetPaneId in
+                self?.viewRegistry.view(for: targetPaneId)
+            },
+            hostViewsProvider: { [weak self] in
+                guard let self else { return [] }
+                return self.viewRegistry.registeredPaneIds.compactMap { self.viewRegistry.view(for: $0) }
+            },
+            selectTab: { _ in },
+            selectPane: { _, _ in },
+            selectDrawerPane: { _, _ in },
+            syncRuntimeFocus: { [weak self] surfaceId in
+                self?.surfaceManager.syncFocus(activeSurfaceId: surfaceId)
+            }
+        )
     }
 
     func executeMergeTab(

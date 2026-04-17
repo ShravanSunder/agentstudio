@@ -4,10 +4,9 @@ import Observation
 import os
 
 // MARK: - AppCommand
-
 /// All available commands in the application.
 /// Every action — keyboard shortcut, menu item, context menu, command bar, search result,
-/// or management mode click — is backed by a command.
+/// or management layer click — is backed by a command.
 enum AppCommand: String, CaseIterable {
     // Tab commands
     case closeTab
@@ -21,12 +20,12 @@ enum AppCommand: String, CaseIterable {
     case prevTab
     case selectTab1, selectTab2, selectTab3, selectTab4, selectTab5
     case selectTab6, selectTab7, selectTab8, selectTab9
-
     // Pane commands
     case closePane
     case extractPaneToTab
     case movePaneToTab
     case focusPane
+    case scrollToBottom
     case splitRight, splitLeft
     case equalizePanes
     case focusPaneLeft, focusPaneRight, focusPaneUp, focusPaneDown
@@ -34,54 +33,45 @@ enum AppCommand: String, CaseIterable {
     case toggleSplitZoom
     case minimizePane
     case expandPane
-
     // Arrangement commands
     case switchArrangement
     case saveArrangement
     case deleteArrangement
     case renameArrangement
-
     // Drawer commands
     case addDrawerPane
     case toggleDrawer
     case navigateDrawerPane
     case closeDrawerPane
-
     // Repo commands
-    case addFolder, removeRepo
+    case addRepo, addFolder, removeRepo
     case openWorktree
     case openWorktreeInPane
-
-    // Management mode
-    case toggleManagementMode
-    case managementFocusLeft
-    case managementFocusRight
-    case managementEnterDrawer
-    case managementExitDrawer
-    case managementOpenDrawer
-    case managementCreateTerminal
-    case managementCreateBrowser
-    case managementExitMode
-
+    // Management layer
+    case toggleManagementLayer
+    case managementLayerFocusLeft
+    case managementLayerFocusRight
+    case managementLayerEnterDrawer
+    case managementLayerExitDrawer
+    case managementLayerOpenDrawer
+    case managementLayerCreateTerminal
+    case managementLayerCreateBrowser
+    case managementLayerExit
     // Workspace commands
     case toggleSidebar
     case newFloatingTerminal
-
     // Window commands
     case newWindow
     case closeWindow
-
     // Search/navigation
     case showCommandBarEverything
     case showCommandBarCommands
     case showCommandBarPanes
     case showCommandBarRepos
-
     // Webview commands
     case openWebview
     case signInGitHub
     case signInGoogle
-
     // Sidebar commands
     case filterSidebar
     case openNewTerminalInTab
@@ -147,7 +137,7 @@ struct CommandSpec {
     let icon: String?
     let helpText: String
     let appliesTo: Set<SearchItemType>
-    let requiresManagementMode: Bool
+    let requiresManagementLayer: Bool
     let visibleWhen: Set<FocusRequirement>
     let commandBarGroupName: String
     let commandBarGroupPriority: Int
@@ -160,7 +150,7 @@ struct CommandSpec {
         icon: String? = nil,
         helpText: String,
         appliesTo: Set<SearchItemType> = [],
-        requiresManagementMode: Bool = false,
+        requiresManagementLayer: Bool = false,
         visibleWhen: Set<FocusRequirement> = [],
         commandBarGroupName: String = "Commands",
         commandBarGroupPriority: Int = 7,
@@ -172,7 +162,7 @@ struct CommandSpec {
         self.icon = icon
         self.helpText = helpText
         self.appliesTo = appliesTo
-        self.requiresManagementMode = requiresManagementMode
+        self.requiresManagementLayer = requiresManagementLayer
         self.visibleWhen = visibleWhen
         self.commandBarGroupName = commandBarGroupName
         self.commandBarGroupPriority = commandBarGroupPriority
@@ -224,7 +214,7 @@ protocol ShellCommandHandling: AnyObject {
 
 /// Single execution point for all commands in the application.
 /// Routes keyboard shortcuts, menu items, search result actions,
-/// and management mode clicks through the same command system.
+/// and management layer clicks through the same command system.
 @Observable
 @MainActor
 final class CommandDispatcher {
@@ -299,8 +289,8 @@ final class CommandDispatcher {
     /// Check if a command can currently be executed
     func canDispatch(_ command: AppCommand) -> Bool {
         if let definition = definitions[command],
-            definition.requiresManagementMode,
-            !atom(\.managementMode).isActive
+            definition.requiresManagementLayer,
+            !atom(\.managementLayer).isActive
         {
             return false
         }
@@ -332,7 +322,6 @@ final class CommandDispatcher {
         }
     }
 }
-
 // MARK: - AppCommand Helpers
 
 extension AppCommand {
@@ -478,7 +467,7 @@ extension AppCommand {
                 icon: "xmark.square",
                 helpText: "Close the active pane",
                 appliesTo: [.pane, .floatingTerminal],
-                requiresManagementMode: true,
+                requiresManagementLayer: true,
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
@@ -501,7 +490,7 @@ extension AppCommand {
                 icon: "arrow.left.and.right.square",
                 helpText: "Move the active pane into another existing tab",
                 appliesTo: [.pane],
-                requiresManagementMode: true,
+                requiresManagementLayer: true,
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
@@ -517,6 +506,18 @@ extension AppCommand {
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane,
                 isHiddenInCommandBar: true
+            )
+        case .scrollToBottom:
+            return CommandSpec(
+                command: self,
+                shortcut: .scrollToBottom,
+                label: "Scroll to Bottom",
+                icon: "arrow.down.to.line",
+                helpText: "Scroll the active terminal pane to the bottom of its scrollback",
+                appliesTo: [.pane, .floatingTerminal],
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .splitRight:
             return CommandSpec(
@@ -653,6 +654,7 @@ extension AppCommand {
         case .addDrawerPane:
             return CommandSpec(
                 command: self,
+                shortcut: .addDrawerPane,
                 label: "Add Drawer Pane",
                 icon: "rectangle.bottomhalf.inset.filled",
                 helpText: "Add a drawer pane to the active pane",
@@ -695,6 +697,17 @@ extension AppCommand {
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
+        case .addRepo:
+            return CommandSpec(
+                command: self,
+                shortcut: .addRepo,
+                label: "Add Repo",
+                icon: "folder.badge.plus",
+                helpText: "Open a repository worktree directly in a new tab",
+                commandBarGroupName: "Repo",
+                commandBarGroupPriority: CommandBarGroupPriority.repo,
+                isHiddenInCommandBar: true
+            )
         case .addFolder:
             return CommandSpec(
                 command: self,
@@ -727,52 +740,52 @@ extension AppCommand {
                 icon: "rectangle.split.2x1",
                 helpText: "Open a worktree in a split pane"
             )
-        case .toggleManagementMode:
+        case .toggleManagementLayer:
             return CommandSpec(
                 command: self,
-                shortcut: .toggleManagementMode,
+                shortcut: .toggleManagementLayer,
                 label: "Manage Workspace",
                 icon: "rectangle.split.2x2",
                 helpText: "Toggle workspace management mode",
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
-        case .managementFocusLeft:
+        case .managementLayerFocusLeft:
             return managementDefinition(
-                shortcut: .managementFocusLeft,
+                shortcut: .managementLayerFocusLeft,
                 label: "Management Focus Left", icon: "arrow.left", helpText: "Move focus left in management mode")
-        case .managementFocusRight:
+        case .managementLayerFocusRight:
             return managementDefinition(
-                shortcut: .managementFocusRight,
+                shortcut: .managementLayerFocusRight,
                 label: "Management Focus Right", icon: "arrow.right", helpText: "Move focus right in management mode")
-        case .managementEnterDrawer:
+        case .managementLayerEnterDrawer:
             return managementDefinition(
-                shortcut: .managementEnterDrawer,
+                shortcut: .managementLayerEnterDrawer,
                 label: "Management Enter Drawer", icon: "arrow.down",
                 helpText: "Enter or expand the current drawer in management mode")
-        case .managementExitDrawer:
+        case .managementLayerExitDrawer:
             return managementDefinition(
-                shortcut: .managementExitDrawer,
+                shortcut: .managementLayerExitDrawer,
                 label: "Management Exit Drawer", icon: "arrow.up",
                 helpText: "Collapse the current drawer in management mode")
-        case .managementOpenDrawer:
+        case .managementLayerOpenDrawer:
             return managementDefinition(
-                shortcut: .managementOpenDrawer,
+                shortcut: .managementLayerOpenDrawer,
                 label: "Management Open Drawer", icon: "rectangle.expand.vertical",
                 helpText: "Open the current drawer in management mode")
-        case .managementCreateTerminal:
+        case .managementLayerCreateTerminal:
             return managementDefinition(
-                shortcut: .managementCreateTerminal,
+                shortcut: .managementLayerCreateTerminal,
                 label: "Management Create Terminal", icon: "plus.square",
                 helpText: "Create a terminal in the current management-mode context")
-        case .managementCreateBrowser:
+        case .managementLayerCreateBrowser:
             return managementDefinition(
-                shortcut: .managementCreateBrowser,
+                shortcut: .managementLayerCreateBrowser,
                 label: "Management Create Browser", icon: "globe",
                 helpText: "Create a browser in the current management-mode context")
-        case .managementExitMode:
+        case .managementLayerExit:
             return managementDefinition(
-                shortcut: .managementExitMode,
+                shortcut: .managementLayerExit,
                 label: "Management Exit Mode", icon: "rectangle.split.2x2.fill",
                 helpText: "Exit management mode")
         case .toggleSidebar:
@@ -962,7 +975,7 @@ extension AppCommand {
             label: label,
             icon: icon,
             helpText: helpText,
-            requiresManagementMode: true,
+            requiresManagementLayer: true,
             isHiddenInCommandBar: true
         )
     }

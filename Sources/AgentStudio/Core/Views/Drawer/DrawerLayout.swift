@@ -49,7 +49,7 @@ enum DrawerLayout {
     /// Set to 0 since the icon bar is now a standalone rounded bar.
     static let connectorHeight: CGFloat = 0
 
-    /// Width and height of icon bar buttons (derived from AppStyle compact size).
+    /// Width and height of icon bar buttons (derived from AppStyles compact size).
     static let iconButtonSize: CGFloat = AppStyles.General.Button.compact
 
     /// Corner radius for individual icon bar buttons.

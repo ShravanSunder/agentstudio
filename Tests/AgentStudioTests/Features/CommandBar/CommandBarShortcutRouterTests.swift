@@ -99,4 +99,30 @@ struct CommandBarShortcutRouterTests {
             return
         }
     }
+
+    @Test
+    func rowShortcutMatchesScrollToBottomShortcut() {
+        let item = CommandBarItem(
+            id: "cmd-scrollToBottom",
+            title: "Scroll to Bottom",
+            icon: "arrow.down.to.line",
+            shortcutTrigger: AppShortcut.scrollToBottom.trigger,
+            group: "Pane",
+            groupPriority: 0,
+            action: .dispatch(.scrollToBottom),
+            command: .scrollToBottom
+        )
+
+        let route = CommandBarShortcutRouter.route(
+            trigger: AppShortcut.scrollToBottom.trigger,
+            selectedItem: nil,
+            displayedItems: [item]
+        )
+
+        guard case .executeRow(let matchedItem) = route else {
+            Issue.record("Expected executeRow route for scroll-to-bottom shortcut")
+            return
+        }
+        #expect(matchedItem.id == item.id)
+    }
 }

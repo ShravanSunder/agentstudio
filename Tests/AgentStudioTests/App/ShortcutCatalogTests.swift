@@ -39,16 +39,19 @@ struct ShortcutCatalogTests {
 
     @Test
     func commandSpecDerivesKeyBindingFromShortcut() {
-        let managementDefinition = CommandDispatcher.shared.definition(for: .toggleManagementMode)
+        let managementLayerDefinition = CommandDispatcher.shared.definition(for: .toggleManagementLayer)
         let quickOpenDefinition = CommandDispatcher.shared.definition(for: .showCommandBarEverything)
         let startContextDefinition = CommandDispatcher.shared.definition(for: .showCommandBarRepos)
+        let addDrawerPaneDefinition = CommandDispatcher.shared.definition(for: .addDrawerPane)
 
-        #expect(managementDefinition.keyBinding?.key == "r")
-        #expect(managementDefinition.keyBinding?.modifiers == [.command])
+        #expect(managementLayerDefinition.keyBinding?.key == "r")
+        #expect(managementLayerDefinition.keyBinding?.modifiers == [.command])
         #expect(quickOpenDefinition.keyBinding?.key == "p")
         #expect(quickOpenDefinition.keyBinding?.modifiers == [.command])
         #expect(startContextDefinition.keyBinding?.key == "t")
         #expect(startContextDefinition.keyBinding?.modifiers == [.command])
+        #expect(addDrawerPaneDefinition.keyBinding?.key == "d")
+        #expect(addDrawerPaneDefinition.keyBinding?.modifiers == [.command, .shift])
     }
 
     @Test
@@ -77,6 +80,26 @@ struct ShortcutCatalogTests {
     }
 
     @Test
+    func shortcutDecoder_decodesAddDrawerPaneShortcut() {
+        let addDrawerPane = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.d), modifiers: [.command, .shift]),
+            in: .global
+        )
+
+        #expect(addDrawerPane == .addDrawerPane)
+    }
+
+    @Test
+    func shortcutDecoder_decodesScrollToBottomShortcut() {
+        let scrollToBottom = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.k), modifiers: [.command, .option]),
+            in: .terminalAppOwned
+        )
+
+        #expect(scrollToBottom == .scrollToBottom)
+    }
+
+    @Test
     func shortcutDecoder_decodesCharacterAndEscapeEvents() {
         let managementToggle = ShortcutDecoder.decode(
             keyCode: 15,
@@ -97,25 +120,25 @@ struct ShortcutCatalogTests {
     func shortcutDecoder_decodesManagementShortcuts() {
         let focusLeft = ShortcutDecoder.shortcut(
             for: .init(key: .arrow(.left), modifiers: []),
-            in: .managementMode
+            in: .managementLayer
         )
         let enterDrawer = ShortcutDecoder.shortcut(
             for: .init(key: .arrow(.down), modifiers: []),
-            in: .managementMode
+            in: .managementLayer
         )
         let openDrawer = ShortcutDecoder.shortcut(
             for: .init(key: .character(.d), modifiers: []),
-            in: .managementMode
+            in: .managementLayer
         )
         let exitMode = ShortcutDecoder.shortcut(
             for: .init(key: .character(.r), modifiers: []),
-            in: .managementMode
+            in: .managementLayer
         )
 
-        #expect(focusLeft == .managementFocusLeft)
-        #expect(enterDrawer == .managementEnterDrawer)
-        #expect(openDrawer == .managementOpenDrawer)
-        #expect(exitMode == .managementExitMode)
+        #expect(focusLeft == .managementLayerFocusLeft)
+        #expect(enterDrawer == .managementLayerEnterDrawer)
+        #expect(openDrawer == .managementLayerOpenDrawer)
+        #expect(exitMode == .managementLayerExit)
     }
 
     @Test

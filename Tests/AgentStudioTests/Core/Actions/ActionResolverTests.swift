@@ -15,7 +15,7 @@ final class WorkspaceCommandResolverTests {
         ActionStateSnapshot(
             tabs: tabs,
             activeTabId: activeTabId,
-            isManagementModeActive: false
+            isManagementLayerActive: false
         )
     }
 
@@ -360,6 +360,24 @@ final class WorkspaceCommandResolverTests {
         #expect(result == .equalizePanes(tabId: tabId))
     }
 
+    @Test
+    func test_resolve_scrollToBottom_returnsActionWithActivePane() {
+        // Arrange
+        let tabId = UUID()
+        let paneId = UUIDv7.generate()
+        let tab = MockTab(id: tabId, activePaneId: paneId, allPaneIds: [paneId])
+
+        // Act
+        let result = WorkspaceCommandResolver.resolve(
+            command: .scrollToBottom,
+            tabs: [tab],
+            activeTabId: tabId
+        )
+
+        // Assert
+        #expect(result == .scrollToBottom(tabId: tabId, paneId: paneId))
+    }
+
     // MARK: - resolve(command:) — Pane Focus
 
     @Test
@@ -377,8 +395,8 @@ final class WorkspaceCommandResolverTests {
             command: .focusPaneLeft, tabs: [tab], activeTabId: tabId
         )
 
-        // Assert
-        #expect(result == .focusPane(tabId: tabId, paneId: paneB))
+        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        #expect(result == nil)
     }
 
     @Test
@@ -414,8 +432,8 @@ final class WorkspaceCommandResolverTests {
             command: .focusNextPane, tabs: [tab], activeTabId: tabId
         )
 
-        // Assert
-        #expect(result == .focusPane(tabId: tabId, paneId: paneB))
+        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        #expect(result == nil)
     }
 
     @Test
@@ -433,8 +451,8 @@ final class WorkspaceCommandResolverTests {
             command: .focusPrevPane, tabs: [tab], activeTabId: tabId
         )
 
-        // Assert
-        #expect(result == .focusPane(tabId: tabId, paneId: paneA))
+        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        #expect(result == nil)
     }
 
     // MARK: - resolve(command:) — Split
@@ -546,7 +564,7 @@ final class WorkspaceCommandResolverTests {
 
         // Act
         let snapshot = WorkspaceCommandResolver.snapshot(
-            from: [tab1, tab2], activeTabId: tab1Id, isManagementModeActive: false
+            from: [tab1, tab2], activeTabId: tab1Id, isManagementLayerActive: false
         )
 
         // Assert

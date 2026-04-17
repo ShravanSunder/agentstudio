@@ -495,7 +495,7 @@ struct CommandBarFooter: View {
                 ForEach(Array(layout.secondaryLeadingRow.enumerated()), id: \.element.id) { index, hint in
                     if index > 0 {
                         Text("·")
-                            .font(.system(size: AppStyle.textXs))
+                            .font(.system(size: AppStyles.textXs))
                             .foregroundStyle(.primary.opacity(separatorOpacity))
                             .padding(.horizontal, 6)
                     }
@@ -525,7 +525,7 @@ struct CommandBarFooter: View {
                 style: .footerCompact
             )
             Text(hint.label)
-                .font(.system(size: AppStyle.textXs))
+                .font(.system(size: AppStyles.textXs))
         }
         .foregroundStyle(.primary.opacity(primaryOpacity))
     }
@@ -534,9 +534,9 @@ struct CommandBarFooter: View {
     private func plainHint(_ hint: FooterHint) -> some View {
         HStack(spacing: 3) {
             Text(hint.shortcutKeys.map(\.symbol).joined())
-                .font(.system(size: AppStyle.textXs, weight: .medium, design: .monospaced))
+                .font(.system(size: AppStyles.textXs, weight: .medium, design: .monospaced))
             Text(hint.label)
-                .font(.system(size: AppStyle.textXs))
+                .font(.system(size: AppStyles.textXs))
         }
         .foregroundStyle(.primary.opacity(secondaryOpacity))
     }

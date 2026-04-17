@@ -8,6 +8,7 @@ final class UIStateAtom {
     private(set) var checkoutColors: [String: String] = [:]
     private(set) var filterText: String = ""
     private(set) var isFilterVisible: Bool = false
+    private(set) var showMinimizedBars: Bool = true
 
     func setExpandedGroups(_ groups: Set<String>) {
         expandedGroups = groups
@@ -37,16 +38,22 @@ final class UIStateAtom {
         isFilterVisible = isVisible
     }
 
+    func setShowMinimizedBars(_ show: Bool) {
+        showMinimizedBars = show
+    }
+
     func hydrate(
         expandedGroups: Set<String>,
         checkoutColors: [String: String],
         filterText: String,
-        isFilterVisible: Bool
+        isFilterVisible: Bool,
+        showMinimizedBars: Bool = true
     ) {
         self.expandedGroups = expandedGroups
         self.checkoutColors = checkoutColors
         self.filterText = filterText
         self.isFilterVisible = isFilterVisible
+        self.showMinimizedBars = showMinimizedBars
     }
 
     func clear() {
@@ -54,5 +61,6 @@ final class UIStateAtom {
         checkoutColors.removeAll(keepingCapacity: false)
         filterText = ""
         isFilterVisible = false
+        showMinimizedBars = true
     }
 }

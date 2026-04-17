@@ -16,11 +16,14 @@ extension WorkspaceStore {
             metadataAtom: WorkspaceMetadataAtom(),
             repositoryTopologyAtom: catalogAtom,
             paneAtom: graphAtom,
+            tabShellAtom: interactionAtom.shellAtom,
+            tabArrangementAtom: interactionAtom.arrangementAtom,
             tabLayoutAtom: interactionAtom,
             mutationCoordinator: WorkspaceMutationCoordinator(
                 repositoryTopologyAtom: catalogAtom,
                 workspacePaneAtom: graphAtom,
-                workspaceTabLayoutAtom: interactionAtom
+                workspaceTabShellAtom: interactionAtom.shellAtom,
+                workspaceTabArrangementAtom: interactionAtom.arrangementAtom
             ),
             persistor: persistor,
             persistDebounceDuration: persistDebounceDuration,
@@ -43,6 +46,8 @@ extension WorkspaceStore {
     var graphAtom: WorkspacePaneAtom { paneAtom }
     var catalogAtom: WorkspaceRepositoryTopologyAtom { repositoryTopologyAtom }
     var interactionAtom: WorkspaceTabLayoutAtom { tabLayoutAtom }
+    var tabShellStateAtom: WorkspaceTabShellAtom { tabShellAtom }
+    var tabArrangementStateAtom: WorkspaceTabArrangementAtom { tabArrangementAtom }
 
     func pane(_ id: UUID) -> Pane? { paneAtom.pane(id) }
     func tab(_ id: UUID) -> Tab? { tabLayoutAtom.tab(id) }

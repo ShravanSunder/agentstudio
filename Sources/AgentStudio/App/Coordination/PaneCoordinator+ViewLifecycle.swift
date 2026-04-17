@@ -873,7 +873,8 @@ extension PaneCoordinator {
                 for: tab.layout,
                 in: terminalContainerBounds,
                 dividerThickness: AppStyles.General.Layout.paneGap,
-                minimizedPaneIds: tab.minimizedPaneIds
+                minimizedPaneIds: tab.activeMinimizedPaneIds,
+                collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
             )
             if resolvedFrames.isEmpty, !tab.layout.isEmpty {
                 Self.logger.warning(
@@ -904,7 +905,8 @@ extension PaneCoordinator {
                     for: drawer.layout,
                     in: drawerContentRect,
                     dividerThickness: AppStyles.General.Layout.paneGap,
-                    minimizedPaneIds: drawer.minimizedPaneIds
+                    minimizedPaneIds: drawer.minimizedPaneIds,
+                    collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
                 )
 
                 for (drawerPaneId, drawerPaneFrame) in drawerFrames {

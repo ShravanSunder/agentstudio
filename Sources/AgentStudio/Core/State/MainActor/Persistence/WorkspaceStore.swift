@@ -13,6 +13,8 @@ final class WorkspaceStore {
     let metadataAtom: WorkspaceMetadataAtom
     let repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom
     let paneAtom: WorkspacePaneAtom
+    let tabShellAtom: WorkspaceTabShellAtom
+    let tabArrangementAtom: WorkspaceTabArrangementAtom
     let tabLayoutAtom: WorkspaceTabLayoutAtom
     let mutationCoordinator: WorkspaceMutationCoordinator
 
@@ -28,22 +30,34 @@ final class WorkspaceStore {
         metadataAtom: WorkspaceMetadataAtom = WorkspaceMetadataAtom(),
         repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom = WorkspaceRepositoryTopologyAtom(),
         paneAtom: WorkspacePaneAtom = WorkspacePaneAtom(),
-        tabLayoutAtom: WorkspaceTabLayoutAtom = WorkspaceTabLayoutAtom(),
+        tabShellAtom: WorkspaceTabShellAtom = WorkspaceTabShellAtom(),
+        tabArrangementAtom: WorkspaceTabArrangementAtom = WorkspaceTabArrangementAtom(),
+        tabLayoutAtom: WorkspaceTabLayoutAtom? = nil,
         mutationCoordinator: WorkspaceMutationCoordinator? = nil,
         persistor: WorkspacePersistor = WorkspacePersistor(),
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: any Clock<Duration> = ContinuousClock()
     ) {
+        let resolvedTabShellAtom = tabLayoutAtom?.shellAtom ?? tabShellAtom
+        let resolvedTabArrangementAtom = tabLayoutAtom?.arrangementAtom ?? tabArrangementAtom
         self.metadataAtom = metadataAtom
         self.repositoryTopologyAtom = repositoryTopologyAtom
         self.paneAtom = paneAtom
-        self.tabLayoutAtom = tabLayoutAtom
+        self.tabShellAtom = resolvedTabShellAtom
+        self.tabArrangementAtom = resolvedTabArrangementAtom
+        self.tabLayoutAtom =
+            tabLayoutAtom
+            ?? WorkspaceTabLayoutAtom(
+                shellAtom: resolvedTabShellAtom,
+                arrangementAtom: resolvedTabArrangementAtom
+            )
         self.mutationCoordinator =
             mutationCoordinator
             ?? WorkspaceMutationCoordinator(
                 repositoryTopologyAtom: repositoryTopologyAtom,
                 workspacePaneAtom: paneAtom,
-                workspaceTabLayoutAtom: tabLayoutAtom
+                workspaceTabShellAtom: resolvedTabShellAtom,
+                workspaceTabArrangementAtom: resolvedTabArrangementAtom
             )
         self.persistor = persistor
         self.persistDebounceDuration = persistDebounceDuration

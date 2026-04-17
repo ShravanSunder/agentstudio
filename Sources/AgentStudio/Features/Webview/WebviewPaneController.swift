@@ -61,7 +61,7 @@ final class WebviewPaneController {
             metadata: runtimeMetadata
         )
         self.showNavigation = state.showNavigation
-        let blockInteraction = atom(\.managementMode).isActive
+        let blockInteraction = atom(\.managementLayer).isActive
         let initialManagementScript = WebInteractionManagementScript.makeUserScript(
             blockInteraction: blockInteraction
         )
@@ -91,7 +91,7 @@ final class WebviewPaneController {
 
     // MARK: - Content Interaction
 
-    /// Called by the pane view when management mode toggles. Keeps both the currently
+    /// Called by the pane view when management layer toggles. Keeps both the currently
     /// loaded document and future navigations in sync with the interaction state.
     func setWebContentInteractionEnabled(_ enabled: Bool) {
         let didChange = enabled != isContentInteractionEnabled

@@ -5,8 +5,11 @@ struct FlatPaneStripContent: View {
     let tabId: UUID
     let activePaneId: UUID?
     let minimizedPaneIds: Set<UUID>
+    let collapsedPaneWidth: CGFloat
+    let onSaveArrangement: (() -> Void)?
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let onPaneFocusTrigger: PaneFocusTriggerHandler
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let viewRegistry: ViewRegistry
@@ -22,7 +25,7 @@ struct FlatPaneStripContent: View {
                 in: CGRect(origin: .zero, size: geometry.size),
                 dividerThickness: AppStyles.General.Layout.paneGap,
                 minimizedPaneIds: minimizedPaneIds,
-                collapsedPaneWidth: CollapsedPaneBar.barWidth
+                collapsedPaneWidth: collapsedPaneWidth
             )
             // swiftlint:disable:next redundant_discardable_let
             let _ = RestoreTrace.log(
@@ -30,20 +33,22 @@ struct FlatPaneStripContent: View {
             )
 
             if metrics.allMinimized {
-                HStack(spacing: 0) {
-                    ForEach(layout.paneIds, id: \.self) { paneId in
-                        CollapsedPaneBar(
-                            paneId: paneId,
-                            tabId: tabId,
-                            title: atom(\.paneDisplay).displayLabel(for: paneId),
-                            closeTransitionCoordinator: closeTransitionCoordinator,
-                            actionDispatcher: actionDispatcher,
-                            dropTargetCoordinateSpace: coordinateSpaceName,
-                            useDrawerFramePreference: useDrawerFramePreference
-                        )
-                        .frame(width: CollapsedPaneBar.barWidth)
+                if collapsedPaneWidth > 0 {
+                    HStack(spacing: 0) {
+                        ForEach(layout.paneIds, id: \.self) { paneId in
+                            CollapsedPaneBar(
+                                paneId: paneId,
+                                tabId: tabId,
+                                closeTransitionCoordinator: closeTransitionCoordinator,
+                                actionDispatcher: actionDispatcher,
+                                onSaveArrangement: onSaveArrangement,
+                                dropTargetCoordinateSpace: coordinateSpaceName,
+                                useDrawerFramePreference: useDrawerFramePreference
+                            )
+                            .frame(width: collapsedPaneWidth)
+                        }
+                        Spacer()
                     }
-                    Spacer()
                 }
             } else {
                 ZStack(alignment: .topLeading) {
@@ -54,8 +59,11 @@ struct FlatPaneStripContent: View {
                             tabId: tabId,
                             activePaneId: activePaneId,
                             layout: layout,
+                            collapsedPaneWidth: collapsedPaneWidth,
+                            onSaveArrangement: onSaveArrangement,
                             closeTransitionCoordinator: closeTransitionCoordinator,
                             actionDispatcher: actionDispatcher,
+                            onPaneFocusTrigger: onPaneFocusTrigger,
                             store: store,
                             repoCache: repoCache,
                             isSplitResizing: isSplitResizing,
@@ -92,8 +100,11 @@ private struct PaneSegmentSlotView: View {
     let tabId: UUID
     let activePaneId: UUID?
     let layout: Layout
+    let collapsedPaneWidth: CGFloat
+    let onSaveArrangement: (() -> Void)?
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let onPaneFocusTrigger: PaneFocusTriggerHandler
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let isSplitResizing: Bool
@@ -104,15 +115,17 @@ private struct PaneSegmentSlotView: View {
 
     var body: some View {
         if segment.isMinimized {
-            CollapsedPaneBar(
-                paneId: segment.paneId,
-                tabId: tabId,
-                title: atom(\.paneDisplay).displayLabel(for: segment.paneId),
-                closeTransitionCoordinator: closeTransitionCoordinator,
-                actionDispatcher: actionDispatcher,
-                dropTargetCoordinateSpace: coordinateSpaceName,
-                useDrawerFramePreference: useDrawerFramePreference
-            )
+            if collapsedPaneWidth > 0 {
+                CollapsedPaneBar(
+                    paneId: segment.paneId,
+                    tabId: tabId,
+                    closeTransitionCoordinator: closeTransitionCoordinator,
+                    actionDispatcher: actionDispatcher,
+                    onSaveArrangement: onSaveArrangement,
+                    dropTargetCoordinateSpace: coordinateSpaceName,
+                    useDrawerFramePreference: useDrawerFramePreference
+                )
+            }
         } else if let paneHost = paneSlot.host {
             PaneLeafContainer(
                 paneHost: paneHost,
@@ -124,6 +137,7 @@ private struct PaneSegmentSlotView: View {
                 repoCache: repoCache,
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 actionDispatcher: actionDispatcher,
+                onPaneFocusTrigger: onPaneFocusTrigger,
                 onOpenPaneGitHub: onOpenPaneGitHub,
                 dropTargetCoordinateSpace: coordinateSpaceName,
                 useDrawerFramePreference: useDrawerFramePreference

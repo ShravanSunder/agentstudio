@@ -2,14 +2,14 @@
 import Foundation
 
 /// Resolves workspace commands into fully-specified pane actions.
-/// Uses live state (including flat pane-strip navigation) to resolve
-/// "active tab", "next pane", "neighbor in direction X" into concrete IDs.
+/// Uses live state to resolve structural tab/pane mutations into concrete IDs.
+/// Pane focus navigation commands no longer resolve here; they route through
+/// the Pane Focus System in PaneTabViewController.
 ///
 /// Generic over `ResolvableTab` so resolution logic can be tested
 /// with lightweight mocks (pure UUIDs, no NSViews).
 ///
-/// Returns nil if the intent cannot be meaningfully resolved
-/// (e.g., focusPaneLeft when there is no active tab).
+/// Returns nil if the intent cannot be meaningfully resolved.
 enum WorkspaceCommandResolver {
 
     // MARK: - From AppCommand
@@ -71,6 +71,10 @@ enum WorkspaceCommandResolver {
 
         case .focusPane:
             return nil
+        case .scrollToBottom:
+            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
+            else { return nil }
+            return .scrollToBottom(tabId: tab.id, paneId: paneId)
         case .extractPaneToTab:
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
             else { return nil }
@@ -83,27 +87,10 @@ enum WorkspaceCommandResolver {
             guard let tabId = activeTabId else { return nil }
             return .equalizePanes(tabId: tabId)
 
-        // Pane focus (directional → resolved ID)
-        case .focusPaneLeft:
-            return resolveFocusDirection(.left, tabs: tabs, activeTabId: activeTabId)
-        case .focusPaneRight:
-            return resolveFocusDirection(.right, tabs: tabs, activeTabId: activeTabId)
-        case .focusPaneUp:
-            return resolveFocusDirection(.up, tabs: tabs, activeTabId: activeTabId)
-        case .focusPaneDown:
-            return resolveFocusDirection(.down, tabs: tabs, activeTabId: activeTabId)
-
-        case .focusNextPane:
-            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId),
-                let nextId = tab.nextPaneId(after: paneId)
-            else { return nil }
-            return .focusPane(tabId: tab.id, paneId: nextId)
-
-        case .focusPrevPane:
-            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId),
-                let prevId = tab.previousPaneId(before: paneId)
-            else { return nil }
-            return .focusPane(tabId: tab.id, paneId: prevId)
+        // Pane focus now routes through PaneFocusTrigger / PaneFocusDecision in PaneTabViewController.
+        case .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
+            .focusNextPane, .focusPrevPane:
+            return nil
 
         // Split directions (horizontal only — vertical splits disabled for drawers)
         case .splitRight:
@@ -145,11 +132,11 @@ enum WorkspaceCommandResolver {
             .deleteArrangement, .renameArrangement,
             .addDrawerPane, .toggleDrawer,
             .navigateDrawerPane, .closeDrawerPane,
-            .toggleManagementMode,
-            .managementFocusLeft, .managementFocusRight,
-            .managementEnterDrawer, .managementExitDrawer,
-            .managementOpenDrawer, .managementCreateTerminal, .managementCreateBrowser,
-            .managementExitMode:
+            .toggleManagementLayer,
+            .managementLayerFocusLeft, .managementLayerFocusRight,
+            .managementLayerEnterDrawer, .managementLayerExitDrawer,
+            .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
+            .managementLayerExit:
             return true
         default:
             return false
@@ -215,7 +202,7 @@ enum WorkspaceCommandResolver {
     static func snapshot<T: ResolvableTab>(
         from tabs: [T],
         activeTabId: UUID?,
-        isManagementModeActive: Bool,
+        isManagementLayerActive: Bool,
         knownRepoIds: Set<UUID> = [],
         knownWorktreeIds: Set<UUID> = [],
         drawerParentByPaneId: [UUID: UUID] = [:]
@@ -230,7 +217,7 @@ enum WorkspaceCommandResolver {
                 )
             },
             activeTabId: activeTabId,
-            isManagementModeActive: isManagementModeActive,
+            isManagementLayerActive: isManagementLayerActive,
             knownRepoIds: knownRepoIds,
             knownWorktreeIds: knownWorktreeIds,
             drawerParentByPaneId: drawerParentByPaneId
@@ -272,16 +259,6 @@ enum WorkspaceCommandResolver {
             tabs.count > 1
         else { return nil }
         return tabs[(idx - 1 + tabs.count) % tabs.count].id
-    }
-
-    private static func resolveFocusDirection<T: ResolvableTab>(
-        _ direction: SplitFocusDirection,
-        tabs: [T], activeTabId: UUID?
-    ) -> PaneActionCommand? {
-        guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId),
-            let neighborId = tab.neighborPaneId(of: paneId, direction: direction)
-        else { return nil }
-        return .focusPane(tabId: tab.id, paneId: neighborId)
     }
 
     private static func resolveSplit<T: ResolvableTab>(

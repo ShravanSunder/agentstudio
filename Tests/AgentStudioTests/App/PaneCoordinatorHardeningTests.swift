@@ -272,6 +272,35 @@ struct PaneCoordinatorHardeningTests {
         #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd == unknownCwd)
     }
 
+    @Test("expandPane restores a missing visible terminal view when the minimized pane had no host")
+    func expandPane_restoresMissingVisibleTerminalView() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let firstPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Visible")
+        let secondPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Minimized")
+        let tab = Tab(paneId: firstPane.id)
+        harness.store.appendTab(tab)
+        harness.store.insertPane(
+            secondPane.id,
+            inTab: tab.id,
+            at: firstPane.id,
+            direction: .horizontal,
+            position: .after
+        )
+        _ = harness.store.minimizePane(secondPane.id, inTab: tab.id)
+
+        harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        harness.coordinator.windowLifecycleStore.recordLaunchLayoutSettled()
+
+        #expect(harness.viewRegistry.view(for: secondPane.id) == nil)
+
+        harness.coordinator.execute(.expandPane(tabId: tab.id, paneId: secondPane.id))
+
+        #expect(harness.viewRegistry.view(for: secondPane.id) != nil)
+    }
+
     @Test("reactivatePane keeps reactivated pane in canonical state if view creation fails")
     func reactivatePane_keepsCanonicalStateWhenViewCreationFails() {
         let harness = makeHarness()
@@ -383,37 +412,6 @@ struct PaneCoordinatorHardeningTests {
 
         #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == false)
         #expect(window.firstResponder === parentMountedContent)
-    }
-
-    @Test("focusPane always hands keyboard focus to the pane host")
-    func focusPane_focusesRequestedPaneHostEvenWhenAlreadyActive() throws {
-        let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-
-        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
-        let pane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Parent")
-        let tab = Tab(paneId: pane.id)
-        harness.store.appendTab(tab)
-        harness.store.setActiveTab(tab.id)
-
-        let paneHost = PaneHostView(paneId: pane.id)
-        let mountedContent = FocusableMountedContentView()
-        paneHost.mountContentView(mountedContent)
-        harness.viewRegistry.register(paneHost, for: pane.id)
-
-        let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: true
-        )
-        let contentView = try #require(window.contentView)
-        contentView.addSubview(paneHost)
-        window.makeFirstResponder(window.contentView)
-
-        harness.coordinator.execute(.focusPane(tabId: tab.id, paneId: pane.id))
-
-        #expect(window.firstResponder === mountedContent)
     }
 
     @Test("repair recreateSurface registers preparing placeholder when geometry is unavailable")

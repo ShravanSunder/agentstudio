@@ -14,7 +14,7 @@ struct WorkspacePaneLocation: Equatable, Sendable {
 @MainActor
 struct WorkspaceLookupDerived {
     func tabContaining(paneId: UUID) -> Tab? {
-        atom(\.workspaceTabLayout).tabContaining(paneId: paneId)
+        atom(\.workspaceTab).tabContaining(paneId: paneId)
     }
 
     func repoAndWorktree(containing cwd: URL?) -> (repo: Repo, worktree: Worktree)? {
@@ -24,18 +24,18 @@ struct WorkspaceLookupDerived {
     func paneLocations(
         for worktreeId: UUID,
         workspacePane: WorkspacePaneAtom,
-        workspaceTabLayout: WorkspaceTabLayoutAtom
+        workspaceTab: WorkspaceTabDerived
     ) -> [WorkspacePaneLocation] {
         workspacePane.panes(for: worktreeId)
             .compactMap { pane in
                 guard pane.residency == .active else { return nil }
-                guard let tab = workspaceTabLayout.tabContaining(paneId: pane.id) else {
+                guard let tab = workspaceTab.tabContaining(paneId: pane.id) else {
                     workspaceLookupLogger.warning(
                         "paneLocations: active pane \(pane.id.uuidString, privacy: .public) for worktree \(worktreeId.uuidString, privacy: .public) has no owning tab"
                     )
                     return nil
                 }
-                guard let tabIndex = workspaceTabLayout.tabs.firstIndex(where: { $0.id == tab.id }) else {
+                guard let tabIndex = workspaceTab.tabs.firstIndex(where: { $0.id == tab.id }) else {
                     workspaceLookupLogger.warning(
                         "paneLocations: active pane \(pane.id.uuidString, privacy: .public) for worktree \(worktreeId.uuidString, privacy: .public) has tab \(tab.id.uuidString, privacy: .public) missing from tab order"
                     )
@@ -70,7 +70,7 @@ struct WorkspaceLookupDerived {
         paneLocations(
             for: worktreeId,
             workspacePane: atom(\.workspacePane),
-            workspaceTabLayout: atom(\.workspaceTabLayout)
+            workspaceTab: atom(\.workspaceTab)
         )
     }
 }

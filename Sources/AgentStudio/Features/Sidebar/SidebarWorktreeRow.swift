@@ -217,7 +217,7 @@ struct SidebarWorktreeRow: View {
             Divider()
 
             Menu(LocalActionSpec.setIconColorMenu.actionSpec.label) {
-                ForEach(SidebarRepoGrouping.colorPresets, id: \.hex) { preset in
+                ForEach(RepoPresentationGrouping.colorPresets, id: \.hex) { preset in
                     Button(preset.name) {
                         onSetIconColor(preset.hex)
                     }

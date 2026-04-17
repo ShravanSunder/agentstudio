@@ -6,16 +6,36 @@ import Testing
 @Suite("ScrollToBottomIndicatorView")
 @MainActor
 struct ScrollToBottomIndicatorViewTests {
+    @Test("scroll-to-bottom indicator uses icon-only chrome")
+    func scrollToBottomIndicatorUsesIconOnlyChrome() {
+        let view = ScrollToBottomIndicatorView()
+
+        #expect(view.isBordered == false)
+    }
+
+    @Test("scroll-to-bottom indicator uses thicker icon pair")
+    func scrollToBottomIndicatorUsesThickerIconPair() {
+        let view = ScrollToBottomIndicatorView()
+
+        view.applyScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+        #expect(view.currentSymbolName == "chevron.down.circle")
+        #expect(view.currentTintColor == .systemBlue)
+
+        view.applyScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 210))
+        #expect(view.currentSymbolName == "chevron.down.circle.fill")
+        #expect(view.currentTintColor == .systemGreen)
+    }
+
     @Test("scroll-to-bottom indicator shows unread output while scrolled up")
     func scrollToBottomIndicatorShowsUnreadOutputWhileScrolledUp() {
         let view = ScrollToBottomIndicatorView()
 
         view.applyScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
         #expect(view.isHidden == false)
-        #expect(view.hasUnreadOutputForTesting == false)
+        #expect(view.hasUnreadOutput == false)
 
         view.applyScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 210))
-        #expect(view.hasUnreadOutputForTesting == true)
+        #expect(view.hasUnreadOutput == true)
     }
 
     @Test("scroll-to-bottom indicator hides when pinned")
@@ -33,13 +53,13 @@ struct ScrollToBottomIndicatorViewTests {
 
         view.applyScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
         view.applyScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 210))
-        #expect(view.hasUnreadOutputForTesting)
+        #expect(view.hasUnreadOutput)
 
         view.applyScrollbarState(ScrollbarState(top: 170, bottom: 210, total: 210))
         #expect(view.isHidden)
-        #expect(!view.hasUnreadOutputForTesting)
+        #expect(!view.hasUnreadOutput)
 
         view.applyScrollbarState(ScrollbarState(top: 180, bottom: 220, total: 260))
-        #expect(!view.hasUnreadOutputForTesting)
+        #expect(!view.hasUnreadOutput)
     }
 }

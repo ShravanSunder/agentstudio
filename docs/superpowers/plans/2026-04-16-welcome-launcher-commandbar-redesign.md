@@ -147,7 +147,7 @@ extension AppStyles {
 
 - `AppStyles.Welcome` owns visual tokens.
 - `WorkspaceEmptyStateLayout` owns derived width math only.
-- `AppStyle.swift` must be removed by the end of the work.
+- `AppStyles.swift` must be removed by the end of the work.
 - All touched code must migrate to `AppStyles`; no compatibility shim, no aliases, no dual-source truth.
 
 ## Task 1: Normalize The Style Foundation To `AppStyles.Welcome`
@@ -195,7 +195,7 @@ extension AppStyles {
 }
 ```
 
-Do not add aliases back into `AppStyle.swift`.
+Do not add aliases back into `AppStyles.swift`.
 
 - [ ] **Step 4: Re-run the focused tests**
 
@@ -731,7 +731,7 @@ Manual acceptance:
 ## Self-Review
 
 - The plan now targets `AppStyles`, not an obsolete-only style path.
-- The plan requires full migration off `AppStyle.swift`; no compatibility layer remains in the target end state.
+- The plan requires full migration off `AppStyles.swift`; no compatibility layer remains in the target end state.
 - The plan separates:
   - `AppShortcut.newTab` = shortcut identity
   - `.showCommandBarRepos` = smart-start route

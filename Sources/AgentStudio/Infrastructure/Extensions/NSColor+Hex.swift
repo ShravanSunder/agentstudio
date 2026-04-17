@@ -17,4 +17,13 @@ extension NSColor {
         let blue = Int((rgb.blueComponent * 255.0).rounded())
         return String(format: "#%02X%02X%02X", red, green, blue)
     }
+
+    var isLightColor: Bool {
+        luminance > 0.5
+    }
+
+    var luminance: CGFloat {
+        guard let rgb = usingColorSpace(.sRGB) else { return 0 }
+        return (0.299 * rgb.redComponent) + (0.587 * rgb.greenComponent) + (0.114 * rgb.blueComponent)
+    }
 }

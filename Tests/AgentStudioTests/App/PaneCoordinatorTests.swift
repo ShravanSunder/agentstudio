@@ -169,7 +169,7 @@ struct PaneCoordinatorTests {
         let snapshot = WorkspaceCommandResolver.snapshot(
             from: store.tabs,
             activeTabId: store.activeTabId,
-            isManagementModeActive: false
+            isManagementLayerActive: false
         )
         let validated = try? WorkspaceCommandValidator.validate(
             .closePane(tabId: tab.id, paneId: pane.id),
@@ -338,11 +338,11 @@ struct PaneCoordinatorTests {
         )
 
         coordinator.execute(.minimizePane(tabId: tab.id, paneId: paneB.id))
-        #expect(store.tab(tab.id)?.minimizedPaneIds.contains(paneB.id) == true)
+        #expect(store.tab(tab.id)?.activeMinimizedPaneIds.contains(paneB.id) == true)
 
-        coordinator.execute(.focusPane(tabId: tab.id, paneId: paneB.id))
+        coordinator.execute(.expandPane(tabId: tab.id, paneId: paneB.id))
 
-        #expect(store.tab(tab.id)?.minimizedPaneIds.contains(paneB.id) == false)
+        #expect(store.tab(tab.id)?.activeMinimizedPaneIds.contains(paneB.id) == false)
         #expect(store.tab(tab.id)?.activePaneId == paneB.id)
     }
 

@@ -8,14 +8,16 @@ extension PaneCoordinator {
     static func computeSwitchArrangementTransitions(
         previousVisiblePaneIds: Set<UUID>,
         previouslyMinimizedPaneIds: Set<UUID>,
-        newVisiblePaneIds: Set<UUID>
+        newVisiblePaneIds: Set<UUID>,
+        newMinimizedPaneIds: Set<UUID>
     ) -> PaneCoordinator.SwitchArrangementTransitions {
-        let hiddenPaneIds = previousVisiblePaneIds.subtracting(newVisiblePaneIds)
-        let revealedPaneIds = newVisiblePaneIds.subtracting(previousVisiblePaneIds)
-        let unminimizedPaneIds = previouslyMinimizedPaneIds.intersection(newVisiblePaneIds)
+        let previouslyPresentedPaneIds = previousVisiblePaneIds.subtracting(previouslyMinimizedPaneIds)
+        let newlyPresentedPaneIds = newVisiblePaneIds.subtracting(newMinimizedPaneIds)
+        let hiddenPaneIds = previouslyPresentedPaneIds.subtracting(newlyPresentedPaneIds)
+        let revealedPaneIds = newlyPresentedPaneIds.subtracting(previouslyPresentedPaneIds)
         return SwitchArrangementTransitions(
             hiddenPaneIds: hiddenPaneIds,
-            paneIdsToReattach: revealedPaneIds.union(unminimizedPaneIds)
+            paneIdsToReattach: revealedPaneIds
         )
     }
 
@@ -300,14 +302,14 @@ extension PaneCoordinator {
             }
             store.tabLayoutAtom.renameTab(newTab.id, name: tabNameForPane(pane))
 
-        case .focusPane(let tabId, let paneId):
-            if let tab = store.tabLayoutAtom.tab(tabId), tab.minimizedPaneIds.contains(paneId) {
-                store.tabLayoutAtom.expandPane(paneId, inTab: tabId)
-                restoreViewsForActiveTabIfNeeded()
-                reattachForViewSwitch(paneId: paneId)
+        case .scrollToBottom(_, let paneId):
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                _ = await self.dispatchRuntimeCommand(
+                    .terminal(.scrollToBottom),
+                    target: .pane(PaneId(uuid: paneId))
+                )
             }
-            store.tabLayoutAtom.setActivePane(paneId, inTab: tabId)
-            focusVisiblePaneHost(paneId)
 
         case .insertPane(let source, let targetTabId, let targetPaneId, let direction):
             executeInsertPane(
@@ -336,8 +338,10 @@ extension PaneCoordinator {
 
         case .expandPane(let tabId, let paneId):
             store.tabLayoutAtom.expandPane(paneId, inTab: tabId)
-            restoreViewsForActiveTabIfNeeded()
-            reattachForViewSwitch(paneId: paneId)
+            restoreVisiblePaneIfNeeded(paneId, forceWhenBoundsExist: true)
+            if viewRegistry.terminalView(for: paneId) != nil {
+                reattachForViewSwitch(paneId: paneId)
+            }
 
         case .resizePaneByDelta(let tabId, let paneId, let direction, let amount):
             store.tabLayoutAtom.resizePaneByDelta(tabId: tabId, paneId: paneId, direction: direction, amount: amount)
@@ -364,7 +368,7 @@ extension PaneCoordinator {
                 Self.logger.warning("Cannot switch arrangement: tab \(tabId) not found")
                 break
             }
-            guard let arrangement = tab.arrangements.first(where: { $0.id == arrangementId }) else {
+            guard tab.arrangements.contains(where: { $0.id == arrangementId }) else {
                 Self.logger.warning(
                     "Cannot switch arrangement: arrangement \(arrangementId) not found in tab \(tabId)"
                 )
@@ -374,15 +378,20 @@ extension PaneCoordinator {
             // Capture visibility/minimized state before mutating the active arrangement.
             // Transition calculations depend on before/after sets.
             let previousVisiblePaneIds = tab.activeArrangement.visiblePaneIds
-            let previouslyMinimizedPaneIds = tab.minimizedPaneIds
+            let previouslyMinimizedPaneIds = tab.activeMinimizedPaneIds
             store.tabLayoutAtom.switchArrangement(to: arrangementId, inTab: tabId)
-            // Use the resolved arrangement snapshot as the post-switch target state.
-            let newVisiblePaneIds = arrangement.visiblePaneIds
+            guard let updatedTab = store.tabLayoutAtom.tab(tabId) else {
+                Self.logger.warning("Cannot switch arrangement: tab \(tabId) missing after switch")
+                break
+            }
+            let newVisiblePaneIds = updatedTab.activeArrangement.visiblePaneIds
+            let newMinimizedPaneIds = updatedTab.activeMinimizedPaneIds
 
             let transitions = Self.computeSwitchArrangementTransitions(
                 previousVisiblePaneIds: previousVisiblePaneIds,
                 previouslyMinimizedPaneIds: previouslyMinimizedPaneIds,
-                newVisiblePaneIds: newVisiblePaneIds
+                newVisiblePaneIds: newVisiblePaneIds,
+                newMinimizedPaneIds: newMinimizedPaneIds
             )
 
             // Detach hidden panes before reattaching newly visible panes to avoid
@@ -467,8 +476,10 @@ extension PaneCoordinator {
 
         case .expandDrawerPane(let parentPaneId, let drawerPaneId):
             store.paneAtom.expandDrawerPane(drawerPaneId, in: parentPaneId)
-            restoreViewsForActiveTabIfNeeded()
-            reattachForViewSwitch(paneId: drawerPaneId)
+            restoreVisiblePaneIfNeeded(drawerPaneId, forceWhenBoundsExist: true)
+            if viewRegistry.terminalView(for: drawerPaneId) != nil {
+                reattachForViewSwitch(paneId: drawerPaneId)
+            }
 
         case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction):
             executeInsertDrawerPane(
@@ -487,10 +498,7 @@ extension PaneCoordinator {
                 direction: layoutDirection,
                 position: position
             )
-            if let terminalView = viewRegistry.terminalView(for: drawerPaneId) {
-                terminalView.window?.makeFirstResponder(terminalView)
-                surfaceManager.syncFocus(activeSurfaceId: terminalView.surfaceId)
-            }
+            focusVisiblePaneHost(drawerPaneId)
 
         case .expireUndoEntry:
             Self.logger.warning(

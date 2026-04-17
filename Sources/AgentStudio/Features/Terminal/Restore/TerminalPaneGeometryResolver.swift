@@ -2,13 +2,12 @@ import CoreGraphics
 import Foundation
 
 enum TerminalPaneGeometryResolver {
-    private static let collapsedPaneWidth: CGFloat = 30
-
     static func resolveFrames(
         for layout: Layout,
         in availableRect: CGRect,
         dividerThickness: CGFloat,
-        minimizedPaneIds: Set<UUID> = []
+        minimizedPaneIds: Set<UUID> = [],
+        collapsedPaneWidth: CGFloat
     ) -> [UUID: CGRect] {
         let metrics = FlatTabStripMetrics.compute(
             layout: layout,

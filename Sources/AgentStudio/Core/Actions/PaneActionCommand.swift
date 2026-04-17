@@ -51,9 +51,7 @@ enum PaneActionCommand: Equatable, Hashable {
     // Pane lifecycle
     case closePane(tabId: UUID, paneId: UUID)
     case extractPaneToTab(tabId: UUID, paneId: UUID)
-
-    // Pane focus
-    case focusPane(tabId: UUID, paneId: UUID)
+    case scrollToBottom(tabId: UUID, paneId: UUID)
 
     // Split operations
     case insertPane(

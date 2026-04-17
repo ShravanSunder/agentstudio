@@ -4,13 +4,13 @@ import SwiftUI
 /// AppKit-owned drag destination overlay for split drop targeting.
 ///
 /// This overlay is the single owner for agent studio custom drop types in
-/// management mode. Keeping drag routing in one AppKit destination avoids
+/// management layer. Keeping drag routing in one AppKit destination avoids
 /// divergence across pane internals (WKWebView/Ghostty/etc.).
 struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
     let paneFrames: [UUID: CGRect]
     let containerBounds: CGRect
     @Binding var target: PaneDropTarget?
-    let isManagementModeActive: Bool
+    let isManagementLayerActive: Bool
     let actionDispatcher: PaneActionDispatching
 
     static let supportedPasteboardTypes: [NSPasteboard.PasteboardType] = [
@@ -37,9 +37,9 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
         context.coordinator.updateLayout(
             paneFrames: paneFrames,
             containerBounds: containerBounds,
-            isManagementModeActive: isManagementModeActive
+            isManagementLayerActive: isManagementLayerActive
         )
-        view.updateDropRegistration(isManagementModeActive: isManagementModeActive)
+        view.updateDropRegistration(isManagementLayerActive: isManagementLayerActive)
         return view
     }
 
@@ -52,10 +52,10 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
         context.coordinator.updateLayout(
             paneFrames: paneFrames,
             containerBounds: containerBounds,
-            isManagementModeActive: isManagementModeActive
+            isManagementLayerActive: isManagementLayerActive
         )
-        nsView.updateDropRegistration(isManagementModeActive: isManagementModeActive)
-        if !isManagementModeActive {
+        nsView.updateDropRegistration(isManagementLayerActive: isManagementLayerActive)
+        if !isManagementLayerActive {
             context.coordinator.finalizeDragSession()
         }
     }
@@ -67,7 +67,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
 
         private(set) var paneFrames: [UUID: CGRect] = [:]
         private(set) var containerBounds: CGRect = .zero
-        private(set) var isManagementModeActive: Bool = false
+        private(set) var isManagementLayerActive: Bool = false
         private(set) var dragSession: DragSessionState = .idle
 
         init(
@@ -89,11 +89,11 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
         func updateLayout(
             paneFrames: [UUID: CGRect],
             containerBounds: CGRect,
-            isManagementModeActive: Bool
+            isManagementLayerActive: Bool
         ) {
             self.paneFrames = paneFrames
             self.containerBounds = containerBounds
-            self.isManagementModeActive = isManagementModeActive
+            self.isManagementLayerActive = isManagementLayerActive
         }
 
         func setTarget(_ target: PaneDropTarget?) {
@@ -144,7 +144,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
         }
 
         func performDrop(from pasteboard: NSPasteboard, location: CGPoint) -> Bool {
-            guard isManagementModeActive else {
+            guard isManagementLayerActive else {
                 dragSession = .teardown
                 return false
             }
@@ -177,7 +177,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
 final class SplitContainerDropCaptureView: NSView {
     weak var coordinator: SplitContainerDropCaptureOverlay.Coordinator?
 
-    private var isRegisteredForManagementMode = false
+    private var isRegisteredForManagementLayer = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -192,14 +192,14 @@ final class SplitContainerDropCaptureView: NSView {
         nil
     }
 
-    func updateDropRegistration(isManagementModeActive: Bool) {
-        guard isRegisteredForManagementMode != isManagementModeActive else { return }
-        if isManagementModeActive {
+    func updateDropRegistration(isManagementLayerActive: Bool) {
+        guard isRegisteredForManagementLayer != isManagementLayerActive else { return }
+        if isManagementLayerActive {
             registerForDraggedTypes(SplitContainerDropCaptureOverlay.supportedPasteboardTypes)
         } else {
             unregisterDraggedTypes()
         }
-        isRegisteredForManagementMode = isManagementModeActive
+        isRegisteredForManagementLayer = isManagementLayerActive
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
@@ -230,7 +230,7 @@ final class SplitContainerDropCaptureView: NSView {
 
     private func routeDragUpdate(_ sender: any NSDraggingInfo) -> NSDragOperation {
         guard let coordinator else { return [] }
-        guard coordinator.isManagementModeActive else {
+        guard coordinator.isManagementLayerActive else {
             coordinator.finalizeDragSession()
             return []
         }

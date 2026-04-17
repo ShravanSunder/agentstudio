@@ -13,6 +13,7 @@ struct ActiveTabContent: View {
     let appLifecycleStore: AppLifecycleAtom
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let onPaneFocusTrigger: PaneFocusTriggerHandler
     let onOpenPaneGitHub: (UUID) -> Void
 
     private static func traceBody(
@@ -50,9 +51,10 @@ struct ActiveTabContent: View {
                 tabId: activeTabId,
                 activePaneId: tab.activePaneId,
                 zoomedPaneId: tab.zoomedPaneId,
-                minimizedPaneIds: tab.minimizedPaneIds,
+                minimizedPaneIds: tab.activeMinimizedPaneIds,
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 actionDispatcher: actionDispatcher,
+                onPaneFocusTrigger: onPaneFocusTrigger,
                 store: store,
                 repoCache: repoCache,
                 viewRegistry: viewRegistry,

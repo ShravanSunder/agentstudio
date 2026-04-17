@@ -131,6 +131,14 @@ enum AppStyles {
                 "#FB923C",
                 "#F472B6",
             ]
+
+            static func paletteColor(at index: Int) -> Color {
+                let hex =
+                    accentPaletteHexes.indices.contains(index)
+                    ? accentPaletteHexes[index]
+                    : accentPaletteHexes.first ?? ""
+                return Color(nsColor: NSColor(hex: hex) ?? .controlAccentColor)
+            }
         }
 
         enum TabBar {
@@ -144,6 +152,7 @@ enum AppStyles {
             static let paneSplitIconSize: CGFloat = AppStyles.General.Icon.paneSplit
             static let paneSplitButtonSize: CGFloat = AppStyles.General.Button.paneSplit
             static let maskFadeWidth: CGFloat = 14
+            static let collapsedBarWidth: CGFloat = 40
             static let background = Color(nsColor: NSColor(white: 0.09, alpha: 1.0))
         }
 
@@ -156,6 +165,14 @@ enum AppStyles {
             static let dragHandleWidth: CGFloat = 60
             static let dragHandleHeight: CGFloat = 100
             static let dragHandleCornerRadius: CGFloat = 20
+
+            static func backgroundOpacity(isHovered: Bool) -> CGFloat {
+                isHovered ? controlFillOpacity + controlHoverDelta : controlFillOpacity
+            }
+
+            static func iconOpacity(isHovered: Bool) -> CGFloat {
+                isHovered ? 1.0 : AppStyles.General.Foreground.muted
+            }
         }
     }
 
@@ -272,12 +289,16 @@ enum AppStyles {
 
         enum Typography {
             static let h1: Font = .system(size: 30, weight: .semibold)
-            static let h2: Font = .system(size: 15, weight: .semibold)
-            static let h3: Font = .system(size: 13, weight: .medium)
-            static let body: Font = .system(size: 16)
-            static let bodySm: Font = .system(size: 12)
-            static let caption: Font = .system(size: 11)
-            static let key: Font = .system(size: 13, weight: .semibold, design: .monospaced)
+            static let h2: Font = .system(size: AppStyles.General.Typography.textLg + 1, weight: .semibold)
+            static let h3: Font = .system(size: AppStyles.General.Typography.textBase, weight: .medium)
+            static let body: Font = .system(size: AppStyles.General.Typography.textXl)
+            static let bodySm: Font = .system(size: AppStyles.General.Typography.textSm)
+            static let caption: Font = .system(size: AppStyles.General.Typography.textXs)
+            static let key: Font = .system(
+                size: AppStyles.General.Typography.textBase,
+                weight: .semibold,
+                design: .monospaced
+            )
         }
 
         enum TextColor {
@@ -331,4 +352,5 @@ enum AppStyles {
         static let intakeScanningSpinnerGap: CGFloat = 10
         static let intakeScanningTitleOpacity: CGFloat = 0.88
     }
+
 }

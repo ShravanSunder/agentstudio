@@ -591,6 +591,19 @@ final class WorkspaceStoreTests {
     }
 
     @Test
+    func test_extractPane_removesPaneFromSourceArrangementMinimizedSet() {
+        let s1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let s2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = makeTab(paneIds: [s1.id, s2.id])
+        store.appendTab(tab)
+        _ = store.minimizePane(s2.id, inTab: tab.id)
+
+        _ = store.extractPane(s2.id, fromTab: tab.id)
+
+        #expect(store.tabs[0].activeMinimizedPaneIds.isEmpty)
+    }
+
+    @Test
 
     func test_extractPane_singlePane_noOp() {
         // Arrange
@@ -628,6 +641,25 @@ final class WorkspaceStoreTests {
         #expect(store.tabs[0].paneIds.count == 2)
         #expect(store.tabs[0].paneIds.contains(s1.id))
         #expect(store.tabs[0].paneIds.contains(s2.id))
+    }
+
+    @Test
+    func test_mergeTab_sameSourceAndTarget_noOp() {
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+
+        store.mergeTab(
+            sourceId: tab.id,
+            intoTarget: tab.id,
+            at: pane.id,
+            direction: .horizontal,
+            position: .after
+        )
+
+        #expect(store.tabs.count == 1)
+        #expect(store.tabs[0].id == tab.id)
+        #expect(store.tabs[0].paneIds == [pane.id])
     }
 
     // MARK: - Queries

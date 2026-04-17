@@ -74,7 +74,7 @@ final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolving {
         }
 
         if activeTab.activePaneIds.contains(paneId.uuid) {
-            return !activeTab.minimizedPaneIds.contains(paneId.uuid)
+            return !activeTab.activeMinimizedPaneIds.contains(paneId.uuid)
         }
 
         guard

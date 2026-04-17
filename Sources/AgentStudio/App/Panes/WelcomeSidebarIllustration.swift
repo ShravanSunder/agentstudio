@@ -90,12 +90,12 @@ private let fixResolverStatus = GitBranchStatus(
 
 // MARK: - Color Helpers
 
-private func paletteColor(at index: Int) -> Color {
-    Color(nsColor: NSColor(hex: AppStyles.Shell.Sidebar.accentPaletteHexes[index]) ?? .controlAccentColor)
-}
-
-private let ghosttyColor = paletteColor(at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex)
-private let uvColor = paletteColor(at: WelcomeSidebarIllustrationConstants.uvPaletteIndex)
+private let ghosttyColor = AppStyles.Shell.Sidebar.paletteColor(
+    at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex
+)
+private let uvColor = AppStyles.Shell.Sidebar.paletteColor(
+    at: WelcomeSidebarIllustrationConstants.uvPaletteIndex
+)
 
 // MARK: - Public View
 

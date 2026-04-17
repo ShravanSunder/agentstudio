@@ -24,7 +24,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var appLifecycleStore: AppLifecycleAtom!
     var windowLifecycleStore: WindowLifecycleAtom!
     var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
-    var managementModeMonitor: ManagementModeMonitor!
+    var managementLayerMonitor: ManagementLayerMonitor!
     // MARK: - Command Bar
     private(set) var commandBarController: CommandBarPanelController!
     // MARK: - OAuth
@@ -83,7 +83,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         repoCacheStore = RepoCacheStore(atom: atomStore.repoCache)
         uiStateStore = UIStateStore(atom: atomStore.uiState)
         store.restore()
-        managementModeMonitor = ManagementModeMonitor()
+        managementLayerMonitor = ManagementLayerMonitor()
         appLifecycleStore = AppLifecycleAtom()
         windowLifecycleStore = WindowLifecycleAtom()
         applicationLifecycleMonitor = ApplicationLifecycleMonitor(
@@ -566,8 +566,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         let definition = CommandDispatcher.shared.definition(for: command)
+        let workspaceTab = WorkspaceTabDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
         let focus = atom(\.workspaceFocus).currentFocus(
-            workspaceTabLayout: store.tabLayoutAtom,
+            workspaceTab: workspaceTab,
             workspacePane: store.paneAtom
         )
         let isVisible = definition.isVisible(in: focus)
@@ -817,11 +821,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard let self else { return }
             defer {
                 sidebarExpandTask.cancel()
-                if case .scanning(let rootPath) = welcome.folderScanState,
-                    rootPath == rootURL.standardizedFileURL
-                {
-                    welcome.clearFolderScanState()
-                }
             }
 
             let refreshSummary = await self.watchedFolderCommands.refreshWatchedFolders(

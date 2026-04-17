@@ -165,7 +165,7 @@ final class AppCommandTests {
         #expect(def.keyBinding == nil)
         #expect(def.icon == nil)
         #expect(def.appliesTo.isEmpty)
-        #expect(!(def.requiresManagementMode))
+        #expect(!(def.requiresManagementLayer))
         #expect(def.visibleWhen.isEmpty)
         #expect(def.commandBarGroupName == "Commands")
         #expect(def.commandBarGroupPriority == 7)
@@ -182,7 +182,7 @@ final class AppCommandTests {
             icon: "xmark",
             helpText: "Close the active window",
             appliesTo: [.tab],
-            requiresManagementMode: false
+            requiresManagementLayer: false
         )
 
         // Assert
@@ -191,7 +191,7 @@ final class AppCommandTests {
         #expect(def.icon == "xmark")
         #expect(def.helpText == "Close the active window")
         #expect(def.appliesTo.contains(SearchItemType.tab))
-        #expect(!def.requiresManagementMode)
+        #expect(!def.requiresManagementLayer)
     }
 
     // MARK: - CommandDispatcher
@@ -269,6 +269,20 @@ final class AppCommandTests {
         #expect(commandNames.contains(.closePane))
         #expect(commandNames.contains(.extractPaneToTab))
         #expect(commandNames.contains(.movePaneToTab))
+    }
+
+    @MainActor
+
+    @Test
+    func test_scrollToBottom_definition_usesPaneCommandGroupAndShortcut() {
+        let def = CommandDispatcher.shared.definition(for: .scrollToBottom)
+
+        #expect(def.command == .scrollToBottom)
+        #expect(def.shortcut == .scrollToBottom)
+        #expect(def.label == "Scroll to Bottom")
+        #expect(def.commandBarGroupName == "Pane")
+        #expect(def.requiresManagementLayer == false)
+        #expect(def.visibleWhen == [.hasActivePane])
     }
 
     @MainActor
@@ -430,11 +444,11 @@ final class AppCommandTests {
         let handler = MockCommandHandler()
         dispatcher.handler = handler
         dispatcher.appCommandRouter = nil
-        atom(\.managementMode).deactivate()
-        atom(\.managementMode).toggle()
+        atom(\.managementLayer).deactivate()
+        atom(\.managementLayer).toggle()
         defer {
             dispatcher.handler = nil
-            atom(\.managementMode).deactivate()
+            atom(\.managementLayer).deactivate()
         }
 
         let sourcePaneId = UUID()
@@ -475,35 +489,35 @@ final class AppCommandTests {
     @MainActor
 
     @Test
-    func test_dispatcher_closePane_requiresManagementMode() {
+    func test_dispatcher_closePane_requiresManagementLayer() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .closePane)
 
         // Assert
-        #expect(def.requiresManagementMode)
+        #expect(def.requiresManagementLayer)
     }
 
     @MainActor
 
     @Test
-    func test_dispatcher_movePaneToTab_requiresManagementMode() {
+    func test_dispatcher_movePaneToTab_requiresManagementLayer() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .movePaneToTab)
 
         // Assert
-        #expect(def.requiresManagementMode)
+        #expect(def.requiresManagementLayer)
         #expect(def.appliesTo.contains(.pane))
     }
 
     @MainActor
 
     @Test
-    func test_dispatcher_closeTab_doesNotRequireManagementMode() {
+    func test_dispatcher_closeTab_doesNotRequireManagementLayer() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .closeTab)
 
         // Assert
-        #expect(!def.requiresManagementMode)
+        #expect(!def.requiresManagementLayer)
     }
 
     @MainActor
@@ -513,10 +527,10 @@ final class AppCommandTests {
         let dispatcher = CommandDispatcher.shared
         let handler = MockCommandHandler()
         dispatcher.handler = handler
-        atom(\.managementMode).deactivate()
+        atom(\.managementLayer).deactivate()
         defer {
             dispatcher.handler = nil
-            atom(\.managementMode).deactivate()
+            atom(\.managementLayer).deactivate()
         }
 
         #expect(!dispatcher.canDispatch(.closePane))
@@ -530,11 +544,11 @@ final class AppCommandTests {
         let dispatcher = CommandDispatcher.shared
         let handler = MockCommandHandler()
         dispatcher.handler = handler
-        atom(\.managementMode).deactivate()
-        atom(\.managementMode).toggle()
+        atom(\.managementLayer).deactivate()
+        atom(\.managementLayer).toggle()
         defer {
             dispatcher.handler = nil
-            atom(\.managementMode).deactivate()
+            atom(\.managementLayer).deactivate()
         }
 
         #expect(dispatcher.canDispatch(.closePane))
@@ -607,12 +621,12 @@ final class AppCommandTests {
     @MainActor
 
     @Test
-    func test_dispatcher_filterSidebar_doesNotRequireManagementMode() {
+    func test_dispatcher_filterSidebar_doesNotRequireManagementLayer() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Assert
-        #expect(!def.requiresManagementMode)
+        #expect(!def.requiresManagementLayer)
     }
 
     @MainActor
