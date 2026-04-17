@@ -28,9 +28,9 @@ private final class TerminalSurfaceClipView: NSClipView {
 
 @MainActor
 final class TerminalSurfaceScrollView: NSView {
-    private let scrollView = NSScrollView()
+    let scrollView = NSScrollView()
     private let clipView = TerminalSurfaceClipView()
-    private let documentView = NSView()
+    let documentView = NSView()
     private weak var actionPerformer: (any TerminalSurfaceActionPerforming)?
     private weak var surfaceView: Ghostty.SurfaceView?
     private weak var hostStateSource: (any TerminalSurfaceHostStateSource)?
@@ -111,8 +111,15 @@ final class TerminalSurfaceScrollView: NSView {
                 object: nil,
                 queue: nil
             ) { [weak self] _ in
-                MainActor.assumeIsolated { [weak self] in
-                    self?.handleScrollerStyleChange()
+                guard let self else { return }
+                if Thread.isMainThread {
+                    MainActor.assumeIsolated {
+                        self.handleScrollerStyleChange()
+                    }
+                } else {
+                    Task { @MainActor [weak self] in
+                        self?.handleScrollerStyleChange()
+                    }
                 }
             })
     }
@@ -287,53 +294,3 @@ final class TerminalSurfaceScrollView: NSView {
             ))
     }
 }
-
-#if DEBUG
-    @MainActor
-    extension TerminalSurfaceScrollView {
-        var documentOffsetYForTesting: CGFloat {
-            scrollView.contentView.bounds.origin.y
-        }
-
-        var maximumDocumentOffsetYForTesting: CGFloat {
-            maximumDocumentOffsetY
-        }
-
-        var autohidesScrollersForTesting: Bool {
-            scrollView.autohidesScrollers
-        }
-
-        var usesOverlayScrollerStyleForTesting: Bool {
-            scrollView.scrollerStyle == .overlay
-        }
-
-        var hasVerticalScrollerForTesting: Bool {
-            scrollView.hasVerticalScroller
-        }
-
-        var verticalScrollerFrameForTesting: NSRect? {
-            guard let verticalScroller = scrollView.verticalScroller else { return nil }
-            return convert(verticalScroller.bounds, from: verticalScroller)
-        }
-
-        var documentHeightForTesting: CGFloat {
-            documentView.frame.height
-        }
-
-        func bindHostStateSourceForTesting(_ hostStateSource: any TerminalSurfaceHostStateSource) {
-            bindHostStateSource(hostStateSource)
-        }
-
-        func simulateLiveScrollForTesting(documentOffsetY: CGFloat) {
-            isLiveScrolling = true
-            scrollView.contentView.scroll(to: CGPoint(x: 0, y: documentOffsetY))
-            handleLiveScroll()
-            isLiveScrolling = false
-        }
-
-        func simulateProgrammaticVisibleRectForTesting(documentOffsetY: CGFloat) {
-            scrollView.contentView.scroll(to: CGPoint(x: 0, y: documentOffsetY))
-            handleLiveScroll()
-        }
-    }
-#endif

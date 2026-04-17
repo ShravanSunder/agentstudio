@@ -92,6 +92,7 @@ extension Ghostty {
             appHandle?.tick()
         }
 
+        @MainActor
         func hostConfigSnapshot() -> GhosttyHostConfigSnapshot {
             appHandle?.hostConfigSnapshot() ?? GhosttyHostConfigSnapshot(configHandle: nil)
         }

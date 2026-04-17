@@ -124,6 +124,6 @@ struct TerminalPaneMountViewSearchTests {
 
         mountView.bind(runtime: runtime)
 
-        #expect(scrollView.documentOffsetYForTesting == 0)
+        #expect(scrollView.scrollView.contentView.bounds.origin.y == 0)
     }
 }

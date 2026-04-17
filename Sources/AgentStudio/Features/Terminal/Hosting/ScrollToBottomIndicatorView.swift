@@ -61,20 +61,3 @@ final class ScrollToBottomIndicatorView: NSButton {
         _ = actionPerformer?.performBindingAction(.scrollToBottom)
     }
 }
-
-#if DEBUG
-    @MainActor
-    extension ScrollToBottomIndicatorView {
-        var hasUnreadOutputForTesting: Bool {
-            hasUnreadOutput
-        }
-
-        var symbolNameForTesting: String {
-            currentSymbolName
-        }
-
-        var tintColorForTesting: NSColor {
-            currentTintColor
-        }
-    }
-#endif
