@@ -283,7 +283,7 @@ final class ObservableStoreTests {
         #expect((tab) != nil)
         #expect(tab?.activePaneId == p1.id)
         #expect((tab?.zoomedPaneId) == nil)
-        #expect(tab?.minimizedPaneIds.isEmpty ?? false)
+        #expect(tab?.activeMinimizedPaneIds.isEmpty ?? false)
     }
 
     @Test

@@ -37,7 +37,8 @@ struct FlatTabStripMetrics {
         let visibleRatioTotal = visiblePanes.reduce(0.0) { $0 + $1.ratio }
         let visibleDividerCount = adjacentVisibleDividerCount(
             layout: layout,
-            minimizedPaneIds: minimizedPaneIds
+            minimizedPaneIds: minimizedPaneIds,
+            collapsedPaneWidth: collapsedPaneWidth
         )
         let collapsedWidthTotal = CGFloat(layout.panes.count - visiblePanes.count) * collapsedPaneWidth
         let visibleWidthBudget = max(
@@ -78,9 +79,13 @@ struct FlatTabStripMetrics {
 
             guard index < layout.dividerIds.count else { continue }
             let nextPane = layout.panes[index + 1]
+            let leftIsMinimized = minimizedPaneIds.contains(pane.paneId)
+            let rightIsMinimized = minimizedPaneIds.contains(nextPane.paneId)
+            if collapsedPaneWidth == 0 {
+                guard !leftIsMinimized, !rightIsMinimized else { continue }
+            }
             guard
-                !minimizedPaneIds.contains(pane.paneId),
-                !minimizedPaneIds.contains(nextPane.paneId)
+                !(leftIsMinimized && rightIsMinimized)
             else {
                 continue
             }
@@ -99,9 +104,11 @@ struct FlatTabStripMetrics {
                     frame: dividerFrame,
                     leftPaneWidth: paneFrame.width,
                     rightPaneWidth: max(
-                        visibleRatioTotal > 0
-                            ? visibleWidthBudget * CGFloat(nextPane.ratio / visibleRatioTotal)
-                            : 0,
+                        rightIsMinimized
+                            ? collapsedPaneWidth
+                            : visibleRatioTotal > 0
+                                ? visibleWidthBudget * CGFloat(nextPane.ratio / visibleRatioTotal)
+                                : 0,
                         0
                     )
                 )
@@ -118,12 +125,19 @@ struct FlatTabStripMetrics {
 
     private static func adjacentVisibleDividerCount(
         layout: Layout,
-        minimizedPaneIds: Set<UUID>
+        minimizedPaneIds: Set<UUID>,
+        collapsedPaneWidth: CGFloat
     ) -> Int {
         layout.dividerIds.indices.reduce(into: 0) { count, index in
             let leftPaneId = layout.panes[index].paneId
             let rightPaneId = layout.panes[index + 1].paneId
-            if !minimizedPaneIds.contains(leftPaneId), !minimizedPaneIds.contains(rightPaneId) {
+            if collapsedPaneWidth == 0 {
+                if !minimizedPaneIds.contains(leftPaneId), !minimizedPaneIds.contains(rightPaneId) {
+                    count += 1
+                }
+                return
+            }
+            if !(minimizedPaneIds.contains(leftPaneId) && minimizedPaneIds.contains(rightPaneId)) {
                 count += 1
             }
         }

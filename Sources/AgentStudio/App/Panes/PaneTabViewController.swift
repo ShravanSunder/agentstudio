@@ -71,6 +71,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private let viewRegistry: ViewRegistry
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let tabRenamePopoverState: TabRenamePopoverState
+    private let arrangementInlineRenameState: ArrangementInlineRenameState
     private lazy var actionDispatcher = PaneTabActionDispatcher(
         dispatch: { [weak self] action in
             guard let self else {
@@ -135,7 +136,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
-        tabRenamePopoverState: TabRenamePopoverState = TabRenamePopoverState()
+        tabRenamePopoverState: TabRenamePopoverState = TabRenamePopoverState(),
+        arrangementInlineRenameState: ArrangementInlineRenameState = ArrangementInlineRenameState()
     ) {
         self.store = store
         self.repoCache = repoCache
@@ -146,6 +148,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         self.viewRegistry = viewRegistry
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.tabRenamePopoverState = tabRenamePopoverState
+        self.arrangementInlineRenameState = arrangementInlineRenameState
         super.init(nibName: nil, bundle: nil)
         setupNotificationObservers()
     }
@@ -182,6 +185,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         let tabBar = CustomTabBar(
             adapter: tabBarAdapter,
             renamePopoverState: tabRenamePopoverState,
+            arrangementInlineRenameState: arrangementInlineRenameState,
             onSelect: { [weak self] tabId in
                 self?.handlePaneFocusTrigger(.tabClick(PaneTabClickFocusTrigger(targetTabId: tabId)))
             },
@@ -209,7 +213,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             },
             onSaveArrangement: { [weak self] tabId in
                 guard let self, let tab = self.store.tabLayoutAtom.tab(tabId) else { return }
-                let name = Self.nextArrangementName(existing: tab.arrangements)
+                let name = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
                 self.dispatchAction(
                     .createArrangement(
                         tabId: tabId, name: name, paneIds: Set(tab.activePaneIds)
@@ -452,7 +456,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 if self.store.tabLayoutAtom.activeTabId != tabId {
                     self.store.tabLayoutAtom.setActiveTab(tabId)
                 }
-                if let tab = self.store.tabLayoutAtom.tab(tabId), tab.minimizedPaneIds.contains(paneId) {
+                if let tab = self.store.tabLayoutAtom.tab(tabId), tab.activeMinimizedPaneIds.contains(paneId) {
                     self.executor.execute(.expandPane(tabId: tabId, paneId: paneId))
                 }
                 self.store.tabLayoutAtom.setActivePane(paneId, inTab: tabId)
@@ -1350,7 +1354,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         case .saveArrangement:
             // Direct action — save current layout as a new arrangement
             guard let tab = store.tabLayoutAtom.tab(tabId) else { return }
-            let name = Self.nextArrangementName(existing: tab.arrangements)
+            let name = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
             action = .createArrangement(
                 tabId: tabId, name: name, paneIds: Set(tab.activePaneIds)
             )
@@ -1483,18 +1487,6 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         requestPaneRefocus(.explicit)
     }
 
-    // MARK: - Arrangement Naming
-
-    /// Generate a unique arrangement name by finding the next unused index.
-    static func nextArrangementName(existing: [PaneArrangement]) -> String {
-        let existingNames = Set(existing.map(\.name))
-        var index = existing.count
-        while existingNames.contains("Arrangement \(index)") {
-            index += 1
-        }
-        return "Arrangement \(index)"
-    }
-
     // MARK: - WorkspaceCommandHandling Conformance
 
     func execute(_ command: AppCommand) {
@@ -1605,7 +1597,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             guard let tabId = store.tabLayoutAtom.activeTabId,
                 let tab = store.tabLayoutAtom.tab(tabId)
             else { break }
-            let name = Self.nextArrangementName(existing: tab.arrangements)
+            let name = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
             dispatchAction(
                 .createArrangement(
                     tabId: tabId, name: name, paneIds: Set(tab.activePaneIds)
@@ -1671,6 +1663,28 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 dispatchAction(.selectTab(tabId: target))
             }
             tabRenamePopoverState.present(for: target)
+        case (.renameArrangement, .tab):
+            guard
+                let tab = store.tabLayoutAtom.tabs.first(where: { tab in
+                    tab.arrangements.contains(where: { $0.id == target })
+                }),
+                let arrangement = tab.arrangements.first(where: { $0.id == target })
+            else {
+                Self.logger.warning("renameArrangement targeted command ignored: arrangement \(target) not found")
+                return
+            }
+            guard !arrangement.isDefault else {
+                Self.logger.warning("renameArrangement targeted command ignored: cannot rename default arrangement")
+                return
+            }
+            if store.tabLayoutAtom.activeTabId != tab.id {
+                dispatchAction(.selectTab(tabId: tab.id))
+            }
+            arrangementInlineRenameState.beginEditing(
+                arrangementId: arrangement.id,
+                currentName: arrangement.name,
+                isDefault: arrangement.isDefault
+            )
         default:
             execute(command)
         }

@@ -109,12 +109,12 @@ Swift compile times are long. A wrong UX assumption wastes minutes per iteration
 
 ### Visual Verification
 
-Agents **must** visually verify all UI/UX changes using Peekaboo. **Never target apps by name** when testing debug builds — use PID targeting:
+Agents **must** visually verify all UI/UX changes using Peekaboo. **Never target apps by name** when testing debug builds — use PID targeting. **Never `pkill` AgentStudio** — it kills the user's running app. Each agent session builds to its own `.build-agent-$PPID/` directory; launch from there:
 
 ```bash
-pkill -9 -f "AgentStudio"
-.build/debug/AgentStudio &
-PID=$(pgrep -f ".build/debug/AgentStudio")
+BUILD_PATH=".build-agent-$PPID"
+"$BUILD_PATH/debug/AgentStudio" &
+PID=$!
 peekaboo see --app "PID:$PID" --json
 ```
 
@@ -326,13 +326,12 @@ See [EventBus Design — Swift 6.2 concurrency rules](docs/architecture/pane_run
 
 **For filtered test runs:**
 ```bash
-SWIFT_BUILD_DIR=".build-agent-$(uuidgen | tr -dc 'a-z0-9' | head -c 8)"
-swift test --build-path "$SWIFT_BUILD_DIR" --filter "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"
+swift test --build-path ".build-agent-$PPID" --filter "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"
 ```
 
 | Env Var | Default | Purpose |
 |---------|---------|---------|
-| `SWIFT_BUILD_DIR` | `.build-agent-$RANDOM` | Build path isolation between agent sessions |
+| `SWIFT_BUILD_DIR` | `.build-agent-$PPID` | Build path isolation — auto-derived from parent process ID, stable per agent session |
 | `SWIFT_TEST_PARALLEL` | `1` (enabled) | Set to `0` to disable parallel workers |
 | `SWIFT_TEST_WORKERS` | `hw.ncpu / 2` (max 4) | Parallel test worker count |
 

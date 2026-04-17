@@ -272,6 +272,35 @@ struct PaneCoordinatorHardeningTests {
         #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd == unknownCwd)
     }
 
+    @Test("expandPane restores a missing visible terminal view when the minimized pane had no host")
+    func expandPane_restoresMissingVisibleTerminalView() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let firstPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Visible")
+        let secondPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Minimized")
+        let tab = Tab(paneId: firstPane.id)
+        harness.store.appendTab(tab)
+        harness.store.insertPane(
+            secondPane.id,
+            inTab: tab.id,
+            at: firstPane.id,
+            direction: .horizontal,
+            position: .after
+        )
+        _ = harness.store.minimizePane(secondPane.id, inTab: tab.id)
+
+        harness.coordinator.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        harness.coordinator.windowLifecycleStore.recordLaunchLayoutSettled()
+
+        #expect(harness.viewRegistry.view(for: secondPane.id) == nil)
+
+        harness.coordinator.execute(.expandPane(tabId: tab.id, paneId: secondPane.id))
+
+        #expect(harness.viewRegistry.view(for: secondPane.id) != nil)
+    }
+
     @Test("reactivatePane keeps reactivated pane in canonical state if view creation fails")
     func reactivatePane_keepsCanonicalStateWhenViewCreationFails() {
         let harness = makeHarness()

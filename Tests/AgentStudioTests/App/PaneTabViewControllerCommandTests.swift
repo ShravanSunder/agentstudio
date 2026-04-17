@@ -21,6 +21,7 @@ struct PaneTabViewControllerCommandTests {
         let windowLifecycleStore: WindowLifecycleAtom
         let tempDir: URL
         let tabRenamePopoverState: TabRenamePopoverState
+        let arrangementInlineRenameState: ArrangementInlineRenameState
     }
 
     private func makeHarness(
@@ -37,6 +38,7 @@ struct PaneTabViewControllerCommandTests {
         let appLifecycleStore = AppLifecycleAtom()
         let windowLifecycleStore = WindowLifecycleAtom()
         let tabRenamePopoverState = TabRenamePopoverState()
+        let arrangementInlineRenameState = ArrangementInlineRenameState()
         let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore
@@ -58,7 +60,8 @@ struct PaneTabViewControllerCommandTests {
             executor: executor,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry,
-            tabRenamePopoverState: tabRenamePopoverState
+            tabRenamePopoverState: tabRenamePopoverState,
+            arrangementInlineRenameState: arrangementInlineRenameState
         )
         return Harness(
             store: store,
@@ -69,7 +72,8 @@ struct PaneTabViewControllerCommandTests {
             surfaceManager: surfaceManager,
             windowLifecycleStore: windowLifecycleStore,
             tempDir: tempDir,
-            tabRenamePopoverState: tabRenamePopoverState
+            tabRenamePopoverState: tabRenamePopoverState,
+            arrangementInlineRenameState: arrangementInlineRenameState
         )
     }
 
@@ -179,6 +183,112 @@ struct PaneTabViewControllerCommandTests {
         harness.controller.execute(.renameTab, target: missingTabId, targetType: .tab)
 
         #expect(harness.tabRenamePopoverState.presentedTabId == nil)
+        #expect(harness.store.activeTabId == tab.id)
+    }
+
+    @Test("targeted renameArrangement begins inline edit on arrangement in the active tab")
+    func executeRenameArrangement_activeTabArrangement_beginsInlineEdit() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let firstPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+        let secondPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        let tab = Tab(paneId: firstPane.id)
+        harness.store.appendTab(tab)
+        harness.store.insertPane(
+            secondPane.id,
+            inTab: tab.id,
+            at: firstPane.id,
+            direction: .horizontal,
+            position: .after
+        )
+        harness.store.setActiveTab(tab.id)
+        guard
+            let customArrangementId = harness.store.createArrangement(
+                name: "Layout 1",
+                paneIds: [firstPane.id],
+                inTab: tab.id
+            )
+        else {
+            Issue.record("expected arrangement to be created")
+            return
+        }
+
+        harness.controller.execute(.renameArrangement, target: customArrangementId, targetType: .tab)
+
+        #expect(harness.arrangementInlineRenameState.editingArrangementId == customArrangementId)
+        #expect(harness.arrangementInlineRenameState.draftName == "Layout 1")
+        #expect(harness.store.activeTabId == tab.id)
+    }
+
+    @Test("targeted renameArrangement switches to the owning tab before beginning inline edit")
+    func executeRenameArrangement_crossTabArrangement_switchesTabFirst() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let firstTabPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+        let secondTabPaneA = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second A"))
+        let secondTabPaneB = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second B"))
+        let firstTab = Tab(paneId: firstTabPane.id, name: "First")
+        let secondTab = Tab(paneId: secondTabPaneA.id, name: "Second")
+        harness.store.appendTab(firstTab)
+        harness.store.appendTab(secondTab)
+        harness.store.insertPane(
+            secondTabPaneB.id,
+            inTab: secondTab.id,
+            at: secondTabPaneA.id,
+            direction: .horizontal,
+            position: .after
+        )
+        harness.store.setActiveTab(firstTab.id)
+        guard
+            let customArrangementId = harness.store.createArrangement(
+                name: "Layout 1",
+                paneIds: [secondTabPaneA.id],
+                inTab: secondTab.id
+            )
+        else {
+            Issue.record("expected arrangement to be created")
+            return
+        }
+
+        harness.controller.execute(.renameArrangement, target: customArrangementId, targetType: .tab)
+
+        #expect(harness.store.activeTabId == secondTab.id)
+        #expect(harness.arrangementInlineRenameState.editingArrangementId == customArrangementId)
+        #expect(harness.arrangementInlineRenameState.draftName == "Layout 1")
+    }
+
+    @Test("targeted renameArrangement ignores the default arrangement")
+    func executeRenameArrangement_defaultArrangement_isIgnored() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Only"))
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let defaultArrangementId = harness.store.tab(tab.id)?.defaultArrangement.id ?? UUID()
+
+        harness.controller.execute(.renameArrangement, target: defaultArrangementId, targetType: .tab)
+
+        #expect(harness.arrangementInlineRenameState.editingArrangementId == nil)
+        #expect(harness.arrangementInlineRenameState.draftName.isEmpty)
+    }
+
+    @Test("targeted renameArrangement ignores a stale arrangement id")
+    func executeRenameArrangement_unknownArrangement_isIgnored() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Only"))
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+
+        harness.controller.execute(.renameArrangement, target: UUID(), targetType: .tab)
+
+        #expect(harness.arrangementInlineRenameState.editingArrangementId == nil)
         #expect(harness.store.activeTabId == tab.id)
     }
 

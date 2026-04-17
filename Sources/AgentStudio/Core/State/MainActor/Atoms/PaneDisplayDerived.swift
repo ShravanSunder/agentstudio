@@ -1,4 +1,7 @@
 import Foundation
+import os.log
+
+private let paneDisplayLogger = Logger(subsystem: "com.agentstudio", category: "PaneDisplayDerived")
 
 struct PaneDisplayParts: Equatable {
     let primaryLabel: String
@@ -8,11 +11,35 @@ struct PaneDisplayParts: Equatable {
     let cwdFolderName: String?
 }
 
+struct CollapsedBarLabelPart: Equatable {
+    enum IconKind: Equatable {
+        case octicon(String)
+        case system(String)
+    }
+
+    enum TextWeight: Equatable {
+        case semibold
+        case regular
+    }
+
+    let icon: IconKind
+    let text: String
+    let weight: TextWeight
+}
+
+private struct WorkspaceContextParts {
+    let repoName: String
+    let worktreeName: String
+    let worktreeIconName: String
+    let branchName: String?
+}
+
 @MainActor
 struct PaneDisplayDerived {
     func displayParts(for paneId: UUID) -> PaneDisplayParts {
         let workspacePane = atom(\.workspacePane)
         guard let pane = workspacePane.pane(paneId) else {
+            paneDisplayLogger.warning("displayParts: pane \(paneId.uuidString, privacy: .public) not found")
             return PaneDisplayParts(
                 primaryLabel: "Terminal",
                 repoName: nil,
@@ -26,9 +53,6 @@ struct PaneDisplayDerived {
     }
 
     func displayParts(for pane: Pane) -> PaneDisplayParts {
-        let workspaceRepositoryTopology = atom(\.workspaceRepositoryTopology)
-        let repoCache = atom(\.repoCache)
-
         let rawTitle = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let defaultLabel = rawTitle.isEmpty ? "Terminal" : rawTitle
         let cwdFolderName: String? = {
@@ -36,22 +60,22 @@ struct PaneDisplayDerived {
             return cwdFolder.isEmpty ? nil : cwdFolder
         }()
 
-        if let worktreeId = pane.worktreeId,
-            let repoId = pane.repoId,
-            let repo = workspaceRepositoryTopology.repo(repoId),
-            let worktree = workspaceRepositoryTopology.worktree(worktreeId)
-        {
-            let repoName = pane.metadata.repoName ?? repo.name
-            let branchName = resolvedBranchName(
-                worktree: worktree,
-                enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
-            )
-            let worktreeFolderName = worktree.path.lastPathComponent
+        if let workspaceContext = resolvedWorkspaceContext(for: pane) {
+            let primaryLabel = [
+                workspaceContext.repoName,
+                workspaceContext.branchName,
+                workspaceContext.worktreeName,
+            ]
+            .compactMap { label in
+                guard let label else { return nil }
+                return label.isEmpty ? nil : label
+            }
+            .joined(separator: " | ")
             return PaneDisplayParts(
-                primaryLabel: "\(repoName) | \(branchName) | \(worktreeFolderName)",
-                repoName: repoName,
-                branchName: branchName,
-                worktreeFolderName: worktreeFolderName,
+                primaryLabel: primaryLabel.isEmpty ? defaultLabel : primaryLabel,
+                repoName: workspaceContext.repoName,
+                branchName: workspaceContext.branchName,
+                worktreeFolderName: workspaceContext.worktreeName,
                 cwdFolderName: cwdFolderName
             )
         }
@@ -104,5 +128,139 @@ struct PaneDisplayDerived {
         }
 
         return "detached HEAD"
+    }
+
+    func accentColorHex(for paneId: UUID) -> String? {
+        let workspacePane = atom(\.workspacePane)
+        let workspaceRepositoryTopology = atom(\.workspaceRepositoryTopology)
+        let repoCache = atom(\.repoCache)
+        let uiState = atom(\.uiState)
+
+        guard let pane = workspacePane.pane(paneId) else {
+            paneDisplayLogger.warning("accentColorHex: pane \(paneId.uuidString, privacy: .public) not found")
+            return nil
+        }
+        guard let repoId = pane.repoId ?? pane.metadata.repoId else { return nil }
+        let sidebarRepos = workspaceRepositoryTopology.repos.map(RepoPresentationItem.init(repo:))
+        guard let sidebarRepo = sidebarRepos.first(where: { $0.id == repoId }) else { return nil }
+
+        let repoMetadataById = RepoPresentationColoring.buildRepoMetadata(
+            repos: sidebarRepos,
+            repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId,
+        )
+        let resolvedGroups = RepoPresentationGrouping.buildGroups(
+            repos: sidebarRepos,
+            metadataByRepoId: repoMetadataById
+        )
+
+        if let group = resolvedGroups.first(where: { group in
+            group.repos.contains(where: { $0.id == repoId })
+        }) {
+            return RepoPresentationColoring.checkoutColorHex(
+                for: sidebarRepo,
+                in: group,
+                checkoutColorOverrides: uiState.checkoutColors
+            )
+        }
+
+        return uiState.checkoutColors[repoId.uuidString]
+    }
+
+    func collapsedBarLabelParts(for paneId: UUID) -> [CollapsedBarLabelPart] {
+        let workspacePane = atom(\.workspacePane)
+
+        guard let pane = workspacePane.pane(paneId) else {
+            paneDisplayLogger.warning("collapsedBarLabelParts: pane \(paneId.uuidString, privacy: .public) not found")
+            return [CollapsedBarLabelPart(icon: .system("terminal"), text: "Terminal", weight: .regular)]
+        }
+
+        let parts = displayParts(for: pane)
+
+        if let workspaceContext = resolvedWorkspaceContext(for: pane) {
+            var labelParts = [
+                CollapsedBarLabelPart(
+                    icon: .octicon("octicon-repo"),
+                    text: workspaceContext.repoName,
+                    weight: .semibold
+                ),
+                CollapsedBarLabelPart(
+                    icon: .octicon(workspaceContext.worktreeIconName),
+                    text: workspaceContext.worktreeName,
+                    weight: .regular
+                ),
+            ]
+            if let branchName = workspaceContext.branchName, !branchName.isEmpty {
+                labelParts.append(
+                    CollapsedBarLabelPart(icon: .octicon("octicon-git-branch"), text: branchName, weight: .regular)
+                )
+            }
+            return labelParts
+        }
+
+        if let cwdFolder = parts.cwdFolderName {
+            return [CollapsedBarLabelPart(icon: .system("folder"), text: cwdFolder, weight: .regular)]
+        }
+
+        let label = parts.primaryLabel.isEmpty ? "Terminal" : parts.primaryLabel
+        return [CollapsedBarLabelPart(icon: .system("terminal"), text: label, weight: .regular)]
+    }
+
+    private func resolvedWorkspaceContext(for pane: Pane) -> WorkspaceContextParts? {
+        let workspaceRepositoryTopology = atom(\.workspaceRepositoryTopology)
+        let workspaceLookup = atom(\.workspaceLookup)
+        let repoCache = atom(\.repoCache)
+
+        let explicitRepoId = pane.repoId ?? pane.metadata.repoId
+        let explicitWorktreeId = pane.worktreeId ?? pane.metadata.worktreeId
+
+        if let explicitRepoId,
+            let explicitWorktreeId,
+            let repo = workspaceRepositoryTopology.repo(explicitRepoId),
+            let worktree = workspaceRepositoryTopology.worktree(explicitWorktreeId)
+        {
+            return WorkspaceContextParts(
+                repoName: pane.metadata.repoName ?? repo.name,
+                worktreeName: pane.metadata.worktreeName ?? worktree.path.lastPathComponent,
+                worktreeIconName: worktree.isMainWorktree ? "octicon-star-fill" : "octicon-git-worktree",
+                branchName: resolvedBranchName(
+                    worktree: worktree,
+                    enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
+                )
+            )
+        }
+
+        if explicitRepoId != nil || explicitWorktreeId != nil {
+            paneDisplayLogger.warning(
+                "resolvedWorkspaceContext: explicit repo/worktree for pane \(pane.id.uuidString, privacy: .public) missing from topology; falling back"
+            )
+        }
+
+        if let resolvedContext = workspaceLookup.repoAndWorktree(containing: pane.metadata.cwd) {
+            return WorkspaceContextParts(
+                repoName: pane.metadata.repoName ?? resolvedContext.repo.name,
+                worktreeName: pane.metadata.worktreeName ?? resolvedContext.worktree.name,
+                worktreeIconName: resolvedContext.worktree.isMainWorktree
+                    ? "octicon-star-fill" : "octicon-git-worktree",
+                branchName: resolvedBranchName(
+                    worktree: resolvedContext.worktree,
+                    enrichment: repoCache.worktreeEnrichmentByWorktreeId[resolvedContext.worktree.id]
+                )
+            )
+        }
+
+        if let repoName = pane.metadata.repoName, let worktreeName = pane.metadata.worktreeName {
+            let branchName = explicitWorktreeId.flatMap { worktreeId in
+                let branch = repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch ?? ""
+                return branch.isEmpty ? nil : branch
+            }
+            return WorkspaceContextParts(
+                repoName: repoName,
+                worktreeName: worktreeName,
+                worktreeIconName: "octicon-git-worktree",
+                branchName: branchName
+            )
+        }
+
+        return nil
     }
 }

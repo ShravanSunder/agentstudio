@@ -87,7 +87,7 @@ struct PaneManagementContextTests {
 
             #expect(context.targetPath?.path == worktree.path.path)
             #expect(context.identityRows.first(where: { $0.id == "branch" })?.text == "detached HEAD")
-            #expect(context.identityRows.first(where: { $0.id == "cwd" })?.text == ".")
+            #expect(context.identityRows.first(where: { $0.id == "cwd" })?.text == worktree.path.lastPathComponent)
         }
     }
 

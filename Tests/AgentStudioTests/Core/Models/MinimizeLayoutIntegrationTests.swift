@@ -67,15 +67,15 @@ final class MinimizeLayoutIntegrationTests {
 
         // Assert
         let updated = store.tab(tab.id)!
-        #expect(updated.minimizedPaneIds == Set(paneIds))
+        #expect(updated.activeMinimizedPaneIds == Set(paneIds))
         #expect((updated.activePaneId) == nil)
 
         let renderInfo = FlatTabStripMetrics.compute(
             layout: updated.layout,
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
             dividerThickness: AppStyle.paneGap,
-            minimizedPaneIds: updated.minimizedPaneIds,
-            collapsedPaneWidth: CollapsedPaneBar.barWidth
+            minimizedPaneIds: updated.activeMinimizedPaneIds,
+            collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
         #expect(renderInfo.allMinimized)
         #expect(renderInfo.paneSegments.count == 3)
@@ -110,7 +110,7 @@ final class MinimizeLayoutIntegrationTests {
             in: CGRect(x: 0, y: 0, width: 1200, height: 300),
             dividerThickness: AppStyle.paneGap,
             minimizedPaneIds: drawer.minimizedPaneIds,
-            collapsedPaneWidth: CollapsedPaneBar.barWidth
+            collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
         #expect(renderInfo.allMinimized)
     }
@@ -134,16 +134,16 @@ final class MinimizeLayoutIntegrationTests {
 
         // Assert
         let updated = store.tab(tab.id)!
-        #expect(!(updated.minimizedPaneIds.contains(paneIds[0])))
-        #expect(updated.minimizedPaneIds.contains(paneIds[1]))
+        #expect(!(updated.activeMinimizedPaneIds.contains(paneIds[0])))
+        #expect(updated.activeMinimizedPaneIds.contains(paneIds[1]))
         #expect(updated.activePaneId == paneIds[0])
 
         let renderInfo = FlatTabStripMetrics.compute(
             layout: updated.layout,
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
             dividerThickness: AppStyle.paneGap,
-            minimizedPaneIds: updated.minimizedPaneIds,
-            collapsedPaneWidth: CollapsedPaneBar.barWidth
+            minimizedPaneIds: updated.activeMinimizedPaneIds,
+            collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
         #expect(!(renderInfo.allMinimized))
     }
@@ -170,8 +170,8 @@ final class MinimizeLayoutIntegrationTests {
 
         // Assert: tab NOT empty, B and C remain minimized (no auto-expand)
         let updated = store.tab(tab.id)!
-        #expect(updated.minimizedPaneIds.contains(b))
-        #expect(updated.minimizedPaneIds.contains(c))
+        #expect(updated.activeMinimizedPaneIds.contains(b))
+        #expect(updated.activeMinimizedPaneIds.contains(c))
         #expect((updated.activePaneId) == nil)
     }
 
@@ -190,12 +190,78 @@ final class MinimizeLayoutIntegrationTests {
             layout: updated.layout,
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
             dividerThickness: AppStyle.paneGap,
-            minimizedPaneIds: updated.minimizedPaneIds,
-            collapsedPaneWidth: CollapsedPaneBar.barWidth
+            minimizedPaneIds: updated.activeMinimizedPaneIds,
+            collapsedPaneWidth: AppStyle.collapsedBarWidth
         )
 
         #expect(!(renderInfo.allMinimized))
+        #expect(renderInfo.dividerSegments.count == 2)
+        #expect(renderInfo.paneSegments.filter { $0.isMinimized }.count == 1)
+    }
+
+    @Test
+    func test_flatStripMetrics_minimizedBetweenVisible_createsDividers() {
+        let (tab, paneIds) = createTabWithPanes(3)
+        store.minimizePane(paneIds[1], inTab: tab.id)
+
+        let updated = store.tab(tab.id)!
+        let renderInfo = FlatTabStripMetrics.compute(
+            layout: updated.layout,
+            in: CGRect(x: 0, y: 0, width: 1200, height: 700),
+            dividerThickness: AppStyle.paneGap,
+            minimizedPaneIds: updated.activeMinimizedPaneIds,
+            collapsedPaneWidth: CollapsedPaneBar.barWidth
+        )
+
+        #expect(!renderInfo.dividerSegments.isEmpty)
+        #expect(renderInfo.dividerSegments.count == 2)
+        let dividerBeforeMinimized = renderInfo.dividerSegments[0]
+        let dividerAfterMinimized = renderInfo.dividerSegments[1]
+        #expect(dividerBeforeMinimized.rightPaneWidth == CollapsedPaneBar.barWidth)
+        #expect(dividerAfterMinimized.leftPaneWidth == CollapsedPaneBar.barWidth)
+    }
+
+    @Test
+    func test_flatStripMetrics_zeroCollapsedWidth_minimizedPanesTakeNoSpace() {
+        let (tab, paneIds) = createTabWithPanes(3)
+        store.minimizePane(paneIds[1], inTab: tab.id)
+
+        let updated = store.tab(tab.id)!
+        let renderInfo = FlatTabStripMetrics.compute(
+            layout: updated.layout,
+            in: CGRect(x: 0, y: 0, width: 1200, height: 700),
+            dividerThickness: AppStyle.paneGap,
+            minimizedPaneIds: updated.activeMinimizedPaneIds,
+            collapsedPaneWidth: 0
+        )
+
+        let minimizedSegment = renderInfo.paneSegments.first { $0.isMinimized }
+        #expect(minimizedSegment != nil)
+        #expect(minimizedSegment?.frame.width == 0)
         #expect(renderInfo.dividerSegments.isEmpty)
-        #expect(renderInfo.paneSegments.filter(\.isMinimized).count == 1)
+
+        let visibleSegments = renderInfo.paneSegments.filter { !$0.isMinimized }
+        let totalVisibleWidth = visibleSegments.reduce(0) { $0 + $1.frame.width }
+        #expect(totalVisibleWidth > 1190)
+    }
+
+    @Test
+    func test_flatStripMetrics_adjacentMinimizedPanes_onlyVisibleBoundaryGetsDivider() {
+        let (tab, paneIds) = createTabWithPanes(3)
+        store.minimizePane(paneIds[0], inTab: tab.id)
+        store.minimizePane(paneIds[1], inTab: tab.id)
+
+        let updated = store.tab(tab.id)!
+        let renderInfo = FlatTabStripMetrics.compute(
+            layout: updated.layout,
+            in: CGRect(x: 0, y: 0, width: 1200, height: 700),
+            dividerThickness: AppStyle.paneGap,
+            minimizedPaneIds: updated.activeMinimizedPaneIds,
+            collapsedPaneWidth: AppStyle.collapsedBarWidth
+        )
+
+        #expect(renderInfo.dividerSegments.count == 1)
+        #expect(renderInfo.dividerSegments[0].leftPaneId == paneIds[1])
+        #expect(renderInfo.dividerSegments[0].rightPaneId == paneIds[2])
     }
 }

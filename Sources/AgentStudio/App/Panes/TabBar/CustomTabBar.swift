@@ -58,6 +58,7 @@ private struct ScrollOverflowDetector: ViewModifier {
 struct CustomTabBar: View {
     @Bindable var adapter: TabBarAdapter
     @Bindable var renamePopoverState: TabRenamePopoverState
+    @Bindable var arrangementInlineRenameState: ArrangementInlineRenameState
     var onSelect: (UUID) -> Void
     var onClose: (UUID) -> Void
     var onCommand: ((AppCommand, UUID) -> Void)?
@@ -106,6 +107,7 @@ struct CustomTabBar: View {
 
                     TabBarArrangementButton(
                         adapter: adapter,
+                        arrangementInlineRenameState: arrangementInlineRenameState,
                         onPaneAction: onPaneAction,
                         onSaveArrangement: onSaveArrangement
                     )
@@ -405,49 +407,117 @@ private struct GitHubTabButton: View {
 /// Opens the active tab's arrangement panel popover.
 private struct TabBarArrangementButton: View {
     @Bindable var adapter: TabBarAdapter
+    @Bindable var arrangementInlineRenameState: ArrangementInlineRenameState
     let onPaneAction: ((PaneActionCommand) -> Void)?
     let onSaveArrangement: ((UUID) -> Void)?
 
-    @State private var showPanel = false
+    @State private var isPanelPresented = false
     @State private var isHovered = false
+    @State private var popoverToggleGate = PopoverToggleGate()
 
     private var activeTab: TabBarItem? {
         guard let activeId = adapter.activeTabId else { return nil }
         return adapter.tabs.first { $0.id == activeId }
     }
 
+    private var hiddenMinimizedCount: Int {
+        guard !atom(\.uiState).showMinimizedBars else { return 0 }
+        guard !atom(\.managementLayer).isActive else { return 0 }
+        return activeTab?.minimizedCount ?? 0
+    }
+
+    private var activeArrangementBadgeNumber: Int? {
+        activeTab?.activeArrangementBadgeNumber
+    }
+
+    private var activeArrangementName: String? {
+        activeTab?.activeArrangementName
+    }
+
+    private var chipNameMaxWidth: CGFloat {
+        TabBarArrangementChip.nameMaxWidth(isManagementLayerActive: atom(\.managementLayer).isActive)
+    }
+
     var body: some View {
         Button {
-            showPanel.toggle()
+            popoverToggleGate.toggle(isPresented: &isPanelPresented)
         } label: {
-            Image(systemName: "rectangle.3.group")
-                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
-                .foregroundStyle(isHovered ? .primary : .secondary)
-                .frame(width: AppStyle.toolbarButtonSize, height: AppStyle.toolbarButtonSize)
-                .background(
-                    Circle()
-                        .fill(Color.white.opacity(isHovered ? AppStyle.fillPressed : AppStyle.fillMuted))
-                )
-                .contentShape(Circle())
+            TabBarArrangementChip(
+                index: activeArrangementBadgeNumber,
+                name: activeArrangementName,
+                isHovered: isHovered,
+                isPressed: isPanelPresented,
+                nameMaxWidth: chipNameMaxWidth
+            )
+            .overlay(alignment: .topTrailing) {
+                if hiddenMinimizedCount > 0 {
+                    Text("\(hiddenMinimizedCount)")
+                        .font(.system(size: AppStyle.textXs, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, AppStyle.spacingTight)
+                        .padding(.vertical, 1)
+                        .background(
+                            Capsule()
+                                .fill(Color.white.opacity(AppStyle.fillHover))
+                        )
+                        .fixedSize()
+                        .offset(x: 10, y: -6)
+                        .transition(.opacity.combined(with: .scale))
+                }
+            }
+            .animation(.easeOut(duration: AppStyle.animationFast), value: hiddenMinimizedCount)
+            .animation(.easeOut(duration: AppStyle.animationFast), value: activeArrangementName)
         }
         .buttonStyle(.plain)
         .onHover { hovering in isHovered = hovering }
         .help(LocalActionSpec.arrangements.actionSpec.helpText)
         .popover(
-            isPresented: $showPanel,
-            attachmentAnchor: .point(.bottomLeading),
-            arrowEdge: .bottom
+            isPresented: Binding(
+                get: { isPanelPresented },
+                set: { newValue in
+                    if !newValue && isPanelPresented {
+                        isPanelPresented = false
+                        popoverToggleGate.recordSystemDismissal()
+                    } else {
+                        isPanelPresented = newValue
+                    }
+                }
+            ),
+            attachmentAnchor: ArrangementPanelPopoverPlacement.tabBar.attachmentAnchor,
+            arrowEdge: ArrangementPanelPopoverPlacement.tabBar.arrowEdge
         ) {
             if let tab = activeTab, let onPaneAction, let onSaveArrangement {
                 ArrangementPanel(
                     tabId: tab.id,
                     panes: tab.panes,
                     arrangements: tab.arrangements,
+                    inlineRenameState: arrangementInlineRenameState,
                     onPaneAction: onPaneAction,
-                    onSaveArrangement: { onSaveArrangement(tab.id) }
+                    onSaveArrangement: { onSaveArrangement(tab.id) },
+                    showMinimizedBarsBinding: Binding(
+                        get: { atom(\.uiState).showMinimizedBars },
+                        set: { atom(\.uiState).setShowMinimizedBars($0) }
+                    )
                 )
             }
         }
+        .onChange(of: arrangementInlineRenameState.editingArrangementId) { _, _ in
+            openPopoverIfRenameTargetsActiveTab()
+        }
+        .onChange(of: adapter.activeTabId) { _, _ in
+            openPopoverIfRenameTargetsActiveTab()
+        }
+    }
+
+    private func openPopoverIfRenameTargetsActiveTab() {
+        guard
+            ArrangementPopoverAutoOpen.shouldOpen(
+                editingArrangementId: arrangementInlineRenameState.editingArrangementId,
+                activeTabArrangements: activeTab?.arrangements,
+                isPresented: isPanelPresented
+            )
+        else { return }
+        isPanelPresented = true
     }
 }
 
@@ -770,6 +840,7 @@ struct TabBarEmptyState: View {
                 CustomTabBar(
                     adapter: adapter,
                     renamePopoverState: TabRenamePopoverState(),
+                    arrangementInlineRenameState: ArrangementInlineRenameState(),
                     onSelect: { _ in },
                     onClose: { _ in },
                     onCommand: { _, _ in },

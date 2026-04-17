@@ -315,11 +315,20 @@ enum AppStyle {
     static let managementLayerDimming: CGFloat = 0.35
 
     /// Fill opacity for management layer control backgrounds (action circles, half-moon, drag handle).
-    /// Darker than the dimming overlay so controls stand out against the dimmed pane content.
-    static let managementControlFill: CGFloat = 0.70
+    static let managementLayerControlFill: CGFloat = 0.95
 
-    /// Hover delta added to managementControlFill for interactive feedback.
-    static let managementControlHoverDelta: CGFloat = 0.05
+    /// Hover delta added to managementLayerControlFill for interactive feedback.
+    static let managementLayerControlHoverDelta: CGFloat = -0.20
+
+    /// Resolved background fill opacity for a management layer control.
+    static func managementLayerBackgroundOpacity(isHovered: Bool) -> CGFloat {
+        isHovered ? managementLayerControlFill + managementLayerControlHoverDelta : managementLayerControlFill
+    }
+
+    /// Resolved icon foreground opacity for a management layer control.
+    static func managementLayerIconOpacity(isHovered: Bool) -> CGFloat {
+        isHovered ? 1.0 : foregroundMuted
+    }
 
     // MARK: - Management Layer Controls
     //
@@ -334,19 +343,19 @@ enum AppStyle {
     // ```
 
     /// Diameter of management layer action circles (minimize, close).
-    static let managementActionSize: CGFloat = 28
+    static let managementLayerActionSize: CGFloat = 28
 
     /// Icon font size inside management layer action circles.
-    static let managementActionIconSize: CGFloat = 13
+    static let managementLayerActionIconSize: CGFloat = 13
 
     /// Drag handle pill width.
-    static let managementDragHandleWidth: CGFloat = 60
+    static let managementLayerDragHandleWidth: CGFloat = 60
 
     /// Drag handle pill height.
-    static let managementDragHandleHeight: CGFloat = 100
+    static let managementLayerDragHandleHeight: CGFloat = 100
 
     /// Drag handle corner radius.
-    static let managementDragHandleCornerRadius: CGFloat = 20
+    static let managementLayerDragHandleCornerRadius: CGFloat = 20
 
     // MARK: - Animation Durations
     //
@@ -396,7 +405,7 @@ enum AppStyle {
     // MARK: - Accent Palette
     //
     // Six-color palette for checkout/repo accent colors in the sidebar.
-    // Used by SidebarRepoGrouping and the welcome illustration.
+    // Used by RepoPresentationGrouping and the welcome illustration.
 
     static let accentPaletteHexes: [String] = [
         "#F5C451",  // Yellow
@@ -417,6 +426,9 @@ enum AppStyle {
 
     /// Minimum pane size enforced while dragging split dividers.
     static let splitMinimumPaneSize: CGFloat = 10
+
+    /// Width of the collapsed pane bar.
+    static let collapsedBarWidth: CGFloat = 40
 
     /// Width of the edge insertion marker shown while dragging panes.
     static let dropTargetMarkerWidth: CGFloat = 8

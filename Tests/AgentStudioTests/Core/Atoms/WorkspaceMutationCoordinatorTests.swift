@@ -10,11 +10,13 @@ struct WorkspaceMutationCoordinatorTests {
     func reactivatePane_failedInsert_keepsPaneBackgrounded() {
         let topologyAtom = WorkspaceRepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
-        let tabLayoutAtom = WorkspaceTabLayoutAtom()
+        let tabShellAtom = WorkspaceTabShellAtom()
+        let tabArrangementAtom = WorkspaceTabArrangementAtom()
         let coordinator = WorkspaceMutationCoordinator(
             repositoryTopologyAtom: topologyAtom,
             workspacePaneAtom: paneAtom,
-            workspaceTabLayoutAtom: tabLayoutAtom
+            workspaceTabShellAtom: tabShellAtom,
+            workspaceTabArrangementAtom: tabArrangementAtom
         )
 
         let pane = makePane(residency: .backgrounded)
@@ -30,18 +32,20 @@ struct WorkspaceMutationCoordinatorTests {
 
         #expect(!didReactivate)
         #expect(paneAtom.pane(pane.id)?.residency == .backgrounded)
-        #expect(!tabLayoutAtom.allPaneIds.contains(pane.id))
+        #expect(!tabArrangementAtom.allPaneIds.contains(pane.id))
     }
 
     @Test
     func restoreFromPaneSnapshot_failedLayoutInsertion_cleansUpRestoredPaneState() {
         let topologyAtom = WorkspaceRepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
-        let tabLayoutAtom = WorkspaceTabLayoutAtom()
+        let tabShellAtom = WorkspaceTabShellAtom()
+        let tabArrangementAtom = WorkspaceTabArrangementAtom()
         let coordinator = WorkspaceMutationCoordinator(
             repositoryTopologyAtom: topologyAtom,
             workspacePaneAtom: paneAtom,
-            workspaceTabLayoutAtom: tabLayoutAtom
+            workspaceTabShellAtom: tabShellAtom,
+            workspaceTabArrangementAtom: tabArrangementAtom
         )
 
         let pane = makePane()
@@ -69,11 +73,13 @@ struct WorkspaceMutationCoordinatorTests {
     func restoreFromPaneSnapshot_failedDrawerParent_cleansUpRestoredDrawerPaneState() {
         let topologyAtom = WorkspaceRepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
-        let tabLayoutAtom = WorkspaceTabLayoutAtom()
+        let tabShellAtom = WorkspaceTabShellAtom()
+        let tabArrangementAtom = WorkspaceTabArrangementAtom()
         let coordinator = WorkspaceMutationCoordinator(
             repositoryTopologyAtom: topologyAtom,
             workspacePaneAtom: paneAtom,
-            workspaceTabLayoutAtom: tabLayoutAtom
+            workspaceTabShellAtom: tabShellAtom,
+            workspaceTabArrangementAtom: tabArrangementAtom
         )
 
         let parentPaneId = UUID()

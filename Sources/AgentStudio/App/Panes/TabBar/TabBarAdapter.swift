@@ -1,21 +1,6 @@
 import Foundation
 import Observation
 
-/// Pane info exposed to the tab bar for arrangement panel display.
-struct TabBarPaneInfo: Identifiable, Equatable {
-    let id: UUID
-    var title: String
-    var isMinimized: Bool
-}
-
-/// Arrangement info exposed to the tab bar for arrangement panel display.
-struct TabBarArrangementInfo: Identifiable, Equatable {
-    let id: UUID
-    var name: String
-    var isDefault: Bool
-    var isActive: Bool
-}
-
 /// Lightweight display item for the tab bar.
 /// Contains only what the UI needs to render — no live views or split trees.
 struct TabBarItem: Identifiable, Equatable {
@@ -24,9 +9,10 @@ struct TabBarItem: Identifiable, Equatable {
     var isSplit: Bool
     var displayTitle: String
     var activeArrangementName: String?  // nil when only default exists
+    var activeArrangementBadgeNumber: Int?
     var arrangementCount: Int  // total arrangements (1 = default only)
-    var panes: [TabBarPaneInfo]
-    var arrangements: [TabBarArrangementInfo]
+    var panes: [PaneVisibilityInfo]
+    var arrangements: [ArrangementInfo]
     var minimizedCount: Int
 }
 
@@ -158,23 +144,11 @@ final class TabBarAdapter {
 
             let activeArrangement = tab.activeArrangement
             let showArrangementName = tab.arrangements.count > 1 && !activeArrangement.isDefault
+            let activeArrangementBadgeNumber = Self.activeArrangementBadgeNumber(for: tab)
 
-            let paneInfos: [TabBarPaneInfo] = tab.activePaneIds.map { paneId in
-                TabBarPaneInfo(
-                    id: paneId,
-                    title: paneDisplayTitle(for: paneId),
-                    isMinimized: tab.minimizedPaneIds.contains(paneId)
-                )
-            }
-
-            let arrangementInfos: [TabBarArrangementInfo] = tab.arrangements.map { arr in
-                TabBarArrangementInfo(
-                    id: arr.id,
-                    name: arr.name,
-                    isDefault: arr.isDefault,
-                    isActive: arr.id == tab.activeArrangementId
-                )
-            }
+            let arrangementDerived = atom(\.arrangement)
+            let paneInfos = arrangementDerived.paneVisibilityItems(for: tab.id)
+            let arrangementInfos = arrangementDerived.arrangementItems(for: tab.id)
 
             return TabBarItem(
                 id: tab.id,
@@ -182,10 +156,11 @@ final class TabBarAdapter {
                 isSplit: tab.isSplit,
                 displayTitle: displayTitle,
                 activeArrangementName: showArrangementName ? activeArrangement.name : nil,
+                activeArrangementBadgeNumber: activeArrangementBadgeNumber,
                 arrangementCount: tab.arrangements.count,
                 panes: paneInfos,
                 arrangements: arrangementInfos,
-                minimizedCount: tab.minimizedPaneIds.count
+                minimizedCount: tab.activeMinimizedPaneIds.count
             )
         }
 
@@ -259,5 +234,13 @@ final class TabBarAdapter {
             + (tabCount - 1) * Self.tabSpacing
             + Self.tabBarPadding
         isOverflowing = totalMinWidth > effectiveViewport
+    }
+
+    private static func activeArrangementBadgeNumber(for tab: Tab) -> Int? {
+        let customArrangements = tab.arrangements.filter { !$0.isDefault }
+        guard let index = customArrangements.firstIndex(where: { $0.id == tab.activeArrangementId }) else {
+            return nil
+        }
+        return index + 1
     }
 }

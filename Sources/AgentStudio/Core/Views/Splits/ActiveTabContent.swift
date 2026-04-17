@@ -51,7 +51,7 @@ struct ActiveTabContent: View {
                 tabId: activeTabId,
                 activePaneId: tab.activePaneId,
                 zoomedPaneId: tab.zoomedPaneId,
-                minimizedPaneIds: tab.minimizedPaneIds,
+                minimizedPaneIds: tab.activeMinimizedPaneIds,
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 actionDispatcher: actionDispatcher,
                 onPaneFocusTrigger: onPaneFocusTrigger,

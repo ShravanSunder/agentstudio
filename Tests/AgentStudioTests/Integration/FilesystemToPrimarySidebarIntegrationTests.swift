@@ -56,12 +56,12 @@ struct FilesystemToPrimarySidebarIntegrationTests {
             }
             #expect(prCountsConverged)
 
-            let sidebarRepos = testSystem.workspaceStore.repos.map(SidebarRepo.init(repo:))
+            let sidebarRepos = testSystem.workspaceStore.repos.map(RepoPresentationItem.init(repo:))
             let metadataByRepoId = RepoSidebarContentView.buildRepoMetadata(
                 repos: sidebarRepos,
                 repoEnrichmentByRepoId: testSystem.repoCache.repoEnrichmentByRepoId
             )
-            let groups = SidebarRepoGrouping.buildGroups(
+            let groups = RepoPresentationGrouping.buildGroups(
                 repos: sidebarRepos,
                 metadataByRepoId: metadataByRepoId
             )

@@ -30,16 +30,26 @@ final class WorkspaceMutationCoordinator {
 
     private let repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom
     private let workspacePaneAtom: WorkspacePaneAtom
-    private let workspaceTabLayoutAtom: WorkspaceTabLayoutAtom
+    private let workspaceTabShellAtom: WorkspaceTabShellAtom
+    private let workspaceTabArrangementAtom: WorkspaceTabArrangementAtom
+
+    private var workspaceTab: WorkspaceTabDerived {
+        WorkspaceTabDerived(
+            shellAtom: workspaceTabShellAtom,
+            arrangementAtom: workspaceTabArrangementAtom
+        )
+    }
 
     init(
         repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
         workspacePaneAtom: WorkspacePaneAtom,
-        workspaceTabLayoutAtom: WorkspaceTabLayoutAtom
+        workspaceTabShellAtom: WorkspaceTabShellAtom,
+        workspaceTabArrangementAtom: WorkspaceTabArrangementAtom
     ) {
         self.repositoryTopologyAtom = repositoryTopologyAtom
         self.workspacePaneAtom = workspacePaneAtom
-        self.workspaceTabLayoutAtom = workspaceTabLayoutAtom
+        self.workspaceTabShellAtom = workspaceTabShellAtom
+        self.workspaceTabArrangementAtom = workspaceTabArrangementAtom
     }
 
     @discardableResult
@@ -49,7 +59,8 @@ final class WorkspaceMutationCoordinator {
                 .warning("removePane: pane \(paneId) not found")
             return false
         }
-        workspaceTabLayoutAtom.removePaneReferences(paneId)
+        workspaceTabArrangementAtom.removePaneReferences(paneId)
+        removeEmptyTabs()
         return true
     }
 
@@ -60,7 +71,8 @@ final class WorkspaceMutationCoordinator {
                 .warning("backgroundPane: pane \(paneId) not found")
             return false
         }
-        workspaceTabLayoutAtom.removePaneReferences(paneId)
+        workspaceTabArrangementAtom.removePaneReferences(paneId)
+        removeEmptyTabs()
         workspacePaneAtom.setResidency(.backgrounded, for: paneId)
         return true
     }
@@ -83,7 +95,7 @@ final class WorkspaceMutationCoordinator {
         }
 
         guard
-            workspaceTabLayoutAtom.insertPane(
+            workspaceTabArrangementAtom.insertPane(
                 paneId,
                 inTab: tabId,
                 at: targetPaneId,
@@ -115,13 +127,14 @@ final class WorkspaceMutationCoordinator {
     func restoreOrphanedPaneResidency(forWorktreeIds worktreeIds: Set<UUID>) -> Bool {
         workspacePaneAtom.restoreOrphanedPaneResidency(
             forWorktreeIds: worktreeIds,
-            activeLayoutPaneIds: workspaceTabLayoutAtom.allPaneIds
+            activeLayoutPaneIds: workspaceTab.allPaneIds
         )
     }
 
     func snapshotForClose(tabId: UUID) -> TabCloseSnapshot? {
-        guard let tabIndex = workspaceTabLayoutAtom.tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
-        let tab = workspaceTabLayoutAtom.tabs[tabIndex]
+        let tabs = workspaceTab.tabs
+        guard let tabIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
+        let tab = tabs[tabIndex]
         var allPanes: [Pane] = []
         for paneId in tab.allPaneIds {
             guard let layoutPane = workspacePaneAtom.pane(paneId) else { continue }
@@ -134,7 +147,7 @@ final class WorkspaceMutationCoordinator {
     }
 
     func snapshotForPaneClose(paneId: UUID, inTab tabId: UUID) -> PaneCloseSnapshot? {
-        guard let closedPane = workspacePaneAtom.pane(paneId), let tab = workspaceTabLayoutAtom.tab(tabId) else {
+        guard let closedPane = workspacePaneAtom.pane(paneId), let tab = workspaceTab.tab(tabId) else {
             return nil
         }
 
@@ -163,8 +176,15 @@ final class WorkspaceMutationCoordinator {
         for pane in snapshot.panes {
             _ = workspacePaneAtom.insertRestoredPane(pane)
         }
-        workspaceTabLayoutAtom.insertTab(snapshot.tab, at: snapshot.tabIndex)
-        workspaceTabLayoutAtom.setActiveTab(snapshot.tab.id)
+        workspaceTabShellAtom.insertTabShell(
+            TabShell(id: snapshot.tab.id, name: snapshot.tab.name),
+            at: snapshot.tabIndex
+        )
+        workspaceTabArrangementAtom.insertState(
+            Self.arrangementState(from: snapshot.tab),
+            at: snapshot.tabIndex
+        )
+        workspaceTabShellAtom.setActiveTab(snapshot.tab.id)
     }
 
     @discardableResult
@@ -186,7 +206,7 @@ final class WorkspaceMutationCoordinator {
             return .failedMissingDrawerParent(nil)
         } else if let anchor = snapshot.anchorPaneId {
             guard
-                workspaceTabLayoutAtom.insertPane(
+                workspaceTabArrangementAtom.insertPane(
                     snapshot.pane.id,
                     inTab: snapshot.tabId,
                     at: anchor,
@@ -197,10 +217,36 @@ final class WorkspaceMutationCoordinator {
                 _ = workspacePaneAtom.deletePaneAndOwnedDrawerChildren(snapshot.pane.id)
                 return .failedLayoutInsertion(tabId: snapshot.tabId, anchorPaneId: anchor)
             }
-            workspaceTabLayoutAtom.setActivePane(snapshot.pane.id, inTab: snapshot.tabId)
+            workspaceTabArrangementAtom.setActivePane(snapshot.pane.id, inTab: snapshot.tabId)
             return .restored
         }
         _ = workspacePaneAtom.deletePaneAndOwnedDrawerChildren(snapshot.pane.id)
         return .failedLayoutInsertion(tabId: snapshot.tabId, anchorPaneId: snapshot.anchorPaneId)
+    }
+
+    private static func arrangementState(from tab: Tab) -> TabArrangementState {
+        TabArrangementState(
+            tabId: tab.id,
+            allPaneIds: tab.allPaneIds,
+            arrangements: tab.arrangements,
+            activeArrangementId: tab.activeArrangementId,
+            activePaneId: tab.activePaneId,
+            zoomedPaneId: tab.zoomedPaneId
+        )
+    }
+
+    private func removeEmptyTabs() {
+        let emptyTabIds = workspaceTabArrangementAtom.arrangementStates.compactMap { state -> UUID? in
+            let defaultLayoutIsEmpty =
+                state.arrangements.first(where: \.isDefault)?.layout.isEmpty
+                ?? state.arrangements.first?.layout.isEmpty
+                ?? true
+            return (state.allPaneIds.isEmpty || defaultLayoutIsEmpty) ? state.tabId : nil
+        }
+
+        for tabId in emptyTabIds {
+            workspaceTabShellAtom.removeTabShell(tabId)
+            workspaceTabArrangementAtom.removeState(tabId)
+        }
     }
 }

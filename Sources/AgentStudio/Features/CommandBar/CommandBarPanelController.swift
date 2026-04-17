@@ -136,8 +136,12 @@ final class CommandBarPanelController {
     }
 
     private var currentContext: WorkspaceFocus {
-        atom(\.workspaceFocus).currentFocus(
-            workspaceTabLayout: store.tabLayoutAtom,
+        let workspaceTab = WorkspaceTabDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
+        return atom(\.workspaceFocus).currentFocus(
+            workspaceTab: workspaceTab,
             workspacePane: store.paneAtom
         )
     }
@@ -177,10 +181,13 @@ final class CommandBarPanelController {
     }
 
     private var canOpenWorktreeInCurrentTab: Bool {
-        let workspaceTabLayout = store.tabLayoutAtom
+        let workspaceTab = WorkspaceTabDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
         guard
-            let activeTabId = workspaceTabLayout.activeTabId,
-            let activeTab = workspaceTabLayout.tab(activeTabId),
+            let activeTabId = store.tabShellAtom.activeTabId,
+            let activeTab = workspaceTab.tab(activeTabId),
             activeTab.activePaneId != nil
         else {
             return false

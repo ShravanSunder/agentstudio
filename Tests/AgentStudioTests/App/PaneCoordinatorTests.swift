@@ -338,11 +338,12 @@ struct PaneCoordinatorTests {
         )
 
         coordinator.execute(.minimizePane(tabId: tab.id, paneId: paneB.id))
-        #expect(store.tab(tab.id)?.minimizedPaneIds.contains(paneB.id) == true)
+        #expect(store.tab(tab.id)?.activeMinimizedPaneIds.contains(paneB.id) == true)
 
         coordinator.execute(.expandPane(tabId: tab.id, paneId: paneB.id))
 
-        #expect(store.tab(tab.id)?.minimizedPaneIds.contains(paneB.id) == false)
+        #expect(store.tab(tab.id)?.activeMinimizedPaneIds.contains(paneB.id) == false)
+        #expect(store.tab(tab.id)?.activePaneId == paneB.id)
     }
 
     @Test("undo skips stale pane entries whose tab no longer exists")

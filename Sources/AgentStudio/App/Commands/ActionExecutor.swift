@@ -20,12 +20,14 @@ final class ActionExecutor {
     static func computeSwitchArrangementTransitions(
         previousVisiblePaneIds: Set<UUID>,
         previouslyMinimizedPaneIds: Set<UUID>,
-        newVisiblePaneIds: Set<UUID>
+        newVisiblePaneIds: Set<UUID>,
+        newMinimizedPaneIds: Set<UUID>
     ) -> SwitchArrangementTransitions {
         PaneCoordinator.computeSwitchArrangementTransitions(
             previousVisiblePaneIds: previousVisiblePaneIds,
             previouslyMinimizedPaneIds: previouslyMinimizedPaneIds,
-            newVisiblePaneIds: newVisiblePaneIds
+            newVisiblePaneIds: newVisiblePaneIds,
+            newMinimizedPaneIds: newMinimizedPaneIds
         )
     }
 

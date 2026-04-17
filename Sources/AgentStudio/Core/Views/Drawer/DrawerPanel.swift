@@ -209,6 +209,8 @@ struct DrawerPanel: View {
                             tabId: tabId,
                             activePaneId: activePaneId,
                             minimizedPaneIds: minimizedPaneIds,
+                            collapsedPaneWidth: CollapsedPaneBar.barWidth,
+                            onSaveArrangement: nil,
                             closeTransitionCoordinator: closeTransitionCoordinator,
                             actionDispatcher: drawerActionDispatcher,
                             onPaneFocusTrigger: onPaneFocusTrigger,

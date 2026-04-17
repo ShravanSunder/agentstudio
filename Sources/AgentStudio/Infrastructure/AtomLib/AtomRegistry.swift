@@ -3,6 +3,8 @@ final class AtomRegistry {
     let workspaceMetadata: WorkspaceMetadataAtom
     let workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom
     let workspacePane: WorkspacePaneAtom
+    let workspaceTabShell: WorkspaceTabShellAtom
+    let workspaceTabArrangement: WorkspaceTabArrangementAtom
     let workspaceTabLayout: WorkspaceTabLayoutAtom
     let workspaceMutationCoordinator: WorkspaceMutationCoordinator
     let repoCache: RepoCacheAtom
@@ -14,7 +16,8 @@ final class AtomRegistry {
         workspaceMetadata: WorkspaceMetadataAtom = .init(),
         workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom = .init(),
         workspacePane: WorkspacePaneAtom = .init(),
-        workspaceTabLayout: WorkspaceTabLayoutAtom = .init(),
+        workspaceTabShell: WorkspaceTabShellAtom = .init(),
+        workspaceTabArrangement: WorkspaceTabArrangementAtom = .init(),
         workspaceMutationCoordinator: WorkspaceMutationCoordinator? = nil,
         repoCache: RepoCacheAtom = .init(),
         uiState: UIStateAtom = .init(),
@@ -24,13 +27,19 @@ final class AtomRegistry {
         self.workspaceMetadata = workspaceMetadata
         self.workspaceRepositoryTopology = workspaceRepositoryTopology
         self.workspacePane = workspacePane
-        self.workspaceTabLayout = workspaceTabLayout
+        self.workspaceTabShell = workspaceTabShell
+        self.workspaceTabArrangement = workspaceTabArrangement
+        self.workspaceTabLayout = WorkspaceTabLayoutAtom(
+            shellAtom: workspaceTabShell,
+            arrangementAtom: workspaceTabArrangement
+        )
         self.workspaceMutationCoordinator =
             workspaceMutationCoordinator
             ?? WorkspaceMutationCoordinator(
                 repositoryTopologyAtom: workspaceRepositoryTopology,
                 workspacePaneAtom: workspacePane,
-                workspaceTabLayoutAtom: workspaceTabLayout
+                workspaceTabShellAtom: workspaceTabShell,
+                workspaceTabArrangementAtom: workspaceTabArrangement
             )
         self.repoCache = repoCache
         self.uiState = uiState
@@ -52,6 +61,17 @@ final class AtomRegistry {
 
     var tabDisplay: TabDisplayDerived {
         TabDisplayDerived()
+    }
+
+    var arrangement: ArrangementDerived {
+        ArrangementDerived()
+    }
+
+    var workspaceTab: WorkspaceTabDerived {
+        WorkspaceTabDerived(
+            shellAtom: workspaceTabShell,
+            arrangementAtom: workspaceTabArrangement
+        )
     }
 
     var dynamicView: DynamicViewDerived {

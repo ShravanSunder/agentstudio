@@ -18,14 +18,14 @@ struct RepoSidebarContentViewTests {
             path: URL(fileURLWithPath: "/tmp/agent-studio"),
             isMainWorktree: true
         )
-        let repo = SidebarRepo(
+        let repo = RepoPresentationItem(
             id: repoId,
             name: "agent-studio",
             repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
             stableKey: "agent-studio",
             worktrees: [worktree]
         )
-        let group = SidebarRepoGroup(
+        let group = RepoPresentationGroup(
             id: "remote:askluna/agent-studio",
             repoTitle: "agent-studio",
             organizationName: "askluna",
@@ -56,14 +56,14 @@ struct RepoSidebarContentViewTests {
     @Test("flat list entries keep collapsed groups flat with header only")
     func flatListEntriesKeepCollapsedGroupsFlatWithHeaderOnly() {
         let repoId = UUID()
-        let repo = SidebarRepo(
+        let repo = RepoPresentationItem(
             id: repoId,
             name: "agent-studio",
             repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
             stableKey: "agent-studio",
             worktrees: [Worktree(repoId: repoId, name: "main", path: URL(fileURLWithPath: "/tmp/agent-studio"))]
         )
-        let group = SidebarRepoGroup(
+        let group = RepoPresentationGroup(
             id: "remote:askluna/agent-studio",
             repoTitle: "agent-studio",
             organizationName: "askluna",
@@ -87,12 +87,12 @@ struct RepoSidebarContentViewTests {
     @Test("flat list entries only include resolved headers and worktree rows")
     func flatListEntriesOnlyIncludeResolvedHeadersAndWorktreeRows() {
         let resolvedRepoId = UUID()
-        let resolvedGroup = SidebarRepoGroup(
+        let resolvedGroup = RepoPresentationGroup(
             id: "remote:askluna/agent-studio",
             repoTitle: "agent-studio",
             organizationName: "askluna",
             repos: [
-                SidebarRepo(
+                RepoPresentationItem(
                     id: resolvedRepoId,
                     name: "agent-studio",
                     repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
@@ -124,7 +124,7 @@ struct RepoSidebarContentViewTests {
     @Test("checkout icon kind uses star for the main worktree")
     func checkoutIconKindUsesStarForMainWorktree() {
         let repoId = UUID()
-        let repo = SidebarRepo(
+        let repo = RepoPresentationItem(
             id: repoId,
             name: "agent-studio",
             repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
@@ -151,7 +151,7 @@ struct RepoSidebarContentViewTests {
     @Test("checkout icon kind uses git-worktree for a secondary worktree")
     func checkoutIconKindUsesGitWorktreeForSecondaryWorktree() {
         let repoId = UUID()
-        let repo = SidebarRepo(
+        let repo = RepoPresentationItem(
             id: repoId,
             name: "agent-studio",
             repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
@@ -178,7 +178,7 @@ struct RepoSidebarContentViewTests {
     @Test("checkout icon kind uses star for a standalone repo")
     func checkoutIconKindUsesStarForStandaloneRepo() {
         let repoId = UUID()
-        let repo = SidebarRepo(
+        let repo = RepoPresentationItem(
             id: repoId,
             name: "agent-studio",
             repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
@@ -199,7 +199,7 @@ struct RepoSidebarContentViewTests {
     func worktreeFamilyColorInvariant() {
         let repoAId = UUID()
         let repoBId = UUID()
-        let repoA = SidebarRepo(
+        let repoA = RepoPresentationItem(
             id: repoAId,
             name: "agent-studio",
             repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
@@ -219,7 +219,7 @@ struct RepoSidebarContentViewTests {
                 ),
             ]
         )
-        let repoB = SidebarRepo(
+        let repoB = RepoPresentationItem(
             id: repoBId,
             name: "agent-studio-fork",
             repoPath: URL(fileURLWithPath: "/tmp/agent-studio-fork"),
@@ -234,7 +234,7 @@ struct RepoSidebarContentViewTests {
             ]
         )
         // One group with two repos — this is the real sidebar scenario
-        let group = SidebarRepoGroup(
+        let group = RepoPresentationGroup(
             id: "remote:askluna/agent-studio",
             repoTitle: "agent-studio",
             organizationName: "askluna",
@@ -257,7 +257,7 @@ struct RepoSidebarContentViewTests {
 
     @Test("different repos in the same group get different colors")
     func differentReposInSameGroupGetDifferentColors() {
-        let repoA = SidebarRepo(
+        let repoA = RepoPresentationItem(
             id: UUID(),
             name: "agent-studio-main",
             repoPath: URL(fileURLWithPath: "/tmp/agent-studio-main"),
@@ -271,7 +271,7 @@ struct RepoSidebarContentViewTests {
                 )
             ]
         )
-        let repoB = SidebarRepo(
+        let repoB = RepoPresentationItem(
             id: UUID(),
             name: "agent-studio-fork",
             repoPath: URL(fileURLWithPath: "/tmp/agent-studio-fork"),
@@ -285,7 +285,7 @@ struct RepoSidebarContentViewTests {
                 )
             ]
         )
-        let group = SidebarRepoGroup(
+        let group = RepoPresentationGroup(
             id: "remote:askluna/agent-studio",
             repoTitle: "agent-studio",
             organizationName: "askluna",
@@ -300,7 +300,7 @@ struct RepoSidebarContentViewTests {
 
     @Test("single repo in a group uses the first automatic palette color")
     func singleRepoInGroupUsesFirstAutomaticPaletteColor() {
-        let repo = SidebarRepo(
+        let repo = RepoPresentationItem(
             id: UUID(),
             name: "agent-studio",
             repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
@@ -314,7 +314,7 @@ struct RepoSidebarContentViewTests {
                 )
             ]
         )
-        let group = SidebarRepoGroup(
+        let group = RepoPresentationGroup(
             id: "remote:askluna/agent-studio",
             repoTitle: "agent-studio",
             organizationName: "askluna",
@@ -323,7 +323,7 @@ struct RepoSidebarContentViewTests {
 
         let color = RepoSidebarContentView.checkoutColorHex(for: repo, in: group)
 
-        #expect(color == SidebarRepoGrouping.automaticPaletteHexes[0])
+        #expect(color == RepoPresentationGrouping.automaticPaletteHexes[0])
     }
 
     @Test("sidebar projection separates resolved groups from loading repos")
@@ -332,21 +332,21 @@ struct RepoSidebarContentViewTests {
         let unresolvedId = UUID()
         let missingId = UUID()
 
-        let resolvedRepo = SidebarRepo(
+        let resolvedRepo = RepoPresentationItem(
             id: resolvedId,
             name: "resolved-repo",
             repoPath: URL(fileURLWithPath: "/tmp/resolved-repo"),
             stableKey: "resolved-repo",
             worktrees: [Worktree(repoId: resolvedId, name: "main", path: URL(fileURLWithPath: "/tmp/resolved-repo"))]
         )
-        let unresolvedRepo = SidebarRepo(
+        let unresolvedRepo = RepoPresentationItem(
             id: unresolvedId,
             name: "loading-repo",
             repoPath: URL(fileURLWithPath: "/tmp/loading-repo"),
             stableKey: "loading-repo",
             worktrees: [Worktree(repoId: unresolvedId, name: "main", path: URL(fileURLWithPath: "/tmp/loading-repo"))]
         )
-        let missingRepo = SidebarRepo(
+        let missingRepo = RepoPresentationItem(
             id: missingId,
             name: "missing-repo",
             repoPath: URL(fileURLWithPath: "/tmp/missing-repo"),
@@ -381,7 +381,7 @@ struct RepoSidebarContentViewTests {
 
     @Test("sidebar projection keeps loading matches visible during filtering")
     func sidebarProjectionKeepsLoadingMatchesVisibleDuringFiltering() {
-        let loadingRepo = SidebarRepo(
+        let loadingRepo = RepoPresentationItem(
             id: UUID(),
             name: "loading-target",
             repoPath: URL(fileURLWithPath: "/tmp/loading-target"),
@@ -402,7 +402,7 @@ struct RepoSidebarContentViewTests {
 
     @Test("sidebar projection shows no results only when both sections are empty for a query")
     func sidebarProjectionShowsNoResultsOnlyWhenBothSectionsAreEmpty() {
-        let loadingRepo = SidebarRepo(
+        let loadingRepo = RepoPresentationItem(
             id: UUID(),
             name: "loading-target",
             repoPath: URL(fileURLWithPath: "/tmp/loading-target"),
@@ -557,14 +557,14 @@ struct RepoSidebarContentViewTests {
     @Test("primary grouping uses shared metadata group key")
     func primaryGroupingUsesSharedMetadataGroupKey() {
         let groupKey = "remote:askluna/agent-studio"
-        let firstRepo = SidebarRepo(
+        let firstRepo = RepoPresentationItem(
             id: UUID(),
             name: "agent-studio-a",
             repoPath: URL(fileURLWithPath: "/tmp/agent-studio-a"),
             stableKey: "a",
             worktrees: [Worktree(repoId: UUID(), name: "main", path: URL(fileURLWithPath: "/tmp/agent-studio-a"))]
         )
-        let secondRepo = SidebarRepo(
+        let secondRepo = RepoPresentationItem(
             id: UUID(),
             name: "agent-studio-b",
             repoPath: URL(fileURLWithPath: "/tmp/agent-studio-b"),
@@ -574,37 +574,19 @@ struct RepoSidebarContentViewTests {
         let metadataByRepoId: [UUID: RepoIdentityMetadata] = [
             firstRepo.id: RepoIdentityMetadata(
                 groupKey: groupKey,
-                displayName: "agent-studio",
                 repoName: "agent-studio",
-                worktreeCommonDirectory: nil,
-                folderCwd: firstRepo.repoPath.path,
-                parentFolder: "tmp",
                 organizationName: "askluna",
-                originRemote: "git@github.com:askluna/agent-studio.git",
-                upstreamRemote: nil,
-                lastPathComponent: "agent-studio-a",
-                worktreeCwds: firstRepo.worktrees.map(\.path.path),
-                remoteFingerprint: "git@github.com:askluna/agent-studio.git",
-                remoteSlug: "askluna/agent-studio"
+                lastPathComponent: "agent-studio-a"
             ),
             secondRepo.id: RepoIdentityMetadata(
                 groupKey: groupKey,
-                displayName: "agent-studio",
                 repoName: "agent-studio",
-                worktreeCommonDirectory: nil,
-                folderCwd: secondRepo.repoPath.path,
-                parentFolder: "tmp",
                 organizationName: "askluna",
-                originRemote: "https://github.com/askluna/agent-studio",
-                upstreamRemote: nil,
-                lastPathComponent: "agent-studio-b",
-                worktreeCwds: secondRepo.worktrees.map(\.path.path),
-                remoteFingerprint: "https://github.com/askluna/agent-studio",
-                remoteSlug: "askluna/agent-studio"
+                lastPathComponent: "agent-studio-b"
             ),
         ]
 
-        let groups = SidebarRepoGrouping.buildGroups(
+        let groups = RepoPresentationGrouping.buildGroups(
             repos: [firstRepo, secondRepo],
             metadataByRepoId: metadataByRepoId
         )
@@ -616,7 +598,7 @@ struct RepoSidebarContentViewTests {
 
     @Test("projection fingerprint changes when repo graduates from loading to resolved")
     func projectionFingerprintChangesWhenTopologyChanges() {
-        let repo = SidebarRepo(
+        let repo = RepoPresentationItem(
             id: UUID(),
             name: "agent-studio",
             repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
@@ -659,7 +641,7 @@ struct RepoSidebarContentViewTests {
 
     @Test("repo metadata builder uses resolved local identity when available")
     func repoMetadataBuilderUsesResolvedLocalIdentity() {
-        let repo = SidebarRepo(
+        let repo = RepoPresentationItem(
             id: UUID(),
             name: "MyProject",
             repoPath: URL(fileURLWithPath: "/tmp/MyProject"),
@@ -684,7 +666,7 @@ struct RepoSidebarContentViewTests {
 
     @Test("missing metadata falls back to path grouping key")
     func missingMetadataFallsBackToPathGroupingKey() {
-        let repo = SidebarRepo(
+        let repo = RepoPresentationItem(
             id: UUID(),
             name: "path-repo",
             repoPath: URL(fileURLWithPath: "/tmp/path-repo"),
@@ -692,7 +674,7 @@ struct RepoSidebarContentViewTests {
             worktrees: [Worktree(repoId: UUID(), name: "main", path: URL(fileURLWithPath: "/tmp/path-repo"))]
         )
 
-        let groups = SidebarRepoGrouping.buildGroups(
+        let groups = RepoPresentationGrouping.buildGroups(
             repos: [repo],
             metadataByRepoId: [:]
         )
@@ -743,7 +725,7 @@ struct RepoSidebarContentViewTests {
 
     @Test("repo metadata builder uses resolved remote identity when available")
     func repoMetadataBuilderUsesResolvedIdentity() {
-        let repo = SidebarRepo(
+        let repo = RepoPresentationItem(
             id: UUID(),
             name: "agent-studio-local",
             repoPath: URL(fileURLWithPath: "/tmp/agent-studio-local"),
@@ -774,7 +756,7 @@ struct RepoSidebarContentViewTests {
 
     @Test("primaryRepoForGroup prefers repo whose repoPath matches one of its worktrees")
     func primaryRepoForGroupPrefersRepoPathMatch() {
-        let repoA = SidebarRepo(
+        let repoA = RepoPresentationItem(
             id: UUID(),
             name: "askluna-finance-rlvr-forking",
             repoPath: URL(fileURLWithPath: "/tmp/askluna-finance-rlvr-forking"),
@@ -787,7 +769,7 @@ struct RepoSidebarContentViewTests {
                 )
             ]
         )
-        let repoB = SidebarRepo(
+        let repoB = RepoPresentationItem(
             id: UUID(),
             name: "askluna-finance",
             repoPath: URL(fileURLWithPath: "/tmp/askluna-finance"),
@@ -799,7 +781,7 @@ struct RepoSidebarContentViewTests {
                 )
             ]
         )
-        let group = SidebarRepoGroup(
+        let group = RepoPresentationGroup(
             id: "remote:askluna/askluna-finance",
             repoTitle: "askluna-finance",
             organizationName: "askluna",
@@ -812,21 +794,21 @@ struct RepoSidebarContentViewTests {
 
     @Test("primaryRepoForGroup falls back deterministically when no repo has a main-path match")
     func primaryRepoForGroupFallsBackDeterministically() {
-        let repoA = SidebarRepo(
+        let repoA = RepoPresentationItem(
             id: UUID(),
             name: "b-repo",
             repoPath: URL(fileURLWithPath: "/tmp/b-repo"),
             stableKey: "b",
             worktrees: [Worktree(repoId: UUID(), name: "feat-b", path: URL(fileURLWithPath: "/tmp/feat-b"))]
         )
-        let repoB = SidebarRepo(
+        let repoB = RepoPresentationItem(
             id: UUID(),
             name: "a-repo",
             repoPath: URL(fileURLWithPath: "/tmp/a-repo"),
             stableKey: "a",
             worktrees: [Worktree(repoId: UUID(), name: "feat-a", path: URL(fileURLWithPath: "/tmp/feat-a"))]
         )
-        let group = SidebarRepoGroup(
+        let group = RepoPresentationGroup(
             id: "remote:org/repo",
             repoTitle: "repo",
             organizationName: "org",
