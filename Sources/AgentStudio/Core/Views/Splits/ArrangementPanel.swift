@@ -17,6 +17,7 @@ struct ArrangementPanel: View {
     @State private var highlightVisible = false
     @State private var hoveredArrangementId: UUID?
     @State private var isSaveButtonHovered = false
+    @State private var hasClaimedFocus = false
     @FocusState private var focusedArrangementId: UUID?
 
     private var displayState: ArrangementPanelDisplayState {
@@ -43,11 +44,14 @@ struct ArrangementPanel: View {
                     Button(action: onSaveArrangement) {
                         Image(systemName: "plus")
                             .font(.system(size: AppStyle.textXs, weight: .semibold))
+                            .frame(width: 14, height: 14)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(
                         ArrangementChipButtonStyle(
                             isActive: false,
-                            isHovered: isSaveButtonHovered
+                            isHovered: isSaveButtonHovered,
+                            minimumWidth: 30
                         )
                     )
                     .onHover { isSaveButtonHovered = $0 }
@@ -127,6 +131,15 @@ struct ArrangementPanel: View {
                 inlineRenameState.cancel()
             }
         }
+        .background(
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if inlineRenameState.editingArrangementId != nil {
+                        cancelInlineRename()
+                    }
+                }
+        )
     }
 
     private func paneRow(_ pane: PaneVisibilityInfo) -> some View {
@@ -182,7 +195,7 @@ struct ArrangementPanel: View {
                     "Arrangement name",
                     text: Binding(
                         get: { inlineRenameState.draftName },
-                        set: { inlineRenameState.draftName = $0 }
+                        set: { inlineRenameState.setDraftName($0) }
                     )
                 )
                 .textFieldStyle(.plain)
@@ -192,18 +205,24 @@ struct ArrangementPanel: View {
                 .frame(minWidth: 72)
                 .onSubmit(commitInlineRename)
                 .onExitCommand(perform: cancelInlineRename)
-                .task(id: arrangement.id) {
-                    focusedArrangementId = arrangement.id
-                    if let editor = NSApp.keyWindow?.firstResponder as? NSTextView {
-                        editor.selectAll(nil)
+                .onAppear {
+                    Task { @MainActor in
+                        focusedArrangementId = arrangement.id
+                        hasClaimedFocus = true
+                        if let editor = NSApp.keyWindow?.firstResponder as? NSTextView {
+                            editor.selectAll(nil)
+                        }
                     }
                 }
+                .onDisappear {
+                    hasClaimedFocus = false
+                }
                 .onChange(of: focusedArrangementId) { _, newValue in
-                    if newValue != arrangement.id,
+                    guard hasClaimedFocus,
+                        newValue != arrangement.id,
                         inlineRenameState.editingArrangementId == arrangement.id
-                    {
-                        cancelInlineRename()
-                    }
+                    else { return }
+                    cancelInlineRename()
                 }
             } else {
                 arrangementChipBody(arrangement)
@@ -247,7 +266,7 @@ struct ArrangementPanel: View {
             }
             .buttonStyle(.plain)
 
-            if !arrangement.isDefault {
+            if ArrangementChipAffordance.showsRenamePencil(isDefault: arrangement.isDefault) {
                 Button {
                     inlineRenameState.beginEditing(
                         arrangementId: arrangement.id,
@@ -313,6 +332,7 @@ struct ArrangementChipRow<Content: View>: View {
 private struct ArrangementChipButtonStyle: ButtonStyle {
     let isActive: Bool
     let isHovered: Bool
+    var minimumWidth: CGFloat?
 
     func makeBody(configuration: Configuration) -> some View {
         let chipStyle = ArrangementChipVisualStyle(
@@ -323,6 +343,7 @@ private struct ArrangementChipButtonStyle: ButtonStyle {
 
         return configuration.label
             .foregroundStyle(chipStyle.foregroundIsPrimary ? .primary : .secondary)
+            .frame(minWidth: minimumWidth)
             .padding(.horizontal, AppStyle.spacingLoose)
             .padding(.vertical, AppStyle.spacingTight)
             .background(

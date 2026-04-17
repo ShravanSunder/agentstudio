@@ -41,10 +41,10 @@ struct ArrangementInlineRenameStateTests {
         let arrangementId = UUID()
         state.beginEditing(
             arrangementId: arrangementId,
-            currentName: "#2",
+            currentName: "Layout 2",
             isDefault: false
         )
-        state.draftName = "  Review Queue  "
+        state.setDraftName("  Review Queue  ")
 
         let payload = state.commit()
 
@@ -55,11 +55,59 @@ struct ArrangementInlineRenameStateTests {
     }
 
     @Test
+    func commit_emptyDraftClearsStateAndReturnsNil() {
+        let state = ArrangementInlineRenameState()
+        state.beginEditing(
+            arrangementId: UUID(),
+            currentName: "Layout 2",
+            isDefault: false
+        )
+        state.setDraftName("")
+
+        let payload = state.commit()
+
+        #expect(payload == nil)
+        #expect(state.editingArrangementId == nil)
+        #expect(state.draftName.isEmpty)
+    }
+
+    @Test
+    func commit_whitespaceOnlyDraftClearsStateAndReturnsNil() {
+        let state = ArrangementInlineRenameState()
+        state.beginEditing(
+            arrangementId: UUID(),
+            currentName: "Layout 2",
+            isDefault: false
+        )
+        state.setDraftName("   \t  ")
+
+        let payload = state.commit()
+
+        #expect(payload == nil)
+        #expect(state.editingArrangementId == nil)
+        #expect(state.draftName.isEmpty)
+    }
+
+    @Test
+    func setDraftName_updatesObservableDraft() {
+        let state = ArrangementInlineRenameState()
+        state.beginEditing(
+            arrangementId: UUID(),
+            currentName: "Layout 2",
+            isDefault: false
+        )
+
+        state.setDraftName("coding")
+
+        #expect(state.draftName == "coding")
+    }
+
+    @Test
     func cancel_clearsEditingState() {
         let state = ArrangementInlineRenameState()
         state.beginEditing(
             arrangementId: UUID(),
-            currentName: "#2",
+            currentName: "Layout 2",
             isDefault: false
         )
 

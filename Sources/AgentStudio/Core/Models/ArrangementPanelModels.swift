@@ -53,6 +53,33 @@ enum ArrangementPanelPopoverPlacement {
     }
 }
 
+/// Pure decision for auto-opening the arrangement popover when a rename
+/// starts from outside the popover (e.g. via the command palette). Targets
+/// only renames whose arrangement belongs to the currently active tab,
+/// and only when the popover is not already presented.
+enum ArrangementPopoverAutoOpen {
+    static func shouldOpen(
+        editingArrangementId: UUID?,
+        activeTabArrangements: [ArrangementInfo]?,
+        isPresented: Bool
+    ) -> Bool {
+        guard let editingArrangementId,
+            let activeTabArrangements,
+            activeTabArrangements.contains(where: { $0.id == editingArrangementId }),
+            !isPresented
+        else { return false }
+        return true
+    }
+}
+
+/// Pure decision for whether a chip in the popover shows the rename pencil.
+/// Default arrangements are not renameable, so the affordance is hidden.
+enum ArrangementChipAffordance {
+    static func showsRenamePencil(isDefault: Bool) -> Bool {
+        !isDefault
+    }
+}
+
 struct ArrangementChipVisualStyle: Equatable {
     let isActive: Bool
     let isHovered: Bool

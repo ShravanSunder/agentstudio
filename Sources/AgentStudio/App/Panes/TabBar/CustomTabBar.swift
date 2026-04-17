@@ -501,15 +501,23 @@ private struct TabBarArrangementButton: View {
                 )
             }
         }
-        .onChange(of: arrangementInlineRenameState.editingArrangementId) { _, newValue in
-            guard let newValue,
-                let activeTab,
-                activeTab.arrangements.contains(where: { $0.id == newValue })
-            else { return }
-            if !isPanelPresented {
-                isPanelPresented = true
-            }
+        .onChange(of: arrangementInlineRenameState.editingArrangementId) { _, _ in
+            openPopoverIfRenameTargetsActiveTab()
         }
+        .onChange(of: adapter.activeTabId) { _, _ in
+            openPopoverIfRenameTargetsActiveTab()
+        }
+    }
+
+    private func openPopoverIfRenameTargetsActiveTab() {
+        guard
+            ArrangementPopoverAutoOpen.shouldOpen(
+                editingArrangementId: arrangementInlineRenameState.editingArrangementId,
+                activeTabArrangements: activeTab?.arrangements,
+                isPresented: isPanelPresented
+            )
+        else { return }
+        isPanelPresented = true
     }
 }
 

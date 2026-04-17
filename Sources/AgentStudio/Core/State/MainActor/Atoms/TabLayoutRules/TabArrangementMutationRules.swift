@@ -97,7 +97,7 @@ enum TabArrangementMutationRules {
     }
 
     static func breakingUpTab(_ state: TabArrangementState) -> [TabArrangementState] {
-        let tabPaneIds = activeArrangement(in: state).layout.paneIds
+        let tabPaneIds = defaultArrangement(in: state).layout.paneIds
         guard tabPaneIds.count > 1 else { return [] }
 
         return tabPaneIds.map { paneId in
@@ -158,16 +158,25 @@ enum TabArrangementMutationRules {
         var updated = target
         updated.zoomedPaneId = nil
         let targetArrangementIndex = activeArrangementIndex(in: updated)
-        let sourcePaneIds = activeArrangement(in: source).layout.paneIds
+        let defaultArrangementIndex = defaultArrangementIndex(in: updated)
+        let sourcePaneIds = defaultArrangement(in: source).layout.paneIds
         var currentTarget = targetPaneId
         for paneId in sourcePaneIds {
             updated.arrangements[targetArrangementIndex].layout = updated.arrangements[targetArrangementIndex].layout
                 .inserting(paneId: paneId, at: currentTarget, direction: direction, position: position)
             updated.arrangements[targetArrangementIndex].visiblePaneIds.insert(paneId)
+            if targetArrangementIndex != defaultArrangementIndex {
+                updated.arrangements[defaultArrangementIndex].layout = updated.arrangements[defaultArrangementIndex]
+                    .layout
+                    .inserting(paneId: paneId, at: currentTarget, direction: direction, position: position)
+                updated.arrangements[defaultArrangementIndex].visiblePaneIds.insert(paneId)
+            }
             if !updated.allPaneIds.contains(paneId) {
                 updated.allPaneIds.append(paneId)
             }
-            currentTarget = paneId
+            if position == .after {
+                currentTarget = paneId
+            }
         }
         return updated
     }

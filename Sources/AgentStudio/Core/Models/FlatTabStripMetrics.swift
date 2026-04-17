@@ -104,9 +104,11 @@ struct FlatTabStripMetrics {
                     frame: dividerFrame,
                     leftPaneWidth: paneFrame.width,
                     rightPaneWidth: max(
-                        visibleRatioTotal > 0
-                            ? visibleWidthBudget * CGFloat(nextPane.ratio / visibleRatioTotal)
-                            : 0,
+                        rightIsMinimized
+                            ? collapsedPaneWidth
+                            : visibleRatioTotal > 0
+                                ? visibleWidthBudget * CGFloat(nextPane.ratio / visibleRatioTotal)
+                                : 0,
                         0
                     )
                 )

@@ -99,4 +99,89 @@ struct ArrangementPanelDisplayStateTests {
         #expect(activePressed.backgroundOpacity == AppStyle.fillPressed)
         #expect(active.foregroundIsPrimary)
     }
+
+    @Test
+    func popoverAutoOpen_opensWhenRenameTargetsActiveTabArrangement() {
+        let arrangementId = UUID()
+        let arrangements = [
+            ArrangementInfo(id: UUID(), name: "Default", isDefault: true, isActive: true),
+            ArrangementInfo(id: arrangementId, name: "Layout 1", isDefault: false, isActive: false),
+        ]
+
+        #expect(
+            ArrangementPopoverAutoOpen.shouldOpen(
+                editingArrangementId: arrangementId,
+                activeTabArrangements: arrangements,
+                isPresented: false
+            )
+        )
+    }
+
+    @Test
+    func popoverAutoOpen_doesNotOpenWhenEditingIdIsNil() {
+        let arrangements = [
+            ArrangementInfo(id: UUID(), name: "Default", isDefault: true, isActive: true)
+        ]
+
+        #expect(
+            !ArrangementPopoverAutoOpen.shouldOpen(
+                editingArrangementId: nil,
+                activeTabArrangements: arrangements,
+                isPresented: false
+            )
+        )
+    }
+
+    @Test
+    func popoverAutoOpen_doesNotOpenWhenActiveTabIsMissing() {
+        #expect(
+            !ArrangementPopoverAutoOpen.shouldOpen(
+                editingArrangementId: UUID(),
+                activeTabArrangements: nil,
+                isPresented: false
+            )
+        )
+    }
+
+    @Test
+    func popoverAutoOpen_doesNotOpenWhenArrangementBelongsToDifferentTab() {
+        let arrangements = [
+            ArrangementInfo(id: UUID(), name: "Default", isDefault: true, isActive: true),
+            ArrangementInfo(id: UUID(), name: "Layout 1", isDefault: false, isActive: false),
+        ]
+
+        #expect(
+            !ArrangementPopoverAutoOpen.shouldOpen(
+                editingArrangementId: UUID(),
+                activeTabArrangements: arrangements,
+                isPresented: false
+            )
+        )
+    }
+
+    @Test
+    func popoverAutoOpen_doesNotReopenWhenAlreadyPresented() {
+        let arrangementId = UUID()
+        let arrangements = [
+            ArrangementInfo(id: arrangementId, name: "Layout 1", isDefault: false, isActive: false)
+        ]
+
+        #expect(
+            !ArrangementPopoverAutoOpen.shouldOpen(
+                editingArrangementId: arrangementId,
+                activeTabArrangements: arrangements,
+                isPresented: true
+            )
+        )
+    }
+
+    @Test
+    func chipAffordance_hidesPencilForDefaultArrangement() {
+        #expect(!ArrangementChipAffordance.showsRenamePencil(isDefault: true))
+    }
+
+    @Test
+    func chipAffordance_showsPencilForCustomArrangement() {
+        #expect(ArrangementChipAffordance.showsRenamePencil(isDefault: false))
+    }
 }
