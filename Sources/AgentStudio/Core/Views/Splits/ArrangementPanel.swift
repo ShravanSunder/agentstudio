@@ -114,12 +114,17 @@ struct ArrangementPanel: View {
             }
         }
         .padding(10)
-        .frame(minWidth: 320, idealWidth: 380, maxWidth: 460)
+        .frame(minWidth: 400, idealWidth: 475, maxWidth: 575)
         .onAppear {
             guard highlightPaneId != nil else { return }
             highlightVisible = true
             withAnimation(.easeOut(duration: 0.6).delay(0.3)) {
                 highlightVisible = false
+            }
+        }
+        .onDisappear {
+            if inlineRenameState.editingArrangementId != nil {
+                inlineRenameState.cancel()
             }
         }
     }
@@ -201,18 +206,7 @@ struct ArrangementPanel: View {
                     }
                 }
             } else {
-                Button {
-                    onPaneAction(.switchArrangement(tabId: tabId, arrangementId: arrangement.id))
-                } label: {
-                    Text(arrangement.name)
-                        .font(.system(size: AppStyle.textXs, weight: arrangement.isActive ? .semibold : .regular))
-                }
-                .buttonStyle(
-                    ArrangementChipButtonStyle(
-                        isActive: arrangement.isActive,
-                        isHovered: hoveredArrangementId == arrangement.id
-                    )
-                )
+                arrangementChipBody(arrangement)
             }
         }
         .contentShape(Rectangle())
@@ -220,13 +214,6 @@ struct ArrangementPanel: View {
             hoveredArrangementId = isHovering ? arrangement.id : nil
         }
         .simultaneousGesture(doubleClickRenameGesture(arrangement))
-        .overlay(alignment: .topTrailing) {
-            if !arrangement.isDefault,
-                inlineRenameState.editingArrangementId != arrangement.id
-            {
-                renamePencilBadge(for: arrangement)
-            }
-        }
         .contextMenu {
             if !arrangement.isDefault {
                 Button(LocalActionSpec.renameArrangement.actionSpec.label) {
@@ -243,32 +230,45 @@ struct ArrangementPanel: View {
         }
     }
 
-    private func renamePencilBadge(for arrangement: ArrangementInfo) -> some View {
-        Button {
-            inlineRenameState.beginEditing(
-                arrangementId: arrangement.id,
-                currentName: arrangement.name,
-                isDefault: arrangement.isDefault
-            )
-        } label: {
-            Image(systemName: "pencil")
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 16, height: 16)
-                .background(
-                    Circle()
-                        .fill(Color.white.opacity(AppStyle.fillHover))
-                        .overlay(
-                            Circle()
-                                .strokeBorder(Color.white.opacity(AppStyle.strokeMuted), lineWidth: 1)
-                        )
-                )
+    private func arrangementChipBody(_ arrangement: ArrangementInfo) -> some View {
+        let chipStyle = ArrangementChipVisualStyle(
+            isActive: arrangement.isActive,
+            isHovered: hoveredArrangementId == arrangement.id,
+            isPressed: false
+        )
+
+        return HStack(spacing: 4) {
+            Button {
+                onPaneAction(.switchArrangement(tabId: tabId, arrangementId: arrangement.id))
+            } label: {
+                Text(arrangement.name)
+                    .font(.system(size: AppStyle.textXs, weight: arrangement.isActive ? .semibold : .regular))
+                    .foregroundStyle(chipStyle.foregroundIsPrimary ? .primary : .secondary)
+            }
+            .buttonStyle(.plain)
+
+            if !arrangement.isDefault {
+                Button {
+                    inlineRenameState.beginEditing(
+                        arrangementId: arrangement.id,
+                        currentName: arrangement.name,
+                        isDefault: arrangement.isDefault
+                    )
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .buttonStyle(.plain)
+                .help(LocalActionSpec.renameArrangement.actionSpec.helpText)
+            }
         }
-        .buttonStyle(.plain)
-        .help(LocalActionSpec.renameArrangement.actionSpec.helpText)
-        .offset(x: 4, y: -4)
-        .opacity(hoveredArrangementId == arrangement.id ? 1 : 0)
-        .animation(.easeInOut(duration: AppStyle.animationFast), value: hoveredArrangementId)
+        .padding(.horizontal, AppStyle.spacingLoose)
+        .padding(.vertical, AppStyle.spacingTight)
+        .background(
+            RoundedRectangle(cornerRadius: AppStyle.barCornerRadius)
+                .fill(Color.white.opacity(chipStyle.backgroundOpacity))
+        )
     }
 
     private func doubleClickRenameGesture(_ arrangement: ArrangementInfo) -> some Gesture {
