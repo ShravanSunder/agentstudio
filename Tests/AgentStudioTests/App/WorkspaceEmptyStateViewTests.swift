@@ -141,6 +141,21 @@ struct WorkspaceEmptyStateViewTests {
         #expect(WorkspaceEmptyStateCopy.intakeHelper.contains("automatically"))
     }
 
+    @Test("intake busy copy mentions the folder picker")
+    func intakeBusyCopyMentionsFolderPicker() {
+        // The busy state is the instant-feedback placeholder — it must read as
+        // "we're opening the picker", not as if scanning has already started.
+        #expect(WorkspaceEmptyStateCopy.intakeBusyTitle.lowercased().contains("folder"))
+        #expect(WorkspaceEmptyStateCopy.intakeBusyHelper.lowercased().contains("folder"))
+    }
+
+    @Test("intake busy timeout is long enough to cover modal interaction")
+    func intakeBusyTimeoutIsLongEnough() {
+        // User needs time to actually pick a folder in the NSOpenPanel. A
+        // too-short timeout resets the spinner mid-selection.
+        #expect(AppStyles.Welcome.intakeBusyTimeoutSeconds >= 3)
+    }
+
     @Test("scanning copy mentions the folder and what we're looking for")
     func scanningCopyMentionsFolder() {
         let title = WorkspaceEmptyStateCopy.scanningTitle(folder: "~/code/project")

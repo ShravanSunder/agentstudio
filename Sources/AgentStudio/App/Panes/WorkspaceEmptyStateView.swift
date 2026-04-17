@@ -10,6 +10,9 @@ enum WorkspaceEmptyStateCopy {
     static let intakeHelper =
         "AgentStudio watches the folder and discovers your repos automatically."
 
+    static let intakeBusyTitle = "Opening folder picker…"
+    static let intakeBusyHelper = "Waiting for you to pick a folder."
+
     static let scanningHelper = "Looking for git folders…"
 
     static let scanEmptyRetryButton = "Choose Another Folder to Scan…"
@@ -41,9 +44,25 @@ struct WorkspaceEmptyStateView: View {
     let onOpenRecent: (RecentWorkspaceTarget) -> Void
     let onOpenAllRecent: () -> Void
 
+    // Instant click feedback for the folder-intake button. Flips the action
+    // region to a spinner BEFORE the store observation cycle propagates
+    // .scanning — otherwise users perceive a dead 1–2 second gap between
+    // the click and Welcome 2 appearing.
+    @State private var isBusy: Bool = false
+    @State private var busyTimeoutTask: Task<Void, Never>?
+
     var body: some View {
         Group {
             switch model.kind {
+            case .noFolders where isBusy:
+                VStack(spacing: 0) {
+                    Spacer()
+                    folderIntakeBusyBody
+                    Spacer()
+                }
+                .id("noFoldersBusy")
+                .transition(.opacity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .noFolders:
                 VStack(spacing: 0) {
                     Spacer()
@@ -90,20 +109,68 @@ struct WorkspaceEmptyStateView: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: model.kind)
+        .animation(.easeInOut(duration: 0.25), value: isBusy)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
+        .onChange(of: model.kind) { _, newKind in
+            // Once the store state has actually moved past .noFolders, the
+            // busy placeholder has served its purpose — yield to the real UI.
+            if newKind != .noFolders {
+                endBusy()
+            }
+        }
+        .onDisappear { endBusy() }
+    }
+
+    private func beginBusy() {
+        isBusy = true
+        busyTimeoutTask?.cancel()
+        busyTimeoutTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(AppStyles.Welcome.intakeBusyTimeoutSeconds))
+            guard !Task.isCancelled else { return }
+            isBusy = false
+            busyTimeoutTask = nil
+        }
+    }
+
+    private func endBusy() {
+        busyTimeoutTask?.cancel()
+        busyTimeoutTask = nil
+        isBusy = false
     }
 
     private var folderIntakeBody: some View {
         folderIntakeLayout {
             VStack(alignment: .leading, spacing: AppStyles.Welcome.intakeActionRowSpacing) {
                 Button(LocalActionSpec.chooseFolderToScan.actionSpec.label) {
+                    beginBusy()
                     onAddFolder()
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
 
                 Text(WorkspaceEmptyStateCopy.intakeHelper)
+                    .font(.system(size: AppStyles.General.Typography.textXs))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.top, AppStyles.Welcome.intakeActionTopPadding)
+        }
+    }
+
+    private var folderIntakeBusyBody: some View {
+        folderIntakeLayout {
+            VStack(alignment: .leading, spacing: AppStyles.Welcome.intakeActionRowSpacing) {
+                HStack(spacing: AppStyles.Welcome.intakeScanningSpinnerGap) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(WorkspaceEmptyStateCopy.intakeBusyTitle)
+                        .font(AppStyles.Welcome.Typography.h3)
+                        .foregroundStyle(
+                            .primary.opacity(AppStyles.Welcome.intakeScanningTitleOpacity)
+                        )
+                }
+
+                Text(WorkspaceEmptyStateCopy.intakeBusyHelper)
                     .font(.system(size: AppStyles.General.Typography.textXs))
                     .foregroundStyle(.tertiary)
             }
@@ -142,6 +209,7 @@ struct WorkspaceEmptyStateView: View {
                     )
 
                 Button(WorkspaceEmptyStateCopy.scanEmptyRetryButton) {
+                    beginBusy()
                     onAddFolder()
                 }
                 .buttonStyle(.borderedProminent)
