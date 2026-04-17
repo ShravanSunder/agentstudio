@@ -205,22 +205,22 @@ struct WorkspaceEmptyStateView: View {
     }
 
     private var launcherShortcutsBlock: some View {
-        HStack(alignment: .top, spacing: AppStyles.Welcome.launcherShortcutsColumnsGap) {
+        HStack(alignment: .center, spacing: AppStyles.Welcome.launcherShortcutsColumnsGap) {
             CommandBarEmbeddedPreview()
 
             VStack(alignment: .leading, spacing: AppStyles.Welcome.launcherRowGap) {
-                launcherShortcutRow(
-                    key: "⌘T",
-                    title: "New tab or worktree",
-                    subtitle: "Opens the # picker. New Empty Tab is always first.",
-                    action: { CommandDispatcher.shared.dispatch(.showCommandBarRepos) }
-                )
-
                 launcherShortcutRow(
                     key: "⌘P",
                     title: "Command palette",
                     subtitle: "Everything in the app, one keypress away.",
                     action: { CommandDispatcher.shared.dispatch(.showCommandBarEverything) }
+                )
+
+                launcherShortcutRow(
+                    key: "⌘T",
+                    title: "New tab or worktree",
+                    subtitle: "Opens the # picker. New Empty Tab is always first.",
+                    action: { CommandDispatcher.shared.dispatch(.showCommandBarRepos) }
                 )
 
                 launcherShortcutRow(
