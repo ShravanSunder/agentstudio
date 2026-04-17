@@ -286,7 +286,10 @@ enum AppStyles {
         }
 
         // Launcher composition (new — supersedes hero/scope geometry)
+        // Welcome 2 is a top-aligned page, not a centered splash. Comfortable
+        // top padding puts the header below the toolbar without floating.
         static let launcherContentMaxWidth: CGFloat = 780
+        static let launcherPageTopPadding: CGFloat = 72
         static let launcherRowGap: CGFloat = 20
         static let launcherSectionGap: CGFloat = 28
         static let launcherDividerOpacity: CGFloat =

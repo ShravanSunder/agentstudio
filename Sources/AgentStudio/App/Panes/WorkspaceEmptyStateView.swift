@@ -87,9 +87,8 @@ struct WorkspaceEmptyStateView: View {
                             )
                         )
                         .frame(maxWidth: .infinity)
-                        .frame(minHeight: geometry.size.height)
                         .padding(.horizontal, AppStyles.Welcome.pageHorizontalPadding)
-                        .padding(.vertical, AppStyles.Welcome.pageVerticalPadding)
+                        .padding(.bottom, AppStyles.Welcome.pageVerticalPadding)
                     }
                 }
                 .id("launcher")
@@ -214,29 +213,24 @@ struct WorkspaceEmptyStateView: View {
         let hasRecents = !visibleRecentCards.isEmpty
         let subtitle = hasRecents ? "Jump back in, fast." : "Get started."
 
-        return VStack(spacing: 0) {
-            Spacer(minLength: 0)
+        return VStack(alignment: .leading, spacing: AppStyles.Welcome.launcherSectionGap) {
+            launcherHeader(subtitle: subtitle)
 
-            VStack(alignment: .leading, spacing: AppStyles.Welcome.launcherSectionGap) {
-                launcherHeader(subtitle: subtitle)
+            if hasRecents {
+                launcherRecentSection(
+                    availableWidth: availableWidth,
+                    visibleRecentCards: visibleRecentCards
+                )
 
-                if hasRecents {
-                    launcherRecentSection(
-                        availableWidth: availableWidth,
-                        visibleRecentCards: visibleRecentCards
-                    )
-
-                    Divider()
-                        .opacity(AppStyles.Welcome.launcherDividerOpacity)
-                }
-
-                launcherShortcutsBlock
+                Divider()
+                    .opacity(AppStyles.Welcome.launcherDividerOpacity)
             }
-            .frame(maxWidth: AppStyles.Welcome.launcherContentMaxWidth, alignment: .leading)
 
-            Spacer(minLength: 0)
+            launcherShortcutsBlock
         }
-        .frame(maxWidth: .infinity)
+        .padding(.top, AppStyles.Welcome.launcherPageTopPadding)
+        .frame(maxWidth: AppStyles.Welcome.launcherContentMaxWidth, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private func launcherHeader(subtitle: String) -> some View {
@@ -267,11 +261,6 @@ struct WorkspaceEmptyStateView: View {
             )
 
             CommandBarEmbeddedPreview()
-                .padding(
-                    .leading,
-                    AppStyles.Welcome.launcherShortcutKeyColumnWidth
-                        + AppStyles.Welcome.launcherShortcutKeyTitleGap
-                )
                 .padding(.top, 4)
         }
     }
