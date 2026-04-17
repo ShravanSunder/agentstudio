@@ -574,33 +574,15 @@ struct RepoSidebarContentViewTests {
         let metadataByRepoId: [UUID: RepoIdentityMetadata] = [
             firstRepo.id: RepoIdentityMetadata(
                 groupKey: groupKey,
-                displayName: "agent-studio",
                 repoName: "agent-studio",
-                worktreeCommonDirectory: nil,
-                folderCwd: firstRepo.repoPath.path,
-                parentFolder: "tmp",
                 organizationName: "askluna",
-                originRemote: "git@github.com:askluna/agent-studio.git",
-                upstreamRemote: nil,
-                lastPathComponent: "agent-studio-a",
-                worktreeCwds: firstRepo.worktrees.map(\.path.path),
-                remoteFingerprint: "git@github.com:askluna/agent-studio.git",
-                remoteSlug: "askluna/agent-studio"
+                lastPathComponent: "agent-studio-a"
             ),
             secondRepo.id: RepoIdentityMetadata(
                 groupKey: groupKey,
-                displayName: "agent-studio",
                 repoName: "agent-studio",
-                worktreeCommonDirectory: nil,
-                folderCwd: secondRepo.repoPath.path,
-                parentFolder: "tmp",
                 organizationName: "askluna",
-                originRemote: "https://github.com/askluna/agent-studio",
-                upstreamRemote: nil,
-                lastPathComponent: "agent-studio-b",
-                worktreeCwds: secondRepo.worktrees.map(\.path.path),
-                remoteFingerprint: "https://github.com/askluna/agent-studio",
-                remoteSlug: "askluna/agent-studio"
+                lastPathComponent: "agent-studio-b"
             ),
         ]
 

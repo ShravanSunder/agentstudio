@@ -46,18 +46,9 @@ struct RepoPresentationItem: Identifiable, Hashable {
 
 struct RepoIdentityMetadata: Sendable {
     let groupKey: String
-    let displayName: String
     let repoName: String
-    let worktreeCommonDirectory: String?
-    let folderCwd: String
-    let parentFolder: String
     let organizationName: String?
-    let originRemote: String?
-    let upstreamRemote: String?
     let lastPathComponent: String
-    let worktreeCwds: [String]
-    let remoteFingerprint: String?
-    let remoteSlug: String?
 }
 
 enum RepoPresentationGrouping {
@@ -218,48 +209,28 @@ enum RepoPresentationColoring {
             let groupKey: String
             let displayName: String
             let organizationName: String?
-            let originRemote: String?
-            let upstreamRemote: String?
-            let remoteSlug: String?
 
             switch enrichment {
             case .resolvedRemote(_, let raw, let identity, _):
                 groupKey = identity.groupKey
                 displayName = identity.displayName
                 organizationName = identity.organizationName
-                originRemote = raw.origin
-                upstreamRemote = raw.upstream
-                remoteSlug = identity.remoteSlug
+                _ = raw
             case .resolvedLocal(_, let identity, _):
                 groupKey = identity.groupKey
                 displayName = identity.displayName
                 organizationName = identity.organizationName
-                originRemote = nil
-                upstreamRemote = nil
-                remoteSlug = identity.remoteSlug
             case .awaitingOrigin, nil:
                 groupKey = "path:\(normalizedRepoPath)"
                 displayName = repo.name
                 organizationName = nil
-                originRemote = nil
-                upstreamRemote = nil
-                remoteSlug = nil
             }
 
             metadataByRepoId[repo.id] = RepoIdentityMetadata(
                 groupKey: groupKey,
-                displayName: displayName,
                 repoName: displayName,
-                worktreeCommonDirectory: nil,
-                folderCwd: normalizedRepoPath,
-                parentFolder: repo.repoPath.deletingLastPathComponent().lastPathComponent,
                 organizationName: organizationName,
-                originRemote: originRemote,
-                upstreamRemote: upstreamRemote,
-                lastPathComponent: repo.repoPath.lastPathComponent,
-                worktreeCwds: repo.worktrees.map { $0.path.standardizedFileURL.path },
-                remoteFingerprint: originRemote,
-                remoteSlug: remoteSlug
+                lastPathComponent: repo.repoPath.lastPathComponent
             )
         }
 

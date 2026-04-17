@@ -81,12 +81,11 @@ final class WorkspaceTabShellAtom {
             workspaceTabShellLogger.warning("renameTab: tab \(tabId) not found")
             return
         }
-        let trimmedName = Tab.normalizedName(name)
-        guard !trimmedName.isEmpty else {
+        guard !Tab.normalizedName(name).isEmpty else {
             workspaceTabShellLogger.warning("renameTab: empty name rejected for tab \(tabId)")
             return
         }
-        guard tabShells[tabIndex].name != trimmedName else { return }
-        tabShells[tabIndex].name = trimmedName
+        guard tabShells[tabIndex].name != Tab.normalizedName(name) else { return }
+        tabShells[tabIndex].rename(to: name)
     }
 }

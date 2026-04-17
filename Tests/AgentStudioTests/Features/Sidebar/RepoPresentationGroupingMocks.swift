@@ -14,18 +14,9 @@ enum SidebarRepoGroupingMocks {
                     repo.id,
                     RepoIdentityMetadata(
                         groupKey: groupKey,
-                        displayName: displayName,
                         repoName: repos.first?.name ?? "repo",
-                        worktreeCommonDirectory: nil,
-                        folderCwd: "/tmp",
-                        parentFolder: "tmp",
                         organizationName: "acme",
-                        originRemote: "git@github.com:acme/monorepo.git",
-                        upstreamRemote: nil,
-                        lastPathComponent: repos.first?.name ?? "repo",
-                        worktreeCwds: [],
-                        remoteFingerprint: "github.com/acme/monorepo",
-                        remoteSlug: "acme/monorepo"
+                        lastPathComponent: repos.first?.name ?? "repo"
                     )
                 )
             }
