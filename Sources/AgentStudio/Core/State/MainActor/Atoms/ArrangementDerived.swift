@@ -8,10 +8,10 @@ struct ArrangementDerived {
     static func nextCustomArrangementName(existing: [PaneArrangement]) -> String {
         let existingNames = Set(existing.map(\.name))
         var index = 1
-        while existingNames.contains("#\(index)") {
+        while existingNames.contains("Layout \(index)") {
             index += 1
         }
-        return "#\(index)"
+        return "Layout \(index)"
     }
 
     func paneVisibilityItems(for tabId: UUID) -> [PaneVisibilityInfo] {

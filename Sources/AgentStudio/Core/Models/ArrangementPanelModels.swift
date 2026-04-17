@@ -52,3 +52,26 @@ enum ArrangementPanelPopoverPlacement {
         .leading
     }
 }
+
+struct ArrangementChipVisualStyle: Equatable {
+    let isActive: Bool
+    let isHovered: Bool
+    let isPressed: Bool
+
+    var backgroundOpacity: CGFloat {
+        if isPressed {
+            return AppStyle.fillPressed
+        }
+        if isActive {
+            return AppStyle.fillActive
+        }
+        if isHovered {
+            return AppStyle.fillHover
+        }
+        return AppStyle.fillSubtle
+    }
+
+    var foregroundIsPrimary: Bool {
+        isActive || isHovered || isPressed
+    }
+}

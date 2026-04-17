@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Floating popover panel for managing pane arrangements.
@@ -6,14 +7,16 @@ struct ArrangementPanel: View {
     let tabId: UUID
     let panes: [PaneVisibilityInfo]
     let arrangements: [ArrangementInfo]
+    @Bindable var inlineRenameState: ArrangementInlineRenameState
     let onPaneAction: (PaneActionCommand) -> Void
     let onSaveArrangement: () -> Void
     let showMinimizedBarsBinding: Binding<Bool>
     var highlightPaneId: UUID?
     var showsMinimizedBarToggle = true
 
-    @State private var inlineRenameState = ArrangementInlineRenameState()
     @State private var highlightVisible = false
+    @State private var hoveredArrangementId: UUID?
+    @State private var isSaveButtonHovered = false
     @FocusState private var focusedArrangementId: UUID?
 
     private var displayState: ArrangementPanelDisplayState {
@@ -39,15 +42,15 @@ struct ArrangementPanel: View {
                 if displayState.showsSaveArrangementButton {
                     Button(action: onSaveArrangement) {
                         Image(systemName: "plus")
-                            .font(.system(size: AppStyle.textSm, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .frame(width: 22, height: 22)
-                            .background(
-                                RoundedRectangle(cornerRadius: 5)
-                                    .strokeBorder(Color.white.opacity(AppStyle.strokeMuted), lineWidth: 1)
-                            )
+                            .font(.system(size: AppStyle.textXs, weight: .semibold))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(
+                        ArrangementChipButtonStyle(
+                            isActive: false,
+                            isHovered: isSaveButtonHovered
+                        )
+                    )
+                    .onHover { isSaveButtonHovered = $0 }
                     .help(LocalActionSpec.saveCurrentLayoutAsArrangement.actionSpec.helpText)
                 }
             }
@@ -71,10 +74,24 @@ struct ArrangementPanel: View {
                     Divider()
                         .padding(.vertical, 2)
 
-                    HStack {
+                    HStack(spacing: 6) {
                         Text("Show minimized panes")
                             .font(.system(size: AppStyle.textXs))
                             .foregroundStyle(.secondary)
+
+                        let minimizedCount = panes.filter(\.isMinimized).count
+                        if minimizedCount > 0 {
+                            Text("\(minimizedCount)")
+                                .font(.system(size: AppStyle.textXs, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, AppStyle.spacingTight)
+                                .padding(.vertical, 1)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.white.opacity(AppStyle.fillHover))
+                                )
+                                .fixedSize()
+                        }
 
                         Spacer()
 
@@ -170,8 +187,11 @@ struct ArrangementPanel: View {
                 .frame(minWidth: 72)
                 .onSubmit(commitInlineRename)
                 .onExitCommand(perform: cancelInlineRename)
-                .onAppear {
+                .task(id: arrangement.id) {
                     focusedArrangementId = arrangement.id
+                    if let editor = NSApp.keyWindow?.firstResponder as? NSTextView {
+                        editor.selectAll(nil)
+                    }
                 }
                 .onChange(of: focusedArrangementId) { _, newValue in
                     if newValue != arrangement.id,
@@ -181,24 +201,41 @@ struct ArrangementPanel: View {
                     }
                 }
             } else {
-                Text(arrangement.name)
-                    .font(.system(size: AppStyle.textXs, weight: arrangement.isActive ? .semibold : .regular))
-                    .foregroundStyle(arrangement.isActive ? .primary : .secondary)
+                Button {
+                    onPaneAction(.switchArrangement(tabId: tabId, arrangementId: arrangement.id))
+                } label: {
+                    Text(arrangement.name)
+                        .font(.system(size: AppStyle.textXs, weight: arrangement.isActive ? .semibold : .regular))
+                }
+                .buttonStyle(
+                    ArrangementChipButtonStyle(
+                        isActive: arrangement.isActive,
+                        isHovered: hoveredArrangementId == arrangement.id
+                    )
+                )
             }
         }
-        .padding(.horizontal, AppStyle.spacingLoose)
-        .padding(.vertical, AppStyle.spacingTight)
-        .background(
-            RoundedRectangle(cornerRadius: AppStyle.barCornerRadius)
-                .fill(
-                    arrangement.isActive
-                        ? Color.white.opacity(AppStyle.fillActive) : Color.white.opacity(AppStyle.fillSubtle)
-                )
-        )
         .contentShape(Rectangle())
-        .gesture(arrangementGesture(arrangement))
+        .onHover { isHovering in
+            hoveredArrangementId = isHovering ? arrangement.id : nil
+        }
+        .simultaneousGesture(doubleClickRenameGesture(arrangement))
+        .overlay(alignment: .topTrailing) {
+            if !arrangement.isDefault,
+                inlineRenameState.editingArrangementId != arrangement.id
+            {
+                renamePencilBadge(for: arrangement)
+            }
+        }
         .contextMenu {
             if !arrangement.isDefault {
+                Button(LocalActionSpec.renameArrangement.actionSpec.label) {
+                    inlineRenameState.beginEditing(
+                        arrangementId: arrangement.id,
+                        currentName: arrangement.name,
+                        isDefault: arrangement.isDefault
+                    )
+                }
                 Button(LocalActionSpec.deleteArrangement.actionSpec.label, role: .destructive) {
                     onPaneAction(.removeArrangement(tabId: tabId, arrangementId: arrangement.id))
                 }
@@ -206,20 +243,42 @@ struct ArrangementPanel: View {
         }
     }
 
-    private func arrangementGesture(_ arrangement: ArrangementInfo) -> some Gesture {
-        ExclusiveGesture(TapGesture(count: 2), TapGesture())
-            .onEnded { value in
-                switch value {
-                case .first:
-                    inlineRenameState.beginEditing(
-                        arrangementId: arrangement.id,
-                        currentName: arrangement.name,
-                        isDefault: arrangement.isDefault
-                    )
-                case .second:
-                    guard inlineRenameState.editingArrangementId == nil else { return }
-                    onPaneAction(.switchArrangement(tabId: tabId, arrangementId: arrangement.id))
-                }
+    private func renamePencilBadge(for arrangement: ArrangementInfo) -> some View {
+        Button {
+            inlineRenameState.beginEditing(
+                arrangementId: arrangement.id,
+                currentName: arrangement.name,
+                isDefault: arrangement.isDefault
+            )
+        } label: {
+            Image(systemName: "pencil")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 16, height: 16)
+                .background(
+                    Circle()
+                        .fill(Color.white.opacity(AppStyle.fillHover))
+                        .overlay(
+                            Circle()
+                                .strokeBorder(Color.white.opacity(AppStyle.strokeMuted), lineWidth: 1)
+                        )
+                )
+        }
+        .buttonStyle(.plain)
+        .help(LocalActionSpec.renameArrangement.actionSpec.helpText)
+        .offset(x: 4, y: -4)
+        .opacity(hoveredArrangementId == arrangement.id ? 1 : 0)
+        .animation(.easeInOut(duration: AppStyle.animationFast), value: hoveredArrangementId)
+    }
+
+    private func doubleClickRenameGesture(_ arrangement: ArrangementInfo) -> some Gesture {
+        TapGesture(count: 2)
+            .onEnded {
+                inlineRenameState.beginEditing(
+                    arrangementId: arrangement.id,
+                    currentName: arrangement.name,
+                    isDefault: arrangement.isDefault
+                )
             }
     }
 
@@ -248,5 +307,27 @@ struct ArrangementChipRow<Content: View>: View {
         HStack(spacing: spacing) {
             content
         }
+    }
+}
+
+private struct ArrangementChipButtonStyle: ButtonStyle {
+    let isActive: Bool
+    let isHovered: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        let chipStyle = ArrangementChipVisualStyle(
+            isActive: isActive,
+            isHovered: isHovered,
+            isPressed: configuration.isPressed
+        )
+
+        return configuration.label
+            .foregroundStyle(chipStyle.foregroundIsPrimary ? .primary : .secondary)
+            .padding(.horizontal, AppStyle.spacingLoose)
+            .padding(.vertical, AppStyle.spacingTight)
+            .background(
+                RoundedRectangle(cornerRadius: AppStyle.barCornerRadius)
+                    .fill(Color.white.opacity(chipStyle.backgroundOpacity))
+            )
     }
 }

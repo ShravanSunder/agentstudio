@@ -78,7 +78,6 @@ struct FlatTabStripContainer: View {
                                     tabId: tabId,
                                     closeTransitionCoordinator: closeTransitionCoordinator,
                                     actionDispatcher: actionDispatcher,
-                                    onSaveArrangement: onSaveArrangement,
                                     dropTargetCoordinateSpace: "tabContainer"
                                 )
                                 .frame(width: CollapsedPaneBar.barWidth)
@@ -105,7 +104,7 @@ struct FlatTabStripContainer: View {
                         onOpenPaneGitHub: onOpenPaneGitHub
                     )
                     .animation(.easeOut(duration: AppStyle.animationFast), value: closingPaneIds)
-                    .animation(.easeOut(duration: AppStyle.animationFast), value: minimizedPaneIds)
+                    .animation(.easeInOut(duration: AppStyle.animationStandard), value: minimizedPaneIds)
                 }
 
                 DrawerPanelOverlay(

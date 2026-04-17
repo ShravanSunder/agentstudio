@@ -71,6 +71,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private let viewRegistry: ViewRegistry
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let tabRenamePopoverState: TabRenamePopoverState
+    private let arrangementInlineRenameState: ArrangementInlineRenameState
     private lazy var actionDispatcher = PaneTabActionDispatcher(
         dispatch: { [weak self] action in
             guard let self else {
@@ -135,7 +136,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
-        tabRenamePopoverState: TabRenamePopoverState = TabRenamePopoverState()
+        tabRenamePopoverState: TabRenamePopoverState = TabRenamePopoverState(),
+        arrangementInlineRenameState: ArrangementInlineRenameState = ArrangementInlineRenameState()
     ) {
         self.store = store
         self.repoCache = repoCache
@@ -146,6 +148,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         self.viewRegistry = viewRegistry
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.tabRenamePopoverState = tabRenamePopoverState
+        self.arrangementInlineRenameState = arrangementInlineRenameState
         super.init(nibName: nil, bundle: nil)
         setupNotificationObservers()
     }
@@ -182,6 +185,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         let tabBar = CustomTabBar(
             adapter: tabBarAdapter,
             renamePopoverState: tabRenamePopoverState,
+            arrangementInlineRenameState: arrangementInlineRenameState,
             onSelect: { [weak self] tabId in
                 self?.handlePaneFocusTrigger(.tabClick(PaneTabClickFocusTrigger(targetTabId: tabId)))
             },
@@ -1659,6 +1663,28 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 dispatchAction(.selectTab(tabId: target))
             }
             tabRenamePopoverState.present(for: target)
+        case (.renameArrangement, .tab):
+            guard
+                let tab = store.tabLayoutAtom.tabs.first(where: { tab in
+                    tab.arrangements.contains(where: { $0.id == target })
+                }),
+                let arrangement = tab.arrangements.first(where: { $0.id == target })
+            else {
+                Self.logger.warning("renameArrangement targeted command ignored: arrangement \(target) not found")
+                return
+            }
+            guard !arrangement.isDefault else {
+                Self.logger.warning("renameArrangement targeted command ignored: cannot rename default arrangement")
+                return
+            }
+            if store.tabLayoutAtom.activeTabId != tab.id {
+                dispatchAction(.selectTab(tabId: tab.id))
+            }
+            arrangementInlineRenameState.beginEditing(
+                arrangementId: arrangement.id,
+                currentName: arrangement.name,
+                isDefault: arrangement.isDefault
+            )
         default:
             execute(command)
         }

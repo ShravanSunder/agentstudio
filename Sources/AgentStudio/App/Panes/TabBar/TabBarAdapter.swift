@@ -9,6 +9,7 @@ struct TabBarItem: Identifiable, Equatable {
     var isSplit: Bool
     var displayTitle: String
     var activeArrangementName: String?  // nil when only default exists
+    var activeArrangementBadgeNumber: Int?
     var arrangementCount: Int  // total arrangements (1 = default only)
     var panes: [PaneVisibilityInfo]
     var arrangements: [ArrangementInfo]
@@ -143,6 +144,7 @@ final class TabBarAdapter {
 
             let activeArrangement = tab.activeArrangement
             let showArrangementName = tab.arrangements.count > 1 && !activeArrangement.isDefault
+            let activeArrangementBadgeNumber = Self.activeArrangementBadgeNumber(for: tab)
 
             let arrangementDerived = atom(\.arrangement)
             let paneInfos = arrangementDerived.paneVisibilityItems(for: tab.id)
@@ -154,6 +156,7 @@ final class TabBarAdapter {
                 isSplit: tab.isSplit,
                 displayTitle: displayTitle,
                 activeArrangementName: showArrangementName ? activeArrangement.name : nil,
+                activeArrangementBadgeNumber: activeArrangementBadgeNumber,
                 arrangementCount: tab.arrangements.count,
                 panes: paneInfos,
                 arrangements: arrangementInfos,
@@ -231,5 +234,13 @@ final class TabBarAdapter {
             + (tabCount - 1) * Self.tabSpacing
             + Self.tabBarPadding
         isOverflowing = totalMinWidth > effectiveViewport
+    }
+
+    private static func activeArrangementBadgeNumber(for tab: Tab) -> Int? {
+        let customArrangements = tab.arrangements.filter { !$0.isDefault }
+        guard let index = customArrangements.firstIndex(where: { $0.id == tab.activeArrangementId }) else {
+            return nil
+        }
+        return index + 1
     }
 }

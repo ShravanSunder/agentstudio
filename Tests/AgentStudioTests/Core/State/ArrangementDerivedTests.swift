@@ -112,14 +112,14 @@ final class ArrangementDerivedTests {
     }
 
     @Test
-    func nextCustomArrangementName_startsAtHashOne() {
+    func nextCustomArrangementName_startsAtLayoutOne() {
         AtomScope.$override.withValue(registry) {
             let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
             let tab = Tab(paneId: pane.id)
             store.appendTab(tab)
 
             let derived = ArrangementDerived()
-            #expect(derived.nextCustomArrangementName(for: tab.id) == "#1")
+            #expect(derived.nextCustomArrangementName(for: tab.id) == "Layout 1")
         }
     }
 
@@ -149,21 +149,21 @@ final class ArrangementDerivedTests {
 
             _ = try #require(
                 store.createArrangement(
-                    name: "#1",
+                    name: "Layout 1",
                     paneIds: [firstPane.id],
                     inTab: tab.id
                 )
             )
             _ = try #require(
                 store.createArrangement(
-                    name: "#2",
+                    name: "Layout 2",
                     paneIds: [secondPane.id],
                     inTab: tab.id
                 )
             )
 
             let derived = ArrangementDerived()
-            #expect(derived.nextCustomArrangementName(for: tab.id) == "#3")
+            #expect(derived.nextCustomArrangementName(for: tab.id) == "Layout 3")
         }
     }
 

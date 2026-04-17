@@ -58,6 +58,7 @@ private struct ScrollOverflowDetector: ViewModifier {
 struct CustomTabBar: View {
     @Bindable var adapter: TabBarAdapter
     @Bindable var renamePopoverState: TabRenamePopoverState
+    @Bindable var arrangementInlineRenameState: ArrangementInlineRenameState
     var onSelect: (UUID) -> Void
     var onClose: (UUID) -> Void
     var onCommand: ((AppCommand, UUID) -> Void)?
@@ -106,6 +107,7 @@ struct CustomTabBar: View {
 
                     TabBarArrangementButton(
                         adapter: adapter,
+                        arrangementInlineRenameState: arrangementInlineRenameState,
                         onPaneAction: onPaneAction,
                         onSaveArrangement: onSaveArrangement
                     )
@@ -405,6 +407,7 @@ private struct GitHubTabButton: View {
 /// Opens the active tab's arrangement panel popover.
 private struct TabBarArrangementButton: View {
     @Bindable var adapter: TabBarAdapter
+    @Bindable var arrangementInlineRenameState: ArrangementInlineRenameState
     let onPaneAction: ((PaneActionCommand) -> Void)?
     let onSaveArrangement: ((UUID) -> Void)?
 
@@ -423,36 +426,47 @@ private struct TabBarArrangementButton: View {
         return activeTab?.minimizedCount ?? 0
     }
 
+    private var activeArrangementBadgeNumber: Int? {
+        activeTab?.activeArrangementBadgeNumber
+    }
+
+    private var activeArrangementName: String? {
+        activeTab?.activeArrangementName
+    }
+
+    private var chipNameMaxWidth: CGFloat {
+        TabBarArrangementChip.nameMaxWidth(isManagementLayerActive: atom(\.managementLayer).isActive)
+    }
+
     var body: some View {
         Button {
             popoverToggleGate.toggle(isPresented: &isPanelPresented)
         } label: {
-            Image(systemName: "rectangle.3.group")
-                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
-                .foregroundStyle(isHovered ? .primary : .secondary)
-                .frame(width: AppStyle.toolbarButtonSize, height: AppStyle.toolbarButtonSize)
-                .background(
-                    Circle()
-                        .fill(Color.white.opacity(isHovered ? AppStyle.fillPressed : AppStyle.fillMuted))
-                )
-                .contentShape(Circle())
-                .overlay(alignment: .topTrailing) {
-                    if hiddenMinimizedCount > 0 {
-                        Text("\(hiddenMinimizedCount)")
-                            .font(.system(size: AppStyle.textXs, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, AppStyle.spacingTight)
-                            .padding(.vertical, 1)
-                            .background(
-                                Capsule()
-                                    .fill(Color.white.opacity(AppStyle.fillHover))
-                            )
-                            .fixedSize()
-                            .offset(x: 10, y: -6)
-                            .transition(.opacity.combined(with: .scale))
-                    }
+            TabBarArrangementChip(
+                index: activeArrangementBadgeNumber,
+                name: activeArrangementName,
+                isHovered: isHovered,
+                isPressed: isPanelPresented,
+                nameMaxWidth: chipNameMaxWidth
+            )
+            .overlay(alignment: .topTrailing) {
+                if hiddenMinimizedCount > 0 {
+                    Text("\(hiddenMinimizedCount)")
+                        .font(.system(size: AppStyle.textXs, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, AppStyle.spacingTight)
+                        .padding(.vertical, 1)
+                        .background(
+                            Capsule()
+                                .fill(Color.white.opacity(AppStyle.fillHover))
+                        )
+                        .fixedSize()
+                        .offset(x: 10, y: -6)
+                        .transition(.opacity.combined(with: .scale))
                 }
-                .animation(.easeOut(duration: AppStyle.animationFast), value: hiddenMinimizedCount)
+            }
+            .animation(.easeOut(duration: AppStyle.animationFast), value: hiddenMinimizedCount)
+            .animation(.easeOut(duration: AppStyle.animationFast), value: activeArrangementName)
         }
         .buttonStyle(.plain)
         .onHover { hovering in isHovered = hovering }
@@ -477,6 +491,7 @@ private struct TabBarArrangementButton: View {
                     tabId: tab.id,
                     panes: tab.panes,
                     arrangements: tab.arrangements,
+                    inlineRenameState: arrangementInlineRenameState,
                     onPaneAction: onPaneAction,
                     onSaveArrangement: { onSaveArrangement(tab.id) },
                     showMinimizedBarsBinding: Binding(
@@ -484,6 +499,15 @@ private struct TabBarArrangementButton: View {
                         set: { atom(\.uiState).setShowMinimizedBars($0) }
                     )
                 )
+            }
+        }
+        .onChange(of: arrangementInlineRenameState.editingArrangementId) { _, newValue in
+            guard let newValue,
+                let activeTab,
+                activeTab.arrangements.contains(where: { $0.id == newValue })
+            else { return }
+            if !isPanelPresented {
+                isPanelPresented = true
             }
         }
     }
@@ -808,6 +832,7 @@ struct TabBarEmptyState: View {
                 CustomTabBar(
                     adapter: adapter,
                     renamePopoverState: TabRenamePopoverState(),
+                    arrangementInlineRenameState: ArrangementInlineRenameState(),
                     onSelect: { _ in },
                     onClose: { _ in },
                     onCommand: { _, _ in },
