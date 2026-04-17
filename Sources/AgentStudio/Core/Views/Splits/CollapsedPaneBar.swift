@@ -1,36 +1,31 @@
 import AppKit
 import SwiftUI
 
-enum CollapsedPaneBarButtonId: Equatable {
-    case expand
-    case arrangementPopover
-}
-
 struct CollapsedPaneBar: View {
     let paneId: UUID
     let tabId: UUID
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
+    let onSaveArrangement: (() -> Void)?
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
 
     @State private var isHovered = false
     @State private var isExpandHovered = false
+    @State private var isArrangementHovered = false
+    @State private var isArrangementPanelPresented = false
+    @State private var arrangementPopoverToggleGate = PopoverToggleGate()
+    @State private var arrangementInlineRenameState = ArrangementInlineRenameState()
 
     static let barWidth: CGFloat = AppStyle.collapsedBarWidth
     static let barHeight: CGFloat = AppStyle.collapsedBarWidth
-
-    /// Ordered list of primary action buttons this bar renders.
-    /// Asserted by `CollapsedPaneBarTests` — the tab-bar arrangement chip
-    /// is the single entry point for arrangement management; the collapsed
-    /// bar stays focused on per-pane actions.
-    static let primaryButtonIdentifiers: [CollapsedPaneBarButtonId] = [.expand]
 
     init(
         paneId: UUID,
         tabId: UUID,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
+        onSaveArrangement: (() -> Void)? = nil,
         dropTargetCoordinateSpace: String? = nil,
         useDrawerFramePreference: Bool = false
     ) {
@@ -38,12 +33,17 @@ struct CollapsedPaneBar: View {
         self.tabId = tabId
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
+        self.onSaveArrangement = onSaveArrangement
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
     }
 
     private var isClosing: Bool {
         closeTransitionCoordinator.closingPaneIds.contains(paneId)
+    }
+
+    private var isDrawerChild: Bool {
+        atom(\.workspacePane).pane(paneId)?.isDrawerChild ?? false
     }
 
     var body: some View {
@@ -57,6 +57,10 @@ struct CollapsedPaneBar: View {
 
         VStack(spacing: AppStyle.spacingStandard) {
             expandButton
+
+            if !isDrawerChild {
+                arrangementButton
+            }
 
             GeometryReader { geo in
                 collapsedLabel(availableHeight: geo.size.height, iconTint: iconTint)
@@ -121,6 +125,62 @@ struct CollapsedPaneBar: View {
         .buttonStyle(.plain)
         .onHover { isExpandHovered = $0 }
         .help(AppCommand.expandPane.definition.helpText)
+    }
+
+    private var arrangementButton: some View {
+        let arrangement = atom(\.arrangement)
+        let panes = arrangement.paneVisibilityItems(for: tabId)
+        let arrangements = arrangement.arrangementItems(for: tabId)
+
+        return Button {
+            arrangementPopoverToggleGate.toggle(isPresented: &isArrangementPanelPresented)
+        } label: {
+            Image(systemName: "rectangle.3.group")
+                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                .foregroundStyle(isArrangementHovered ? .primary : .secondary)
+                .frame(width: AppStyle.compactButtonSize, height: AppStyle.compactButtonSize)
+                .background(
+                    Circle()
+                        .fill(Color.white.opacity(isArrangementHovered ? AppStyle.fillPressed : AppStyle.fillMuted))
+                )
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .onHover { isArrangementHovered = $0 }
+        .help(LocalActionSpec.arrangements.actionSpec.helpText)
+        .popover(
+            isPresented: Binding(
+                get: { isArrangementPanelPresented },
+                set: { newValue in
+                    if !newValue && isArrangementPanelPresented {
+                        isArrangementPanelPresented = false
+                        arrangementPopoverToggleGate.recordSystemDismissal()
+                    } else {
+                        isArrangementPanelPresented = newValue
+                    }
+                }
+            ),
+            attachmentAnchor: ArrangementPanelPopoverPlacement.minimizedBar.attachmentAnchor,
+            arrowEdge: ArrangementPanelPopoverPlacement.minimizedBar.arrowEdge
+        ) {
+            ArrangementPanel(
+                tabId: tabId,
+                panes: panes,
+                arrangements: arrangements,
+                inlineRenameState: arrangementInlineRenameState,
+                onPaneAction: { action in
+                    isArrangementPanelPresented = false
+                    actionDispatcher.dispatch(action)
+                },
+                onSaveArrangement: { onSaveArrangement?() },
+                showMinimizedBarsBinding: Binding(
+                    get: { atom(\.uiState).showMinimizedBars },
+                    set: { atom(\.uiState).setShowMinimizedBars($0) }
+                ),
+                highlightPaneId: paneId,
+                showsMinimizedBarToggle: false
+            )
+        }
     }
 
     @ViewBuilder

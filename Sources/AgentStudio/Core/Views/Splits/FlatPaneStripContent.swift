@@ -41,6 +41,7 @@ struct FlatPaneStripContent: View {
                                 tabId: tabId,
                                 closeTransitionCoordinator: closeTransitionCoordinator,
                                 actionDispatcher: actionDispatcher,
+                                onSaveArrangement: onSaveArrangement,
                                 dropTargetCoordinateSpace: coordinateSpaceName,
                                 useDrawerFramePreference: useDrawerFramePreference
                             )
@@ -120,6 +121,7 @@ private struct PaneSegmentSlotView: View {
                     tabId: tabId,
                     closeTransitionCoordinator: closeTransitionCoordinator,
                     actionDispatcher: actionDispatcher,
+                    onSaveArrangement: onSaveArrangement,
                     dropTargetCoordinateSpace: coordinateSpaceName,
                     useDrawerFramePreference: useDrawerFramePreference
                 )

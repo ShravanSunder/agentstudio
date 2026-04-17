@@ -78,6 +78,7 @@ struct FlatTabStripContainer: View {
                                     tabId: tabId,
                                     closeTransitionCoordinator: closeTransitionCoordinator,
                                     actionDispatcher: actionDispatcher,
+                                    onSaveArrangement: onSaveArrangement,
                                     dropTargetCoordinateSpace: "tabContainer"
                                 )
                                 .frame(width: CollapsedPaneBar.barWidth)
