@@ -85,6 +85,9 @@ extension Ghostty {
 
         /// The ghostty app reference
         private weak var ghosttyApp: App?
+        private(set) var hostScrollbarState: ScrollbarState?
+        private(set) var hostConfigSnapshot: GhosttyHostConfigSnapshot
+        var onHostScrollbarStateChanged: (@MainActor @Sendable (ScrollbarState) -> Void)?
 
         /// Marked text for input method
         var markedText = NSMutableAttributedString()
@@ -155,6 +158,7 @@ extension Ghostty {
             }
             config.requireInitialFrameForSurfaceCreation()
             self.ghosttyApp = app
+            self.hostConfigSnapshot = app.hostConfigSnapshot()
             super.init(frame: config.initialFrame!)
             let startupCommandForSurface = config.startupStrategy.startupCommandForSurface
             RestoreTrace.log(
@@ -301,6 +305,15 @@ extension Ghostty {
                 guard let self else { return }
                 self.onCloseRequested?(processAlive)
             }
+        }
+
+        func updateHostConfigSnapshot(_ snapshot: GhosttyHostConfigSnapshot) {
+            hostConfigSnapshot = snapshot
+        }
+
+        func updateHostScrollbarState(_ state: ScrollbarState) {
+            hostScrollbarState = state
+            onHostScrollbarStateChanged?(state)
         }
 
         // MARK: - View Lifecycle

@@ -82,6 +82,16 @@ struct ShortcutCatalogTests {
     }
 
     @Test
+    func shortcutDecoder_decodesScrollToBottomShortcut() {
+        let scrollToBottom = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.k), modifiers: [.command, .option]),
+            in: .terminalAppOwned
+        )
+
+        #expect(scrollToBottom == .scrollToBottom)
+    }
+
+    @Test
     func shortcutDecoder_decodesCharacterAndEscapeEvents() {
         let managementToggle = ShortcutDecoder.decode(
             keyCode: 15,

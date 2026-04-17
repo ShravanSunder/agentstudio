@@ -8,6 +8,7 @@ enum ShortcutCharacterKey: String, CaseIterable {
     case d
     case e
     case f
+    case k
     case m
     case n
     case o
@@ -113,6 +114,7 @@ enum AppShortcut: String, CaseIterable {
     case prevTab
     case addDrawerPane
     case toggleDrawer
+    case scrollToBottom
     case addRepo
     case addFolder
     case toggleManagementLayer
@@ -177,6 +179,11 @@ enum AppShortcut: String, CaseIterable {
             return .init(
                 trigger: .init(key: .character(.d), modifiers: [.command]),
                 contexts: [.global, .terminalAppOwned]
+            )
+        case .scrollToBottom:
+            return .init(
+                trigger: .init(key: .character(.k), modifiers: [.command, .option]),
+                contexts: [.terminalAppOwned]
             )
         case .addRepo:
             return .init(

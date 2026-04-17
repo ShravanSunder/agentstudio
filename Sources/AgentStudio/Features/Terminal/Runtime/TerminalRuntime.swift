@@ -347,6 +347,8 @@ final class TerminalRuntime: BusPostingPaneRuntime {
         switch command {
         case .sendInput, .clearScrollback:
             return .input
+        case .scrollToBottom:
+            return nil
         case .resize:
             return .resize
         }
@@ -359,6 +361,9 @@ final class TerminalRuntime: BusPostingPaneRuntime {
             return mapSurfaceDispatchResult(dispatchResult, commandId: commandId, command: command)
         case .clearScrollback:
             let dispatchResult = SurfaceManager.shared.clearScrollback(forPaneId: paneId.uuid)
+            return mapSurfaceDispatchResult(dispatchResult, commandId: commandId, command: command)
+        case .scrollToBottom:
+            let dispatchResult = SurfaceManager.shared.scrollToBottom(forPaneId: paneId.uuid)
             return mapSurfaceDispatchResult(dispatchResult, commandId: commandId, command: command)
         case .resize(let cols, let rows):
             Self.logger.warning(

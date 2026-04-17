@@ -14,9 +14,50 @@ private final class FakeSurfaceActionPerformer: TerminalSurfaceActionPerforming 
     }
 }
 
+@MainActor
+private final class FakeTerminalSurfaceHostStateView: NSView, TerminalSurfaceHostStateSource {
+    var hostScrollbarState: ScrollbarState?
+    var hostConfigSnapshot = GhosttyHostConfigSnapshot(configHandle: nil)
+    var reportedCellSize: NSSize?
+    var onHostScrollbarStateChanged: (@MainActor @Sendable (ScrollbarState) -> Void)?
+
+    func emitScrollbarState(_ state: ScrollbarState) {
+        hostScrollbarState = state
+        onHostScrollbarStateChanged?(state)
+    }
+}
+
 @Suite("TerminalSurfaceScrollView")
 @MainActor
 struct TerminalSurfaceScrollViewTests {
+    private func simulateLiveScroll(_ scrollWrapper: TerminalSurfaceScrollView, documentOffsetY: CGFloat) {
+        NotificationCenter.default.post(
+            name: NSScrollView.willStartLiveScrollNotification, object: scrollWrapper.scrollView)
+        scrollWrapper.scrollView.contentView.scroll(to: CGPoint(x: 0, y: documentOffsetY))
+        NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scrollWrapper.scrollView)
+        NotificationCenter.default.post(
+            name: NSScrollView.didEndLiveScrollNotification, object: scrollWrapper.scrollView)
+    }
+
+    private func simulateVisibleRectChange(_ scrollWrapper: TerminalSurfaceScrollView, documentOffsetY: CGFloat) {
+        NotificationCenter.default.post(
+            name: NSScrollView.willStartLiveScrollNotification, object: scrollWrapper.scrollView)
+        scrollWrapper.scrollView.contentView.scroll(to: CGPoint(x: 0, y: documentOffsetY))
+        NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scrollWrapper.scrollView)
+        NotificationCenter.default.post(
+            name: NSScrollView.didEndLiveScrollNotification, object: scrollWrapper.scrollView)
+    }
+
+    private func documentOffsetY(of scrollWrapper: TerminalSurfaceScrollView) -> CGFloat {
+        scrollWrapper.scrollView.contentView.bounds.origin.y
+    }
+
+    private func maximumDocumentOffsetY(of scrollWrapper: TerminalSurfaceScrollView) -> CGFloat {
+        max(
+            0, scrollWrapper.documentView.frame.height - scrollWrapper.scrollView.contentView.documentVisibleRect.height
+        )
+    }
+
     @Test("scroll wrapper converts live drag into scroll_to_row")
     func scrollWrapperConvertsLiveDragIntoScrollToRow() {
         let performer = FakeSurfaceActionPerformer()
@@ -26,7 +67,7 @@ struct TerminalSurfaceScrollViewTests {
             ScrollbarState(top: 80, bottom: 120, total: 200),
             cellHeight: 20
         )
-        scrollView.simulateLiveScrollForTesting(documentOffsetY: 1200)
+        simulateLiveScroll(scrollView, documentOffsetY: 1200)
 
         #expect(performer.actions.last == .scrollToRow(100))
     }
@@ -41,14 +82,14 @@ struct TerminalSurfaceScrollViewTests {
             cellHeight: 20
         )
 
-        scrollView.simulateLiveScrollForTesting(documentOffsetY: 1200)
-        scrollView.simulateLiveScrollForTesting(documentOffsetY: 1200)
+        simulateLiveScroll(scrollView, documentOffsetY: 1200)
+        simulateLiveScroll(scrollView, documentOffsetY: 1200)
 
         #expect(performer.actions == [.scrollToRow(100)])
     }
 
-    @Test("scroll wrapper converts visible rect changes into row updates")
-    func scrollWrapperConvertsVisibleRectChangesIntoRowUpdates() {
+    @Test("scroll wrapper converts live-scroll visible rect changes into row updates")
+    func scrollWrapperConvertsLiveScrollVisibleRectChangesIntoRowUpdates() {
         let performer = FakeSurfaceActionPerformer()
         let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
 
@@ -59,7 +100,7 @@ struct TerminalSurfaceScrollViewTests {
             cellHeight: 20
         )
 
-        scrollView.simulateProgrammaticVisibleRectForTesting(documentOffsetY: 40)
+        simulateVisibleRectChange(scrollView, documentOffsetY: 40)
 
         guard case .scrollToRow(let row)? = performer.actions.last else {
             Issue.record("Expected scroll wrapper to emit scrollToRow action")
@@ -81,9 +122,9 @@ struct TerminalSurfaceScrollViewTests {
             cellHeight: 20
         )
 
-        scrollView.simulateLiveScrollForTesting(documentOffsetY: 50_000)
+        simulateLiveScroll(scrollView, documentOffsetY: 50_000)
 
-        #expect(scrollView.documentOffsetYForTesting == scrollView.maximumDocumentOffsetYForTesting)
+        #expect(documentOffsetY(of: scrollView) == maximumDocumentOffsetY(of: scrollView))
     }
 
     @Test("scroll wrapper uses Ghostty-style document padding math")
@@ -98,8 +139,8 @@ struct TerminalSurfaceScrollViewTests {
             cellHeight: 20
         )
 
-        #expect(scrollView.documentHeightForTesting == 3800)
-        #expect(scrollView.maximumDocumentOffsetYForTesting == 3200)
+        #expect(scrollView.documentView.frame.height == 3800)
+        #expect(maximumDocumentOffsetY(of: scrollView) == 3200)
     }
 
     @Test("no scrollback keeps document height equal to viewport")
@@ -114,8 +155,8 @@ struct TerminalSurfaceScrollViewTests {
             cellHeight: 20
         )
 
-        #expect(scrollView.documentHeightForTesting == 600)
-        #expect(scrollView.maximumDocumentOffsetYForTesting == 0)
+        #expect(scrollView.documentView.frame.height == 600)
+        #expect(maximumDocumentOffsetY(of: scrollView) == 0)
     }
 
     @Test("scroll wrapper uses native overlay scroller configuration")
@@ -123,8 +164,89 @@ struct TerminalSurfaceScrollViewTests {
         let performer = FakeSurfaceActionPerformer()
         let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
 
-        #expect(scrollView.autohidesScrollersForTesting == false)
-        #expect(scrollView.usesOverlayScrollerStyleForTesting == true)
+        #expect(scrollView.scrollView.autohidesScrollers == false)
+        #expect(scrollView.scrollView.scrollerStyle == .overlay)
+    }
+
+    @Test("scroll wrapper uses host config snapshot to decide vertical scroller visibility")
+    func scrollWrapperUsesHostConfigSnapshotToDecideVerticalScrollerVisibility() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+        let hostStateView = FakeTerminalSurfaceHostStateView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+
+        hostStateView.hostConfigSnapshot = GhosttyHostConfigSnapshot(
+            scrollbarPolicy: .never,
+            backgroundColor: .black
+        )
+
+        scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        scrollView.bindHostStateSource(hostStateView)
+        scrollView.layoutSubtreeIfNeeded()
+
+        #expect(scrollView.scrollView.hasVerticalScroller == false)
+    }
+
+    @Test("scroll wrapper exposes a non-empty native scroller frame when scrollbar policy is system")
+    func scrollWrapperExposesNonEmptyNativeScrollerFrameWhenScrollbarPolicyIsSystem() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+        let hostStateView = FakeTerminalSurfaceHostStateView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+
+        hostStateView.hostConfigSnapshot = GhosttyHostConfigSnapshot(
+            scrollbarPolicy: .system,
+            backgroundColor: .black
+        )
+
+        scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        scrollView.bindHostStateSource(hostStateView)
+        scrollView.layoutSubtreeIfNeeded()
+
+        guard let verticalScroller = scrollView.scrollView.verticalScroller else {
+            Issue.record("Expected a native vertical scroller frame")
+            return
+        }
+        let scrollerFrame = scrollView.convert(verticalScroller.bounds, from: verticalScroller)
+
+        #expect(scrollerFrame.width > 0)
+        #expect(scrollerFrame.height > 0)
+    }
+
+    @Test("scroll wrapper uses host scrollbar cache before runtime replay")
+    func scrollWrapperUsesHostScrollbarCacheBeforeRuntimeReplay() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+        let hostStateView = FakeTerminalSurfaceHostStateView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        hostStateView.reportedCellSize = NSSize(width: 8, height: 20)
+        hostStateView.hostConfigSnapshot = GhosttyHostConfigSnapshot(
+            scrollbarPolicy: .system,
+            backgroundColor: .black
+        )
+
+        scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        scrollView.bindHostStateSource(hostStateView)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        #expect(documentOffsetY(of: scrollView) == 1600)
+    }
+
+    @Test("scroll wrapper converts live drag into scroll_to_row from host state source")
+    func scrollWrapperConvertsLiveDragIntoScrollToRowFromHostStateSource() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+        let hostStateView = FakeTerminalSurfaceHostStateView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        hostStateView.reportedCellSize = NSSize(width: 8, height: 20)
+        hostStateView.hostConfigSnapshot = GhosttyHostConfigSnapshot(
+            scrollbarPolicy: .system,
+            backgroundColor: .black
+        )
+
+        scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        scrollView.bindHostStateSource(hostStateView)
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        simulateLiveScroll(scrollView, documentOffsetY: 1200)
+
+        #expect(performer.actions.last == .scrollToRow(100))
     }
 
     @Test("zero cellHeight ignores update until valid metrics arrive")
@@ -139,14 +261,14 @@ struct TerminalSurfaceScrollViewTests {
             cellHeight: 0
         )
 
-        #expect(scrollView.documentHeightForTesting == 600)
+        #expect(scrollView.documentView.frame.height == 600)
 
         scrollView.applyScrollbarState(
             ScrollbarState(top: 80, bottom: 120, total: 200),
             cellHeight: 20
         )
 
-        #expect(scrollView.documentHeightForTesting == 3800)
+        #expect(scrollView.documentView.frame.height == 3800)
     }
 
     @Test("follow-bottom keeps viewport pinned when already at bottom")
@@ -158,14 +280,14 @@ struct TerminalSurfaceScrollViewTests {
             ScrollbarState(top: 160, bottom: 200, total: 200),
             cellHeight: 20
         )
-        #expect(scrollView.documentOffsetYForTesting == 0)
+        #expect(documentOffsetY(of: scrollView) == 0)
 
         scrollView.applyScrollbarState(
             ScrollbarState(top: 170, bottom: 210, total: 210),
             cellHeight: 20
         )
 
-        #expect(scrollView.documentOffsetYForTesting == 0)
+        #expect(documentOffsetY(of: scrollView) == 0)
     }
 
     @Test("history viewport stays anchored to the same top row when total rows grow")
@@ -177,13 +299,13 @@ struct TerminalSurfaceScrollViewTests {
             ScrollbarState(top: 80, bottom: 120, total: 200),
             cellHeight: 20
         )
-        #expect(scrollView.documentOffsetYForTesting == 1600)
+        #expect(documentOffsetY(of: scrollView) == 1600)
 
         scrollView.applyScrollbarState(
             ScrollbarState(top: 80, bottom: 120, total: 210),
             cellHeight: 20
         )
 
-        #expect(scrollView.documentOffsetYForTesting == 1800)
+        #expect(documentOffsetY(of: scrollView) == 1800)
     }
 }

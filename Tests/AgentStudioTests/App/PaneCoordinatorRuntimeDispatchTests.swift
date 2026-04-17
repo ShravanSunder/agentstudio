@@ -895,6 +895,8 @@ private final class FakePaneRuntime: PaneRuntime {
             switch terminalCommand {
             case .sendInput, .clearScrollback:
                 return .input
+            case .scrollToBottom:
+                return nil
             case .resize:
                 return .resize
             }

@@ -48,6 +48,20 @@ struct TerminalRuntimeTests {
         #expect(result == .failure(.backendUnavailable(backend: "SurfaceManager")))
     }
 
+    @Test("scrollToBottom terminal command fails without surface")
+    func scrollToBottomTerminalCommandFailsWithoutSurface() async {
+        let runtime = TerminalRuntime(
+            paneId: PaneId(),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
+        )
+        runtime.transitionToReady()
+
+        let commandEnvelope = makeEnvelope(command: .terminal(.scrollToBottom), paneId: runtime.paneId)
+        let result = await runtime.handleCommand(commandEnvelope)
+
+        #expect(result == .failure(.backendUnavailable(backend: "SurfaceManager")))
+    }
+
     @Test("non-terminal command families are rejected as unsupported")
     func rejectsUnsupportedCommandFamilies() async {
         let runtime = TerminalRuntime(

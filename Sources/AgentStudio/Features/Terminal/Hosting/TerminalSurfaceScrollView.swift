@@ -28,11 +28,12 @@ private final class TerminalSurfaceClipView: NSClipView {
 
 @MainActor
 final class TerminalSurfaceScrollView: NSView {
-    private let scrollView = NSScrollView()
+    let scrollView = NSScrollView()
     private let clipView = TerminalSurfaceClipView()
-    private let documentView = NSView()
+    let documentView = NSView()
     private weak var actionPerformer: (any TerminalSurfaceActionPerforming)?
     private weak var surfaceView: Ghostty.SurfaceView?
+    private weak var hostStateSource: (any TerminalSurfaceHostStateSource)?
     nonisolated(unsafe) private var notificationObservers: [NSObjectProtocol] = []
     private var lastSentRow: Int?
     private var isLiveScrolling = false
@@ -46,7 +47,7 @@ final class TerminalSurfaceScrollView: NSView {
         self.actionPerformer = actionPerformer
         super.init(frame: .zero)
 
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = false
         scrollView.scrollerStyle = .overlay
@@ -108,10 +109,17 @@ final class TerminalSurfaceScrollView: NSView {
             NotificationCenter.default.addObserver(
                 forName: NSScroller.preferredScrollerStyleDidChangeNotification,
                 object: nil,
-                queue: .main
+                queue: nil
             ) { [weak self] _ in
-                MainActor.assumeIsolated { [weak self] in
-                    self?.handleScrollerStyleChange()
+                guard let self else { return }
+                if Thread.isMainThread {
+                    MainActor.assumeIsolated {
+                        self.handleScrollerStyleChange()
+                    }
+                } else {
+                    Task { @MainActor [weak self] in
+                        self?.handleScrollerStyleChange()
+                    }
                 }
             })
     }
@@ -139,12 +147,31 @@ final class TerminalSurfaceScrollView: NSView {
         updateTrackingAreas()
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.acceptsMouseMovedEvents = true
+    }
+
+    func bindHostStateSource(_ hostStateSource: any TerminalSurfaceHostStateSource) {
+        self.hostStateSource?.onHostScrollbarStateChanged = nil
+        self.hostStateSource = hostStateSource
+        synchronizeAppearance()
+        hostStateSource.onHostScrollbarStateChanged = { [weak self] _ in
+            guard let self else { return }
+            self.synchronizeAppearance()
+            self.synchronizeScrollView()
+            self.synchronizeSurfaceFrame()
+        }
+    }
+
     func embedSurfaceView(_ surfaceView: Ghostty.SurfaceView) {
         self.surfaceView?.removeFromSuperview()
         self.surfaceView = surfaceView
+        bindHostStateSource(surfaceView)
         documentView.addSubview(surfaceView)
         surfaceView.frame.size = scrollView.bounds.size
         needsLayout = true
+        synchronizeAppearance()
         updateTrackingAreas()
     }
 
@@ -162,13 +189,14 @@ final class TerminalSurfaceScrollView: NSView {
     }
 
     private func handleLiveScroll() {
-        guard let state = previousScrollbarState, cellHeight > 0 else { return }
+        let effectiveCellHeight = currentCellHeight()
+        guard let state = currentScrollbarState(), effectiveCellHeight > 0 else { return }
 
         let visibleRect = scrollView.contentView.documentVisibleRect
         let documentHeight = documentView.frame.height
         let offsetFromTop = max(0, documentHeight - visibleRect.origin.y - visibleRect.height)
         let maximumTopRow = max(0, state.total - state.visibleRowCount)
-        let row = max(0, min(Int(offsetFromTop / cellHeight), maximumTopRow))
+        let row = max(0, min(Int(offsetFromTop / effectiveCellHeight), maximumTopRow))
         guard row != lastSentRow else { return }
         lastSentRow = row
         _ = actionPerformer?.performBindingAction(.scrollToRow(row))
@@ -177,7 +205,7 @@ final class TerminalSurfaceScrollView: NSView {
     private func synchronizeScrollView() {
         documentView.frame.size.height = documentHeight()
 
-        guard let state = previousScrollbarState else {
+        guard let state = currentScrollbarState() else {
             scrollView.reflectScrolledClipView(scrollView.contentView)
             return
         }
@@ -198,6 +226,13 @@ final class TerminalSurfaceScrollView: NSView {
         surfaceView.frame.origin = visibleRect.origin
     }
 
+    private func synchronizeAppearance() {
+        guard let hostStateSource else { return }
+        scrollView.hasVerticalScroller = hostStateSource.hostConfigSnapshot.scrollbarPolicy != .never
+        let hasLightBackground = hostStateSource.hostConfigSnapshot.backgroundColor.isLightColor
+        scrollView.appearance = NSAppearance(named: hasLightBackground ? .aqua : .darkAqua)
+    }
+
     private func synchronizeCoreSurface() {
         guard let surfaceView else { return }
         let width = scrollView.contentSize.width
@@ -208,16 +243,28 @@ final class TerminalSurfaceScrollView: NSView {
 
     private func documentHeight() -> CGFloat {
         let contentHeight = scrollView.contentSize.height
-        guard cellHeight > 0, let state = previousScrollbarState else { return contentHeight }
+        let effectiveCellHeight = currentCellHeight()
+        guard effectiveCellHeight > 0, let state = currentScrollbarState() else { return contentHeight }
 
-        let documentGridHeight = CGFloat(state.total) * cellHeight
-        let padding = contentHeight - (CGFloat(state.visibleRowCount) * cellHeight)
+        let documentGridHeight = CGFloat(state.total) * effectiveCellHeight
+        let padding = contentHeight - (CGFloat(state.visibleRowCount) * effectiveCellHeight)
         return max(contentHeight, documentGridHeight + padding)
     }
 
     private func runtimeDocumentOffsetY(for state: ScrollbarState) -> CGFloat {
-        let offsetY = CGFloat(state.total - state.top - state.visibleRowCount) * cellHeight
+        let offsetY = CGFloat(state.total - state.top - state.visibleRowCount) * currentCellHeight()
         return min(max(0, offsetY), maximumDocumentOffsetY)
+    }
+
+    private func currentScrollbarState() -> ScrollbarState? {
+        hostStateSource?.hostScrollbarState ?? previousScrollbarState
+    }
+
+    private func currentCellHeight() -> CGFloat {
+        if let reportedCellHeight = hostStateSource?.reportedCellSize?.height, reportedCellHeight > 0 {
+            return reportedCellHeight
+        }
+        return cellHeight
     }
 
     private func handleScrollerStyleChange() {
@@ -228,7 +275,6 @@ final class TerminalSurfaceScrollView: NSView {
     override func mouseMoved(with event: NSEvent) {
         guard NSScroller.preferredScrollerStyle == .legacy else { return }
         scrollView.flashScrollers()
-        super.mouseMoved(with: event)
     }
 
     override func updateTrackingAreas() {
@@ -248,40 +294,3 @@ final class TerminalSurfaceScrollView: NSView {
             ))
     }
 }
-
-#if DEBUG
-    @MainActor
-    extension TerminalSurfaceScrollView {
-        var documentOffsetYForTesting: CGFloat {
-            scrollView.contentView.bounds.origin.y
-        }
-
-        var maximumDocumentOffsetYForTesting: CGFloat {
-            maximumDocumentOffsetY
-        }
-
-        var autohidesScrollersForTesting: Bool {
-            scrollView.autohidesScrollers
-        }
-
-        var usesOverlayScrollerStyleForTesting: Bool {
-            scrollView.scrollerStyle == .overlay
-        }
-
-        var documentHeightForTesting: CGFloat {
-            documentView.frame.height
-        }
-
-        func simulateLiveScrollForTesting(documentOffsetY: CGFloat) {
-            isLiveScrolling = true
-            scrollView.contentView.scroll(to: CGPoint(x: 0, y: documentOffsetY))
-            handleLiveScroll()
-            isLiveScrolling = false
-        }
-
-        func simulateProgrammaticVisibleRectForTesting(documentOffsetY: CGFloat) {
-            scrollView.contentView.scroll(to: CGPoint(x: 0, y: documentOffsetY))
-            handleLiveScroll()
-        }
-    }
-#endif

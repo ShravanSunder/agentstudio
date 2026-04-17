@@ -6,12 +6,15 @@ final class ScrollToBottomIndicatorView: NSButton {
 
     private(set) var hasUnreadOutput = false
     private var totalRowsWhenScrolledUp: Int?
+    private(set) var currentSymbolName = "chevron.down"
+    private(set) var currentTintColor: NSColor = .systemBlue
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         title = ""
         bezelStyle = .texturedRounded
-        image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Scroll to bottom")
+        isBordered = false
+        setSymbol(named: "chevron.down.circle")
         target = self
         action = #selector(handleClick)
         isHidden = true
@@ -28,7 +31,8 @@ final class ScrollToBottomIndicatorView: NSButton {
         if isPinnedToBottom {
             totalRowsWhenScrolledUp = nil
             hasUnreadOutput = false
-            image = NSImage(systemSymbolName: "chevron.down", accessibilityDescription: "Scroll to bottom")
+            setTintColor(.systemBlue)
+            setSymbol(named: "chevron.down.circle")
             return
         }
 
@@ -38,22 +42,22 @@ final class ScrollToBottomIndicatorView: NSButton {
             hasUnreadOutput = true
         }
 
-        image = NSImage(
-            systemSymbolName: hasUnreadOutput ? "chevron.down.circle.fill" : "chevron.down",
-            accessibilityDescription: "Scroll to bottom"
-        )
+        setTintColor(hasUnreadOutput ? .systemGreen : .systemBlue)
+        setSymbol(named: hasUnreadOutput ? "chevron.down.circle.fill" : "chevron.down.circle")
+    }
+
+    private func setSymbol(named symbolName: String) {
+        currentSymbolName = symbolName
+        image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "Scroll to bottom")
+        contentTintColor = currentTintColor
+    }
+
+    private func setTintColor(_ color: NSColor) {
+        currentTintColor = color
+        contentTintColor = color
     }
 
     @objc private func handleClick() {
         _ = actionPerformer?.performBindingAction(.scrollToBottom)
     }
 }
-
-#if DEBUG
-    @MainActor
-    extension ScrollToBottomIndicatorView {
-        var hasUnreadOutputForTesting: Bool {
-            hasUnreadOutput
-        }
-    }
-#endif

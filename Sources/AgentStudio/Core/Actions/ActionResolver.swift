@@ -71,6 +71,10 @@ enum WorkspaceCommandResolver {
 
         case .focusPane:
             return nil
+        case .scrollToBottom:
+            guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
+            else { return nil }
+            return .scrollToBottom(tabId: tab.id, paneId: paneId)
         case .extractPaneToTab:
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
             else { return nil }
