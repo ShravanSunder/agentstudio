@@ -46,6 +46,8 @@ extension WorkspaceStore {
     var graphAtom: WorkspacePaneAtom { paneAtom }
     var catalogAtom: WorkspaceRepositoryTopologyAtom { repositoryTopologyAtom }
     var interactionAtom: WorkspaceTabLayoutAtom { tabLayoutAtom }
+    var tabShellStateAtom: WorkspaceTabShellAtom { tabShellAtom }
+    var tabArrangementStateAtom: WorkspaceTabArrangementAtom { tabArrangementAtom }
 
     func pane(_ id: UUID) -> Pane? { paneAtom.pane(id) }
     func tab(_ id: UUID) -> Tab? { tabLayoutAtom.tab(id) }

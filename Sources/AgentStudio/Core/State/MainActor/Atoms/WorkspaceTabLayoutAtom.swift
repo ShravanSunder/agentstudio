@@ -183,6 +183,7 @@ final class WorkspaceTabLayoutAtom {
         direction: Layout.SplitDirection,
         position: Layout.Position
     ) {
+        guard sourceId != targetId else { return }
         arrangementAtom.mergeTab(
             sourceId: sourceId,
             intoTarget: targetId,

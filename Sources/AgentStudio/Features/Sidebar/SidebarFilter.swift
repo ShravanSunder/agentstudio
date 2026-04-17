@@ -3,31 +3,6 @@ import Foundation
 /// Pure filter logic for sidebar repo/worktree searching.
 /// Extracted for testability and single source of truth.
 enum SidebarFilter {
-
-    static func filter(
-        repos: [Repo],
-        query: String
-    ) -> [Repo] {
-        guard !query.isEmpty else { return repos }
-
-        return repos.compactMap { repo in
-            if repo.name.localizedCaseInsensitiveContains(query) {
-                return repo
-            }
-            let matchingWorktrees = repo.worktrees.filter {
-                $0.name.localizedCaseInsensitiveContains(query)
-            }
-            guard !matchingWorktrees.isEmpty else { return nil }
-            return Repo(
-                id: repo.id,
-                name: repo.name,
-                repoPath: repo.repoPath,
-                worktrees: matchingWorktrees,
-                createdAt: repo.createdAt
-            )
-        }
-    }
-
     /// Filter repos by a search query with worktree-level granularity.
     ///
     /// - If `query` is empty, returns all repos unchanged.

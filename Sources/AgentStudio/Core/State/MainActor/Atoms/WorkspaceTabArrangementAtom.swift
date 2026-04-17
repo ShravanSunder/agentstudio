@@ -328,10 +328,17 @@ final class WorkspaceTabArrangementAtom {
     }
 
     func breakUpTab(_ tabId: UUID) -> [TabArrangementState] {
-        guard let tabIndex = findTabIndex(tabId) else { return [] }
+        guard let tabIndex = findTabIndex(tabId) else {
+            workspaceTabArrangementLogger.warning("breakUpTab: tab \(tabId) not found")
+            return []
+        }
         let state = arrangementStates[tabIndex]
         let newStates = TabArrangementMutationRules.breakingUpTab(state)
-        guard !newStates.isEmpty else { return [] }
+        guard !newStates.isEmpty else {
+            workspaceTabArrangementLogger.warning(
+                "breakUpTab: tab \(tabId) has fewer than two panes in the active arrangement")
+            return []
+        }
 
         arrangementStates.remove(at: tabIndex)
         let insertIndex = min(tabIndex, arrangementStates.count)
@@ -340,12 +347,18 @@ final class WorkspaceTabArrangementAtom {
     }
 
     func extractPane(_ paneId: UUID, fromTab tabId: UUID) -> TabArrangementState? {
-        guard let tabIndex = findTabIndex(tabId) else { return nil }
+        guard let tabIndex = findTabIndex(tabId) else {
+            workspaceTabArrangementLogger.warning("extractPane: tab \(tabId) not found")
+            return nil
+        }
         guard arrangementStates[tabIndex].allPaneIds.contains(paneId) else {
             workspaceTabArrangementLogger.warning("extractPane: paneId \(paneId) not in tab \(tabId)")
             return nil
         }
         guard let result = TabArrangementMutationRules.extractingPane(paneId, from: arrangementStates[tabIndex]) else {
+            workspaceTabArrangementLogger.warning(
+                "extractPane: pane \(paneId) cannot be extracted because the active arrangement has fewer than two panes"
+            )
             return nil
         }
         arrangementStates[tabIndex] = result.updatedState
@@ -361,9 +374,16 @@ final class WorkspaceTabArrangementAtom {
         direction: Layout.SplitDirection,
         position: Layout.Position
     ) {
+        guard sourceId != targetId else {
+            workspaceTabArrangementLogger.warning("mergeTab: sourceId and targetId are the same tab \(sourceId)")
+            return
+        }
         guard let sourceTabIndex = arrangementStates.firstIndex(where: { $0.tabId == sourceId }),
             let targetTabIndex = arrangementStates.firstIndex(where: { $0.tabId == targetId })
-        else { return }
+        else {
+            workspaceTabArrangementLogger.warning("mergeTab: source \(sourceId) or target \(targetId) tab not found")
+            return
+        }
 
         let targetArrIndex = activeArrangementIndex(for: targetTabIndex)
         guard arrangementStates[targetTabIndex].arrangements[targetArrIndex].layout.contains(targetPaneId) else {
@@ -371,15 +391,21 @@ final class WorkspaceTabArrangementAtom {
             return
         }
 
-        if let mergedState = TabArrangementMutationRules.merging(
-            source: arrangementStates[sourceTabIndex],
-            into: arrangementStates[targetTabIndex],
-            at: targetPaneId,
-            direction: direction,
-            position: position
-        ) {
-            arrangementStates[targetTabIndex] = mergedState
+        guard
+            let mergedState = TabArrangementMutationRules.merging(
+                source: arrangementStates[sourceTabIndex],
+                into: arrangementStates[targetTabIndex],
+                at: targetPaneId,
+                direction: direction,
+                position: position
+            )
+        else {
+            workspaceTabArrangementLogger.warning(
+                "mergeTab: merge helper rejected source \(sourceId) into target \(targetId) at pane \(targetPaneId)"
+            )
+            return
         }
+        arrangementStates[targetTabIndex] = mergedState
 
         arrangementStates.remove(at: sourceTabIndex)
     }
@@ -407,29 +433,5 @@ final class WorkspaceTabArrangementAtom {
 
     private func activeArrangement(for tabIndex: Int) -> PaneArrangement {
         arrangementStates[tabIndex].arrangements[activeArrangementIndex(for: tabIndex)]
-    }
-
-    private static func defaultArrangement(for tabIndex: Int, arrangementStates: [TabArrangementState])
-        -> PaneArrangement
-    {
-        arrangementStates[tabIndex].arrangements[
-            defaultArrangementIndex(for: tabIndex, arrangementStates: arrangementStates)]
-    }
-
-    private static func activeArrangement(for tabIndex: Int, arrangementStates: [TabArrangementState])
-        -> PaneArrangement
-    {
-        arrangementStates[tabIndex].arrangements[
-            activeArrangementIndex(for: tabIndex, arrangementStates: arrangementStates)]
-    }
-
-    private static func defaultArrangementIndex(for tabIndex: Int, arrangementStates: [TabArrangementState]) -> Int {
-        arrangementStates[tabIndex].arrangements.firstIndex(where: \.isDefault) ?? 0
-    }
-
-    private static func activeArrangementIndex(for tabIndex: Int, arrangementStates: [TabArrangementState]) -> Int {
-        arrangementStates[tabIndex].arrangements.firstIndex {
-            $0.id == arrangementStates[tabIndex].activeArrangementId
-        } ?? defaultArrangementIndex(for: tabIndex, arrangementStates: arrangementStates)
     }
 }

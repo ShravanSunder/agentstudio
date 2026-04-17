@@ -6,6 +6,40 @@ import Testing
 @Suite(.serialized)
 struct TabArrangementSelectionRulesTests {
     @Test
+    func firstUnminimizedPaneId_returnsFirstVisibleNonMinimizedPane() {
+        let paneA = UUID()
+        let paneB = UUID()
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: paneA)
+                .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after),
+            visiblePaneIds: [paneA, paneB],
+            minimizedPaneIds: [paneA]
+        )
+
+        let resolved = TabArrangementSelectionRules.firstUnminimizedPaneId(in: arrangement)
+
+        #expect(resolved == paneB)
+    }
+
+    @Test
+    func firstUnminimizedPaneId_returnsNilWhenAllVisiblePanesAreMinimized() {
+        let paneA = UUID()
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: paneA),
+            visiblePaneIds: [paneA],
+            minimizedPaneIds: [paneA]
+        )
+
+        let resolved = TabArrangementSelectionRules.firstUnminimizedPaneId(in: arrangement)
+
+        #expect(resolved == nil)
+    }
+
+    @Test
     func fallbackActivePaneId_returnsCurrentPaneWhenStillVisibleAndUnminimized() {
         let paneA = UUID()
         let paneB = UUID()

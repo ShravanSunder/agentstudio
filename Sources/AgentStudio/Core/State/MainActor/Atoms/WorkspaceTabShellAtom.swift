@@ -13,7 +13,7 @@ final class WorkspaceTabShellAtom {
     func hydrate(persistedTabs: [Tab], activeTabId: UUID?) {
         tabShells = persistedTabs.map { TabShell(id: $0.id, name: $0.name) }
         self.activeTabId = activeTabId
-        if self.activeTabId == nil {
+        if self.activeTabId == nil || !tabShells.contains(where: { $0.id == self.activeTabId }) {
             self.activeTabId = tabShells.first?.id
         }
     }

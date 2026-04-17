@@ -150,7 +150,9 @@ enum WorkspacePersistenceTransformer {
             }
 
             if let activePaneId = tabs[tabIndex].activePaneId, !validPaneIds.contains(activePaneId) {
-                tabs[tabIndex].activePaneId = tabs[tabIndex].activeArrangement.layout.paneIds.first
+                tabs[tabIndex].activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(
+                    in: tabs[tabIndex].activeArrangement
+                )
             }
         }
 

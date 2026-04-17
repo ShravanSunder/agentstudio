@@ -1,7 +1,9 @@
 import Foundation
+import os.log
 
 @MainActor
 struct WorkspaceTabDerived {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "WorkspaceTabDerived")
     let shellAtom: WorkspaceTabShellAtom
     let arrangementAtom: WorkspaceTabArrangementAtom
 
@@ -24,7 +26,10 @@ struct WorkspaceTabDerived {
 
     var tabs: [Tab] {
         shellAtom.tabShells.compactMap { shell in
-            guard let arrangementState = arrangementAtom.arrangementState(shell.id) else { return nil }
+            guard let arrangementState = arrangementAtom.arrangementState(shell.id) else {
+                Self.logger.warning("tabs: missing arrangement state for shell \(shell.id)")
+                return nil
+            }
             return Self.assembleTab(shell: shell, arrangementState: arrangementState)
         }
     }

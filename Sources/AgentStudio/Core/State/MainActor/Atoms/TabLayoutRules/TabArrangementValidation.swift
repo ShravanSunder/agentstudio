@@ -1,17 +1,27 @@
 import Foundation
+import os.log
 
 enum TabArrangementValidation {
+    private static let logger = Logger(subsystem: "com.agentstudio", category: "TabArrangementValidation")
+
     static func pruningInvalidPaneIds(
         validPaneIds: Set<UUID>,
         from arrangementStates: [TabArrangementState]
     ) -> [TabArrangementState] {
         var updatedStates = arrangementStates
         for tabIndex in updatedStates.indices {
+            let originalPaneIds = Set(updatedStates[tabIndex].allPaneIds)
             updatedStates[tabIndex].allPaneIds.removeAll { !validPaneIds.contains($0) }
             updatedStates[tabIndex].arrangements = TabArrangementRepairRules.pruningInvalidPaneIds(
                 validPaneIds: validPaneIds,
                 from: updatedStates[tabIndex].arrangements
             )
+            let removedPaneIds = originalPaneIds.subtracting(updatedStates[tabIndex].allPaneIds)
+            if !removedPaneIds.isEmpty {
+                logger.warning(
+                    "pruningInvalidPaneIds: removed \(removedPaneIds.count) invalid pane(s) from tab \(updatedStates[tabIndex].tabId)"
+                )
+            }
             if let activePaneId = updatedStates[tabIndex].activePaneId, !validPaneIds.contains(activePaneId) {
                 updatedStates[tabIndex].activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(
                     in: activeArrangement(for: tabIndex, arrangementStates: updatedStates)
@@ -19,8 +29,14 @@ enum TabArrangementValidation {
             }
         }
 
-        updatedStates.removeAll {
-            ($0.arrangements.first(where: \.isDefault) ?? $0.arrangements.first)?.layout.isEmpty ?? true
+        updatedStates.removeAll { state in
+            let shouldDrop =
+                (state.arrangements.first(where: \.isDefault) ?? state.arrangements.first)?.layout.isEmpty
+                ?? true
+            if shouldDrop {
+                logger.warning("pruningInvalidPaneIds: dropping tab \(state.tabId) because its default layout is empty")
+            }
+            return shouldDrop
         }
         return updatedStates
     }
@@ -50,6 +66,9 @@ enum TabArrangementValidation {
 
             let duplicatePaneIds = allArrangementPaneIds.intersection(seenPaneIds)
             if !duplicatePaneIds.isEmpty {
+                logger.warning(
+                    "validating: removing \(duplicatePaneIds.count) duplicate pane(s) from tab \(updatedStates[tabIndex].tabId)"
+                )
                 updatedStates[tabIndex].allPaneIds.removeAll { duplicatePaneIds.contains($0) }
                 for arrangementIndex in updatedStates[tabIndex].arrangements.indices {
                     for paneId in duplicatePaneIds {
@@ -95,8 +114,12 @@ enum TabArrangementValidation {
             seenPaneIds.formUnion(validPaneIds)
         }
 
-        updatedStates.removeAll {
-            $0.arrangements.first(where: \.isDefault)?.layout.isEmpty ?? true
+        updatedStates.removeAll { state in
+            let shouldDrop = state.arrangements.first(where: \.isDefault)?.layout.isEmpty ?? true
+            if shouldDrop {
+                logger.warning("validating: dropping tab \(state.tabId) because its default layout is empty")
+            }
+            return shouldDrop
         }
         return updatedStates
     }
