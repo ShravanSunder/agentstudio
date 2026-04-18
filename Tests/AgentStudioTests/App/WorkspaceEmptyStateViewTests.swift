@@ -109,6 +109,109 @@ struct WorkspaceEmptyStateViewTests {
         #expect(CommandBarEmbeddedPreview.previewQuery == "gho")
     }
 
+    // MARK: - Scoped preview (commands / panes / repos)
+
+    @Test("preview scope enum covers commands, panes, and repos")
+    @MainActor
+    func previewScopeEnumCoversAllThree() {
+        #expect(LauncherPreviewScope.allCases.count == 3)
+        #expect(LauncherPreviewScope.allCases.contains(.commands))
+        #expect(LauncherPreviewScope.allCases.contains(.panes))
+        #expect(LauncherPreviewScope.allCases.contains(.repos))
+    }
+
+    @Test("preview scope prefix glyphs match cmd bar conventions")
+    @MainActor
+    func previewScopePrefixGlyphsMatch() {
+        #expect(LauncherPreviewScope.commands.prefixGlyph == ">")
+        #expect(LauncherPreviewScope.panes.prefixGlyph == "$")
+        #expect(LauncherPreviewScope.repos.prefixGlyph == "#")
+    }
+
+    @Test("commands scope mock shows useful new-* commands with shortcuts")
+    @MainActor
+    func commandsScopeMockUsesNewFamily() {
+        let items = CommandBarEmbeddedPreview.mockItems(for: .commands)
+        let titles = items.map(\.title)
+        #expect(
+            titles == [
+                "New Tab",
+                "New Terminal in Tab",
+                "New Window",
+                "New Pane (Split Right)",
+                "New Floating Terminal",
+            ])
+        // Every command must carry a shortcut badge so the mock teaches the
+        // keyboard-first vibe.
+        for item in items {
+            #expect((item.shortcutKeys?.isEmpty ?? true) == false)
+        }
+    }
+
+    @Test("panes scope mock uses personalized names across servers, testing, coding")
+    @MainActor
+    func panesScopeMockUsesPersonalizedNames() {
+        let items = CommandBarEmbeddedPreview.mockItems(for: .panes)
+        let titles = Set(items.map(\.title))
+        // Servers / long-running
+        #expect(titles.contains("dev server"))
+        #expect(titles.contains("api server"))
+        #expect(titles.contains("redis · local"))
+        #expect(titles.contains("logs · tail -f"))
+        // Testing / benchmarks
+        #expect(titles.contains("test watcher"))
+        #expect(titles.contains("benchmarks"))
+        // Coding / agents
+        #expect(titles.contains("claude · shader polish"))
+    }
+
+    @Test("panes scope groups by tab with worktree context in header")
+    @MainActor
+    func panesScopeGroupsByTab() {
+        let groups = CommandBarEmbeddedPreview.mockGroups(for: .panes)
+        let groupNames = groups.map(\.name)
+        #expect(
+            groupNames == [
+                "Tab 1 · ghostty",
+                "Tab 2 · ghostty.gpu-renderer",
+                "Tab 3 · ghostrider",
+            ])
+    }
+
+    @Test("each scope has a short query that demos fuzzy matching")
+    @MainActor
+    func eachScopeHasShortQuery() {
+        #expect(LauncherPreviewScope.commands.query == "new")
+        #expect(LauncherPreviewScope.panes.query == "dev")
+        #expect(LauncherPreviewScope.repos.query == "gho")
+        // Queries stay short so users read them as mid-typing, not a full
+        // phrase they'd have to type out.
+        for scope in LauncherPreviewScope.allCases {
+            #expect(scope.query.count <= 4)
+        }
+    }
+
+    @Test("default scope is repos so welcome 1 + launcher match by default")
+    @MainActor
+    func defaultScopeIsRepos() {
+        // The launcher lands on the repo scope by default because the
+        // illustration in Welcome 1 also demos the repo/worktree family.
+        // CommandBarEmbeddedPreview.mockItems (no scope arg) must equal
+        // the repos scope mock — tests locked against the default path.
+        let defaultItems = CommandBarEmbeddedPreview.mockItems.map(\.title)
+        let reposItems = CommandBarEmbeddedPreview.mockItems(for: .repos).map(\.title)
+        #expect(defaultItems == reposItems)
+    }
+
+    @Test("scope crossfade is short enough to feel like an instant swap")
+    @MainActor
+    func scopeCrossfadeIsShort() {
+        // Under 150ms keeps the interaction in the "instant" perception
+        // range; over 200ms starts feeling laggy.
+        #expect(AppStyles.Welcome.launcherPreviewScopeCrossfadeDuration <= 0.15)
+        #expect(AppStyles.Welcome.launcherPreviewScopeCrossfadeDuration > 0)
+    }
+
     // MARK: - Folder-intake layout tokens (noFolders/scanning/scanEmpty share)
 
     @Test("intake layout tokens are defined")
