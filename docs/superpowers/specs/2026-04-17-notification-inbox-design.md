@@ -378,13 +378,53 @@ When the user activates a notification (click or Enter):
 
 The `🔔 N` pill already rendered per-worktree reads from `InboxStore.unreadCount(worktreeId:)`. When count is 0, pill shows `0` (existing behavior). Already wired to the data source once `InboxStore` exists; no new UI work beyond binding.
 
-## 10. Open questions / deferred
+## 10. Code-fact grounded details
+
+Research pass against current code confirmed:
+
+### 10.1 Focus detection
+
+`WorkspaceFocusDerived` is stateless and snapshot-based (`currentFocus(...) -> WorkspaceFocus`). It exposes `activePaneId` but **does not** emit transition events. To clear state on "pane X gained focus":
+
+- Introduce a small `PaneFocusTracker` (`@MainActor`, part of the Inbox feature) that observes `WorkspacePaneAtom` via `Observation.withObservationTracking` and diffs successive `activePaneId` values.
+- Emits `AsyncStream<PaneId>` of focus-gained transitions consumed by `NotificationRouter`.
+- Router dispatches to `InboxStore.markRead(paneId:)` and `InboxStore.dismissFromDrawer(paneId:)`.
+
+Placement: `Features/Inbox/Routing/PaneFocusTracker.swift`.
+
+### 10.2 Drawer model
+
+From `Core/Models/Drawer.swift` and `Core/Models/Pane.swift`:
+
+- Flat 2-level hierarchy. A **layout pane** owns exactly one `Drawer`; a drawer owns **N child panes** (`drawerChild`). Child panes never have sub-drawers.
+- A child pane's drawer context is therefore `pane.parentPaneId → parent.drawer`.
+- This means: the Drawer Inbox popover scope is well-defined — it shows notifications where `notification.paneId ∈ parent.drawer.paneIds` for whichever layout pane's drawer is currently active/expanded.
+
+### 10.3 Drawer icon strip integration
+
+`DrawerIconBar` lives at `Core/Views/Drawer/DrawerIconBar.swift`, instantiated per-drawer via `DrawerOverlay`. It takes a `TrailingActions` struct for icons on the right side (currently Finder, Editor).
+
+Integration path:
+
+1. Extend `DrawerOverlay.TrailingActions` with `onOpenInbox: () -> Void` and `inboxUnreadCount: Int`.
+2. Add the bell `trailingActionButton` after a visible divider, as the rightmost slot — matches `CLAUDE.md` style guide for drawer icon placement.
+3. Unread count is read from `InboxStore.unreadCount(forDrawerPaneIds: parent.drawer.paneIds)`.
+
+## 11. Resolved preference decisions
+
+- **Bell setting UI (v1).** No settings pane exists yet. Bell on/off is a CommandBar action under `.inbox` scope: "Enable bell notifications" / "Disable bell notifications". State persisted in `UIStateStore.inboxView.bellEnabled` (default `false`).
+- **Focus target on ⌘I.** Top notification row (first in list given current sort). Makes ↓/↑ immediately productive. `⌥F` is one stroke to search.
+- **⌘P + ⌘I coexistence.** ⌘I toggles the Inbox Layer regardless of CommandBar state and **does not dismiss the CommandBar**. If the CommandBar was open, it stays open. Its scope selection is preserved — the user chose it, ⌘I doesn't override it. ⌘S behaves the same way (does not dismiss CommandBar). This means both surfaces can be simultaneously active.
+- **"Clear read history" scope.** Removes only read entries. A separate "Clear all notifications" action requires a confirmation dialog before acting.
+- **Dead `paneId` on click-through.** If the pane is gone, do not navigate. Flash the row briefly (existing row-highlight animation) and keep focus in Inbox. Notification is already marked read by the click.
+
+## 12. Open questions / deferred
 
 - **User-configurable routing.** v1 has one toggle: bell notifications on/off. All other routing is code-level.
 - **Retention tuning.** 1000-cap is provisional. If we see the log grow past that in practice, revisit.
-- **Per-workspace vs global Inbox.** v1 is per-workspace (inbox.json under the workspace id). Multi-workspace aggregation is deferred.
+- **Per-workspace vs global Inbox.** v1 is per-workspace (`inbox.json` under the workspace id). Multi-workspace aggregation is deferred.
 - **UNUserNotificationCenter integration.** Separate follow-up ticket.
-- **Stretch:** click on `🔔` sidebar bell badge opens Inbox with worktree pre-filtered in search.
+- **Stretch:** click on `🔔 N` sidebar bell badge opens Inbox with worktree pre-filtered in search.
 
 ## 11. Testing
 
