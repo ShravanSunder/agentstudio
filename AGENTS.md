@@ -335,6 +335,22 @@ swift test --build-path ".build-agent-$PPID" --filter "CommandBarState" > /tmp/t
 | `SWIFT_TEST_PARALLEL` | `1` (enabled) | Set to `0` to disable parallel workers |
 | `SWIFT_TEST_WORKERS` | `hw.ncpu / 2` (max 4) | Parallel test worker count |
 
+**Build-dir ID convention (`$PPID` vs `$PID`).** The default `SWIFT_BUILD_DIR=.build-agent-$PPID` is correct for the **main agent's top-level bash commands** — `$PPID` points at the agent process, so every mise invocation in the same session shares the same build dir and cache.
+
+If a **subagent or a secondary bash shell** (launched via `Agent` tool, `Task` tool, or any nested runtime) also runs swift commands, it must opt into its own build dir based on its own process identity so it doesn't deadlock with the main agent's `.build-agent-$PPID` lock:
+
+```bash
+# Main agent / top-level bash — implicit, no flag needed:
+mise run build
+mise run test
+
+# Subagent / secondary bash — explicit PID-based isolation:
+SWIFT_BUILD_DIR=".build-agent-$$" mise run build
+SWIFT_BUILD_DIR=".build-agent-$$" mise run test
+```
+
+`$$` is the current shell's PID (different from `$PPID` in a subagent's bash), so the subagent gets its own SwiftPM lock and cache. Never hard-code a run-label like `AGENT_RUN_ID=foo` — mise does not read that variable, and a date-based ID (`$(date +%s)`) creates a fresh build dir per invocation, wasting cache between `build → test → lint`.
+
 **No parallel Swift commands. No background Swift commands.** SwiftPM holds an exclusive lock on `.build/`. Two concurrent swift processes deadlock (up to 256s then fail).
 - NEVER use `run_in_background: true` for swift build/test commands
 - NEVER issue two parallel Bash tool calls that both invoke swift
