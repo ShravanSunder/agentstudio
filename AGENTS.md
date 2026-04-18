@@ -138,17 +138,17 @@ Use DeepWiki and official documentation for grounded context. Never guess at API
 
 These four patterns govern all code. Follow them. Breaking them creates bugs that are expensive to find.
 
-### 1. Unidirectional Flow — Valtio-style `private(set)`
+### 1. Atoms — canonical state
 
-Every `@Observable` store exposes state as `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers. See [WorkspaceStore](docs/architecture/component_architecture.md#32-workspacestore) for the canonical example.
+`@Observable @MainActor`, `private(set)` reads, mutation via methods (valtio-style). One atom per domain, one reason to change. No god-atom. Atoms never touch disk. Shared atoms in `Core/State/MainActor/Atoms/`; feature-scoped atoms in `Features/<slice>/State/`. Shared reads use `atom(\.foo)` or `AtomReader`; `@Atom(\.foo)` is optional convenience sugar. See [component_architecture.md](docs/architecture/component_architecture.md) for canonical examples.
 
-### 2. Atomic Stores — Jotai-style Independent Atoms
+### 2. Stores — persistence wrappers
 
-Each atom owns one domain with one reason to change. No god-store. Cross-atom coordination flows through coordinators or persistence wrappers, not direct atom-to-atom mutation. Shared reads use `atom(\.foo)` or `AtomReader`; `@Atom(\.foo)` is optional convenience sugar when stored-property access is genuinely cleaner. See [Three Persistence Tiers](docs/architecture/workspace_data_architecture.md#three-persistence-tiers) for how atoms map to persistence files.
+One store per persistence boundary. A store may wrap one atom (`RepoCacheStore`) or many that persist together in one file (`WorkspaceStore`). Stores own file I/O, debounced saves, and schema versioning. Stores never contain domain logic. Shared stores in `Core/State/MainActor/Persistence/`; feature-scoped stores in `Features/<slice>/State/`. See [Three Persistence Tiers](docs/architecture/workspace_data_architecture.md#three-persistence-tiers) for the file-level mapping.
 
-**Store boundaries are architectural decisions — always ask the user before changing them:**
-- **Adding a new store:** "Does this domain earn its own store? What's the one sentence job description? What's the single reason it changes?"
-- **Adding properties to an existing store:** "Does this property belong here, or is it polluting this store's job? Could it belong in a different store or be derived?" A store that accumulates unrelated properties is becoming a god-store by accretion.
+**Atom and store boundaries are architectural decisions — always ask the user before changing them:**
+- **Adding a new atom or store:** "Does this earn its own atom/store? What's the one-sentence job description? What's the single reason it changes?"
+- **Adding properties to an existing atom:** "Does this property belong here, or is it polluting this atom's job? Could it belong elsewhere or be derived?" An atom that accumulates unrelated properties is becoming a god-atom by accretion.
 - **Adding new event types or coordinator responsibilities:** These expand the system's surface area. Discuss before implementing.
 
 ### 3. Coordinator Sequences, Doesn't Own
