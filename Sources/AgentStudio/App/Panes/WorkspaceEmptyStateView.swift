@@ -110,7 +110,7 @@ struct WorkspaceEmptyStateView: View {
                     .controlSize(.large)
 
                 Text(WorkspaceEmptyStateCopy.intakeHelper)
-                    .font(.system(size: AppStyles.General.Typography.textXs))
+                    .font(AppStyles.Welcome.Typography.caption)
                     .foregroundStyle(.tertiary)
             }
             .padding(.top, AppStyles.Welcome.intakeActionTopPadding)
@@ -131,7 +131,7 @@ struct WorkspaceEmptyStateView: View {
                 }
 
                 Text(WorkspaceEmptyStateCopy.intakeBusyHelper)
-                    .font(.system(size: AppStyles.General.Typography.textXs))
+                    .font(AppStyles.Welcome.Typography.caption)
                     .foregroundStyle(.tertiary)
             }
             .padding(.top, AppStyles.Welcome.intakeActionTopPadding)
@@ -152,7 +152,7 @@ struct WorkspaceEmptyStateView: View {
                 }
 
                 Text(WorkspaceEmptyStateCopy.scanningHelper)
-                    .font(.system(size: AppStyles.General.Typography.textXs))
+                    .font(AppStyles.Welcome.Typography.caption)
                     .foregroundStyle(.tertiary)
             }
             .padding(.top, AppStyles.Welcome.intakeActionTopPadding)
@@ -173,7 +173,7 @@ struct WorkspaceEmptyStateView: View {
                     .controlSize(.large)
 
                 Text(WorkspaceEmptyStateCopy.scanEmptyHelper)
-                    .font(.system(size: AppStyles.General.Typography.textXs))
+                    .font(AppStyles.Welcome.Typography.caption)
                     .foregroundStyle(.tertiary)
             }
             .padding(.top, AppStyles.Welcome.intakeActionTopPadding)
@@ -244,7 +244,7 @@ struct WorkspaceEmptyStateView: View {
     }
 
     private var launcherShortcutsBlock: some View {
-        VStack(alignment: .leading, spacing: AppStyles.General.Spacing.loose + 4) {
+        VStack(alignment: .leading, spacing: AppStyles.Welcome.sectionHeaderToContentSpacing) {
             Text("Shortcuts")
                 .font(AppStyles.Welcome.Typography.h2)
                 .foregroundStyle(.primary.opacity(AppStyles.Welcome.TextColor.h2Opacity))
@@ -305,7 +305,7 @@ struct WorkspaceEmptyStateView: View {
     private func launcherRecentSection(
         visibleRecentCards: [WorkspaceRecentCardModel]
     ) -> some View {
-        VStack(alignment: .leading, spacing: AppStyles.General.Spacing.loose + 4) {
+        VStack(alignment: .leading, spacing: AppStyles.Welcome.sectionHeaderToContentSpacing) {
             recentSectionHeader
 
             if visibleRecentCards.isEmpty {
@@ -621,14 +621,14 @@ private struct WorkspaceRecentCardView: View {
         RoundedRectangle(cornerRadius: 12)
             .fill(
                 isHovered
-                    ? Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity)
-                    : Color.white.opacity(AppStyles.General.Fill.muted)
+                    ? Color.accentColor.opacity(AppStyles.Welcome.cardHoverOpacity)
+                    : Color.white.opacity(AppStyles.Welcome.cardFillOpacity)
             )
     }
 
     private var cardBorder: some View {
         RoundedRectangle(cornerRadius: 12)
-            .stroke(Color.white.opacity(AppStyles.General.Fill.active), lineWidth: 1)
+            .stroke(Color.white.opacity(AppStyles.Welcome.cardStrokeOpacity), lineWidth: 1)
     }
 
     private var iconColor: Color {
@@ -710,7 +710,7 @@ private struct WorkspaceRecentPlaceholderCard: View {
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .strokeBorder(
-                    Color.white.opacity(AppStyles.General.Fill.active),
+                    Color.white.opacity(AppStyles.Welcome.cardStrokeOpacity),
                     style: StrokeStyle(lineWidth: 1, dash: [6, 4])
                 )
         )

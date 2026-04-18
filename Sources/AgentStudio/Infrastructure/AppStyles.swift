@@ -239,43 +239,28 @@ enum AppStyles {
     enum Welcome {
         static let pageHorizontalPadding: CGFloat = 56
         static let pageVerticalPadding: CGFloat = 48
-        static let contentColumnsGap: CGFloat = 72
         static let headerMaxWidth: CGFloat = 720
-        static let headerToContentGap: CGFloat = 40
 
         static let titleFontSize: CGFloat = 30
         static let bodyFontSize: CGFloat = AppStyles.General.Typography.textXl
         static let titleBodyGap: CGFloat = 8
 
-        // Still used by QuickActionsCallout (scanning/scanEmpty states only)
-        static let shortcutKeyFontSize: CGFloat = 18
-        static let shortcutKeyColumnWidth: CGFloat = 44
-
-        static let sectionSpacing: CGFloat = 32
-        static let teachingColumnWidth: CGFloat = 520
-        static let recentsColumnWidth: CGFloat = 540
-
         static let recentCardMinWidth: CGFloat = 260
         static let recentCardGap: CGFloat = 20
-        static let recentsColumnCount = 2
 
         static let previewWidth: CGFloat = 500
         static let previewCornerRadius: CGFloat = 16
-        static let previewStatusRowHeight: CGFloat = 28
-        static let previewSearchRowHeight: CGFloat = 44
-        static let previewResultRowHeight: CGFloat = 36
-        static let previewFooterHeight: CGFloat = 28
 
         static let cardFillOpacity: CGFloat = AppStyles.General.Fill.muted
         static let cardStrokeOpacity: CGFloat = AppStyles.General.Fill.active
         static let cardHoverOpacity: CGFloat = AppStyles.Shell.Sidebar.rowHoverOpacity
         static let interactiveHoverOpacity: CGFloat = AppStyles.General.Fill.hover
 
-        // Responsive breakpoints
-        static let launcherWideBreakpoint: CGFloat = 1400
-        static let launcherNarrowBreakpoint: CGFloat = 900
-        static let recentsColumnCountWide: Int = 3
-        static let recentsColumnCountNarrow: Int = 1
+        // Spacing between an h2 section header and its content below.
+        // Slightly tighter than launcherSectionGap (which separates top-level
+        // sections) but looser than launcherRowGap (row-to-row inside a
+        // section). Used by Recent and Shortcuts section headers.
+        static let sectionHeaderToContentSpacing: CGFloat = AppStyles.General.Spacing.loose + 4
 
         // MARK: - Typographic scale (semantic)
         //
@@ -288,7 +273,7 @@ enum AppStyles {
         //   - key is keyboard-shortcut glyphs, monospaced and accent-colored.
 
         enum Typography {
-            static let h1: Font = .system(size: 30, weight: .semibold)
+            static let h1: Font = .system(size: titleFontSize, weight: .semibold)
             static let h2: Font = .system(size: AppStyles.General.Typography.textLg + 1, weight: .semibold)
             static let h3: Font = .system(size: AppStyles.General.Typography.textBase, weight: .medium)
             static let body: Font = .system(size: AppStyles.General.Typography.textXl)

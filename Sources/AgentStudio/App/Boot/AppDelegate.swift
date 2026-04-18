@@ -821,6 +821,15 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             guard let self else { return }
             defer {
                 sidebarExpandTask.cancel()
+                // Safety net: if the .folderScanFinished event never reaches
+                // the coordinator (late subscription, bus cancellation), the
+                // scan state would stay .scanning forever. Clear it here so
+                // the view falls back to .launcher once repos populate.
+                if case .scanning(let rootPath) = welcome.folderScanState,
+                    rootPath == rootURL.standardizedFileURL
+                {
+                    welcome.clearFolderScanState()
+                }
             }
 
             let refreshSummary = await self.watchedFolderCommands.refreshWatchedFolders(
