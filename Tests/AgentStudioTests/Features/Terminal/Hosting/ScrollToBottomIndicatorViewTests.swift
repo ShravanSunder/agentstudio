@@ -47,6 +47,26 @@ struct ScrollToBottomIndicatorViewTests {
         #expect(view.isHidden == true)
     }
 
+    @Test("scroll-to-bottom indicator treats sticky buffer as effectively pinned")
+    func scrollToBottomIndicatorTreatsStickyBufferAsEffectivelyPinned() {
+        let view = ScrollToBottomIndicatorView()
+
+        view.applyScrollbarState(
+            ScrollbarState(top: 80, bottom: 120, total: 200),
+            isEffectivelyPinnedToBottom: true
+        )
+        #expect(view.isHidden)
+        #expect(!view.hasUnreadOutput)
+
+        view.applyScrollbarState(
+            ScrollbarState(top: 80, bottom: 120, total: 210),
+            isEffectivelyPinnedToBottom: true
+        )
+        #expect(view.isHidden)
+        #expect(!view.hasUnreadOutput)
+        #expect(view.currentSymbolName == "chevron.down.circle")
+    }
+
     @Test("scroll-to-bottom indicator resets unread state after returning to bottom")
     func scrollToBottomIndicatorResetsUnreadStateAfterReturningToBottom() {
         let view = ScrollToBottomIndicatorView()
