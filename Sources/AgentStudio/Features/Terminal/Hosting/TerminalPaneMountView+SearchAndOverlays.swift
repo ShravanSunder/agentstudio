@@ -5,7 +5,13 @@ import Observation
 extension TerminalPaneMountView {
     func applyRuntimeStateSnapshot(_ runtime: TerminalRuntime) {
         if let scrollbarState = runtime.scrollbarState {
-            scrollToBottomIndicatorView?.applyScrollbarState(scrollbarState)
+            let isEffectivelyPinnedToBottom =
+                surfaceScrollView?.isEffectivelyPinnedToBottom(for: scrollbarState)
+                ?? scrollbarState.isPinnedToBottom
+            scrollToBottomIndicatorView?.applyScrollbarState(
+                scrollbarState,
+                isEffectivelyPinnedToBottom: isEffectivelyPinnedToBottom
+            )
         }
         if let searchState = runtime.searchState {
             ensureSearchOverlay()
