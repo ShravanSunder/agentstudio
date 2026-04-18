@@ -820,7 +820,7 @@ Core boundary import check passed
 Run:
 
 ```bash
-AGENT_RUN_ID=ghostty-overlay-scrollbar mise run test
+mise run test
 ```
 
 Expected:
@@ -836,8 +836,8 @@ WebKit serialized suites PASS
 Run:
 
 ```bash
-AGENT_RUN_ID=ghostty-overlay-scrollbar mise run build
-AGENT_RUN_ID=ghostty-overlay-scrollbar mise run build-release
+mise run build
+mise run build-release
 ```
 
 Expected:

@@ -335,11 +335,12 @@ swift test --build-path ".build-agent-$PPID" --filter "CommandBarState" > /tmp/t
 | `SWIFT_TEST_PARALLEL` | `1` (enabled) | Set to `0` to disable parallel workers |
 | `SWIFT_TEST_WORKERS` | `hw.ncpu / 2` (max 4) | Parallel test worker count |
 
-**No parallel Swift commands. No background Swift commands.** SwiftPM holds an exclusive lock on `.build/`. Two concurrent swift processes deadlock (up to 256s then fail).
-- NEVER use `run_in_background: true` for swift build/test commands
-- NEVER issue two parallel Bash tool calls that both invoke swift
-- NEVER launch a swift subagent while a swift command is running
-- Run strictly one at a time, sequentially
+**Build dir: `$PPID` for main agent, `$$` (PID) for subagents.** Main agent and top-level bashes use the default `SWIFT_BUILD_DIR=.build-agent-$PPID`. Subagents and secondary bashes must override with `SWIFT_BUILD_DIR=".build-agent-$$" mise run …` so they don't share a lock with the parent.
+
+**No parallel Swift commands in the same `SWIFT_BUILD_DIR`.** SwiftPM holds an exclusive lock per build dir — two concurrent swift processes on the same dir deadlock (up to 256s then fail). Different build dirs are fine.
+- NEVER use `run_in_background: true` for swift build/test commands in the main agent's dir
+- NEVER issue two parallel Bash calls that both invoke swift in the same dir
+- Within one build dir, run swift commands strictly sequentially
 
 **Timeouts are mandatory.** `60000` (60s) for test, `30000` (30s) for build. Tests complete in ~15s, builds in ~5s. Anything longer means lock contention.
 

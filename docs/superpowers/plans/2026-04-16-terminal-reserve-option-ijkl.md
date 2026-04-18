@@ -396,7 +396,7 @@ PASS
 Run:
 
 ```bash
-AGENT_RUN_ID=reserve-option-ijkl mise run test
+mise run test
 ```
 
 Expected:
@@ -410,8 +410,8 @@ PASS
 Run:
 
 ```bash
-AGENT_RUN_ID=reserve-option-ijkl mise run build
-AGENT_RUN_ID=reserve-option-ijkl mise run build-release
+mise run build
+mise run build-release
 ```
 
 Expected:

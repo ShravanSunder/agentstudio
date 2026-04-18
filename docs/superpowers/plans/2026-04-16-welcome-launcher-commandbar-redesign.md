@@ -666,7 +666,7 @@ PASS
 Run:
 
 ```bash
-AGENT_RUN_ID=codex-welcome mise run build
+mise run build
 ```
 
 Expected:
@@ -680,7 +680,7 @@ Build complete! ... exit 0
 Run:
 
 ```bash
-AGENT_RUN_ID=codex-welcome mise run test
+mise run test
 ```
 
 Expected:
@@ -694,7 +694,7 @@ All included suites pass; E2E / Zmx suites may be skipped by project config
 Run:
 
 ```bash
-AGENT_RUN_ID=codex-welcome mise run lint
+mise run lint
 ```
 
 Expected:

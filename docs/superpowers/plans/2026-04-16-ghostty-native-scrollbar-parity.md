@@ -620,13 +620,13 @@ Expected: PASS, including printed pass/fail counts.
 
 - [ ] **Step 4: Build debug app**
 
-Run: `AGENT_RUN_ID=ghostty-native mise run build`
+Run: `mise run build`
 
 Expected: debug app builds successfully.
 
 - [ ] **Step 5: Build release app**
 
-Run: `AGENT_RUN_ID=ghostty-native mise run build-release`
+Run: `mise run build-release`
 
 Expected: release app builds successfully.
 

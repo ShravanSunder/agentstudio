@@ -1020,7 +1020,7 @@ Expected: PASS, exit code `0`
 Run:
 
 ```bash
-AGENT_RUN_ID=pane-focus-system mise run test
+mise run test
 ```
 
 Expected:
