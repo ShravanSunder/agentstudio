@@ -23,7 +23,7 @@ struct FlatPaneStripContent: View {
             let metrics = FlatTabStripMetrics.compute(
                 layout: layout,
                 in: CGRect(origin: .zero, size: geometry.size),
-                dividerThickness: AppStyle.paneGap,
+                dividerThickness: AppStyles.General.Layout.paneGap,
                 minimizedPaneIds: minimizedPaneIds,
                 collapsedPaneWidth: collapsedPaneWidth
             )
@@ -160,7 +160,7 @@ struct FlatPaneDivider: View {
     let actionDispatcher: PaneActionDispatching
 
     private let splitterHitSize: CGFloat = 6
-    private let minSize: CGFloat = AppStyle.splitMinimumPaneSize
+    private let minSize: CGFloat = AppStyles.General.Layout.splitMinimumPaneSize
 
     @State private var hasStartedResize = false
     @State private var initialLeftWidth: CGFloat = 0

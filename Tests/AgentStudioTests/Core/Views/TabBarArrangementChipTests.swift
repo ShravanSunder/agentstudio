@@ -63,7 +63,7 @@ struct TabBarArrangementChipTests {
             isPressed: true,
             nameMaxWidth: 100
         )
-        #expect(chip.chipFillOpacity == AppStyle.fillActive)
+        #expect(chip.chipFillOpacity == AppStyles.General.Fill.active)
     }
 
     @Test("uses hover fill opacity when hovered and not pressed")
@@ -75,7 +75,7 @@ struct TabBarArrangementChipTests {
             isPressed: false,
             nameMaxWidth: 100
         )
-        #expect(chip.chipFillOpacity == AppStyle.fillPressed)
+        #expect(chip.chipFillOpacity == AppStyles.General.Fill.pressed)
     }
 
     @Test("uses muted fill opacity when at rest")
@@ -87,7 +87,7 @@ struct TabBarArrangementChipTests {
             isPressed: false,
             nameMaxWidth: 100
         )
-        #expect(chip.chipFillOpacity == AppStyle.fillMuted)
+        #expect(chip.chipFillOpacity == AppStyles.General.Fill.muted)
     }
 
     @Test("returns 100pt name width when management layer inactive")

@@ -465,7 +465,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         )
 
         let config = try #require(harness.surfaceManager.createdConfigsByPaneId[pane.id])
-        let gap = AppStyle.paneGap
+        let gap = AppStyles.General.Layout.paneGap
         #expect(
             config.initialFrame
                 == CGRect(x: gap, y: gap, width: containerWidth - gap * 2, height: containerHeight - gap * 2))
@@ -533,7 +533,11 @@ struct Luna295DirectZmxAttachIntegrationTests {
         )
         let minimizedFrame = try #require(framesByTabId[tab.id]?[secondPane.id])
 
-        #expect(minimizedFrame.width == AppStyle.collapsedBarWidth - (AppStyle.paneGap * 2))
+        #expect(
+            minimizedFrame.width
+                == AppStyles.Shell.PaneChrome.collapsedBarWidth
+                - (AppStyles.General.Layout.paneGap * 2)
+        )
     }
 
     @Test
@@ -570,9 +574,9 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
             for: activeTab.layout,
             in: harness.windowLifecycleStore.terminalContainerBounds,
-            dividerThickness: AppStyle.paneGap,
+            dividerThickness: AppStyles.General.Layout.paneGap,
             minimizedPaneIds: activeTab.activeMinimizedPaneIds,
-            collapsedPaneWidth: AppStyle.collapsedBarWidth
+            collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
         )
 
         #expect(config.initialFrame != nil)
@@ -597,9 +601,9 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
             for: activeTab.layout,
             in: harness.windowLifecycleStore.terminalContainerBounds,
-            dividerThickness: AppStyle.paneGap,
+            dividerThickness: AppStyles.General.Layout.paneGap,
             minimizedPaneIds: activeTab.activeMinimizedPaneIds,
-            collapsedPaneWidth: AppStyle.collapsedBarWidth
+            collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
         )
 
         #expect(config.initialFrame != nil)
@@ -624,9 +628,9 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
             for: activeTab.layout,
             in: harness.windowLifecycleStore.terminalContainerBounds,
-            dividerThickness: AppStyle.paneGap,
+            dividerThickness: AppStyles.General.Layout.paneGap,
             minimizedPaneIds: activeTab.activeMinimizedPaneIds,
-            collapsedPaneWidth: AppStyle.collapsedBarWidth
+            collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
         )
 
         #expect(config.initialFrame != nil)
@@ -656,9 +660,9 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
             for: activeTab.layout,
             in: harness.windowLifecycleStore.terminalContainerBounds,
-            dividerThickness: AppStyle.paneGap,
+            dividerThickness: AppStyles.General.Layout.paneGap,
             minimizedPaneIds: activeTab.activeMinimizedPaneIds,
-            collapsedPaneWidth: AppStyle.collapsedBarWidth
+            collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
         )
 
         #expect(config.initialFrame == resolvedFrames[pane.id])

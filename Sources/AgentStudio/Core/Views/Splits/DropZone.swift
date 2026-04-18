@@ -36,10 +36,10 @@ enum DropZone: String, Equatable, CaseIterable {
         let inset: CGFloat = 4
         let availableWidth = max(paneFrame.width - (inset * 2), 1)
         let minimumPreviewWidth = max(
-            AppStyle.dropTargetPreviewMinimumWidth,
-            AppStyle.splitMinimumPaneSize + (AppStyle.paneGap * 2)
+            AppStyles.General.Layout.dropTargetPreviewMinimumWidth,
+            AppStyles.General.Layout.splitMinimumPaneSize + (AppStyles.General.Layout.paneGap * 2)
         )
-        let fractionalPreviewWidth = paneFrame.width * AppStyle.dropTargetPreviewMaxFraction
+        let fractionalPreviewWidth = paneFrame.width * AppStyles.General.Layout.dropTargetPreviewMaxFraction
         let unclampedPreviewWidth = max(minimumPreviewWidth, fractionalPreviewWidth)
         let previewWidth = min(unclampedPreviewWidth, availableWidth)
         let height = max(paneFrame.height - (inset * 2), 1)
@@ -54,7 +54,7 @@ enum DropZone: String, Equatable, CaseIterable {
     /// Returns the solid insertion marker rectangle for a pane frame in container coordinates.
     func markerRect(in paneFrame: CGRect) -> CGRect {
         let previewRect = overlayRect(in: paneFrame)
-        let markerWidth = min(AppStyle.dropTargetMarkerWidth, previewRect.width)
+        let markerWidth = min(AppStyles.General.Layout.dropTargetMarkerWidth, previewRect.width)
         let x =
             switch self {
             case .left: previewRect.minX

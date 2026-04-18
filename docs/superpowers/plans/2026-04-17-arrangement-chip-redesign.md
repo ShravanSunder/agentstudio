@@ -123,15 +123,15 @@
 
 ```text
 Rest:               ┌──────────────────┐
-                    │  ◫   2 · coding  │   fill: AppStyle.fillMuted
+                    │  ◫   2 · coding  │   fill: AppStyles.fillMuted
                     └──────────────────┘
 
 Hover:              ┌──────────────────┐
-                    │  ◫   2 · coding  │   fill: AppStyle.fillPressed
+                    │  ◫   2 · coding  │   fill: AppStyles.fillPressed
                     └──────────────────┘
 
 Popover open:       ┌──────────────────┐
-                    │  ◫   2 · coding  │   fill: AppStyle.fillActive
+                    │  ◫   2 · coding  │   fill: AppStyles.fillActive
                     └──────────────────┘
 ```
 
@@ -239,7 +239,7 @@ struct TabBarArrangementChipTests {
         let chip = TabBarArrangementChip(
             index: 2, name: "coding", isHovered: false, isPressed: true, nameMaxWidth: 100
         )
-        #expect(chip.chipFillOpacity == AppStyle.fillActive)
+        #expect(chip.chipFillOpacity == AppStyles.fillActive)
     }
 
     @Test("uses hover fill opacity when hovered and not pressed")
@@ -247,7 +247,7 @@ struct TabBarArrangementChipTests {
         let chip = TabBarArrangementChip(
             index: 2, name: "coding", isHovered: true, isPressed: false, nameMaxWidth: 100
         )
-        #expect(chip.chipFillOpacity == AppStyle.fillPressed)
+        #expect(chip.chipFillOpacity == AppStyles.fillPressed)
     }
 
     @Test("uses muted fill opacity when at rest")
@@ -255,7 +255,7 @@ struct TabBarArrangementChipTests {
         let chip = TabBarArrangementChip(
             index: 2, name: "coding", isHovered: false, isPressed: false, nameMaxWidth: 100
         )
-        #expect(chip.chipFillOpacity == AppStyle.fillMuted)
+        #expect(chip.chipFillOpacity == AppStyles.fillMuted)
     }
 
     @Test("returns 100pt name width when management layer inactive")
@@ -301,9 +301,9 @@ struct TabBarArrangementChip: View {
     }
 
     var chipFillOpacity: Double {
-        if isPressed { return AppStyle.fillActive }
-        if isHovered { return AppStyle.fillPressed }
-        return AppStyle.fillMuted
+        if isPressed { return AppStyles.fillActive }
+        if isHovered { return AppStyles.fillPressed }
+        return AppStyles.fillMuted
     }
 
     /// Pure helper: name truncation cap based on management-layer state.
@@ -315,19 +315,19 @@ struct TabBarArrangementChip: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "rectangle.3.group")
-                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                .font(.system(size: AppStyles.compactIconSize, weight: .medium))
                 .foregroundStyle(isHovered ? .primary : .secondary)
 
             if let index, let name {
                 HStack(spacing: 4) {
                     Text("\(index)")
-                        .font(.system(size: AppStyle.textXs, weight: .semibold))
+                        .font(.system(size: AppStyles.textXs, weight: .semibold))
                         .foregroundStyle(.secondary)
                     Text("·")
-                        .font(.system(size: AppStyle.textXs))
+                        .font(.system(size: AppStyles.textXs))
                         .foregroundStyle(.tertiary)
                     Text(name)
-                        .font(.system(size: AppStyle.textXs))
+                        .font(.system(size: AppStyles.textXs))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -335,9 +335,9 @@ struct TabBarArrangementChip: View {
                 }
             }
         }
-        .frame(height: AppStyle.toolbarButtonSize)
+        .frame(height: AppStyles.toolbarButtonSize)
         .padding(.horizontal, hasCustomArrangement ? 8 : 0)
-        .frame(minWidth: AppStyle.toolbarButtonSize)
+        .frame(minWidth: AppStyles.toolbarButtonSize)
         .background(
             Capsule()
                 .fill(Color.white.opacity(chipFillOpacity))
@@ -473,21 +473,21 @@ var body: some View {
         .overlay(alignment: .topTrailing) {
             if hiddenMinimizedCount > 0 {
                 Text("\(hiddenMinimizedCount)")
-                    .font(.system(size: AppStyle.textXs, weight: .semibold))
+                    .font(.system(size: AppStyles.textXs, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .padding(.horizontal, AppStyle.spacingTight)
+                    .padding(.horizontal, AppStyles.spacingTight)
                     .padding(.vertical, 1)
                     .background(
                         Capsule()
-                            .fill(Color.white.opacity(AppStyle.fillHover))
+                            .fill(Color.white.opacity(AppStyles.fillHover))
                     )
                     .fixedSize()
                     .offset(x: 10, y: -6)
                     .transition(.opacity.combined(with: .scale))
             }
         }
-        .animation(.easeOut(duration: AppStyle.animationFast), value: hiddenMinimizedCount)
-        .animation(.easeOut(duration: AppStyle.animationFast), value: activeArrangementName)
+        .animation(.easeOut(duration: AppStyles.animationFast), value: hiddenMinimizedCount)
+        .animation(.easeOut(duration: AppStyles.animationFast), value: activeArrangementName)
     }
     .buttonStyle(.plain)
     .onHover { hovering in isHovered = hovering }
@@ -755,7 +755,7 @@ If lint or tests reported issues fixed during verification, commit them separate
 1. **Default arrangement → icon-only chip.** `hasCustomArrangement == false`, content is just the icon, background capsule renders as a circle because `minWidth == height`. *Covered by `TabBarArrangementChipTests.reportsNoCustomArrangementWhenBothNil`.*
 2. **Custom arrangement → labeled chip.** `hasCustomArrangement == true`, displays `icon + index + middot + name`, name truncates at 100pt. *Covered by `reportsCustomArrangementWhenBothSet` + pixel-level check visually via Peekaboo.*
 3. **Management layer active → wider name.** `nameMaxWidth(isManagementLayerActive: true) == 200` vs `false → 100`. *Covered by `returnsNarrowNameWidthWhenManagementLayerInactive` and `returnsWideNameWidthWhenManagementLayerActive`.*
-4. **Press state while popover open.** `isPressed == true`, fill opacity uses `AppStyle.fillActive`. *Covered by `usesPressedFillOpacityWhenPressed`.*
+4. **Press state while popover open.** `isPressed == true`, fill opacity uses `AppStyles.fillActive`. *Covered by `usesPressedFillOpacityWhenPressed`.*
 5. **Hover and rest fills.** `isHovered` flips fill to `fillPressed`; at rest, `fillMuted`. *Covered by `usesHoverFillOpacityWhenHovered` and `usesMutedFillOpacityWhenAtRest`.*
 6. **Hidden minimized count badge still rendered.** `hiddenMinimizedCount > 0` shows the small pill overlay in the chip's top-right; that overlay is independent of arrangement state. *Covered by Peekaboo visual verification in Task 4 Step 3.*
 7. **CollapsedPaneBar shows only expand button.** No arrangement `rectangle.3.group` icon on any minimized pane row. *Covered by `CollapsedPaneBarTests.exposesOnlyExpandButton` + `doesNotExposeArrangementButton` (regression-proof: the static `primaryButtonIdentifiers` list is the contract).*
@@ -783,7 +783,7 @@ Visual verification via Peekaboo per Task 4 Step 3.
 ## Assumptions
 
 - `TabBarAdapter.activeArrangementName` and `TabBarAdapter.activeArrangementBadgeNumber` are already computed correctly (verified: `TabBarAdapter.swift:147`, `:239-245`). This plan does not change the adapter — only wires its existing output into the chip.
-- `AppStyle.fillMuted`, `fillPressed`, `fillActive`, `toolbarButtonSize`, `compactIconSize`, `textXs`, `spacingTight`, `animationFast`, `fillHover` all exist on main and are used as-is.
+- `AppStyles.fillMuted`, `fillPressed`, `fillActive`, `toolbarButtonSize`, `compactIconSize`, `textXs`, `spacingTight`, `animationFast`, `fillHover` all exist on main and are used as-is.
 - `ArrangementPanelPopoverPlacement.tabBar.attachmentAnchor` / `arrowEdge` remain the current popover anchor policy.
 - `atom(\.managementLayer).isActive` is the correct signal for "name cap should expand." If that atom is renamed or replaced before this plan lands, update the reference in `chipNameMaxWidth` accordingly.
 - Management-layer-bound `1/2/3` keyboard shortcuts for switching arrangements are **not** part of this plan. They may land later, at which point the chip's index numeral can gain a subtle keycap treatment without restructuring the layout.

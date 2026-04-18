@@ -3,7 +3,7 @@ import CoreGraphics
 import Foundation
 
 struct CollapsedBarTextAllocator {
-    static let segmentSpacing: CGFloat = AppStyle.spacingStandard
+    static let segmentSpacing: CGFloat = AppStyles.General.Spacing.standard
 
     static func allocatedTextWidths(
         for parts: [CollapsedBarLabelPart],
@@ -48,20 +48,20 @@ struct CollapsedBarTextAllocator {
     }
 
     private static var iconWidth: CGFloat {
-        AppStyle.textBase
+        AppStyles.General.Typography.textBase
     }
 
     private static var separatorWidth: CGFloat {
         measuredWidth(
             for: "·",
-            font: .systemFont(ofSize: AppStyle.textSm, weight: .regular)
+            font: .systemFont(ofSize: AppStyles.General.Typography.textSm, weight: .regular)
         )
     }
 
     private static func intrinsicTextWidth(for part: CollapsedBarLabelPart) -> CGFloat {
         measuredWidth(
             for: part.text,
-            font: .systemFont(ofSize: AppStyle.textBase, weight: fontWeight(for: part.weight))
+            font: .systemFont(ofSize: AppStyles.General.Typography.textBase, weight: fontWeight(for: part.weight))
         )
     }
 

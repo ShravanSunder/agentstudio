@@ -31,7 +31,7 @@ struct ArrangementPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Arrangements")
-                .font(.system(size: AppStyle.textSm, weight: .semibold))
+                .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
                 .foregroundStyle(.tertiary)
                 .textCase(.uppercase)
 
@@ -43,7 +43,7 @@ struct ArrangementPanel: View {
                 if displayState.showsSaveArrangementButton {
                     Button(action: onSaveArrangement) {
                         Image(systemName: "plus")
-                            .font(.system(size: AppStyle.textXs, weight: .semibold))
+                            .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
                             .frame(width: 14, height: 14)
                             .contentShape(Rectangle())
                     }
@@ -64,7 +64,7 @@ struct ArrangementPanel: View {
                     .padding(.vertical, 2)
 
                 Text("Pane Visibility")
-                    .font(.system(size: AppStyle.textSm, weight: .semibold))
+                    .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
                     .foregroundStyle(.tertiary)
                     .textCase(.uppercase)
 
@@ -80,19 +80,19 @@ struct ArrangementPanel: View {
 
                     HStack(spacing: 6) {
                         Text("Show minimized panes")
-                            .font(.system(size: AppStyle.textXs))
+                            .font(.system(size: AppStyles.General.Typography.textXs))
                             .foregroundStyle(.secondary)
 
                         let minimizedCount = panes.filter(\.isMinimized).count
                         if minimizedCount > 0 {
                             Text("\(minimizedCount)")
-                                .font(.system(size: AppStyle.textXs, weight: .semibold))
+                                .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
                                 .foregroundStyle(.secondary)
-                                .padding(.horizontal, AppStyle.spacingTight)
+                                .padding(.horizontal, AppStyles.General.Spacing.tight)
                                 .padding(.vertical, 1)
                                 .background(
                                     Capsule()
-                                        .fill(Color.white.opacity(AppStyle.fillHover))
+                                        .fill(Color.white.opacity(AppStyles.General.Fill.hover))
                                 )
                                 .fixedSize()
                         }
@@ -110,7 +110,7 @@ struct ArrangementPanel: View {
 
                     if !showMinimizedBarsBinding.wrappedValue && atom(\.managementLayer).isActive {
                         Text("Minimized panes are always shown in management mode")
-                            .font(.system(size: AppStyle.textXs))
+                            .font(.system(size: AppStyles.General.Typography.textXs))
                             .foregroundStyle(.tertiary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -143,14 +143,14 @@ struct ArrangementPanel: View {
     }
 
     private func paneRow(_ pane: PaneVisibilityInfo) -> some View {
-        HStack(spacing: AppStyle.spacingStandard) {
+        HStack(spacing: AppStyles.General.Spacing.standard) {
             Circle()
-                .fill(pane.isMinimized ? Color.clear : Color.white.opacity(AppStyle.foregroundDim))
+                .fill(pane.isMinimized ? Color.clear : Color.white.opacity(AppStyles.General.Foreground.dim))
                 .stroke(Color.white.opacity(0.3), lineWidth: 1)
                 .frame(width: 8, height: 8)
 
             Text(pane.title)
-                .font(.system(size: AppStyle.textXs))
+                .font(.system(size: AppStyles.General.Typography.textXs))
                 .foregroundStyle(pane.isMinimized ? .tertiary : .primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -165,7 +165,7 @@ struct ArrangementPanel: View {
                 }
             } label: {
                 Image(systemName: pane.isMinimized ? "eye" : "eye.slash")
-                    .font(.system(size: AppStyle.textSm))
+                    .font(.system(size: AppStyles.General.Typography.textSm))
                     .foregroundStyle(.secondary)
                     .frame(width: 20, height: 20)
             }
@@ -176,14 +176,14 @@ struct ArrangementPanel: View {
                     : LocalActionSpec.hidePane.actionSpec.helpText
             )
         }
-        .padding(.horizontal, AppStyle.spacingStandard)
+        .padding(.horizontal, AppStyles.General.Spacing.standard)
         .padding(.vertical, 3)
         .background(
-            RoundedRectangle(cornerRadius: AppStyle.buttonCornerRadius)
+            RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.button)
                 .fill(
                     pane.id == highlightPaneId && highlightVisible
                         ? Color.accentColor.opacity(0.15)
-                        : Color.white.opacity(AppStyle.fillSubtle)
+                        : Color.white.opacity(AppStyles.General.Fill.subtle)
                 )
         )
     }
@@ -199,7 +199,7 @@ struct ArrangementPanel: View {
                     )
                 )
                 .textFieldStyle(.plain)
-                .font(.system(size: AppStyle.textXs, weight: .semibold))
+                .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
                 .foregroundStyle(.primary)
                 .focused($focusedArrangementId, equals: arrangement.id)
                 .frame(minWidth: 72)
@@ -261,7 +261,12 @@ struct ArrangementPanel: View {
                 onPaneAction(.switchArrangement(tabId: tabId, arrangementId: arrangement.id))
             } label: {
                 Text(arrangement.name)
-                    .font(.system(size: AppStyle.textXs, weight: arrangement.isActive ? .semibold : .regular))
+                    .font(
+                        .system(
+                            size: AppStyles.General.Typography.textXs,
+                            weight: arrangement.isActive ? .semibold : .regular
+                        )
+                    )
                     .foregroundStyle(chipStyle.foregroundIsPrimary ? .primary : .secondary)
             }
             .buttonStyle(.plain)
@@ -282,10 +287,10 @@ struct ArrangementPanel: View {
                 .help(LocalActionSpec.renameArrangement.actionSpec.helpText)
             }
         }
-        .padding(.horizontal, AppStyle.spacingLoose)
-        .padding(.vertical, AppStyle.spacingTight)
+        .padding(.horizontal, AppStyles.General.Spacing.loose)
+        .padding(.vertical, AppStyles.General.Spacing.tight)
         .background(
-            RoundedRectangle(cornerRadius: AppStyle.barCornerRadius)
+            RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.bar)
                 .fill(Color.white.opacity(chipStyle.backgroundOpacity))
         )
     }
@@ -344,10 +349,10 @@ private struct ArrangementChipButtonStyle: ButtonStyle {
         return configuration.label
             .foregroundStyle(chipStyle.foregroundIsPrimary ? .primary : .secondary)
             .frame(minWidth: minimumWidth)
-            .padding(.horizontal, AppStyle.spacingLoose)
-            .padding(.vertical, AppStyle.spacingTight)
+            .padding(.horizontal, AppStyles.General.Spacing.loose)
+            .padding(.vertical, AppStyles.General.Spacing.tight)
             .background(
-                RoundedRectangle(cornerRadius: AppStyle.barCornerRadius)
+                RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.bar)
                     .fill(Color.white.opacity(chipStyle.backgroundOpacity))
             )
     }

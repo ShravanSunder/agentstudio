@@ -87,15 +87,15 @@ struct ArrangementChipVisualStyle: Equatable {
 
     var backgroundOpacity: CGFloat {
         if isPressed {
-            return AppStyle.fillPressed
+            return AppStyles.General.Fill.pressed
         }
         if isActive {
-            return AppStyle.fillActive
+            return AppStyles.General.Fill.active
         }
         if isHovered {
-            return AppStyle.fillHover
+            return AppStyles.General.Fill.hover
         }
-        return AppStyle.fillSubtle
+        return AppStyles.General.Fill.subtle
     }
 
     var foregroundIsPrimary: Bool {

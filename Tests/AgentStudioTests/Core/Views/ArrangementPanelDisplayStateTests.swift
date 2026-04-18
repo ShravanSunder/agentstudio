@@ -71,9 +71,9 @@ struct ArrangementPanelDisplayStateTests {
             isPressed: true
         )
 
-        #expect(idle.backgroundOpacity == AppStyle.fillSubtle)
-        #expect(hovered.backgroundOpacity == AppStyle.fillHover)
-        #expect(pressed.backgroundOpacity == AppStyle.fillPressed)
+        #expect(idle.backgroundOpacity == AppStyles.General.Fill.subtle)
+        #expect(hovered.backgroundOpacity == AppStyles.General.Fill.hover)
+        #expect(pressed.backgroundOpacity == AppStyles.General.Fill.pressed)
     }
 
     @Test
@@ -94,9 +94,9 @@ struct ArrangementPanelDisplayStateTests {
             isPressed: true
         )
 
-        #expect(active.backgroundOpacity == AppStyle.fillActive)
-        #expect(activeHovered.backgroundOpacity == AppStyle.fillActive)
-        #expect(activePressed.backgroundOpacity == AppStyle.fillPressed)
+        #expect(active.backgroundOpacity == AppStyles.General.Fill.active)
+        #expect(activeHovered.backgroundOpacity == AppStyles.General.Fill.active)
+        #expect(activePressed.backgroundOpacity == AppStyles.General.Fill.pressed)
         #expect(active.foregroundIsPrimary)
     }
 

@@ -48,7 +48,7 @@ struct FlatTabStripContainer: View {
             let metrics = FlatTabStripMetrics.compute(
                 layout: layout,
                 in: containerBounds,
-                dividerThickness: AppStyle.paneGap,
+                dividerThickness: AppStyles.General.Layout.paneGap,
                 minimizedPaneIds: minimizedPaneIds,
                 collapsedPaneWidth: effectiveCollapsedWidth
             )
@@ -61,12 +61,14 @@ struct FlatTabStripContainer: View {
                             .id(zoomedPaneId)
                             .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
                         Text("ZOOM")
-                            .font(.system(size: AppStyle.textSm, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.white.opacity(AppStyle.foregroundSecondary))
-                            .padding(.horizontal, AppStyle.spacingStandard)
-                            .padding(.vertical, AppStyle.paneGap)
-                            .background(Capsule().fill(.white.opacity(AppStyle.strokeMuted)))
-                            .padding(AppStyle.spacingLoose)
+                            .font(
+                                .system(size: AppStyles.General.Typography.textSm, weight: .medium, design: .monospaced)
+                            )
+                            .foregroundStyle(.white.opacity(AppStyles.General.Foreground.secondary))
+                            .padding(.horizontal, AppStyles.General.Spacing.standard)
+                            .padding(.vertical, AppStyles.General.Layout.paneGap)
+                            .background(Capsule().fill(.white.opacity(AppStyles.General.Stroke.muted)))
+                            .padding(AppStyles.General.Spacing.loose)
                             .allowsHitTesting(false)
                     }
                 } else if metrics.allMinimized {
@@ -104,8 +106,8 @@ struct FlatTabStripContainer: View {
                         useDrawerFramePreference: false,
                         onOpenPaneGitHub: onOpenPaneGitHub
                     )
-                    .animation(.easeOut(duration: AppStyle.animationFast), value: closingPaneIds)
-                    .animation(.easeInOut(duration: AppStyle.animationStandard), value: minimizedPaneIds)
+                    .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: closingPaneIds)
+                    .animation(.easeInOut(duration: AppStyles.General.Animation.standard), value: minimizedPaneIds)
                 }
 
                 DrawerPanelOverlay(
@@ -159,8 +161,8 @@ struct FlatTabStripContainer: View {
                 stopDropTargetWatchdog()
             }
         }
-        .animation(.easeOut(duration: AppStyle.animationStandard), value: atom(\.uiState).showMinimizedBars)
-        .animation(.easeOut(duration: AppStyle.animationFast), value: managementLayer.isActive)
+        .animation(.easeOut(duration: AppStyles.General.Animation.standard), value: atom(\.uiState).showMinimizedBars)
+        .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: managementLayer.isActive)
         .coordinateSpace(name: "tabContainer")
     }
 

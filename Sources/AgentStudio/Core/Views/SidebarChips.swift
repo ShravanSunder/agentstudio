@@ -12,10 +12,10 @@ struct SidebarChip: View {
         var foreground: Color {
             switch self {
             case .neutral: return .secondary
-            case .info: return AppStyle.chipInfoColor
-            case .success: return AppStyle.chipSuccessColor
-            case .warning: return AppStyle.chipWarningColor
-            case .danger: return AppStyle.chipDangerColor
+            case .info: return AppStyles.Shell.Sidebar.chipInfoColor
+            case .success: return AppStyles.Shell.Sidebar.chipSuccessColor
+            case .warning: return AppStyles.Shell.Sidebar.chipWarningColor
+            case .danger: return AppStyles.Shell.Sidebar.chipDangerColor
             case .accent(let color): return color
             }
         }
@@ -26,31 +26,32 @@ struct SidebarChip: View {
     let style: Style
 
     var body: some View {
-        HStack(spacing: AppStyle.sidebarChipContentSpacing) {
-            OcticonImage(name: iconAsset, size: AppStyle.sidebarChipIconSize)
+        HStack(spacing: AppStyles.Shell.Sidebar.chipContentSpacing) {
+            OcticonImage(name: iconAsset, size: AppStyles.Shell.Sidebar.chipIconSize)
             if let text {
                 Text(text)
-                    .font(.system(size: AppStyle.sidebarChipFontSize, weight: .medium).monospacedDigit())
+                    .font(.system(size: AppStyles.Shell.Sidebar.chipFontSize, weight: .medium).monospacedDigit())
                     .lineLimit(1)
             }
         }
         .padding(
             .horizontal,
-            text == nil ? AppStyle.sidebarChipIconOnlyHorizontalPadding : AppStyle.sidebarChipHorizontalPadding
+            text == nil
+                ? AppStyles.Shell.Sidebar.chipIconOnlyHorizontalPadding : AppStyles.Shell.Sidebar.chipHorizontalPadding
         )
-        .padding(.vertical, AppStyle.sidebarChipVerticalPadding)
+        .padding(.vertical, AppStyles.Shell.Sidebar.chipVerticalPadding)
         .background(
             Capsule()
-                .fill(Color.white.opacity(AppStyle.sidebarChipBackgroundOpacity))
+                .fill(Color.white.opacity(AppStyles.Shell.Sidebar.chipBackgroundOpacity))
                 .overlay(
                     Capsule()
-                        .fill(Color.black.opacity(AppStyle.sidebarChipMuteOverlayOpacity))
+                        .fill(Color.black.opacity(AppStyles.Shell.Sidebar.chipMuteOverlayOpacity))
                 )
         )
-        .foregroundStyle(style.foreground.opacity(AppStyle.sidebarChipForegroundOpacity))
+        .foregroundStyle(style.foreground.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity))
         .overlay(
             Capsule()
-                .stroke(Color.white.opacity(AppStyle.sidebarChipBorderOpacity), lineWidth: 1)
+                .stroke(Color.white.opacity(AppStyles.Shell.Sidebar.chipBorderOpacity), lineWidth: 1)
         )
         .fixedSize(horizontal: true, vertical: true)
     }
@@ -66,32 +67,32 @@ struct SidebarStatusSyncChip: View {
     }
 
     var body: some View {
-        HStack(spacing: AppStyle.sidebarChipContentSpacing) {
-            HStack(spacing: AppStyle.sidebarSyncClusterSpacing) {
-                OcticonImage(name: "octicon-arrow-up", size: AppStyle.sidebarSyncChipIconSize)
+        HStack(spacing: AppStyles.Shell.Sidebar.chipContentSpacing) {
+            HStack(spacing: AppStyles.Shell.Sidebar.syncClusterSpacing) {
+                OcticonImage(name: "octicon-arrow-up", size: AppStyles.Shell.Sidebar.syncChipIconSize)
                 Text(aheadText)
             }
-            HStack(spacing: AppStyle.sidebarSyncClusterSpacing) {
-                OcticonImage(name: "octicon-arrow-down", size: AppStyle.sidebarSyncChipIconSize)
+            HStack(spacing: AppStyles.Shell.Sidebar.syncClusterSpacing) {
+                OcticonImage(name: "octicon-arrow-down", size: AppStyles.Shell.Sidebar.syncChipIconSize)
                 Text(behindText)
             }
         }
-        .font(.system(size: AppStyle.sidebarChipFontSize, weight: .medium).monospacedDigit())
+        .font(.system(size: AppStyles.Shell.Sidebar.chipFontSize, weight: .medium).monospacedDigit())
         .lineLimit(1)
-        .padding(.horizontal, AppStyle.sidebarChipHorizontalPadding)
-        .padding(.vertical, AppStyle.sidebarChipVerticalPadding)
+        .padding(.horizontal, AppStyles.Shell.Sidebar.chipHorizontalPadding)
+        .padding(.vertical, AppStyles.Shell.Sidebar.chipVerticalPadding)
         .background(
             Capsule()
-                .fill(Color.white.opacity(AppStyle.sidebarChipBackgroundOpacity))
+                .fill(Color.white.opacity(AppStyles.Shell.Sidebar.chipBackgroundOpacity))
                 .overlay(
                     Capsule()
-                        .fill(Color.black.opacity(AppStyle.sidebarChipMuteOverlayOpacity))
+                        .fill(Color.black.opacity(AppStyles.Shell.Sidebar.chipMuteOverlayOpacity))
                 )
         )
-        .foregroundStyle(effectiveStyle.foreground.opacity(AppStyle.sidebarChipForegroundOpacity))
+        .foregroundStyle(effectiveStyle.foreground.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity))
         .overlay(
             Capsule()
-                .stroke(Color.white.opacity(AppStyle.sidebarChipBorderOpacity), lineWidth: 1)
+                .stroke(Color.white.opacity(AppStyles.Shell.Sidebar.chipBorderOpacity), lineWidth: 1)
         )
         .fixedSize(horizontal: true, vertical: true)
     }
@@ -105,47 +106,48 @@ struct SidebarDiffChip: View {
 
     private var plusColor: Color {
         if isMuted {
-            return SidebarChip.Style.neutral.foreground.opacity(AppStyle.sidebarChipForegroundOpacity)
+            return SidebarChip.Style.neutral.foreground.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
         }
-        return AppStyle.chipSuccessColor.opacity(AppStyle.sidebarChipForegroundOpacity)
+        return AppStyles.Shell.Sidebar.chipSuccessColor.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
     }
 
     private var minusColor: Color {
         if isMuted {
-            return SidebarChip.Style.neutral.foreground.opacity(AppStyle.sidebarChipForegroundOpacity)
+            return SidebarChip.Style.neutral.foreground.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
         }
-        return AppStyle.chipDangerColor.opacity(AppStyle.sidebarChipForegroundOpacity)
+        return AppStyles.Shell.Sidebar.chipDangerColor.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity)
     }
 
     var body: some View {
-        HStack(spacing: AppStyle.sidebarChipContentSpacing) {
+        HStack(spacing: AppStyles.Shell.Sidebar.chipContentSpacing) {
             if showsDirtyIndicator {
-                OcticonImage(name: "octicon-dot-fill", size: AppStyle.sidebarChipIconSize)
-                    .foregroundStyle(SidebarChip.Style.danger.foreground.opacity(AppStyle.sidebarChipForegroundOpacity))
+                OcticonImage(name: "octicon-dot-fill", size: AppStyles.Shell.Sidebar.chipIconSize)
+                    .foregroundStyle(
+                        SidebarChip.Style.danger.foreground.opacity(AppStyles.Shell.Sidebar.chipForegroundOpacity))
             }
 
-            HStack(spacing: AppStyle.spacingTight) {
+            HStack(spacing: AppStyles.General.Spacing.tight) {
                 Text("+\(linesAdded)")
                     .foregroundStyle(plusColor)
                 Text("-\(linesDeleted)")
                     .foregroundStyle(minusColor)
             }
         }
-        .font(.system(size: AppStyle.sidebarChipFontSize, weight: .medium).monospacedDigit())
+        .font(.system(size: AppStyles.Shell.Sidebar.chipFontSize, weight: .medium).monospacedDigit())
         .lineLimit(1)
-        .padding(.horizontal, AppStyle.sidebarChipHorizontalPadding)
-        .padding(.vertical, AppStyle.sidebarChipVerticalPadding)
+        .padding(.horizontal, AppStyles.Shell.Sidebar.chipHorizontalPadding)
+        .padding(.vertical, AppStyles.Shell.Sidebar.chipVerticalPadding)
         .background(
             Capsule()
-                .fill(Color.white.opacity(AppStyle.sidebarChipBackgroundOpacity))
+                .fill(Color.white.opacity(AppStyles.Shell.Sidebar.chipBackgroundOpacity))
                 .overlay(
                     Capsule()
-                        .fill(Color.black.opacity(AppStyle.sidebarChipMuteOverlayOpacity))
+                        .fill(Color.black.opacity(AppStyles.Shell.Sidebar.chipMuteOverlayOpacity))
                 )
         )
         .overlay(
             Capsule()
-                .stroke(Color.white.opacity(AppStyle.sidebarChipBorderOpacity), lineWidth: 1)
+                .stroke(Color.white.opacity(AppStyles.Shell.Sidebar.chipBorderOpacity), lineWidth: 1)
         )
         .fixedSize(horizontal: true, vertical: true)
     }

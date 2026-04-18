@@ -486,11 +486,11 @@ On the existing button (the Circle with the rectangle.3.group icon), add an over
             .padding(.vertical, 1)
             .background(
                 Capsule()
-                    .fill(Color.white.opacity(AppStyle.fillPressed))
+                    .fill(Color.white.opacity(AppStyles.fillPressed))
             )
             .offset(x: 4, y: -4)
             .transition(.opacity.combined(with: .scale))
-            .animation(.easeOut(duration: AppStyle.animationFast), value: hiddenMinimizedCount)
+            .animation(.easeOut(duration: AppStyles.animationFast), value: hiddenMinimizedCount)
     }
 }
 ```

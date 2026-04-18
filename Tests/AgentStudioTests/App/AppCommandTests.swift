@@ -207,7 +207,7 @@ final class AppCommandTests {
         #expect(dispatcher.definitions.count == AppCommand.allCases.count)
         #expect(dispatcher.definition(for: .closeTab).command == .closeTab)
         #expect(dispatcher.definition(for: .closePane).command == .closePane)
-        #expect(dispatcher.definition(for: .addRepo).command == .addRepo)
+        #expect(dispatcher.definition(for: .addFolder).command == .addFolder)
         #expect(dispatcher.definition(for: .toggleSidebar).command == .toggleSidebar)
     }
 
@@ -294,7 +294,6 @@ final class AppCommandTests {
 
         // Assert
         let commandNames = repoCommands.map(\.command)
-        #expect(commandNames.contains(.addRepo))
         #expect(commandNames.contains(.removeRepo))
         #expect(!commandNames.contains(.openWorktree))
     }
@@ -379,13 +378,13 @@ final class AppCommandTests {
         let dispatcher = CommandDispatcher.shared
         let handler = MockCommandHandler()
         let appRouter = MockAppCommandRouter()
-        appRouter.appCommands = [.addRepo]
+        appRouter.appCommands = [.addFolder]
         dispatcher.handler = handler
         dispatcher.appCommandRouter = appRouter
 
-        dispatcher.dispatch(.addRepo)
+        dispatcher.dispatch(.addFolder)
 
-        #expect(appRouter.handledCommands == [.addRepo])
+        #expect(appRouter.handledCommands == [.addFolder])
         #expect(handler.executedCommands.isEmpty)
 
         dispatcher.handler = nil

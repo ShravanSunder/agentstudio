@@ -17,8 +17,8 @@ struct CollapsedPaneBar: View {
     @State private var arrangementPopoverToggleGate = PopoverToggleGate()
     @State private var arrangementInlineRenameState = ArrangementInlineRenameState()
 
-    static let barWidth: CGFloat = AppStyle.collapsedBarWidth
-    static let barHeight: CGFloat = AppStyle.collapsedBarWidth
+    static let barWidth: CGFloat = AppStyles.Shell.PaneChrome.collapsedBarWidth
+    static let barHeight: CGFloat = AppStyles.Shell.PaneChrome.collapsedBarWidth
 
     init(
         paneId: UUID,
@@ -55,7 +55,7 @@ struct CollapsedPaneBar: View {
             .map(Color.init(nsColor:))
             ?? Color.secondary.opacity(0.92)
 
-        VStack(spacing: AppStyle.spacingStandard) {
+        VStack(spacing: AppStyles.General.Spacing.standard) {
             expandButton
 
             if !isDrawerChild {
@@ -68,17 +68,17 @@ struct CollapsedPaneBar: View {
             }
             .frame(maxHeight: .infinity)
         }
-        .padding(.vertical, AppStyle.spacingLoose)
+        .padding(.vertical, AppStyles.General.Spacing.loose)
         .frame(width: Self.barWidth)
         .frame(maxHeight: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: AppStyle.panelCornerRadius)
-                .fill(Color.white.opacity(isHovered ? AppStyle.fillHover : AppStyle.fillMuted))
+            RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.panel)
+                .fill(Color.white.opacity(isHovered ? AppStyles.General.Fill.hover : AppStyles.General.Fill.muted))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: AppStyle.panelCornerRadius)
+            RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.panel)
                 .strokeBorder(
-                    Color.white.opacity(isHovered ? AppStyle.strokeHover : AppStyle.fillActive),
+                    Color.white.opacity(isHovered ? AppStyles.General.Stroke.hover : AppStyles.General.Fill.active),
                     lineWidth: 1
                 )
         )
@@ -102,9 +102,9 @@ struct CollapsedPaneBar: View {
         }
         .opacity(isClosing ? 0.58 : 1)
         .scaleEffect(isClosing ? 0.985 : 1)
-        .animation(.easeOut(duration: AppStyle.animationFast), value: isClosing)
+        .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: isClosing)
         .allowsHitTesting(!isClosing)
-        .padding(AppStyle.paneGap)
+        .padding(AppStyles.General.Layout.paneGap)
         .background(framePreferenceBackground)
     }
 
@@ -113,12 +113,18 @@ struct CollapsedPaneBar: View {
             actionDispatcher.dispatch(.expandPane(tabId: tabId, paneId: paneId))
         } label: {
             Image(systemName: "arrow.up.left.and.arrow.down.right")
-                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
                 .foregroundStyle(isExpandHovered ? .primary : .secondary)
-                .frame(width: AppStyle.compactButtonSize, height: AppStyle.compactButtonSize)
+                .frame(width: AppStyles.General.Button.compact, height: AppStyles.General.Button.compact)
                 .background(
                     Circle()
-                        .fill(Color.white.opacity(isExpandHovered ? AppStyle.fillPressed : AppStyle.fillMuted))
+                        .fill(
+                            Color.white.opacity(
+                                isExpandHovered
+                                    ? AppStyles.General.Fill.pressed
+                                    : AppStyles.General.Fill.muted
+                            )
+                        )
                 )
                 .contentShape(Circle())
         }
@@ -136,12 +142,18 @@ struct CollapsedPaneBar: View {
             arrangementPopoverToggleGate.toggle(isPresented: &isArrangementPanelPresented)
         } label: {
             Image(systemName: "rectangle.3.group")
-                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
                 .foregroundStyle(isArrangementHovered ? .primary : .secondary)
-                .frame(width: AppStyle.compactButtonSize, height: AppStyle.compactButtonSize)
+                .frame(width: AppStyles.General.Button.compact, height: AppStyles.General.Button.compact)
                 .background(
                     Circle()
-                        .fill(Color.white.opacity(isArrangementHovered ? AppStyle.fillPressed : AppStyle.fillMuted))
+                        .fill(
+                            Color.white.opacity(
+                                isArrangementHovered
+                                    ? AppStyles.General.Fill.pressed
+                                    : AppStyles.General.Fill.muted
+                            )
+                        )
                 )
                 .contentShape(Circle())
         }
@@ -198,16 +210,21 @@ struct CollapsedPaneBar: View {
                 let (part, textWidth) = element
                 if index > 0 {
                     Text("·")
-                        .font(.system(size: AppStyle.textSm))
+                        .font(.system(size: AppStyles.General.Typography.textSm))
                         .foregroundStyle(.tertiary)
                 }
 
-                HStack(spacing: AppStyle.spacingTight) {
+                HStack(spacing: AppStyles.General.Spacing.tight) {
                     iconView(for: part.icon)
                         .foregroundStyle(iconTint)
 
                     Text(part.text)
-                        .font(.system(size: AppStyle.textBase, weight: fontWeight(for: part.weight)))
+                        .font(
+                            .system(
+                                size: AppStyles.General.Typography.textBase,
+                                weight: fontWeight(for: part.weight)
+                            )
+                        )
                         .foregroundStyle(textColor(for: part.weight))
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -223,7 +240,7 @@ struct CollapsedPaneBar: View {
         .fixedSize()
         .rotationEffect(.degrees(-90))
         .frame(
-            width: Self.barWidth - AppStyle.spacingStandard * 2,
+            width: Self.barWidth - AppStyles.General.Spacing.standard * 2,
             height: availableHeight,
             alignment: .center
         )
@@ -233,10 +250,10 @@ struct CollapsedPaneBar: View {
     private func iconView(for icon: CollapsedBarLabelPart.IconKind) -> some View {
         switch icon {
         case .octicon(let name):
-            OcticonImage(name: name, size: AppStyle.textBase)
+            OcticonImage(name: name, size: AppStyles.General.Typography.textBase)
         case .system(let name):
             Image(systemName: name)
-                .font(.system(size: AppStyle.textBase, weight: .medium))
+                .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
         }
     }
 

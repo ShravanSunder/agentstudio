@@ -73,9 +73,9 @@ final class MinimizeLayoutIntegrationTests {
         let renderInfo = FlatTabStripMetrics.compute(
             layout: updated.layout,
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
-            dividerThickness: AppStyle.paneGap,
+            dividerThickness: AppStyles.General.Layout.paneGap,
             minimizedPaneIds: updated.activeMinimizedPaneIds,
-            collapsedPaneWidth: AppStyle.collapsedBarWidth
+            collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
         )
         #expect(renderInfo.allMinimized)
         #expect(renderInfo.paneSegments.count == 3)
@@ -108,9 +108,9 @@ final class MinimizeLayoutIntegrationTests {
         let renderInfo = FlatTabStripMetrics.compute(
             layout: drawer.layout,
             in: CGRect(x: 0, y: 0, width: 1200, height: 300),
-            dividerThickness: AppStyle.paneGap,
+            dividerThickness: AppStyles.General.Layout.paneGap,
             minimizedPaneIds: drawer.minimizedPaneIds,
-            collapsedPaneWidth: AppStyle.collapsedBarWidth
+            collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
         )
         #expect(renderInfo.allMinimized)
     }
@@ -141,9 +141,9 @@ final class MinimizeLayoutIntegrationTests {
         let renderInfo = FlatTabStripMetrics.compute(
             layout: updated.layout,
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
-            dividerThickness: AppStyle.paneGap,
+            dividerThickness: AppStyles.General.Layout.paneGap,
             minimizedPaneIds: updated.activeMinimizedPaneIds,
-            collapsedPaneWidth: AppStyle.collapsedBarWidth
+            collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
         )
         #expect(!(renderInfo.allMinimized))
     }
@@ -189,9 +189,9 @@ final class MinimizeLayoutIntegrationTests {
         let renderInfo = FlatTabStripMetrics.compute(
             layout: updated.layout,
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
-            dividerThickness: AppStyle.paneGap,
+            dividerThickness: AppStyles.General.Layout.paneGap,
             minimizedPaneIds: updated.activeMinimizedPaneIds,
-            collapsedPaneWidth: AppStyle.collapsedBarWidth
+            collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
         )
 
         #expect(!(renderInfo.allMinimized))
@@ -208,7 +208,7 @@ final class MinimizeLayoutIntegrationTests {
         let renderInfo = FlatTabStripMetrics.compute(
             layout: updated.layout,
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
-            dividerThickness: AppStyle.paneGap,
+            dividerThickness: AppStyles.General.Layout.paneGap,
             minimizedPaneIds: updated.activeMinimizedPaneIds,
             collapsedPaneWidth: CollapsedPaneBar.barWidth
         )
@@ -230,7 +230,7 @@ final class MinimizeLayoutIntegrationTests {
         let renderInfo = FlatTabStripMetrics.compute(
             layout: updated.layout,
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
-            dividerThickness: AppStyle.paneGap,
+            dividerThickness: AppStyles.General.Layout.paneGap,
             minimizedPaneIds: updated.activeMinimizedPaneIds,
             collapsedPaneWidth: 0
         )
@@ -255,9 +255,9 @@ final class MinimizeLayoutIntegrationTests {
         let renderInfo = FlatTabStripMetrics.compute(
             layout: updated.layout,
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
-            dividerThickness: AppStyle.paneGap,
+            dividerThickness: AppStyles.General.Layout.paneGap,
             minimizedPaneIds: updated.activeMinimizedPaneIds,
-            collapsedPaneWidth: AppStyle.collapsedBarWidth
+            collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
         )
 
         #expect(renderInfo.dividerSegments.count == 1)

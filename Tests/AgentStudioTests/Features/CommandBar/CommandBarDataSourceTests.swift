@@ -157,7 +157,8 @@ struct CommandBarDataSourceTests {
         #expect(!ids.contains("cmd-renameArrangement"))
         #expect(!ids.contains("cmd-saveArrangement"))
         #expect(ids.contains("cmd-newTab"))
-        #expect(ids.contains("cmd-addRepo"))
+        #expect(ids.contains("cmd-addFolder"))
+        #expect(!ids.contains("cmd-addRepo"))
     }
 
     @Test
@@ -819,7 +820,9 @@ struct CommandBarDataSourceTests {
             scope: .repos, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
         // Assert
-        #expect(items.isEmpty)
+        #expect(items.count == 1)
+        #expect(items.first?.title == "New Empty Tab")
+        #expect(items.first?.command == .newTab)
     }
 
     @Test
@@ -842,8 +845,10 @@ struct CommandBarDataSourceTests {
             scope: .repos, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
         // Assert
-        #expect(items.count == 1)
-        #expect(items.allSatisfy { $0.id.hasPrefix("repo-wt-") })
+        #expect(items.count == 2)
+        #expect(items.first?.title == "New Empty Tab")
+        #expect(items.first?.command == .newTab)
+        #expect(items.dropFirst().allSatisfy { $0.id.hasPrefix("repo-wt-") })
         #expect(items.allSatisfy { $0.group == "Repos" })
 
         // Main worktree should rely on icon/subtitle rather than title decoration
@@ -879,8 +884,10 @@ struct CommandBarDataSourceTests {
             scope: .repos, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
         let groups = CommandBarDataSource.grouped(items)
 
-        #expect(groups.count == 1)
-        #expect(groups.first?.name == "\(repo.name) (worktrees)")
+        #expect(items.first?.title == "New Empty Tab")
+        #expect(groups.count == 2)
+        #expect(groups.first?.name == "Repos")
+        #expect(groups.last?.name == "\(repo.name) (worktrees)")
     }
 
     // MARK: - Drawer Commands

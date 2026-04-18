@@ -6,19 +6,19 @@ struct ManagementPaneIdentityStrip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(context.identityRows) { row in
-                HStack(spacing: AppStyle.spacingTight) {
+                HStack(spacing: AppStyles.General.Spacing.tight) {
                     rowIcon(for: row.icon)
                         .foregroundStyle(.secondary.opacity(0.92))
-                        .frame(width: AppStyle.sidebarRowLeadingIconColumnWidth, alignment: .leading)
+                        .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
 
                     Text(caption(for: row))
-                        .font(.system(size: AppStyle.textXs, weight: .semibold))
+                        .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
                         .foregroundStyle(.secondary.opacity(0.72))
                         .textCase(.uppercase)
                         .fixedSize()
 
                     Text(row.text)
-                        .font(.system(size: AppStyle.sidebarBranchFontSize, weight: .medium))
+                        .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))
                         .foregroundStyle(.primary.opacity(0.92))
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -36,14 +36,14 @@ struct ManagementPaneIdentityStrip: View {
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: 14)
-                .fill(Color.white.opacity(AppStyle.fillMuted))
+                .fill(Color.white.opacity(AppStyles.General.Fill.muted))
                 .overlay(
                     RoundedRectangle(cornerRadius: 14)
-                        .stroke(Color.white.opacity(AppStyle.fillActive), lineWidth: 1)
+                        .stroke(Color.white.opacity(AppStyles.General.Fill.active), lineWidth: 1)
                 )
         )
-        .padding(.horizontal, AppStyle.spacingLoose)
-        .padding(.vertical, AppStyle.spacingLoose)
+        .padding(.horizontal, AppStyles.General.Spacing.loose)
+        .padding(.vertical, AppStyles.General.Spacing.loose)
         .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -51,10 +51,10 @@ struct ManagementPaneIdentityStrip: View {
     private func rowIcon(for icon: PaneManagementIcon) -> some View {
         switch icon {
         case .octicon(let name):
-            OcticonImage(name: name, size: AppStyle.sidebarBranchIconSize)
+            OcticonImage(name: name, size: AppStyles.Shell.Sidebar.branchIconSize)
         case .system(let name):
             Image(systemName: name)
-                .font(.system(size: AppStyle.sidebarBranchIconSize, weight: .medium))
+                .font(.system(size: AppStyles.Shell.Sidebar.branchIconSize, weight: .medium))
         }
     }
 

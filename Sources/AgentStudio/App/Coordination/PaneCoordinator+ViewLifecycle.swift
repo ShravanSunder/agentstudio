@@ -872,9 +872,9 @@ extension PaneCoordinator {
             var resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
                 for: tab.layout,
                 in: terminalContainerBounds,
-                dividerThickness: AppStyle.paneGap,
+                dividerThickness: AppStyles.General.Layout.paneGap,
                 minimizedPaneIds: tab.activeMinimizedPaneIds,
-                collapsedPaneWidth: AppStyle.collapsedBarWidth
+                collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
             )
             if resolvedFrames.isEmpty, !tab.layout.isEmpty {
                 Self.logger.warning(
@@ -904,9 +904,9 @@ extension PaneCoordinator {
                 let drawerFrames = TerminalPaneGeometryResolver.resolveFrames(
                     for: drawer.layout,
                     in: drawerContentRect,
-                    dividerThickness: AppStyle.paneGap,
+                    dividerThickness: AppStyles.General.Layout.paneGap,
                     minimizedPaneIds: drawer.minimizedPaneIds,
-                    collapsedPaneWidth: AppStyle.collapsedBarWidth
+                    collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
                 )
 
                 for (drawerPaneId, drawerPaneFrame) in drawerFrames {

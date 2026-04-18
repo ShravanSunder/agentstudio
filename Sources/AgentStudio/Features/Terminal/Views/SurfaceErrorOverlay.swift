@@ -21,12 +21,12 @@ struct SurfaceErrorOverlay: View {
                 Color.black.opacity(0.85)
 
                 // Error content
-                VStack(spacing: 24) {
+                VStack(spacing: AppStyles.WorkspaceFocus.Terminal.errorOverlayContentSpacing) {
                     errorContent
                 }
-                .padding(32)
+                .padding(AppStyles.WorkspaceFocus.Terminal.errorOverlayContentPadding)
                 .background(
-                    RoundedRectangle(cornerRadius: 12)
+                    RoundedRectangle(cornerRadius: AppStyles.WorkspaceFocus.Terminal.errorOverlayCornerRadius)
                         .fill(Color(nsColor: .windowBackgroundColor))
                         .shadow(radius: 10)
                 )
@@ -54,13 +54,13 @@ struct SurfaceErrorOverlay: View {
     }
 
     private func unhealthyView(reason: SurfaceHealth.UnhealthyReason) -> some View {
-        VStack(spacing: 16) {
+        VStack(spacing: AppStyles.WorkspaceFocus.Terminal.errorOverlaySectionSpacing) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: AppStyle.text5xl))
+                .font(.system(size: AppStyles.General.Typography.text5xl))
                 .foregroundColor(.orange)
 
             Text("Terminal Unhealthy")
-                .font(.system(size: AppStyle.textXl, weight: .bold))
+                .font(.system(size: AppStyles.General.Typography.textXl, weight: .bold))
 
             Text(unhealthyMessage(for: reason))
                 .multilineTextAlignment(.center)
@@ -72,17 +72,17 @@ struct SurfaceErrorOverlay: View {
     }
 
     private func processExitedView(exitCode: Int32?) -> some View {
-        VStack(spacing: 16) {
+        VStack(spacing: AppStyles.WorkspaceFocus.Terminal.errorOverlaySectionSpacing) {
             Image(systemName: "stop.circle.fill")
-                .font(.system(size: AppStyle.text5xl))
+                .font(.system(size: AppStyles.General.Typography.text5xl))
                 .foregroundColor(.gray)
 
             Text("Process Exited")
-                .font(.system(size: AppStyle.textXl, weight: .bold))
+                .font(.system(size: AppStyles.General.Typography.textXl, weight: .bold))
 
             if let code = exitCode {
                 Text("Exit code: \(code)")
-                    .font(.system(size: AppStyle.textBase, design: .monospaced))
+                    .font(.system(size: AppStyles.General.Typography.textBase, design: .monospaced))
                     .foregroundColor(.secondary)
             } else {
                 Text("The process has terminated.")
@@ -94,13 +94,13 @@ struct SurfaceErrorOverlay: View {
     }
 
     private func deadView() -> some View {
-        VStack(spacing: 16) {
+        VStack(spacing: AppStyles.WorkspaceFocus.Terminal.errorOverlaySectionSpacing) {
             Image(systemName: "xmark.octagon.fill")
-                .font(.system(size: AppStyle.text5xl))
+                .font(.system(size: AppStyles.General.Typography.text5xl))
                 .foregroundColor(.red)
 
             Text("Terminal Error")
-                .font(.system(size: AppStyle.textXl, weight: .bold))
+                .font(.system(size: AppStyles.General.Typography.textXl, weight: .bold))
 
             Text("The terminal has stopped responding. This may be due to a crash or resource exhaustion.")
                 .multilineTextAlignment(.center)
@@ -126,7 +126,7 @@ struct SurfaceErrorOverlay: View {
             .buttonStyle(.borderedProminent)
             .keyboardShortcut(.defaultAction)
         }
-        .padding(.top, 8)
+        .padding(.top, AppStyles.WorkspaceFocus.Terminal.errorOverlayActionTopPadding)
     }
 
     private func unhealthyMessage(for reason: SurfaceHealth.UnhealthyReason) -> String {

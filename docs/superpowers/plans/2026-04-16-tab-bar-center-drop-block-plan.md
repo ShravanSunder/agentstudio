@@ -433,11 +433,11 @@ Recommended minimal version:
 ```swift
 .overlay {
     if isForbiddenDropTarget {
-        RoundedRectangle(cornerRadius: AppStyle.barCornerRadius)
+        RoundedRectangle(cornerRadius: AppStyles.barCornerRadius)
             .strokeBorder(Color.red.opacity(0.7), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
             .overlay {
                 Image(systemName: "nosign")
-                    .font(.system(size: AppStyle.textSm, weight: .semibold))
+                    .font(.system(size: AppStyles.textSm, weight: .semibold))
                     .foregroundStyle(Color.red.opacity(0.8))
             }
     }

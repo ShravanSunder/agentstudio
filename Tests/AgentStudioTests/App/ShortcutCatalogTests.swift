@@ -41,12 +41,15 @@ struct ShortcutCatalogTests {
     func commandSpecDerivesKeyBindingFromShortcut() {
         let managementLayerDefinition = CommandDispatcher.shared.definition(for: .toggleManagementLayer)
         let quickOpenDefinition = CommandDispatcher.shared.definition(for: .showCommandBarEverything)
+        let startContextDefinition = CommandDispatcher.shared.definition(for: .showCommandBarRepos)
         let addDrawerPaneDefinition = CommandDispatcher.shared.definition(for: .addDrawerPane)
 
         #expect(managementLayerDefinition.keyBinding?.key == "r")
         #expect(managementLayerDefinition.keyBinding?.modifiers == [.command])
         #expect(quickOpenDefinition.keyBinding?.key == "p")
         #expect(quickOpenDefinition.keyBinding?.modifiers == [.command])
+        #expect(startContextDefinition.keyBinding?.key == "t")
+        #expect(startContextDefinition.keyBinding?.modifiers == [.command])
         #expect(addDrawerPaneDefinition.keyBinding?.key == "d")
         #expect(addDrawerPaneDefinition.keyBinding?.modifiers == [.command, .shift])
     }
@@ -65,10 +68,15 @@ struct ShortcutCatalogTests {
             for: .init(key: .character(.p), modifiers: [.command, .option]),
             in: .global
         )
+        let smartNewTab = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.t), modifiers: [.command]),
+            in: .global
+        )
 
         #expect(quickOpen == .showCommandBarEverything)
         #expect(commandPalette == .showCommandBarCommands)
         #expect(panePicker == .showCommandBarPanes)
+        #expect(smartNewTab == .newTab)
     }
 
     @Test

@@ -12,9 +12,9 @@ struct TabBarArrangementChip: View {
     }
 
     var chipFillOpacity: CGFloat {
-        if isPressed { return AppStyle.fillActive }
-        if isHovered { return AppStyle.fillPressed }
-        return AppStyle.fillMuted
+        if isPressed { return AppStyles.General.Fill.active }
+        if isHovered { return AppStyles.General.Fill.pressed }
+        return AppStyles.General.Fill.muted
     }
 
     static func nameMaxWidth(isManagementLayerActive: Bool) -> CGFloat {
@@ -24,19 +24,19 @@ struct TabBarArrangementChip: View {
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "rectangle.3.group")
-                .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
                 .foregroundStyle(isHovered ? .primary : .secondary)
 
             if let index, let name {
                 HStack(spacing: 4) {
                     Text("\(index)")
-                        .font(.system(size: AppStyle.textXs, weight: .semibold))
+                        .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
                         .foregroundStyle(.secondary)
                     Text("·")
-                        .font(.system(size: AppStyle.textXs))
+                        .font(.system(size: AppStyles.General.Typography.textXs))
                         .foregroundStyle(.tertiary)
                     Text(name)
-                        .font(.system(size: AppStyle.textXs))
+                        .font(.system(size: AppStyles.General.Typography.textXs))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -45,15 +45,15 @@ struct TabBarArrangementChip: View {
             }
         }
         .fixedSize(horizontal: true, vertical: false)
-        .frame(height: AppStyle.toolbarButtonSize)
+        .frame(height: AppStyles.General.Button.toolbar)
         .padding(.horizontal, hasCustomArrangement ? 8 : 0)
-        .frame(minWidth: AppStyle.toolbarButtonSize)
+        .frame(minWidth: AppStyles.General.Button.toolbar)
         .background(
             Capsule()
                 .fill(Color.white.opacity(chipFillOpacity))
         )
         .contentShape(Capsule())
-        .animation(.easeInOut(duration: AppStyle.animationStandard), value: hasCustomArrangement)
-        .animation(.easeInOut(duration: AppStyle.animationStandard), value: name)
+        .animation(.easeInOut(duration: AppStyles.General.Animation.standard), value: hasCustomArrangement)
+        .animation(.easeInOut(duration: AppStyles.General.Animation.standard), value: name)
     }
 }

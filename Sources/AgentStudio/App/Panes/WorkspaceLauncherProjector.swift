@@ -2,7 +2,9 @@ import Foundation
 
 enum WorkspaceEmptyStateKind: Equatable {
     case noFolders
+    case choosingFolder
     case scanning(URL)
+    case scanEmpty(URL)
     case launcher
 }
 
@@ -20,6 +22,8 @@ struct WorkspaceRecentCardModel: Equatable, Identifiable {
     let statusChips: WorkspaceStatusChipsModel?
     let checkoutIconKind: SidebarCheckoutIconKind?
     let iconColorHex: String?
+    let repoName: String
+    let worktreeDisplayName: String
 }
 
 struct WorkspaceEmptyStateModel: Equatable {
@@ -28,6 +32,11 @@ struct WorkspaceEmptyStateModel: Equatable {
 
     var scanningFolderPath: URL? {
         if case .scanning(let url) = kind { return url }
+        return nil
+    }
+
+    var emptyFolderPath: URL? {
+        if case .scanEmpty(let url) = kind { return url }
         return nil
     }
 
@@ -44,18 +53,23 @@ struct WorkspaceEmptyStateModel: Equatable {
 enum WorkspaceLauncherProjector {
     static func project(store: WorkspaceStore) -> WorkspaceEmptyStateModel {
         let repoCache = atom(\.repoCache)
+        let welcome = atom(\.welcome)
         let repositoryTopology = store.repositoryTopologyAtom
         let workspaceTab = WorkspaceTabDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
 
-        if let scanningPath = store.scanningPath, repositoryTopology.repos.isEmpty {
-            return WorkspaceEmptyStateModel(kind: .scanning(scanningPath), recentCards: [])
-        }
-
         if repositoryTopology.repos.isEmpty {
-            return WorkspaceEmptyStateModel(kind: .noFolders, recentCards: [])
+            switch welcome.folderScanState {
+            case .idle:
+                let kind: WorkspaceEmptyStateKind = welcome.isChoosingFolder ? .choosingFolder : .noFolders
+                return WorkspaceEmptyStateModel(kind: kind, recentCards: [])
+            case .scanning(let rootPath):
+                return WorkspaceEmptyStateModel(kind: .scanning(rootPath), recentCards: [])
+            case .empty(let rootPath):
+                return WorkspaceEmptyStateModel(kind: .scanEmpty(rootPath), recentCards: [])
+            }
         }
 
         if workspaceTab.tabs.isEmpty {
@@ -150,6 +164,15 @@ enum WorkspaceLauncherProjector {
             enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id]
         )
 
+        let worktreeDisplayName: String = {
+            if worktree.isMainWorktree { return "main" }
+            let prefix = "\(repo.name)."
+            if worktree.name.hasPrefix(prefix) {
+                return String(worktree.name.dropFirst(prefix.count))
+            }
+            return worktree.name
+        }()
+
         return WorkspaceRecentCardModel(
             id: target.id,
             target: target,
@@ -158,7 +181,9 @@ enum WorkspaceLauncherProjector {
             icon: worktree.isMainWorktree ? .mainWorktree : .gitWorktree,
             statusChips: chipModel,
             checkoutIconKind: worktree.isMainWorktree ? .mainCheckout : .gitWorktree,
-            iconColorHex: iconColorHex ?? fallbackCheckoutColorHex(for: repo)
+            iconColorHex: iconColorHex ?? fallbackCheckoutColorHex(for: repo),
+            repoName: repo.name,
+            worktreeDisplayName: worktreeDisplayName
         )
     }
 

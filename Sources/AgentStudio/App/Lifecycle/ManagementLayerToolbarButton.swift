@@ -17,7 +17,7 @@ struct ManagementLayerToolbarButton: View {
                     ? "rectangle.split.2x2.fill"
                     : "rectangle.split.2x2"
             )
-            .font(.system(size: AppStyle.textLg, weight: .medium))
+            .font(.system(size: AppStyles.General.Typography.textLg, weight: .medium))
             .foregroundStyle(isManagementLayerActive ? Color.accentColor : .primary)
         }
         .buttonStyle(.plain)

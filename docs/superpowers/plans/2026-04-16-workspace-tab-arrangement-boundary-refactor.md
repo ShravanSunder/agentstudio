@@ -514,7 +514,7 @@ Expected: pass.
 - Modify: `Sources/AgentStudio/Features/Sidebar/RepoSidebarContentView.swift`
 - Modify: `Sources/AgentStudio/Core/State/MainActor/Atoms/PaneDisplayDerived.swift`
 - Modify: `Sources/AgentStudio/App/Panes/WorkspaceLauncherProjector.swift`
-- Modify: `Sources/AgentStudio/Infrastructure/AppStyle.swift`
+- Modify: `Sources/AgentStudio/Infrastructure/AppStyles.swift`
 - Modify: `Sources/AgentStudio/Features/Sidebar/SidebarWorktreeRow.swift`
 - Modify tests under `Tests/AgentStudioTests/Features/Sidebar/`, `Tests/AgentStudioTests/Integration/FilesystemToPrimarySidebarIntegrationTests.swift`, `Tests/AgentStudioTests/App/PrimarySidebarPipelineIntegrationTests.swift`, `Tests/AgentStudioTests/App/WorkspaceLauncherProjectorTests.swift`, and any Core tests touching accent color
 
@@ -564,7 +564,7 @@ Replace old `SidebarRepo*` names in:
 - sidebar projection
 - launcher projector
 - pane display accent color logic
-- style/comment references in `AppStyle.swift`
+- style/comment references in `AppStyles.swift`
 - sidebar row/presentation references in `SidebarWorktreeRow.swift`
 - tests
 

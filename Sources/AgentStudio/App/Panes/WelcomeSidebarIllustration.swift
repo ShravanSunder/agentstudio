@@ -1,5 +1,13 @@
 import SwiftUI
 
+// MARK: - Pinned Constants
+
+enum WelcomeSidebarIllustrationConstants {
+    static let frameWidth: CGFloat = 300
+    static let ghosttyPaletteIndex: Int = 0
+    static let uvPaletteIndex: Int = 3
+}
+
 // MARK: - Mock Data
 
 private let ghosttyRepoId = UUID()
@@ -82,30 +90,30 @@ private let fixResolverStatus = GitBranchStatus(
 
 // MARK: - Color Helpers
 
-private func paletteColor(at index: Int) -> Color {
-    Color(nsColor: NSColor(hex: AppStyle.accentPaletteHexes[index]) ?? .controlAccentColor)
-}
-
-private let ghosttyColor = paletteColor(at: 0)
-private let uvColor = paletteColor(at: 3)
+private let ghosttyColor = AppStyles.Shell.Sidebar.paletteColor(
+    at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex
+)
+private let uvColor = AppStyles.Shell.Sidebar.paletteColor(
+    at: WelcomeSidebarIllustrationConstants.uvPaletteIndex
+)
 
 // MARK: - Public View
 
 struct WelcomeSidebarIllustration: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: AppStyle.spacingLoose) {
+        VStack(alignment: .leading, spacing: AppStyles.General.Spacing.loose) {
             ghosttyGroup
             uvGroup
         }
         .padding(16)
-        .frame(width: 300, alignment: .leading)
+        .frame(width: WelcomeSidebarIllustrationConstants.frameWidth, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Color.white.opacity(AppStyle.fillMuted))
+                .fill(Color.white.opacity(AppStyles.General.Fill.muted))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(Color.white.opacity(AppStyle.fillActive), lineWidth: 1)
+                .stroke(Color.white.opacity(AppStyles.General.Fill.active), lineWidth: 1)
         )
         .allowsHitTesting(false)
     }
@@ -134,7 +142,7 @@ struct WelcomeSidebarIllustration: View {
                     onOpenInPane: {},
                     onSetIconColor: { _ in }
                 )
-                .padding(.leading, AppStyle.sidebarGroupChildRowLeadingInset)
+                .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
                 SidebarWorktreeRow(
                     worktree: ghosttyGpuRendererWorktree,
@@ -149,7 +157,7 @@ struct WelcomeSidebarIllustration: View {
                     onOpenInPane: {},
                     onSetIconColor: { _ in }
                 )
-                .padding(.leading, AppStyle.sidebarGroupChildRowLeadingInset)
+                .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
                 SidebarWorktreeRow(
                     worktree: ghosttyFixKeybindsWorktree,
@@ -164,7 +172,7 @@ struct WelcomeSidebarIllustration: View {
                     onOpenInPane: {},
                     onSetIconColor: { _ in }
                 )
-                .padding(.leading, AppStyle.sidebarGroupChildRowLeadingInset)
+                .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
             }
         }
     }
@@ -193,7 +201,7 @@ struct WelcomeSidebarIllustration: View {
                     onOpenInPane: {},
                     onSetIconColor: { _ in }
                 )
-                .padding(.leading, AppStyle.sidebarGroupChildRowLeadingInset)
+                .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
                 SidebarWorktreeRow(
                     worktree: uvFixResolverWorktree,
@@ -208,7 +216,7 @@ struct WelcomeSidebarIllustration: View {
                     onOpenInPane: {},
                     onSetIconColor: { _ in }
                 )
-                .padding(.leading, AppStyle.sidebarGroupChildRowLeadingInset)
+                .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
             }
         }
     }

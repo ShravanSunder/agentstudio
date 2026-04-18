@@ -22,7 +22,7 @@ final class CommandBarPanel: NSPanel {
         view.blendingMode = .behindWindow
         view.state = .active
         view.wantsLayer = true
-        view.layer?.cornerRadius = 12
+        view.layer?.cornerRadius = AppStyles.CommandBar.Panel.cornerRadius
         view.layer?.masksToBounds = true
         return view
     }()
@@ -62,7 +62,7 @@ final class CommandBarPanel: NSPanel {
         // Content setup: effectView fills the panel
         let container = NSView()
         container.wantsLayer = true
-        container.layer?.cornerRadius = 12
+        container.layer?.cornerRadius = AppStyles.CommandBar.Panel.cornerRadius
         container.layer?.masksToBounds = true
 
         effectView.translatesAutoresizingMaskIntoConstraints = false

@@ -274,10 +274,15 @@ enum AppShortcut: String, CaseIterable {
 
     var trigger: ShortcutTrigger { spec.trigger }
     var command: AppCommand {
-        guard let command = AppCommand(rawValue: rawValue) else {
-            fatalError("Missing AppCommand for shortcut \(rawValue)")
+        switch self {
+        case .newTab:
+            return .showCommandBarRepos
+        default:
+            guard let command = AppCommand(rawValue: rawValue) else {
+                fatalError("Missing AppCommand for shortcut \(rawValue)")
+            }
+            return command
         }
-        return command
     }
     var contexts: Set<ShortcutContext> { spec.contexts }
     var keyBinding: KeyBinding? { trigger.keyBinding }

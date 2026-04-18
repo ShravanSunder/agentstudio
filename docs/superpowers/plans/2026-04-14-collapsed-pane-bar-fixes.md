@@ -48,7 +48,7 @@ A first implementation of the collapsed pane bar redesign is already in place (u
 | `Core/Views/Splits/ArrangementPanel.swift` | Toggle label + binding fix, management mode hint |
 | `Core/State/MainActor/Atoms/UIStateAtom.swift` | Remove `hideMinimizedBars` / `setHideMinimizedBars` |
 | `App/Panes/TabBar/CustomTabBar.swift` | Arrangement popover arrow direction |
-| `Infrastructure/AppStyle.swift` | Remove `collapsedBarAccentHeight` |
+| `Infrastructure/AppStyles.swift` | Remove `collapsedBarAccentHeight` |
 | `Core/Models/FlatTabStripMetrics.swift` | Fix divider guard: allow dividers between visible and minimized panes |
 | `Core/Views/Splits/PaneManagementContext.swift` | Skip CWD row when compact path is "." |
 | `Tests/AgentStudioTests/Core/Views/PaneDisplayDerivedTests.swift` | Add `accentColorHex` tests |
@@ -353,7 +353,7 @@ git commit -m "feat: add collapsedBarLabelParts to PaneDisplayDerived for struct
 - Modify: `Sources/AgentStudio/Core/Views/Splits/CollapsedPaneBar.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Splits/FlatPaneStripContent.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Splits/FlatTabStripContainer.swift`
-- Modify: `Sources/AgentStudio/Infrastructure/AppStyle.swift`
+- Modify: `Sources/AgentStudio/Infrastructure/AppStyles.swift`
 
 - [ ] **Step 1: Remove title parameter from CollapsedPaneBar**
 
@@ -364,7 +364,7 @@ In `CollapsedPaneBar.swift`, remove `let title: String` (line 6), remove from in
 Replace the current text block (lines 63-70 of the body):
 ```swift
 Text(title)
-    .font(.system(size: AppStyle.textSm, weight: .semibold))
+    .font(.system(size: AppStyles.textSm, weight: .semibold))
     .foregroundStyle(.primary.opacity(0.92))
     .lineLimit(1)
     .truncationMode(.tail)
@@ -385,7 +385,7 @@ private func collapsedLabel(availableHeight: CGFloat) -> some View {
         ForEach(Array(labelParts.enumerated()), id: \.offset) { index, part in
             if index > 0 {
                 Text("·")
-                    .font(.system(size: AppStyle.textXs))
+                    .font(.system(size: AppStyles.textXs))
                     .foregroundStyle(.tertiary)
                     .fixedSize()  // separators never truncate
             }
@@ -403,7 +403,7 @@ private func collapsedLabel(availableHeight: CGFloat) -> some View {
             .fixedSize()  // icons never truncate
 
             Text(part.text)
-                .font(.system(size: AppStyle.textXs, weight: part.weight == .semibold ? .semibold : .regular))
+                .font(.system(size: AppStyles.textXs, weight: part.weight == .semibold ? .semibold : .regular))
                 .foregroundStyle(.primary.opacity(0.82))
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -446,8 +446,8 @@ Remove the accent bar block from the body (lines 74-79):
 if let accentHex, let nsColor = NSColor(hex: accentHex) {
     RoundedRectangle(cornerRadius: 1.5)
         .fill(Color(nsColor: nsColor).opacity(0.7))
-        .frame(height: AppStyle.collapsedBarAccentHeight)
-        .padding(.horizontal, AppStyle.spacingStandard)
+        .frame(height: AppStyles.collapsedBarAccentHeight)
+        .padding(.horizontal, AppStyles.spacingStandard)
 }
 ```
 
@@ -458,9 +458,9 @@ Also remove the `let accentHex = paneDisplay.accentColorHex(for: paneId)` line f
 Change VStack spacing from `spacingTight` to `spacingStandard`:
 ```swift
 // FROM:
-VStack(spacing: AppStyle.spacingTight) {
+VStack(spacing: AppStyles.spacingTight) {
 // TO:
-VStack(spacing: AppStyle.spacingStandard) {
+VStack(spacing: AppStyles.spacingStandard) {
 ```
 
 - [ ] **Step 5: Update tooltip to use primaryLabel**
@@ -472,9 +472,9 @@ The tooltip should still use the full `primaryLabel` for detailed info on hover.
 
 Since we removed `accentHex` but still need `displayParts`, keep `let displayParts = paneDisplay.displayParts(for: paneId)` or simplify to just `let tooltipText = atom(\.paneDisplay).displayLabel(for: paneId)`.
 
-- [ ] **Step 6: Remove collapsedBarAccentHeight from AppStyle**
+- [ ] **Step 6: Remove collapsedBarAccentHeight from AppStyles**
 
-In `Sources/AgentStudio/Infrastructure/AppStyle.swift`, remove:
+In `Sources/AgentStudio/Infrastructure/AppStyles.swift`, remove:
 ```swift
 /// Height of the accent color indicator at the bottom of the collapsed bar.
 static let collapsedBarAccentHeight: CGFloat = 3
@@ -547,7 +547,7 @@ After the toggle HStack closing brace, add:
 ```swift
 if !atom(\.uiState).showMinimizedBars && atom(\.managementMode).isActive {
     Text("Minimized panes are always shown in management mode")
-        .font(.system(size: AppStyle.textXs))
+        .font(.system(size: AppStyles.textXs))
         .foregroundStyle(.tertiary)
         .fixedSize(horizontal: false, vertical: true)
 }
@@ -639,8 +639,8 @@ Note: The stale closure in `onSaveArrangement` was already fixed in the first im
 In the body, after the GeometryReader content (before `.coordinateSpace(name: "tabContainer")`), add:
 
 ```swift
-.animation(.easeOut(duration: AppStyle.animationStandard), value: atom(\.uiState).showMinimizedBars)
-.animation(.easeOut(duration: AppStyle.animationStandard), value: managementMode.isActive)
+.animation(.easeOut(duration: AppStyles.animationStandard), value: atom(\.uiState).showMinimizedBars)
+.animation(.easeOut(duration: AppStyles.animationStandard), value: managementMode.isActive)
 ```
 
 This makes bars animate smoothly when the toggle changes or management mode toggles.
@@ -687,7 +687,7 @@ func test_flatStripMetrics_minimizedBetweenVisible_createsDividers() {
     let renderInfo = FlatTabStripMetrics.compute(
         layout: updated.layout,
         in: CGRect(x: 0, y: 0, width: 1200, height: 700),
-        dividerThickness: AppStyle.paneGap,
+        dividerThickness: AppStyles.paneGap,
         minimizedPaneIds: updated.minimizedPaneIds,
         collapsedPaneWidth: CollapsedPaneBar.barWidth
     )

@@ -1,4 +1,3 @@
-// swiftlint:disable file_length
 import AppKit
 import SwiftUI
 import os.log
@@ -135,6 +134,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             bus: paneRuntimeBus,
             workspaceStore: store,
             repoCache: repoCache,
+            welcomeAtom: atomStore.welcome,
             topologyEffectHandler: paneCoordinator,
             scopeSyncHandler: { [weak pipeline] change in
                 guard let pipeline else { return }
@@ -241,6 +241,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private static var nextTopologySeq: UInt64 = 0
+    private static var nextWorkspaceActivitySeq: UInt64 = 0
 
     /// Build a canonical `.repoDiscovered` topology envelope.
     /// Coordinator-originated events use `.builtin(.coordinator)`;
@@ -257,6 +258,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                         repoPath: repoPath,
                         parentPath: repoPath.deletingLastPathComponent()
                     ))
+            )
+        )
+    }
+
+    static func makeWorkspaceActivityEnvelope(_ event: WorkspaceActivityEvent) -> RuntimeEnvelope {
+        nextWorkspaceActivitySeq += 1
+        return .system(
+            SystemEnvelope(
+                source: .builtin(.coordinator),
+                seq: nextWorkspaceActivitySeq,
+                timestamp: .now,
+                event: .workspaceActivity(event)
             )
         )
     }
@@ -601,11 +614,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let fileMenu = NSMenu(title: "File")
         fileMenu.addItem(menuItem(command: .newWindow, action: #selector(newWindow)))
         fileMenu.addItem(menuItem(command: .newTab, action: #selector(newTab)))
+        fileMenu.addItem(menuItem(command: .showCommandBarRepos, action: #selector(showCommandBarRepos)))
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(menuItem(command: .closeTab, action: #selector(closeTab)))
         fileMenu.addItem(menuItem(command: .closeWindow, action: #selector(closeWindow)))
         fileMenu.addItem(NSMenuItem.separator())
-        fileMenu.addItem(menuItem(command: .addRepo, action: #selector(addRepo)))
         fileMenu.addItem(menuItem(command: .addFolder, action: #selector(addFolder)))
 
         let fileMenuItem = NSMenuItem()
@@ -753,61 +766,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.keyWindow?.close()
     }
 
-    @objc private func addRepo() {
-        CommandDispatcher.shared.dispatch(.addRepo)
-    }
-
     @objc private func addFolder() {
         CommandDispatcher.shared.dispatch(.addFolder)
     }
 
     // MARK: - Repo/Folder Intake
 
-    private func handleAddRepoRequested() async {
-        var initialDirectory: URL?
-
-        while true {
-            let panel = NSOpenPanel()
-            panel.canChooseFiles = false
-            panel.canChooseDirectories = true
-            panel.allowsMultipleSelection = false
-            panel.message = "Choose a Git repository folder."
-            panel.prompt = "Add Repository"
-            panel.directoryURL = initialDirectory
-
-            guard panel.runModal() == .OK, let selectedURL = panel.url else {
-                return
-            }
-
-            let normalizedURL = selectedURL.standardizedFileURL
-            if isGitRepositoryFolder(normalizedURL) {
-                mainWindowController?.expandSidebar()
-                await addRepoIfNeeded(normalizedURL)
-                return
-            }
-
-            let alert = NSAlert()
-            alert.messageText = "Not a Git Repository"
-            alert.informativeText =
-                "The selected folder is not a Git repo. You can choose another folder or scan this folder for repos."
-            alert.alertStyle = .warning
-            alert.addButton(withTitle: "Choose Another Folder")
-            alert.addButton(withTitle: "Scan This Folder")
-            alert.addButton(withTitle: "Cancel")
-
-            switch alert.runModal() {
-            case .alertFirstButtonReturn:
-                initialDirectory = normalizedURL.deletingLastPathComponent()
-            case .alertSecondButtonReturn:
-                await handleAddFolderRequested(startingAt: normalizedURL)
-                return
-            default:
-                return
-            }
-        }
-    }
-
     private func handleAddFolderRequested(startingAt initialURL: URL? = nil) async {
+        let welcome = atomStore.welcome
+        welcome.beginChoosingFolder()
+        defer { welcome.endChoosingFolder() }
+
         let rootURL: URL
         if let initialURL {
             rootURL = initialURL.standardizedFileURL
@@ -830,7 +799,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         // 2. Signal scanning state for UI. Sidebar stays collapsed until
         //    the first repo is discovered — never show an empty sidebar.
-        store.beginScan(rootURL)
+        welcome.beginFolderScan(rootURL)
 
         // Expand sidebar when a repo from this folder is discovered.
         // Scoped to rootURL so unrelated discoveries don't trigger it.
@@ -851,8 +820,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer {
-                self.store.endScan()
                 sidebarExpandTask.cancel()
+                // Safety net: if the .folderScanFinished event never reaches
+                // the coordinator (late subscription, bus cancellation), the
+                // scan state would stay .scanning forever. Clear it here so
+                // the view falls back to .launcher once repos populate.
+                if case .scanning(let rootPath) = welcome.folderScanState,
+                    rootPath == rootURL.standardizedFileURL
+                {
+                    welcome.clearFolderScanState()
+                }
             }
 
             let refreshSummary = await self.watchedFolderCommands.refreshWatchedFolders(
@@ -860,39 +837,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             )
 
             let repoPaths = refreshSummary.repoPaths(in: rootURL)
-
-            guard repoPaths.isEmpty else { return }
-            let alert = NSAlert()
-            alert.messageText = "No Git Repositories Found"
-            alert.informativeText =
-                "No folders with a Git repository were found under \(rootURL.lastPathComponent). The folder will still be watched for future repos."
-            alert.alertStyle = .informational
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
+            let activityEnvelope = Self.makeWorkspaceActivityEnvelope(
+                .folderScanFinished(
+                    rootPath: rootURL,
+                    discoveredRepoCount: repoPaths.count
+                )
+            )
+            await PaneRuntimeEventBus.shared.post(activityEnvelope)
         }
-    }
-
-    private func addRepoIfNeeded(_ path: URL) async {
-        let normalizedPath = path.standardizedFileURL
-
-        // Skip if the path is already a known worktree of an available repo.
-        // Unavailable repos are excluded so re-adding the same path can reassociate them.
-        let isKnownWorktree = store.repositoryTopologyAtom.repos.contains { repo in
-            !store.repositoryTopologyAtom.isRepoUnavailable(repo.id)
-                && repo.worktrees.contains { $0.path.standardizedFileURL == normalizedPath }
-        }
-        if isKnownWorktree { return }
-
-        // Post topology fact on the bus — coordinator's subscription handles dedup,
-        // enrichment seeding, and scope sync.
-        await PaneRuntimeEventBus.shared.post(
-            Self.makeTopologyEnvelope(repoPath: normalizedPath, source: .builtin(.coordinator))
-        )
-        paneCoordinator.syncFilesystemRootsAndActivity()
-    }
-
-    private func isGitRepositoryFolder(_ url: URL) -> Bool {
-        FileManager.default.fileExists(atPath: url.appending(path: ".git").path)
     }
 
     @objc private func toggleSidebar() {
@@ -954,7 +906,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 extension AppDelegate: ShellCommandHandling {
     func canExecute(_ command: AppCommand) -> Bool {
         switch command {
-        case .addRepo, .addFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle,
+        case .addFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle,
             .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
             true
@@ -964,10 +916,6 @@ extension AppDelegate: ShellCommandHandling {
 
     func execute(_ command: AppCommand) -> Bool {
         switch command {
-        case .addRepo:
-            mainWindowController?.expandSidebar()
-            Task { await handleAddRepoRequested() }
-            return true
         case .addFolder:
             Task { await handleAddFolderRequested() }
             return true

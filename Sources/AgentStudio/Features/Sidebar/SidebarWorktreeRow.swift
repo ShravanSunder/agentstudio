@@ -49,14 +49,16 @@ struct SidebarWorktreeRowContent: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppStyle.sidebarRowContentSpacing) {
-            HStack(spacing: AppStyle.spacingTight) {
+        VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
+            HStack(spacing: AppStyles.General.Spacing.tight) {
                 checkoutTypeIcon
-                    .frame(width: AppStyle.sidebarRowLeadingIconColumnWidth, alignment: .leading)
+                    .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
 
                 Text(checkoutTitle)
                     .font(
-                        .system(size: AppStyle.textBase, weight: checkoutIconKind == .mainCheckout ? .medium : .regular)
+                        .system(
+                            size: AppStyles.General.Typography.textBase,
+                            weight: checkoutIconKind == .mainCheckout ? .medium : .regular)
                     )
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -66,13 +68,13 @@ struct SidebarWorktreeRowContent: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: AppStyle.spacingTight) {
-                OcticonImage(name: "octicon-git-branch", size: AppStyle.sidebarBranchIconSize)
+            HStack(spacing: AppStyles.General.Spacing.tight) {
+                OcticonImage(name: "octicon-git-branch", size: AppStyles.Shell.Sidebar.branchIconSize)
                     .foregroundStyle(.secondary)
-                    .frame(width: AppStyle.sidebarRowLeadingIconColumnWidth, alignment: .leading)
+                    .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
 
                 Text(branchName)
-                    .font(.system(size: AppStyle.sidebarBranchFontSize, weight: .medium))
+                    .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(1)
@@ -81,7 +83,7 @@ struct SidebarWorktreeRowContent: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            HStack(spacing: AppStyle.sidebarChipRowSpacing) {
+            HStack(spacing: AppStyles.Shell.Sidebar.chipRowSpacing) {
                 SidebarDiffChip(
                     linesAdded: lineDiffCounts.added,
                     linesDeleted: lineDiffCounts.deleted,
@@ -107,14 +109,14 @@ struct SidebarWorktreeRowContent: View {
                     style: notificationCount > 0 ? .accent(iconColor) : .neutral
                 )
             }
-            .padding(.leading, AppStyle.sidebarStatusRowLeadingIndent)
+            .padding(.leading, AppStyles.Shell.Sidebar.statusRowLeadingIndent)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
     @ViewBuilder
     private var checkoutTypeIcon: some View {
-        let checkoutTypeSize = AppStyle.textBase
+        let checkoutTypeSize = AppStyles.General.Typography.textBase
         switch checkoutIconKind {
         case .mainCheckout:
             OcticonImage(name: "octicon-star-fill", size: checkoutTypeSize)
@@ -151,11 +153,11 @@ struct SidebarWorktreeRow: View {
             branchStatus: branchStatus,
             notificationCount: notificationCount
         )
-        .padding(.vertical, AppStyle.sidebarRowVerticalInset)
-        .padding(.horizontal, AppStyle.spacingTight / 2)
+        .padding(.vertical, AppStyles.Shell.Sidebar.rowVerticalInset)
+        .padding(.horizontal, AppStyles.General.Spacing.tight / 2)
         .background(
-            RoundedRectangle(cornerRadius: AppStyle.barCornerRadius)
-                .fill(isHovering ? Color.accentColor.opacity(AppStyle.sidebarRowHoverOpacity) : Color.clear)
+            RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.bar)
+                .fill(isHovering ? Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity) : Color.clear)
         )
         .contentShape(Rectangle())
         .onHover { isHovering = $0 }

@@ -755,9 +755,9 @@ struct CommandBarFooter: View {
     private func footerHint(_ key: String, _ label: String) -> some View {
         HStack(spacing: 4) {
             Text(key)
-                .font(.system(size: AppStyle.textXs, weight: .medium, design: .monospaced))
+                .font(.system(size: AppStyles.textXs, weight: .medium, design: .monospaced))
             Text(label)
-                .font(.system(size: AppStyle.textXs))
+                .font(.system(size: AppStyles.textXs))
         }
         .foregroundStyle(.primary.opacity(0.3))
     }

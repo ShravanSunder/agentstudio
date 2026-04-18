@@ -52,7 +52,7 @@ struct GeneralSettingsView: View {
                 LabeledContent("Data Location") {
                     Text(AppDataPaths.displayPath(for: AppDataPaths.rootDirectory()))
                         .foregroundStyle(.secondary)
-                        .font(.system(size: AppStyle.textBase, design: .monospaced))
+                        .font(.system(size: AppStyles.General.Typography.textBase, design: .monospaced))
                 }
 
                 Button(LocalActionSpec.revealDataLocationInFinder.actionSpec.label) {
@@ -100,7 +100,7 @@ struct TerminalSettingsView: View {
                 .pickerStyle(.menu)
 
                 Text("Default restores hidden panes only when they already have an existing zmx session.")
-                    .font(.system(size: AppStyle.textXs))
+                    .font(.system(size: AppStyles.General.Typography.textXs))
                     .foregroundStyle(.secondary)
             }
 
@@ -108,7 +108,7 @@ struct TerminalSettingsView: View {
                 LabeledContent("Config Location") {
                     Text("~/.config/zellij/")
                         .foregroundStyle(.secondary)
-                        .font(.system(size: AppStyle.textBase, design: .monospaced))
+                        .font(.system(size: AppStyles.General.Typography.textBase, design: .monospaced))
                 }
 
                 Button(LocalActionSpec.openZellijConfig.actionSpec.label) {
@@ -140,9 +140,9 @@ struct WebviewSettingsView: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(entry.title)
-                                .font(.system(size: AppStyle.textSm))
+                                .font(.system(size: AppStyles.General.Typography.textSm))
                             Text(entry.url.absoluteString)
-                                .font(.system(size: AppStyle.textXs))
+                                .font(.system(size: AppStyles.General.Typography.textXs))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
@@ -154,7 +154,7 @@ struct WebviewSettingsView: View {
                             history.removeFavorite(url: entry.url)
                         } label: {
                             Image(systemName: "trash")
-                                .font(.system(size: AppStyle.textXs))
+                                .font(.system(size: AppStyles.General.Typography.textXs))
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
@@ -165,11 +165,11 @@ struct WebviewSettingsView: View {
                     VStack(spacing: 6) {
                         TextField("Title", text: $newFavoriteTitle)
                             .textFieldStyle(.roundedBorder)
-                            .font(.system(size: AppStyle.textSm))
+                            .font(.system(size: AppStyles.General.Typography.textSm))
 
                         TextField("URL (e.g. https://example.com)", text: $newFavoriteURL)
                             .textFieldStyle(.roundedBorder)
-                            .font(.system(size: AppStyle.textSm))
+                            .font(.system(size: AppStyles.General.Typography.textSm))
 
                         HStack {
                             Spacer()
@@ -200,12 +200,12 @@ struct WebviewSettingsView: View {
 
             Section("History") {
                 Text("History older than 2 weeks is automatically removed.")
-                    .font(.system(size: AppStyle.textXs))
+                    .font(.system(size: AppStyles.General.Typography.textXs))
                     .foregroundStyle(.secondary)
 
                 HStack {
                     Text("\(history.entries.count) entries")
-                        .font(.system(size: AppStyle.textXs))
+                        .font(.system(size: AppStyles.General.Typography.textXs))
                         .foregroundStyle(.secondary)
 
                     Spacer()

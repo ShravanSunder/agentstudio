@@ -385,4 +385,12 @@ final class CommandBarBackdropView: NSView {
     override func mouseDown(with event: NSEvent) {
         onDismiss()
     }
+
+    // The backdrop lives in the parent window, but the command bar panel is
+    // key while open. Without this, a click outside the panel would first
+    // promote the parent window to key and swallow the event — requiring a
+    // second click to actually dismiss.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
+    }
 }

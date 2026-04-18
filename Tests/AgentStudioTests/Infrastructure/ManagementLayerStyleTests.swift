@@ -6,45 +6,47 @@ import Testing
 struct ManagementLayerStyleTests {
     @Test
     func backgroundOpacity_rest_returnsControlFill() {
-        let result = AppStyle.managementLayerBackgroundOpacity(isHovered: false)
-        #expect(result == AppStyle.managementLayerControlFill)
+        let result = AppStyles.Shell.ManagementLayer.backgroundOpacity(isHovered: false)
+        #expect(result == AppStyles.Shell.ManagementLayer.controlFillOpacity)
     }
 
     @Test
     func backgroundOpacity_hovered_appliesDelta() {
-        let result = AppStyle.managementLayerBackgroundOpacity(isHovered: true)
-        let expected = AppStyle.managementLayerControlFill + AppStyle.managementLayerControlHoverDelta
+        let result = AppStyles.Shell.ManagementLayer.backgroundOpacity(isHovered: true)
+        let expected =
+            AppStyles.Shell.ManagementLayer.controlFillOpacity
+            + AppStyles.Shell.ManagementLayer.controlHoverDelta
         #expect(abs(result - expected) < 0.001)
     }
 
     @Test
-    func backgroundOpacity_hovered_isLighterThanRest() {
-        let rest = AppStyle.managementLayerBackgroundOpacity(isHovered: false)
-        let hovered = AppStyle.managementLayerBackgroundOpacity(isHovered: true)
-        #expect(hovered < rest)
+    func backgroundOpacity_hovered_isStrongerThanRest() {
+        let rest = AppStyles.Shell.ManagementLayer.backgroundOpacity(isHovered: false)
+        let hovered = AppStyles.Shell.ManagementLayer.backgroundOpacity(isHovered: true)
+        #expect(hovered > rest)
     }
 
     @Test
     func iconOpacity_rest_isMuted() {
-        let result = AppStyle.managementLayerIconOpacity(isHovered: false)
-        #expect(result == AppStyle.foregroundMuted)
+        let result = AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: false)
+        #expect(result == AppStyles.General.Foreground.muted)
     }
 
     @Test
     func iconOpacity_hovered_isFullWhite() {
-        let result = AppStyle.managementLayerIconOpacity(isHovered: true)
+        let result = AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: true)
         #expect(result == 1.0)
     }
 
     @Test
     func iconOpacity_hovered_isBrighterThanRest() {
-        let rest = AppStyle.managementLayerIconOpacity(isHovered: false)
-        let hovered = AppStyle.managementLayerIconOpacity(isHovered: true)
+        let rest = AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: false)
+        let hovered = AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: true)
         #expect(hovered > rest)
     }
 
     @Test
     func controlFill_isDarkerThanDimmingOverlay() {
-        #expect(AppStyle.managementLayerControlFill > AppStyle.managementLayerDimming)
+        #expect(AppStyles.Shell.ManagementLayer.controlFillOpacity > AppStyles.Shell.ManagementLayer.modeDimmingOpacity)
     }
 }

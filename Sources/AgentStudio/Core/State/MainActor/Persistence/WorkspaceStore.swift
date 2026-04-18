@@ -24,7 +24,6 @@ final class WorkspaceStore {
     private var debouncedSaveTask: Task<Void, Never>?
     private var isObservingPersistedState = false
     private var isRestoringState = false
-    private(set) var scanningPath: URL?
     private(set) var isDirty: Bool = false
 
     init(
@@ -100,14 +99,6 @@ final class WorkspaceStore {
         case .missing:
             workspaceStoreLogger.info("No workspace files found — first launch")
         }
-    }
-
-    func beginScan(_ path: URL) {
-        scanningPath = path
-    }
-
-    func endScan() {
-        scanningPath = nil
     }
 
     @discardableResult

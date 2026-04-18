@@ -22,7 +22,7 @@ enum TerminalPaneGeometryResolver {
     }
 
     private static func normalizedPaneFrame(from rawRect: CGRect) -> CGRect {
-        let paneGap = AppStyle.paneGap
+        let paneGap = AppStyles.General.Layout.paneGap
         return CGRect(
             x: rawRect.minX + paneGap,
             y: rawRect.minY + paneGap,

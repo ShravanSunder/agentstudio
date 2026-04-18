@@ -147,7 +147,7 @@ enum LocalActionSpec {
         case .chooseFolderToScan:
             return ActionSpec(
                 label: "Choose a Folder to Scan…", helpText: "Choose a folder to scan",
-                icon: .system("folder.badge.plus"))
+                icon: .system("folder.fill.badge.plus"))
         case .openAllInTabs:
             return ActionSpec(
                 label: "Open All In Tabs", helpText: "Open all recent worktrees in tabs",
@@ -199,7 +199,7 @@ enum LocalActionSpec {
                 label: "Empty Terminal", helpText: "Open a new empty terminal tab", icon: .system("terminal"))
         case .openRepoWorktree:
             return ActionSpec(
-                label: "Open Repo/Worktree...", helpText: "Open a repo or worktree in a tab", icon: .system("folder"))
+                label: "Open Worktree...", helpText: "Open a discovered worktree in a tab", icon: .system("folder"))
         case .renameArrangement:
             return ActionSpec(label: "Rename...", helpText: "Rename this arrangement", icon: .system("pencil"))
         case .deleteArrangement:

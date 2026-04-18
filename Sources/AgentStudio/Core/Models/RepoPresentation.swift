@@ -65,7 +65,7 @@ enum RepoPresentationGrouping {
         let stableTieBreaker: String
     }
 
-    static let automaticPaletteHexes: [String] = AppStyle.accentPaletteHexes
+    static let automaticPaletteHexes: [String] = AppStyles.Shell.Sidebar.accentPaletteHexes
 
     static let colorPresets: [ColorPreset] = [
         ColorPreset(name: "Yellow", hex: "#F5C451"),

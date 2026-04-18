@@ -13,10 +13,10 @@ struct CommandBarBackRow: View {
         Button(action: onBack) {
             HStack(spacing: 6) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: AppStyle.textSm, weight: .semibold))
+                    .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
                 if let label {
                     Text(label)
-                        .font(.system(size: AppStyle.textSm, weight: .medium))
+                        .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
                         .lineLimit(1)
                 }
                 Spacer()

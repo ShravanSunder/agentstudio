@@ -64,7 +64,7 @@ struct CommandBarShortcutBadge: View {
 
     private func badgeText(_ value: String) -> some View {
         Text(value)
-            .font(.system(size: AppStyle.textXs, weight: .medium, design: .monospaced))
+            .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium, design: .monospaced))
             .foregroundStyle(.primary.opacity(0.35))
             .padding(.horizontal, style.horizontalPadding)
             .padding(.vertical, style.verticalPadding)

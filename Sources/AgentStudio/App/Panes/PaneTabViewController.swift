@@ -346,7 +346,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             _ = self.store.tabLayoutAtom.tabs
             _ = self.store.tabLayoutAtom.activeTabId
             _ = self.store.repositoryTopologyAtom.repos
-            _ = self.store.scanningPath
+            _ = atom(\.welcome).isChoosingFolder
+            _ = atom(\.welcome).folderScanState
             _ = self.repoCache.recentTargets
             _ = atom(\.managementLayer).isActive
         } onChange: {
@@ -1199,45 +1200,13 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
     // MARK: - New Tab
 
-    /// Create a new tab by cloning the active pane's worktree/repo context.
-    /// Falls back to the first available worktree if no active pane exists.
+    /// Create a new empty tab rooted at the first watched folder, or the user's
+    /// home directory when no watched folder exists yet.
     private func addNewTab() {
-        // Try to clone context from the active pane
-        if let activeTabId = store.tabLayoutAtom.activeTabId,
-            let tab = store.tabLayoutAtom.tab(activeTabId),
-            let activePaneId = tab.activePaneId,
-            let pane = store.paneAtom.pane(activePaneId)
-        {
-            if let worktreeId = worktreeIdForNewTab(from: pane) {
-                dispatchAction(
-                    .openNewTerminalInTab(
-                        worktreeId: worktreeId,
-                        launchDirectory: pane.metadata.cwd,
-                        title: pane.metadata.title
-                    )
-                )
-                return
-            }
-
-            dispatchAction(.openFloatingTerminal(launchDirectory: pane.metadata.cwd, title: pane.metadata.title))
-            return
-        }
-
-        // Fallback: use the first worktree from the first repo
-        if let worktree = store.repositoryTopologyAtom.repos.first?.worktrees.first {
-            dispatchAction(.openNewTerminalInTab(worktreeId: worktree.id, launchDirectory: nil, title: nil))
-            return
-        }
-
-        dispatchAction(.openFloatingTerminal(launchDirectory: nil, title: nil))
-    }
-
-    private func worktreeIdForNewTab(from pane: Pane) -> UUID? {
-        if let worktreeId = pane.worktreeId {
-            return worktreeId
-        }
-
-        return store.repositoryTopologyAtom.repoAndWorktree(containing: pane.metadata.facets.cwd)?.worktree.id
+        let launchDirectory =
+            store.repositoryTopologyAtom.watchedPaths.first?.path
+            ?? FileManager.default.homeDirectoryForCurrentUser
+        dispatchAction(.openFloatingTerminal(launchDirectory: launchDirectory, title: nil))
     }
 
     // MARK: - Terminal Management
@@ -1566,7 +1535,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         case .renameTab:
             guard let activeTabId = store.tabLayoutAtom.activeTabId else { break }
             tabRenamePopoverState.present(for: activeTabId)
-        case .addRepo, .addFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle:
+        case .addFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle:
             break
         case .addDrawerPane:
             guard let tabId = store.tabLayoutAtom.activeTabId,

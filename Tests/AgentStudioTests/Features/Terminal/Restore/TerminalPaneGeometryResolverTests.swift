@@ -25,10 +25,10 @@ struct TerminalPaneGeometryResolverTests {
             for: layout,
             in: CGRect(x: 0, y: 0, width: containerWidth, height: containerHeight),
             dividerThickness: divider,
-            collapsedPaneWidth: AppStyle.collapsedBarWidth
+            collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
         )
 
-        let gap = AppStyle.paneGap
+        let gap = AppStyles.General.Layout.paneGap
         let rawSplitWidth = (containerWidth - divider) / 2
         let paneWidth = rawSplitWidth - gap * 2
         let paneHeight = containerHeight - gap * 2
@@ -46,7 +46,7 @@ struct TerminalPaneGeometryResolverTests {
             for: layout,
             in: CGRect(x: 0, y: 0, width: 1200, height: 700),
             dividerThickness: 1,
-            collapsedPaneWidth: AppStyle.collapsedBarWidth
+            collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
         )
 
         #expect(resolved[pane] != CGRect(x: 0, y: 0, width: 800, height: 600))

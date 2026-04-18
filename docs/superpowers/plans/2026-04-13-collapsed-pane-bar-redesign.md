@@ -207,7 +207,7 @@ gives the minimized pane a 0-width frame. No `CollapsedPaneBar` view renders. Th
 display frames, not canonical layout state.
 
 **Transitions.** When the toggle changes or management mode toggles, the bars appear/disappear.
-SwiftUI handles this via the existing `.animation(.easeOut(duration: AppStyle.animationFast), value: minimizedPaneIds)` on the container. The metrics recompute with the new `collapsedPaneWidth`,
+SwiftUI handles this via the existing `.animation(.easeOut(duration: AppStyles.animationFast), value: minimizedPaneIds)` on the container. The metrics recompute with the new `collapsedPaneWidth`,
 and the pane segments animate to their new positions. No explicit transition needed on the bar
 itself — the frame size change drives the animation.
 
@@ -229,7 +229,7 @@ itself — the frame size change drives the animation.
 ### Modified Files
 | File | Changes |
 |------|---------|
-| `Infrastructure/AppStyle.swift` | Add `collapsedBarWidth`, `collapsedBarAccentHeight` constants |
+| `Infrastructure/AppStyles.swift` | Add `collapsedBarWidth`, `collapsedBarAccentHeight` constants |
 | `Infrastructure/AtomLib/AtomRegistry.swift` | Register `ArrangementDerived` |
 | `Core/Views/Splits/CollapsedPaneBar.swift` | Complete restyle: surface, buttons, popover, accent bar, tooltip |
 | `Core/Views/Splits/FlatTabStripContainer.swift` | Visibility check for collapsed bars; thread `onSaveArrangement` to top-level collapsed bars |
@@ -296,7 +296,7 @@ struct ArrangementPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             // MARK: - Arrangement chips
             Text("Arrangements")
-                .font(.system(size: AppStyle.textSm, weight: .semibold))
+                .font(.system(size: AppStyles.textSm, weight: .semibold))
                 .foregroundStyle(.tertiary)
                 .textCase(.uppercase)
 
@@ -308,12 +308,12 @@ struct ArrangementPanel: View {
                 if panes.count > 1 {
                     Button(action: onSaveArrangement) {
                         Image(systemName: "plus")
-                            .font(.system(size: AppStyle.textSm, weight: .medium))
+                            .font(.system(size: AppStyles.textSm, weight: .medium))
                             .foregroundStyle(.secondary)
                             .frame(width: 22, height: 22)
                             .background(
                                 RoundedRectangle(cornerRadius: 5)
-                                    .strokeBorder(Color.white.opacity(AppStyle.strokeMuted), lineWidth: 1)
+                                    .strokeBorder(Color.white.opacity(AppStyles.strokeMuted), lineWidth: 1)
                             )
                     }
                     .buttonStyle(.plain)
@@ -327,7 +327,7 @@ struct ArrangementPanel: View {
                     .padding(.vertical, 2)
 
                 Text("Pane Visibility")
-                    .font(.system(size: AppStyle.textSm, weight: .semibold))
+                    .font(.system(size: AppStyles.textSm, weight: .semibold))
                     .foregroundStyle(.tertiary)
                     .textCase(.uppercase)
 
@@ -363,14 +363,14 @@ struct ArrangementPanel: View {
     // MARK: - Pane Row
 
     private func paneRow(_ pane: PaneVisibilityInfo) -> some View {
-        HStack(spacing: AppStyle.spacingStandard) {
+        HStack(spacing: AppStyles.spacingStandard) {
             Circle()
-                .fill(pane.isMinimized ? Color.clear : Color.white.opacity(AppStyle.foregroundDim))
+                .fill(pane.isMinimized ? Color.clear : Color.white.opacity(AppStyles.foregroundDim))
                 .stroke(Color.white.opacity(0.3), lineWidth: 1)
                 .frame(width: 8, height: 8)
 
             Text(pane.title)
-                .font(.system(size: AppStyle.textXs))
+                .font(.system(size: AppStyles.textXs))
                 .foregroundStyle(pane.isMinimized ? .tertiary : .primary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -385,7 +385,7 @@ struct ArrangementPanel: View {
                 }
             } label: {
                 Image(systemName: pane.isMinimized ? "eye" : "eye.slash")
-                    .font(.system(size: AppStyle.textSm))
+                    .font(.system(size: AppStyles.textSm))
                     .foregroundStyle(.secondary)
                     .frame(width: 20, height: 20)
             }
@@ -396,11 +396,11 @@ struct ArrangementPanel: View {
                     : LocalActionSpec.hidePane.actionSpec.helpText
             )
         }
-        .padding(.horizontal, AppStyle.spacingStandard)
+        .padding(.horizontal, AppStyles.spacingStandard)
         .padding(.vertical, 3)
         .background(
-            RoundedRectangle(cornerRadius: AppStyle.buttonCornerRadius)
-                .fill(Color.white.opacity(AppStyle.fillSubtle))
+            RoundedRectangle(cornerRadius: AppStyles.buttonCornerRadius)
+                .fill(Color.white.opacity(AppStyles.fillSubtle))
         )
     }
 
@@ -408,15 +408,15 @@ struct ArrangementPanel: View {
 
     private func arrangementChip(_ arr: ArrangementInfo) -> some View {
         Text(arr.name)
-            .font(.system(size: AppStyle.textXs, weight: arr.isActive ? .semibold : .regular))
+            .font(.system(size: AppStyles.textXs, weight: arr.isActive ? .semibold : .regular))
             .foregroundStyle(arr.isActive ? .primary : .secondary)
-            .padding(.horizontal, AppStyle.spacingLoose)
-            .padding(.vertical, AppStyle.spacingTight)
+            .padding(.horizontal, AppStyles.spacingLoose)
+            .padding(.vertical, AppStyles.spacingTight)
             .background(
-                RoundedRectangle(cornerRadius: AppStyle.barCornerRadius)
+                RoundedRectangle(cornerRadius: AppStyles.barCornerRadius)
                     .fill(
                         arr.isActive
-                            ? Color.white.opacity(AppStyle.fillActive) : Color.white.opacity(AppStyle.fillSubtle))
+                            ? Color.white.opacity(AppStyles.fillActive) : Color.white.opacity(AppStyles.fillSubtle))
             )
             .contentShape(Rectangle())
             .onTapGesture {
@@ -841,11 +841,11 @@ In the `paneRow` function, wrap the existing background with conditional highlig
 
 ```swift
 .background(
-    RoundedRectangle(cornerRadius: AppStyle.buttonCornerRadius)
+    RoundedRectangle(cornerRadius: AppStyles.buttonCornerRadius)
         .fill(
             pane.id == highlightPaneId && highlightVisible
                 ? Color.accentColor.opacity(0.15)
-                : Color.white.opacity(AppStyle.fillSubtle)
+                : Color.white.opacity(AppStyles.fillSubtle)
         )
 )
 ```
@@ -895,7 +895,7 @@ Divider()
 
 HStack {
     Text("Show minimized bars")
-        .font(.system(size: AppStyle.textXs))
+        .font(.system(size: AppStyles.textXs))
         .foregroundStyle(.secondary)
 
     Spacer()
@@ -926,15 +926,15 @@ git commit -m "feat: add showMinimizedBars toggle to ArrangementPanel"
 
 ---
 
-## Task 6: Add AppStyle Constants and PaneDisplayDerived Accent Color
+## Task 6: Add AppStyles Constants and PaneDisplayDerived Accent Color
 
 **Files:**
-- Modify: `Sources/AgentStudio/Infrastructure/AppStyle.swift`
+- Modify: `Sources/AgentStudio/Infrastructure/AppStyles.swift`
 - Modify: `Sources/AgentStudio/Core/State/MainActor/Atoms/PaneDisplayDerived.swift`
 
-- [ ] **Step 1: Add collapsed bar constants to AppStyle**
+- [ ] **Step 1: Add collapsed bar constants to AppStyles**
 
-In `Sources/AgentStudio/Infrastructure/AppStyle.swift`, in the `// MARK: - Layout` section, add after `splitMinimumPaneSize`:
+In `Sources/AgentStudio/Infrastructure/AppStyles.swift`, in the `// MARK: - Layout` section, add after `splitMinimumPaneSize`:
 
 ```swift
 /// Width of the collapsed pane bar.
@@ -957,8 +957,8 @@ func accentColorHex(for paneId: UUID) -> String? {
     let pane = atom(\.workspacePane).pane(paneId)
     guard let repoId = pane?.repoId else { return nil }
     let stableHash = repoId.uuidString.utf8.reduce(0) { ($0 &* 31) &+ Int($1) }
-    let index = abs(stableHash) % AppStyle.accentPaletteHexes.count
-    return AppStyle.accentPaletteHexes[index]
+    let index = abs(stableHash) % AppStyles.accentPaletteHexes.count
+    return AppStyles.accentPaletteHexes[index]
 }
 ```
 
@@ -971,7 +971,7 @@ Expected: BUILD SUCCEEDED
 
 ```bash
 git add -A
-git commit -m "feat: add collapsed bar AppStyle constants and accent color derivation"
+git commit -m "feat: add collapsed bar AppStyles constants and accent color derivation"
 ```
 
 ---
@@ -993,7 +993,7 @@ This is the main task. The bar gets:
 - ArrangementPanel popover (arrow on left, extends right)
 - Tooltip with full pane label
 - Context menu (expand, close)
-- Bar width 40pt (via new `AppStyle.collapsedBarWidth`)
+- Bar width 40pt (via new `AppStyles.collapsedBarWidth`)
 
 - [ ] **Step 1: Update static dimensions**
 
@@ -1005,8 +1005,8 @@ static let barHeight: CGFloat = 30
 
 With:
 ```swift
-static let barWidth: CGFloat = AppStyle.collapsedBarWidth
-static let barHeight: CGFloat = AppStyle.collapsedBarWidth
+static let barWidth: CGFloat = AppStyles.collapsedBarWidth
+static let barHeight: CGFloat = AppStyles.collapsedBarWidth
 ```
 
 - [ ] **Step 2: Add onSaveArrangement closure parameter**
@@ -1086,7 +1086,7 @@ var body: some View {
     // primaryLabel already includes branch for worktree panes ("repo | branch | folder")
     let tooltipText = displayParts.primaryLabel
 
-    VStack(spacing: AppStyle.spacingTight) {
+    VStack(spacing: AppStyles.spacingTight) {
         // MARK: - Buttons (top, stacked)
 
         expandButton
@@ -1094,12 +1094,12 @@ var body: some View {
             arrangementButton
         }
 
-        Spacer(minLength: AppStyle.spacingTight)
+        Spacer(minLength: AppStyles.spacingTight)
 
         // MARK: - Sideways title
 
         Text(title)
-            .font(.system(size: AppStyle.textSm, weight: .semibold))
+            .font(.system(size: AppStyles.textSm, weight: .semibold))
             .foregroundStyle(.primary.opacity(0.92))
             .lineLimit(1)
             .truncationMode(.tail)
@@ -1107,28 +1107,28 @@ var body: some View {
             .fixedSize()
             .frame(maxHeight: .infinity, alignment: .center)
 
-        Spacer(minLength: AppStyle.spacingTight)
+        Spacer(minLength: AppStyles.spacingTight)
 
         // MARK: - Accent color bar
 
         if let accentHex, let nsColor = NSColor(hex: accentHex) {
             RoundedRectangle(cornerRadius: 1.5)
                 .fill(Color(nsColor: nsColor).opacity(0.7))
-                .frame(height: AppStyle.collapsedBarAccentHeight)
-                .padding(.horizontal, AppStyle.spacingStandard)
+                .frame(height: AppStyles.collapsedBarAccentHeight)
+                .padding(.horizontal, AppStyles.spacingStandard)
         }
     }
-    .padding(.vertical, AppStyle.spacingLoose)
+    .padding(.vertical, AppStyles.spacingLoose)
     .frame(width: Self.barWidth)
     .frame(maxHeight: .infinity)
     .background(
-        RoundedRectangle(cornerRadius: AppStyle.panelCornerRadius)
-            .fill(Color.white.opacity(isHovered ? AppStyle.fillHover : AppStyle.fillMuted))
+        RoundedRectangle(cornerRadius: AppStyles.panelCornerRadius)
+            .fill(Color.white.opacity(isHovered ? AppStyles.fillHover : AppStyles.fillMuted))
     )
     .overlay(
-        RoundedRectangle(cornerRadius: AppStyle.panelCornerRadius)
+        RoundedRectangle(cornerRadius: AppStyles.panelCornerRadius)
             .strokeBorder(
-                Color.white.opacity(isHovered ? AppStyle.strokeHover : AppStyle.fillActive),
+                Color.white.opacity(isHovered ? AppStyles.strokeHover : AppStyles.fillActive),
                 lineWidth: 1
             )
     )
@@ -1152,9 +1152,9 @@ var body: some View {
     }
     .opacity(isClosing ? 0.58 : 1)
     .scaleEffect(isClosing ? 0.985 : 1)
-    .animation(.easeOut(duration: AppStyle.animationFast), value: isClosing)
+    .animation(.easeOut(duration: AppStyles.animationFast), value: isClosing)
     .allowsHitTesting(!isClosing)
-    .padding(AppStyle.paneGap)
+    .padding(AppStyles.paneGap)
     .background(framePreferenceBackground)
 }
 ```
@@ -1167,12 +1167,12 @@ private var expandButton: some View {
         actionDispatcher.dispatch(.expandPane(tabId: tabId, paneId: paneId))
     } label: {
         Image(systemName: "arrow.up.left.and.arrow.down.right")
-            .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+            .font(.system(size: AppStyles.compactIconSize, weight: .medium))
             .foregroundStyle(isExpandHovered ? .primary : .secondary)
-            .frame(width: AppStyle.compactButtonSize, height: AppStyle.compactButtonSize)
+            .frame(width: AppStyles.compactButtonSize, height: AppStyles.compactButtonSize)
             .background(
                 Circle()
-                    .fill(Color.white.opacity(isExpandHovered ? AppStyle.fillPressed : AppStyle.fillMuted))
+                    .fill(Color.white.opacity(isExpandHovered ? AppStyles.fillPressed : AppStyles.fillMuted))
             )
             .contentShape(Circle())
     }
@@ -1194,12 +1194,12 @@ private var arrangementButton: some View {
         showArrangementPanel.toggle()
     } label: {
         Image(systemName: "rectangle.3.group")
-            .font(.system(size: AppStyle.compactIconSize, weight: .medium))
+            .font(.system(size: AppStyles.compactIconSize, weight: .medium))
             .foregroundStyle(isArrangementHovered ? .primary : .secondary)
-            .frame(width: AppStyle.compactButtonSize, height: AppStyle.compactButtonSize)
+            .frame(width: AppStyles.compactButtonSize, height: AppStyles.compactButtonSize)
             .background(
                 Circle()
-                    .fill(Color.white.opacity(isArrangementHovered ? AppStyle.fillPressed : AppStyle.fillMuted))
+                    .fill(Color.white.opacity(isArrangementHovered ? AppStyles.fillPressed : AppStyles.fillMuted))
             )
             .contentShape(Circle())
     }
@@ -1325,7 +1325,7 @@ Update the internal `FlatTabStripMetrics.compute()` call (line 20-26) to use thi
 let metrics = FlatTabStripMetrics.compute(
     layout: layout,
     in: CGRect(origin: .zero, size: geometry.size),
-    dividerThickness: AppStyle.paneGap,
+    dividerThickness: AppStyles.paneGap,
     minimizedPaneIds: minimizedPaneIds,
     collapsedPaneWidth: collapsedPaneWidth  // was: CollapsedPaneBar.barWidth
 )
@@ -1367,7 +1367,7 @@ let effectiveCollapsedWidth: CGFloat = showMinimizedBars ? CollapsedPaneBar.barW
 let metrics = FlatTabStripMetrics.compute(
     layout: layout,
     in: containerBounds,
-    dividerThickness: AppStyle.paneGap,
+    dividerThickness: AppStyles.paneGap,
     minimizedPaneIds: minimizedPaneIds,
     collapsedPaneWidth: effectiveCollapsedWidth
 )
@@ -1466,7 +1466,7 @@ git commit -m "feat: scope showMinimizedBars toggle to tab strip only, drawers a
 **Files:**
 - Modify: `Tests/AgentStudioTests/Core/Models/MinimizeLayoutIntegrationTests.swift`
 
-The existing tests reference `CollapsedPaneBar.barWidth` which changed from `30` to `AppStyle.collapsedBarWidth` (40). The tests should still pass since they use the constant, not a hardcoded value. But verify, and add a test for zero-width collapsed panes.
+The existing tests reference `CollapsedPaneBar.barWidth` which changed from `30` to `AppStyles.collapsedBarWidth` (40). The tests should still pass since they use the constant, not a hardcoded value. But verify, and add a test for zero-width collapsed panes.
 
 - [ ] **Step 1: Verify existing tests still pass**
 
@@ -1489,7 +1489,7 @@ func test_flatStripMetrics_zeroCollapsedWidth_minimizedPanesTakeNoSpace() {
     let renderInfo = FlatTabStripMetrics.compute(
         layout: updated.layout,
         in: CGRect(x: 0, y: 0, width: 1200, height: 700),
-        dividerThickness: AppStyle.paneGap,
+        dividerThickness: AppStyles.paneGap,
         minimizedPaneIds: updated.minimizedPaneIds,
         collapsedPaneWidth: 0
     )

@@ -5,11 +5,11 @@ import SwiftUI
 struct InactivePaneEdgeDimmingOverlay: View {
     var body: some View {
         GeometryReader { geometry in
-            let horizontalDepth = min(AppStyle.inactivePaneDimmingDepth, geometry.size.width / 2)
-            let verticalDepth = min(AppStyle.inactivePaneDimmingDepth, geometry.size.height / 2)
+            let horizontalDepth = min(AppStyles.Shell.PaneChrome.inactivePaneDimmingDepth, geometry.size.width / 2)
+            let verticalDepth = min(AppStyles.Shell.PaneChrome.inactivePaneDimmingDepth, geometry.size.height / 2)
 
             Color.black
-                .opacity(AppStyle.inactivePaneDimmingOpacity)
+                .opacity(AppStyles.Shell.PaneChrome.inactivePaneDimmingOpacity)
                 .mask {
                     edgeMask(
                         horizontalDepth: horizontalDepth,

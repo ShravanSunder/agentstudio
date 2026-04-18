@@ -12,9 +12,9 @@ struct CommandBarStatusStrip: View {
             if let icon = mode.statusStripIcon, let label = mode.statusStripLabel {
                 HStack(spacing: 4) {
                     Image(systemName: icon)
-                        .font(.system(size: AppStyle.textXs, weight: .medium))
+                        .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
                     Text(label)
-                        .font(.system(size: AppStyle.textXs, weight: .medium))
+                        .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
                 }
                 .foregroundStyle(Color.accentColor)
             }
@@ -24,9 +24,9 @@ struct CommandBarStatusStrip: View {
             if let icon = context.icon, let label = context.label {
                 HStack(spacing: 4) {
                     Image(systemName: icon)
-                        .font(.system(size: AppStyle.textXs, weight: .medium))
+                        .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
                     Text(label)
-                        .font(.system(size: AppStyle.textXs, weight: .medium))
+                        .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
                 }
                 .foregroundStyle(.primary.opacity(0.35))
             }

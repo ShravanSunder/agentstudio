@@ -14,24 +14,24 @@ private struct SurfaceStartupOverlay: View {
             Color(nsColor: .windowBackgroundColor)
                 .opacity(0.98)
 
-            VStack(spacing: 16) {
+            VStack(spacing: AppStyles.WorkspaceFocus.Terminal.startupOverlaySpacing) {
                 ProgressView()
                     .controlSize(.regular)
 
                 switch state {
                 case .preparing:
                     Text("Preparing terminal...")
-                        .font(.system(size: AppStyle.textLg, weight: .semibold))
+                        .font(.system(size: AppStyles.General.Typography.textLg, weight: .semibold))
                 case .restoring:
                     Text("Restoring terminal…")
-                        .font(.system(size: AppStyle.textLg, weight: .semibold))
+                        .font(.system(size: AppStyles.General.Typography.textLg, weight: .semibold))
                 }
 
                 Text(detailText)
-                    .font(.system(size: AppStyle.textSm))
+                    .font(.system(size: AppStyles.General.Typography.textSm))
                     .foregroundStyle(.secondary)
             }
-            .padding(28)
+            .padding(AppStyles.WorkspaceFocus.Terminal.startupOverlayPadding)
         }
     }
 

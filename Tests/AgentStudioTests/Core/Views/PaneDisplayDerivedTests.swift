@@ -92,7 +92,7 @@ struct PaneDisplayDerivedTests {
 
             #expect(first == second)
             #expect(first != nil)
-            #expect(AppStyle.accentPaletteHexes.contains(first!))
+            #expect(AppStyles.Shell.Sidebar.accentPaletteHexes.contains(first!))
         }
     }
 
