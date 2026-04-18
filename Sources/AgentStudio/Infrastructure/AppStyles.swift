@@ -157,9 +157,9 @@ enum AppStyles {
         }
 
         enum ManagementLayer {
-            static let modeDimmingOpacity: CGFloat = 0.35
-            static let controlFillOpacity: CGFloat = 0.70
-            static let controlHoverDelta: CGFloat = 0.05
+            static let modeDimmingOpacity: CGFloat = 0.30
+            static let controlFillOpacity: CGFloat = 0.95
+            static let controlHoverDelta: CGFloat = -0.20
             static let actionSize: CGFloat = 28
             static let actionIconSize: CGFloat = 13
             static let dragHandleWidth: CGFloat = 60
