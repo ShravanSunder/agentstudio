@@ -24,7 +24,7 @@ final class WorkspacePaneAtom {
                 guard !stalePaneIds.isEmpty else { return }
                 drawer.paneIds.removeAll { !validPaneIds.contains($0) }
                 for staleId in stalePaneIds {
-                    drawer.layout = drawer.layout.removing(paneId: staleId) ?? Layout()
+                    drawer.layout = drawer.layout.removing(paneId: staleId) ?? DrawerGridLayout()
                 }
                 if let activeId = drawer.activePaneId, !validPaneIds.contains(activeId) {
                     drawer.activePaneId = drawer.paneIds.first
@@ -197,15 +197,16 @@ final class WorkspacePaneAtom {
 
         panes[drawerPane.id] = drawerPane
         panes[parentPaneId]!.withDrawer { drawer in
-            if let existingLeaf = drawer.layout.paneIds.last {
-                drawer.layout = drawer.layout.inserting(
+            if let targetPaneId = drawer.layout.paneIds.last,
+                let updatedLayout = drawer.layout.inserting(
                     paneId: drawerPane.id,
-                    at: existingLeaf,
-                    direction: .horizontal,
-                    position: .after
+                    at: targetPaneId,
+                    direction: .right
                 )
+            {
+                drawer.layout = updatedLayout
             } else {
-                drawer.layout = Layout(paneId: drawerPane.id)
+                drawer.layout = DrawerGridLayout(topRow: Layout(paneId: drawerPane.id))
             }
             drawer.paneIds.append(drawerPane.id)
             drawer.activePaneId = drawerPane.id
@@ -218,8 +219,7 @@ final class WorkspacePaneAtom {
     func insertDrawerPane(
         in parentPaneId: UUID,
         at targetDrawerPaneId: UUID,
-        direction: Layout.SplitDirection,
-        position: Layout.Position,
+        direction: SplitNewDirection,
         parentFallbackCWD: URL?
     ) -> Pane? {
         guard let metadata = inheritedDrawerMetadata(from: parentPaneId, parentFallbackCWD: parentFallbackCWD) else {
@@ -230,7 +230,6 @@ final class WorkspacePaneAtom {
             in: parentPaneId,
             at: targetDrawerPaneId,
             direction: direction,
-            position: position,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: metadata
         )
@@ -270,8 +269,7 @@ final class WorkspacePaneAtom {
     func insertDrawerPane(
         in parentPaneId: UUID,
         at targetDrawerPaneId: UUID,
-        direction: Layout.SplitDirection,
-        position: Layout.Position,
+        direction: SplitNewDirection,
         content: PaneContent,
         metadata: PaneMetadata
     ) -> Pane? {
@@ -290,14 +288,22 @@ final class WorkspacePaneAtom {
             kind: .drawerChild(parentPaneId: parentPaneId)
         )
 
-        panes[drawerPane.id] = drawerPane
-        panes[parentPaneId]!.withDrawer { drawer in
-            drawer.layout = drawer.layout.inserting(
+        guard
+            let updatedLayout = parentPane.drawer?.layout.inserting(
                 paneId: drawerPane.id,
                 at: targetDrawerPaneId,
-                direction: direction,
-                position: position
+                direction: direction
             )
+        else {
+            workspacePaneLogger.warning(
+                "insertDrawerPane: target \(targetDrawerPaneId) rejected insertion in parent \(parentPaneId)"
+            )
+            return nil
+        }
+
+        panes[drawerPane.id] = drawerPane
+        panes[parentPaneId]!.withDrawer { drawer in
+            drawer.layout = updatedLayout
             drawer.paneIds.append(drawerPane.id)
             drawer.activePaneId = drawerPane.id
             drawer.isExpanded = true
@@ -308,41 +314,38 @@ final class WorkspacePaneAtom {
     func moveDrawerPane(
         _ drawerPaneId: UUID,
         in parentPaneId: UUID,
-        at targetDrawerPaneId: UUID,
-        direction: Layout.SplitDirection,
-        position: Layout.Position
+        to targetDrawerPaneId: UUID,
+        direction: SplitNewDirection
     ) {
-        guard panes[parentPaneId] != nil, panes[parentPaneId]!.drawer != nil else {
+        guard var parentPane = panes[parentPaneId], var drawer = parentPane.drawer else {
             workspacePaneLogger.warning("moveDrawerPane: parent pane \(parentPaneId) has no drawer")
             return
         }
         guard drawerPaneId != targetDrawerPaneId else { return }
 
-        var didMove = false
-        panes[parentPaneId]!.withDrawer { drawer in
-            guard drawer.layout.contains(drawerPaneId) else { return }
-            guard drawer.layout.contains(targetDrawerPaneId) else { return }
-            guard let layoutWithoutSource = drawer.layout.removing(paneId: drawerPaneId) else { return }
-
-            let movedLayout = layoutWithoutSource.inserting(
-                paneId: drawerPaneId,
-                at: targetDrawerPaneId,
-                direction: direction,
-                position: position
-            )
-            guard movedLayout != layoutWithoutSource else { return }
-
-            drawer.layout = movedLayout
-            drawer.paneIds = movedLayout.paneIds
-            drawer.activePaneId = drawerPaneId
-            didMove = true
-        }
-
-        if !didMove {
+        guard drawer.paneIds.contains(drawerPaneId), drawer.paneIds.contains(targetDrawerPaneId) else {
             workspacePaneLogger.warning(
                 "moveDrawerPane: failed moving pane \(drawerPaneId) near \(targetDrawerPaneId) in \(parentPaneId)"
             )
+            return
         }
+
+        guard
+            let layoutWithoutSource = drawer.layout.removing(paneId: drawerPaneId),
+            let movedLayout = layoutWithoutSource.inserting(
+                paneId: drawerPaneId,
+                at: targetDrawerPaneId,
+                direction: direction
+            )
+        else {
+            return
+        }
+
+        drawer.layout = movedLayout
+        drawer.paneIds = movedLayout.paneIds
+        drawer.activePaneId = drawerPaneId
+        parentPane.kind = .layout(drawer: drawer)
+        panes[parentPaneId] = parentPane
     }
 
     func removeDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) {
@@ -355,7 +358,7 @@ final class WorkspacePaneAtom {
             drawer.paneIds.removeAll { $0 == drawerPaneId }
             drawer.minimizedPaneIds.remove(drawerPaneId)
             if drawer.layout.contains(drawerPaneId) {
-                drawer.layout = drawer.layout.removing(paneId: drawerPaneId) ?? Layout()
+                drawer.layout = drawer.layout.removing(paneId: drawerPaneId) ?? DrawerGridLayout()
             }
             if drawer.activePaneId == drawerPaneId {
                 drawer.activePaneId = drawer.paneIds.first
@@ -368,6 +371,38 @@ final class WorkspacePaneAtom {
         }
 
         panes.removeValue(forKey: drawerPaneId)
+    }
+
+    @discardableResult
+    func detachDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) -> Pane? {
+        guard var drawerPane = panes[drawerPaneId], drawerPane.parentPaneId == parentPaneId else {
+            workspacePaneLogger.warning(
+                "detachDrawerPane: pane \(drawerPaneId) is not a child of \(parentPaneId)"
+            )
+            return nil
+        }
+        guard let parentPane = panes[parentPaneId], let existingDrawer = parentPane.drawer else {
+            workspacePaneLogger.warning("detachDrawerPane: parent pane \(parentPaneId) has no drawer")
+            return nil
+        }
+
+        let wasExpanded = existingDrawer.isExpanded
+        panes[parentPaneId]!.withDrawer { drawer in
+            drawer.paneIds.removeAll { $0 == drawerPaneId }
+            drawer.minimizedPaneIds.remove(drawerPaneId)
+            drawer.layout = drawer.layout.removing(paneId: drawerPaneId) ?? DrawerGridLayout()
+            if drawer.activePaneId == drawerPaneId {
+                drawer.activePaneId = drawer.paneIds.first
+            }
+        }
+
+        if panes[parentPaneId]!.drawer?.paneIds.isEmpty == true {
+            panes[parentPaneId]!.kind = .layout(drawer: Drawer(isExpanded: wasExpanded))
+        }
+
+        drawerPane.kind = .layout(drawer: Drawer())
+        panes[drawerPaneId] = drawerPane
+        return drawerPane
     }
 
     func toggleDrawer(for paneId: UUID) {
@@ -529,15 +564,16 @@ final class WorkspacePaneAtom {
         panes[drawerPane.id] = drawerPane
         panes[parentPaneId]!.withDrawer { drawer in
             drawer.paneIds.append(drawerPane.id)
-            if let existingLeaf = drawer.layout.paneIds.last {
-                drawer.layout = drawer.layout.inserting(
+            if let targetPaneId = drawer.layout.paneIds.last,
+                let updatedLayout = drawer.layout.inserting(
                     paneId: drawerPane.id,
-                    at: existingLeaf,
-                    direction: .horizontal,
-                    position: .after
+                    at: targetPaneId,
+                    direction: .right
                 )
+            {
+                drawer.layout = updatedLayout
             } else {
-                drawer.layout = Layout(paneId: drawerPane.id)
+                drawer.layout = DrawerGridLayout(topRow: Layout(paneId: drawerPane.id))
             }
             drawer.activePaneId = drawerPane.id
             drawer.isExpanded = true

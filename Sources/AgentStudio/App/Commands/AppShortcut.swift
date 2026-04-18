@@ -8,7 +8,10 @@ enum ShortcutCharacterKey: String, CaseIterable {
     case d
     case e
     case f
+    case i
+    case j
     case k
+    case l
     case m
     case n
     case o

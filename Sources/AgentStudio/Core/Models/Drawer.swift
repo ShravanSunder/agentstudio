@@ -5,8 +5,8 @@ import Foundation
 struct Drawer: Codable, Hashable {
     /// Pane IDs owned by this drawer, in insertion order.
     var paneIds: [UUID]
-    /// Spatial arrangement of panes (same Layout type as Tab uses).
-    var layout: Layout
+    /// Spatial arrangement of panes within the drawer's local grid.
+    var layout: DrawerGridLayout
     /// Currently focused pane in the drawer. Nil only when empty.
     var activePaneId: UUID?
     /// Whether the drawer panel is expanded (visible) or collapsed.
@@ -16,7 +16,7 @@ struct Drawer: Codable, Hashable {
 
     init(
         paneIds: [UUID] = [],
-        layout: Layout = Layout(),
+        layout: DrawerGridLayout = DrawerGridLayout(),
         activePaneId: UUID? = nil,
         isExpanded: Bool = false,
         minimizedPaneIds: Set<UUID> = []
@@ -36,7 +36,7 @@ struct Drawer: Codable, Hashable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         paneIds = try container.decode([UUID].self, forKey: .paneIds)
-        layout = try container.decode(Layout.self, forKey: .layout)
+        layout = try container.decode(DrawerGridLayout.self, forKey: .layout)
         activePaneId = try container.decodeIfPresent(UUID.self, forKey: .activePaneId)
         isExpanded = try container.decode(Bool.self, forKey: .isExpanded)
         minimizedPaneIds = []  // transient — always starts empty on decode

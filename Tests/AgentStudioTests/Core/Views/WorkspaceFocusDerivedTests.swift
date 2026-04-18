@@ -5,7 +5,7 @@ import Testing
 
 @MainActor
 @Suite(.serialized)
-struct WorkspaceFocusDerivedTests {
+struct WorkspacePaneFocusDerivedTests {
     init() {
         installTestAtomRegistryIfNeeded()
     }
@@ -13,9 +13,10 @@ struct WorkspaceFocusDerivedTests {
     @Test
     func emptyWorkspaceHasNoActiveContext() {
         withTestAtomRegistry { _ in
-            let focus = atom(\.workspaceFocus).currentFocus(
+            let focus = atom(\.workspacePaneFocus).currentFocus(
                 workspaceTab: atom(\.workspaceTab),
-                workspacePane: atom(\.workspacePane)
+                workspacePane: atom(\.workspacePane),
+                workspaceNavigationScope: atom(\.workspaceNavigationScope)
             )
 
             #expect(focus.paneContentType == .noActivePane)
@@ -36,9 +37,10 @@ struct WorkspaceFocusDerivedTests {
             store.appendTab(tab)
             store.setActiveTab(tab.id)
 
-            let focus = atom(\.workspaceFocus).currentFocus(
+            let focus = atom(\.workspacePaneFocus).currentFocus(
                 workspaceTab: atom(\.workspaceTab),
-                workspacePane: atom(\.workspacePane)
+                workspacePane: atom(\.workspacePane),
+                workspaceNavigationScope: atom(\.workspaceNavigationScope)
             )
 
             #expect(focus.paneContentType == .terminal)
@@ -82,9 +84,10 @@ struct WorkspaceFocusDerivedTests {
             )
             _ = store.addDrawerPane(to: paneA.id)
 
-            let focus = atom(\.workspaceFocus).currentFocus(
+            let focus = atom(\.workspacePaneFocus).currentFocus(
                 workspaceTab: atom(\.workspaceTab),
-                workspacePane: atom(\.workspacePane)
+                workspacePane: atom(\.workspacePane),
+                workspaceNavigationScope: atom(\.workspaceNavigationScope)
             )
 
             #expect(focus.satisfiedRequirements.contains(.hasMultiplePanes))
@@ -117,13 +120,39 @@ struct WorkspaceFocusDerivedTests {
             store.appendTab(tab)
             store.setActiveTab(tab.id)
 
-            let focus = atom(\.workspaceFocus).currentFocus(
+            let focus = atom(\.workspacePaneFocus).currentFocus(
                 workspaceTab: atom(\.workspaceTab),
-                workspacePane: atom(\.workspacePane)
+                workspacePane: atom(\.workspacePane),
+                workspaceNavigationScope: atom(\.workspaceNavigationScope)
             )
 
             #expect(focus.activeRepoId == repo.id)
             #expect(focus.activeWorktreeId == worktree.id)
+        }
+    }
+
+    @Test
+    func staleEmptyDrawerScope_isIgnoredWhenDrawerIsCollapsed() {
+        withTestAtomRegistry { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+            let tab = Tab(paneId: pane.id)
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            atoms.workspaceNavigationScope.focusEmptyDrawer(parentPaneId: pane.id)
+
+            let focus = atom(\.workspacePaneFocus).currentFocus(
+                workspaceTab: atom(\.workspaceTab),
+                workspacePane: atom(\.workspacePane),
+                workspaceNavigationScope: atom(\.workspaceNavigationScope)
+            )
+
+            #expect(focus.drawerFocusState == .inactive)
+            #expect(!focus.satisfiedRequirements.contains(.hasEmptyDrawerFocus))
         }
     }
 }

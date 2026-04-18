@@ -149,6 +149,25 @@ final class WorkspaceStoreDrawerTests {
                 == .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: inheritedCWD))
     }
 
+    @Test
+    func test_insertDrawerPane_downCreatesSecondRow() throws {
+        let parent = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let first = try #require(store.addDrawerPane(to: parent.id))
+
+        let second = try #require(
+            store.insertDrawerPane(
+                in: parent.id,
+                at: first.id,
+                direction: .vertical,
+                position: .after
+            )
+        )
+
+        let drawer = try #require(store.pane(parent.id)?.drawer)
+        #expect(drawer.layout.bottomRow?.contains(second.id) == true)
+        #expect(drawer.layout.topRow.contains(first.id))
+    }
+
     // MARK: - removeDrawerPane
 
     @Test
@@ -307,9 +326,8 @@ final class WorkspaceStoreDrawerTests {
         store.moveDrawerPane(
             dp1.id,
             in: pane.id,
-            at: dp3.id,
-            direction: .horizontal,
-            position: .after
+            to: dp3.id,
+            direction: .right
         )
 
         let drawer = store.pane(pane.id)!.drawer!
@@ -329,9 +347,8 @@ final class WorkspaceStoreDrawerTests {
         store.moveDrawerPane(
             dp1.id,
             in: pane.id,
-            at: UUID(),
-            direction: .horizontal,
-            position: .after
+            to: UUID(),
+            direction: .right
         )
 
         let drawer = store.pane(pane.id)!.drawer!

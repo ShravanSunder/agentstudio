@@ -7,6 +7,8 @@ enum FocusRequirement: Hashable, CaseIterable, Sendable {
     case hasMultiplePanes
     case hasDrawer
     case hasDrawerPanes
+    case hasEmptyDrawerFocus
+    case hasFocusedDrawerPane
     case hasMultipleTabs
     case hasArrangements
     case paneIsTerminal
@@ -15,8 +17,8 @@ enum FocusRequirement: Hashable, CaseIterable, Sendable {
     case paneIsCodeViewer
 }
 
-/// App-wide workspace focus snapshot shared by command visibility and other UI readers.
-struct WorkspaceFocus: Equatable, Sendable {
+/// App-wide workspace pane focus snapshot shared by command visibility and other UI readers.
+struct WorkspacePaneFocus: Equatable, Sendable {
     enum ContentType: Equatable, Sendable {
         case terminal
         case webview
@@ -41,6 +43,12 @@ struct WorkspaceFocus: Equatable, Sendable {
         }
     }
 
+    enum DrawerFocusState: Equatable, Sendable {
+        case inactive
+        case emptyDrawer(parentPaneId: UUID)
+        case drawerPane(parentPaneId: UUID, paneId: UUID)
+    }
+
     private static let contentRequirements: Set<FocusRequirement> = [
         .paneIsTerminal,
         .paneIsWebview,
@@ -53,6 +61,7 @@ struct WorkspaceFocus: Equatable, Sendable {
     let activeRepoId: UUID?
     let activeWorktreeId: UUID?
     let paneContentType: ContentType
+    let drawerFocusState: DrawerFocusState
     let satisfiedRequirements: Set<FocusRequirement>
 
     init(
@@ -61,6 +70,7 @@ struct WorkspaceFocus: Equatable, Sendable {
         activeRepoId: UUID? = nil,
         activeWorktreeId: UUID? = nil,
         paneContentType: ContentType,
+        drawerFocusState: DrawerFocusState = .inactive,
         satisfiedRequirements: Set<FocusRequirement>
     ) {
         var normalizedRequirements = satisfiedRequirements.subtracting(Self.contentRequirements)
@@ -73,6 +83,7 @@ struct WorkspaceFocus: Equatable, Sendable {
         self.activeRepoId = activeRepoId
         self.activeWorktreeId = activeWorktreeId
         self.paneContentType = paneContentType
+        self.drawerFocusState = drawerFocusState
         self.satisfiedRequirements = normalizedRequirements
     }
 
@@ -114,7 +125,7 @@ struct WorkspaceFocus: Equatable, Sendable {
 }
 
 extension CommandSpec {
-    func isVisible(in focus: WorkspaceFocus) -> Bool {
+    func isVisible(in focus: WorkspacePaneFocus) -> Bool {
         visibleWhen.isSubset(of: focus.satisfiedRequirements)
     }
 }

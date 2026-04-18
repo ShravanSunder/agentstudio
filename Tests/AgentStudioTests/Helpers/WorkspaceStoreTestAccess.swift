@@ -174,28 +174,32 @@ extension WorkspaceStore {
         direction: Layout.SplitDirection,
         position: Layout.Position
     ) -> Pane? {
+        let splitDirection: SplitNewDirection =
+            switch (direction, position) {
+            case (.horizontal, .before): .left
+            case (.horizontal, .after): .right
+            case (.vertical, .before): .up
+            case (.vertical, .after): .down
+            }
         let fallbackCWD = paneAtom.pane(parentPaneId)?.worktreeId.flatMap(repositoryTopologyAtom.worktree)?.path
         return paneAtom.insertDrawerPane(
             in: parentPaneId,
             at: targetDrawerPaneId,
-            direction: direction,
-            position: position,
+            direction: splitDirection,
             parentFallbackCWD: fallbackCWD
         )
     }
     func moveDrawerPane(
         _ drawerPaneId: UUID,
         in parentPaneId: UUID,
-        at targetDrawerPaneId: UUID,
-        direction: Layout.SplitDirection,
-        position: Layout.Position
+        to targetDrawerPaneId: UUID,
+        direction: SplitNewDirection
     ) {
         paneAtom.moveDrawerPane(
             drawerPaneId,
             in: parentPaneId,
-            at: targetDrawerPaneId,
-            direction: direction,
-            position: position
+            to: targetDrawerPaneId,
+            direction: direction
         )
     }
     func removeDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) {

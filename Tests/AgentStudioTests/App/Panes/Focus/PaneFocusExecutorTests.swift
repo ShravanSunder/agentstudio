@@ -109,6 +109,7 @@ struct PaneFocusExecutorTests {
             selectTab: { _ in },
             selectPane: { _, _ in },
             selectDrawerPane: { _, _ in },
+            selectEmptyDrawer: { _ in },
             syncRuntimeFocus: { syncedSurfaceIds.append($0) }
         )
         executor.registerHostView(paneHost)
@@ -133,6 +134,7 @@ struct PaneFocusExecutorTests {
             selectTab: { _ in },
             selectPane: { _, _ in },
             selectDrawerPane: { _, _ in },
+            selectEmptyDrawer: { _ in },
             syncRuntimeFocus: { _ in }
         )
     }

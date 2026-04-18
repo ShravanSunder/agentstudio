@@ -45,7 +45,7 @@ struct DrawerResizeHandle: View {
 /// Translates tab-level PaneActions dispatched by pane leaves
 /// into drawer-specific actions (resize, minimize, close, focus, equalize).
 struct DrawerPanel: View {
-    let layout: Layout
+    let layout: DrawerGridLayout
     let parentPaneId: UUID
     let tabId: UUID
     let activePaneId: UUID?
@@ -63,7 +63,7 @@ struct DrawerPanel: View {
     let onOpenPaneGitHub: (UUID) -> Void
 
     @State private var drawerPaneFrames: [UUID: CGRect] = [:]
-    @State private var dropTarget: PaneDropTarget?
+    @State private var dropTarget: DrawerPaneDropTarget?
     @State private var dropTargetWatchdogTask: Task<Void, Never>?
     @State private var drawerActionDispatcher: PaneTabActionDispatcher
     private var managementLayer: ManagementLayerAtom {
@@ -71,7 +71,7 @@ struct DrawerPanel: View {
     }
 
     init(
-        layout: Layout,
+        layout: DrawerGridLayout,
         parentPaneId: UUID,
         tabId: UUID,
         activePaneId: UUID?,
@@ -130,46 +130,8 @@ struct DrawerPanel: View {
                         action(paneAction)
                     }
                 },
-                shouldAcceptDrop: { payload, destPaneId, zone in
-                    guard let drawer = store.paneAtom.pane(parentPaneId)?.drawer else { return false }
-                    guard drawer.layout.contains(destPaneId) else { return false }
-                    guard case .existingPane(let sourcePaneId, _) = payload.kind else { return false }
-                    guard sourcePaneId != destPaneId else { return false }
-                    guard let sourcePane = store.paneAtom.pane(sourcePaneId) else { return false }
-                    guard sourcePane.parentPaneId == parentPaneId else { return false }
-
-                    let snapshot = WorkspaceCommandResolver.snapshot(
-                        from: store.tabLayoutAtom.tabs,
-                        activeTabId: store.tabLayoutAtom.activeTabId,
-                        isManagementLayerActive: atom(\.managementLayer).isActive,
-                        knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id))
-                    )
-                    let moveAction = PaneActionCommand.moveDrawerPane(
-                        parentPaneId: parentPaneId,
-                        drawerPaneId: sourcePaneId,
-                        targetDrawerPaneId: destPaneId,
-                        direction: Self.splitDirection(for: zone)
-                    )
-                    if case .success = WorkspaceCommandValidator.validate(moveAction, state: snapshot) {
-                        return true
-                    }
-                    return false
-                },
-                handleDrop: { payload, destPaneId, zone in
-                    guard case .existingPane(let sourcePaneId, _) = payload.kind else { return }
-                    guard sourcePaneId != destPaneId else { return }
-                    guard let sourcePane = store.paneAtom.pane(sourcePaneId) else { return }
-                    guard sourcePane.parentPaneId == parentPaneId else { return }
-
-                    action(
-                        .moveDrawerPane(
-                            parentPaneId: parentPaneId,
-                            drawerPaneId: sourcePaneId,
-                            targetDrawerPaneId: destPaneId,
-                            direction: Self.splitDirection(for: zone)
-                        )
-                    )
-                }
+                shouldAcceptDrop: { _, _, _ in false },
+                handleDrop: { _, _, _ in }
             )
         )
     }
@@ -177,6 +139,44 @@ struct DrawerPanel: View {
     /// Translates tab-level actions into drawer-specific actions.
     /// Pane leaf interactions dispatch actions using tabId, but in the drawer
     /// context these need to be routed to drawer operations.
+    @ViewBuilder
+    private func rowContent(_ rowLayout: Layout) -> some View {
+        FlatPaneStripContent(
+            layout: rowLayout,
+            tabId: tabId,
+            activePaneId: activePaneId,
+            minimizedPaneIds: minimizedPaneIds,
+            collapsedPaneWidth: CollapsedPaneBar.barWidth,
+            onSaveArrangement: nil,
+            closeTransitionCoordinator: closeTransitionCoordinator,
+            actionDispatcher: drawerActionDispatcher,
+            onPaneFocusTrigger: onPaneFocusTrigger,
+            store: store,
+            repoCache: repoCache,
+            viewRegistry: viewRegistry,
+            coordinateSpaceName: Self.drawerDropCoordinateSpace,
+            useDrawerFramePreference: true,
+            onOpenPaneGitHub: onOpenPaneGitHub
+        )
+    }
+
+    @ViewBuilder
+    private var detachDrawerButton: some View {
+        if managementLayer.isActive, let activeDrawerPaneId = activePaneId {
+            Button {
+                action(.detachDrawerPane(parentPaneId: parentPaneId, drawerPaneId: activeDrawerPaneId))
+            } label: {
+                Label(
+                    LocalActionSpec.detachDrawerPane.actionSpec.label,
+                    systemImage: "arrow.up.right.square"
+                )
+                .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
+            }
+            .buttonStyle(.plain)
+            .help(LocalActionSpec.detachDrawerPane.actionSpec.helpText)
+        }
+    }
+
     @ViewBuilder
     private var addDrawerButton: some View {
         Button {
@@ -195,41 +195,107 @@ struct DrawerPanel: View {
         .help(LocalActionSpec.addDrawerTerminal.actionSpec.helpText)
     }
 
+    private func shouldAcceptDrawerDrop(
+        payload: SplitDropPayload,
+        destinationPaneId: UUID,
+        zone: DrawerDropZone
+    ) -> Bool {
+        guard let drawer = store.paneAtom.pane(parentPaneId)?.drawer else { return false }
+        guard drawer.layout.contains(destinationPaneId) else { return false }
+        guard case .existingPane(let sourcePaneId, _) = payload.kind else { return false }
+        guard sourcePaneId != destinationPaneId else { return false }
+        guard let sourcePane = store.paneAtom.pane(sourcePaneId) else { return false }
+        guard sourcePane.parentPaneId == parentPaneId else { return false }
+
+        let snapshot = WorkspaceCommandResolver.snapshot(
+            from: store.tabLayoutAtom.tabs,
+            activeTabId: store.tabLayoutAtom.activeTabId,
+            isManagementLayerActive: atom(\.managementLayer).isActive,
+            knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
+            drawerParentByPaneId: drawerParentByPaneId(),
+            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId()
+        )
+        let moveAction = PaneActionCommand.moveDrawerPane(
+            parentPaneId: parentPaneId,
+            drawerPaneId: sourcePaneId,
+            targetDrawerPaneId: destinationPaneId,
+            direction: zone.newDirection
+        )
+        if case .success = WorkspaceCommandValidator.validate(moveAction, state: snapshot) {
+            return true
+        }
+        return false
+    }
+
+    private func handleDrawerDrop(
+        payload: SplitDropPayload,
+        destinationPaneId: UUID,
+        zone: DrawerDropZone
+    ) {
+        guard case .existingPane(let sourcePaneId, _) = payload.kind else { return }
+        guard sourcePaneId != destinationPaneId else { return }
+        guard let sourcePane = store.paneAtom.pane(sourcePaneId) else { return }
+        guard sourcePane.parentPaneId == parentPaneId else { return }
+
+        action(
+            .moveDrawerPane(
+                parentPaneId: parentPaneId,
+                drawerPaneId: sourcePaneId,
+                targetDrawerPaneId: destinationPaneId,
+                direction: zone.newDirection
+            )
+        )
+    }
+
+    private func drawerParentByPaneId() -> [UUID: UUID] {
+        Dictionary(
+            uniqueKeysWithValues: store.paneAtom.panes.values.compactMap { pane in
+                guard let drawerParentPaneId = pane.parentPaneId else { return nil }
+                return (pane.id, drawerParentPaneId)
+            }
+        )
+    }
+
+    private func drawerLayoutByParentPaneId() -> [UUID: DrawerGridLayout] {
+        Dictionary(
+            uniqueKeysWithValues: store.paneAtom.panes.values.compactMap { pane in
+                guard let drawer = pane.drawer else { return nil }
+                return (pane.id, drawer.layout)
+            }
+        )
+    }
+
     var body: some View {
-        GeometryReader { drawerGeometry in
-            let containerBounds = CGRect(origin: .zero, size: drawerGeometry.size)
+        GeometryReader { _ in
             ZStack(alignment: .topLeading) {
                 VStack(spacing: 0) {
                     // Resize handle at top
                     DrawerResizeHandle(onDrag: onResize)
 
                     if !layout.isEmpty {
-                        FlatPaneStripContent(
-                            layout: layout,
-                            tabId: tabId,
-                            activePaneId: activePaneId,
-                            minimizedPaneIds: minimizedPaneIds,
-                            collapsedPaneWidth: CollapsedPaneBar.barWidth,
-                            onSaveArrangement: nil,
-                            closeTransitionCoordinator: closeTransitionCoordinator,
-                            actionDispatcher: drawerActionDispatcher,
-                            onPaneFocusTrigger: onPaneFocusTrigger,
-                            store: store,
-                            repoCache: repoCache,
-                            viewRegistry: viewRegistry,
-                            coordinateSpaceName: Self.drawerDropCoordinateSpace,
-                            useDrawerFramePreference: true,
-                            onOpenPaneGitHub: onOpenPaneGitHub
-                        )
+                        VStack(spacing: DrawerLayout.panelContentPadding) {
+                            HStack {
+                                Spacer()
+                                detachDrawerButton
+                            }
+                            rowContent(layout.topRow)
+                            if let bottomRow = layout.bottomRow {
+                                rowContent(bottomRow)
+                            }
+                        }
                         .padding(.horizontal, DrawerLayout.panelContentPadding)
                         .padding(.bottom, DrawerLayout.panelContentPadding)
                     } else {
                         VStack(spacing: 12) {
                             Spacer()
                             addDrawerButton
-                            Text("Add a drawer terminal")
-                                .font(.system(size: AppStyles.General.Typography.textXs))
-                                .foregroundStyle(.tertiary)
+                            Text(
+                                managementLayer.isActive
+                                    ? "Press P to add the first drawer pane"
+                                    : "Press D to add the first drawer pane"
+                            )
+                            .font(.system(size: AppStyles.General.Typography.textXs))
+                            .foregroundStyle(.tertiary)
                             Spacer()
                         }
                         .frame(maxWidth: .infinity)
@@ -237,18 +303,16 @@ struct DrawerPanel: View {
                 }
 
                 if managementLayer.isActive {
-                    PaneDropTargetOverlay(target: dropTarget, paneFrames: drawerPaneFrames)
+                    DrawerDropTargetOverlay(target: dropTarget, paneFrames: drawerPaneFrames)
                         .allowsHitTesting(false)
                 }
 
-                SplitContainerDropCaptureOverlay(
+                DrawerSplitContainerDropCaptureOverlay(
                     paneFrames: drawerPaneFrames,
-                    // Use full drawer panel geometry so edge corridors remain
-                    // available for left/right insertion around outermost panes.
-                    containerBounds: containerBounds,
                     target: $dropTarget,
                     isManagementLayerActive: managementLayer.isActive,
-                    actionDispatcher: drawerActionDispatcher
+                    shouldAcceptDrop: shouldAcceptDrawerDrop,
+                    handleDrop: handleDrawerDrop
                 )
             }
             .onPreferenceChange(DrawerPaneFramePreferenceKey.self) { drawerPaneFrames = $0 }
@@ -279,13 +343,6 @@ struct DrawerPanel: View {
     }
 
     private static let drawerDropCoordinateSpace = "drawerContainer"
-
-    private static func splitDirection(for zone: DropZone) -> SplitNewDirection {
-        switch zone {
-        case .left: return .left
-        case .right: return .right
-        }
-    }
 
     private func startDropTargetWatchdog() {
         stopDropTargetWatchdog()
@@ -322,7 +379,7 @@ struct DrawerPanel: View {
             VStack {
                 Spacer()
                 DrawerPanel(
-                    layout: Layout(),
+                    layout: DrawerGridLayout(),
                     parentPaneId: UUID(),
                     tabId: UUID(),
                     activePaneId: nil,

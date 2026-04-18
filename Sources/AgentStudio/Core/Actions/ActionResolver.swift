@@ -205,7 +205,8 @@ enum WorkspaceCommandResolver {
         isManagementLayerActive: Bool,
         knownRepoIds: Set<UUID> = [],
         knownWorktreeIds: Set<UUID> = [],
-        drawerParentByPaneId: [UUID: UUID] = [:]
+        drawerParentByPaneId: [UUID: UUID] = [:],
+        drawerLayoutByParentPaneId: [UUID: DrawerGridLayout] = [:]
     ) -> ActionStateSnapshot {
         ActionStateSnapshot(
             tabs: tabs.map { tab in
@@ -220,7 +221,8 @@ enum WorkspaceCommandResolver {
             isManagementLayerActive: isManagementLayerActive,
             knownRepoIds: knownRepoIds,
             knownWorktreeIds: knownWorktreeIds,
-            drawerParentByPaneId: drawerParentByPaneId
+            drawerParentByPaneId: drawerParentByPaneId,
+            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId
         )
     }
 

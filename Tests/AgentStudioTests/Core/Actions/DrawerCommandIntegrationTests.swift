@@ -16,6 +16,7 @@ final class DrawerCommandIntegrationTests {
     private var tempDir: URL!
 
     init() {
+        installTestAtomRegistryIfNeeded()
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "drawer-cmd-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
@@ -175,6 +176,87 @@ final class DrawerCommandIntegrationTests {
         #expect(Set(drawer.layout.paneIds) == Set([dp1.id, dp2.id, dp3.id]))
         #expect(drawer.layout.paneIds.last == dp1.id)
         #expect(drawer.activePaneId == dp1.id)
+    }
+
+    @Test
+    func test_moveDrawerPane_downIntoThirdRow_isNoOp() {
+        let (parentPaneId, _) = createParentPaneInTab()
+        let topLeft = store.addDrawerPane(to: parentPaneId)!
+        _ = store.addDrawerPane(to: parentPaneId)!
+        let bottom = store.insertDrawerPane(
+            in: parentPaneId,
+            at: topLeft.id,
+            direction: .vertical,
+            position: .after
+        )!
+
+        let before = store.pane(parentPaneId)!.drawer!.layout
+
+        executor.execute(
+            .moveDrawerPane(
+                parentPaneId: parentPaneId,
+                drawerPaneId: bottom.id,
+                targetDrawerPaneId: topLeft.id,
+                direction: .down
+            )
+        )
+
+        #expect(store.pane(parentPaneId)!.drawer!.layout == before)
+    }
+
+    @Test
+    func test_insertDrawerPane_verticalAfter_rendersBottomRow() throws {
+        let (parentPaneId, _) = createParentPaneInTab()
+        let first = try #require(store.addDrawerPane(to: parentPaneId))
+
+        executor.execute(
+            .insertDrawerPane(
+                parentPaneId: parentPaneId,
+                targetDrawerPaneId: first.id,
+                direction: .down
+            )
+        )
+
+        let drawer = try #require(store.pane(parentPaneId)?.drawer)
+        #expect(drawer.layout.bottomRow != nil)
+    }
+
+    @Test
+    func test_moveDrawerPane_verticalDrop_preservesTwoRowLegality() throws {
+        let (parentPaneId, _) = createParentPaneInTab()
+        let first = try #require(store.addDrawerPane(to: parentPaneId))
+        let second = try #require(store.addDrawerPane(to: parentPaneId))
+        _ = store.insertDrawerPane(
+            in: parentPaneId,
+            at: first.id,
+            direction: .vertical,
+            position: .after
+        )
+
+        executor.execute(
+            .moveDrawerPane(
+                parentPaneId: parentPaneId,
+                drawerPaneId: second.id,
+                targetDrawerPaneId: first.id,
+                direction: .down
+            )
+        )
+
+        let drawer = try #require(store.pane(parentPaneId)?.drawer)
+        #expect(drawer.layout.bottomRow?.contains(second.id) == true)
+    }
+
+    @Test
+    func test_detachDrawerPane_promotesPaneToParentRight() throws {
+        let (parentPaneId, tabId) = createParentPaneInTab()
+        let drawerPane = try #require(store.addDrawerPane(to: parentPaneId))
+
+        executor.execute(.detachDrawerPane(parentPaneId: parentPaneId, drawerPaneId: drawerPane.id))
+
+        let tab = try #require(store.tab(tabId))
+        #expect(tab.paneIds == [parentPaneId, drawerPane.id])
+        #expect(store.pane(parentPaneId)?.drawer?.paneIds.contains(drawerPane.id) == false)
+        #expect(store.pane(drawerPane.id)?.isDrawerChild == false)
     }
 
     // MARK: - Minimize / Expand Drawer Pane

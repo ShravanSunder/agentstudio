@@ -88,9 +88,6 @@ extension PaneCoordinator {
         targetDrawerPaneId: UUID,
         direction: SplitNewDirection
     ) {
-        let layoutDirection = bridgeDirection(direction)
-        let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
-
         let fallbackCWD =
             store.paneAtom.pane(parentPaneId)?.worktreeId.flatMap(store.repositoryTopologyAtom.worktree)?.path
 
@@ -98,8 +95,7 @@ extension PaneCoordinator {
             let drawerPane = store.paneAtom.insertDrawerPane(
                 in: parentPaneId,
                 at: targetDrawerPaneId,
-                direction: layoutDirection,
-                position: position,
+                direction: direction,
                 parentFallbackCWD: fallbackCWD
             )
         else {
@@ -225,6 +221,7 @@ extension PaneCoordinator {
             selectTab: { _ in },
             selectPane: { _, _ in },
             selectDrawerPane: { _, _ in },
+            selectEmptyDrawer: { _ in },
             syncRuntimeFocus: { [weak self] surfaceId in
                 self?.surfaceManager.syncFocus(activeSurfaceId: surfaceId)
             }

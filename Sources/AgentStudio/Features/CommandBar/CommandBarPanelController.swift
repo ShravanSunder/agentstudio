@@ -135,14 +135,15 @@ final class CommandBarPanelController {
         controllerLogger.debug("Command bar panel presented")
     }
 
-    private var currentContext: WorkspaceFocus {
+    private var currentContext: WorkspacePaneFocus {
         let workspaceTab = WorkspaceTabDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
-        return atom(\.workspaceFocus).currentFocus(
+        return atom(\.workspacePaneFocus).currentFocus(
             workspaceTab: workspaceTab,
-            workspacePane: store.paneAtom
+            workspacePane: store.paneAtom,
+            workspaceNavigationScope: atom(\.workspaceNavigationScope)
         )
     }
 

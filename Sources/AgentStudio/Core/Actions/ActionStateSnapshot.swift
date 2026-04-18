@@ -32,6 +32,8 @@ struct ActionStateSnapshot: Equatable {
     let knownWorktreeIds: Set<UUID>
     /// Drawer child -> parent layout pane mapping for drag/drop policy checks.
     let drawerParentByPaneId: [UUID: UUID]
+    /// Parent layout pane -> current drawer layout for validator-side legality checks.
+    let drawerLayoutByParentPaneId: [UUID: DrawerGridLayout]
 
     /// Reverse lookup: owned paneId → tabId for O(1) resolution.
     private let ownedPaneToTab: [UUID: UUID]
@@ -44,7 +46,8 @@ struct ActionStateSnapshot: Equatable {
         isManagementLayerActive: Bool,
         knownRepoIds: Set<UUID> = [],
         knownWorktreeIds: Set<UUID> = [],
-        drawerParentByPaneId: [UUID: UUID] = [:]
+        drawerParentByPaneId: [UUID: UUID] = [:],
+        drawerLayoutByParentPaneId: [UUID: DrawerGridLayout] = [:]
     ) {
         self.tabs = tabs
         self.activeTabId = activeTabId
@@ -52,6 +55,7 @@ struct ActionStateSnapshot: Equatable {
         self.knownRepoIds = knownRepoIds
         self.knownWorktreeIds = knownWorktreeIds
         self.drawerParentByPaneId = drawerParentByPaneId
+        self.drawerLayoutByParentPaneId = drawerLayoutByParentPaneId
 
         var ownedLookup: [UUID: UUID] = [:]
         var visibleLookup: [UUID: UUID] = [:]
@@ -100,6 +104,10 @@ struct ActionStateSnapshot: Equatable {
         drawerParentByPaneId[paneId]
     }
 
+    func drawerLayout(for parentPaneId: UUID) -> DrawerGridLayout? {
+        drawerLayoutByParentPaneId[parentPaneId]
+    }
+
     var tabCount: Int { tabs.count }
 
     /// All pane IDs across all tabs. Used for cardinality validation.
@@ -114,5 +122,6 @@ struct ActionStateSnapshot: Equatable {
             && lhs.knownRepoIds == rhs.knownRepoIds
             && lhs.knownWorktreeIds == rhs.knownWorktreeIds
             && lhs.drawerParentByPaneId == rhs.drawerParentByPaneId
+            && lhs.drawerLayoutByParentPaneId == rhs.drawerLayoutByParentPaneId
     }
 }

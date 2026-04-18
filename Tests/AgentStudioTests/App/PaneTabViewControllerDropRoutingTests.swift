@@ -9,13 +9,15 @@ struct PaneTabViewControllerDropRoutingTests {
         tabs: [TabSnapshot],
         activeTabId: UUID?,
         isManagementLayerActive: Bool = true,
-        drawerParentByPaneId: [UUID: UUID] = [:]
+        drawerParentByPaneId: [UUID: UUID] = [:],
+        drawerLayoutByParentPaneId: [UUID: DrawerGridLayout] = [:]
     ) -> ActionStateSnapshot {
         ActionStateSnapshot(
             tabs: tabs,
             activeTabId: activeTabId,
             isManagementLayerActive: isManagementLayerActive,
-            drawerParentByPaneId: drawerParentByPaneId
+            drawerParentByPaneId: drawerParentByPaneId,
+            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId
         )
     }
 
@@ -173,6 +175,9 @@ struct PaneTabViewControllerDropRoutingTests {
             drawerParentByPaneId: [
                 sourcePaneId: parentPaneId,
                 destinationPaneId: parentPaneId,
+            ],
+            drawerLayoutByParentPaneId: [
+                parentPaneId: DrawerGridLayout(topRow: Layout.autoTiled([sourcePaneId, destinationPaneId]))
             ]
         )
         let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: tabId))

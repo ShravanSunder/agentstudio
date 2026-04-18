@@ -11,12 +11,16 @@ final class WorkspaceCommandValidatorTests {
     private func makeSnapshot(
         tabs: [TabSnapshot] = [],
         activeTabId: UUID? = nil,
-        isManagementLayerActive: Bool = false
+        isManagementLayerActive: Bool = false,
+        drawerParentByPaneId: [UUID: UUID] = [:],
+        drawerLayoutByParentPaneId: [UUID: DrawerGridLayout] = [:]
     ) -> ActionStateSnapshot {
         ActionStateSnapshot(
             tabs: tabs,
             activeTabId: activeTabId,
-            isManagementLayerActive: isManagementLayerActive
+            isManagementLayerActive: isManagementLayerActive,
+            drawerParentByPaneId: drawerParentByPaneId,
+            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId
         )
     }
 
@@ -258,6 +262,97 @@ final class WorkspaceCommandValidatorTests {
             return
         }
         #expect(validated.action == .closeTab(tabId: tabId))
+    }
+
+    @Test
+    func test_focusDrawerPaneLeft_wrongParentFails() {
+        let parentPaneId = UUIDv7.generate()
+        let otherParentPaneId = UUIDv7.generate()
+        let drawerPaneId = UUIDv7.generate()
+
+        let snapshot = makeSnapshot(
+            tabs: [
+                TabSnapshot(
+                    id: UUID(),
+                    visiblePaneIds: [parentPaneId, otherParentPaneId],
+                    ownedPaneIds: [parentPaneId, otherParentPaneId, drawerPaneId],
+                    activePaneId: parentPaneId
+                )
+            ],
+            drawerParentByPaneId: [drawerPaneId: otherParentPaneId]
+        )
+
+        let result = WorkspaceCommandValidator.validate(
+            .focusDrawerPaneLeft(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId),
+            state: snapshot
+        )
+
+        if case .failure(.paneNotFound) = result { return }
+        Issue.record("Expected paneNotFound for wrong-parent drawer membership")
+    }
+
+    @Test
+    func test_detachDrawerPane_requiresRealDrawerChild() {
+        let parentPaneId = UUIDv7.generate()
+        let drawerPaneId = UUIDv7.generate()
+        let snapshot = makeSnapshot(
+            tabs: [
+                TabSnapshot(
+                    id: UUID(),
+                    visiblePaneIds: [parentPaneId],
+                    ownedPaneIds: [parentPaneId],
+                    activePaneId: parentPaneId
+                )
+            ]
+        )
+
+        let result = WorkspaceCommandValidator.validate(
+            .detachDrawerPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId),
+            state: snapshot
+        )
+
+        if case .failure(.paneNotFound) = result { return }
+        Issue.record("Expected paneNotFound when detach targets a non-drawer child")
+    }
+
+    @Test
+    func test_insertDrawerPane_thirdRowFailsAtValidatorBoundary() {
+        let parentPaneId = UUIDv7.generate()
+        let topPaneId = UUIDv7.generate()
+        let bottomPaneId = UUIDv7.generate()
+        let snapshot = makeSnapshot(
+            tabs: [
+                TabSnapshot(
+                    id: UUID(),
+                    visiblePaneIds: [parentPaneId],
+                    ownedPaneIds: [parentPaneId, topPaneId, bottomPaneId],
+                    activePaneId: parentPaneId
+                )
+            ],
+            isManagementLayerActive: true,
+            drawerParentByPaneId: [
+                topPaneId: parentPaneId,
+                bottomPaneId: parentPaneId,
+            ],
+            drawerLayoutByParentPaneId: [
+                parentPaneId: DrawerGridLayout(
+                    topRow: Layout.autoTiled([topPaneId]),
+                    bottomRow: Layout.autoTiled([bottomPaneId])
+                )
+            ]
+        )
+
+        let result = WorkspaceCommandValidator.validate(
+            .insertDrawerPane(
+                parentPaneId: parentPaneId,
+                targetDrawerPaneId: bottomPaneId,
+                direction: .down
+            ),
+            state: snapshot
+        )
+
+        if case .failure(.invalidDrawerLayout) = result { return }
+        Issue.record("Expected invalidDrawerLayout when insert would create a third row")
     }
 
     @Test

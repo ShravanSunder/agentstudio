@@ -25,6 +25,7 @@ enum ActionValidationError: Error, Equatable {
     case sourcePaneNotFound(paneId: UUID, sourceTabId: UUID)
     case invalidRatio(ratio: Double)
     case paneAlreadyInLayout(paneId: UUID)
+    case invalidDrawerLayout(parentPaneId: UUID)
 }
 
 /// Pure-function validation engine.
@@ -207,6 +208,38 @@ enum WorkspaceCommandValidator {
 
         // Drawer actions — validate parent pane is in an active tab layout.
         // Store-level guards provide additional safety for panes in non-active arrangements.
+        case .enterDrawer(let parentPaneId):
+            guard state.tabShowing(paneId: parentPaneId) != nil else {
+                return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
+            }
+            return .success(ValidatedAction(action))
+
+        case .focusDrawerPaneUp(let parentPaneId, let drawerPaneId),
+            .focusDrawerPaneLeft(let parentPaneId, let drawerPaneId),
+            .focusDrawerPaneDown(let parentPaneId, let drawerPaneId),
+            .focusDrawerPaneRight(let parentPaneId, let drawerPaneId):
+            if let error = DrawerCommandValidator.validateMembership(
+                parentPaneId: parentPaneId,
+                drawerPaneId: drawerPaneId,
+                state: state
+            ) {
+                return .failure(error)
+            }
+            return .success(ValidatedAction(action))
+
+        case .detachDrawerPane(let parentPaneId, let drawerPaneId):
+            if let error = DrawerCommandValidator.validateMembership(
+                parentPaneId: parentPaneId,
+                drawerPaneId: drawerPaneId,
+                state: state
+            ) {
+                return .failure(error)
+            }
+            guard state.tabShowing(paneId: parentPaneId) != nil else {
+                return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
+            }
+            return .success(ValidatedAction(action))
+
         case .addDrawerPane(let parentPaneId):
             guard state.tabShowing(paneId: parentPaneId) != nil else {
                 return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
@@ -226,13 +259,28 @@ enum WorkspaceCommandValidator {
             .resizeDrawerPane(let parentPaneId, _, _),
             .equalizeDrawerPanes(let parentPaneId),
             .minimizeDrawerPane(let parentPaneId, _),
-            .expandDrawerPane(let parentPaneId, _),
-            .insertDrawerPane(let parentPaneId, _, _),
-            .moveDrawerPane(let parentPaneId, _, _, _):
+            .expandDrawerPane(let parentPaneId, _):
             guard state.tabShowing(paneId: parentPaneId) != nil else {
                 return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
             }
             return .success(ValidatedAction(action))
+
+        case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction):
+            return DrawerCommandValidator.validateInsertion(
+                parentPaneId: parentPaneId,
+                targetDrawerPaneId: targetDrawerPaneId,
+                direction: direction,
+                state: state
+            ).map { ValidatedAction(action) }
+
+        case .moveDrawerPane(let parentPaneId, let drawerPaneId, let targetDrawerPaneId, let direction):
+            return DrawerCommandValidator.validateMove(
+                parentPaneId: parentPaneId,
+                drawerPaneId: drawerPaneId,
+                targetDrawerPaneId: targetDrawerPaneId,
+                direction: direction,
+                state: state
+            ).map { ValidatedAction(action) }
 
         // System actions — trusted source, skip validation
         case .expireUndoEntry, .repair:

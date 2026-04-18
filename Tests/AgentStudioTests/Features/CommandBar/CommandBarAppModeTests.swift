@@ -24,8 +24,8 @@ struct CommandBarAppModeTests {
 }
 
 @MainActor
-@Suite("WorkspaceFocus")
-struct WorkspaceFocusTests {
+@Suite("WorkspacePaneFocus")
+struct WorkspacePaneFocusTests {
     @Test
     func visibilityIgnoresMissingRequirementsOnlyWhenDefinitionHasNoRequirements() {
         let alwaysVisible = CommandSpec(command: .newTab, label: "New Tab", helpText: "Create a new tab")
@@ -35,7 +35,7 @@ struct WorkspaceFocusTests {
             helpText: "Close the active tab",
             visibleWhen: [.hasActiveTab]
         )
-        let focus = WorkspaceFocus(paneContentType: .noActivePane, satisfiedRequirements: [])
+        let focus = WorkspacePaneFocus(paneContentType: .noActivePane, satisfiedRequirements: [])
 
         #expect(alwaysVisible.isVisible(in: focus))
         #expect(!tabOnly.isVisible(in: focus))
@@ -49,11 +49,11 @@ struct WorkspaceFocusTests {
             helpText: "Switch to a pane inside the active drawer",
             visibleWhen: [.hasActivePane, .hasDrawerPanes]
         )
-        let missingDrawer = WorkspaceFocus(
+        let missingDrawer = WorkspacePaneFocus(
             paneContentType: .terminal,
             satisfiedRequirements: [.hasActivePane]
         )
-        let ready = WorkspaceFocus(
+        let ready = WorkspacePaneFocus(
             paneContentType: .terminal,
             satisfiedRequirements: [.hasActivePane, .hasDrawerPanes]
         )
@@ -63,8 +63,26 @@ struct WorkspaceFocusTests {
     }
 
     @Test
+    func detachDrawerPaneVisibility_requiresFocusedDrawerPane() {
+        let definition = CommandDispatcher.shared.definition(for: .detachDrawerPane)
+        let emptyDrawerFocus = WorkspacePaneFocus(
+            paneContentType: .terminal,
+            drawerFocusState: .emptyDrawer(parentPaneId: UUID()),
+            satisfiedRequirements: [.hasActiveTab, .hasActivePane, .hasDrawer, .hasEmptyDrawerFocus]
+        )
+        let drawerPaneFocus = WorkspacePaneFocus(
+            paneContentType: .terminal,
+            drawerFocusState: .drawerPane(parentPaneId: UUID(), paneId: UUID()),
+            satisfiedRequirements: [.hasActiveTab, .hasActivePane, .hasDrawer, .hasDrawerPanes, .hasFocusedDrawerPane]
+        )
+
+        #expect(!definition.isVisible(in: emptyDrawerFocus))
+        #expect(definition.isVisible(in: drawerPaneFocus))
+    }
+
+    @Test
     func terminalContextMetadata() {
-        let focus = WorkspaceFocus(
+        let focus = WorkspacePaneFocus(
             paneContentType: .terminal,
             satisfiedRequirements: [.hasActivePane, .paneIsTerminal]
         )
@@ -75,7 +93,10 @@ struct WorkspaceFocusTests {
 
     @Test
     func webviewContextMetadata() {
-        let focus = WorkspaceFocus(paneContentType: .webview, satisfiedRequirements: [.hasActivePane, .paneIsWebview])
+        let focus = WorkspacePaneFocus(
+            paneContentType: .webview,
+            satisfiedRequirements: [.hasActivePane, .paneIsWebview]
+        )
 
         #expect(focus.label == "Webview")
         #expect(focus.icon == "globe")
@@ -83,7 +104,10 @@ struct WorkspaceFocusTests {
 
     @Test
     func bridgeContextMetadata() {
-        let focus = WorkspaceFocus(paneContentType: .bridge, satisfiedRequirements: [.hasActivePane, .paneIsBridge])
+        let focus = WorkspacePaneFocus(
+            paneContentType: .bridge,
+            satisfiedRequirements: [.hasActivePane, .paneIsBridge]
+        )
 
         #expect(focus.label == "Bridge")
         #expect(focus.icon == "rectangle.split.2x1")
@@ -91,7 +115,7 @@ struct WorkspaceFocusTests {
 
     @Test
     func codeViewerContextMetadata() {
-        let focus = WorkspaceFocus(
+        let focus = WorkspacePaneFocus(
             paneContentType: .codeViewer,
             satisfiedRequirements: [.hasActivePane, .paneIsCodeViewer]
         )
@@ -102,7 +126,7 @@ struct WorkspaceFocusTests {
 
     @Test
     func unsupportedContextMetadata() {
-        let focus = WorkspaceFocus(paneContentType: .unsupported, satisfiedRequirements: [.hasActivePane])
+        let focus = WorkspacePaneFocus(paneContentType: .unsupported, satisfiedRequirements: [.hasActivePane])
 
         #expect(focus.label == "Unsupported")
         #expect(focus.icon == "questionmark.square")
@@ -110,7 +134,7 @@ struct WorkspaceFocusTests {
 
     @Test
     func noActivePaneHidesContextMetadata() {
-        let focus = WorkspaceFocus(paneContentType: .noActivePane, satisfiedRequirements: [])
+        let focus = WorkspacePaneFocus(paneContentType: .noActivePane, satisfiedRequirements: [])
 
         #expect(focus.label == nil)
         #expect(focus.icon == nil)
@@ -118,7 +142,7 @@ struct WorkspaceFocusTests {
 
     @Test
     func contentRequirementNormalizationReplacesMismatchedPaneKindFlag() {
-        let focus = WorkspaceFocus(
+        let focus = WorkspacePaneFocus(
             paneContentType: .terminal,
             satisfiedRequirements: [.hasActivePane, .paneIsWebview]
         )
@@ -129,17 +153,22 @@ struct WorkspaceFocusTests {
 }
 
 @MainActor
-@Suite("WorkspaceFocusDerivedProjection")
-struct WorkspaceFocusDerivedProjectionTests {
+@Suite("WorkspacePaneFocusDerivedProjection")
+struct WorkspacePaneFocusDerivedProjectionTests {
+    private func workspaceTab(for store: WorkspaceStore) -> WorkspaceTabDerived {
+        WorkspaceTabDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
+    }
+
     @Test
     func emptyWorkspaceHasNoActiveContext() {
         let store = WorkspaceStore()
-        let focus = WorkspaceFocusDerived().currentFocus(
-            workspaceTab: WorkspaceTabDerived(
-                shellAtom: store.tabShellAtom,
-                arrangementAtom: store.tabArrangementAtom
-            ),
-            workspacePane: store.paneAtom
+        let focus = WorkspacePaneFocusDerived().currentFocus(
+            workspaceTab: workspaceTab(for: store),
+            workspacePane: store.paneAtom,
+            workspaceNavigationScope: WorkspaceNavigationScopeAtom()
         )
 
         #expect(focus.paneContentType == .noActivePane)
@@ -154,12 +183,10 @@ struct WorkspaceFocusDerivedProjectionTests {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        let focus = WorkspaceFocusDerived().currentFocus(
-            workspaceTab: WorkspaceTabDerived(
-                shellAtom: store.tabShellAtom,
-                arrangementAtom: store.tabArrangementAtom
-            ),
-            workspacePane: store.paneAtom
+        let focus = WorkspacePaneFocusDerived().currentFocus(
+            workspaceTab: workspaceTab(for: store),
+            workspacePane: store.paneAtom,
+            workspaceNavigationScope: WorkspaceNavigationScopeAtom()
         )
 
         #expect(focus.paneContentType == .terminal)
@@ -190,12 +217,10 @@ struct WorkspaceFocusDerivedProjectionTests {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        let focus = WorkspaceFocusDerived().currentFocus(
-            workspaceTab: WorkspaceTabDerived(
-                shellAtom: store.tabShellAtom,
-                arrangementAtom: store.tabArrangementAtom
-            ),
-            workspacePane: store.paneAtom
+        let focus = WorkspacePaneFocusDerived().currentFocus(
+            workspaceTab: workspaceTab(for: store),
+            workspacePane: store.paneAtom,
+            workspaceNavigationScope: WorkspaceNavigationScopeAtom()
         )
 
         #expect(focus.paneContentType == .noActivePane)
@@ -222,12 +247,10 @@ struct WorkspaceFocusDerivedProjectionTests {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        let focus = WorkspaceFocusDerived().currentFocus(
-            workspaceTab: WorkspaceTabDerived(
-                shellAtom: store.tabShellAtom,
-                arrangementAtom: store.tabArrangementAtom
-            ),
-            workspacePane: store.paneAtom
+        let focus = WorkspacePaneFocusDerived().currentFocus(
+            workspaceTab: workspaceTab(for: store),
+            workspacePane: store.paneAtom,
+            workspaceNavigationScope: WorkspaceNavigationScopeAtom()
         )
 
         #expect(focus.paneContentType == .noActivePane)
@@ -253,12 +276,10 @@ struct WorkspaceFocusDerivedProjectionTests {
         store.insertPane(paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after)
         _ = store.addDrawerPane(to: paneA.id)
 
-        let focus = WorkspaceFocusDerived().currentFocus(
-            workspaceTab: WorkspaceTabDerived(
-                shellAtom: store.tabShellAtom,
-                arrangementAtom: store.tabArrangementAtom
-            ),
-            workspacePane: store.paneAtom
+        let focus = WorkspacePaneFocusDerived().currentFocus(
+            workspaceTab: workspaceTab(for: store),
+            workspacePane: store.paneAtom,
+            workspaceNavigationScope: WorkspaceNavigationScopeAtom()
         )
 
         #expect(focus.satisfiedRequirements.contains(.hasMultiplePanes))
@@ -278,12 +299,10 @@ struct WorkspaceFocusDerivedProjectionTests {
         store.appendTab(secondTab)
         store.setActiveTab(firstTab.id)
 
-        let focus = WorkspaceFocusDerived().currentFocus(
-            workspaceTab: WorkspaceTabDerived(
-                shellAtom: store.tabShellAtom,
-                arrangementAtom: store.tabArrangementAtom
-            ),
-            workspacePane: store.paneAtom
+        let focus = WorkspacePaneFocusDerived().currentFocus(
+            workspaceTab: workspaceTab(for: store),
+            workspacePane: store.paneAtom,
+            workspaceNavigationScope: WorkspaceNavigationScopeAtom()
         )
 
         #expect(focus.satisfiedRequirements.contains(.hasMultipleTabs))

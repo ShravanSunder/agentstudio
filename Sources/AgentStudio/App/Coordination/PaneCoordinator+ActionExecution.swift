@@ -431,6 +431,36 @@ extension PaneCoordinator {
             store.paneAtom.purgeOrphanedPane(paneId)
             viewRegistry.removeSlot(for: paneId)
 
+        case .enterDrawer,
+            .focusDrawerPaneUp,
+            .focusDrawerPaneLeft,
+            .focusDrawerPaneDown,
+            .focusDrawerPaneRight:
+            break
+
+        case .detachDrawerPane(let parentPaneId, let drawerPaneId):
+            guard let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id else {
+                Self.logger.warning("detachDrawerPane: parent pane \(parentPaneId) is not in a visible tab")
+                break
+            }
+
+            guard store.paneAtom.detachDrawerPane(drawerPaneId, from: parentPaneId) != nil else {
+                Self.logger.warning("detachDrawerPane: failed releasing drawer pane \(drawerPaneId)")
+                break
+            }
+
+            store.tabLayoutAtom.insertPane(
+                drawerPaneId,
+                inTab: tabId,
+                at: parentPaneId,
+                direction: .horizontal,
+                position: .after
+            )
+            store.tabLayoutAtom.setActivePane(drawerPaneId, inTab: tabId)
+            restoreViewsForActiveTabIfNeeded()
+            reattachForViewSwitch(paneId: drawerPaneId)
+            focusVisiblePaneHost(drawerPaneId)
+
         case .addDrawerPane(let parentPaneId):
             let fallbackCWD = store.paneAtom.pane(parentPaneId)?.worktreeId.flatMap(
                 store.repositoryTopologyAtom.worktree)?
@@ -489,14 +519,11 @@ extension PaneCoordinator {
             )
 
         case .moveDrawerPane(let parentPaneId, let drawerPaneId, let targetDrawerPaneId, let direction):
-            let layoutDirection = bridgeDirection(direction)
-            let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
             store.paneAtom.moveDrawerPane(
                 drawerPaneId,
                 in: parentPaneId,
-                at: targetDrawerPaneId,
-                direction: layoutDirection,
-                position: position
+                to: targetDrawerPaneId,
+                direction: direction
             )
             focusVisiblePaneHost(drawerPaneId)
 

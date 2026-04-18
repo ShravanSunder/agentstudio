@@ -112,6 +112,19 @@ enum PaneActionCommand: Equatable, Hashable {
 
     // Drawer operations
 
+    /// Enter a parent pane's drawer scope without creating a pane.
+    case enterDrawer(parentPaneId: UUID)
+    /// Move focus to the drawer pane above the current selection.
+    case focusDrawerPaneUp(parentPaneId: UUID, drawerPaneId: UUID)
+    /// Move focus to the drawer pane left of the current selection.
+    case focusDrawerPaneLeft(parentPaneId: UUID, drawerPaneId: UUID)
+    /// Move focus to the drawer pane below the current selection.
+    case focusDrawerPaneDown(parentPaneId: UUID, drawerPaneId: UUID)
+    /// Move focus to the drawer pane right of the current selection.
+    case focusDrawerPaneRight(parentPaneId: UUID, drawerPaneId: UUID)
+    /// Promote a drawer pane into the main layout to the right of its parent.
+    case detachDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
+
     /// Add a drawer pane to a parent pane.
     case addDrawerPane(parentPaneId: UUID)
     /// Remove a drawer pane from its parent.

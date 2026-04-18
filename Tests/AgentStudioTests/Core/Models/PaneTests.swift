@@ -184,7 +184,7 @@ final class PaneTests {
         let drawerPaneId = UUID()
         let drawer = Drawer(
             paneIds: [drawerPaneId],
-            layout: Layout(paneId: drawerPaneId),
+            layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)),
             activePaneId: drawerPaneId,
             isExpanded: false
         )
@@ -254,7 +254,7 @@ final class PaneTests {
         let drawerPaneId = UUID()
         let drawer = Drawer(
             paneIds: [drawerPaneId],
-            layout: Layout(paneId: drawerPaneId),
+            layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)),
             activePaneId: drawerPaneId,
             isExpanded: true
         )
@@ -461,7 +461,14 @@ final class PaneTests {
     func test_drawer_codable_roundTrip() throws {
         let id1 = UUID()
         let id2 = UUID()
-        let layout = Layout(paneId: id1).inserting(paneId: id2, at: id1, direction: .horizontal, position: .after)
+        let layout = DrawerGridLayout(
+            topRow: Layout(paneId: id1).inserting(
+                paneId: id2,
+                at: id1,
+                direction: .horizontal,
+                position: .after
+            )
+        )
         let drawer = Drawer(paneIds: [id1, id2], layout: layout, activePaneId: id2, isExpanded: false)
 
         let data = try encoder.encode(drawer)
