@@ -521,7 +521,7 @@ To keep Jotai-style store boundaries and Valtio-style source-of-truth guarantees
 
 - Canonical workspace model (`WorkspaceStore`) stays in `workspace.state.json` — contains `watchedPaths`, `CanonicalRepo[]`, `CanonicalWorktree[]`, panes, tabs, layouts
 - Derived enrichment data (`RepoCacheAtom`) in `workspace.cache.json` — contains `RepoEnrichment`, `WorktreeEnrichment`, PR/notification counts. Written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events.
-- Workspace-scoped UI preferences (`UIStateAtom`) in `workspace.ui.json`
+- Workspace-scoped UI preferences and sidebar composition state (`UIStateAtom`) in `workspace.ui.json`
 - Global app preferences and keybindings are stored separately from workspace state
 
 This prevents derived data from silently becoming canonical truth and aligns each persisted file with exactly one reason to change.
@@ -545,7 +545,7 @@ This prevents derived data from silently becoming canonical truth and aligns eac
 
 - `WorkspaceStore` → canonical workspace model in `workspace.state.json`
 - `RepoCacheAtom` → derived git/wt/gh metadata + status in `workspace.cache.json`
-- `UIStateAtom` → workspace-scoped UI preferences in `workspace.ui.json`
+- `UIStateAtom` → workspace-scoped UI preferences + sidebar composition state (`sidebarCollapsed`, `sidebarSurface`, `sidebarHasFocus` — last one runtime-only) in `workspace.ui.json`
 - `PreferencesStore` → global app preferences in `preferences.global.json`
 - `KeybindingsStore` → command-to-shortcut overrides in `keybindings.json`
 

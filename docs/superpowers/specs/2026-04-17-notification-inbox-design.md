@@ -205,8 +205,8 @@ func setSidebarSurface(_ surface: SidebarSurface)
 func setSidebarHasFocus(_ value: Bool)
 ```
 
-- `sidebarCollapsed` is persisted via `UIStateStore` AND dual-written to the existing `UserDefaults` key (`sidebarCollapsed` at `MainSplitViewController.swift:45`) during transition. A follow-up ticket migrates fully to `UIStateStore`.
-- `sidebarSurface` is persisted via `UIStateStore`. Default `.repos`.
+- `sidebarCollapsed` — **this is a state-ownership migration, not just a new field.** Today, sidebar collapsed state is owned entirely by `MainSplitViewController` and persisted via the `sidebarCollapsed` key in `UserDefaults` (`MainSplitViewController.swift:45`, read/write at lines ~96 and ~120). This ticket moves ownership into `UIStateAtom` (atom-owned + persisted via `UIStateStore` → `workspace.ui.json`). During transition we **dual-write**: `MainSplitViewController` publishes every collapsed-state change into `UIStateAtom` AND continues writing the legacy `UserDefaults` key so restore behavior doesn't regress. A follow-up ticket drops the `UserDefaults` write path once we're confident `UIStateStore` has fully taken over restore responsibility. Read path during the transition: atom is authoritative when a value has been loaded from `UIStateStore`; fall back to `UserDefaults` only when `UIStateStore` hasn't loaded yet (rare — boot sequence).
+- `sidebarSurface` is persisted via `UIStateStore`. Default `.repos`. No prior state to migrate.
 - `sidebarHasFocus` is runtime-only, reset to `false` on launch. Published by each sidebar surface view via `@FocusState.onChange`. Only one surface is visible at a time, so only one publishes at a time.
 
 **SidebarSurface lives in Core** (`Core/Models/SidebarSurface.swift`), not in the feature slice. Justification: `SidebarSurface` is composition-cutting — it names all sidebar surfaces, tags `UIStateAtom.sidebarSurface`, and appears in `KeyboardOwner.sidebar(SidebarSurface)` (§4.4). It is a generic enum (`.repos | .inbox`), not a feature-specific type. Core is the right home.
@@ -308,7 +308,7 @@ No new storage; derived from existing fields.
 
 Per the [Interaction Model WIP](2026-04-18-interaction-model-wip.md), inbox keyboard behavior is **Kind 3 (focus-scoped keys)**, not Kind 1 (Layer). There is no `NotificationInboxLayerAtom`. There is no stored "inbox layer is active" boolean. The inbox's custom shortcuts (⌥F, ⌥G, ⌥S, etc.) fire when the sidebar has focus and is showing the inbox surface — derived, not toggled.
 
-`KeyboardOwner` (designed in the WIP §4, implemented when the first cross-feature consumer arrives) names this state as `.sidebar(.inbox)`. This spec refers to `KeyboardOwner` as naming vocabulary only; the inbox implementation does not depend on the type existing yet.
+`KeyboardOwner` (designed in the WIP §4, **implemented in v1** per §4.4) names this state as `.sidebar(.inbox)`. The inbox's own runtime shortcuts do NOT call `KeyboardOwnerDerived` — they dispatch natively through SwiftUI `.keyboardShortcut()` + AppKit responder chain. But `KeyboardOwnerDerived` itself ships in this ticket because CommandBar default-scope logic (§5.2) is a v1 consumer.
 
 ### 5.1 ⌘I and ⌘S as composite commands
 

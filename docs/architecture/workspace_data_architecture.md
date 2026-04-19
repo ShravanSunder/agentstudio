@@ -27,12 +27,17 @@ TIER B: DERIVED CACHE (rebuildable from Tier A + actors)
   Mutated by: WorkspaceCacheCoordinator only (event-driven)
   Contains: repo enrichment, worktree enrichment, PR counts, notification counts
 
-TIER C: UI STATE (preferences, non-structural)
+TIER C: UI STATE (preferences, non-structural + composition state)
   File: ~/.agentstudio/workspaces/<id>/workspace.ui.json
   Owner: UIStateAtom (@MainActor, @Observable)
-  Mutated by: sidebar view actions only
-  Contains: expanded groups, checkout colors, filter state
+  Mutated by: sidebar view actions, MainSplitViewController
+              (publishing sidebar collapsed state), sidebar surface
+              views (publishing focus), composite commands (⌘I / ⌘S)
+  Contains: expanded groups, checkout colors, filter state,
+            sidebar composition state (collapsed / surface / has-focus)
 ```
+
+> **Note on composition state.** `sidebarCollapsed`, `sidebarSurface`, and `sidebarHasFocus` live on `UIStateAtom` as composition state — generic, app-wide UI shell state consumed by multiple features. See [directory_structure.md — composition state vs feature state](directory_structure.md). `sidebarHasFocus` is runtime-only (not persisted).
 
 ### Tier A: Canonical Models
 
@@ -133,10 +138,27 @@ struct WorkspaceCacheState: Codable {
 
 ```swift
 struct WorkspaceUIState: Codable {
-    var expandedGroups: Set<String>       // groupKey strings
-    var checkoutColors: [String: String]  // repoId → color name
+    // Presentation prefs (existing)
+    var expandedGroups: Set<String>        // groupKey strings
+    var checkoutColors: [String: String]   // repoId → color name
     var filterVisible: Bool
     var filterText: String
+
+    // Composition state (added LUNA-361) — app-wide UI shell state
+    var sidebarCollapsed: Bool             // OWNERSHIP MIGRATION: was
+                                           //   owned by MainSplitView-
+                                           //   Controller + UserDefaults
+                                           //   key "sidebarCollapsed";
+                                           //   now atom-owned + persisted
+                                           //   in workspace.ui.json.
+                                           //   Dual-written to UserDefaults
+                                           //   short-term for restore
+                                           //   compatibility; follow-up
+                                           //   ticket drops UserDefaults.
+    var sidebarSurface: SidebarSurface     // .repos | .inbox; new surfaces
+                                           //   extend the enum monotonically
+    // sidebarHasFocus is NOT persisted — runtime-only, resets to false
+    // on launch. Published by each sidebar surface view via @FocusState.
 }
 ```
 
