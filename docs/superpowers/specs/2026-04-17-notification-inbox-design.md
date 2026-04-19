@@ -213,7 +213,11 @@ func setSidebarHasFocus(_ value: Bool)
 
 **New runtime seam.** The app currently has no general "sidebar has focus" signal — the only existing sidebar focus seam is the filter field at `Features/RepoExplorer/RepoExplorerView.swift` (currently `Features/Sidebar/RepoSidebarContentView.swift:28` pre-rename). Wiring `sidebarHasFocus` is net-new work.
 
-**Definition of "sidebar has focus" (chosen rule).** `sidebarHasFocus == true` iff **any declared `@FocusState` target inside the currently-visible sidebar surface is non-nil.** Each surface declares its own internal focus enum listing the controls that participate:
+**Contract for `sidebarHasFocus` (one-line):**
+
+> `sidebarHasFocus == true` iff the active sidebar surface owns keyboard navigation (selected list/row) OR a focused text/search control within that same surface is first responder. Equivalently: any declared `@FocusState` target inside the currently-visible sidebar surface is non-nil.
+
+Each surface declares its own internal focus enum listing the controls that participate:
 
 ```swift
 // Features/NotificationInbox/Views/InboxSidebarView.swift
@@ -388,7 +392,17 @@ Add `CommandBarScope.inbox`. Behavior:
 - **CommandBar already open when ⌘I fires:** CommandBar stays open; the user's current scope selection is preserved. The sidebar surface flips behind it.
 - **CommandBar open, surface ≠ inbox, user manually picks `.inbox` scope:** valid — `.inbox` is always pickable. Activating the scope does not change the sidebar surface.
 
-Default-scope selection reads `KeyboardOwnerDerived.current(...)` (implemented in v1 per §4.4). When owner is `.sidebar(.inbox)`, open CommandBar with `.inbox` scope.
+Default-scope selection reads `KeyboardOwnerDerived.current(...)` (implemented in v1 per §4.4). Full matrix:
+
+| `KeyboardOwner` | Fresh ⌘P default scope | Status in this ticket |
+|---|---|---|
+| `.otherWindow` | N/A — CommandBar panel itself becomes the key window, so "fresh ⌘P" while `.otherWindow` doesn't happen for our CommandBar | No change |
+| `.managementLayer` | Preserve existing management-layer CommandBar behavior (no change) | Unchanged |
+| `.sidebar(.inbox)` | `.inbox` | **New in this ticket** |
+| `.sidebar(.repos)` | Existing default (`.everything`) for now; repo-scope default lands with the future repo-navigation ticket | Unchanged by this ticket; placeholder |
+| `.none` | `.everything` (existing default) | Unchanged |
+
+Only the `.sidebar(.inbox)` row is new. Other rows preserve existing behavior; they become meaningful signals as other features (repo navigation, management-layer-aware CommandBar) are developed. The matrix earns its keep in v1 for inbox; its structural value compounds as more consumers land.
 
 Inbox-scoped actions:
 
