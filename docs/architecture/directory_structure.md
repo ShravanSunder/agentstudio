@@ -64,6 +64,7 @@ Sources/AgentStudio/
 │   │
 │   ├── CodeViewer/                   # Native code-viewer pane mount view
 │   ├── CommandBar/                   # ⌘P command palette
+│   ├── EditorChooser/                # Reusable editor chooser menu content
 │   ├── Sidebar/                      # Sidebar content and row/group rendering
 │   ├── Terminal/                     # Everything Ghostty-specific
 │   │   ├── Ghostty/                  # C API bridge, SurfaceManager, SurfaceTypes
@@ -125,6 +126,13 @@ To keep ownership decisions consistent, use these terms:
 Practical rule:
 - If a component imports two or more feature services, it is a vertical slice in `App/` (or should be split).
 - If a component has no feature-specific logic and is shared by multiple features, it belongs in a core slice.
+
+Host-shell plus feature-content split:
+- Keep host-owned shell assembly in `App/` when placement, anchoring, divider rules, or pane/window wiring are specific to a host surface.
+- Put capability-specific reusable content in `Features/<Capability>/` when the content may be reused by multiple hosts, even if the first host lives in `App/`.
+- Example:
+  - `App/Panes/DrawerEditorChooser/` owns the drawer button, placement, anchoring, divider, and pane wiring
+  - `Features/EditorChooser/` owns numbered rows, bookmark UI, and the chooser menu model
 
 ### Why Swift Makes This Free
 

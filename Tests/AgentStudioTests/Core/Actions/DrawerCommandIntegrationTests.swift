@@ -137,6 +137,24 @@ final class DrawerCommandIntegrationTests {
         #expect(!(store.pane(parentPaneId)!.drawer!.isExpanded))
     }
 
+    @Test
+    func drawerSelectedPane_updatesTopologyStateForPaneLocationCommands() {
+        let (parentPaneId, tabId) = createParentPaneInTab()
+        let drawerPane = store.addDrawerPane(to: parentPaneId)!
+        store.setActiveDrawerPane(drawerPane.id, in: parentPaneId)
+        store.setActiveTab(tabId)
+
+        let snapshot = WorkspaceCommandResolver.snapshot(
+            from: store.tabLayoutAtom.tabs,
+            activeTabId: store.tabLayoutAtom.activeTabId,
+            isManagementLayerActive: atom(\.managementLayer).isActive,
+            knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id))
+        )
+
+        #expect(snapshot.activeTabId == tabId)
+        #expect(store.pane(parentPaneId)?.drawer?.activePaneId == drawerPane.id)
+    }
+
     // MARK: - Set Active Drawer Pane
 
     @Test

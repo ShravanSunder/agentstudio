@@ -135,6 +135,11 @@ struct PaneLeafContainer: View {
                 paneId: paneHost.id,
                 store: store
             )
+            let locationTargetPaneId = currentLocationTargetPaneId
+            let locationContext = PaneManagementContext.project(
+                paneId: locationTargetPaneId,
+                store: store
+            )
             ZStack(alignment: .topTrailing) {
                 VStack(spacing: 0) {
                     PaneViewRepresentable(paneHost: paneHost)
@@ -158,10 +163,14 @@ struct PaneLeafContainer: View {
                             paneId: paneHost.id,
                             drawer: drawer,
                             isIconBarVisible: true,
-                            trailingActions: DrawerOverlay.TrailingActions(
-                                canOpenTarget: managementContext.targetPath != nil,
-                                onOpenFinder: { openInFinder(managementContext) },
-                                onOpenCursor: { openInCursor(managementContext) }
+                            trailingActions: DrawerEditorChooserFactory.makeTrailingActions(
+                                uiState: atom(\.uiState),
+                                paneId: locationTargetPaneId,
+                                canOpenTarget: locationContext.targetPath != nil,
+                                onOpenFinder: { openInFinder(locationContext) },
+                                onOpenEditor: { editorId in
+                                    openInEditor(editorId, locationContext)
+                                }
                             ),
                             action: actionDispatcher.dispatch,
                             onPaneFocusTrigger: onPaneFocusTrigger
@@ -500,9 +509,36 @@ struct PaneLeafContainer: View {
         ExternalWorkspaceOpener.openInFinder(targetPath)
     }
 
-    private func openInCursor(_ context: PaneManagementContext) {
+    private func openInBookmarkedOrDefaultEditor(_ context: PaneManagementContext) {
         guard let targetPath = context.targetPath else { return }
-        ExternalWorkspaceOpener.openInPreferredEditor(targetPath)
+        let installedTargets = ExternalEditorTarget.refreshInstalledTargets()
+        let resolution = ExternalEditorTarget.resolveBookmarkedOrDefault(
+            bookmarkedEditorId: atom(\.uiState).editorChooserState.bookmarkedEditorId,
+            installedTargets: installedTargets
+        )
+        guard case .resolved(let target) = resolution else { return }
+        _ = ExternalWorkspaceOpener.openInEditor(
+            id: target.id,
+            path: targetPath,
+            installedTargets: installedTargets
+        )
+    }
+
+    private func openInEditor(_ editorId: EditorTargetId, _ context: PaneManagementContext) {
+        guard let targetPath = context.targetPath else { return }
+        _ = ExternalWorkspaceOpener.openInEditor(id: editorId, path: targetPath)
+    }
+
+    private var currentLocationTargetPaneId: UUID {
+        guard let drawer,
+            drawer.isExpanded,
+            let drawerPaneId = drawer.activePaneId,
+            !drawer.minimizedPaneIds.contains(drawerPaneId)
+        else {
+            return paneHost.id
+        }
+
+        return drawerPaneId
     }
 }
 

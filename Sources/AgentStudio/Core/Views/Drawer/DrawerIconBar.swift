@@ -15,7 +15,7 @@ private enum DrawerTooltipTarget: Hashable {
     case toggle
     case add
     case finder
-    case editor
+    case chooser
     case emptyAdd
 }
 
@@ -35,7 +35,7 @@ struct DrawerIconBar: View {
     @State private var isAddHovered = false
     @State private var isToggleHovered = false
     @State private var isFinderHovered = false
-    @State private var isCursorHovered = false
+    @State private var isChooserHovered = false
     @State private var tooltipFrames: [DrawerTooltipTarget: CGRect] = [:]
 
     private enum TrailingActionIcon {
@@ -49,7 +49,7 @@ struct DrawerIconBar: View {
         let togglePresentation = LocalActionSpec.toggleDrawer(isExpanded: isExpanded).actionSpec
         let addPresentation = LocalActionSpec.addDrawerPane.actionSpec
         let finderPresentation = LocalActionSpec.openPaneLocationInFinder.actionSpec
-        let editorPresentation = LocalActionSpec.openPaneLocationInPreferredEditor.actionSpec
+        let chooserPresentation = LocalActionSpec.openPaneLocationInEditorMenu.actionSpec
 
         VStack(spacing: 0) {
             GeometryReader { geo in
@@ -114,7 +114,60 @@ struct DrawerIconBar: View {
                         Spacer()
 
                         if let trailingActions {
-                            HStack(spacing: 6) {
+                            HStack(spacing: AppStyles.Components.EditorChooser.trailingClusterSpacing) {
+                                Button {
+                                    trailingActions.editorMenuPresented.wrappedValue.toggle()
+                                } label: {
+                                    HStack(spacing: AppStyles.Components.EditorChooser.chooserButtonContentSpacing) {
+                                        Image(systemName: "chevron.left.forwardslash.chevron.right")
+                                            .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
+                                        if let buttonTitle = trailingActions.buttonTitle {
+                                            Text(buttonTitle)
+                                                .lineLimit(1)
+                                                .truncationMode(.tail)
+                                        }
+                                        Image(systemName: "chevron.up.chevron.down")
+                                            .font(
+                                                .system(
+                                                    size: AppStyles.Components.EditorChooser.chooserChevronFontSize,
+                                                    weight: .semibold
+                                                )
+                                            )
+                                    }
+                                    .frame(height: DrawerLayout.iconButtonSize)
+                                    .padding(
+                                        .horizontal,
+                                        AppStyles.Components.EditorChooser.chooserButtonHorizontalPadding
+                                    )
+                                    .background(
+                                        RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
+                                            .fill(
+                                                isChooserHovered
+                                                    ? Color.primary.opacity(AppStyles.General.Fill.hover)
+                                                    : Color.clear
+                                            )
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                                .popover(
+                                    isPresented: trailingActions.editorMenuPresented,
+                                    arrowEdge: .bottom
+                                ) {
+                                    trailingActions.editorMenuContent
+                                }
+                                .disabled(!trailingActions.canOpenTarget)
+                                .help(chooserPresentation.helpText)
+                                .onHover { hovering in
+                                    withAnimation(.easeInOut(duration: AppStyles.General.Animation.fast)) {
+                                        isChooserHovered = hovering
+                                    }
+                                }
+                                .hoverTooltipAnchor(DrawerTooltipTarget.chooser, in: Self.tooltipCoordinateSpaceName)
+
+                                Divider()
+                                    .frame(height: AppStyles.Components.EditorChooser.dividerHeight)
+                                    .padding(.horizontal, AppStyles.Components.EditorChooser.dividerHorizontalPadding)
+
                                 trailingActionButton(
                                     icon: trailingActionIcon(for: finderPresentation.icon) ?? .system(name: "finder"),
                                     helpText: finderPresentation.helpText,
@@ -128,21 +181,6 @@ struct DrawerIconBar: View {
                                     }
                                 }
                                 .hoverTooltipAnchor(DrawerTooltipTarget.finder, in: Self.tooltipCoordinateSpaceName)
-
-                                trailingActionButton(
-                                    icon: trailingActionIcon(for: editorPresentation.icon)
-                                        ?? .octicon(name: "octicon-code-square"),
-                                    helpText: editorPresentation.helpText,
-                                    isHovered: isCursorHovered,
-                                    action: trailingActions.onOpenCursor
-                                )
-                                .disabled(!trailingActions.canOpenTarget)
-                                .onHover { hovering in
-                                    withAnimation(.easeInOut(duration: AppStyles.General.Animation.fast)) {
-                                        isCursorHovered = hovering
-                                    }
-                                }
-                                .hoverTooltipAnchor(DrawerTooltipTarget.editor, in: Self.tooltipCoordinateSpaceName)
                             }
                         }
                     }
@@ -171,10 +209,11 @@ struct DrawerIconBar: View {
     }
 
     private var activeTooltipTarget: DrawerTooltipTarget? {
+        if trailingActions?.editorMenuPresented.wrappedValue == true { return nil }
         if isToggleHovered { return .toggle }
         if isAddHovered { return .add }
+        if isChooserHovered { return .chooser }
         if isFinderHovered { return .finder }
-        if isCursorHovered { return .editor }
         return nil
     }
 
@@ -186,8 +225,8 @@ struct DrawerIconBar: View {
             return LocalActionSpec.addDrawerPane.actionSpec.helpText
         case .finder:
             return LocalActionSpec.openPaneLocationInFinder.actionSpec.helpText
-        case .editor:
-            return LocalActionSpec.openPaneLocationInPreferredEditor.actionSpec.helpText
+        case .chooser:
+            return LocalActionSpec.openPaneLocationInEditorMenu.actionSpec.helpText
         case .emptyAdd:
             return nil
         }

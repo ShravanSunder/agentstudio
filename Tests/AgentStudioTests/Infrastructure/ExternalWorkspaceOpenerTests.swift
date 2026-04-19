@@ -3,65 +3,84 @@ import Testing
 
 @testable import AgentStudio
 
+@MainActor
 @Suite(.serialized)
 struct ExternalWorkspaceOpenerTests {
     @Test
-    func cursorArguments_useReuseWindowFlag() {
-        let request = ExternalWorkspaceOpener.cursorCommand(
-            path: URL(fileURLWithPath: "/tmp/agent studio")
-        )
+    func openInEditor_usesTargetRequests() {
+        let path = URL(fileURLWithPath: "/tmp/agent studio")
 
-        #expect(request.executableURL == URL(fileURLWithPath: "/usr/bin/env"))
-        #expect(request.arguments == ["cursor", "--reuse-window", "/tmp/agent studio"])
-    }
-
-    @Test
-    func vscodeArguments_useReuseWindowFlag() {
-        let request = ExternalWorkspaceOpener.vscodeCommand(
-            path: URL(fileURLWithPath: "/tmp/agent studio")
-        )
-
-        #expect(request.executableURL == URL(fileURLWithPath: "/usr/bin/env"))
-        #expect(request.arguments == ["code", "--reuse-window", "/tmp/agent studio"])
-    }
-
-    @Test
-    func preferredEditorRequests_tryCursorThenVSCode() {
-        let requests = ExternalWorkspaceOpener.preferredEditorRequests(
-            path: URL(fileURLWithPath: "/tmp/project")
+        let requests = ExternalWorkspaceOpener.requests(
+            for: .cursor,
+            path: path
         )
 
         #expect(
             requests == [
                 .application(
-                    bundleIdentifier: "com.todesktop.230313mzl4w4u92",
-                    targetPath: URL(fileURLWithPath: "/tmp/project")
+                    bundleIdentifier: ExternalEditorTarget.cursor.bundleIdentifier,
+                    targetPath: path
                 ),
                 .command(
                     executableURL: URL(fileURLWithPath: "/usr/bin/env"),
-                    arguments: ["cursor", "--reuse-window", "/tmp/project"]
+                    arguments: ["cursor", "--reuse-window", "/tmp/agent studio"]
                 ),
-                .application(
-                    bundleIdentifier: "com.microsoft.VSCode",
-                    targetPath: URL(fileURLWithPath: "/tmp/project")
-                ),
-                .command(
-                    executableURL: URL(fileURLWithPath: "/usr/bin/env"),
-                    arguments: ["code", "--reuse-window", "/tmp/project"]
-                ),
-            ])
+            ]
+        )
     }
 
     @Test
-    func openInPreferredEditor_fallsBackAcrossAppAndCliRequests() {
+    func requests_useExplicitBookmarkedTarget() {
+        let path = URL(fileURLWithPath: "/tmp/project")
+        let installedTargets: [ExternalEditorTarget] = [.windsurf, .vscode]
+
+        let target = ExternalEditorTarget.resolveBookmarkedOrDefault(
+            bookmarkedEditorId: "vscode",
+            installedTargets: installedTargets
+        )
+
+        guard case .resolved(let resolvedTarget) = target else {
+            Issue.record("Expected bookmarked target resolution")
+            return
+        }
+        #expect(resolvedTarget.id == "vscode")
+        #expect(
+            ExternalWorkspaceOpener.requests(for: resolvedTarget, path: path) == [
+                .application(
+                    bundleIdentifier: ExternalEditorTarget.vscode.bundleIdentifier,
+                    targetPath: path
+                ),
+                .command(
+                    executableURL: URL(fileURLWithPath: "/usr/bin/env"),
+                    arguments: ["code", "--reuse-window", "/tmp/project"],
+                ),
+            ]
+        )
+    }
+
+    @Test
+    func openInEditor_returnsFalseForUnknownTarget() {
+        let success = ExternalWorkspaceOpener.openInEditor(
+            id: "unknown",
+            path: URL(fileURLWithPath: "/tmp/project"),
+            installedTargets: [.cursor, .vscode]
+        )
+
+        #expect(!success)
+    }
+
+    @Test
+    func open_requestsStopAtFirstSuccess() {
         let path = URL(fileURLWithPath: "/tmp/project")
         var attemptedRequests: [ExternalWorkspaceOpener.OpenRequest] = []
 
         let success = ExternalWorkspaceOpener.open(
-            requests: ExternalWorkspaceOpener.preferredEditorRequests(path: path),
+            requests: ExternalWorkspaceOpener.requests(for: .vscode, path: path),
             runner: { request in
                 attemptedRequests.append(request)
-                if case .application(bundleIdentifier: "com.microsoft.VSCode", targetPath: path) = request {
+                if case .application(bundleIdentifier: ExternalEditorTarget.vscode.bundleIdentifier, targetPath: path) =
+                    request
+                {
                     return true
                 }
                 return false
@@ -71,12 +90,38 @@ struct ExternalWorkspaceOpenerTests {
         #expect(success)
         #expect(
             attemptedRequests == [
-                .application(bundleIdentifier: "com.todesktop.230313mzl4w4u92", targetPath: path),
+                .application(bundleIdentifier: ExternalEditorTarget.vscode.bundleIdentifier, targetPath: path)
+            ]
+        )
+    }
+
+    @Test
+    func openAsync_requestsFallbackToCommandWhenApplicationFails() async {
+        let path = URL(fileURLWithPath: "/tmp/project")
+        var attemptedRequests: [ExternalWorkspaceOpener.OpenRequest] = []
+
+        let success = await ExternalWorkspaceOpener.openAsync(
+            requests: ExternalWorkspaceOpener.requests(for: .vscode, path: path),
+            runner: { request in
+                attemptedRequests.append(request)
+                if case .application = request {
+                    return false
+                }
+                return true
+            }
+        )
+
+        #expect(success)
+        #expect(
+            attemptedRequests == [
+                .application(
+                    bundleIdentifier: ExternalEditorTarget.vscode.bundleIdentifier,
+                    targetPath: path
+                ),
                 .command(
                     executableURL: URL(fileURLWithPath: "/usr/bin/env"),
-                    arguments: ["cursor", "--reuse-window", "/tmp/project"]
+                    arguments: ["code", "--reuse-window", "/tmp/project"],
                 ),
-                .application(bundleIdentifier: "com.microsoft.VSCode", targetPath: path),
             ]
         )
     }

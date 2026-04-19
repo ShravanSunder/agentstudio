@@ -8,64 +8,48 @@ enum ExternalWorkspaceOpener {
         case command(executableURL: URL, arguments: [String])
     }
 
-    private enum EditorApp {
-        static let cursorBundleIdentifier = "com.todesktop.230313mzl4w4u92"
-        static let vscodeBundleIdentifier = "com.microsoft.VSCode"
-    }
-
-    struct CommandRequest: Equatable {
-        let executableURL: URL
-        let arguments: [String]
-    }
-
     private static let logger = Logger(subsystem: "com.agentstudio", category: "ExternalWorkspaceOpener")
 
-    static func cursorCommand(path: URL) -> CommandRequest {
-        CommandRequest(
-            executableURL: URL(fileURLWithPath: "/usr/bin/env"),
-            arguments: ["cursor", "--reuse-window", path.path]
+    @discardableResult
+    @MainActor
+    static func openInEditor(
+        id: EditorTargetId,
+        path: URL,
+        installedTargets: [ExternalEditorTarget]? = nil
+    ) -> Bool {
+        let installedTargets = installedTargets ?? ExternalEditorTarget.refreshInstalledTargets()
+        guard let target = installedTargets.first(where: { $0.id == id }) else {
+            return false
+        }
+
+        let openRequests = requests(for: target, path: path)
+        Task { @MainActor in
+            _ = await openAsync(requests: openRequests)
+        }
+        return true
+    }
+
+    static func requests(for target: ExternalEditorTarget, path: URL) -> [OpenRequest] {
+        var requests: [OpenRequest] = []
+
+        if !target.bundleIdentifier.isEmpty {
+            requests.append(.application(bundleIdentifier: target.bundleIdentifier, targetPath: path))
+        }
+
+        requests.append(
+            contentsOf: target.cliFallbacks.map { fallback in
+                .command(
+                    executableURL: fallback.executableURL,
+                    arguments: fallback.arguments + [path.path]
+                )
+            }
         )
-    }
 
-    static func vscodeCommand(path: URL) -> CommandRequest {
-        CommandRequest(
-            executableURL: URL(fileURLWithPath: "/usr/bin/env"),
-            arguments: ["code", "--reuse-window", path.path]
-        )
-    }
-
-    static func preferredEditorCommands(path: URL) -> [CommandRequest] {
-        [
-            cursorCommand(path: path),
-            vscodeCommand(path: path),
-        ]
-    }
-
-    static func cursorRequests(path: URL) -> [OpenRequest] {
-        [
-            .application(bundleIdentifier: EditorApp.cursorBundleIdentifier, targetPath: path),
-            .command(
-                executableURL: cursorCommand(path: path).executableURL,
-                arguments: cursorCommand(path: path).arguments
-            ),
-        ]
-    }
-
-    static func vscodeRequests(path: URL) -> [OpenRequest] {
-        [
-            .application(bundleIdentifier: EditorApp.vscodeBundleIdentifier, targetPath: path),
-            .command(
-                executableURL: vscodeCommand(path: path).executableURL,
-                arguments: vscodeCommand(path: path).arguments
-            ),
-        ]
-    }
-
-    static func preferredEditorRequests(path: URL) -> [OpenRequest] {
-        cursorRequests(path: path) + vscodeRequests(path: path)
+        return requests
     }
 
     @discardableResult
+    @MainActor
     static func openInFinder(_ path: URL) -> Bool {
         let success = NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path.path)
         if !success {
@@ -75,18 +59,15 @@ enum ExternalWorkspaceOpener {
     }
 
     @discardableResult
+    @MainActor
     static func openInCursor(_ path: URL) -> Bool {
-        open(requests: cursorRequests(path: path))
+        openInEditor(id: ExternalEditorTarget.cursor.id, path: path)
     }
 
     @discardableResult
+    @MainActor
     static func openInVSCode(_ path: URL) -> Bool {
-        open(requests: vscodeRequests(path: path))
-    }
-
-    @discardableResult
-    static func openInPreferredEditor(_ path: URL) -> Bool {
-        open(requests: preferredEditorRequests(path: path))
+        openInEditor(id: ExternalEditorTarget.vscode.id, path: path)
     }
 
     @discardableResult
@@ -96,6 +77,21 @@ enum ExternalWorkspaceOpener {
     ) -> Bool {
         for request in requests {
             if runner(request) {
+                return true
+            }
+        }
+        logger.warning("No external editor opener succeeded")
+        return false
+    }
+
+    @discardableResult
+    @MainActor
+    static func openAsync(
+        requests: [OpenRequest],
+        runner: @escaping (OpenRequest) async -> Bool = runAsync
+    ) async -> Bool {
+        for request in requests {
+            if await runner(request) {
                 return true
             }
         }
@@ -138,6 +134,37 @@ enum ExternalWorkspaceOpener {
                 )
                 return false
             }
+        }
+    }
+
+    @MainActor
+    private static func runAsync(_ request: OpenRequest) async -> Bool {
+        switch request {
+        case .application(let bundleIdentifier, let targetPath):
+            guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else {
+                logger.debug(
+                    "Editor app not registered for bundleID=\(bundleIdentifier, privacy: .public)"
+                )
+                return false
+            }
+
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = true
+            do {
+                _ = try await NSWorkspace.shared.open(
+                    [targetPath],
+                    withApplicationAt: appURL,
+                    configuration: configuration
+                )
+                return true
+            } catch {
+                logger.error(
+                    "Open with app bundleID=\(bundleIdentifier, privacy: .public) failed for path=\(targetPath.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                )
+                return false
+            }
+        case .command:
+            return run(request)
         }
     }
 }

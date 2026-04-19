@@ -157,7 +157,7 @@ struct CommandBarDataSourceTests {
         #expect(!ids.contains("cmd-renameArrangement"))
         #expect(!ids.contains("cmd-saveArrangement"))
         #expect(ids.contains("cmd-newTab"))
-        #expect(ids.contains("cmd-addFolder"))
+        #expect(ids.contains("cmd-watchFolder"))
         #expect(!ids.contains("cmd-addRepo"))
     }
 

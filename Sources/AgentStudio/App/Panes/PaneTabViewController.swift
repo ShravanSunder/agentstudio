@@ -53,6 +53,9 @@ private final class RestoreAwareTerminalContainerView: NSView {
 /// interactions as a UI-only mutation.
 @MainActor
 class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
+    typealias OpenEditorHandler =
+        @MainActor (_ id: EditorTargetId, _ path: URL, _ installedTargets: [ExternalEditorTarget]) -> Bool
+
     private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneTabViewController")
     private static let genericGitHubURL = URL(string: "https://github.com")!
 
@@ -72,6 +75,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let tabRenamePopoverState: TabRenamePopoverState
     private let arrangementInlineRenameState: ArrangementInlineRenameState
+    private let installedEditorTargetsProvider: @MainActor () -> [ExternalEditorTarget]
+    private let openEditorHandler: OpenEditorHandler
+    private let openFinderHandler: @MainActor (URL) -> Bool
     private lazy var actionDispatcher = PaneTabActionDispatcher(
         dispatch: { [weak self] action in
             guard let self else {
@@ -135,6 +141,19 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         executor: ActionExecutor,
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
+        installedEditorTargetsProvider: @escaping @MainActor () -> [ExternalEditorTarget] = {
+            ExternalEditorTarget.refreshInstalledTargets()
+        },
+        openEditorHandler: @escaping OpenEditorHandler = { id, path, installedTargets in
+            ExternalWorkspaceOpener.openInEditor(
+                id: id,
+                path: path,
+                installedTargets: installedTargets
+            )
+        },
+        openFinderHandler: @escaping @MainActor (URL) -> Bool = { path in
+            ExternalWorkspaceOpener.openInFinder(path)
+        },
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
         tabRenamePopoverState: TabRenamePopoverState = TabRenamePopoverState(),
         arrangementInlineRenameState: ArrangementInlineRenameState = ArrangementInlineRenameState()
@@ -146,6 +165,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         self.executor = executor
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
+        self.installedEditorTargetsProvider = installedEditorTargetsProvider
+        self.openEditorHandler = openEditorHandler
+        self.openFinderHandler = openFinderHandler
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.tabRenamePopoverState = tabRenamePopoverState
         self.arrangementInlineRenameState = arrangementInlineRenameState
@@ -913,14 +935,14 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         PaneTabEmptyStateViewFactory.make(
             model: emptyStateModel,
 
-            onAddFolder: { [weak self] in self?.addFolderAction() },
+            onWatchFolder: { [weak self] in self?.watchFolderAction() },
             onOpenRecent: { [weak self] target in self?.openRecentTarget(target) },
             onOpenAllRecent: { [weak self] in self?.openAllRecentTargets() }
         )
     }
 
-    @objc private func addFolderAction() {
-        CommandDispatcher.shared.dispatch(.addFolder)
+    @objc private func watchFolderAction() {
+        CommandDispatcher.shared.dispatch(.watchFolder)
     }
 
     private func updateEmptyState() {
@@ -936,7 +958,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         emptyStateView?.rootView = WorkspaceEmptyStateView(
             model: currentModel,
 
-            onAddFolder: { [weak self] in self?.addFolderAction() },
+            onWatchFolder: { [weak self] in self?.watchFolderAction() },
             onOpenRecent: { [weak self] target in self?.openRecentTarget(target) },
             onOpenAllRecent: { [weak self] in self?.openAllRecentTargets() }
         )
@@ -1526,6 +1548,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func handleDirectCommand(_ command: AppCommand) {
+        if handlePaneLocationCommand(command) {
+            return
+        }
+
         switch command {
         case .newTab:
             addNewTab()
@@ -1535,7 +1561,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         case .renameTab:
             guard let activeTabId = store.tabLayoutAtom.activeTabId else { break }
             tabRenamePopoverState.present(for: activeTabId)
-        case .addFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle:
+        case .watchFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle:
             break
         case .addDrawerPane:
             guard let tabId = store.tabLayoutAtom.activeTabId,
@@ -1876,6 +1902,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return store.tabLayoutAtom.activeTabId != nil
         case .addDrawerPane, .toggleDrawer, .closeDrawerPane:
             return canExecuteContextualCommand(command)
+        case .openPaneLocationInBookmarkedEditor,
+            .openPaneLocationInFinder,
+            .openPaneLocationInEditorMenu:
+            return selectedPaneManagementContext()?.targetPath != nil
         default:
             break
         }
@@ -1896,8 +1926,63 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             case .failure: return false
             }
         }
-        // Non-pane commands are always available
         return true
+    }
+
+    private func handlePaneLocationCommand(_ command: AppCommand) -> Bool {
+        switch command {
+        case .openPaneLocationInBookmarkedEditor:
+            guard let targetPath = selectedPaneManagementContext()?.targetPath else { return false }
+            let installedTargets = installedEditorTargetsProvider()
+            var resolution = ExternalEditorTarget.resolveBookmarkedOrDefault(
+                bookmarkedEditorId: atom(\.uiState).editorChooserState.bookmarkedEditorId,
+                installedTargets: installedTargets
+            )
+            if case .bookmarkedEditorNotInstalled = resolution {
+                // A saved bookmark that is no longer installed should heal back to
+                // the implicit default launch order on the same key press.
+                atom(\.uiState).setBookmarkedEditor(nil)
+                resolution = ExternalEditorTarget.resolveBookmarkedOrDefault(
+                    bookmarkedEditorId: nil,
+                    installedTargets: installedTargets
+                )
+            }
+            guard case .resolved(let target) = resolution else { return false }
+            return openEditorHandler(target.id, targetPath, installedTargets)
+        case .openPaneLocationInFinder:
+            guard let targetPath = selectedPaneManagementContext()?.targetPath else { return false }
+            return openFinderHandler(targetPath)
+        case .openPaneLocationInEditorMenu:
+            guard let activePaneId = activePaneIdForChooserRequest() else { return false }
+            atom(\.uiState).setOpenEditorPane(activePaneId)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func selectedPaneManagementContext() -> PaneManagementContext? {
+        guard let paneId = selectedPaneIdForLocationCommands() else {
+            return nil
+        }
+
+        return PaneManagementContext.project(paneId: paneId, store: store)
+    }
+
+    private func activePaneIdForChooserRequest() -> UUID? {
+        selectedPaneIdForLocationCommands()
+    }
+
+    private func selectedPaneIdForLocationCommands() -> UUID? {
+        guard let parentPaneId = activeMainPaneId() else {
+            return nil
+        }
+
+        if let drawerPaneId = visibleActiveDrawerPaneId(for: parentPaneId) {
+            return drawerPaneId
+        }
+
+        return parentPaneId
     }
 }
 
