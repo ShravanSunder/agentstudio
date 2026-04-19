@@ -24,8 +24,11 @@ final class ScrollToBottomIndicatorView: NSButton {
         fatalError("init(coder:) not supported")
     }
 
-    func applyScrollbarState(_ state: ScrollbarState) {
-        let isPinnedToBottom = state.isPinnedToBottom
+    func applyScrollbarState(
+        _ state: ScrollbarState,
+        isEffectivelyPinnedToBottom: Bool? = nil
+    ) {
+        let isPinnedToBottom = isEffectivelyPinnedToBottom ?? state.isPinnedToBottom
         isHidden = isPinnedToBottom
 
         if isPinnedToBottom {

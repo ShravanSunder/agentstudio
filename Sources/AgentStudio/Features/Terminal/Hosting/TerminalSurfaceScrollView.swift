@@ -42,6 +42,12 @@ final class TerminalSurfaceScrollView: NSView {
     private var maximumDocumentOffsetY: CGFloat {
         max(0, documentView.frame.height - scrollView.contentView.documentVisibleRect.height)
     }
+    var currentDistanceFromBottomPx: CGFloat {
+        max(0, scrollView.contentView.documentVisibleRect.origin.y)
+    }
+    var isWithinStickyBottomBuffer: Bool {
+        currentDistanceFromBottomPx <= AppPolicies.WorkspaceFocus.Terminal.stickyBottomBufferPx
+    }
 
     init(actionPerformer: any TerminalSurfaceActionPerforming) {
         self.actionPerformer = actionPerformer
@@ -156,11 +162,10 @@ final class TerminalSurfaceScrollView: NSView {
         self.hostStateSource?.onHostScrollbarStateChanged = nil
         self.hostStateSource = hostStateSource
         synchronizeAppearance()
-        hostStateSource.onHostScrollbarStateChanged = { [weak self] _ in
+        hostStateSource.onHostScrollbarStateChanged = { [weak self] state in
             guard let self else { return }
             self.synchronizeAppearance()
-            self.synchronizeScrollView()
-            self.synchronizeSurfaceFrame()
+            self.handleScrollbarStateUpdate(state)
         }
     }
 
@@ -178,10 +183,7 @@ final class TerminalSurfaceScrollView: NSView {
     func applyScrollbarState(_ state: ScrollbarState, cellHeight: CGFloat) {
         guard cellHeight > 0 else { return }
         self.cellHeight = cellHeight
-        previousScrollbarState = state
-
-        synchronizeScrollView()
-        synchronizeSurfaceFrame()
+        handleScrollbarStateUpdate(state)
     }
 
     private func handleScrollChange() {
@@ -202,19 +204,45 @@ final class TerminalSurfaceScrollView: NSView {
         _ = actionPerformer?.performBindingAction(.scrollToRow(row))
     }
 
-    private func synchronizeScrollView() {
-        documentView.frame.size.height = documentHeight()
+    func isEffectivelyPinnedToBottom(for state: ScrollbarState) -> Bool {
+        state.isPinnedToBottom || isWithinStickyBottomBuffer
+    }
 
-        guard let state = currentScrollbarState() else {
+    private func handleScrollbarStateUpdate(_ state: ScrollbarState) {
+        let shouldRequestFollowBottom = shouldRequestFollowBottom(for: state)
+        previousScrollbarState = state
+
+        synchronizeScrollView(for: state, requestingFollowBottom: shouldRequestFollowBottom)
+        synchronizeSurfaceFrame()
+
+        if shouldRequestFollowBottom {
+            _ = actionPerformer?.performBindingAction(.scrollToBottom)
+        }
+    }
+
+    private func shouldRequestFollowBottom(for state: ScrollbarState) -> Bool {
+        guard !isLiveScrolling, let previousScrollbarState else { return false }
+        guard state.total > previousScrollbarState.total else { return false }
+        return isWithinStickyBottomBuffer
+    }
+
+    private func synchronizeScrollView(
+        for stateOverride: ScrollbarState? = nil,
+        requestingFollowBottom: Bool = false
+    ) {
+        let resolvedState = stateOverride ?? currentScrollbarState()
+        documentView.frame.size.height = documentHeight(for: resolvedState)
+
+        guard let state = resolvedState else {
             scrollView.reflectScrolledClipView(scrollView.contentView)
             return
         }
 
         if !isLiveScrolling {
-            let offsetY = runtimeDocumentOffsetY(for: state)
+            let offsetY = requestingFollowBottom ? 0 : runtimeDocumentOffsetY(for: state)
             scrollView.contentView.scroll(to: CGPoint(x: 0, y: offsetY))
             scrollView.reflectScrolledClipView(scrollView.contentView)
-            lastSentRow = state.top
+            lastSentRow = requestingFollowBottom ? max(0, state.total - state.visibleRowCount) : state.top
         } else {
             scrollView.reflectScrolledClipView(scrollView.contentView)
         }
@@ -241,13 +269,14 @@ final class TerminalSurfaceScrollView: NSView {
         surfaceView.sizeDidChange(NSSize(width: width, height: height), source: "scrollWrapper")
     }
 
-    private func documentHeight() -> CGFloat {
+    private func documentHeight(for state: ScrollbarState? = nil) -> CGFloat {
         let contentHeight = scrollView.contentSize.height
         let effectiveCellHeight = currentCellHeight()
-        guard effectiveCellHeight > 0, let state = currentScrollbarState() else { return contentHeight }
+        let resolvedState = state ?? currentScrollbarState()
+        guard effectiveCellHeight > 0, let resolvedState else { return contentHeight }
 
-        let documentGridHeight = CGFloat(state.total) * effectiveCellHeight
-        let padding = contentHeight - (CGFloat(state.visibleRowCount) * effectiveCellHeight)
+        let documentGridHeight = CGFloat(resolvedState.total) * effectiveCellHeight
+        let padding = contentHeight - (CGFloat(resolvedState.visibleRowCount) * effectiveCellHeight)
         return max(contentHeight, documentGridHeight + padding)
     }
 

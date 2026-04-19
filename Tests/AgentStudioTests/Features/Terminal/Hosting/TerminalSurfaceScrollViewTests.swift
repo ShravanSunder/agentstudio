@@ -308,4 +308,52 @@ struct TerminalSurfaceScrollViewTests {
 
         #expect(documentOffsetY(of: scrollView) == 1800)
     }
+
+    @Test("output growth within sticky buffer requests scroll-to-bottom")
+    func outputGrowthWithinStickyBufferRequestsScrollToBottom() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+        let hostStateView = FakeTerminalSurfaceHostStateView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        hostStateView.reportedCellSize = NSSize(width: 8, height: 20)
+        hostStateView.hostConfigSnapshot = GhosttyHostConfigSnapshot(
+            scrollbarPolicy: .system,
+            backgroundColor: .black
+        )
+
+        scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        scrollView.bindHostStateSource(hostStateView)
+        scrollView.layoutSubtreeIfNeeded()
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        scrollView.scrollView.contentView.scroll(
+            to: CGPoint(x: 0, y: AppPolicies.WorkspaceFocus.Terminal.stickyBottomBufferPx - 1)
+        )
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 210))
+
+        #expect(performer.actions.last == .scrollToBottom)
+    }
+
+    @Test("output growth outside sticky buffer does not request scroll-to-bottom")
+    func outputGrowthOutsideStickyBufferDoesNotRequestScrollToBottom() {
+        let performer = FakeSurfaceActionPerformer()
+        let scrollView = TerminalSurfaceScrollView(actionPerformer: performer)
+        let hostStateView = FakeTerminalSurfaceHostStateView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+        hostStateView.reportedCellSize = NSSize(width: 8, height: 20)
+        hostStateView.hostConfigSnapshot = GhosttyHostConfigSnapshot(
+            scrollbarPolicy: .system,
+            backgroundColor: .black
+        )
+
+        scrollView.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        scrollView.bindHostStateSource(hostStateView)
+        scrollView.layoutSubtreeIfNeeded()
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 200))
+
+        scrollView.scrollView.contentView.scroll(
+            to: CGPoint(x: 0, y: AppPolicies.WorkspaceFocus.Terminal.stickyBottomBufferPx + 1)
+        )
+        hostStateView.emitScrollbarState(ScrollbarState(top: 80, bottom: 120, total: 210))
+
+        #expect(performer.actions.isEmpty)
+    }
 }
