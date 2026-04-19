@@ -6,4 +6,11 @@ enum AppPolicies {
             static let stickyBottomBufferPx: CGFloat = 60
         }
     }
+
+    enum NotificationInbox {
+        /// Maximum number of notifications retained in the inbox per workspace.
+        /// When `append` would exceed this cap, the oldest entry is evicted.
+        /// Provisional; revisit if real usage requires deeper history. (LUNA-361)
+        static let maxRetainedNotifications: Int = 1000
+    }
 }

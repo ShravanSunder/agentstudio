@@ -2,7 +2,7 @@
 
 **Status:** Draft · Design Mode
 **Linear:** [LUNA-361](https://linear.app/askluna/issue/LUNA-361/show-agent-and-cli-notifications-in-notification-center)
-**Related:** LUNA-355 (Ghostty host event consumers)
+**Depends on:** LUNA-355 (Ghostty host event consumers) — **DONE.** Ghostty events are exposed on `EventBus<RuntimeEnvelope>`. This ticket consumes them via `NotificationRouter`.
 **Interaction model:** [2026-04-18 Interaction Model WIP](2026-04-18-interaction-model-wip.md) — authoritative for layer vs focus-scoped keys, `KeyboardOwner`, and sidebar surface selection. This spec conforms to that model.
 **Date:** 2026-04-17 (revised 2026-04-19)
 **Owner:** Shravan Sunder
@@ -26,6 +26,9 @@ We need a notification system that:
 - **Push to remote devices.**
 - **Email/Slack fan-out** of notifications.
 - **Configurable per-event routing UI.** The routing contract is code-level in v1; settings come later if needed.
+- **Multi-window behavior.** Multi-window doesn't currently work in Agent Studio at all. The inbox is **per-workspace** (one inbox state per workspace, persisted in that workspace's bundle). Cross-window or per-window inbox semantics are deferred until multi-window itself is designed.
+- **Accessibility (VoiceOver, accessibility labels, accessibility-specific keyboard navigation).** Deliberately not in scope for v1. Standard SwiftUI accessibility defaults apply; a dedicated accessibility pass is a separate effort.
+- **Migration from existing UserDefaults state.** Greenfield project policy: no migration shims, no backward compatibility. The legacy `UserDefaults.sidebarCollapsed` value is ignored after this ticket; sensible defaults apply.
 
 ## 3. Surfaces
 
@@ -205,7 +208,13 @@ func setSidebarSurface(_ surface: SidebarSurface)
 func setSidebarHasFocus(_ value: Bool)
 ```
 
-- `sidebarCollapsed` — **this is a state-ownership migration, not just a new field.** Today, sidebar collapsed state is owned entirely by `MainSplitViewController` and persisted via the `sidebarCollapsed` key in `UserDefaults` (`MainSplitViewController.swift:45`, read/write at lines ~96 and ~120). This ticket moves ownership into `UIStateAtom` (atom-owned + persisted via `UIStateStore` → `workspace.ui.json`). During transition we **dual-write**: `MainSplitViewController` publishes every collapsed-state change into `UIStateAtom` AND continues writing the legacy `UserDefaults` key so restore behavior doesn't regress. A follow-up ticket drops the `UserDefaults` write path once we're confident `UIStateStore` has fully taken over restore responsibility. Read path during the transition: atom is authoritative when a value has been loaded from `UIStateStore`; fall back to `UserDefaults` only when `UIStateStore` hasn't loaded yet (rare — boot sequence).
+- `sidebarCollapsed` — **state-ownership move, no migration.** Today, sidebar collapsed state is owned entirely by `MainSplitViewController` and persisted via the `sidebarCollapsed` key in `UserDefaults` (`MainSplitViewController.swift:45`, read at line 91, write at line 98). This ticket moves ownership cleanly into `UIStateAtom` (atom-owned + persisted via `UIStateStore` → `workspace.ui.json`). Greenfield project policy applies: **no dual-write, no migration from the legacy UserDefaults value, no backward compatibility.** Behavior:
+   - Boot orchestration: `AppDelegate` awaits `UIStateStore.load()` before opening windows. By the time `MainSplitViewController.viewDidLoad()` runs, the atom holds either the persisted value or the default (sensible default: not collapsed).
+   - `MainSplitViewController.viewDidLoad()` reads `uiState.sidebarCollapsed` and applies it to the split view item. Drops the `UserDefaults.standard.bool(forKey: "sidebarCollapsed")` read at line 91.
+   - On toggle: `MainSplitViewController` calls `uiState.setSidebarCollapsed(...)`. Drops the `UserDefaults.standard.set(_:forKey:)` write at line 98.
+   - Reactive binding: `MainSplitViewController` observes `uiState.sidebarCollapsed` and applies any change to the split view item (e.g., from a future ⌘B-style global shortcut).
+   - Existing users on first launch after upgrade: their old `UserDefaults` value is ignored. Sidebar shows expanded (default). They re-collapse if desired and that gets persisted via `UIStateStore` going forward. No crash if `UIStateStore` file is missing or corrupt — atom keeps its default value.
+   - The `sidebarCollapsed` `UserDefaults` key is dead code after this ticket; remove the constant and the read/write calls.
 - `sidebarSurface` is persisted via `UIStateStore`. Default `.repos`. No prior state to migrate.
 - `sidebarHasFocus` is runtime-only, reset to `false` on launch. Published by each sidebar surface view via `@FocusState.onChange`. Only one surface is visible at a time, so only one publishes at a time.
 
@@ -285,7 +294,7 @@ final class NotificationInboxStore {
 - File: `~/.agentstudio/workspaces/<workspaceId>/notification-inbox.json` (canonical workspace bundle path per [workspace_data_architecture.md](../../architecture/workspace_data_architecture.md); sibling of `workspace.state.json`, `workspace.cache.json`, `workspace.ui.json`)
 - File shape: `{ schemaVersion, notifications: [...], prefs: { grouping, sort, bellEnabled } }`
 - Save cadence: debounced ~500ms after mutations (injected clock; matches existing stores)
-- Retention: cap **1000 entries per workspace**, evict oldest-first at append time. Provisional.
+- Retention: cap at `AppPolicies.NotificationInbox.maxRetainedNotifications` (currently **1000 entries per workspace**), evict oldest-first at append time. Policy lives in `Infrastructure/AppPolicies.swift` so it can be tuned in one place.
 
 #### Registration
 
