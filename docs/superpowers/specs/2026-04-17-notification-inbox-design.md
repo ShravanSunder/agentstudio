@@ -3,7 +3,8 @@
 **Status:** Draft · Design Mode
 **Linear:** [LUNA-361](https://linear.app/askluna/issue/LUNA-361/show-agent-and-cli-notifications-in-notification-center)
 **Related:** LUNA-355 (Ghostty host event consumers)
-**Date:** 2026-04-17
+**Interaction model:** [2026-04-18 Interaction Model WIP](2026-04-18-interaction-model-wip.md) — authoritative for layer vs focus-scoped keys, `KeyboardOwner`, and sidebar surface selection. This spec conforms to that model.
+**Date:** 2026-04-17 (revised 2026-04-19)
 **Owner:** Shravan Sunder
 
 ---
@@ -36,8 +37,8 @@ Three persistent surfaces. None transient.
 │   [show/hide sidebar]  [🔔 3]                                    │
 │                         ^ new inbox icon, next to the existing  │
 │                           show/hide sidebar button                │
-│                           • red dot or count when unread > 0     │
-│                           • click toggles Inbox Layer (same ⌘I)  │
+│                           • red dot (v1) when unread > 0         │
+│                           • click runs the ⌘I composite command  │
 │                                                                  │
 │  Sidebar (worktrees, default):                                   │
 │   agent-studio · drawer-improvements  +447 -103 ↑0 ↓0 🔔 3       │
@@ -45,7 +46,7 @@ Three persistent surfaces. None transient.
 │                                                 ^ per-worktree    │
 │                                                   unread count   │
 │                                                                  │
-│  Sidebar (inbox, ⌘I active):                                     │
+│  Sidebar (inbox, after ⌘I):                                      │
 │   replaces worktree list — see §6                                │
 │                                                                  │
 │                                                                  │
@@ -60,8 +61,8 @@ Three persistent surfaces. None transient.
 ### 3.1 Global Inbox (sidebar, ⌘I)
 
 - **Scope:** all notifications across all tabs/panes/drawers in the workspace.
-- **Surface:** replaces the worktree list in the sidebar. Sidebar is one view at a time; ⌘I and ⌘S switch between them.
-- **Toolbar entry point:** a new bell icon in the existing sidebar toolbar, next to the show/hide sidebar button. Shows a red dot (v1 default) or optional count when unread > 0. Clicking it toggles the Inbox Layer (same effect as ⌘I).
+- **Surface:** when `UIStateAtom.sidebarSurface == .inbox`, the sidebar renders the Inbox view (see §6) in place of the worktree list. Sidebar is one view at a time; ⌘I and ⌘S are composite commands that toggle between them (see §5.1).
+- **Toolbar entry point:** a new bell icon in the existing sidebar toolbar, next to the show/hide sidebar button. Shows a red dot (v1 default) when unread > 0. Clicking it runs the same composite command as ⌘I.
 - **Dismissal model:** read-state only — nothing is removed when you act on it. Inbox is the log of record.
 
 ### 3.2 Drawer Inbox (popover, ⌘⇧I)
@@ -129,9 +130,9 @@ enum NotificationKind: String, Sendable, Codable {
 
 ### 4.3 Atoms and persistence
 
-Feature-scoped. Everything lives under `Features/NotificationInbox/` — no Core placement. Core views that need the data (e.g., `DrawerIconBar`) receive it as props through existing wrapper seams (see §10.3). This respects the `Core → never imports Features` rule.
+The inbox is a **feature slice** under `Features/NotificationInbox/`. It is NOT a Layer (see the [Interaction Model WIP](2026-04-18-interaction-model-wip.md) §1-§2 for what earns Layer status). There is no `NotificationInboxLayerAtom` — "am I showing" is a sidebar-surface concern that lives on `UIStateAtom`, not duplicated into a feature atom.
 
-Two atoms, one store.
+One feature atom, one feature store, plus thin additions to the existing `UIStateAtom`.
 
 #### `NotificationInboxAtom`
 
@@ -164,24 +165,34 @@ final class NotificationInboxAtom {
 }
 ```
 
-#### `NotificationInboxLayerAtom`
+The atom knows nothing about whether the sidebar is currently showing the inbox. That's a presentation concern.
 
-Path: `Features/NotificationInbox/State/NotificationInboxLayerAtom.swift`
-Role: active/inactive state of the Inbox Layer (sidebar mode + keyboard layer). Peer of `ManagementModeAtom`.
+#### `UIStateAtom` additions (sidebar surface + focus)
+
+`UIStateAtom` (existing, `Core/State/MainActor/Atoms/UIStateAtom.swift`) grows two fields used by the interaction model:
 
 ```swift
-@MainActor @Observable
-final class NotificationInboxLayerAtom {
-    private(set) var isActive: Bool   // true when sidebar is showing the Inbox
-    func toggle()
-    func activate()
-    func deactivate()
+// on UIStateAtom:
+private(set) var sidebarSurface: SidebarSurface = .repos
+private(set) var sidebarHasFocus: Bool = false       // runtime-only; not persisted
+
+func setSidebarSurface(_ surface: SidebarSurface)
+func setSidebarHasFocus(_ value: Bool)
+
+enum SidebarSurface: String, Codable, Sendable {
+    case repos
+    case inbox
 }
 ```
 
+- `sidebarSurface` is persisted via `UIStateStore` — the user's last surface survives relaunch. Default `.repos`.
+- `sidebarHasFocus` is runtime-only, reset to `false` on launch. Published by the root sidebar SwiftUI view via `@FocusState.onChange → uiState.setSidebarHasFocus(...)`.
+
+**New runtime seam.** The app currently has no general "sidebar has focus" signal — the only existing sidebar focus seam is the filter field at `Features/Sidebar/RepoSidebarContentView.swift:28`. Wiring `sidebarHasFocus` is net-new work: add `@FocusState` to the root sidebar view, publish transitions to `UIStateAtom` via `.onChange`. Covered in §8.3 and §13.
+
 #### Notification inbox view prefs (on `UIStateAtom`)
 
-View preferences live on the existing `UIStateAtom` — they are UI state, not log data, and fit the atom already described in `AGENTS.md` as holding "expanded groups, colors, filter state." Adds:
+Same atom, separate slice. View preferences fit `UIStateAtom`'s existing job description (expanded groups, colors, filter state):
 
 ```swift
 struct NotificationInboxPrefs: Codable, Sendable, Equatable {
@@ -190,14 +201,14 @@ struct NotificationInboxPrefs: Codable, Sendable, Equatable {
     var bellEnabled: Bool = false                     // controls bellRang routing (§7)
 }
 
-// on UIStateAtom (in Core — existing atom, adds one property slice):
+// on UIStateAtom:
 private(set) var notificationInbox: NotificationInboxPrefs
 func setNotificationInboxGrouping(_ grouping: NotificationInboxGrouping)
 func setNotificationInboxSort(_ sort: NotificationInboxSort)
 func setNotificationInboxBellEnabled(_ enabled: Bool)
 ```
 
-The grouping/sort enums live in the feature slice (`Features/NotificationInbox/State/`) and are referenced by `UIStateAtom` via the pref struct. Because `UIStateAtom` is in Core, the enum types must also be Core-safe — they are simple `Codable` enums with no feature imports, so we place the enum declarations in `Core/Models/NotificationInboxTypes.swift` (pure types; no logic; no Features import needed). The atoms themselves remain in the feature slice.
+The grouping/sort enums and `SidebarSurface` are Core-safe types (pure `Codable` enums, no Features imports). They live in `Core/Models/NotificationInboxTypes.swift` and `Core/Models/SidebarSurface.swift` so `UIStateAtom` can reference them without importing Features.
 
 #### `NotificationInboxStore`
 
@@ -223,32 +234,44 @@ final class NotificationInboxStore {
 
 #### Registration
 
-Feature atoms cannot be registered in `AtomRegistry` (which is in `Infrastructure/` and must not import Features). Instead, `NotificationInboxAtom` and `NotificationInboxLayerAtom` are instantiated in the app composition root (`App/Boot/`) and passed into the feature's views/routers via constructor injection. Views that live outside the feature slice (e.g., `Features/Sidebar/`) receive read-only references to `NotificationInboxAtom` through the same composition path. `NotificationInboxStore` is instantiated in the same boot path as `WorkspaceStore`/`RepoCacheStore`/`UIStateStore` and calls `load()` at boot.
+`NotificationInboxAtom` is instantiated in the app composition root (`App/Boot/`) and passed into the feature's views/routers via constructor injection. Views outside the feature slice (e.g., `Features/Sidebar/`) receive a read-only reference through the same composition path. Feature atoms cannot be registered in `AtomRegistry` (which lives in `Infrastructure/` and must not import Features).
 
-## 5. Inbox Layer
+`NotificationInboxStore` is instantiated in the same boot path as `WorkspaceStore`/`RepoCacheStore`/`UIStateStore` and calls `load()` at boot.
 
-The Inbox is not just a view — it is a **layer**, mirroring the existing Management Mode pattern. When active, it owns a scoped keyboard layer and a CommandBar scope.
+## 5. Keyboard behavior — focus-scoped keys, not a Layer
 
-### 5.1 Activation model
+Per the [Interaction Model WIP](2026-04-18-interaction-model-wip.md), inbox keyboard behavior is **Kind 3 (focus-scoped keys)**, not Kind 1 (Layer). There is no `NotificationInboxLayerAtom`. There is no stored "inbox layer is active" boolean. The inbox's custom shortcuts (⌥F, ⌥G, ⌥S, etc.) fire when the sidebar has focus and is showing the inbox surface — derived, not toggled.
+
+`KeyboardOwner` (designed in the WIP §4, implemented when the first cross-feature consumer arrives) names this state as `.sidebar(.inbox)`. This spec refers to `KeyboardOwner` as naming vocabulary only; the inbox implementation does not depend on the type existing yet.
+
+### 5.1 ⌘I and ⌘S as composite commands
 
 ```
-Sidebar state          Keyboard layer
-─────────────────────────────────────────────────────
-Worktrees (default)    App default shortcuts
-⌘I toggles on          Inbox Layer keymap active
-⌘I toggles off         App default shortcuts
-⌘S (always)            Worktrees sidebar, App default shortcuts
+⌘I  →  ensureSidebarVisible()
+       uiState.setSidebarSurface(.inbox)
+       if !commandBarIsKey { moveFocusToInboxFirstRow() }
+
+⌘S  →  ensureSidebarVisible()
+       uiState.setSidebarSurface(.repos)
+       // Does not force focus — respects current focus
 ```
 
-`NotificationInboxLayerAtom.isActive` drives both the sidebar view and the keyboard layer. The CommandBar reads this atom directly to decide when to expose `.inbox`-scoped commands. `WorkspaceFocusDerived` is stateless and unchanged — it does not participate in layer tracking.
+Mirrors the existing pattern at `MainSplitViewController.showSidebarFilter()` (`App/Windows/MainSplitViewController.swift:136-145`), which already does composite work (expand sidebar, set UI state, focus a field).
+
+Neither command dismisses the CommandBar if it is open. If CommandBar is key:
+- Surface still switches (the visible sidebar changes behind CommandBar).
+- Focus is NOT moved into the sidebar (would steal focus from CommandBar).
+- CommandBar's scope selection is preserved.
 
 ### 5.2 CommandBar integration
 
 Add `CommandBarScope.inbox`. Behavior:
 
-- **Fresh ⌘P while Inbox Layer is active:** CommandBar opens with `.inbox` as the default scope. Shows inbox-scoped actions first.
-- **CommandBar already open when ⌘I fires:** CommandBar stays open; the user's current scope selection is preserved (⌘I does not override scope). The Inbox Layer activates underneath.
-- **CommandBar open, Inbox Layer inactive, user manually picks `.inbox` scope:** valid — `.inbox` is always pickable. Activating the scope does not activate the Inbox Layer (scope and layer are independent).
+- **Fresh ⌘P when `uiState.sidebarSurface == .inbox && uiState.sidebarHasFocus`:** CommandBar opens with `.inbox` as the default scope. Shows inbox-scoped actions first.
+- **CommandBar already open when ⌘I fires:** CommandBar stays open; the user's current scope selection is preserved. The sidebar surface flips behind it.
+- **CommandBar open, surface ≠ inbox, user manually picks `.inbox` scope:** valid — `.inbox` is always pickable. Activating the scope does not change the sidebar surface.
+
+Default-scope selection reads from atom state directly (`sidebarSurface`, `sidebarHasFocus`). It will naturally migrate to reading `KeyboardOwnerDerived.current(...)` when that type lands in code (per WIP §4.6). The surface vs owner distinction doesn't affect user-visible behavior for v1.
 
 Inbox-scoped actions:
 
@@ -260,20 +283,24 @@ Inbox-scoped actions:
 - Enable bell notifications / Disable bell notifications
 - Return to worktree sidebar (⌘S)
 
-### 5.3 Inbox Layer keymap
+### 5.3 Inbox keymap
 
-Only active when `NotificationInboxLayerAtom.isActive && sidebarHasFocus`.
+Lives as `.keyboardShortcut()` modifiers attached to views inside `InboxSidebarView`. AppKit responder chain handles dispatch — these keys fire only when the sidebar view is in the first-responder path of the key window.
+
+No custom NSEvent monitor. No InboxLayerAtom precondition. No runtime gating beyond "sidebar view is focused in the key window" — which is AppKit's own rule for `.keyboardShortcut()`.
 
 ```
-⌘I               toggle Inbox Layer on/off
-⌘S               switch sidebar to worktrees (always, from any state)
+Global shortcuts (always available when workspace window is key):
+⌘I               run CMD+I composite command
+⌘S               run CMD+S composite command
+⌘⇧I              open drawer inbox popover (no-op if not applicable)
 
-Inside the layer:
+Inside the inbox view (active when the sidebar has focus):
 ⌥F               focus search field
 ⌥G               toggle grouping menu open/closed
 ⌥S               toggle sort (newest ↔ oldest)
 
-Navigation:
+Navigation (inside the list):
 ↓ / ↑            next / prev notification row
 ⌥↓ / ⌥↑          next / prev group (lands on first item of group,
                  skipping group header)
@@ -283,7 +310,7 @@ Actions:
 Enter  or  →     jump to source pane + mark read
 Space            toggle read/unread without jumping
 Esc              if search active → clear search;
-                 else → return focus to main content (layer stays open)
+                 else → return focus to main content
 
 Group menu open state:
 ⌥G or Esc        close/cancel (no change)
@@ -291,14 +318,12 @@ Group menu open state:
 Enter            commit selection
 ```
 
-Headers (group labels) are never focus stops for ↓/↑ — arrow keys skip between item rows only. ⌥↓/⌥↑ provides the group-level jump.
-
-Neither ⌘I nor ⌘S dismisses the CommandBar if it is open (see §5.2).
+Headers (group labels) are never focus stops for ↓/↑ — arrow keys skip between item rows only.
 
 ## 6. Inbox panel layout
 
 ```
-┌─ Inbox ⌘I ─────────────────────────────────┐
+┌─ Inbox (⌘I) ───────────────────────────────┐
 │ [ 🔍 Search...                ]  [⇅] [☰]   │ ← header: search + sort + grouping
 ├─────────────────────────────────────────────┤
 │ ● Codex done                         2m     │ ← line 1: dot + title + time
@@ -353,7 +378,7 @@ Tab: docs                              ● 1
 
 **Empty state:** single centered message, "No notifications yet."
 
-**Search:** filter-as-you-type across title, body, repo name, worktree name, branch name. Substring match, case-insensitive. No fuzzy matching in v1 (see §14).
+**Search:** filter-as-you-type across title, body, repo name, worktree name, branch name. Substring match, case-insensitive. No fuzzy matching in v1 (see §15).
 
 ## 7. Event routing contract
 
@@ -450,24 +475,32 @@ No `id` (notification, not request). `paneId` is inferred from the originating b
          │ NotificationInboxAtom.markRead(paneId:)             │
          │                    .dismissFromDrawer(paneId:)      │
          └─────────────────────────────────────────────────────┘
+
+         ┌─ Presentation state (separate from data flow) ──────┐
+         │ UIStateAtom.sidebarSurface  (.repos | .inbox)        │
+         │ UIStateAtom.sidebarHasFocus (runtime-only, bool)     │
+         │ ⌘I / ⌘S composite commands set these directly.      │
+         │ Root sidebar SwiftUI view publishes focus via        │
+         │ @FocusState.onChange → setSidebarHasFocus(...)       │
+         └─────────────────────────────────────────────────────┘
 ```
 
 ### 8.2 Component placement
 
 | Component | Slice | Rationale |
 |---|---|---|
-| `Notification` model | `Features/NotificationInbox/Models/` | Domain type used only by the feature and its immediate consumers (read through props) |
+| `Notification` model | `Features/NotificationInbox/Models/` | Domain type used by the feature and its immediate consumers (read through props) |
 | `NotificationInboxTypes` (grouping/sort enums) | `Core/Models/` | Referenced by `UIStateAtom` in Core — pure Codable enums, no Features import |
+| `SidebarSurface` enum | `Core/Models/` | Referenced by `UIStateAtom` in Core — pure Codable enum, no Features import |
 | `NotificationInboxAtom` | `Features/NotificationInbox/State/` | Feature-scoped state |
-| `NotificationInboxLayerAtom` | `Features/NotificationInbox/State/` | Feature-scoped mode |
 | `NotificationInboxStore` | `Features/NotificationInbox/State/` | Feature-scoped persistence |
-| `UIStateAtom.notificationInbox` slice | `Core/State/MainActor/Atoms/` | Existing Core atom; added property only |
+| `UIStateAtom` — additions | `Core/State/MainActor/Atoms/` | Existing Core atom; adds `sidebarSurface`, `sidebarHasFocus`, `notificationInbox` slice |
 | `NotificationRouter` | `Features/NotificationInbox/Routing/` | Consumes bus, writes atom |
 | `PaneFocusTracker` | `Features/NotificationInbox/Routing/` | Observes `WorkspacePaneAtom`; emits focus-gained transitions |
-| `InboxSidebarView` | `Features/NotificationInbox/Views/` | SwiftUI, replaces worktree list when layer active |
+| `InboxSidebarView` | `Features/NotificationInbox/Views/` | SwiftUI; rendered by sidebar container when `sidebarSurface == .inbox` |
 | `DrawerInboxPopover` | `Features/NotificationInbox/Views/` | SwiftUI popover |
 | RPC `inbox.post` handler | `Features/Bridge/Transport/` | Minimal addition to `RPCRouter`; emits a new `PaneRuntimeEvent` |
-| `.inbox` CommandBar scope | `Features/CommandBar/` | Extends existing scope enum; reads `NotificationInboxLayerAtom` via composition |
+| `.inbox` CommandBar scope | `Features/CommandBar/` | Extends existing scope enum; reads `UIStateAtom` (or future `KeyboardOwnerDerived`) for default-scope logic |
 
 Single new feature slice: `Features/NotificationInbox/`.
 
@@ -478,6 +511,29 @@ Single new feature slice: `Features/NotificationInbox/`.
 `NotificationInboxStore` observes `NotificationInboxAtom` via `Observation.withObservationTracking`, triggering a debounced save on any mutation. This matches `UIStateStore` / `RepoCacheStore`.
 
 `PaneFocusTracker` observes `WorkspacePaneAtom` via `Observation.withObservationTracking`, diffs successive `activePaneId` values, and emits an `AsyncStream<PaneId>` of focus-gained transitions consumed by `NotificationRouter`.
+
+**New sidebar-focus seam.** The app currently lacks a general "sidebar has focus" signal (only the filter field at `Features/Sidebar/RepoSidebarContentView.swift:28` tracks focus today). As part of this work we introduce a minimal seam:
+
+```swift
+// Root sidebar view (new or extended existing container):
+@FocusState private var hasFocus: Bool
+
+var body: some View {
+    Group {
+        switch uiState.sidebarSurface {
+            case .repos: RepoSidebarContentView(...)
+            case .inbox: InboxSidebarView(...)
+        }
+    }
+    .focusable()
+    .focused($hasFocus)
+    .onChange(of: hasFocus) { _, new in
+        uiState.setSidebarHasFocus(new)
+    }
+}
+```
+
+This publishes sidebar focus transitions into `UIStateAtom`. Any future consumer (`KeyboardOwnerDerived`, CommandBar scope defaulting) reads from the atom — no new observation wiring.
 
 ### 8.4 Click-through routing
 
@@ -491,15 +547,13 @@ When the user activates a notification (click or Enter):
 
 ## 9. Sidebar bell badge (existing)
 
-The `🔔 N` pill already rendered per-worktree reads from `NotificationInboxAtom.unreadCount(forWorktreeId:)`. Shows `0` when there are no unread (existing behavior). Already wired to the data source once the atom is injected; no new UI work beyond binding. Clicking the pill is currently a no-op; opening Inbox with pre-filter is a stretch deferred to v2 (see §14).
+The `🔔 N` pill already rendered per-worktree reads from `NotificationInboxAtom.unreadCount(forWorktreeId:)`. Shows `0` when there are no unread (existing behavior). Already wired to the data source once the atom is injected; no new UI work beyond binding. Clicking the pill is currently a no-op; opening Inbox with pre-filter is a stretch deferred (see §12).
 
 ## 10. Code-fact grounded details
 
-Research pass against current code confirmed:
+### 10.1 Pane focus detection
 
-### 10.1 Focus detection
-
-`WorkspaceFocusDerived` is stateless and snapshot-based (`currentFocus(...) -> WorkspaceFocus`). It exposes `activePaneId` but **does not** emit transition events. To clear state on "pane X gained focus":
+`WorkspaceFocusDerived` at `Core/State/MainActor/Atoms/WorkspaceFocusDerived.swift` is stateless and snapshot-based. It exposes `activePaneId` but does not emit transition events. To clear state on "pane X gained focus":
 
 - `PaneFocusTracker` (part of the feature slice) observes `WorkspacePaneAtom` via `Observation.withObservationTracking` and diffs successive `activePaneId` values.
 - Emits `AsyncStream<PaneId>` of focus-gained transitions consumed by `NotificationRouter`.
@@ -528,9 +582,9 @@ Integration path (preserves `Core → never imports Features`):
 ## 11. Resolved preference decisions
 
 - **Bell setting UI (v1).** No settings pane exists yet. Bell on/off is a CommandBar action under `.inbox` scope: "Enable bell notifications" / "Disable bell notifications". State persisted on `UIStateAtom.notificationInbox.bellEnabled` (default `false`).
-- **Focus target on ⌘I.** Top notification row (first in list given current sort). Makes ↓/↑ immediately productive. `⌥F` is one stroke to search.
-- **⌘P + ⌘I coexistence.** ⌘I toggles the Inbox Layer regardless of CommandBar state and **does not dismiss the CommandBar**. If the CommandBar is already open, it stays open and its scope selection is preserved. Fresh ⌘P while Inbox Layer is active opens CommandBar with `.inbox` as the default scope (§5.2). ⌘S behaves the same way (does not dismiss CommandBar).
-- **Global inbox toolbar indicator.** Red dot when any unread > 0 (v1 default). Optional count is deferred until we see it in use.
+- **Focus target on ⌘I.** Top notification row (first in list given current sort). Makes ↓/↑ immediately productive. `⌥F` is one stroke to search. If CommandBar is key when ⌘I fires, the focus move is skipped (see §5.1).
+- **⌘P + ⌘I coexistence.** ⌘I runs its composite command regardless of CommandBar state and **does not dismiss the CommandBar**. If the CommandBar is already open, it stays open and its scope selection is preserved. Fresh ⌘P when the sidebar is showing the inbox and has focus opens CommandBar with `.inbox` as the default scope (§5.2). ⌘S behaves the same way.
+- **Global inbox toolbar indicator.** Red dot when any unread > 0 (v1 default). Optional count is deferred until we see the surface in use.
 - **"Clear read history" scope.** Removes only read entries. A separate "Clear all notifications" action requires a confirmation dialog before acting.
 - **Dead `paneId` on click-through.** Pane liveness checked via `WorkspacePaneAtom.pane(paneId) != nil`. If gone, do not navigate — flash the row briefly and keep focus in Inbox. Notification is already marked read by the click.
 
@@ -541,6 +595,7 @@ Integration path (preserves `Core → never imports Features`):
 - **Per-workspace vs cross-workspace.** v1 is per-workspace (`notification-inbox.json` under the workspace id). Cross-workspace aggregation is deferred.
 - **UNUserNotificationCenter integration.** Separate follow-up ticket.
 - **Inbox toolbar button: dot vs count.** v1 picks dot; count is deferred until we see the surface in use.
+- **`KeyboardOwnerDerived` implementation.** Designed in the [Interaction Model WIP](2026-04-18-interaction-model-wip.md) §4; lands in code when the first cross-feature consumer arrives (probably CommandBar scope defaulting). Not this ticket.
 - **Stretch:** click on `🔔 N` sidebar bell badge opens Inbox with worktree pre-filtered in search.
 
 ## 13. Testing
@@ -570,10 +625,21 @@ Per `AGENTS.md` testing standards (Swift 6 Testing, colocate `_test.swift`, no w
 - Focus transition from paneA → paneB emits exactly one `PaneId(paneB)` event.
 - No event emitted when `activePaneId` stays the same.
 
+**Unit tests — `UIStateAtom` additions:**
+
+- `setSidebarSurface(.inbox)` → `sidebarSurface == .inbox`; `setSidebarSurface(.repos)` → `.repos`.
+- `setSidebarHasFocus(true)` → `sidebarHasFocus == true`.
+- Notification inbox pref setters round-trip correctly.
+- Persistence: `sidebarSurface` and `notificationInbox` prefs roundtrip through `UIStateStore`; `sidebarHasFocus` is NOT persisted (always resets to `false` on load).
+
+**Integration test — sidebar surface switching:**
+
+- Start with `sidebarSurface == .repos`. Dispatch the ⌘I composite command. Assert `sidebarSurface == .inbox` and (if CommandBar not key) `sidebarHasFocus == true` after the focus handler runs.
+- Dispatch ⌘S. Assert `sidebarSurface == .repos` and focus state is unchanged.
+
 **Integration test — emission to display:**
 
 - Emit `desktopNotificationRequested` on `EventBus` → assert `NotificationInboxAtom` contains the notification with correct denormalized context.
-- Activate Inbox Layer via `NotificationInboxLayerAtom.toggle()` → assert keyboard layer queries route through the inbox keymap.
 - Click notification → assert `PaneActionCommand.focusPane` dispatched → assert notification marked read.
 
 **Integration test — Bridge RPC:**
@@ -584,9 +650,10 @@ Per `AGENTS.md` testing standards (Swift 6 Testing, colocate `_test.swift`, no w
 ## 14. Documentation deliverables
 
 - This spec, committed.
+- [Interaction Model WIP](2026-04-18-interaction-model-wip.md), committed (sibling doc; authoritative for the layer/focus model).
 - Update `docs/architecture/workspace_data_architecture.md` event-bus consumer section to list `NotificationRouter` as a new leaf subscriber.
-- Update `docs/architecture/directory_structure.md` Component → Slice Map with the new feature slice and `UIStateAtom` pref addition.
-- Add Inbox Layer entry to keyboard shortcut documentation (currently unclear if one exists; create if not).
+- Update `docs/architecture/directory_structure.md` Component → Slice Map with the new feature slice and `UIStateAtom` pref/surface additions.
+- Add inbox shortcut entry to keyboard shortcut documentation (create if not present).
 
 ## 15. Out of scope (explicit)
 
@@ -598,14 +665,17 @@ Per `AGENTS.md` testing standards (Swift 6 Testing, colocate `_test.swift`, no w
 - Fuzzy search in inbox
 - Collapsible group sections
 - Toast / banner / transient popup of any kind
+- `KeyboardOwnerDerived` implementation (designed in WIP; lands with first cross-feature consumer)
+- Unified keyboard dispatcher (deferred debt; see WIP §5)
 
 ---
 
 ## Appendix A — Glossary
 
 - **Notification Inbox** — the persistent notification log; both sidebar view and drawer popover share the same underlying data (`NotificationInboxAtom`).
-- **Inbox Layer** — the mode state where the sidebar shows the Inbox and inbox-scoped shortcuts are active. Peer of Management Mode. Tracked by `NotificationInboxLayerAtom`.
+- **Sidebar surface** — which content the sidebar renders. Stored on `UIStateAtom.sidebarSurface`: `.repos` or `.inbox`.
 - **Drawer Inbox** — the popover surface anchored on a drawer's bell icon; shows notifications for panes in that drawer only.
 - **Global Inbox** — the sidebar view showing all notifications across all tabs/panes/drawers in the workspace.
 - **Read / Unread** — state in the global inbox; toggled by focus-through, Enter, Space.
 - **Dismissed from drawer** — local drawer state; notification disappears from drawer popover but remains in global inbox.
+- **`KeyboardOwner`** — derived abstraction naming who owns keyboard interpretation at a moment. See the [Interaction Model WIP](2026-04-18-interaction-model-wip.md) §4. Not a Layer; not stored; not a dependency of this spec's implementation.
