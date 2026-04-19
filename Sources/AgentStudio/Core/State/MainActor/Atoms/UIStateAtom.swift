@@ -1,7 +1,7 @@
 import Foundation
 import Observation
 
-struct EditorChooserState: Equatable, Codable {
+struct EditorChooserState: Equatable {
     var openForPaneId: UUID?
     var bookmarkedEditorId: EditorTargetId?
 }

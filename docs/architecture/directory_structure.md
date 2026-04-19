@@ -100,13 +100,14 @@ Sources/AgentStudio/
 This is the single most important constraint. It determines where every file lives:
 
 ```
-App/            ──imports──►  Core/, Features/, Infrastructure/
-Features/*      ──imports──►  Core/, Infrastructure/
+App/            ──imports──►  Core/, Features/, Components/, Infrastructure/
+Features/*      ──imports──►  Core/, Components/, Infrastructure/
+Components/     ──imports──►  Infrastructure/
 Core/           ──imports──►  Infrastructure/
 Infrastructure/ ──imports──►  (nothing internal)
 ```
 
-**Never:** `Core/ → Features/`, `Features/X → Features/Y`, `Infrastructure/ → Core/`
+**Never:** `Core/ → Features/`, `Core/ → Components/`, `Features/X → Features/Y`, `Infrastructure/ → Core/`
 
 If a file needs to know about `SurfaceManager` (Terminal) **and** `BridgePaneController` (Bridge), it can't be in `Core`. It lives in `App/` (composition root) or uses protocols defined in `Core/`.
 

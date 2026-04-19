@@ -305,17 +305,54 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
         // App-owned global shortcuts route through the centralized command pipeline.
         arrangementBarEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard self != nil else { return event }
-            if let trigger = ShortcutDecoder.decode(event: event),
-                let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .global),
-                CommandDispatcher.shared.canDispatch(shortcut.command)
-            {
-                CommandDispatcher.shared.dispatch(shortcut.command)
-                return nil
+            guard let self else { return event }
+            if let interceptedEvent = self.handleEditorChooserKeyEvent(event) {
+                if let trigger = ShortcutDecoder.decode(event: interceptedEvent),
+                    let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .global),
+                    CommandDispatcher.shared.canDispatch(shortcut.command)
+                {
+                    CommandDispatcher.shared.dispatch(shortcut.command)
+                    return nil
+                }
+                return interceptedEvent
             }
+            return nil
+        }
+
+    }
+
+    func handleEditorChooserKeyEvent(_ event: NSEvent) -> NSEvent? {
+        guard atom(\.uiState).editorChooserState.openForPaneId != nil else { return event }
+        guard event.type == .keyDown else { return event }
+        guard event.modifierFlags.isDisjoint(with: [.command, .control, .option, .function, .shift]) else {
+            return event
+        }
+        guard
+            let characters = event.charactersIgnoringModifiers,
+            characters.count == 1,
+            let shortcutNumber = Int(characters),
+            (1...9).contains(shortcutNumber)
+        else {
             return event
         }
 
+        handleEditorChooserShortcut(shortcutNumber)
+        return nil
+    }
+
+    private func handleEditorChooserShortcut(_ shortcutNumber: Int) {
+        guard let paneId = atom(\.uiState).editorChooserState.openForPaneId else { return }
+
+        let installedTargets = installedEditorTargetsProvider()
+        guard (1...installedTargets.count).contains(shortcutNumber) else { return }
+        let target = installedTargets[shortcutNumber - 1]
+
+        let chooserContext = PaneManagementContext.project(paneId: paneId, store: store)
+        guard let targetPath = chooserContext.targetPath else { return }
+
+        if openEditorHandler(target.id, targetPath, installedTargets) {
+            atom(\.uiState).setOpenEditorPane(nil)
+        }
     }
 
     override func viewWillLayout() {

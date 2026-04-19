@@ -32,6 +32,7 @@ struct PaneTabViewControllerCommandTests {
     private func makeHarness(
         createSurfaceResult: Result<ManagedSurface, SurfaceError> = .failure(.ghosttyNotInitialized)
     ) -> Harness {
+        atom(\.uiState).clear()
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-tab-command-\(UUID().uuidString)")
         let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
@@ -348,7 +349,6 @@ struct PaneTabViewControllerCommandTests {
 
         #expect(atom(\.uiState).editorChooserState.openForPaneId == drawerPane.id)
     }
-
     @Test("openPaneLocationInFinder forwards the selected pane path to Finder")
     func executeOpenPaneLocationInFinder_revealsSelectedPanePath() {
         let harness = makeHarness()

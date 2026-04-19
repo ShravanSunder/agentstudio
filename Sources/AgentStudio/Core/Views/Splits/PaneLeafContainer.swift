@@ -509,21 +509,6 @@ struct PaneLeafContainer: View {
         ExternalWorkspaceOpener.openInFinder(targetPath)
     }
 
-    private func openInBookmarkedOrDefaultEditor(_ context: PaneManagementContext) {
-        guard let targetPath = context.targetPath else { return }
-        let installedTargets = ExternalEditorTarget.refreshInstalledTargets()
-        let resolution = ExternalEditorTarget.resolveBookmarkedOrDefault(
-            bookmarkedEditorId: atom(\.uiState).editorChooserState.bookmarkedEditorId,
-            installedTargets: installedTargets
-        )
-        guard case .resolved(let target) = resolution else { return }
-        _ = ExternalWorkspaceOpener.openInEditor(
-            id: target.id,
-            path: targetPath,
-            installedTargets: installedTargets
-        )
-    }
-
     private func openInEditor(_ editorId: EditorTargetId, _ context: PaneManagementContext) {
         guard let targetPath = context.targetPath else { return }
         _ = ExternalWorkspaceOpener.openInEditor(id: editorId, path: targetPath)
