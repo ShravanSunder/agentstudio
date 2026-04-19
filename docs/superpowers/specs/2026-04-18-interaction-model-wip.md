@@ -287,16 +287,15 @@ Mirrors `WorkspaceFocusDerived.swift` at the same location. Core because multipl
 
 ### 4.6 Implementation timing
 
-**Designed now (this doc). Implemented later (when the first cross-feature consumer emerges).**
+**Implemented in v1** (LUNA-361). Consumer: CommandBar scope defaulting — when the user opens ⌘P with owner == `.sidebar(.inbox)`, CommandBar opens with the `.inbox` scope by default.
 
-LUNA-361 inbox work does not land the type in code. The inbox's custom shortcuts (⌥F, ⌥G, ⌥S, etc.) fire natively via SwiftUI `.keyboardShortcut()` + AppKit responder chain; they do not call `KeyboardOwnerDerived`.
+The inbox's custom shortcuts (⌥F, ⌥G, ⌥S, etc.) themselves fire natively via SwiftUI `.keyboardShortcut()` + AppKit responder chain; they do not call `KeyboardOwnerDerived` at runtime. But the type exists, is tested, and is consumed by CommandBar default-scope logic.
 
-The first cross-feature consumer is expected to be either:
+Future consumers:
 
-1. **CommandBar scope defaulting** — "when user opens ⌘P, pick default scope based on current keyboard owner." Today CommandBar uses `.everything`; owner-aware defaults are a natural next step.
-2. **Repos navigation keymap** — when repos sidebar gains arrow-key navigation, it benefits from the same derived reader (symmetric with inbox).
-
-Whichever consumer arrives first implements the enum, the factory, and the one-line `isWorkspaceWindowKey` accessor on `WindowLifecycleAtom`, plus publishes `sidebarHasFocus` from the root sidebar view. Because this doc commits the shape, file path, and precedence, that implementer does not re-design.
+1. **Repos navigation keymap** — when repos sidebar gains arrow-key navigation, it benefits from the same derived reader (symmetric with inbox).
+2. **Debug / observability** — logging owner on keystrokes in debug builds.
+3. **Future unified keyboard dispatcher** — if the three parallel interception mechanisms are ever unified, `KeyboardOwner` is the switch value.
 
 ### 4.7 Consumers (documented intent)
 
@@ -594,7 +593,7 @@ atom, which view) — it just holds the tag.
 │  ──────────────────────────────────────────────                 │
 │  • WorkspaceFocusDerived  (exists)                              │
 │      → value for command visibility                             │
-│  • KeyboardOwnerDerived   (designed §4, implemented later)      │
+│  • KeyboardOwnerDerived   (v1 — in Core, per §4)                │
 │      → value for keyboard ownership at a moment                 │
 │                                                                 │
 │                                                                 │
@@ -627,6 +626,6 @@ atom, which view) — it just holds the tag.
     - ⌘I / ⌘S as composite commands
     - Reference `KeyboardOwner` as the naming concept (no code dependency)
     - Refactor §5 accordingly
-3. Implement `KeyboardOwnerDerived` when the first cross-feature consumer arrives (probably CommandBar scope defaulting or repos sidebar navigation).
+3. `KeyboardOwnerDerived` is implemented in LUNA-361 (v1 consumer: CommandBar scope defaulting). Future consumers (repos navigation, debug logging, unified dispatcher) extend the same derived reader without re-design.
 4. When ideas here solidify across real consumers, promote to `docs/architecture/interaction_model.md` (non-WIP).
 5. Reference this doc from future specs that introduce new sidebar surfaces or keyboard semantics.

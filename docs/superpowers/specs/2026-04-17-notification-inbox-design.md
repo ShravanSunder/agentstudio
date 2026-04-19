@@ -130,13 +130,15 @@ enum NotificationKind: String, Sendable, Codable {
 
 ### 4.3 Atoms and persistence
 
-The inbox is a **feature slice** under `Features/NotificationInbox/`. It is NOT a Layer (see the [Interaction Model WIP](2026-04-18-interaction-model-wip.md) §1-§2 for what earns Layer status). There is no `NotificationInboxLayerAtom` — "am I showing" is a sidebar-surface concern that lives on `UIStateAtom`, not duplicated into a feature atom.
+This section is grounded in [directory_structure.md — Feature Slice Self-Containment](../../architecture/directory_structure.md): feature atoms live at `Features/<slice>/State/MainActor/Atoms/`, feature stores at `Features/<slice>/State/MainActor/Persistence/`. Composition state (app-wide UI shell) lives on `UIStateAtom` in Core. Feature-specific types stay in the feature slice.
 
-One feature atom, one feature store, plus thin additions to the existing `UIStateAtom`.
+It is NOT a Layer (see the [Interaction Model WIP](2026-04-18-interaction-model-wip.md) §1-§2 for what earns Layer status). There is no `NotificationInboxLayerAtom`.
 
-#### `NotificationInboxAtom`
+**Two feature atoms (inbox log + inbox prefs), one feature store, and three small additions split between Core and `UIStateAtom`.**
 
-Path: `Features/NotificationInbox/State/NotificationInboxAtom.swift`
+#### `NotificationInboxAtom` — feature-scoped (log)
+
+Path: `Features/NotificationInbox/State/MainActor/Atoms/NotificationInboxAtom.swift`
 Role: canonical mutable state for the notification log. `@Observable @MainActor`, `private(set)` reads, mutation via methods.
 
 ```swift
@@ -165,78 +167,142 @@ final class NotificationInboxAtom {
 }
 ```
 
-The atom knows nothing about whether the sidebar is currently showing the inbox. That's a presentation concern.
+The atom knows nothing about whether the sidebar is currently showing the inbox. That's composition state (see `UIStateAtom` below).
 
-#### `UIStateAtom` additions (sidebar surface + focus)
+#### `NotificationInboxPrefsAtom` — feature-scoped (prefs)
 
-`UIStateAtom` (existing, `Core/State/MainActor/Atoms/UIStateAtom.swift`) grows two fields used by the interaction model:
+Path: `Features/NotificationInbox/State/MainActor/Atoms/NotificationInboxPrefsAtom.swift`
+Role: user preferences for the inbox — grouping, sort, bell enable. `@Observable @MainActor`.
 
 ```swift
-// on UIStateAtom:
-private(set) var sidebarSurface: SidebarSurface = .repos
-private(set) var sidebarHasFocus: Bool = false       // runtime-only; not persisted
+@MainActor @Observable
+final class NotificationInboxPrefsAtom {
+    private(set) var grouping: NotificationInboxGrouping = .none
+    private(set) var sort: NotificationInboxSort = .newestFirst
+    private(set) var bellEnabled: Bool = false
 
+    func setGrouping(_ grouping: NotificationInboxGrouping)
+    func setSort(_ sort: NotificationInboxSort)
+    func setBellEnabled(_ enabled: Bool)
+}
+```
+
+Prefs are feature-specific — they stay in the feature slice, NOT on `UIStateAtom`. This keeps Core from growing per-feature properties. Supporting enum types (`NotificationInboxGrouping`, `NotificationInboxSort`) live in `Features/NotificationInbox/Models/NotificationInboxTypes.swift`.
+
+#### `UIStateAtom` additions — composition state only (`sidebarCollapsed`, `sidebarSurface`, `sidebarHasFocus`)
+
+Path: `Core/State/MainActor/Atoms/UIStateAtom.swift` (existing)
+Role: app-wide UI shell state. These three fields are composition state — they describe how features are assembled into the UI, not feature-specific data.
+
+```swift
+// on UIStateAtom (existing Core atom; additive):
+private(set) var sidebarCollapsed: Bool = false     // published by MainSplitViewController
+private(set) var sidebarSurface: SidebarSurface = .repos
+private(set) var sidebarHasFocus: Bool = false      // runtime-only; not persisted
+
+func setSidebarCollapsed(_ value: Bool)
 func setSidebarSurface(_ surface: SidebarSurface)
 func setSidebarHasFocus(_ value: Bool)
-
-enum SidebarSurface: String, Codable, Sendable {
-    case repos
-    case inbox
-}
 ```
 
-- `sidebarSurface` is persisted via `UIStateStore` — the user's last surface survives relaunch. Default `.repos`.
-- `sidebarHasFocus` is runtime-only, reset to `false` on launch. Published by the root sidebar SwiftUI view via `@FocusState.onChange → uiState.setSidebarHasFocus(...)`.
+- `sidebarCollapsed` is persisted via `UIStateStore` AND dual-written to the existing `UserDefaults` key (`sidebarCollapsed` at `MainSplitViewController.swift:45`) during transition. A follow-up ticket migrates fully to `UIStateStore`.
+- `sidebarSurface` is persisted via `UIStateStore`. Default `.repos`.
+- `sidebarHasFocus` is runtime-only, reset to `false` on launch. Published by each sidebar surface view via `@FocusState.onChange`. Only one surface is visible at a time, so only one publishes at a time.
 
-**New runtime seam.** The app currently has no general "sidebar has focus" signal — the only existing sidebar focus seam is the filter field at `Features/Sidebar/RepoSidebarContentView.swift:28`. Wiring `sidebarHasFocus` is net-new work: add `@FocusState` to the root sidebar view, publish transitions to `UIStateAtom` via `.onChange`. Covered in §8.3 and §13.
+**SidebarSurface lives in Core** (`Core/Models/SidebarSurface.swift`), not in the feature slice. Justification: `SidebarSurface` is composition-cutting — it names all sidebar surfaces, tags `UIStateAtom.sidebarSurface`, and appears in `KeyboardOwner.sidebar(SidebarSurface)` (§4.4). It is a generic enum (`.repos | .inbox`), not a feature-specific type. Core is the right home.
 
-#### Notification inbox view prefs (on `UIStateAtom`)
+**New runtime seam.** The app currently has no general "sidebar has focus" signal — the only existing sidebar focus seam is the filter field at `Features/Sidebar/RepoSidebarContentView.swift:28`. Wiring `sidebarHasFocus` is net-new work: each sidebar surface view declares an internal `@FocusState` enum for its own targets, then publishes `focusedField != nil` via `.onChange` to `UIStateAtom.setSidebarHasFocus(...)`. Covered in §8.4 and §13.
 
-Same atom, separate slice. View preferences fit `UIStateAtom`'s existing job description (expanded groups, colors, filter state):
+#### `NotificationInboxStore` — feature-scoped (one store, two atoms)
 
-```swift
-struct NotificationInboxPrefs: Codable, Sendable, Equatable {
-    var grouping: NotificationInboxGrouping = .none   // .none | .byRepo | .byPane | .byTab
-    var sort: NotificationInboxSort = .newestFirst    // .newestFirst | .oldestFirst
-    var bellEnabled: Bool = false                     // controls bellRang routing (§7)
-}
-
-// on UIStateAtom:
-private(set) var notificationInbox: NotificationInboxPrefs
-func setNotificationInboxGrouping(_ grouping: NotificationInboxGrouping)
-func setNotificationInboxSort(_ sort: NotificationInboxSort)
-func setNotificationInboxBellEnabled(_ enabled: Bool)
-```
-
-The grouping/sort enums and `SidebarSurface` are Core-safe types (pure `Codable` enums, no Features imports). They live in `Core/Models/NotificationInboxTypes.swift` and `Core/Models/SidebarSurface.swift` so `UIStateAtom` can reference them without importing Features.
-
-#### `NotificationInboxStore`
-
-Path: `Features/NotificationInbox/State/NotificationInboxStore.swift`
-Role: persistence wrapper over `NotificationInboxAtom`. One store per persistence boundary; this store wraps exactly one atom. Owns file I/O, debounced saves, schema versioning.
+Path: `Features/NotificationInbox/State/MainActor/Persistence/NotificationInboxStore.swift`
+Role: persistence wrapper. One store, one file, wraps both feature atoms (matches `WorkspaceStore` pattern — one store wrapping multiple atoms that persist together).
 
 ```swift
 @MainActor
 final class NotificationInboxStore {
-    let atom: NotificationInboxAtom
-    init(atom: NotificationInboxAtom, fileURL: URL, clock: any Clock<Duration> = ContinuousClock())
+    let inboxAtom: NotificationInboxAtom
+    let prefsAtom: NotificationInboxPrefsAtom
+
+    init(
+        inboxAtom: NotificationInboxAtom,
+        prefsAtom: NotificationInboxPrefsAtom,
+        fileURL: URL,
+        clock: any Clock<Duration> = ContinuousClock()
+    )
     func load() throws            // called at boot
     func save() async throws      // called on debounced mutation
 
-    // Internal: subscribes to atom via Observation.withObservationTracking
+    // Internal: subscribes to both atoms via Observation.withObservationTracking
     // and triggers debounced save on any mutation.
 }
 ```
 
 - File: `~/Library/Application Support/AgentStudio/<workspaceId>/notification-inbox.json`
+- File shape: `{ schemaVersion, notifications: [...], prefs: { grouping, sort, bellEnabled } }`
 - Save cadence: debounced ~500ms after mutations (injected clock; matches existing stores)
 - Retention: cap **1000 entries per workspace**, evict oldest-first at append time. Provisional.
 
 #### Registration
 
-`NotificationInboxAtom` is instantiated in the app composition root (`App/Boot/`) and passed into the feature's views/routers via constructor injection. Views outside the feature slice (e.g., `Features/Sidebar/`) receive a read-only reference through the same composition path. Feature atoms cannot be registered in `AtomRegistry` (which lives in `Infrastructure/` and must not import Features).
+Feature atoms (`NotificationInboxAtom`, `NotificationInboxPrefsAtom`) are instantiated in the app composition root (`App/Boot/AppDelegate.swift`) and passed into the feature's views/routers via constructor injection. Views outside the feature slice (e.g., the sidebar worktree row in `Features/Sidebar/`, or `SidebarSurfaceHost` in App) receive read-only references through the same composition path. Feature atoms are NOT registered in `AtomRegistry` (which lives in `Infrastructure/` and must not import Features).
 
 `NotificationInboxStore` is instantiated in the same boot path as `WorkspaceStore`/`RepoCacheStore`/`UIStateStore` and calls `load()` at boot.
+
+### 4.4 `KeyboardOwnerDerived` — v1, in Core
+
+Per the [Interaction Model WIP](2026-04-18-interaction-model-wip.md) §4, `KeyboardOwner` is a derived abstraction that names who owns keyboard interpretation at any moment. It lands in v1 (not deferred) because CommandBar scope defaulting is a v1 consumer.
+
+Paths:
+- `Core/Models/KeyboardOwner.swift`
+- `Core/State/MainActor/Atoms/KeyboardOwnerDerived.swift`
+
+Role: stateless factory; follows the `WorkspaceFocusDerived` pattern exactly (takes atom references, reads what it needs, returns a plain value snapshot, owns no state or observation lifecycle).
+
+```swift
+// Core/Models/KeyboardOwner.swift
+enum KeyboardOwner: Equatable, Sendable {
+    case otherWindow
+    case managementLayer
+    case sidebar(SidebarSurface)
+    case none
+}
+
+// Core/State/MainActor/Atoms/KeyboardOwnerDerived.swift
+@MainActor
+struct KeyboardOwnerDerived {
+    func current(
+        windowLifecycle: WindowLifecycleAtom,
+        managementLayer: ManagementLayerAtom,
+        uiState: UIStateAtom
+    ) -> KeyboardOwner {
+        guard windowLifecycle.isWorkspaceWindowKey else {
+            return .otherWindow
+        }
+        if managementLayer.isActive {
+            return .managementLayer
+        }
+        if !uiState.sidebarCollapsed && uiState.sidebarHasFocus {
+            return .sidebar(uiState.sidebarSurface)
+        }
+        return .none
+    }
+}
+```
+
+All inputs are Core atoms (with composition state on `UIStateAtom`, the shell-state reads don't need to cross layers). Consistent with `WorkspaceFocusDerived`.
+
+#### `WindowLifecycleAtom` — one accessor added
+
+`WindowLifecycleAtom` (`Core/State/MainActor/Atoms/WindowLifecycleAtom.swift`) already tracks `keyWindowId` and `registeredWindowIds`. Grows one computed property used by `KeyboardOwnerDerived`:
+
+```swift
+var isWorkspaceWindowKey: Bool {
+    keyWindowId.map { registeredWindowIds.contains($0) } ?? false
+}
+```
+
+No new storage; derived from existing fields.
 
 ## 5. Keyboard behavior — focus-scoped keys, not a Layer
 
@@ -271,7 +337,7 @@ Add `CommandBarScope.inbox`. Behavior:
 - **CommandBar already open when ⌘I fires:** CommandBar stays open; the user's current scope selection is preserved. The sidebar surface flips behind it.
 - **CommandBar open, surface ≠ inbox, user manually picks `.inbox` scope:** valid — `.inbox` is always pickable. Activating the scope does not change the sidebar surface.
 
-Default-scope selection reads from atom state directly (`sidebarSurface`, `sidebarHasFocus`). It will naturally migrate to reading `KeyboardOwnerDerived.current(...)` when that type lands in code (per WIP §4.6). The surface vs owner distinction doesn't affect user-visible behavior for v1.
+Default-scope selection reads `KeyboardOwnerDerived.current(...)` (implemented in v1 per §4.4). When owner is `.sidebar(.inbox)`, open CommandBar with `.inbox` scope.
 
 Inbox-scoped actions:
 
@@ -387,7 +453,7 @@ The explicit "which events notify" table. This is the routing contract the ticke
 | Source event | Notify? | `NotificationKind` | Gating rule |
 |---|---|---|---|
 | `GhosttyEvent.desktopNotificationRequested` (OSC 9/777) | **Yes** | `agentDesktopNotification` | Always |
-| `GhosttyEvent.bellRang` | User setting | `bellRang` | Only when `UIStateAtom.notificationInbox.bellEnabled == true`; default `false` |
+| `GhosttyEvent.bellRang` | User setting | `bellRang` | Only when `NotificationInboxPrefsAtom.bellEnabled == true`; default `false` |
 | `GhosttyEvent.commandFinished(exitCode, duration)` | Conditional | `commandFinished` | Only if source pane is not currently focused AND `duration ≥ 10s` |
 | Bridge RPC `inbox.post` (new method) | **Yes** | `agentRpc` | Always; fire-and-forget JSON-RPC notification (no `id`) |
 | `ArtifactEvent.approvalRequested` | **Yes** | `approvalRequested` | Always |
@@ -418,7 +484,164 @@ No `id` (notification, not request). `paneId` is inferred from the originating b
 
 ## 8. Architecture
 
-### 8.1 Component diagram
+### 8.1 Folder structure
+
+The full map of new and modified files, following the conventions in [directory_structure.md — Feature Slice Self-Containment](../../architecture/directory_structure.md). Every atom at `<owner>/State/MainActor/Atoms/`; every store at `<owner>/State/MainActor/Persistence/`. Features self-contained. Composition state on `UIStateAtom` in Core.
+
+```
+Sources/AgentStudio/
+│
+├── Features/NotificationInbox/                         [NEW SLICE]
+│   ├── Components/
+│   │   ├── InboxRow.swift                              reusable inbox
+│   │   ├── InboxGroupHeader.swift                      view pieces
+│   │   └── InboxEmptyState.swift
+│   ├── Models/
+│   │   ├── Notification.swift                          domain type
+│   │   └── NotificationInboxTypes.swift                grouping / sort
+│   │                                                    enums
+│   ├── Routing/
+│   │   ├── NotificationRouter.swift                    bus subscriber
+│   │   └── PaneFocusTracker.swift                      focus diff →
+│   │                                                    AsyncStream
+│   ├── State/
+│   │   └── MainActor/
+│   │       ├── Atoms/
+│   │       │   ├── NotificationInboxAtom.swift         log
+│   │       │   └── NotificationInboxPrefsAtom.swift    grouping/sort/
+│   │       │                                            bellEnabled
+│   │       └── Persistence/
+│   │           └── NotificationInboxStore.swift        wraps both
+│   │                                                    atoms; one JSON
+│   └── Views/
+│       ├── InboxSidebarView.swift                      composed screen
+│       ├── DrawerInboxPopover.swift                    composed screen
+│       └── DrawerInboxBellHost.swift                   integration
+│                                                        wrapper that
+│                                                        injects unread
+│                                                        count into
+│                                                        TrailingActions
+│
+├── Features/Sidebar/                                   [EXISTING — to be
+│   │                                                    renamed Features/
+│   │                                                    RepoExplorer/ in
+│   │                                                    a follow-up]
+│   ├── RepoSidebarContentView.swift                    [MOD — @FocusState
+│   │                                                    publishes to
+│   │                                                    UIStateAtom.set-
+│   │                                                    SidebarHasFocus]
+│   ├── SidebarWorktreeRow.swift                        [MOD — +bell
+│   │                                                    count binding]
+│   ├── SidebarFilter.swift                             [unchanged]
+│   └── SidebarGroupHeader.swift                        [unchanged]
+│
+├── Features/Bridge/Transport/                          [EXISTING, MOD]
+│   └── RPCRouter.swift                                 [MOD — +inbox.post
+│                                                        handler]
+│
+├── Features/CommandBar/                                [EXISTING, MODS]
+│   ├── CommandBarState.swift                           [MOD — +.inbox
+│   │                                                    scope; default
+│   │                                                    scope reads
+│   │                                                    KeyboardOwner]
+│   └── CommandBarDataSource.swift                      [MOD — inbox-
+│                                                        scoped actions]
+│
+├── Core/
+│   ├── Models/
+│   │   ├── SidebarSurface.swift                        [NEW — composition
+│   │   │                                                enum, used by
+│   │   │                                                UIStateAtom and
+│   │   │                                                KeyboardOwner]
+│   │   └── KeyboardOwner.swift                         [NEW — derived
+│   │                                                    enum]
+│   └── State/
+│       └── MainActor/
+│           ├── Atoms/
+│           │   ├── UIStateAtom.swift                   [MOD — +sidebar-
+│           │   │                                        Collapsed,
+│           │   │                                        +sidebarSurface,
+│           │   │                                        +sidebarHasFocus]
+│           │   ├── WindowLifecycleAtom.swift           [MOD — +is-
+│           │   │                                        WorkspaceWindow-
+│           │   │                                        Key accessor]
+│           │   └── KeyboardOwnerDerived.swift          [NEW — stateless
+│           │                                            factory; follows
+│           │                                            WorkspaceFocus-
+│           │                                            Derived pattern]
+│           └── Persistence/
+│               └── UIStateStore.swift                  [MOD — persist
+│                                                        sidebarSurface
+│                                                        and sidebar-
+│                                                        Collapsed;
+│                                                        dual-write to
+│                                                        UserDefaults
+│                                                        short-term]
+│
+├── Core/Views/Drawer/                                  [EXISTING, MOD]
+│   ├── DrawerOverlay.swift                             [MOD — Trailing-
+│   │                                                    Actions gains
+│   │                                                    onOpenInbox +
+│   │                                                    inboxUnread-
+│   │                                                    Count]
+│   └── DrawerIconBar.swift                             [MOD — render
+│                                                        bell after
+│                                                        divider]
+│
+└── App/
+    ├── Boot/
+    │   └── AppDelegate.swift                           [MOD — instan-
+    │                                                    tiate feature
+    │                                                    atoms + store +
+    │                                                    router]
+    ├── Commands/
+    │   ├── AppCommand.swift                            [MOD — +.show-
+    │   │                                                NotificationIn-
+    │   │                                                box, .showWork-
+    │   │                                                treeSidebar,
+    │   │                                                .showDrawer-
+    │   │                                                Inbox]
+    │   └── AppShortcut.swift                           [MOD — bind ⌘I,
+    │                                                    ⌘S, ⌘⇧I]
+    └── Windows/
+        ├── MainSplitViewController.swift               [MOD — publish
+        │                                                sidebarCollapsed
+        │                                                to UIStateAtom;
+        │                                                host SidebarSur-
+        │                                                faceHost]
+        └── SidebarSurfaceHost.swift                    [NEW — SwiftUI
+                                                         switcher view;
+                                                         imports both
+                                                         features; lives
+                                                         alongside
+                                                         MainSplitView-
+                                                         Controller]
+```
+
+**Counts:**
+
+```
+NEW files                                   14
+  Features/NotificationInbox/               10 (full slice)
+  Core/Models/ (composition enums)           2
+  Core/State/MainActor/Atoms/                1 (KeyboardOwnerDerived)
+  App/Windows/ (SidebarSurfaceHost)          1
+
+MODIFIED files                              11
+  UIStateAtom + UIStateStore                 2
+  WindowLifecycleAtom                        1
+  DrawerOverlay + DrawerIconBar              2
+  Features/Sidebar/ (2 files)                2
+  RPCRouter                                  1
+  CommandBar (state + data source)           2
+  AppDelegate                                1
+  AppCommand + AppShortcut                   2
+  MainSplitViewController                    1
+
+UNCHANGED referenced                        ~8
+```
+
+### 8.2 Component diagram
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -485,26 +708,33 @@ No `id` (notification, not request). `paneId` is inferred from the originating b
          └─────────────────────────────────────────────────────┘
 ```
 
-### 8.2 Component placement
+### 8.3 Component placement
 
 | Component | Slice | Rationale |
 |---|---|---|
-| `Notification` model | `Features/NotificationInbox/Models/` | Domain type used by the feature and its immediate consumers (read through props) |
-| `NotificationInboxTypes` (grouping/sort enums) | `Core/Models/` | Referenced by `UIStateAtom` in Core — pure Codable enums, no Features import |
-| `SidebarSurface` enum | `Core/Models/` | Referenced by `UIStateAtom` in Core — pure Codable enum, no Features import |
-| `NotificationInboxAtom` | `Features/NotificationInbox/State/` | Feature-scoped state |
-| `NotificationInboxStore` | `Features/NotificationInbox/State/` | Feature-scoped persistence |
-| `UIStateAtom` — additions | `Core/State/MainActor/Atoms/` | Existing Core atom; adds `sidebarSurface`, `sidebarHasFocus`, `notificationInbox` slice |
+| `Notification` model | `Features/NotificationInbox/Models/` | Feature-owned domain type |
+| `NotificationInboxTypes` (grouping/sort enums) | `Features/NotificationInbox/Models/` | Feature-specific; only the feature references them |
+| `SidebarSurface` enum | `Core/Models/` | Composition tag; referenced by `UIStateAtom` and `KeyboardOwner` in Core |
+| `KeyboardOwner` enum | `Core/Models/` | Composition-derived type; used by `KeyboardOwnerDerived` |
+| `NotificationInboxAtom` | `Features/NotificationInbox/State/MainActor/Atoms/` | Feature-scoped state |
+| `NotificationInboxPrefsAtom` | `Features/NotificationInbox/State/MainActor/Atoms/` | Feature-scoped prefs |
+| `NotificationInboxStore` | `Features/NotificationInbox/State/MainActor/Persistence/` | Feature-scoped persistence; wraps both feature atoms |
+| `UIStateAtom` — additions | `Core/State/MainActor/Atoms/` | Existing Core atom; +`sidebarCollapsed`, +`sidebarSurface`, +`sidebarHasFocus` — composition state only |
+| `WindowLifecycleAtom` — addition | `Core/State/MainActor/Atoms/` | Existing Core atom; +`isWorkspaceWindowKey` computed accessor |
+| `KeyboardOwnerDerived` | `Core/State/MainActor/Atoms/` | Stateless factory; mirrors `WorkspaceFocusDerived`; reads Core atoms |
 | `NotificationRouter` | `Features/NotificationInbox/Routing/` | Consumes bus, writes atom |
 | `PaneFocusTracker` | `Features/NotificationInbox/Routing/` | Observes `WorkspacePaneAtom`; emits focus-gained transitions |
-| `InboxSidebarView` | `Features/NotificationInbox/Views/` | SwiftUI; rendered by sidebar container when `sidebarSurface == .inbox` |
-| `DrawerInboxPopover` | `Features/NotificationInbox/Views/` | SwiftUI popover |
+| `InboxSidebarView` | `Features/NotificationInbox/Views/` | SwiftUI composed screen; rendered by `SidebarSurfaceHost` when `sidebarSurface == .inbox` |
+| `DrawerInboxPopover` | `Features/NotificationInbox/Views/` | SwiftUI composed popover |
+| `DrawerInboxBellHost` | `Features/NotificationInbox/Views/` | Integration wrapper; reads `NotificationInboxAtom.unreadCount` and injects into `DrawerOverlay.TrailingActions` |
+| Inbox `Components/` | `Features/NotificationInbox/Components/` | Row / group header / empty state — reusable within the feature |
 | RPC `inbox.post` handler | `Features/Bridge/Transport/` | Minimal addition to `RPCRouter`; emits a new `PaneRuntimeEvent` |
-| `.inbox` CommandBar scope | `Features/CommandBar/` | Extends existing scope enum; reads `UIStateAtom` (or future `KeyboardOwnerDerived`) for default-scope logic |
+| `.inbox` CommandBar scope | `Features/CommandBar/` | Extends existing scope enum; default-scope logic calls `KeyboardOwnerDerived` |
+| `SidebarSurfaceHost` | `App/Windows/` | SwiftUI switcher view; imports both feature surfaces; lives alongside `MainSplitViewController` which already imports features |
 
 Single new feature slice: `Features/NotificationInbox/`.
 
-### 8.3 Subscription pattern
+### 8.4 Subscription pattern
 
 `NotificationRouter` subscribes to `EventBus<RuntimeEnvelope>` via `AsyncStream` (no Combine, no NotificationCenter). It is a **leaf subscriber**: reads facts, writes to its own atom. It does not mutate other atoms, does not route commands. Matches the event-driven enrichment pattern described in `AGENTS.md`.
 
@@ -535,7 +765,7 @@ var body: some View {
 
 This publishes sidebar focus transitions into `UIStateAtom`. Any future consumer (`KeyboardOwnerDerived`, CommandBar scope defaulting) reads from the atom — no new observation wiring.
 
-### 8.4 Click-through routing
+### 8.5 Click-through routing
 
 When the user activates a notification (click or Enter):
 
@@ -581,7 +811,7 @@ Integration path (preserves `Core → never imports Features`):
 
 ## 11. Resolved preference decisions
 
-- **Bell setting UI (v1).** No settings pane exists yet. Bell on/off is a CommandBar action under `.inbox` scope: "Enable bell notifications" / "Disable bell notifications". State persisted on `UIStateAtom.notificationInbox.bellEnabled` (default `false`).
+- **Bell setting UI (v1).** No settings pane exists yet. Bell on/off is a CommandBar action under `.inbox` scope: "Enable bell notifications" / "Disable bell notifications". State persisted on `NotificationInboxPrefsAtom.bellEnabled` (default `false`).
 - **Focus target on ⌘I.** Top notification row (first in list given current sort). Makes ↓/↑ immediately productive. `⌥F` is one stroke to search. If CommandBar is key when ⌘I fires, the focus move is skipped (see §5.1).
 - **⌘P + ⌘I coexistence.** ⌘I runs its composite command regardless of CommandBar state and **does not dismiss the CommandBar**. If the CommandBar is already open, it stays open and its scope selection is preserved. Fresh ⌘P when the sidebar is showing the inbox and has focus opens CommandBar with `.inbox` as the default scope (§5.2). ⌘S behaves the same way.
 - **Global inbox toolbar indicator.** Red dot when any unread > 0 (v1 default). Optional count is deferred until we see the surface in use.
@@ -595,7 +825,7 @@ Integration path (preserves `Core → never imports Features`):
 - **Per-workspace vs cross-workspace.** v1 is per-workspace (`notification-inbox.json` under the workspace id). Cross-workspace aggregation is deferred.
 - **UNUserNotificationCenter integration.** Separate follow-up ticket.
 - **Inbox toolbar button: dot vs count.** v1 picks dot; count is deferred until we see the surface in use.
-- **`KeyboardOwnerDerived` implementation.** Designed in the [Interaction Model WIP](2026-04-18-interaction-model-wip.md) §4; lands in code when the first cross-feature consumer arrives (probably CommandBar scope defaulting). Not this ticket.
+- **Unified keyboard dispatcher.** The three parallel interception mechanisms (key window, ManagementLayerMonitor, responder chain) could be unified under `KeyboardOwner`. Out of scope for LUNA-361; tracked as accumulating debt in the WIP §5.
 - **Stretch:** click on `🔔 N` sidebar bell badge opens Inbox with worktree pre-filtered in search.
 
 ## 13. Testing
@@ -625,12 +855,33 @@ Per `AGENTS.md` testing standards (Swift 6 Testing, colocate `_test.swift`, no w
 - Focus transition from paneA → paneB emits exactly one `PaneId(paneB)` event.
 - No event emitted when `activePaneId` stays the same.
 
-**Unit tests — `UIStateAtom` additions:**
+**Unit tests — `NotificationInboxPrefsAtom`:**
 
+- `setGrouping(.byRepo)` → `grouping == .byRepo`.
+- `setSort(.oldestFirst)` → `sort == .oldestFirst`.
+- `setBellEnabled(true)` → `bellEnabled == true`.
+
+**Unit tests — `UIStateAtom` composition additions:**
+
+- `setSidebarCollapsed(true)` → `sidebarCollapsed == true`.
 - `setSidebarSurface(.inbox)` → `sidebarSurface == .inbox`; `setSidebarSurface(.repos)` → `.repos`.
 - `setSidebarHasFocus(true)` → `sidebarHasFocus == true`.
-- Notification inbox pref setters round-trip correctly.
-- Persistence: `sidebarSurface` and `notificationInbox` prefs roundtrip through `UIStateStore`; `sidebarHasFocus` is NOT persisted (always resets to `false` on load).
+- Persistence: `sidebarCollapsed` and `sidebarSurface` roundtrip through `UIStateStore`; `sidebarHasFocus` is NOT persisted (always resets to `false` on load).
+
+**Unit tests — `KeyboardOwnerDerived`:**
+
+- Precedence: main window not key → `.otherWindow` regardless of other state.
+- Precedence: window key + management layer active → `.managementLayer`.
+- Precedence: window key + no management + sidebar collapsed → `.none`.
+- Precedence: window key + no management + sidebar visible + has focus + surface `.inbox` → `.sidebar(.inbox)`.
+- Precedence: window key + no management + sidebar visible + no focus → `.none`.
+- Precedence: window key + no management + sidebar visible + has focus + surface `.repos` → `.sidebar(.repos)`.
+
+**Unit tests — `WindowLifecycleAtom.isWorkspaceWindowKey`:**
+
+- `keyWindowId == nil` → `false`.
+- `keyWindowId` set but not in `registeredWindowIds` → `false`.
+- `keyWindowId` set and in `registeredWindowIds` → `true`.
 
 **Integration test — sidebar surface switching:**
 
@@ -652,7 +903,9 @@ Per `AGENTS.md` testing standards (Swift 6 Testing, colocate `_test.swift`, no w
 - This spec, committed.
 - [Interaction Model WIP](2026-04-18-interaction-model-wip.md), committed (sibling doc; authoritative for the layer/focus model).
 - Update `docs/architecture/workspace_data_architecture.md` event-bus consumer section to list `NotificationRouter` as a new leaf subscriber.
-- Update `docs/architecture/directory_structure.md` Component → Slice Map with the new feature slice and `UIStateAtom` pref/surface additions.
+- [directory_structure.md](../../architecture/directory_structure.md) updated in this ticket: Feature Slice Self-Containment, universal `State/MainActor/{Atoms,Persistence}/` path, SharedComponents layer, composition-state-vs-feature-state rule.
+- [AGENTS.md](../../../AGENTS.md) updated in this ticket: atoms/stores path convention, composition vs feature state, `ManagementLayerAtom` naming fix.
+- Update `docs/architecture/workspace_data_architecture.md` event-bus consumer section to list `NotificationRouter` as a new leaf subscriber (in this ticket).
 - Add inbox shortcut entry to keyboard shortcut documentation (create if not present).
 
 ## 15. Out of scope (explicit)
@@ -665,8 +918,8 @@ Per `AGENTS.md` testing standards (Swift 6 Testing, colocate `_test.swift`, no w
 - Fuzzy search in inbox
 - Collapsible group sections
 - Toast / banner / transient popup of any kind
-- `KeyboardOwnerDerived` implementation (designed in WIP; lands with first cross-feature consumer)
 - Unified keyboard dispatcher (deferred debt; see WIP §5)
+- `Features/Sidebar/` → `Features/RepoExplorer/` rename (deferred to follow-up PR)
 
 ---
 
