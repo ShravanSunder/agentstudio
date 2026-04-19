@@ -5,6 +5,8 @@ import Testing
 
 @testable import AgentStudio
 
+typealias Harness = PaneTabViewControllerCommandHarness
+
 @MainActor
 struct PaneTabViewControllerCommandHarness {
     let store: WorkspaceStore
@@ -17,6 +19,13 @@ struct PaneTabViewControllerCommandHarness {
     let tempDir: URL
     let tabRenamePopoverState: TabRenamePopoverState
     let arrangementInlineRenameState: ArrangementInlineRenameState
+}
+
+@MainActor
+func makeHarness(
+    createSurfaceResult: Result<ManagedSurface, SurfaceError> = .failure(.ghosttyNotInitialized)
+) -> Harness {
+    makePaneTabViewControllerCommandHarness(createSurfaceResult: createSurfaceResult)
 }
 
 @MainActor
@@ -74,6 +83,11 @@ func makePaneTabViewControllerCommandHarness(
 }
 
 @MainActor
+func makeRepoAndWorktree(_ store: WorkspaceStore, root: URL) -> (Repo, Worktree) {
+    makePaneTabViewControllerCommandRepoAndWorktree(store, root: root)
+}
+
+@MainActor
 func makePaneTabViewControllerCommandRepoAndWorktree(
     _ store: WorkspaceStore,
     root: URL
@@ -87,6 +101,11 @@ func makePaneTabViewControllerCommandRepoAndWorktree(
     let worktree = Worktree(repoId: repo.id, name: "wt-main", path: worktreePath)
     store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
     return (repo, worktree)
+}
+
+@MainActor
+func expectWebviewContent(_ pane: Pane, issuePrefix: String) {
+    expectPaneTabViewControllerCommandWebviewContent(pane, issuePrefix: issuePrefix)
 }
 
 @MainActor

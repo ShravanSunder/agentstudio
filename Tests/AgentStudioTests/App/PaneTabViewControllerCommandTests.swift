@@ -5,25 +5,6 @@ import Testing
 
 @testable import AgentStudio
 
-private typealias Harness = PaneTabViewControllerCommandHarness
-
-@MainActor
-private func makeHarness(
-    createSurfaceResult: Result<ManagedSurface, SurfaceError> = .failure(.ghosttyNotInitialized)
-) -> Harness {
-    makePaneTabViewControllerCommandHarness(createSurfaceResult: createSurfaceResult)
-}
-
-@MainActor
-private func makeRepoAndWorktree(_ store: WorkspaceStore, root: URL) -> (Repo, Worktree) {
-    makePaneTabViewControllerCommandRepoAndWorktree(store, root: root)
-}
-
-@MainActor
-private func expectWebviewContent(_ pane: Pane, issuePrefix: String) {
-    expectPaneTabViewControllerCommandWebviewContent(pane, issuePrefix: issuePrefix)
-}
-
 @MainActor
 @Suite(.serialized)
 struct PaneTabViewControllerCommandTests {
