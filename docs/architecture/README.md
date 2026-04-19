@@ -92,7 +92,9 @@ RepoCacheAtom (derived enrichment — workspace.cache.json, rebuildable)
 ├── repoEnrichmentByRepoId             ← origin, identity, groupKey, displayName
 ├── worktreeEnrichmentByWorktreeId     ← branch, git snapshot
 ├── pullRequestCountByWorktreeId       ← PR badges
-└── notificationCountByWorktreeId      ← notification bells
+└── (notification counts moved — unread bells now derive from
+                                        NotificationInboxAtom.unreadCount(
+                                        forWorktreeId:) per LUNA-361)
 
 UIStateAtom (presentation prefs + sidebar composition — workspace.ui.json)
 ├── expandedGroups, checkoutColors, filterText, isFilterVisible

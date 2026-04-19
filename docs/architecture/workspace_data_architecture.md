@@ -25,7 +25,10 @@ TIER B: DERIVED CACHE (rebuildable from Tier A + actors)
   File: ~/.agentstudio/workspaces/<id>/workspace.cache.json
   Owner: RepoCacheAtom (@MainActor, @Observable)
   Mutated by: WorkspaceCacheCoordinator only (event-driven)
-  Contains: repo enrichment, worktree enrichment, PR counts, notification counts
+  Contains: repo enrichment, worktree enrichment, PR counts
+           (notification unread counts moved — now derived from
+            NotificationInboxAtom.unreadCount(forWorktreeId:)
+            per LUNA-361)
 
 TIER C: UI STATE (preferences, non-structural + composition state)
   File: ~/.agentstudio/workspaces/<id>/workspace.ui.json
@@ -77,7 +80,8 @@ struct Worktree: Codable, Identifiable, Hashable {
 **What is NOT canonical** (lives in cache, populated by event bus):
 - `organizationName`, `origin`, `upstream` → `RepoEnrichment`
 - `branch`, git snapshot → `WorktreeEnrichment`
-- PR counts, notification counts → `RepoCacheAtom` dictionaries
+- PR counts → `RepoCacheAtom` dictionaries
+- Notification unread counts → `NotificationInboxAtom.unreadCount(forWorktreeId:)` (per LUNA-361; moved out of `RepoCacheAtom`)
 
 ### Identity Semantics
 
@@ -130,7 +134,10 @@ struct WorkspaceCacheState: Codable {
     var repoEnrichment: [UUID: RepoEnrichment]           // keyed by CanonicalRepo.id
     var worktreeEnrichment: [UUID: WorktreeEnrichment]    // keyed by CanonicalWorktree.id
     var pullRequestCounts: [UUID: Int]                     // keyed by CanonicalWorktree.id
-    var notificationCounts: [UUID: Int]                    // keyed by CanonicalWorktree.id
+    // notificationCounts removed per LUNA-361: unread counts are now
+    // derived from NotificationInboxAtom.unreadCount(forWorktreeId:)
+    // in Features/NotificationInbox/State/MainActor/Atoms/, not stored
+    // in the cache tier. The bell pill reads directly from the atom.
 }
 ```
 
@@ -356,8 +363,10 @@ WorkspaceStore.repos                → canonical repo/worktree structure (what 
 RepoCacheAtom.repoEnrichment  → org name, display name, groupKey (how to group)
 RepoCacheAtom.worktreeEnrichment → branch, git status (how to display)
 RepoCacheAtom.pullRequestCounts → PR badges
-RepoCacheAtom.notificationCounts → notification bells
+NotificationInboxAtom.unreadCount(forWorktreeId:) → notification bells
+                                 (per LUNA-361; moved from RepoCacheAtom)
 UIStateAtom                    → expanded groups, filter, colors (user prefs)
+                                 + sidebar composition state (collapsed / surface / has-focus)
 
 ZERO imperative fetches. ZERO mutations. Pure @Observable binding.
 ```

@@ -282,7 +282,7 @@ final class NotificationInboxStore {
 }
 ```
 
-- File: `~/Library/Application Support/AgentStudio/<workspaceId>/notification-inbox.json`
+- File: `~/.agentstudio/workspaces/<workspaceId>/notification-inbox.json` (canonical workspace bundle path per [workspace_data_architecture.md](../../architecture/workspace_data_architecture.md); sibling of `workspace.state.json`, `workspace.cache.json`, `workspace.ui.json`)
 - File shape: `{ schemaVersion, notifications: [...], prefs: { grouping, sort, bellEnabled } }`
 - Save cadence: debounced ~500ms after mutations (injected clock; matches existing stores)
 - Retention: cap **1000 entries per workspace**, evict oldest-first at append time. Provisional.
@@ -832,28 +832,34 @@ Single new feature slice: `Features/NotificationInbox/`.
 
 `PaneFocusTracker` observes `WorkspacePaneAtom` via `Observation.withObservationTracking`, diffs successive `activePaneId` values, and emits an `AsyncStream<PaneId>` of focus-gained transitions consumed by `NotificationRouter`.
 
-**New sidebar-focus seam.** The app currently lacks a general "sidebar has focus" signal (only the filter field at `Features/RepoExplorer/RepoExplorerView.swift` (currently `Features/Sidebar/RepoSidebarContentView.swift:28` pre-rename) tracks focus today). As part of this work we introduce a minimal seam:
+**New sidebar-focus seam.** The app currently lacks a general "sidebar has focus" signal (only the filter field at `Features/RepoExplorer/RepoExplorerView.swift` (currently `Features/Sidebar/RepoSidebarContentView.swift:28` pre-rename) tracks focus today). Per the §4.3 contract, each **surface** view (not the root container) publishes its own focus state using its own internal focus enum.
 
 ```swift
-// Root sidebar view (new or extended existing container):
-@FocusState private var hasFocus: Bool
+// Features/NotificationInbox/Views/InboxSidebarView.swift
+enum InboxFocus: Hashable {           // feature-internal; not in Core
+    case search
+    case list
+    case row(UUID)
+    case groupingMenu
+}
+
+@FocusState private var focusedField: InboxFocus?
 
 var body: some View {
-    Group {
-        switch uiState.sidebarSurface {
-            case .repos: RepoSidebarContentView(...)
-            case .inbox: InboxSidebarView(...)
-        }
-    }
-    .focusable()
-    .focused($hasFocus)
-    .onChange(of: hasFocus) { _, new in
-        uiState.setSidebarHasFocus(new)
+    // ... attach .focused($focusedField, equals: .search) on the
+    //     search field, .focused($focusedField, equals: .list) on
+    //     the list container, etc.
+    .onChange(of: focusedField) { _, new in
+        uiState.setSidebarHasFocus(new != nil)
     }
 }
 ```
 
-This publishes sidebar focus transitions into `UIStateAtom`. Any future consumer (`KeyboardOwnerDerived`, CommandBar scope defaulting) reads from the atom — no new observation wiring.
+`Features/RepoExplorer/RepoExplorerView.swift` follows the same pattern with its own `RepoExplorerFocus` enum. Because only one surface is visible at a time (driven by `uiState.sidebarSurface`), only one publishes at a time — no race, no conflict.
+
+This preserves the §4.3 contract: `sidebarHasFocus` is true iff any declared focus target inside the currently-visible surface is non-nil. The root sidebar container does NOT publish directly — publishing is a per-surface responsibility so the set of focus targets is explicit and auditable per surface.
+
+Any consumer (`KeyboardOwnerDerived`, CommandBar scope defaulting) reads `uiState.sidebarHasFocus` — no new observation wiring.
 
 ### 8.5 Click-through routing
 
@@ -1021,4 +1027,4 @@ Per `AGENTS.md` testing standards (Swift 6 Testing, colocate `_test.swift`, no w
 - **Global Inbox** — the sidebar view showing all notifications across all tabs/panes/drawers in the workspace.
 - **Read / Unread** — state in the global inbox; toggled by focus-through, Enter, Space.
 - **Dismissed from drawer** — local drawer state; notification disappears from drawer popover but remains in global inbox.
-- **`KeyboardOwner`** — derived abstraction naming who owns keyboard interpretation at a moment. See the [Interaction Model WIP](2026-04-18-interaction-model-wip.md) §4. Not a Layer; not stored; not a dependency of this spec's implementation.
+- **`KeyboardOwner`** — derived abstraction naming who owns keyboard interpretation at a moment. Designed in [Interaction Model WIP](2026-04-18-interaction-model-wip.md) §4; implemented in this ticket per §4.4. Not a Layer; not stored. Consumed in v1 by CommandBar default-scope logic (§5.2); not called by the inbox's own runtime shortcuts (those dispatch via native SwiftUI `.keyboardShortcut()` + responder chain).

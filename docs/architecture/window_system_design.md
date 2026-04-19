@@ -550,7 +550,7 @@ Multiple UI surfaces that trigger operations through the same `PaneActionCommand
 
 A window-level toggle that enables pane manipulation controls. When off, panes show clean content with no distractions. When on, hover reveals controls for rearranging, splitting, minimizing, and closing panes.
 
-- Stored in `ManagementLayerMonitor.shared` — singleton `@Observable` with `private(set) var isActive: Bool`
+- Stored in `ManagementLayerAtom` (`Core/State/MainActor/Atoms/ManagementLayerAtom.swift`) — `@Observable @MainActor` with `private(set) var isActive: Bool`. `ManagementLayerMonitor` (`App/Lifecycle/`) is a side-effect observer, not the canonical owner. See [appkit_swiftui_architecture.md](appkit_swiftui_architecture.md) for the three-component split.
 - Toggled via toolbar button (separate button group, left of "Add Repo") or keyboard shortcut
 - Icon: `slider.horizontal.3`, highlighted when active
 
