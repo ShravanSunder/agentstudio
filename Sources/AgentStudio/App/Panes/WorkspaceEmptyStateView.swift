@@ -275,7 +275,7 @@ struct WorkspaceEmptyStateView: View {
                 launcherShortcutRow(
                     keyImage: "folder.badge.plus",
                     title: "Watch Folder",
-                    subtitle: "Scan a new folder for repos.",
+                    subtitle: "Scan and keep watching a folder for repos.",
                     action: { CommandDispatcher.shared.dispatch(.addFolder) }
                 )
             }
