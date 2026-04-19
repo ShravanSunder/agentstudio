@@ -61,9 +61,9 @@ Sources/AgentStudio/
 │   │
 │   ├── CodeViewer/                   # Native code-viewer pane mount view
 │   ├── CommandBar/                   # ⌘P command palette
-│   ├── Sidebar/                      # (to be renamed Features/RepoExplorer/ — this is the repo
-│   │                                 #   explorer feature; "Sidebar" is a misnomer since the
-│   │                                 #   sidebar itself is composition in App/, not a feature)
+│   ├── RepoExplorer/                 # (renamed from Features/Sidebar/ in LUNA-361; the repo
+│   │                                 #   explorer feature. The sidebar itself is composition
+│   │                                 #   in App/, not a feature)
 │   ├── Terminal/                     # Everything Ghostty-specific
 │   │   ├── Components/               # Reusable views within Terminal
 │   │   ├── Ghostty/                  # C API bridge, SurfaceManager, SurfaceTypes

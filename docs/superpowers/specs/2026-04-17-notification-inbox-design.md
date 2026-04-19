@@ -211,7 +211,7 @@ func setSidebarHasFocus(_ value: Bool)
 
 **SidebarSurface lives in Core** (`Core/Models/SidebarSurface.swift`), not in the feature slice. Justification: `SidebarSurface` is composition-cutting — it names all sidebar surfaces, tags `UIStateAtom.sidebarSurface`, and appears in `KeyboardOwner.sidebar(SidebarSurface)` (§4.4). It is a generic enum (`.repos | .inbox`), not a feature-specific type. Core is the right home.
 
-**New runtime seam.** The app currently has no general "sidebar has focus" signal — the only existing sidebar focus seam is the filter field at `Features/Sidebar/RepoSidebarContentView.swift:28`. Wiring `sidebarHasFocus` is net-new work: each sidebar surface view declares an internal `@FocusState` enum for its own targets, then publishes `focusedField != nil` via `.onChange` to `UIStateAtom.setSidebarHasFocus(...)`. Covered in §8.4 and §13.
+**New runtime seam.** The app currently has no general "sidebar has focus" signal — the only existing sidebar focus seam is the filter field at `Features/RepoExplorer/RepoExplorerView.swift` (currently `Features/Sidebar/RepoSidebarContentView.swift:28` pre-rename). Wiring `sidebarHasFocus` is net-new work: each sidebar surface view declares an internal `@FocusState` enum for its own targets, then publishes `focusedField != nil` via `.onChange` to `UIStateAtom.setSidebarHasFocus(...)`. Covered in §8.4 and §13.
 
 #### `NotificationInboxStore` — feature-scoped (one store, two atoms)
 
@@ -522,18 +522,36 @@ Sources/AgentStudio/
 │                                                        count into
 │                                                        TrailingActions
 │
-├── Features/Sidebar/                                   [EXISTING — to be
-│   │                                                    renamed Features/
-│   │                                                    RepoExplorer/ in
-│   │                                                    a follow-up]
-│   ├── RepoSidebarContentView.swift                    [MOD — @FocusState
+├── Features/RepoExplorer/                              [RENAMED from
+│   │                                                    Features/Sidebar/
+│   │                                                    in this ticket;
+│   │                                                    pure file-move
+│   │                                                    rename, no
+│   │                                                    behavior change.
+│   │                                                    "Sidebar" is
+│   │                                                    composition
+│   │                                                    (App/Windows/),
+│   │                                                    not a feature —
+│   │                                                    this feature is
+│   │                                                    the repo
+│   │                                                    explorer.]
+│   ├── RepoExplorerView.swift                          [MOD — was
+│   │                                                    RepoSidebarCon-
+│   │                                                    tentView.swift;
+│   │                                                    @FocusState
 │   │                                                    publishes to
 │   │                                                    UIStateAtom.set-
 │   │                                                    SidebarHasFocus]
-│   ├── SidebarWorktreeRow.swift                        [MOD — +bell
-│   │                                                    count binding]
-│   ├── SidebarFilter.swift                             [unchanged]
-│   └── SidebarGroupHeader.swift                        [unchanged]
+│   ├── RepoExplorerWorktreeRow.swift                   [MOD — was
+│   │                                                    SidebarWorktree-
+│   │                                                    Row.swift;
+│   │                                                    +bell count
+│   │                                                    binding]
+│   ├── RepoExplorerFilter.swift                        [renamed from
+│   │                                                    SidebarFilter]
+│   └── RepoExplorerGroupHeader.swift                   [renamed from
+│                                                        SidebarGroup-
+│                                                        Header]
 │
 ├── Features/Bridge/Transport/                          [EXISTING, MOD]
 │   └── RPCRouter.swift                                 [MOD — +inbox.post
@@ -631,12 +649,19 @@ MODIFIED files                              11
   UIStateAtom + UIStateStore                 2
   WindowLifecycleAtom                        1
   DrawerOverlay + DrawerIconBar              2
-  Features/Sidebar/ (2 files)                2
+  Features/RepoExplorer/ (2 files)           2 (post-rename)
   RPCRouter                                  1
   CommandBar (state + data source)           2
   AppDelegate                                1
   AppCommand + AppShortcut                   2
   MainSplitViewController                    1
+
+RENAMED (in this ticket, file moves only)   4
+  Features/Sidebar/* → Features/RepoExplorer/*
+    SidebarFilter.swift       → RepoExplorerFilter.swift
+    SidebarGroupHeader.swift  → RepoExplorerGroupHeader.swift
+    RepoSidebarContentView    → RepoExplorerView
+    SidebarWorktreeRow        → RepoExplorerWorktreeRow
 
 UNCHANGED referenced                        ~8
 ```
@@ -742,7 +767,7 @@ Single new feature slice: `Features/NotificationInbox/`.
 
 `PaneFocusTracker` observes `WorkspacePaneAtom` via `Observation.withObservationTracking`, diffs successive `activePaneId` values, and emits an `AsyncStream<PaneId>` of focus-gained transitions consumed by `NotificationRouter`.
 
-**New sidebar-focus seam.** The app currently lacks a general "sidebar has focus" signal (only the filter field at `Features/Sidebar/RepoSidebarContentView.swift:28` tracks focus today). As part of this work we introduce a minimal seam:
+**New sidebar-focus seam.** The app currently lacks a general "sidebar has focus" signal (only the filter field at `Features/RepoExplorer/RepoExplorerView.swift` (currently `Features/Sidebar/RepoSidebarContentView.swift:28` pre-rename) tracks focus today). As part of this work we introduce a minimal seam:
 
 ```swift
 // Root sidebar view (new or extended existing container):
@@ -919,7 +944,7 @@ Per `AGENTS.md` testing standards (Swift 6 Testing, colocate `_test.swift`, no w
 - Collapsible group sections
 - Toast / banner / transient popup of any kind
 - Unified keyboard dispatcher (deferred debt; see WIP §5)
-- `Features/Sidebar/` → `Features/RepoExplorer/` rename (deferred to follow-up PR)
+- Introducing `SharedComponents/` at top level (deferred to a dedicated design-system ticket — doc-only in this ticket)
 
 ---
 

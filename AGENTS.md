@@ -272,9 +272,9 @@ agent-studio/
 │   │   ├── Bridge/                   # React/WebView pane system (transport, runtime, state)
 │   │   ├── Webview/                  # Browser pane (navigation, history)
 │   │   ├── CommandBar/               # ⌘P command palette
-│   │   ├── Sidebar/                  # Repo explorer (to be renamed RepoExplorer/;
-│   │   │                             #   the "sidebar" itself is composition in App/,
-│   │   │                             #   not a feature)
+│   │   ├── RepoExplorer/             # Repo explorer (renamed from Features/Sidebar/ in
+│   │   │                             #   LUNA-361; the "sidebar" itself is composition in
+│   │   │                             #   App/, not a feature)
 │   │   └── <NewFeature>/             # Features/<Feature>/{Components,Models,Routing,
 │   │                                 #   State/MainActor/{Atoms,Persistence},Views}/
 │   ├── SharedComponents/             # Stateless UI primitives (design system).
