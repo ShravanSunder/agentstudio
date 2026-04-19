@@ -190,7 +190,7 @@ struct ManagementLayerTests {
                     keyCode: 125,
                     modifierFlags: [],
                     charactersIgnoringModifiers: nil
-                ) == .dispatch(.managementLayerEnterDrawer)
+                ) == .consume
             )
             #expect(
                 monitor.keyDownDecision(

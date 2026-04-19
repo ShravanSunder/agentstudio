@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -114,5 +115,82 @@ struct PaneCloseTransitionCoordinatorTests {
 
         #expect(closeActionFired == true)
         #expect(coordinator.closingPaneIds.contains(paneId) == false)
+    }
+
+    @Test("drawer child close transition removes the last drawer pane into empty drawer context")
+    func drawerChildCloseTransition_lastDrawerPane_landsInEmptyDrawerContext() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        let parentMountedContent = FocusablePaneTabCommandMountedContentView()
+        let drawerMountedContent = FocusablePaneTabCommandMountedContentView()
+        _ = try attachPaneHost(
+            paneId: parentPane.id,
+            in: harness,
+            to: window,
+            mountedContent: parentMountedContent
+        )
+        let drawerHost = try attachPaneHost(
+            paneId: drawerPane.id,
+            in: harness,
+            to: window,
+            mountedContent: drawerMountedContent
+        )
+
+        let clock = TestPushClock()
+        let closeCoordinator = PaneCloseTransitionCoordinator(clock: clock)
+        let actionDispatcher = PaneTabActionDispatcher(
+            dispatch: { action in
+                switch action {
+                case .closePane(_, let paneId):
+                    harness.coordinator.execute(.closePane(tabId: tab.id, paneId: paneId))
+                default:
+                    Issue.record("Unexpected action dispatched during drawer close transition: \(action)")
+                }
+            },
+            shouldAcceptDrop: { _, _, _ in false },
+            handleDrop: { _, _, _ in }
+        )
+
+        let leaf = PaneLeafContainer(
+            paneHost: drawerHost,
+            tabId: tab.id,
+            isActive: true,
+            isSplit: false,
+            isSplitResizing: false,
+            store: harness.store,
+            repoCache: RepoCacheAtom(),
+            closeTransitionCoordinator: closeCoordinator,
+            actionDispatcher: actionDispatcher,
+            onPaneFocusTrigger: { _ in },
+            onOpenPaneGitHub: { _ in }
+        )
+
+        window.makeFirstResponder(drawerHost)
+
+        leaf.beginCloseTransition()
+
+        await clock.waitForPendingSleepCount()
+        clock.advance(by: .milliseconds(120))
+        for _ in 0..<5 {
+            if closeCoordinator.closingPaneIds.contains(drawerPane.id) == false {
+                break
+            }
+            await Task.yield()
+        }
+
+        #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds.isEmpty == true)
+        #expect(closeCoordinator.closingPaneIds.contains(drawerPane.id) == false)
+        #expect(window.firstResponder !== drawerHost)
+        #expect(window.firstResponder !== drawerMountedContent)
+        #expect(window.firstResponder === window.contentView)
     }
 }

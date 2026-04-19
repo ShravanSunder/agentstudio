@@ -13,6 +13,7 @@ struct PaneTabViewControllerCommandHarness {
     let coordinator: PaneCoordinator
     let executor: ActionExecutor
     let controller: PaneTabViewController
+    let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let viewRegistry: ViewRegistry
     let surfaceManager: MockPaneTabCommandSurfaceManager
     let windowLifecycleStore: WindowLifecycleAtom
@@ -23,14 +24,19 @@ struct PaneTabViewControllerCommandHarness {
 
 @MainActor
 func makeHarness(
-    createSurfaceResult: Result<ManagedSurface, SurfaceError> = .failure(.ghosttyNotInitialized)
+    createSurfaceResult: Result<ManagedSurface, SurfaceError> = .failure(.ghosttyNotInitialized),
+    closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
 ) -> Harness {
-    makePaneTabViewControllerCommandHarness(createSurfaceResult: createSurfaceResult)
+    makePaneTabViewControllerCommandHarness(
+        createSurfaceResult: createSurfaceResult,
+        closeTransitionCoordinator: closeTransitionCoordinator
+    )
 }
 
 @MainActor
 func makePaneTabViewControllerCommandHarness(
-    createSurfaceResult: Result<ManagedSurface, SurfaceError> = .failure(.ghosttyNotInitialized)
+    createSurfaceResult: Result<ManagedSurface, SurfaceError> = .failure(.ghosttyNotInitialized),
+    closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
 ) -> PaneTabViewControllerCommandHarness {
     let tempDir = FileManager.default.temporaryDirectory
         .appending(path: "agentstudio-pane-tab-command-\(UUID().uuidString)")
@@ -65,6 +71,7 @@ func makePaneTabViewControllerCommandHarness(
         executor: executor,
         tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
         viewRegistry: viewRegistry,
+        closeTransitionCoordinator: closeTransitionCoordinator,
         tabRenamePopoverState: tabRenamePopoverState,
         arrangementInlineRenameState: arrangementInlineRenameState
     )
@@ -73,6 +80,7 @@ func makePaneTabViewControllerCommandHarness(
         coordinator: coordinator,
         executor: executor,
         controller: controller,
+        closeTransitionCoordinator: closeTransitionCoordinator,
         viewRegistry: viewRegistry,
         surfaceManager: surfaceManager,
         windowLifecycleStore: windowLifecycleStore,

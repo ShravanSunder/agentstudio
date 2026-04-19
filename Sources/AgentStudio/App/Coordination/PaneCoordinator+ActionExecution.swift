@@ -472,9 +472,33 @@ extension PaneCoordinator {
             }
 
         case .removeDrawerPane(let parentPaneId, let drawerPaneId):
+            let drawerBeforeRemoval = store.paneAtom.pane(parentPaneId)?.drawer
+            let willBecomeEmptyDrawer =
+                drawerBeforeRemoval?.paneIds.contains { $0 != drawerPaneId } == false
+            if let drawer = drawerBeforeRemoval,
+                drawer.activePaneId == drawerPaneId
+            {
+                let preRemovalFallbackPaneId = drawer.paneIds.first { candidatePaneId in
+                    candidatePaneId != drawerPaneId && !drawer.minimizedPaneIds.contains(candidatePaneId)
+                }
+                if let preRemovalFallbackPaneId {
+                    focusVisiblePaneHost(preRemovalFallbackPaneId)
+                } else if willBecomeEmptyDrawer {
+                    _ = clearFirstResponderToWindowContent(for: parentPaneId)
+                } else {
+                    focusVisiblePaneHost(parentPaneId)
+                }
+            }
             teardownView(for: drawerPaneId)
             store.paneAtom.removeDrawerPane(drawerPaneId, from: parentPaneId)
             viewRegistry.removeSlot(for: drawerPaneId)
+            if let activeDrawerPaneId = store.paneAtom.pane(parentPaneId)?.drawer?.activePaneId {
+                focusVisiblePaneHost(activeDrawerPaneId)
+            } else if willBecomeEmptyDrawer {
+                _ = clearFirstResponderToWindowContent(for: parentPaneId)
+            } else {
+                focusVisiblePaneHost(parentPaneId)
+            }
 
         case .toggleDrawer(let paneId):
             store.paneAtom.toggleDrawer(for: paneId)
@@ -709,11 +733,10 @@ extension PaneCoordinator {
         }
 
         if closingPane.isDrawerChild {
-            teardownView(for: paneId)
             if let parentPaneId = closingPane.parentPaneId {
-                store.paneAtom.removeDrawerPane(paneId, from: parentPaneId)
-                viewRegistry.removeSlot(for: paneId)
+                execute(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
             } else {
+                teardownView(for: paneId)
                 store.mutationCoordinator.removePane(paneId)
                 viewRegistry.removeSlot(for: paneId)
             }

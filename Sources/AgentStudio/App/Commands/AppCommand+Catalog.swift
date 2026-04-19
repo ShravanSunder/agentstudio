@@ -337,26 +337,38 @@ extension AppCommand {
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
-                commandBarGroupPriority: CommandBarGroupPriority.pane,
-                isHiddenInCommandBar: true
+                commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .focusDrawerPaneUp, .focusDrawerPaneLeft, .focusDrawerPaneDown, .focusDrawerPaneRight:
+            let displayShortcutTrigger: ShortcutTrigger =
+                switch self {
+                case .focusDrawerPaneUp:
+                    .init(key: .character(.i), modifiers: [.option])
+                case .focusDrawerPaneLeft:
+                    .init(key: .character(.j), modifiers: [.option])
+                case .focusDrawerPaneDown:
+                    .init(key: .character(.k), modifiers: [.option])
+                case .focusDrawerPaneRight:
+                    .init(key: .character(.l), modifiers: [.option])
+                default:
+                    .init(key: .character(.j), modifiers: [.option])
+                }
             return CommandSpec(
                 command: self,
+                displayShortcutTrigger: displayShortcutTrigger,
                 label: "Move Drawer Focus",
                 icon: "arrow.up.left.and.arrow.down.right",
                 helpText: "Move selection within the active drawer",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane, .hasFocusedDrawerPane],
                 commandBarGroupName: "Pane",
-                commandBarGroupPriority: CommandBarGroupPriority.pane,
-                isHiddenInCommandBar: true
+                commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .detachDrawerPane:
             return CommandSpec(
                 command: self,
                 label: "Detach Drawer Pane",
-                icon: "arrow.up.right.square",
+                icon: "rectangle.portrait.and.arrow.right",
                 helpText: "Promote the selected drawer pane into the main layout",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane, .hasFocusedDrawerPane],
@@ -478,11 +490,13 @@ extension AppCommand {
                 helpText: "Move focus right in management mode"
             )
         case .managementLayerEnterDrawer:
-            return managementDefinition(
-                shortcut: .managementLayerEnterDrawer,
+            return CommandSpec(
+                command: self,
                 label: "Management Enter Drawer",
                 icon: "arrow.down",
-                helpText: "Enter or expand the current drawer in management mode"
+                helpText: "Enter or expand the current drawer in management mode",
+                requiresManagementLayer: true,
+                isHiddenInCommandBar: true
             )
         case .managementLayerExitDrawer:
             return managementDefinition(

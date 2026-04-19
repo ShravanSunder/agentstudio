@@ -141,10 +141,6 @@ struct ShortcutCatalogTests {
             for: .init(key: .arrow(.left), modifiers: []),
             in: .managementLayer
         )
-        let enterDrawer = ShortcutDecoder.shortcut(
-            for: .init(key: .arrow(.down), modifiers: []),
-            in: .managementLayer
-        )
         let openDrawer = ShortcutDecoder.shortcut(
             for: .init(key: .character(.d), modifiers: []),
             in: .managementLayer
@@ -155,7 +151,12 @@ struct ShortcutCatalogTests {
         )
 
         #expect(focusLeft == .managementLayerFocusLeft)
-        #expect(enterDrawer == .managementLayerEnterDrawer)
+        #expect(
+            ShortcutDecoder.shortcut(
+                for: .init(key: .arrow(.down), modifiers: []),
+                in: .managementLayer
+            ) == nil
+        )
         #expect(openDrawer == .managementLayerOpenDrawer)
         #expect(exitMode == .managementLayerExit)
     }

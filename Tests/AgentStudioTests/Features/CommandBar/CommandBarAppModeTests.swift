@@ -81,6 +81,32 @@ struct WorkspacePaneFocusTests {
     }
 
     @Test
+    func drawerFocusCommandsExposeDisplayShortcutsWhenDrawerPaneIsFocused() {
+        let enterDrawer = CommandDispatcher.shared.definition(for: .enterDrawer)
+        let focusUp = CommandDispatcher.shared.definition(for: .focusDrawerPaneUp)
+        let focusLeft = CommandDispatcher.shared.definition(for: .focusDrawerPaneLeft)
+        let focusDown = CommandDispatcher.shared.definition(for: .focusDrawerPaneDown)
+        let focusRight = CommandDispatcher.shared.definition(for: .focusDrawerPaneRight)
+        let drawerPaneFocus = WorkspacePaneFocus(
+            paneContentType: .terminal,
+            drawerFocusState: .drawerPane(parentPaneId: UUID(), paneId: UUID()),
+            satisfiedRequirements: [.hasActiveTab, .hasActivePane, .hasDrawer, .hasDrawerPanes, .hasFocusedDrawerPane]
+        )
+
+        #expect(enterDrawer.isVisible(in: drawerPaneFocus))
+        #expect(focusUp.isVisible(in: drawerPaneFocus))
+        #expect(focusLeft.isVisible(in: drawerPaneFocus))
+        #expect(focusDown.isVisible(in: drawerPaneFocus))
+        #expect(focusRight.isVisible(in: drawerPaneFocus))
+
+        #expect(enterDrawer.commandBarShortcutTrigger == nil)
+        #expect(focusUp.commandBarShortcutTrigger == .init(key: .character(.i), modifiers: [.option]))
+        #expect(focusLeft.commandBarShortcutTrigger == .init(key: .character(.j), modifiers: [.option]))
+        #expect(focusDown.commandBarShortcutTrigger == .init(key: .character(.k), modifiers: [.option]))
+        #expect(focusRight.commandBarShortcutTrigger == .init(key: .character(.l), modifiers: [.option]))
+    }
+
+    @Test
     func terminalContextMetadata() {
         let focus = WorkspacePaneFocus(
             paneContentType: .terminal,

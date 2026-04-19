@@ -379,6 +379,33 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.executor.undoStack.isEmpty)
     }
 
+    @Test("terminated drawer child is ignored while close transition is already in flight")
+    func handleTerminalProcessTerminated_drawerChildClosingTransitionInFlight_isIgnored() {
+        let closeClock = TestPushClock()
+        let closeTransitionCoordinator = PaneCloseTransitionCoordinator(clock: closeClock)
+        let harness = makeHarness(closeTransitionCoordinator: closeTransitionCoordinator)
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(
+            source: .floating(launchDirectory: nil, title: "Parent"),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        guard let drawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
+            Issue.record("Expected drawer pane creation")
+            return
+        }
+
+        closeTransitionCoordinator.beginClosingPane(drawerPane.id, delay: .seconds(10)) {}
+
+        harness.controller.handleTerminalProcessTerminated(paneId: drawerPane.id)
+
+        #expect(harness.store.pane(drawerPane.id) != nil)
+        #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds == [drawerPane.id])
+    }
+
     @Test("command harness shares window lifecycle store across monitor and coordinator")
     func makeHarness_sharesWindowLifecycleStoreAcrossLifecycleBoundaries() {
         let harness = makeHarness()

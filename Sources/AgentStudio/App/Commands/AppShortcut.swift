@@ -139,7 +139,6 @@ enum AppShortcut: String, CaseIterable {
     case selectTab9
     case managementLayerFocusLeft
     case managementLayerFocusRight
-    case managementLayerEnterDrawer
     case managementLayerExitDrawer
     case managementLayerOpenDrawer
     case managementLayerCreateTerminal
@@ -260,8 +259,6 @@ enum AppShortcut: String, CaseIterable {
             return Self.managementSpec(key: .arrow(.left))
         case .managementLayerFocusRight:
             return Self.managementSpec(key: .arrow(.right))
-        case .managementLayerEnterDrawer:
-            return Self.managementSpec(key: .arrow(.down))
         case .managementLayerExitDrawer:
             return Self.managementSpec(key: .arrow(.up))
         case .managementLayerOpenDrawer:

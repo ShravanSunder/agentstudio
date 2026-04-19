@@ -92,7 +92,6 @@ enum LocalActionSpec {
     case openPaneLocationInPreferredEditor
     case toggleDrawer(isExpanded: Bool)
     case addDrawerPane
-    case detachDrawerPane
 
     var actionSpec: ActionSpec {
         switch self {
@@ -233,12 +232,6 @@ enum LocalActionSpec {
             )
         case .addDrawerPane:
             return ActionSpec(label: "Add Drawer Pane", helpText: "Add drawer pane", icon: .system("plus"))
-        case .detachDrawerPane:
-            return ActionSpec(
-                label: "Detach Drawer Pane",
-                helpText: "Move this drawer pane into the parent tab on the right",
-                icon: .system("arrow.up.right.square")
-            )
         }
     }
 }

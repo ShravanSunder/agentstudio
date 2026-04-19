@@ -414,6 +414,45 @@ struct PaneCoordinatorHardeningTests {
         #expect(window.firstResponder === parentMountedContent)
     }
 
+    @Test("removeDrawerPane closing the last drawer pane lands in empty drawer context")
+    func removeDrawerPane_lastDrawerPaneClearsResponderToEmptyDrawerContext() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let parentPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Parent")
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+
+        let parentHost = PaneHostView(paneId: parentPane.id)
+        let drawerHost = PaneHostView(paneId: drawerPane.id)
+        let parentMountedContent = FocusableMountedContentView()
+        let drawerMountedContent = FocusableMountedContentView()
+        parentHost.mountContentView(parentMountedContent)
+        drawerHost.mountContentView(drawerMountedContent)
+        harness.viewRegistry.register(parentHost, for: parentPane.id)
+        harness.viewRegistry.register(drawerHost, for: drawerPane.id)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 600, height: 400),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: true
+        )
+        let contentView = try #require(window.contentView)
+        contentView.addSubview(parentHost)
+        contentView.addSubview(drawerHost)
+        window.makeFirstResponder(drawerHost)
+
+        harness.coordinator.execute(.removeDrawerPane(parentPaneId: parentPane.id, drawerPaneId: drawerPane.id))
+
+        #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds.isEmpty == true)
+        #expect(window.firstResponder !== drawerMountedContent)
+        #expect(window.firstResponder !== drawerHost)
+        #expect(window.firstResponder === contentView)
+    }
+
     @Test("repair recreateSurface registers preparing placeholder when geometry is unavailable")
     func repairRecreateSurface_registersPreparingPlaceholderWhenGeometryUnavailable() {
         let harness = makeHarness()

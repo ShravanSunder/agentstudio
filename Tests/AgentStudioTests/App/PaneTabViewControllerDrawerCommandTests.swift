@@ -21,6 +21,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
         harness.store.setActivePane(parent.id, inTab: tab.id)
+        atom(\.workspaceFocusOwner).focusMainPane(parent.id)
 
         harness.controller.execute(.toggleDrawer)
 
@@ -160,6 +161,35 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(window.firstResponder === window.contentView)
     }
 
+    @Test("drawer toggle focus trigger preserves empty drawer responder ownership after click open")
+    func drawerToggleTrigger_openEmptyDrawer_keepsWindowContentResponder() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parent.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(parent.id, inTab: tab.id)
+
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        let mountedContent = FocusablePaneTabCommandMountedContentView()
+        _ = try attachPaneHost(
+            paneId: parent.id,
+            in: harness,
+            to: window,
+            mountedContent: mountedContent
+        )
+
+        harness.store.toggleDrawer(for: parent.id)
+        atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parent.id)
+        window.makeFirstResponder(window.contentView)
+
+        harness.controller.handlePaneFocusTrigger(.drawer(.toggle(parentPaneId: parent.id)))
+
+        #expect(window.firstResponder === window.contentView)
+    }
+
     @Test("d creates first drawer pane while empty drawer has focus")
     func rawD_openEmptyDrawerWithEmptyDrawerFocus_createsFirstDrawerPane() throws {
         let harness = makeHarness()
@@ -190,6 +220,59 @@ struct PaneTabViewControllerDrawerCommandTests {
 
         #expect(harness.controller.handleAppOwnedKeyEvent(event, requiresNeutralDrawerFocus: false))
         #expect(harness.store.pane(parent.id)?.drawer?.paneIds.count == 1)
+    }
+
+    @Test("d creating the first drawer pane upgrades canonical focus owner to that drawer pane")
+    func rawD_openEmptyDrawerWithEmptyDrawerFocus_updatesFocusOwnerToDrawerPane() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parent.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(parent.id, inTab: tab.id)
+        harness.store.toggleDrawer(for: parent.id)
+        atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parent.id)
+
+        let event = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: "d",
+                charactersIgnoringModifiers: "d",
+                isARepeat: false,
+                keyCode: 2
+            )
+        )
+
+        #expect(harness.controller.handleAppOwnedKeyEvent(event, requiresNeutralDrawerFocus: false))
+
+        let firstDrawerPaneId = try #require(harness.store.pane(parent.id)?.drawer?.activePaneId)
+        #expect(atom(\.workspaceFocusOwner).owner == .drawerPane(parentPaneId: parent.id, paneId: firstDrawerPaneId))
+    }
+
+    @Test("addDrawerPane command upgrades focus owner to the new drawer pane")
+    func executeAddDrawerPane_updatesFocusOwnerToDrawerPane() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parent.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(parent.id, inTab: tab.id)
+        harness.store.toggleDrawer(for: parent.id)
+        atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parent.id)
+
+        harness.controller.execute(.addDrawerPane)
+
+        let firstDrawerPaneId = try #require(harness.store.pane(parent.id)?.drawer?.activePaneId)
+        #expect(atom(\.workspaceFocusOwner).owner == .drawerPane(parentPaneId: parent.id, paneId: firstDrawerPaneId))
     }
 
     @Test("option-j from empty drawer focus is a no-op instead of main-row movement")
@@ -224,6 +307,38 @@ struct PaneTabViewControllerDrawerCommandTests {
 
         #expect(harness.controller.handleAppOwnedKeyEvent(event, requiresNeutralDrawerFocus: false))
         #expect(harness.store.tab(tab.id)?.activePaneId == parent.id)
+    }
+
+    @Test("option-k in main row no longer opens the drawer")
+    func optionK_mainPane_doesNotEnterDrawer() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parent.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(parent.id, inTab: tab.id)
+        atom(\.workspaceFocusOwner).focusMainPane(parent.id)
+
+        let event = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: "k",
+                charactersIgnoringModifiers: "k",
+                isARepeat: false,
+                keyCode: 40
+            )
+        )
+
+        #expect(!harness.controller.handleAppOwnedKeyEvent(event, requiresNeutralDrawerFocus: false))
+        #expect(harness.store.pane(parent.id)?.drawer?.isExpanded == false)
+        #expect(atom(\.workspaceFocusOwner).owner == .mainPane(paneId: parent.id))
     }
 
     @Test("option-j returns to main-row movement after an empty drawer is dismissed")
@@ -323,6 +438,77 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(harness.controller.handleAppOwnedKeyEvent(event, requiresNeutralDrawerFocus: false))
         #expect(harness.store.pane(parent.id)?.drawer?.activePaneId == firstDrawerPane.id)
         #expect(harness.store.tab(tab.id)?.activePaneId == parent.id)
+    }
+
+    @Test("navigateDrawerPane targeted command updates canonical focus owner and keeps option-j in drawer scope")
+    func targetedNavigateDrawerPane_updatesFocusOwnerAndDrawerKeyboardScope() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: left.id)
+        harness.store.appendTab(tab)
+        harness.store.insertPane(parent.id, inTab: tab.id, at: left.id, direction: .horizontal, position: .after)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(parent.id, inTab: tab.id)
+
+        let firstDrawerPane = try #require(harness.store.addDrawerPane(to: parent.id))
+        let secondDrawerPane = try #require(
+            harness.store.insertDrawerPane(
+                in: parent.id,
+                at: firstDrawerPane.id,
+                direction: .horizontal,
+                position: .after
+            )
+        )
+        atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parent.id)
+
+        harness.controller.execute(.navigateDrawerPane, target: secondDrawerPane.id, targetType: .pane)
+
+        #expect(atom(\.workspaceFocusOwner).owner == .drawerPane(parentPaneId: parent.id, paneId: secondDrawerPane.id))
+
+        let event = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: "j",
+                charactersIgnoringModifiers: "j",
+                isARepeat: false,
+                keyCode: 38
+            )
+        )
+
+        #expect(harness.controller.handleAppOwnedKeyEvent(event, requiresNeutralDrawerFocus: false))
+        #expect(harness.store.pane(parent.id)?.drawer?.activePaneId == firstDrawerPane.id)
+        #expect(harness.store.tab(tab.id)?.activePaneId == parent.id)
+    }
+
+    @Test("targeted detachDrawerPane resolves through command handling and promotes the drawer pane")
+    func targetedDetachDrawerPane_promotesSelectedDrawerPane() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: left.id)
+        harness.store.appendTab(tab)
+        harness.store.insertPane(parent.id, inTab: tab.id, at: left.id, direction: .horizontal, position: .after)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(parent.id, inTab: tab.id)
+
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parent.id))
+        atom(\.workspaceFocusOwner).focusDrawerPane(parentPaneId: parent.id, paneId: drawerPane.id)
+
+        harness.controller.execute(.detachDrawerPane, target: drawerPane.id, targetType: .pane)
+
+        #expect(harness.store.pane(drawerPane.id)?.parentPaneId == nil)
+        #expect(harness.store.tab(tab.id)?.paneIds.contains(drawerPane.id) == true)
+        #expect(harness.store.pane(parent.id)?.drawer?.paneIds.contains(drawerPane.id) == false)
     }
 
     @Test("management layer create shortcut still works once option-ijkl are passed through")

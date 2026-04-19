@@ -39,6 +39,7 @@ struct PaneLeafContainer: View {
     @State private var isCloseHovered: Bool = false
     @State private var isSplitHovered: Bool = false
     @State private var isBrowserHovered: Bool = false
+    @State private var isDetachHovered: Bool = false
 
     init(
         paneHost: PaneHostView,
@@ -344,6 +345,25 @@ struct PaneLeafContainer: View {
                         }
                         .padding(.top, AppStyles.General.Spacing.standard)
                         Spacer()
+
+                        if isDrawerChild && isActive {
+                            HStack {
+                                Spacer()
+                                paneEdgeButton(
+                                    systemName: AppCommand.detachDrawerPane.definition.icon ?? "arrow.up.right.square",
+                                    isHovered: isDetachHovered,
+                                    helpText: AppCommand.detachDrawerPane.definition.helpText
+                                ) {
+                                    CommandDispatcher.shared.dispatch(
+                                        .detachDrawerPane,
+                                        target: paneHost.id,
+                                        targetType: .pane
+                                    )
+                                }
+                                .onHover { isDetachHovered = $0 }
+                            }
+                            .padding(.bottom, AppStyles.General.Spacing.standard)
+                        }
                     }
                     .allowsHitTesting(true)
                     .transition(.opacity)
@@ -440,7 +460,13 @@ struct PaneLeafContainer: View {
     }
 
     func beginCloseTransition() {
+        RestoreTrace.log(
+            "PaneLeafContainer.beginCloseTransition pane=\(paneHost.id) drawerChild=\(drawerParentPaneId != nil) tab=\(tabId) closing=\(isClosing)"
+        )
         closeTransitionCoordinator.beginClosingPane(paneHost.id) {
+            RestoreTrace.log(
+                "PaneLeafContainer.performClose pane=\(self.paneHost.id) drawerChild=\(self.drawerParentPaneId != nil) tab=\(self.tabId)"
+            )
             actionDispatcher.dispatch(.closePane(tabId: tabId, paneId: paneHost.id))
         }
     }

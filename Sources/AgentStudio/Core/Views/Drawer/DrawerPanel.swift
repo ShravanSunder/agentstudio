@@ -161,23 +161,6 @@ struct DrawerPanel: View {
     }
 
     @ViewBuilder
-    private var detachDrawerButton: some View {
-        if managementLayer.isActive, let activeDrawerPaneId = activePaneId {
-            Button {
-                action(.detachDrawerPane(parentPaneId: parentPaneId, drawerPaneId: activeDrawerPaneId))
-            } label: {
-                Label(
-                    LocalActionSpec.detachDrawerPane.actionSpec.label,
-                    systemImage: "arrow.up.right.square"
-                )
-                .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
-            }
-            .buttonStyle(.plain)
-            .help(LocalActionSpec.detachDrawerPane.actionSpec.helpText)
-        }
-    }
-
-    @ViewBuilder
     private var addDrawerButton: some View {
         Button {
             action(.addDrawerPane(parentPaneId: parentPaneId))
@@ -274,10 +257,6 @@ struct DrawerPanel: View {
 
                     if !layout.isEmpty {
                         VStack(spacing: DrawerLayout.panelContentPadding) {
-                            HStack {
-                                Spacer()
-                                detachDrawerButton
-                            }
                             rowContent(layout.topRow)
                             if let bottomRow = layout.bottomRow {
                                 rowContent(bottomRow)

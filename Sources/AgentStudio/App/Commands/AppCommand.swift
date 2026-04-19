@@ -150,6 +150,7 @@ extension KeyBinding {
 struct CommandSpec {
     let command: AppCommand
     let shortcut: AppShortcut?
+    let displayShortcutTrigger: ShortcutTrigger?
     let label: String
     let icon: String?
     let helpText: String
@@ -163,6 +164,7 @@ struct CommandSpec {
     init(
         command: AppCommand,
         shortcut: AppShortcut? = nil,
+        displayShortcutTrigger: ShortcutTrigger? = nil,
         label: String,
         icon: String? = nil,
         helpText: String,
@@ -175,6 +177,7 @@ struct CommandSpec {
     ) {
         self.command = command
         self.shortcut = shortcut
+        self.displayShortcutTrigger = displayShortcutTrigger
         self.label = label
         self.icon = icon
         self.helpText = helpText
@@ -187,6 +190,7 @@ struct CommandSpec {
     }
 
     var keyBinding: KeyBinding? { shortcut?.keyBinding }
+    var commandBarShortcutTrigger: ShortcutTrigger? { displayShortcutTrigger ?? shortcut?.trigger }
 }
 
 // MARK: - WorkspaceCommandHandling

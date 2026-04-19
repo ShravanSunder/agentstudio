@@ -412,7 +412,6 @@ extension PaneCoordinator {
             }
             runtime.removeSession(paneId)
         }
-
         Self.logger.debug("Tore down view for pane \(paneId)")
     }
 

@@ -50,7 +50,7 @@ struct WorkspacePaneFocusDerived {
 
         if let drawer = pane.drawer {
             satisfiedRequirements.insert(.hasDrawer)
-            if !drawer.paneIds.isEmpty {
+            if drawer.isExpanded, !drawer.paneIds.isEmpty {
                 satisfiedRequirements.insert(.hasDrawerPanes)
             }
         }
