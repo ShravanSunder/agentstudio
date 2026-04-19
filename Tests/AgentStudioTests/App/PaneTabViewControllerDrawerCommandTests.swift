@@ -11,6 +11,94 @@ struct PaneTabViewControllerDrawerCommandTests {
         installTestAtomRegistryIfNeeded()
     }
 
+    @Test("toggleDrawer opening an empty drawer sets empty drawer focus")
+    func executeToggleDrawer_openEmptyDrawer_setsEmptyDrawerFocus() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parent.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(parent.id, inTab: tab.id)
+
+        harness.controller.execute(.toggleDrawer)
+
+        #expect(atom(\.workspaceFocusOwner).owner == .emptyDrawer(parentPaneId: parent.id))
+    }
+
+    @Test("toggleDrawer reopening a drawer with an active pane restores drawer pane focus")
+    func executeToggleDrawer_reopenDrawerWithActivePane_setsDrawerPaneFocus() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parent.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(parent.id, inTab: tab.id)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parent.id))
+
+        harness.controller.execute(.toggleDrawer)
+        harness.controller.execute(.toggleDrawer)
+
+        #expect(atom(\.workspaceFocusOwner).owner == .drawerPane(parentPaneId: parent.id, paneId: drawerPane.id))
+    }
+
+    @Test("toggleDrawer opening an empty drawer clears responder to window content")
+    func executeToggleDrawer_openEmptyDrawer_clearsResponderToWindowContent() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parent.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(parent.id, inTab: tab.id)
+
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        let mountedContent = FocusablePaneTabCommandMountedContentView()
+        _ = try attachPaneHost(
+            paneId: parent.id,
+            in: harness,
+            to: window,
+            mountedContent: mountedContent
+        )
+        window.makeFirstResponder(mountedContent)
+
+        harness.controller.execute(.toggleDrawer)
+
+        #expect(atom(\.workspaceFocusOwner).owner == .emptyDrawer(parentPaneId: parent.id))
+        #expect(window.firstResponder === window.contentView)
+    }
+
+    @Test("toggleDrawer closing the drawer restores main pane responder")
+    func executeToggleDrawer_closeDrawer_restoresMainPaneResponder() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parent.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(parent.id, inTab: tab.id)
+
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        let mountedContent = FocusablePaneTabCommandMountedContentView()
+        let parentHost = try attachPaneHost(
+            paneId: parent.id,
+            in: harness,
+            to: window,
+            mountedContent: mountedContent
+        )
+
+        harness.controller.execute(.toggleDrawer)
+        harness.controller.execute(.toggleDrawer)
+
+        #expect(atom(\.workspaceFocusOwner).owner == .mainPane(paneId: parent.id))
+        #expect(window.firstResponder === mountedContent || window.firstResponder === parentHost)
+    }
+
     @Test("enterDrawer focuses active drawer pane when drawer has panes")
     func executeEnterDrawer_focusesActiveDrawerPane() throws {
         let harness = makeHarness()
@@ -41,7 +129,7 @@ struct PaneTabViewControllerDrawerCommandTests {
 
         harness.controller.execute(.enterDrawer)
 
-        #expect(atom(\.workspaceNavigationScope).scope == .emptyDrawer(parentPaneId: parent.id))
+        #expect(atom(\.workspaceFocusOwner).owner == .emptyDrawer(parentPaneId: parent.id))
     }
 
     @Test("enterDrawer on an expanded empty drawer clears the responder to window content")
@@ -68,7 +156,7 @@ struct PaneTabViewControllerDrawerCommandTests {
 
         harness.controller.execute(.enterDrawer)
 
-        #expect(atom(\.workspaceNavigationScope).scope == .emptyDrawer(parentPaneId: parent.id))
+        #expect(atom(\.workspaceFocusOwner).owner == .emptyDrawer(parentPaneId: parent.id))
         #expect(window.firstResponder === window.contentView)
     }
 
@@ -83,7 +171,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         harness.store.setActiveTab(tab.id)
         harness.store.setActivePane(parent.id, inTab: tab.id)
         harness.store.toggleDrawer(for: parent.id)
-        atom(\.workspaceNavigationScope).focusEmptyDrawer(parentPaneId: parent.id)
+        atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parent.id)
 
         let event = try #require(
             NSEvent.keyEvent(
@@ -117,7 +205,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         harness.store.setActiveTab(tab.id)
         harness.store.setActivePane(parent.id, inTab: tab.id)
         harness.store.toggleDrawer(for: parent.id)
-        atom(\.workspaceNavigationScope).focusEmptyDrawer(parentPaneId: parent.id)
+        atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parent.id)
 
         let event = try #require(
             NSEvent.keyEvent(
@@ -151,7 +239,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         harness.store.setActiveTab(tab.id)
         harness.store.setActivePane(parent.id, inTab: tab.id)
         harness.store.toggleDrawer(for: parent.id)
-        atom(\.workspaceNavigationScope).focusEmptyDrawer(parentPaneId: parent.id)
+        atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parent.id)
         harness.store.toggleDrawer(for: parent.id)
 
         let event = try #require(
@@ -307,7 +395,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(tabPaneIdsAfter == tabPaneIdsBefore)
         #expect(drawerPaneIdsAfter == drawerPaneIdsBefore.union([createdPaneId]))
         #expect(
-            harness.controller.workspaceNavigationFocusScopeDescriptionForTesting
+            harness.controller.managementNavigationScopeDescriptionForTesting
                 == "drawer:\(parentPane.id.uuidString)"
         )
         #expect(harness.store.pane(existingDrawerPane.id) != nil)
@@ -356,7 +444,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(drawerPaneIdsAfter == drawerPaneIdsBefore.union([createdPaneId]))
         expectWebviewContent(createdPane, issuePrefix: "drawer selection browser creation")
         #expect(
-            harness.controller.workspaceNavigationFocusScopeDescriptionForTesting
+            harness.controller.managementNavigationScopeDescriptionForTesting
                 == "drawer:\(parentPane.id.uuidString)"
         )
     }
@@ -392,7 +480,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(tabPaneIdsAfter == tabPaneIdsBefore.union([createdPaneId]))
         #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds.isEmpty ?? true)
         expectWebviewContent(createdPane, issuePrefix: "main-row browser creation")
-        #expect(harness.controller.workspaceNavigationFocusScopeDescriptionForTesting == "mainRow")
+        #expect(harness.controller.managementNavigationScopeDescriptionForTesting == "mainRow")
     }
 
     @Test("management layer entry adopts expanded drawer scope for create browser")
@@ -431,7 +519,7 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(drawerPaneIdsAfter == drawerPaneIdsBefore.union([createdPaneId]))
         expectWebviewContent(createdPane, issuePrefix: "entry drawer browser creation")
         #expect(
-            harness.controller.workspaceNavigationFocusScopeDescriptionForTesting
+            harness.controller.managementNavigationScopeDescriptionForTesting
                 == "drawer:\(parentPane.id.uuidString)"
         )
     }
@@ -470,7 +558,7 @@ struct PaneTabViewControllerDrawerCommandTests {
 
         #expect(tabPaneIdsAfter == tabPaneIdsBefore.union([createdPaneId]))
         #expect(drawerPaneIdsAfter == drawerPaneIdsBefore)
-        #expect(harness.controller.workspaceNavigationFocusScopeDescriptionForTesting == "mainRow")
+        #expect(harness.controller.managementNavigationScopeDescriptionForTesting == "mainRow")
     }
 
     @Test("collapsed drawer falls back to main row for management browser creation")
@@ -509,6 +597,6 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(tabPaneIdsAfter == tabPaneIdsBefore.union([createdPaneId]))
         #expect(drawerPaneIdsAfter == drawerPaneIdsBefore)
         expectWebviewContent(createdPane, issuePrefix: "collapsed drawer browser creation")
-        #expect(harness.controller.workspaceNavigationFocusScopeDescriptionForTesting == "mainRow")
+        #expect(harness.controller.managementNavigationScopeDescriptionForTesting == "mainRow")
     }
 }

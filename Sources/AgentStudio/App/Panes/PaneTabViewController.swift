@@ -123,7 +123,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private var lastFocusedPaneId: UUID?
     private var suppressedSelectionDrivenRefocus: (tabId: UUID?, paneId: UUID?)?
     private var lastManagementLayerActive = false
-    private var workspaceNavigationFocusScope: WorkspaceNavigationFocusScope = .mainRow
+    private var managementNavigationScope: WorkspaceNavigationFocusScope = .mainRow
     private lazy var paneFocusExecutor = makePaneFocusExecutor()
 
     // MARK: - Init
@@ -385,10 +385,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         }
 
         if !lastManagementLayerActive && isManagementLayerActive {
-            workspaceNavigationFocusScope = initialWorkspaceNavigationFocusScope()
+            managementNavigationScope = initialWorkspaceNavigationFocusScope()
         }
         lastManagementLayerActive = isManagementLayerActive
-        workspaceNavigationFocusScope = normalizedWorkspaceNavigationFocusScope()
+        managementNavigationScope = normalizedWorkspaceNavigationFocusScope()
 
         // Focus management: only refocus when active tab or pane actually changes
         let currentTabId = store.tabLayoutAtom.activeTabId
@@ -452,10 +452,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             selectTab: { [weak self] tabId in
                 guard let self else { return }
                 self.store.tabLayoutAtom.setActiveTab(tabId)
-                atom(\.workspaceNavigationScope).focusMainPane(
+                atom(\.workspaceFocusOwner).focusMainPane(
                     self.store.tabLayoutAtom.tab(tabId)?.activePaneId
                 )
-                self.workspaceNavigationFocusScope = .mainRow
+                self.managementNavigationScope = .mainRow
             },
             selectPane: { [weak self] tabId, paneId in
                 guard let self else { return }
@@ -467,8 +467,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                     self.executor.execute(.expandPane(tabId: tabId, paneId: paneId))
                 }
                 self.store.tabLayoutAtom.setActivePane(paneId, inTab: tabId)
-                atom(\.workspaceNavigationScope).focusMainPane(paneId)
-                self.workspaceNavigationFocusScope = .mainRow
+                atom(\.workspaceFocusOwner).focusMainPane(paneId)
+                self.managementNavigationScope = .mainRow
             },
             selectDrawerPane: { [weak self] parentPaneId, drawerPaneId in
                 guard let self else { return }
@@ -477,16 +477,16 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                     paneId: drawerPaneId
                 )
                 self.store.paneAtom.setActiveDrawerPane(drawerPaneId, in: parentPaneId)
-                atom(\.workspaceNavigationScope).focusDrawerPane(
+                atom(\.workspaceFocusOwner).focusDrawerPane(
                     parentPaneId: parentPaneId,
                     paneId: drawerPaneId
                 )
-                self.workspaceNavigationFocusScope = .drawer(parentPaneId: parentPaneId)
+                self.managementNavigationScope = .drawer(parentPaneId: parentPaneId)
             },
             selectEmptyDrawer: { [weak self] parentPaneId in
                 guard let self else { return }
-                atom(\.workspaceNavigationScope).focusEmptyDrawer(parentPaneId: parentPaneId)
-                self.workspaceNavigationFocusScope = .drawer(parentPaneId: parentPaneId)
+                atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parentPaneId)
+                self.managementNavigationScope = .drawer(parentPaneId: parentPaneId)
                 _ = self.clearFirstResponderToWindowContentForDrawer(parentPaneId: parentPaneId)
             },
             syncRuntimeFocus: { surfaceId in
@@ -571,7 +571,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private var paneFocusManagementScope: PaneManagementFocusScope {
-        switch workspaceNavigationFocusScope {
+        switch managementNavigationScope {
         case .mainRow:
             return .mainRow
         case .drawer(let parentPaneId):
@@ -676,8 +676,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func normalizedWorkspaceNavigationFocusScope() -> WorkspaceNavigationFocusScope {
-        guard case .drawer(let parentPaneId) = workspaceNavigationFocusScope else {
-            return workspaceNavigationFocusScope
+        guard case .drawer(let parentPaneId) = managementNavigationScope else {
+            return managementNavigationScope
         }
         guard
             let activeTabId = store.tabLayoutAtom.activeTabId,
@@ -688,12 +688,12 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         else {
             return .mainRow
         }
-        return workspaceNavigationFocusScope
+        return managementNavigationScope
     }
 
-    private func normalizedWorkspaceNavigationScopeState() -> WorkspaceNavigationScope {
+    private func normalizedWorkspaceNavigationScopeState() -> WorkspaceFocusOwner {
         let activePaneId = activeMainPaneId()
-        switch atom(\.workspaceNavigationScope).scope {
+        switch atom(\.workspaceFocusOwner).owner {
         case .mainPane:
             return .mainPane(paneId: activePaneId)
         case .emptyDrawer(let parentPaneId):
@@ -724,6 +724,23 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         let window = viewRegistry.view(for: parentPaneId)?.window ?? view.window ?? NSApp.keyWindow
         guard let window, let contentView = window.contentView else { return false }
         return window.makeFirstResponder(contentView)
+    }
+
+    private func syncFocusOwnerAfterDrawerToggle(parentPaneId: UUID) {
+        guard let drawer = store.paneAtom.pane(parentPaneId)?.drawer else { return }
+
+        if drawer.isExpanded {
+            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+            if let drawerPaneId = drawer.activePaneId, !drawer.minimizedPaneIds.contains(drawerPaneId) {
+                atom(\.workspaceFocusOwner).focusDrawerPane(parentPaneId: parentPaneId, paneId: drawerPaneId)
+            } else {
+                atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parentPaneId)
+                _ = clearFirstResponderToWindowContentForDrawer(parentPaneId: parentPaneId)
+            }
+        } else {
+            managementNavigationScope = .mainRow
+            atom(\.workspaceFocusOwner).focusMainPane(parentPaneId)
+        }
     }
 
     private func drawerParentByPaneId() -> [UUID: UUID] {
@@ -1231,7 +1248,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
         let nextIndex = (currentIndex + delta + visiblePaneIds.count) % visiblePaneIds.count
         let nextPaneId = visiblePaneIds[nextIndex]
-        workspaceNavigationFocusScope = .drawer(parentPaneId: parentPaneId)
+        managementNavigationScope = .drawer(parentPaneId: parentPaneId)
         handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: nextPaneId)))
     }
 
@@ -1264,7 +1281,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             handlePaneFocusTrigger(.drawer(.toggle(parentPaneId: parentPaneId)))
         }
 
-        workspaceNavigationFocusScope = .drawer(parentPaneId: parentPaneId)
+        managementNavigationScope = .drawer(parentPaneId: parentPaneId)
 
         if let drawerPaneId = visibleActiveDrawerPaneId(for: parentPaneId) {
             handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)))
@@ -1277,7 +1294,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             dispatchAction(.toggleDrawer(paneId: parentPaneId))
             handlePaneFocusTrigger(.drawer(.toggle(parentPaneId: parentPaneId)))
         }
-        workspaceNavigationFocusScope = .mainRow
+        managementNavigationScope = .mainRow
     }
 
     private func enterDrawerFromActivePane() {
@@ -1291,11 +1308,11 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         }
 
         if let drawerPaneId = store.paneAtom.pane(parentPaneId)?.drawer?.activePaneId {
-            workspaceNavigationFocusScope = .drawer(parentPaneId: parentPaneId)
+            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
             handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)))
         } else {
-            workspaceNavigationFocusScope = .drawer(parentPaneId: parentPaneId)
-            atom(\.workspaceNavigationScope).focusEmptyDrawer(parentPaneId: parentPaneId)
+            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
+            atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parentPaneId)
             _ = clearFirstResponderToWindowContentForDrawer(parentPaneId: parentPaneId)
         }
     }
@@ -1331,10 +1348,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private func handleManagementCreateTerminal() {
         switch managementLayerCreationScope() {
         case .mainRow:
-            workspaceNavigationFocusScope = .mainRow
+            managementNavigationScope = .mainRow
             execute(.newTerminalInTab)
         case .drawer(let parentPaneId):
-            workspaceNavigationFocusScope = .drawer(parentPaneId: parentPaneId)
+            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
             dispatchAction(.addDrawerPane(parentPaneId: parentPaneId))
         }
     }
@@ -1342,14 +1359,14 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private func handleManagementCreateBrowser() {
         switch managementLayerCreationScope() {
         case .mainRow:
-            workspaceNavigationFocusScope = .mainRow
+            managementNavigationScope = .mainRow
             guard let paneId = activeMainPaneId() else {
                 Self.logger.warning("management create browser ignored because active main pane is unavailable")
                 return
             }
             openGitHubWebview(for: paneId)
         case .drawer(let parentPaneId):
-            workspaceNavigationFocusScope = .drawer(parentPaneId: parentPaneId)
+            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
             let url = GitHubWebviewLaunchResolver.url(
                 for: parentPaneId,
                 store: store,
@@ -1701,7 +1718,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             let wasManagementLayerActive = atom(\.managementLayer).isActive
             atom(\.managementLayer).toggle()
             if !wasManagementLayerActive {
-                workspaceNavigationFocusScope = initialWorkspaceNavigationFocusScope()
+                managementNavigationScope = initialWorkspaceNavigationFocusScope()
             }
             return true
 
@@ -1772,6 +1789,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             else { break }
             dispatchAction(.toggleDrawer(paneId: paneId))
             handlePaneFocusTrigger(.drawer(.toggle(parentPaneId: paneId)))
+            syncFocusOwnerAfterDrawerToggle(parentPaneId: paneId)
 
         case .closeDrawerPane:
             guard let tabId = store.tabLayoutAtom.activeTabId,
@@ -2141,16 +2159,16 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         var paneRepresentableDismantleCountForTesting: Int {
             paneRepresentableDismantleCount
         }
-        var workspaceNavigationFocusScopeDescriptionForTesting: String {
-            switch workspaceNavigationFocusScope {
+        var managementNavigationScopeDescriptionForTesting: String {
+            switch managementNavigationScope {
             case .mainRow:
                 return "mainRow"
             case .drawer(let parentPaneId):
                 return "drawer:\(parentPaneId.uuidString)"
             }
         }
-        func setWorkspaceNavigationFocusScopeToDrawerForTesting(parentPaneId: UUID) {
-            workspaceNavigationFocusScope = .drawer(parentPaneId: parentPaneId)
+        func setManagementNavigationScopeToDrawerForTesting(parentPaneId: UUID) {
+            managementNavigationScope = .drawer(parentPaneId: parentPaneId)
         }
     }
 #endif

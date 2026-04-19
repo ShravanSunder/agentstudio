@@ -168,7 +168,7 @@ struct WorkspacePaneFocusDerivedProjectionTests {
         let focus = WorkspacePaneFocusDerived().currentFocus(
             workspaceTab: workspaceTab(for: store),
             workspacePane: store.paneAtom,
-            workspaceNavigationScope: WorkspaceNavigationScopeAtom()
+            workspaceFocusOwner: WorkspaceFocusOwnerAtom()
         )
 
         #expect(focus.paneContentType == .noActivePane)
@@ -186,7 +186,7 @@ struct WorkspacePaneFocusDerivedProjectionTests {
         let focus = WorkspacePaneFocusDerived().currentFocus(
             workspaceTab: workspaceTab(for: store),
             workspacePane: store.paneAtom,
-            workspaceNavigationScope: WorkspaceNavigationScopeAtom()
+            workspaceFocusOwner: WorkspaceFocusOwnerAtom()
         )
 
         #expect(focus.paneContentType == .terminal)
@@ -220,7 +220,7 @@ struct WorkspacePaneFocusDerivedProjectionTests {
         let focus = WorkspacePaneFocusDerived().currentFocus(
             workspaceTab: workspaceTab(for: store),
             workspacePane: store.paneAtom,
-            workspaceNavigationScope: WorkspaceNavigationScopeAtom()
+            workspaceFocusOwner: WorkspaceFocusOwnerAtom()
         )
 
         #expect(focus.paneContentType == .noActivePane)
@@ -250,7 +250,7 @@ struct WorkspacePaneFocusDerivedProjectionTests {
         let focus = WorkspacePaneFocusDerived().currentFocus(
             workspaceTab: workspaceTab(for: store),
             workspacePane: store.paneAtom,
-            workspaceNavigationScope: WorkspaceNavigationScopeAtom()
+            workspaceFocusOwner: WorkspaceFocusOwnerAtom()
         )
 
         #expect(focus.paneContentType == .noActivePane)
@@ -279,7 +279,7 @@ struct WorkspacePaneFocusDerivedProjectionTests {
         let focus = WorkspacePaneFocusDerived().currentFocus(
             workspaceTab: workspaceTab(for: store),
             workspacePane: store.paneAtom,
-            workspaceNavigationScope: WorkspaceNavigationScopeAtom()
+            workspaceFocusOwner: WorkspaceFocusOwnerAtom()
         )
 
         #expect(focus.satisfiedRequirements.contains(.hasMultiplePanes))
@@ -302,7 +302,7 @@ struct WorkspacePaneFocusDerivedProjectionTests {
         let focus = WorkspacePaneFocusDerived().currentFocus(
             workspaceTab: workspaceTab(for: store),
             workspacePane: store.paneAtom,
-            workspaceNavigationScope: WorkspaceNavigationScopeAtom()
+            workspaceFocusOwner: WorkspaceFocusOwnerAtom()
         )
 
         #expect(focus.satisfiedRequirements.contains(.hasMultipleTabs))

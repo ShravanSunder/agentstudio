@@ -5,7 +5,7 @@ struct WorkspacePaneFocusDerived {
     func currentFocus(
         workspaceTab: WorkspaceTabDerived,
         workspacePane: WorkspacePaneAtom,
-        workspaceNavigationScope: WorkspaceNavigationScopeAtom
+        workspaceFocusOwner: WorkspaceFocusOwnerAtom
     ) -> WorkspacePaneFocus {
         var satisfiedRequirements: Set<FocusRequirement> = []
 
@@ -55,12 +55,20 @@ struct WorkspacePaneFocusDerived {
             }
         }
 
+        let drawer = pane.drawer
+        let normalizedFocusOwner = WorkspaceFocusOwnerNormalizer.normalize(
+            requested: workspaceFocusOwner.owner,
+            context: .init(
+                activeMainPaneId: activePaneId,
+                expandedDrawerParentPaneId: drawer?.isExpanded == true ? activePaneId : nil,
+                drawerPaneIds: drawer?.paneIds ?? [],
+                activeDrawerPaneId: drawer?.activePaneId,
+                minimizedDrawerPaneIds: drawer?.minimizedPaneIds ?? []
+            )
+        )
+
         let drawerFocusState: WorkspacePaneFocus.DrawerFocusState
-        switch normalizedDrawerFocusState(
-            from: workspaceNavigationScope.scope,
-            activePaneId: activePaneId,
-            workspacePane: workspacePane
-        ) {
+        switch normalizedFocusOwner {
         case .mainPane:
             drawerFocusState = .inactive
         case .emptyDrawer(let parentPaneId):
@@ -94,36 +102,5 @@ struct WorkspacePaneFocusDerived {
             drawerFocusState: drawerFocusState,
             satisfiedRequirements: satisfiedRequirements
         )
-    }
-
-    private func normalizedDrawerFocusState(
-        from scope: WorkspaceNavigationScope,
-        activePaneId: UUID,
-        workspacePane: WorkspacePaneAtom
-    ) -> WorkspaceNavigationScope {
-        switch scope {
-        case .mainPane:
-            return .mainPane(paneId: activePaneId)
-        case .emptyDrawer(let parentPaneId):
-            guard activePaneId == parentPaneId,
-                let drawer = workspacePane.pane(parentPaneId)?.drawer,
-                drawer.isExpanded,
-                drawer.paneIds.isEmpty
-            else {
-                return .mainPane(paneId: activePaneId)
-            }
-            return scope
-        case .drawerPane(let parentPaneId, let paneId):
-            guard activePaneId == parentPaneId,
-                let drawer = workspacePane.pane(parentPaneId)?.drawer,
-                drawer.isExpanded,
-                drawer.activePaneId == paneId,
-                drawer.paneIds.contains(paneId),
-                !drawer.minimizedPaneIds.contains(paneId)
-            else {
-                return .mainPane(paneId: activePaneId)
-            }
-            return scope
-        }
     }
 }

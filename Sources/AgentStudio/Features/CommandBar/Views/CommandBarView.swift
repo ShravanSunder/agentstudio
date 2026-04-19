@@ -78,7 +78,7 @@ struct CommandBarView: View {
         return atom(\.workspacePaneFocus).currentFocus(
             workspaceTab: workspaceTab,
             workspacePane: store.paneAtom,
-            workspaceNavigationScope: atom(\.workspaceNavigationScope)
+            workspaceFocusOwner: atom(\.workspaceFocusOwner)
         )
     }
 

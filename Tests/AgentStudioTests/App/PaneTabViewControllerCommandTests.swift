@@ -407,13 +407,13 @@ struct PaneTabViewControllerCommandTests {
         // Intentional: this covers the path where drawer pane selection
         // establishes the management navigation scope after mode is already active.
         atom(\.managementLayer).activate()
-        harness.controller.setWorkspaceNavigationFocusScopeToDrawerForTesting(parentPaneId: parentPane.id)
+        harness.controller.setManagementNavigationScopeToDrawerForTesting(parentPaneId: parentPane.id)
 
         harness.controller.execute(.toggleManagementLayer)
 
         #expect(!atom(\.managementLayer).isActive)
         #expect(
-            harness.controller.workspaceNavigationFocusScopeDescriptionForTesting
+            harness.controller.managementNavigationScopeDescriptionForTesting
                 == "drawer:\(parentPane.id.uuidString)"
         )
     }
@@ -459,7 +459,7 @@ struct PaneTabViewControllerCommandTests {
         #expect(tabPaneIdsAfter == tabPaneIdsBefore)
         #expect(drawerPaneIdsAfter == drawerPaneIdsBefore.union([createdPaneId]))
         #expect(
-            harness.controller.workspaceNavigationFocusScopeDescriptionForTesting
+            harness.controller.managementNavigationScopeDescriptionForTesting
                 == "drawer:\(parentPane.id.uuidString)"
         )
     }
@@ -493,7 +493,7 @@ struct PaneTabViewControllerCommandTests {
 
         #expect(tabPaneIdsAfter == tabPaneIdsBefore.union([createdPaneId]))
         #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds.isEmpty ?? true)
-        #expect(harness.controller.workspaceNavigationFocusScopeDescriptionForTesting == "mainRow")
+        #expect(harness.controller.managementNavigationScopeDescriptionForTesting == "mainRow")
     }
 
     @Test("option-j and option-l stay main-row movement outside drawers")

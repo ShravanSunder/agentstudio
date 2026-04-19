@@ -573,7 +573,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let focus = atom(\.workspacePaneFocus).currentFocus(
             workspaceTab: workspaceTab,
             workspacePane: store.paneAtom,
-            workspaceNavigationScope: atom(\.workspaceNavigationScope)
+            workspaceFocusOwner: atom(\.workspaceFocusOwner)
         )
         let isVisible = definition.isVisible(in: focus)
         menuItem.isHidden = !isVisible
