@@ -54,4 +54,11 @@ struct DrawerEditorChooserFactoryTests {
 
         #expect(title == "Antigravity Somethi…")
     }
+
+    @Test
+    func directLaunchHintText_mentionsBookmark() {
+        let hint = DrawerEditorChooserFactory.directLaunchHintText()
+
+        #expect(hint == "Launch bookmarked")
+    }
 }

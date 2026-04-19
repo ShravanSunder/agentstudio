@@ -40,6 +40,7 @@ struct EditorChooserMenuContent: View {
 
     let items: [EditorChoiceItem]
     let bookmarkedEditorId: EditorTargetId?
+    let directLaunchHintText: String?
     let style: EditorChooserMenuStyle
     let onSelect: (EditorTargetId) -> Void
     let onToggleBookmark: (EditorTargetId) -> Void
@@ -63,12 +64,35 @@ struct EditorChooserMenuContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: style.rowSpacing) {
+            if let directLaunchHintText {
+                headerHint(directLaunchHintText)
+            }
             ForEach(Self.makeDisplayItems(items: items, bookmarkedEditorId: bookmarkedEditorId)) { item in
                 row(item)
             }
         }
         .padding(style.outerPadding)
         .frame(width: style.menuWidth)
+    }
+
+    private func headerHint(_ text: String) -> some View {
+        HStack(alignment: .center, spacing: AppStyles.Components.EditorChooser.headerContentSpacing) {
+            Text("⌘O")
+                .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, AppStyles.Components.EditorChooser.shortcutHintHorizontalPadding)
+                .padding(.vertical, AppStyles.Components.EditorChooser.shortcutHintVerticalPadding)
+                .background(
+                    RoundedRectangle(cornerRadius: style.badgeCornerRadius)
+                        .fill(Color.primary.opacity(AppStyles.Components.EditorChooser.badgeFillOpacity))
+                )
+
+            Text(text)
+                .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, style.rowHorizontalPadding)
+        .padding(.bottom, AppStyles.Components.EditorChooser.headerBottomPadding)
     }
 
     @ViewBuilder

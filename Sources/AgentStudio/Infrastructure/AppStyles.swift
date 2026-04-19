@@ -240,6 +240,10 @@ enum AppStyles {
         enum EditorChooser {
             static let menuWidth: CGFloat = 220
             static let outerPadding: CGFloat = AppStyles.General.Spacing.standard
+            static let headerBottomPadding: CGFloat = AppStyles.General.Spacing.tight
+            static let headerContentSpacing: CGFloat = AppStyles.General.Spacing.tight
+            static let shortcutHintHorizontalPadding: CGFloat = 6
+            static let shortcutHintVerticalPadding: CGFloat = 2
             static let rowSpacing: CGFloat = 2
             static let rowContentSpacing: CGFloat = AppStyles.General.Spacing.standard
             static let rowHorizontalPadding: CGFloat = AppStyles.General.Spacing.standard

@@ -19,6 +19,10 @@ enum DrawerEditorChooserFactory {
         return String(title.prefix(maxButtonTitleLength - 1)) + "…"
     }
 
+    static func directLaunchHintText() -> String {
+        "Launch bookmarked"
+    }
+
     static func makeTrailingActions(
         uiState: UIStateAtom,
         paneId: UUID,
@@ -36,13 +40,13 @@ enum DrawerEditorChooserFactory {
                     shortcutNumber: index + 1
                 )
             }
-
         return DrawerOverlay.TrailingActions(
             canOpenTarget: canOpenTarget,
             editorMenuContent: AnyView(
                 EditorChooserMenuContent(
                     items: items,
                     bookmarkedEditorId: uiState.editorChooserState.bookmarkedEditorId,
+                    directLaunchHintText: directLaunchHintText(),
                     style: .standard,
                     onSelect: { editorId in
                         onOpenEditor(editorId)
