@@ -8,6 +8,7 @@ import Testing
 final class MockCommandHandler: WorkspaceCommandHandling {
     var executedCommands: [(AppCommand, UUID?, SearchItemType?)] = []
     var canExecuteResult: Bool = true
+    var targetedCanExecuteResult: Bool?
     var extractedPaneRequests: [(tabId: UUID, paneId: UUID, targetTabIndex: Int?)] = []
     var movePaneRequests: [(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID)] = []
 
@@ -21,6 +22,13 @@ final class MockCommandHandler: WorkspaceCommandHandling {
 
     func canExecute(_ command: AppCommand) -> Bool {
         canExecuteResult
+    }
+
+    func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        _ = command
+        _ = target
+        _ = targetType
+        return targetedCanExecuteResult ?? canExecuteResult
     }
 
     func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
@@ -40,6 +48,12 @@ final class MockAppCommandRouter: ShellCommandHandling {
 
     func canExecute(_ command: AppCommand) -> Bool {
         appCommands.contains(command)
+    }
+
+    func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        _ = target
+        _ = targetType
+        return canExecute(command)
     }
 
     func execute(_ command: AppCommand) -> Bool {
@@ -368,6 +382,27 @@ final class AppCommandTests {
         #expect(handler.executedCommands[0].2 == .tab)
 
         // Cleanup
+        dispatcher.handler = nil
+    }
+
+    @MainActor
+    @Test
+    func test_dispatcher_dispatch_targeted_usesTargetedAvailability() {
+        let dispatcher = CommandDispatcher.shared
+        let handler = MockCommandHandler()
+        handler.canExecuteResult = false
+        handler.targetedCanExecuteResult = true
+        dispatcher.handler = handler
+        dispatcher.appCommandRouter = nil
+        let targetId = UUID()
+
+        dispatcher.dispatch(.closeTab, target: targetId, targetType: .tab)
+
+        #expect(handler.executedCommands.count == 1)
+        #expect(handler.executedCommands[0].0 == .closeTab)
+        #expect(handler.executedCommands[0].1 == targetId)
+        #expect(handler.executedCommands[0].2 == .tab)
+
         dispatcher.handler = nil
     }
 

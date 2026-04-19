@@ -511,6 +511,35 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(harness.store.pane(parent.id)?.drawer?.paneIds.contains(drawerPane.id) == false)
     }
 
+    @Test("dispatcher targeted detachDrawerPane works even when drawer pane is not the global focus owner")
+    func dispatcherTargetedDetachDrawerPane_detachesClickedDrawerPaneWithoutDrawerPaneFocus() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: left.id)
+        harness.store.appendTab(tab)
+        harness.store.insertPane(parent.id, inTab: tab.id, at: left.id, direction: .horizontal, position: .after)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(parent.id, inTab: tab.id)
+        _ = makePaneTabViewControllerCommandWindow(for: harness.controller)
+
+        let firstDrawerPane = try #require(harness.store.addDrawerPane(to: parent.id))
+        _ = try #require(harness.store.addDrawerPane(to: parent.id))
+        atom(\.workspaceFocusOwner).focusMainPane(parent.id)
+
+        CommandDispatcher.shared.dispatch(
+            .detachDrawerPane,
+            target: firstDrawerPane.id,
+            targetType: .pane
+        )
+
+        #expect(harness.store.pane(firstDrawerPane.id)?.parentPaneId == nil)
+        #expect(harness.store.tab(tab.id)?.paneIds.contains(firstDrawerPane.id) == true)
+        #expect(harness.store.pane(parent.id)?.drawer?.paneIds.contains(firstDrawerPane.id) == false)
+    }
+
     @Test("management layer create shortcut still works once option-ijkl are passed through")
     func executeManagementLayerCreateTerminal_openEmptyDrawer_createsFirstDrawerPane() {
         let harness = makeHarness()

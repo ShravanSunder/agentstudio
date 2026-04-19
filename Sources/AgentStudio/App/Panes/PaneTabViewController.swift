@@ -2129,6 +2129,41 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         )
     }
 
+    func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        if let action = targetedAction(command: command, target: target, targetType: targetType) {
+            let snapshot = WorkspaceCommandResolver.snapshot(
+                from: store.tabLayoutAtom.tabs,
+                activeTabId: store.tabLayoutAtom.activeTabId,
+                isManagementLayerActive: atom(\.managementLayer).isActive,
+                knownRepoIds: Set(store.repositoryTopologyAtom.repos.map(\.id)),
+                knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
+                drawerParentByPaneId: drawerParentByPaneId(),
+                drawerLayoutByParentPaneId: drawerLayoutByParentPaneId()
+            )
+            if case .success = WorkspaceCommandValidator.validate(action, state: snapshot) {
+                return true
+            }
+            return false
+        }
+
+        switch (command, targetType) {
+        case (.renameTab, .tab):
+            return store.tabLayoutAtom.tab(target) != nil
+        case (.renameArrangement, .tab):
+            guard
+                let tab = store.tabLayoutAtom.tabs.first(where: { tab in
+                    tab.arrangements.contains(where: { $0.id == target })
+                }),
+                let arrangement = tab.arrangements.first(where: { $0.id == target })
+            else {
+                return false
+            }
+            return !arrangement.isDefault
+        default:
+            return canExecute(command)
+        }
+    }
+
     func canExecute(_ command: AppCommand) -> Bool {
         switch command {
         case .managementLayerFocusLeft, .managementLayerFocusRight, .managementLayerEnterDrawer,

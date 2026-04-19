@@ -207,6 +207,9 @@ protocol WorkspaceCommandHandling: AnyObject {
     /// Query whether a command is currently available
     func canExecute(_ command: AppCommand) -> Bool
 
+    /// Query whether a targeted command is currently available for a specific element.
+    func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
+
     /// Execute a direct pane extraction request that carries drag/drop placement details.
     func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabIndex: Int?)
 
@@ -218,6 +221,7 @@ protocol WorkspaceCommandHandling: AnyObject {
 @MainActor
 protocol ShellCommandHandling: AnyObject {
     func canExecute(_ command: AppCommand) -> Bool
+    func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
     func execute(_ command: AppCommand) -> Bool
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
 
@@ -229,6 +233,20 @@ protocol ShellCommandHandling: AnyObject {
 
     /// Restore focus to the active pane after transient sidebar/management UI work.
     func refocusActivePane()
+}
+
+@MainActor
+extension WorkspaceCommandHandling {
+    func canExecute(_ command: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
+        canExecute(command)
+    }
+}
+
+@MainActor
+extension ShellCommandHandling {
+    func canExecute(_ command: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
+        canExecute(command)
+    }
 }
 
 // MARK: - CommandDispatcher
@@ -273,7 +291,7 @@ final class CommandDispatcher {
 
     /// Execute a targeted command (operates on a specific element)
     func dispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
-        guard canDispatch(command) else {
+        guard canDispatch(command, target: target, targetType: targetType) else {
             Self.logger.warning(
                 "Targeted command dispatch rejected: \(command.rawValue, privacy: .public) targetType=\(targetType.rawValue, privacy: .public)"
             )
@@ -317,6 +335,18 @@ final class CommandDispatcher {
         }
         let appCanExecute = appCommandRouter?.canExecute(command) ?? false
         let handlerCanExecute = handler?.canExecute(command) ?? false
+        return appCanExecute || handlerCanExecute
+    }
+
+    func canDispatch(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        if let definition = definitions[command],
+            definition.requiresManagementLayer,
+            !atom(\.managementLayer).isActive
+        {
+            return false
+        }
+        let appCanExecute = appCommandRouter?.canExecute(command, target: target, targetType: targetType) ?? false
+        let handlerCanExecute = handler?.canExecute(command, target: target, targetType: targetType) ?? false
         return appCanExecute || handlerCanExecute
     }
 

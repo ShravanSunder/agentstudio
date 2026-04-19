@@ -346,7 +346,7 @@ struct PaneLeafContainer: View {
                         .padding(.top, AppStyles.General.Spacing.standard)
                         Spacer()
 
-                        if isDrawerChild && isActive {
+                        if isDrawerChild {
                             HStack {
                                 Spacer()
                                 paneEdgeButton(
