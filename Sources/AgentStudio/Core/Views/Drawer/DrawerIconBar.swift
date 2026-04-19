@@ -46,10 +46,17 @@ struct DrawerIconBar: View {
     private static let tooltipCoordinateSpaceName = "drawerTooltipBar"
 
     var body: some View {
-        let togglePresentation = LocalActionSpec.toggleDrawer(isExpanded: isExpanded).actionSpec
-        let addPresentation = LocalActionSpec.addDrawerPane.actionSpec
+        let toggleToolTip = AppCommand.toggleDrawer.definition.controlToolTip(
+            textOverride: isExpanded ? "Collapse Drawer" : "Expand Drawer"
+        )
+        let addToolTip = AppCommand.addDrawerPane.definition.controlToolTip
         let finderPresentation = LocalActionSpec.openPaneLocationInFinder.actionSpec
-        let chooserPresentation = LocalActionSpec.openPaneLocationInEditorMenu.actionSpec
+        let finderToolTip = AppCommand.openPaneLocationInFinder.definition.controlToolTip(
+            textOverride: "Open in Finder"
+        )
+        let chooserToolTip = AppCommand.openPaneLocationInEditorMenu.definition.controlToolTip(
+            textOverride: "Open in Editor"
+        )
 
         VStack(spacing: 0) {
             GeometryReader { geo in
@@ -83,7 +90,7 @@ struct DrawerIconBar: View {
                             }
                         }
                         .hoverTooltipAnchor(DrawerTooltipTarget.toggle, in: Self.tooltipCoordinateSpaceName)
-                        .help(togglePresentation.helpText)
+                        .help(toggleToolTip)
 
                         // Vertical divider
                         Divider()
@@ -109,7 +116,7 @@ struct DrawerIconBar: View {
                             }
                         }
                         .hoverTooltipAnchor(DrawerTooltipTarget.add, in: Self.tooltipCoordinateSpaceName)
-                        .help(addPresentation.helpText)
+                        .help(addToolTip)
 
                         Spacer()
 
@@ -156,7 +163,7 @@ struct DrawerIconBar: View {
                                     trailingActions.editorMenuContent
                                 }
                                 .disabled(!trailingActions.canOpenTarget)
-                                .help(chooserPresentation.helpText)
+                                .help(chooserToolTip)
                                 .onHover { hovering in
                                     withAnimation(.easeInOut(duration: AppStyles.General.Animation.fast)) {
                                         isChooserHovered = hovering
@@ -170,7 +177,7 @@ struct DrawerIconBar: View {
 
                                 trailingActionButton(
                                     icon: trailingActionIcon(for: finderPresentation.icon) ?? .system(name: "finder"),
-                                    helpText: finderPresentation.helpText,
+                                    helpText: finderToolTip,
                                     isHovered: isFinderHovered,
                                     action: trailingActions.onOpenFinder
                                 )
@@ -220,13 +227,19 @@ struct DrawerIconBar: View {
     private func tooltipText(for target: DrawerTooltipTarget) -> String? {
         switch target {
         case .toggle:
-            return LocalActionSpec.toggleDrawer(isExpanded: isExpanded).actionSpec.helpText
+            return AppCommand.toggleDrawer.definition.controlToolTip(
+                textOverride: isExpanded ? "Collapse Drawer" : "Expand Drawer"
+            )
         case .add:
-            return LocalActionSpec.addDrawerPane.actionSpec.helpText
+            return AppCommand.addDrawerPane.definition.controlToolTip
         case .finder:
-            return LocalActionSpec.openPaneLocationInFinder.actionSpec.helpText
+            return AppCommand.openPaneLocationInFinder.definition.controlToolTip(
+                textOverride: "Open in Finder"
+            )
         case .chooser:
-            return LocalActionSpec.openPaneLocationInEditorMenu.actionSpec.helpText
+            return AppCommand.openPaneLocationInEditorMenu.definition.controlToolTip(
+                textOverride: "Open in Editor"
+            )
         case .emptyAdd:
             return nil
         }
@@ -285,7 +298,7 @@ struct EmptyDrawerBar: View {
     private static let tooltipCoordinateSpaceName = "emptyDrawerTooltipBar"
 
     var body: some View {
-        let addPresentation = LocalActionSpec.addDrawerPane.actionSpec
+        let addToolTip = AppCommand.addDrawerPane.definition.controlToolTip
         HStack {
             Spacer()
             GeometryReader { geo in
@@ -311,7 +324,7 @@ struct EmptyDrawerBar: View {
                         }
                     }
                     .hoverTooltipAnchor(DrawerTooltipTarget.emptyAdd, in: Self.tooltipCoordinateSpaceName)
-                    .help(addPresentation.helpText)
+                    .help(addToolTip)
                     .padding(.vertical, DrawerLayout.iconBarVerticalPadding)
 
                     FloatingHoverTooltipPresenter(
@@ -321,7 +334,7 @@ struct EmptyDrawerBar: View {
                     ) { target in
                         switch target {
                         case .emptyAdd:
-                            return addPresentation.helpText
+                            return addToolTip
                         default:
                             return nil
                         }

@@ -37,10 +37,28 @@ extension CommandSpec {
     }
 
     var controlToolTip: String {
-        if let keyBinding {
-            return "\(actionSpec.label) (\(keyBinding.displayString))"
+        controlToolTip()
+    }
+
+    func controlToolTip(
+        textOverride: String? = nil,
+        includeShortcut: Bool = true
+    ) -> String {
+        let baseText: String
+
+        if let textOverride {
+            baseText = textOverride
+        } else if keyBinding != nil {
+            baseText = actionSpec.label
+        } else {
+            baseText = actionSpec.helpText
         }
-        return actionSpec.helpText
+
+        guard includeShortcut, let keyBinding else {
+            return baseText
+        }
+
+        return "\(baseText) (\(keyBinding.displayString))"
     }
 }
 

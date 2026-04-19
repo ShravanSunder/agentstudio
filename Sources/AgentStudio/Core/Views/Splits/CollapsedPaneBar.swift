@@ -130,7 +130,7 @@ struct CollapsedPaneBar: View {
         }
         .buttonStyle(.plain)
         .onHover { isExpandHovered = $0 }
-        .help(AppCommand.expandPane.definition.helpText)
+        .help(AppCommand.expandPane.definition.controlToolTip)
     }
 
     private var arrangementButton: some View {
