@@ -211,7 +211,47 @@ func setSidebarHasFocus(_ value: Bool)
 
 **SidebarSurface lives in Core** (`Core/Models/SidebarSurface.swift`), not in the feature slice. Justification: `SidebarSurface` is composition-cutting — it names all sidebar surfaces, tags `UIStateAtom.sidebarSurface`, and appears in `KeyboardOwner.sidebar(SidebarSurface)` (§4.4). It is a generic enum (`.repos | .inbox`), not a feature-specific type. Core is the right home.
 
-**New runtime seam.** The app currently has no general "sidebar has focus" signal — the only existing sidebar focus seam is the filter field at `Features/RepoExplorer/RepoExplorerView.swift` (currently `Features/Sidebar/RepoSidebarContentView.swift:28` pre-rename). Wiring `sidebarHasFocus` is net-new work: each sidebar surface view declares an internal `@FocusState` enum for its own targets, then publishes `focusedField != nil` via `.onChange` to `UIStateAtom.setSidebarHasFocus(...)`. Covered in §8.4 and §13.
+**New runtime seam.** The app currently has no general "sidebar has focus" signal — the only existing sidebar focus seam is the filter field at `Features/RepoExplorer/RepoExplorerView.swift` (currently `Features/Sidebar/RepoSidebarContentView.swift:28` pre-rename). Wiring `sidebarHasFocus` is net-new work.
+
+**Definition of "sidebar has focus" (chosen rule).** `sidebarHasFocus == true` iff **any declared `@FocusState` target inside the currently-visible sidebar surface is non-nil.** Each surface declares its own internal focus enum listing the controls that participate:
+
+```swift
+// Features/NotificationInbox/Views/InboxSidebarView.swift
+enum InboxFocus: Hashable {          // feature-internal; not in Core
+    case search
+    case list
+    case row(UUID)
+    case groupingMenu
+}
+
+@FocusState private var focusedField: InboxFocus?
+
+var body: some View {
+    // ... attach .focused($focusedField, equals: .search), .list, etc.
+    .onChange(of: focusedField) { _, new in
+        uiState.setSidebarHasFocus(new != nil)
+    }
+}
+```
+
+`Features/RepoExplorer/RepoExplorerView.swift` follows the same pattern with its own `RepoExplorerFocus` enum declaring its focusable controls.
+
+**What this rule explicitly means:**
+
+- **Search field focused → has focus.** (`.inboxSearch` / `.reposFilter` cases are declared.)
+- **Any list row focused → has focus.** (`.inboxRow(id)` / `.reposRow(id)` cases are declared.)
+- **Grouping menu popover focused → has focus.** (`.inboxGroupingMenu` case is declared.)
+- **Main content (pane) focused → no focus on sidebar.** (Sidebar's enum is nil.)
+- **CommandBar opens → sidebar loses responder chain position → `focusedField` becomes nil → `sidebarHasFocus == false`.** Correct behavior (CommandBar owns keys).
+
+**What this rule does NOT do:**
+
+- It does NOT walk the AppKit NSView responder chain. Rule is SwiftUI-level only.
+- It does NOT auto-include new focusable elements. Adding a focusable control inside a surface requires extending that surface's focus enum and declaring `.focused($focusedField, equals: newCase)`. That's intentional — the set of declared focus targets is the explicit definition of "sidebar has focus" for that surface.
+
+Only one surface is visible at a time (`uiState.sidebarSurface`), so only one surface publishes at a time. No race.
+
+Covered in §8.4 and §13.
 
 #### `NotificationInboxStore` — feature-scoped (one store, two atoms)
 
@@ -258,6 +298,17 @@ Paths:
 - `Core/State/MainActor/Atoms/KeyboardOwnerDerived.swift`
 
 Role: stateless factory; follows the `WorkspaceFocusDerived` pattern exactly (takes atom references, reads what it needs, returns a plain value snapshot, owns no state or observation lifecycle).
+
+**Scope acknowledgment.** Shipping `KeyboardOwner` in v1 brings four things into this ticket:
+
+1. `Core/Models/KeyboardOwner.swift` — enum type (~15 lines)
+2. `Core/State/MainActor/Atoms/KeyboardOwnerDerived.swift` — stateless factory (~25 lines)
+3. `WindowLifecycleAtom.isWorkspaceWindowKey` — one computed accessor (~3 lines)
+4. `Features/CommandBar/CommandBarState.swift` default-scope logic — reads `KeyboardOwnerDerived.current(...)` for `.inbox` scope gating (see §5.2)
+
+Plus the corresponding tests (see §13 — `KeyboardOwnerDerived` precedence cases, `isWorkspaceWindowKey` cases).
+
+The alternative — deferring `KeyboardOwnerDerived` — would require CommandBar scope defaulting to inline the precedence check directly against `uiState.sidebarSurface` / `sidebarHasFocus`. That's duplication-by-inlining, which the next consumer (repos navigation) would then have to either copy or refactor into `KeyboardOwnerDerived` anyway. Shipping the type now is the cheaper path given CommandBar is already a v1 consumer.
 
 ```swift
 // Core/Models/KeyboardOwner.swift
