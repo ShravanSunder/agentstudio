@@ -236,6 +236,31 @@ enum AppStyles {
         }
     }
 
+    enum Components {
+        enum EditorChooser {
+            static let menuWidth: CGFloat = 220
+            static let outerPadding: CGFloat = AppStyles.General.Spacing.standard
+            static let rowSpacing: CGFloat = 2
+            static let rowContentSpacing: CGFloat = AppStyles.General.Spacing.standard
+            static let rowHorizontalPadding: CGFloat = AppStyles.General.Spacing.standard
+            static let rowVerticalPadding: CGFloat = AppStyles.General.Spacing.tight
+            static let rowCornerRadius: CGFloat = AppStyles.General.CornerRadius.panel
+            static let appIconSize: CGFloat = 14
+            static let badgeSize: CGFloat = 16
+            static let badgeCornerRadius: CGFloat = 5
+            static let bookmarkHitSize: CGFloat = 24
+            static let badgeFontSize: CGFloat = AppStyles.General.Typography.textXs
+            static let badgeFillOpacity: CGFloat = AppStyles.General.Fill.hover
+
+            static let chooserButtonContentSpacing: CGFloat = AppStyles.General.Spacing.tight
+            static let chooserButtonHorizontalPadding: CGFloat = AppStyles.General.Spacing.standard
+            static let chooserChevronFontSize: CGFloat = 9
+            static let trailingClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
+            static let dividerHeight: CGFloat = 16
+            static let dividerHorizontalPadding: CGFloat = 2
+        }
+    }
+
     enum Welcome {
         static let pageHorizontalPadding: CGFloat = 56
         static let pageVerticalPadding: CGFloat = 48

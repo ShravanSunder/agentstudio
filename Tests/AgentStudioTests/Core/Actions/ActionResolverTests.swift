@@ -504,7 +504,7 @@ final class WorkspaceCommandResolverTests {
         let tab = MockTab(id: tabId, activePaneId: UUID(), allPaneIds: [UUID()])
 
         // Act & Assert — non-structural commands return nil
-        #expect((WorkspaceCommandResolver.resolve(command: .addFolder, tabs: [tab], activeTabId: tabId)) == nil)
+        #expect((WorkspaceCommandResolver.resolve(command: .watchFolder, tabs: [tab], activeTabId: tabId)) == nil)
         #expect(
             (WorkspaceCommandResolver.resolve(
                 command: .toggleSidebar, tabs: [tab], activeTabId: tabId
@@ -516,6 +516,18 @@ final class WorkspaceCommandResolverTests {
         #expect(
             (WorkspaceCommandResolver.resolve(
                 command: .filterSidebar, tabs: [tab], activeTabId: tabId
+            )) == nil)
+        #expect(
+            (WorkspaceCommandResolver.resolve(
+                command: .openPaneLocationInBookmarkedEditor, tabs: [tab], activeTabId: tabId
+            )) == nil)
+        #expect(
+            (WorkspaceCommandResolver.resolve(
+                command: .openPaneLocationInFinder, tabs: [tab], activeTabId: tabId
+            )) == nil)
+        #expect(
+            (WorkspaceCommandResolver.resolve(
+                command: .openPaneLocationInEditorMenu, tabs: [tab], activeTabId: tabId
             )) == nil)
         #expect(
             (WorkspaceCommandResolver.resolve(

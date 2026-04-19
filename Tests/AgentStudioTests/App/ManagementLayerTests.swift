@@ -283,18 +283,10 @@ struct ManagementLayerTests {
         }
     }
 
-    @Test("addFolder does not require management layer")
-    func test_addFolder_doesNotRequireManagementLayer() async {
+    @Test("watchFolder does not require management layer")
+    func test_watchFolder_doesNotRequireManagementLayer() async {
         withTestAtomRegistry { _ in
-            let definition = CommandDispatcher.shared.definition(for: .addFolder)
-            #expect(definition.requiresManagementLayer == false)
-        }
-    }
-
-    @Test("addRepo does not require management layer")
-    func test_addRepo_doesNotRequireManagementLayer() async {
-        withTestAtomRegistry { _ in
-            let definition = CommandDispatcher.shared.definition(for: .addRepo)
+            let definition = CommandDispatcher.shared.definition(for: .watchFolder)
             #expect(definition.requiresManagementLayer == false)
         }
     }

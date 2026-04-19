@@ -28,6 +28,12 @@ Agent Studio follows an **AppKit-main** architecture. This decision was made to 
 
 ## Core Hosting Patterns
 
+Host surfaces such as pane toolbars, drawer chrome, window chrome, and tab shells remain App-owned assembly points. When those surfaces embed capability-specific UI, keep the shell and placement logic in `App/` while the reusable capability content lives in its owning `Features/<Capability>/` slice.
+
+Example:
+- `App/Panes/DrawerEditorChooser/` owns the drawer toolbar button, anchoring, divider, and pane wiring
+- `Components/EditorChooser/` owns the numbered editor chooser menu rows and bookmark UI
+
 ### NSHostingController
 Use for full-screen components, sidebars, or major view controller containment.
 ```swift

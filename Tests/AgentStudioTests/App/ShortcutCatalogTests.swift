@@ -100,6 +100,33 @@ struct ShortcutCatalogTests {
     }
 
     @Test
+    func shortcutDecoder_decodesDrawerEditorShortcuts() {
+        let openBookmarkedEditor = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.o), modifiers: [.command]),
+            in: .global
+        )
+        let openFinder = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.o), modifiers: [.command, .shift]),
+            in: .global
+        )
+        let openChooser = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.o), modifiers: [.command, .option]),
+            in: .global
+        )
+
+        #expect(openBookmarkedEditor == .openPaneLocationInBookmarkedEditor)
+        #expect(openFinder == .openPaneLocationInFinder)
+        #expect(openChooser == .openPaneLocationInEditorMenu)
+    }
+
+    @Test
+    func watchFolder_hasNoKeyboardShortcut() {
+        let shortcuts = AppShortcut.allCases.filter { $0.command == .watchFolder }
+
+        #expect(shortcuts.isEmpty)
+    }
+
+    @Test
     func shortcutDecoder_decodesCharacterAndEscapeEvents() {
         let managementToggle = ShortcutDecoder.decode(
             keyCode: 15,

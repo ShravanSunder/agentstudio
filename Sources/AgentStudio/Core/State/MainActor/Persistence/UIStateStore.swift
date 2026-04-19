@@ -24,7 +24,11 @@ final class UIStateStore {
                 checkoutColors: state.checkoutColors,
                 filterText: state.filterText,
                 isFilterVisible: state.isFilterVisible,
-                showMinimizedBars: state.showMinimizedBars
+                showMinimizedBars: state.showMinimizedBars,
+                editorChooserState: .init(
+                    openForPaneId: nil,
+                    bookmarkedEditorId: state.editorChooserState.bookmarkedEditorId
+                )
             )
         case .missing:
             break
@@ -44,7 +48,8 @@ final class UIStateStore {
                 checkoutColors: atom.checkoutColors,
                 filterText: atom.filterText,
                 isFilterVisible: atom.isFilterVisible,
-                showMinimizedBars: atom.showMinimizedBars
+                showMinimizedBars: atom.showMinimizedBars,
+                editorChooserState: .init(bookmarkedEditorId: atom.editorChooserState.bookmarkedEditorId)
             )
         )
     }

@@ -148,5 +148,6 @@ Each document owns a specific concern. No two documents are authoritative for th
 
 ## Related
 
+- Component note: `Components/EditorChooser/` owns the reusable numbered editor chooser menu content and bookmark UI used by host shells such as the drawer toolbar.
 - [Style Guide](../guides/style_guide.md) — macOS design conventions and visual standards
 - [Agent Resources](../guides/agent_resources.md) — Setup procedures, DeepWiki sources, and research guidance
