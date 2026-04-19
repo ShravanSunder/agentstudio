@@ -53,7 +53,7 @@ AppKit-main architecture hosting SwiftUI views. Shared app state is actor-bound 
 | `RepoCacheAtom` | repo enrichment, branches, git status, PR counts, recent targets | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
 | `UIStateAtom` | expanded groups, colors, filter state | `Core/State/MainActor/Atoms/UIStateAtom.swift` |
 | `WorkspaceFocusDerived` | shared app-wide focus reader for command visibility and status UI | `Core/State/MainActor/Atoms/WorkspaceFocusDerived.swift` |
-| `ManagementModeAtom` | management mode active/inactive state | `Core/State/MainActor/Atoms/ManagementModeAtom.swift` |
+| `ManagementLayerAtom` | management layer active/inactive state | `Core/State/MainActor/Atoms/ManagementLayerAtom.swift` |
 | `SessionRuntimeAtom` | runtime status per pane | `Core/State/MainActor/Atoms/SessionRuntimeAtom.swift` |
 | `WorkspaceStore` | persistence wrapper over the workspace-domain atoms | `Core/State/MainActor/Persistence/WorkspaceStore.swift` |
 | `RepoCacheStore` | persistence wrapper for `RepoCacheAtom` | `Core/State/MainActor/Persistence/RepoCacheStore.swift` |
@@ -140,11 +140,19 @@ These four patterns govern all code. Follow them. Breaking them creates bugs tha
 
 ### 1. Atoms — canonical state
 
-`@Observable @MainActor`, `private(set)` reads, mutation via methods (valtio-style). One atom per domain, one reason to change. No god-atom. Atoms never touch disk. Shared atoms in `Core/State/MainActor/Atoms/`; feature-scoped atoms in `Features/<slice>/State/`. Shared reads use `atom(\.foo)` or `AtomReader`; `@Atom(\.foo)` is optional convenience sugar. See [component_architecture.md](docs/architecture/component_architecture.md) for canonical examples.
+`@Observable @MainActor`, `private(set)` reads, mutation via methods (valtio-style). One atom per domain, one reason to change. No god-atom. Atoms never touch disk.
+
+**Path convention (universal):** `<owner>/State/MainActor/Atoms/` for all atoms, whether Core or Feature. Shared atoms in `Core/State/MainActor/Atoms/`; feature-scoped atoms in `Features/<slice>/State/MainActor/Atoms/`. Existing features without the `MainActor/` subpath are grandfathered; new features adopt the full path.
+
+**Composition state vs feature state.** Composition state (app-wide UI shell — which surface is showing, has-focus, collapsed) lives on `UIStateAtom` in Core. Feature state (domain data specific to one feature) lives in feature atoms inside the feature slice. Never add a feature-specific property to a Core atom; never add a feature type to `Core/Models/` just because an atom references it — that forces feature types into Core.
+
+Shared reads use `atom(\.foo)` or `AtomReader`; `@Atom(\.foo)` is optional convenience sugar. See [component_architecture.md](docs/architecture/component_architecture.md) and [directory_structure.md — Feature Slice Self-Containment](docs/architecture/directory_structure.md) for canonical examples.
 
 ### 2. Stores — persistence wrappers
 
-One store per persistence boundary. A store may wrap one atom (`RepoCacheStore`) or many that persist together in one file (`WorkspaceStore`). Stores own file I/O, debounced saves, and schema versioning. Stores never contain domain logic. Shared stores in `Core/State/MainActor/Persistence/`; feature-scoped stores in `Features/<slice>/State/`. See [Three Persistence Tiers](docs/architecture/workspace_data_architecture.md#three-persistence-tiers) for the file-level mapping.
+One store per persistence boundary. A store may wrap one atom (`RepoCacheStore`) or many that persist together in one file (`WorkspaceStore`). Stores own file I/O, debounced saves, and schema versioning. Stores never contain domain logic.
+
+**Path convention (universal):** `<owner>/State/MainActor/Persistence/` for all stores, whether Core or Feature. Shared stores in `Core/State/MainActor/Persistence/`; feature-scoped stores in `Features/<slice>/State/MainActor/Persistence/`. See [Three Persistence Tiers](docs/architecture/workspace_data_architecture.md#three-persistence-tiers) for the file-level mapping.
 
 **Atom and store boundaries are architectural decisions — always ask the user before changing them:**
 - **Adding a new atom or store:** "Does this earn its own atom/store? What's the one-sentence job description? What's the single reason it changes?"
@@ -247,20 +255,31 @@ agent-studio/
 │   │   ├── Coordination/PaneCoordinator.swift  # Cross-feature sequencing and orchestration
 │   │   └── Panes/                    # Pane tab management and NSView registry
 │   ├── Core/                         # Shared domain — models, stores, pane system
-│   │   ├── Models/                   # Layout, Tab, Pane, Repo, Worktree
+│   │   ├── Models/                   # Layout, Tab, Pane, Repo, Worktree, SidebarSurface,
+│   │   │                             #   KeyboardOwner, ...
 │   │   ├── State/
 │   │   │   └── MainActor/
-│   │   │       ├── Atoms/            # WorkspaceMetadataAtom, WorkspaceRepositoryTopologyAtom, WorkspacePaneAtom, WorkspaceTabLayoutAtom, WorkspaceMutationCoordinator, ...
+│   │   │       ├── Atoms/            # WorkspaceMetadataAtom, WorkspacePaneAtom,
+│   │   │       │                     #   UIStateAtom, ManagementLayerAtom,
+│   │   │       │                     #   WorkspaceFocusDerived, KeyboardOwnerDerived, ...
 │   │   │       └── Persistence/      # WorkspaceStore, RepoCacheStore, UIStateStore
 │   │   ├── RuntimeEventSystem/       # Runtime actors, event bus, SessionRuntime, ZmxBackend
 │   │   ├── Actions/                  # PaneActionCommand, WorkspaceCommandResolver, WorkspaceCommandValidator
 │   │   └── Views/                    # Tab bar, splits, drawer, arrangement
-│   ├── Features/
+│   ├── Features/                     # Each feature is self-contained; see
+│   │   │                             #   directory_structure.md — Feature Slice Self-Containment
 │   │   ├── Terminal/                 # Ghostty C API bridge, SurfaceManager, views
 │   │   ├── Bridge/                   # React/WebView pane system (transport, runtime, state)
 │   │   ├── Webview/                  # Browser pane (navigation, history)
 │   │   ├── CommandBar/               # ⌘P command palette
-│   │   └── Sidebar/                  # Sidebar repo/worktree list
+│   │   ├── Sidebar/                  # Repo explorer (to be renamed RepoExplorer/;
+│   │   │                             #   the "sidebar" itself is composition in App/,
+│   │   │                             #   not a feature)
+│   │   └── <NewFeature>/             # Features/<Feature>/{Components,Models,Routing,
+│   │                                 #   State/MainActor/{Atoms,Persistence},Views}/
+│   ├── SharedComponents/             # Stateless UI primitives (design system).
+│   │                                 #   Imports only Infrastructure. No atom subscriptions.
+│   │                                 #   State flows via @Binding / value parameters.
 │   └── Infrastructure/               # Domain-agnostic utilities
 ├── docs/architecture/                # Authoritative design docs (see table above)
 ├── docs/plans/                       # Date-prefixed implementation plans
@@ -268,7 +287,7 @@ agent-studio/
 └── vendor/zmx/                       # Git submodule: zmx session multiplexer
 ```
 
-**Import rule:** `App/ → Core/, Features/, Infrastructure/` | `Features/ → Core/, Infrastructure/` | `Core/ → Infrastructure/` | Never `Core/ → Features/`
+**Import rule:** `App/ → Core/, Features/, Infrastructure/, SharedComponents/` | `Features/ → Core/, Infrastructure/, SharedComponents/` | `Core/ → Infrastructure/` | `SharedComponents/ → Infrastructure/` | Never `Core/ → Features/`, `Features/X → Features/Y`, `SharedComponents/ → Core|Features|App`
 
 **Key config files:** `Package.swift` (SPM manifest), `.mise.toml` (build tasks), `.swift-format`, `.swiftlint.yml`
 
