@@ -45,6 +45,9 @@ Sources/AgentStudio/
 │                                     #   PaneLeafContainer, SplitContainerDropCaptureOverlay,
 │                                     #   PaneDragCoordinator, PaneDropTargetOverlay, SplitView
 │
+├── Components/                       # Reusable UI building blocks
+│   └── EditorChooser/                # Editor chooser menu content + row item model
+│
 ├── Features/
 │   ├── Bridge/                       # React/WebView pane system
 │   │   ├── Transport/                # JSON-RPC transport and bootstrap wiring
@@ -64,7 +67,6 @@ Sources/AgentStudio/
 │   │
 │   ├── CodeViewer/                   # Native code-viewer pane mount view
 │   ├── CommandBar/                   # ⌘P command palette
-│   ├── EditorChooser/                # Reusable editor chooser menu content
 │   ├── Sidebar/                      # Sidebar content and row/group rendering
 │   ├── Terminal/                     # Everything Ghostty-specific
 │   │   ├── Ghostty/                  # C API bridge, SurfaceManager, SurfaceTypes
@@ -123,16 +125,23 @@ To keep ownership decisions consistent, use these terms:
   - Includes controller/stateful orchestration, platform event wiring, and cross-service flow.
   - Examples: `MainSplitViewController`, `PaneTabViewController`, `PaneCoordinator`.
 
+- **Component slice**
+  - Reusable UI building blocks that are not themselves a product feature and do not own host placement.
+  - Usually belongs in `Components/`.
+  - Owns rendering, layout, and small UI-facing models.
+  - Examples: `Components/EditorChooser/EditorChooserMenuContent`, `Components/EditorChooser/EditorChoiceItem`.
+
 Practical rule:
 - If a component imports two or more feature services, it is a vertical slice in `App/` (or should be split).
 - If a component has no feature-specific logic and is shared by multiple features, it belongs in a core slice.
+- If a component is reusable UI but not host-specific assembly and not shared domain state, it belongs in `Components/`.
 
 Host-shell plus feature-content split:
 - Keep host-owned shell assembly in `App/` when placement, anchoring, divider rules, or pane/window wiring are specific to a host surface.
-- Put capability-specific reusable content in `Features/<Capability>/` when the content may be reused by multiple hosts, even if the first host lives in `App/`.
+- Put reusable UI content in `Components/` when the content may be reused by multiple hosts, even if the first host lives in `App/`.
 - Example:
   - `App/Panes/DrawerEditorChooser/` owns the drawer button, placement, anchoring, divider, and pane wiring
-  - `Features/EditorChooser/` owns numbered rows, bookmark UI, and the chooser menu model
+  - `Components/EditorChooser/` owns numbered rows, bookmark UI, and the chooser menu content
 
 ### Why Swift Makes This Free
 

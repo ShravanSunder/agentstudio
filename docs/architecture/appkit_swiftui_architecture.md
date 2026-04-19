@@ -32,7 +32,7 @@ Host surfaces such as pane toolbars, drawer chrome, window chrome, and tab shell
 
 Example:
 - `App/Panes/DrawerEditorChooser/` owns the drawer toolbar button, anchoring, divider, and pane wiring
-- `Features/EditorChooser/` owns the numbered editor chooser menu rows and bookmark UI
+- `Components/EditorChooser/` owns the numbered editor chooser menu rows and bookmark UI
 
 ### NSHostingController
 Use for full-screen components, sidebars, or major view controller containment.

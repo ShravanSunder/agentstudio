@@ -14,7 +14,7 @@
 
 **Slice Boundary:** This feature uses a host-shell plus feature-content split:
 - `App/Panes/DrawerEditorChooser/` owns drawer-specific assembly, placement, anchoring, and pane wiring
-- `Features/EditorChooser/` owns the reusable editor chooser menu content, row model, and menu styling
+- `Components/EditorChooser/` owns the reusable editor chooser menu content, row model, and menu styling
 - `Core/State/.../UIStateAtom.swift` owns editor chooser runtime state
 - `Infrastructure/` owns installed editor discovery and external editor launching
 
@@ -193,11 +193,11 @@ This same resolution must be used for:
 
 - `Sources/AgentStudio/App/Panes/DrawerEditorChooser/DrawerEditorChooserFactory.swift`
   - Concrete drawer-editor wiring from atom + pane context into the drawer-owned shell.
-- `Sources/AgentStudio/Features/EditorChooser/EditorChoiceItem.swift`
+- `Sources/AgentStudio/Components/EditorChooser/EditorChoiceItem.swift`
   - Reusable editor row model with `id`, `title`, `appIcon`, and `shortcutNumber`.
-- `Sources/AgentStudio/Features/EditorChooser/EditorChooserMenuContent.swift`
+- `Sources/AgentStudio/Components/EditorChooser/EditorChooserMenuContent.swift`
   - Reusable numbered editor menu content. `EditorChooserMenuModel` lives in this file alongside the reusable view.
-- `Tests/AgentStudioTests/Features/EditorChooser/EditorChooserMenuModelTests.swift`
+- `Tests/AgentStudioTests/Components/EditorChooser/EditorChooserMenuContentTests.swift`
   - Model-level row-order, number, and bookmark rendering tests.
 
 ### Deleted files
@@ -214,9 +214,9 @@ This same resolution must be used for:
   - Hydrate and flush the nested editor state.
 - `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspacePersistor.swift`
   - Remove old favorite-choice persistence and add editor-state persistence with backward-compatible decode.
-- `Sources/AgentStudio/Infrastructure/ExternalEditorTarget.swift`
+- `Sources/AgentStudio/Infrastructure/ExternalApps/ExternalEditorTarget.swift`
   - Keep the existing editor catalog work, ensure discovery refreshes on each menu build and open action, and provide implicit default resolution.
-- `Sources/AgentStudio/Infrastructure/ExternalWorkspaceOpener.swift`
+- `Sources/AgentStudio/Infrastructure/ExternalApps/ExternalWorkspaceOpener.swift`
   - Remove old preferred/favorite helpers and keep only the concrete launch helpers needed by the new chooser.
 - `Sources/AgentStudio/Core/Views/Drawer/DrawerOverlay.swift`
   - Replace old trailing props with the concrete editor chooser factory output.
@@ -238,12 +238,12 @@ This same resolution must be used for:
   - Persistence and backward-compat coverage.
 - `Tests/AgentStudioTests/Core/Stores/WorkspaceUIStoreTests.swift`
   - `bookmarkedEditorId` and `openForPaneId` atom behavior.
-- `Tests/AgentStudioTests/Infrastructure/ExternalWorkspaceOpenerTests.swift`
+- `Tests/AgentStudioTests/Infrastructure/ExternalApps/ExternalWorkspaceOpenerTests.swift`
   - app/CLI fallback ordering and stale target handling.
 - `docs/architecture/directory_structure.md`
   - Add the host-shell vs feature-content placement rule and this chooser as a concrete example.
 - `docs/architecture/README.md`
-  - Add `Features/EditorChooser/` to the architecture map.
+  - Add `Components/EditorChooser/` to the architecture map.
 - `docs/architecture/appkit_swiftui_architecture.md`
   - Document that drawer toolbar assembly stays App-owned even when it embeds feature-owned content.
 
@@ -265,7 +265,7 @@ This same resolution must be used for:
 - Modify: `Sources/AgentStudio/App/Commands/AppCommand.swift`
 - Modify: `Sources/AgentStudio/App/Commands/AppShortcut.swift`
 - Modify: `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
-- Modify: `Sources/AgentStudio/Infrastructure/ExternalWorkspaceOpener.swift`
+- Modify: `Sources/AgentStudio/Infrastructure/ExternalApps/ExternalWorkspaceOpener.swift`
 
 - [ ] **Step 1: Delete the old UI/model/test files**
 
@@ -409,10 +409,10 @@ Expected:
 ### Task 2: Build The Reusable Popover And Concrete Drawer Factory
 
 **Files:**
-- Create: `Sources/AgentStudio/Features/EditorChooser/EditorChoiceItem.swift`
-- Create: `Sources/AgentStudio/Features/EditorChooser/EditorChooserMenuContent.swift`
+- Create: `Sources/AgentStudio/Components/EditorChooser/EditorChoiceItem.swift`
+- Create: `Sources/AgentStudio/Components/EditorChooser/EditorChooserMenuContent.swift`
 - Create: `Sources/AgentStudio/App/Panes/DrawerEditorChooser/DrawerEditorChooserFactory.swift`
-- Test: `Tests/AgentStudioTests/Features/EditorChooser/EditorChooserMenuModelTests.swift`
+- Test: `Tests/AgentStudioTests/Components/EditorChooser/EditorChooserMenuContentTests.swift`
 
 - [ ] **Step 1: Write the failing reusable model tests**
 
@@ -437,7 +437,7 @@ func displayItems_preserveOrderAndNumbers() {
 - [ ] **Step 2: Run the focused tests to verify they fail**
 
 Run:
-`swift test --filter "EditorChooserMenuModelTests" --build-path ".build-agent-$PPID"`
+`swift test --filter "EditorChooserMenuContentTests" --build-path ".build-agent-$PPID"`
 
 Expected:
 - FAIL because the reusable model does not exist yet
@@ -478,7 +478,7 @@ It does **not** require callers to prebuild `EditorChoiceItem` arrays.
 - [ ] **Step 5: Run the focused tests to verify they pass**
 
 Run:
-`swift test --filter "EditorChooserMenuModelTests" --build-path ".build-agent-$PPID"`
+`swift test --filter "EditorChooserMenuContentTests" --build-path ".build-agent-$PPID"`
 
 Expected:
 - PASS
@@ -596,11 +596,11 @@ Add to `directory_structure.md`:
 
 Add this chooser as the concrete example:
 - `App/Panes/DrawerEditorChooser/` owns drawer button, placement, anchoring, divider, and pane wiring
-- `Features/EditorChooser/` owns numbered rows, bookmark UI, and chooser model
+- `Components/EditorChooser/` owns numbered rows, bookmark UI, and chooser model
 
 - [ ] **Step 2: Update the architecture index**
 
-Add `Features/EditorChooser/` to `docs/architecture/README.md` so the new slice is visible in the architecture map.
+Add `Components/EditorChooser/` to `docs/architecture/README.md` so the new slice is visible in the architecture map.
 
 - [ ] **Step 3: Update AppKit/SwiftUI architecture guidance**
 
@@ -618,8 +618,8 @@ Make sure the same terms are used throughout:
 
 **Files:**
 - Modify: `Tests/AgentStudioTests/Core/Stores/WorkspaceUIStoreTests.swift`
-- Modify: `Tests/AgentStudioTests/Infrastructure/ExternalWorkspaceOpenerTests.swift`
-- Modify: `Tests/AgentStudioTests/Features/EditorChooser/EditorChooserMenuModelTests.swift`
+- Modify: `Tests/AgentStudioTests/Infrastructure/ExternalApps/ExternalWorkspaceOpenerTests.swift`
+- Modify: `Tests/AgentStudioTests/Components/EditorChooser/EditorChooserMenuContentTests.swift`
 
 - [ ] **Step 1: Add the missing regression tests**
 
@@ -633,7 +633,7 @@ Add explicit coverage for:
 - [ ] **Step 2: Run the focused regression tests to verify they pass**
 
 Run:
-`swift test --filter "WorkspaceUIStoreTests|ExternalWorkspaceOpenerTests|EditorChooserMenuModelTests|PaneTabViewControllerCommandTests" --build-path ".build-agent-$PPID"`
+`swift test --filter "WorkspaceUIStoreTests|ExternalWorkspaceOpenerTests|EditorChooserMenuContentTests|PaneTabViewControllerCommandTests" --build-path ".build-agent-$PPID"`
 
 Expected:
 - PASS
