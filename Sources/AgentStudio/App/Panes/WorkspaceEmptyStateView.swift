@@ -2,6 +2,7 @@ import SwiftUI
 
 enum WorkspaceEmptyStateLayout {
     static let visibleRecentCardLimit: Int = 6
+    static let intakeActionRegionMinHeight: CGFloat = 92
 }
 
 enum WorkspaceEmptyStateCopy {
@@ -38,6 +39,20 @@ enum WorkspaceEmptyStateCopy {
             return "~" + fullPath.dropFirst(home.count)
         }
         return fullPath
+    }
+
+    static func titleFolderName(for path: URL?, fallback: String) -> String {
+        guard let path else { return fallback }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let fullPath = path.path
+        if fullPath == home {
+            return "~"
+        }
+        let leafName = path.lastPathComponent
+        if leafName.isEmpty {
+            return displayName(for: path, fallback: fallback)
+        }
+        return leafName
     }
 }
 
@@ -94,10 +109,10 @@ struct WorkspaceEmptyStateView: View {
                         .padding(.bottom, AppStyles.Welcome.pageVerticalPadding)
                 }
                 .id("launcher")
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: model.kind)
+        .animation(.smooth(duration: 0.20), value: model.kind)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
     }
@@ -113,6 +128,7 @@ struct WorkspaceEmptyStateView: View {
                     .font(AppStyles.Welcome.Typography.caption)
                     .foregroundStyle(.tertiary)
             }
+            .frame(minHeight: WorkspaceEmptyStateLayout.intakeActionRegionMinHeight, alignment: .topLeading)
             .padding(.top, AppStyles.Welcome.intakeActionTopPadding)
         }
     }
@@ -134,6 +150,7 @@ struct WorkspaceEmptyStateView: View {
                     .font(AppStyles.Welcome.Typography.caption)
                     .foregroundStyle(.tertiary)
             }
+            .frame(minHeight: WorkspaceEmptyStateLayout.intakeActionRegionMinHeight, alignment: .topLeading)
             .padding(.top, AppStyles.Welcome.intakeActionTopPadding)
         }
     }
@@ -144,7 +161,7 @@ struct WorkspaceEmptyStateView: View {
                 HStack(spacing: AppStyles.Welcome.intakeScanningSpinnerGap) {
                     ProgressView()
                         .controlSize(.small)
-                    Text(WorkspaceEmptyStateCopy.scanningTitle(folder: scanningFolderDisplayName))
+                    Text(WorkspaceEmptyStateCopy.scanningTitle(folder: scanningFolderTitle))
                         .font(AppStyles.Welcome.Typography.h3)
                         .foregroundStyle(
                             .primary.opacity(AppStyles.Welcome.intakeScanningTitleOpacity)
@@ -155,6 +172,7 @@ struct WorkspaceEmptyStateView: View {
                     .font(AppStyles.Welcome.Typography.caption)
                     .foregroundStyle(.tertiary)
             }
+            .frame(minHeight: WorkspaceEmptyStateLayout.intakeActionRegionMinHeight, alignment: .topLeading)
             .padding(.top, AppStyles.Welcome.intakeActionTopPadding)
         }
     }
@@ -162,7 +180,7 @@ struct WorkspaceEmptyStateView: View {
     private var scanEmptyBody: some View {
         folderIntakeLayout {
             VStack(alignment: .leading, spacing: AppStyles.Welcome.intakeActionRowSpacing) {
-                Text(WorkspaceEmptyStateCopy.scanEmptyTitle(folder: emptyFolderDisplayName))
+                Text(WorkspaceEmptyStateCopy.scanEmptyTitle(folder: emptyFolderTitle))
                     .font(AppStyles.Welcome.Typography.h3)
                     .foregroundStyle(
                         .primary.opacity(AppStyles.Welcome.intakeScanningTitleOpacity)
@@ -176,6 +194,7 @@ struct WorkspaceEmptyStateView: View {
                     .font(AppStyles.Welcome.Typography.caption)
                     .foregroundStyle(.tertiary)
             }
+            .frame(minHeight: WorkspaceEmptyStateLayout.intakeActionRegionMinHeight, alignment: .topLeading)
             .padding(.top, AppStyles.Welcome.intakeActionTopPadding)
         }
     }
@@ -200,14 +219,24 @@ struct WorkspaceEmptyStateView: View {
                 actionRegion()
             }
         }
+        .frame(maxWidth: AppStyles.Welcome.launcherContentMaxWidth, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var scanningFolderDisplayName: String {
         WorkspaceEmptyStateCopy.displayName(for: model.scanningFolderPath, fallback: "")
     }
 
+    private var scanningFolderTitle: String {
+        WorkspaceEmptyStateCopy.titleFolderName(for: model.scanningFolderPath, fallback: "")
+    }
+
     private var emptyFolderDisplayName: String {
         WorkspaceEmptyStateCopy.displayName(for: model.emptyFolderPath, fallback: "this folder")
+    }
+
+    private var emptyFolderTitle: String {
+        WorkspaceEmptyStateCopy.titleFolderName(for: model.emptyFolderPath, fallback: "this folder")
     }
 
     private func launcherBody() -> some View {
@@ -275,7 +304,7 @@ struct WorkspaceEmptyStateView: View {
                 launcherShortcutRow(
                     keyImage: "folder.badge.plus",
                     title: "Watch Folder",
-                    subtitle: "Scan a new folder for repos.",
+                    subtitle: "Scan and keep watching a folder for repos.",
                     action: { CommandDispatcher.shared.dispatch(.addFolder) }
                 )
             }
