@@ -20,10 +20,10 @@ struct ManagementLayerStyleTests {
     }
 
     @Test
-    func backgroundOpacity_hovered_isStrongerThanRest() {
+    func backgroundOpacity_hovered_isLighterThanRest() {
         let rest = AppStyles.Shell.ManagementLayer.backgroundOpacity(isHovered: false)
         let hovered = AppStyles.Shell.ManagementLayer.backgroundOpacity(isHovered: true)
-        #expect(hovered > rest)
+        #expect(hovered < rest)
     }
 
     @Test

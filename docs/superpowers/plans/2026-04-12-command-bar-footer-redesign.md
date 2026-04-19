@@ -572,7 +572,7 @@ var backgroundOpacity: CGFloat {
 - [ ] **Step 3: Build and verify visually**
 
 ```bash
-AGENT_RUN_ID="footer" mise run build 2>&1 | tail -5
+mise run build 2>&1 | tail -5
 ```
 
 Expected: Build complete.
@@ -616,7 +616,7 @@ Expected: All tests pass. No new failures from footer changes.
 - [ ] **Step 2: Run lint**
 
 ```bash
-AGENT_RUN_ID="footer" mise run lint 2>&1 | tail -5
+mise run lint 2>&1 | tail -5
 ```
 
 Expected: 0 violations.

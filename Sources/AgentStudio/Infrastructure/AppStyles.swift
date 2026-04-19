@@ -157,9 +157,9 @@ enum AppStyles {
         }
 
         enum ManagementLayer {
-            static let modeDimmingOpacity: CGFloat = 0.35
-            static let controlFillOpacity: CGFloat = 0.70
-            static let controlHoverDelta: CGFloat = 0.05
+            static let modeDimmingOpacity: CGFloat = 0.30
+            static let controlFillOpacity: CGFloat = 0.95
+            static let controlHoverDelta: CGFloat = -0.20
             static let actionSize: CGFloat = 28
             static let actionIconSize: CGFloat = 13
             static let dragHandleWidth: CGFloat = 60
@@ -316,7 +316,25 @@ enum AppStyles {
         // with a small margin for breathing room.
         static let previewResultsHeight: CGFloat = 264
         static let launcherPreviewCalloutGap: CGFloat = 12
-        static let scopesCalloutItemGap: CGFloat = 20
+
+        // Scopes callout (clickable pills below the preview)
+        static let scopesCalloutItemGap: CGFloat = 6
+        static let scopesCalloutHorizontalPadding: CGFloat = 10
+        static let scopesCalloutVerticalPadding: CGFloat = 8
+        static let scopesCalloutCornerRadius: CGFloat = 10
+
+        // Scope pill (inside the callout) — accent-tinted background when
+        // selected so the user sees which scope is driving the preview.
+        static let scopesCalloutPillHorizontalPadding: CGFloat = 10
+        static let scopesCalloutPillVerticalPadding: CGFloat = 6
+        static let scopesCalloutPillCornerRadius: CGFloat = 6
+        static let scopesCalloutPillContentSpacing: CGFloat = 6
+        static let scopesCalloutPillSelectedFillOpacity: CGFloat = 0.15
+
+        // Crossfade when the selected scope flips the preview's mock data.
+        // Short (100ms) — reads as a near-instant swap with just enough
+        // softening to avoid a jarring flash.
+        static let launcherPreviewScopeCrossfadeDuration: Double = 0.1
 
         // Shortcut rows in the right column get the same faint-outlined card
         // chrome as the preview + scopes callout, so they read as clickable.

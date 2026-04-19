@@ -2,6 +2,7 @@ import SwiftUI
 
 enum WorkspaceEmptyStateLayout {
     static let visibleRecentCardLimit: Int = 6
+    static let intakeActionRegionMinHeight: CGFloat = 92
 }
 
 enum WorkspaceEmptyStateCopy {
@@ -38,6 +39,20 @@ enum WorkspaceEmptyStateCopy {
             return "~" + fullPath.dropFirst(home.count)
         }
         return fullPath
+    }
+
+    static func titleFolderName(for path: URL?, fallback: String) -> String {
+        guard let path else { return fallback }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let fullPath = path.path
+        if fullPath == home {
+            return "~"
+        }
+        let leafName = path.lastPathComponent
+        if leafName.isEmpty {
+            return displayName(for: path, fallback: fallback)
+        }
+        return leafName
     }
 }
 
@@ -94,10 +109,10 @@ struct WorkspaceEmptyStateView: View {
                         .padding(.bottom, AppStyles.Welcome.pageVerticalPadding)
                 }
                 .id("launcher")
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
+                .transition(.opacity)
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: model.kind)
+        .animation(.smooth(duration: 0.20), value: model.kind)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
     }
@@ -113,6 +128,7 @@ struct WorkspaceEmptyStateView: View {
                     .font(AppStyles.Welcome.Typography.caption)
                     .foregroundStyle(.tertiary)
             }
+            .frame(minHeight: WorkspaceEmptyStateLayout.intakeActionRegionMinHeight, alignment: .topLeading)
             .padding(.top, AppStyles.Welcome.intakeActionTopPadding)
         }
     }
@@ -134,6 +150,7 @@ struct WorkspaceEmptyStateView: View {
                     .font(AppStyles.Welcome.Typography.caption)
                     .foregroundStyle(.tertiary)
             }
+            .frame(minHeight: WorkspaceEmptyStateLayout.intakeActionRegionMinHeight, alignment: .topLeading)
             .padding(.top, AppStyles.Welcome.intakeActionTopPadding)
         }
     }
@@ -144,7 +161,7 @@ struct WorkspaceEmptyStateView: View {
                 HStack(spacing: AppStyles.Welcome.intakeScanningSpinnerGap) {
                     ProgressView()
                         .controlSize(.small)
-                    Text(WorkspaceEmptyStateCopy.scanningTitle(folder: scanningFolderDisplayName))
+                    Text(WorkspaceEmptyStateCopy.scanningTitle(folder: scanningFolderTitle))
                         .font(AppStyles.Welcome.Typography.h3)
                         .foregroundStyle(
                             .primary.opacity(AppStyles.Welcome.intakeScanningTitleOpacity)
@@ -155,6 +172,7 @@ struct WorkspaceEmptyStateView: View {
                     .font(AppStyles.Welcome.Typography.caption)
                     .foregroundStyle(.tertiary)
             }
+            .frame(minHeight: WorkspaceEmptyStateLayout.intakeActionRegionMinHeight, alignment: .topLeading)
             .padding(.top, AppStyles.Welcome.intakeActionTopPadding)
         }
     }
@@ -162,7 +180,7 @@ struct WorkspaceEmptyStateView: View {
     private var scanEmptyBody: some View {
         folderIntakeLayout {
             VStack(alignment: .leading, spacing: AppStyles.Welcome.intakeActionRowSpacing) {
-                Text(WorkspaceEmptyStateCopy.scanEmptyTitle(folder: emptyFolderDisplayName))
+                Text(WorkspaceEmptyStateCopy.scanEmptyTitle(folder: emptyFolderTitle))
                     .font(AppStyles.Welcome.Typography.h3)
                     .foregroundStyle(
                         .primary.opacity(AppStyles.Welcome.intakeScanningTitleOpacity)
@@ -176,6 +194,7 @@ struct WorkspaceEmptyStateView: View {
                     .font(AppStyles.Welcome.Typography.caption)
                     .foregroundStyle(.tertiary)
             }
+            .frame(minHeight: WorkspaceEmptyStateLayout.intakeActionRegionMinHeight, alignment: .topLeading)
             .padding(.top, AppStyles.Welcome.intakeActionTopPadding)
         }
     }
@@ -200,14 +219,24 @@ struct WorkspaceEmptyStateView: View {
                 actionRegion()
             }
         }
+        .frame(maxWidth: AppStyles.Welcome.launcherContentMaxWidth, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 
     private var scanningFolderDisplayName: String {
         WorkspaceEmptyStateCopy.displayName(for: model.scanningFolderPath, fallback: "")
     }
 
+    private var scanningFolderTitle: String {
+        WorkspaceEmptyStateCopy.titleFolderName(for: model.scanningFolderPath, fallback: "")
+    }
+
     private var emptyFolderDisplayName: String {
         WorkspaceEmptyStateCopy.displayName(for: model.emptyFolderPath, fallback: "this folder")
+    }
+
+    private var emptyFolderTitle: String {
+        WorkspaceEmptyStateCopy.titleFolderName(for: model.emptyFolderPath, fallback: "this folder")
     }
 
     private func launcherBody() -> some View {
@@ -255,10 +284,7 @@ struct WorkspaceEmptyStateView: View {
 
     private var launcherShortcutsColumns: some View {
         HStack(alignment: .top, spacing: AppStyles.Welcome.launcherShortcutsColumnsGap) {
-            VStack(spacing: AppStyles.Welcome.launcherPreviewCalloutGap) {
-                CommandBarEmbeddedPreview()
-                LauncherScopesCallout()
-            }
+            LauncherPreviewStack()
 
             VStack(alignment: .leading, spacing: AppStyles.Welcome.launcherRowGap) {
                 launcherShortcutRow(
@@ -278,7 +304,7 @@ struct WorkspaceEmptyStateView: View {
                 launcherShortcutRow(
                     keyImage: "folder.badge.plus",
                     title: "Watch Folder",
-                    subtitle: "Scan a new folder for repos.",
+                    subtitle: "Scan and keep watching a folder for repos.",
                     action: { CommandDispatcher.shared.dispatch(.addFolder) }
                 )
             }
@@ -339,253 +365,6 @@ struct WorkspaceEmptyStateView: View {
 
             Spacer(minLength: 0)
         }
-    }
-}
-
-struct CommandBarEmbeddedPreview: View {
-    static let previewQuery: String = "gho"
-
-    static let mockItems: [CommandBarItem] = [
-        CommandBarItem(
-            id: "preview-ghostty",
-            title: "ghostty",
-            icon: "star.fill",
-            iconColor: AppStyles.Shell.Sidebar.paletteColor(
-                at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex
-            ),
-            group: "Repos",
-            groupPriority: 10,
-            action: .custom {}
-        ),
-        CommandBarItem(
-            id: "preview-ghostrider",
-            title: "ghostrider",
-            icon: "star.fill",
-            iconColor: AppStyles.Shell.Sidebar.paletteColor(
-                at: WelcomeSidebarIllustrationConstants.uvPaletteIndex
-            ),
-            group: "Repos",
-            groupPriority: 10,
-            action: .custom {}
-        ),
-        CommandBarItem(
-            id: "preview-ghostty-gpu-renderer",
-            title: "ghostty.gpu-renderer",
-            icon: "arrow.triangle.branch",
-            iconColor: AppStyles.Shell.Sidebar.paletteColor(
-                at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex
-            ),
-            group: "ghostty (worktrees)",
-            groupPriority: 20,
-            action: .custom {}
-        ),
-        CommandBarItem(
-            id: "preview-ghostty-fix-keybinds",
-            title: "ghostty.fix-keybinds",
-            icon: "arrow.triangle.branch",
-            iconColor: AppStyles.Shell.Sidebar.paletteColor(
-                at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex
-            ),
-            group: "ghostty (worktrees)",
-            groupPriority: 20,
-            action: .custom {}
-        ),
-        CommandBarItem(
-            id: "preview-ghostrider-fix-engine",
-            title: "ghostrider.fix-engine",
-            icon: "arrow.triangle.branch",
-            iconColor: AppStyles.Shell.Sidebar.paletteColor(
-                at: WelcomeSidebarIllustrationConstants.uvPaletteIndex
-            ),
-            group: "ghostrider (worktrees)",
-            groupPriority: 30,
-            action: .custom {}
-        ),
-    ]
-
-    static var mockGroups: [CommandBarItemGroup] {
-        var seenGroupNames: [String] = []
-        var grouped: [String: [CommandBarItem]] = [:]
-        for item in mockItems {
-            if grouped[item.group] == nil {
-                seenGroupNames.append(item.group)
-            }
-            grouped[item.group, default: []].append(item)
-        }
-        return seenGroupNames.map { name in
-            CommandBarItemGroup(
-                id: "preview-group-\(name)",
-                name: name,
-                priority: grouped[name]?.first?.groupPriority ?? 0,
-                items: grouped[name] ?? []
-            )
-        }
-    }
-
-    @State private var previewState: CommandBarState = {
-        let state = CommandBarState()
-        state.rawInput = previewQuery
-        state.selectedIndex = 0
-        return state
-    }()
-
-    private var selectedItem: CommandBarItem? {
-        Self.mockItems.first
-    }
-
-    private var footerHints: [FooterHint] {
-        FooterHintBuilder.hints(
-            for: selectedItem,
-            isNested: false,
-            canOpenInCurrentTab: false,
-            scope: .everything
-        )
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            CommandBarSearchField(
-                state: previewState,
-                onArrowUp: {},
-                onArrowDown: {},
-                onEnter: { _ in },
-                onShortcutTrigger: { _ in false },
-                onBackspaceOnEmpty: {}
-            )
-
-            Divider()
-                .opacity(AppStyles.CommandBar.Panel.nestedDividerOpacity)
-
-            CommandBarResultsList(
-                groups: Self.mockGroups,
-                selectedIndex: 0,
-                searchQuery: Self.previewQuery,
-                onSelect: { _ in }
-            )
-            .frame(height: AppStyles.Welcome.previewResultsHeight)
-
-            Divider()
-                .opacity(AppStyles.CommandBar.Panel.nestedDividerOpacity)
-
-            CommandBarFooter(hints: footerHints)
-        }
-        .frame(width: AppStyles.Welcome.previewWidth, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: AppStyles.Welcome.previewCornerRadius)
-                .fill(Color(nsColor: AppStyles.Shell.TabBar.titlebarBackground))
-                .overlay(
-                    RoundedRectangle(cornerRadius: AppStyles.Welcome.previewCornerRadius)
-                        .stroke(Color.white.opacity(AppStyles.Welcome.cardStrokeOpacity), lineWidth: 1)
-                )
-        )
-        .clipShape(RoundedRectangle(cornerRadius: AppStyles.Welcome.previewCornerRadius))
-        .allowsHitTesting(false)
-    }
-}
-
-private struct LauncherShortcutRow: View {
-    let key: String?
-    let keyImage: String?
-    let title: String
-    let subtitle: String
-    let action: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        Button {
-            action()
-        } label: {
-            HStack(alignment: .firstTextBaseline, spacing: AppStyles.Welcome.launcherShortcutKeyTitleGap) {
-                Group {
-                    if let keyImage {
-                        Image(systemName: keyImage)
-                            .font(AppStyles.Welcome.Typography.key)
-                            .foregroundStyle(Color.accentColor)
-                    } else {
-                        Text(key ?? "")
-                            .font(AppStyles.Welcome.Typography.key)
-                            .foregroundStyle(Color.accentColor)
-                    }
-                }
-                .frame(width: AppStyles.Welcome.launcherShortcutKeyColumnWidth, alignment: .leading)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(AppStyles.Welcome.Typography.h3)
-                        .foregroundStyle(.primary.opacity(AppStyles.Welcome.TextColor.h3Opacity))
-
-                    Text(subtitle)
-                        .font(AppStyles.Welcome.Typography.bodySm)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, AppStyles.Welcome.launcherShortcutRowHorizontalPadding)
-            .padding(.vertical, AppStyles.Welcome.launcherShortcutRowVerticalPadding)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(rowBackground)
-            .overlay(rowBorder)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-    }
-
-    private var rowBackground: some View {
-        RoundedRectangle(cornerRadius: AppStyles.Welcome.launcherShortcutRowCornerRadius)
-            .fill(
-                isHovered
-                    ? Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity)
-                    : Color.white.opacity(AppStyles.Welcome.cardFillOpacity)
-            )
-    }
-
-    private var rowBorder: some View {
-        RoundedRectangle(cornerRadius: AppStyles.Welcome.launcherShortcutRowCornerRadius)
-            .stroke(Color.white.opacity(AppStyles.Welcome.cardStrokeOpacity), lineWidth: 1)
-    }
-}
-
-struct LauncherScopesCallout: View {
-    private struct Scope: Identifiable {
-        let id: String
-        let prefix: String
-        let label: String
-    }
-
-    private let scopes: [Scope] = [
-        Scope(id: "scope-commands", prefix: ">", label: "Commands"),
-        Scope(id: "scope-panes", prefix: "$", label: "Panes"),
-        Scope(id: "scope-repos", prefix: "#", label: "Repos · Worktrees"),
-    ]
-
-    var body: some View {
-        HStack(spacing: AppStyles.Welcome.scopesCalloutItemGap) {
-            ForEach(scopes) { scope in
-                HStack(spacing: 6) {
-                    Text(scope.prefix)
-                        .font(AppStyles.Welcome.Typography.key)
-                        .foregroundStyle(Color.accentColor)
-                    Text(scope.label)
-                        .font(AppStyles.Welcome.Typography.bodySm)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .frame(width: AppStyles.Welcome.previewWidth, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.white.opacity(AppStyles.Welcome.cardFillOpacity))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(Color.white.opacity(AppStyles.Welcome.cardStrokeOpacity), lineWidth: 1)
-                )
-        )
     }
 }
 

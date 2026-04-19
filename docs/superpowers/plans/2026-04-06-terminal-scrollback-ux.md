@@ -796,7 +796,7 @@ Expected:
 Run:
 
 ```bash
-AGENT_RUN_ID="$(uuidgen | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9' | head -c 12)" mise run test
+mise run test
 ```
 
 Expected:

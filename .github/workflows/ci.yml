@@ -15,7 +15,6 @@ jobs:
   test:
     runs-on: macos-26
     env:
-      AGENT_RUN_ID: ci
       SWIFT_BUILD_DIR: .build-ci
       XCB_EXTRA_ARGS: "--renderer github-actions"
 

@@ -176,6 +176,15 @@ extension PaneCoordinator {
                 startupStrategy = .surfaceCommand(attachCommand)
                 showsRestorePresentationDuringStartup = treatAsRestoredSessionStart
                 environmentVariables["ZMX_DIR"] = sessionConfig.zmxDir
+                // Override ZMX_SESSION to empty for the Ghostty surface's child shell.
+                // `zmx attach` refuses to run when ZMX_SESSION is non-empty
+                // (`vendor/zmx/src/main.zig:1136-1140` — "CannotAttachToSessionInSession").
+                // When Agent Studio is launched from inside another Agent Studio's drawer,
+                // the outer daemon has injected its session name into our inherited env;
+                // without this override the inner's own `zmx attach` immediately exits
+                // and Ghostty shows "Process Exited". Empty string is equivalent to unset
+                // per zmx's `std.posix.getenv(...) orelse ""`.
+                environmentVariables["ZMX_SESSION"] = ""
             } else {
                 Self.logger.error(
                     "zmx not found; using ephemeral session for \(pane.id) (state will not persist)"
@@ -296,6 +305,10 @@ extension PaneCoordinator {
             startupStrategy = .surfaceCommand(attachCommand)
             showsRestorePresentationDuringStartup = treatAsRestoredSessionStart
             environmentVariables["ZMX_DIR"] = sessionConfig.zmxDir
+            // See createView: drawers are the common nested-launch entry point, so
+            // scrubbing an inherited ZMX_SESSION here is essential to avoid zmx's
+            // CannotAttachToSessionInSession early-exit in the child shell.
+            environmentVariables["ZMX_SESSION"] = ""
             RestoreTrace.log(
                 "createFloatingView zmx pane=\(pane.id) session=\(Self.floatingZmxRestoreSessionId(for: pane, launchDirectory: launchDirectory)) cwd=\(launchDirectory.path)"
             )

@@ -577,7 +577,7 @@ Expected: exit code `0`.
 
 - [ ] **Step 3: Run full suite**
 
-Run: `AGENT_RUN_ID=scroll-bottom-command mise run test`
+Run: `mise run test`
 
 Expected: full suite passes.
 
@@ -586,8 +586,8 @@ Expected: full suite passes.
 Run:
 
 ```bash
-AGENT_RUN_ID=scroll-bottom-command mise run build
-AGENT_RUN_ID=scroll-bottom-command mise run build-release
+mise run build
+mise run build-release
 ```
 
 Expected: both builds pass.
