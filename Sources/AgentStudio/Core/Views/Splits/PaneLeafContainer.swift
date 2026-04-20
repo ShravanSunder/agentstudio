@@ -167,6 +167,9 @@ struct PaneLeafContainer: View {
                                 uiState: atom(\.uiState),
                                 paneId: locationTargetPaneId,
                                 canOpenTarget: locationContext.targetPath != nil,
+                                refreshInstalledTargets: {
+                                    ExternalEditorTarget.refreshInstalledTargets()
+                                },
                                 onOpenFinder: { openInFinder(locationContext) },
                                 onOpenEditor: { editorId in
                                     openInEditor(editorId, locationContext)
@@ -282,7 +285,7 @@ struct PaneLeafContainer: View {
                             }
                             .buttonStyle(.plain)
                             .onHover { isMinimizeHovered = $0 }
-                            .help(AppCommand.minimizePane.definition.helpText)
+                            .help(AppCommand.minimizePane.definition.controlToolTip)
 
                             Button {
                                 beginCloseTransition()
@@ -308,7 +311,7 @@ struct PaneLeafContainer: View {
                             }
                             .buttonStyle(.plain)
                             .onHover { isCloseHovered = $0 }
-                            .help(AppCommand.closePane.definition.helpText)
+                            .help(AppCommand.closePane.definition.controlToolTip)
                             .disabled(isClosing)
 
                             Spacer()
@@ -328,7 +331,7 @@ struct PaneLeafContainer: View {
                                 paneEdgeButton(
                                     systemName: "plus",
                                     isHovered: isSplitHovered,
-                                    helpText: AppCommand.splitRight.definition.helpText
+                                    toolTipText: AppCommand.splitRight.definition.controlToolTip
                                 ) {
                                     actionDispatcher.dispatch(
                                         .insertPane(
@@ -344,7 +347,7 @@ struct PaneLeafContainer: View {
                                 paneEdgeButton(
                                     systemName: "globe",
                                     isHovered: isBrowserHovered,
-                                    helpText: LocalActionSpec.openGitHubInNewTab.actionSpec.helpText
+                                    toolTipText: LocalActionSpec.openGitHubInNewTab.actionSpec.helpText
                                 ) {
                                     onOpenPaneGitHub(paneHost.id)
                                 }
@@ -465,7 +468,7 @@ struct PaneLeafContainer: View {
     private func paneEdgeButton(
         systemName: String,
         isHovered: Bool,
-        helpText: String,
+        toolTipText: String,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
@@ -501,7 +504,7 @@ struct PaneLeafContainer: View {
                 )
         }
         .buttonStyle(.plain)
-        .help(helpText)
+        .help(toolTipText)
     }
 
     private func openInFinder(_ context: PaneManagementContext) {

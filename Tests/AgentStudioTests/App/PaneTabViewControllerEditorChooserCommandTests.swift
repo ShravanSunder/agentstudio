@@ -6,16 +6,11 @@ import Testing
 
 @MainActor
 @Suite(.serialized)
-struct PaneTabViewControllerEditorChooserKeyboardTests {
-    private final class LaunchRecorder {
-        var openedEditors: [(id: EditorTargetId, path: URL)] = []
-    }
-
+struct PaneTabViewControllerEditorChooserCommandTests {
     private struct Harness {
         let store: WorkspaceStore
         let controller: PaneTabViewController
         let tempDir: URL
-        let launchRecorder: LaunchRecorder
     }
 
     init() {
@@ -26,13 +21,13 @@ struct PaneTabViewControllerEditorChooserKeyboardTests {
         atom(\.uiState).clear()
 
         let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-editor-chooser-keyboard-\(UUID().uuidString)")
+            .appending(path: "agentstudio-editor-chooser-command-\(UUID().uuidString)")
         let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
         store.restore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let runtimeRegistry = RuntimeRegistry()
-        let surfaceManager = MockEditorChooserKeyboardSurfaceManager(
+        let surfaceManager = MockEditorChooserCommandSurfaceManager(
             createSurfaceResult: .failure(.ghosttyNotInitialized)
         )
         let appLifecycleStore = AppLifecycleAtom()
@@ -49,30 +44,20 @@ struct PaneTabViewControllerEditorChooserKeyboardTests {
             runtimeRegistry: runtimeRegistry,
             windowLifecycleStore: windowLifecycleStore
         )
-        let executor = ActionExecutor(coordinator: coordinator, store: store)
-        let launchRecorder = LaunchRecorder()
         let controller = PaneTabViewController(
             store: store,
             repoCache: RepoCacheAtom(),
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
-            executor: executor,
+            executor: ActionExecutor(coordinator: coordinator, store: store),
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry,
             installedEditorTargetsProvider: { installedEditorTargets },
-            openEditorHandler: { editorId, path, _ in
-                launchRecorder.openedEditors.append((id: editorId, path: path))
-                return true
-            },
+            openEditorHandler: { _, _, _ in true },
             openFinderHandler: { _ in true }
         )
 
-        return Harness(
-            store: store,
-            controller: controller,
-            tempDir: tempDir,
-            launchRecorder: launchRecorder
-        )
+        return Harness(store: store, controller: controller, tempDir: tempDir)
     }
 
     private func makeRepoAndWorktree(_ store: WorkspaceStore, root: URL) -> (Repo, Worktree) {
@@ -87,87 +72,50 @@ struct PaneTabViewControllerEditorChooserKeyboardTests {
         return (repo, worktree)
     }
 
-    @Test("editor chooser digit launches selected editor and closes chooser")
-    func handleEditorChooserKeyEvent_digitLaunchesSelectedEditorAndClosesChooser() {
-        let harness = makeHarness(installedEditorTargets: [.cursor, .vscode, .xcode])
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-
-        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
-        let parentPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
-            title: "Parent",
-            provider: .zmx
-        )
-        let tab = Tab(paneId: parentPane.id)
-        harness.store.appendTab(tab)
-        harness.store.setActiveTab(tab.id)
-        atom(\.uiState).setOpenEditorPane(parentPane.id)
-
-        guard let event = makeKeyEvent(characters: "2", charactersIgnoringModifiers: "2", keyCode: 19) else {
-            Issue.record("Expected synthetic key event")
-            return
-        }
-
-        let result = harness.controller.handleEditorChooserKeyEvent(event)
-
-        #expect(result == nil)
-        #expect(harness.launchRecorder.openedEditors.count == 1)
-        #expect(harness.launchRecorder.openedEditors.first?.id == ExternalEditorTarget.vscode.id)
-        #expect(
-            harness.launchRecorder.openedEditors.first?.path.standardizedFileURL
-                == worktree.path.standardizedFileURL
-        )
-        #expect(atom(\.uiState).editorChooserState.openForPaneId == nil)
-    }
-
-    @Test("editor chooser consumes out-of-range digits while remaining open")
-    func handleEditorChooserKeyEvent_outOfRangeDigit_consumesAndKeepsChooserOpen() {
+    @Test("openPaneLocationInEditorMenu refreshes available editor targets before opening")
+    func executeOpenPaneLocationInEditorMenu_refreshesTargetsAndOpensChooser() {
         let harness = makeHarness(installedEditorTargets: [.cursor, .vscode])
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
-        let parentPane = harness.store.createPane(
+        let pane = harness.store.createPane(
             source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Parent",
             provider: .zmx
         )
-        let tab = Tab(paneId: parentPane.id)
+        let tab = Tab(paneId: pane.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
-        atom(\.uiState).setOpenEditorPane(parentPane.id)
 
-        guard let event = makeKeyEvent(characters: "9", charactersIgnoringModifiers: "9", keyCode: 25) else {
-            Issue.record("Expected synthetic key event")
-            return
-        }
+        harness.controller.execute(.openPaneLocationInEditorMenu)
 
-        let result = harness.controller.handleEditorChooserKeyEvent(event)
-
-        #expect(result == nil)
-        #expect(harness.launchRecorder.openedEditors.isEmpty)
-        #expect(atom(\.uiState).editorChooserState.openForPaneId == parentPane.id)
-        #expect(worktree.path.path.isEmpty == false)
+        #expect(atom(\.uiState).editorChooserState.openForPaneId == pane.id)
+        #expect(atom(\.uiState).availableEditorTargets.map(\.id) == ["cursor", "vscode"])
     }
 
-    @Test("editor chooser ignores digits when the chooser is closed")
-    func handleEditorChooserKeyEvent_whenClosed_passesEventThrough() {
+    @Test("openPaneLocationInEditorMenu toggles closed when already open for the selected pane")
+    func executeOpenPaneLocationInEditorMenu_whenAlreadyOpen_closesChooser() {
         let harness = makeHarness(installedEditorTargets: [.cursor, .vscode])
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        guard let event = makeKeyEvent(characters: "1", charactersIgnoringModifiers: "1", keyCode: 18) else {
-            Issue.record("Expected synthetic key event")
-            return
-        }
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let pane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        atom(\.uiState).setOpenEditorPane(pane.id)
 
-        let result = harness.controller.handleEditorChooserKeyEvent(event)
+        harness.controller.execute(.openPaneLocationInEditorMenu)
 
-        #expect(result === event)
-        #expect(harness.launchRecorder.openedEditors.isEmpty)
         #expect(atom(\.uiState).editorChooserState.openForPaneId == nil)
     }
 }
 
-private final class MockEditorChooserKeyboardSurfaceManager: PaneCoordinatorSurfaceManaging {
+private final class MockEditorChooserCommandSurfaceManager: PaneCoordinatorSurfaceManaging {
     private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
     private let createSurfaceResult: Result<ManagedSurface, SurfaceError>
 
@@ -190,15 +138,10 @@ private final class MockEditorChooserKeyboardSurfaceManager: PaneCoordinatorSurf
     }
 
     @discardableResult
-    func attach(_: UUID, to _: UUID) -> Ghostty.SurfaceView? {
-        nil
-    }
+    func attach(_: UUID, to _: UUID) -> Ghostty.SurfaceView? { nil }
 
     func detach(_: UUID, reason _: SurfaceDetachReason) {}
-
     func undoClose() -> ManagedSurface? { nil }
-
     func requeueUndo(_: UUID) {}
-
     func destroy(_: UUID) {}
 }

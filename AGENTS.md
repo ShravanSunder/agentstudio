@@ -50,7 +50,7 @@ Use these broad ownership rules first, then consult [Directory Structure](docs/a
   Composition root and host-specific assembly. App-owned shells, pane/window controllers, lifecycle wiring, and cross-slice orchestration live here.
 - `Core/`
   Shared domain state and contracts. Models, atoms, persistence wrappers, validated action routing, runtime contracts, and shared split/drawer primitives live here.
-- `Components/`
+- `SharedComponents/`
   Reusable UI building blocks that are not themselves product features and do not own host placement. Use this for reusable menu content, row rendering, and small UI-facing models.
 - `Features/`
   User-facing capability slices such as Terminal, Bridge, CommandBar, Sidebar, and Webview. Features own capability-specific behavior that is broader than a reusable component.
@@ -261,7 +261,7 @@ agent-studio/
 │   │   ├── Windows/MainWindowController.swift
 │   │   ├── Coordination/PaneCoordinator.swift  # Cross-feature sequencing and orchestration
 │   │   └── Panes/                    # Pane tab management and NSView registry
-│   ├── Components/                   # Reusable UI building blocks
+│   ├── SharedComponents/             # Reusable UI building blocks
 │   ├── Core/                         # Shared domain — models, stores, pane system
 │   │   ├── Models/                   # Layout, Tab, Pane, Repo, Worktree
 │   │   ├── State/

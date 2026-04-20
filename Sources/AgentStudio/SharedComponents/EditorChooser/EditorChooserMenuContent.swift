@@ -40,6 +40,9 @@ struct EditorChooserMenuContent: View {
 
     let items: [EditorChoiceItem]
     let bookmarkedEditorId: EditorTargetId?
+    let selectedEditorId: EditorTargetId?
+    let directLaunchHintText: String?
+    let directLaunchShortcutText: String?
     let style: EditorChooserMenuStyle
     let onSelect: (EditorTargetId) -> Void
     let onToggleBookmark: (EditorTargetId) -> Void
@@ -63,12 +66,35 @@ struct EditorChooserMenuContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: style.rowSpacing) {
+            if let directLaunchHintText, let directLaunchShortcutText, !directLaunchShortcutText.isEmpty {
+                headerHint(shortcut: directLaunchShortcutText, text: directLaunchHintText)
+            }
             ForEach(Self.makeDisplayItems(items: items, bookmarkedEditorId: bookmarkedEditorId)) { item in
                 row(item)
             }
         }
         .padding(style.outerPadding)
         .frame(width: style.menuWidth)
+    }
+
+    private func headerHint(shortcut: String, text: String) -> some View {
+        HStack(alignment: .center, spacing: AppStyles.Components.EditorChooser.headerContentSpacing) {
+            Text(shortcut)
+                .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, AppStyles.Components.EditorChooser.shortcutHintHorizontalPadding)
+                .padding(.vertical, AppStyles.Components.EditorChooser.shortcutHintVerticalPadding)
+                .background(
+                    RoundedRectangle(cornerRadius: style.badgeCornerRadius)
+                        .fill(Color.primary.opacity(AppStyles.Components.EditorChooser.badgeFillOpacity))
+                )
+
+            Text(text)
+                .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, style.rowHorizontalPadding)
+        .padding(.bottom, AppStyles.Components.EditorChooser.headerBottomPadding)
     }
 
     @ViewBuilder
@@ -131,9 +157,11 @@ struct EditorChooserMenuContent: View {
         .background(
             RoundedRectangle(cornerRadius: style.rowCornerRadius)
                 .fill(
-                    hoveredRowId == item.id
-                        ? Color.primary.opacity(AppStyles.General.Fill.hover)
-                        : Color.clear
+                    selectedEditorId == item.id
+                        ? Color.accentColor.opacity(0.15)
+                        : (hoveredRowId == item.id
+                            ? Color.primary.opacity(AppStyles.General.Fill.hover)
+                            : Color.clear)
                 )
         )
         .onHover { hovering in

@@ -17,6 +17,14 @@ struct ExternalEditorTarget: Equatable, Identifiable {
     let title: String
     let bundleIdentifier: String
     let cliFallbacks: [CommandRequest]
+    let appIcon: NSImage?
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id
+            && lhs.title == rhs.title
+            && lhs.bundleIdentifier == rhs.bundleIdentifier
+            && lhs.cliFallbacks == rhs.cliFallbacks
+    }
 
     static let cursor = Self(
         id: "cursor",
@@ -27,7 +35,8 @@ struct ExternalEditorTarget: Equatable, Identifiable {
                 executableURL: URL(fileURLWithPath: "/usr/bin/env"),
                 arguments: ["cursor", "--reuse-window"]
             )
-        ]
+        ],
+        appIcon: nil
     )
 
     static let vscode = Self(
@@ -39,35 +48,40 @@ struct ExternalEditorTarget: Equatable, Identifiable {
                 executableURL: URL(fileURLWithPath: "/usr/bin/env"),
                 arguments: ["code", "--reuse-window"]
             )
-        ]
+        ],
+        appIcon: nil
     )
 
     static let windsurf = Self(
         id: "windsurf",
         title: "Windsurf",
         bundleIdentifier: "com.exafunction.windsurf",
-        cliFallbacks: []
+        cliFallbacks: [],
+        appIcon: nil
     )
 
     static let antigravity = Self(
         id: "antigravity",
         title: "Antigravity",
         bundleIdentifier: "com.google.antigravity",
-        cliFallbacks: []
+        cliFallbacks: [],
+        appIcon: nil
     )
 
     static let xcode = Self(
         id: "xcode",
         title: "Xcode",
         bundleIdentifier: "com.apple.dt.Xcode",
-        cliFallbacks: []
+        cliFallbacks: [],
+        appIcon: nil
     )
 
     static let zed = Self(
         id: "zed",
         title: "Zed",
         bundleIdentifier: "dev.zed.Zed",
-        cliFallbacks: []
+        cliFallbacks: [],
+        appIcon: nil
     )
 
     static let curatedOrder: [Self] = [
@@ -81,12 +95,22 @@ struct ExternalEditorTarget: Equatable, Identifiable {
 
     @MainActor
     static func refreshInstalledTargets(
-        isInstalled: (String) -> Bool = { bundleIdentifier in
-            NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) != nil
+        resolveApplicationURL: (String) -> URL? = { bundleIdentifier in
+            NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
         }
     ) -> [Self] {
-        curatedOrder.filter { target in
-            isInstalled(target.bundleIdentifier)
+        curatedOrder.compactMap { target in
+            guard let appURL = resolveApplicationURL(target.bundleIdentifier) else {
+                return nil
+            }
+
+            return Self(
+                id: target.id,
+                title: target.title,
+                bundleIdentifier: target.bundleIdentifier,
+                cliFallbacks: target.cliFallbacks,
+                appIcon: NSWorkspace.shared.icon(forFile: appURL.path)
+            )
         }
     }
 
@@ -107,14 +131,5 @@ struct ExternalEditorTarget: Equatable, Identifiable {
             return .resolved(target)
         }
         return .noDefaultAvailable
-    }
-
-    @MainActor
-    var iconImage: NSImage? {
-        guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else {
-            return nil
-        }
-
-        return NSWorkspace.shared.icon(forFile: appURL.path)
     }
 }
