@@ -3,10 +3,12 @@ import SwiftUI
 
 struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
     let paneFrames: [UUID: CGRect]
-    @Binding var target: DrawerPaneDropTarget?
+    let layout: DrawerGridLayout
+    let containerBounds: CGRect
+    @Binding var target: DrawerRearrangeTarget?
     let isManagementLayerActive: Bool
-    let shouldAcceptDrop: (SplitDropPayload, UUID, DrawerDropZone) -> Bool
-    let handleDrop: (SplitDropPayload, UUID, DrawerDropZone) -> Void
+    let shouldAcceptDrop: (SplitDropPayload, DrawerRearrangeTarget) -> Bool
+    let handleDrop: (SplitDropPayload, DrawerRearrangeTarget) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -26,6 +28,8 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
         )
         context.coordinator.updateLayout(
             paneFrames: paneFrames,
+            layout: layout,
+            containerBounds: containerBounds,
             isManagementLayerActive: isManagementLayerActive
         )
         view.updateDropRegistration(isManagementLayerActive: isManagementLayerActive)
@@ -41,6 +45,8 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
         )
         context.coordinator.updateLayout(
             paneFrames: paneFrames,
+            layout: layout,
+            containerBounds: containerBounds,
             isManagementLayerActive: isManagementLayerActive
         )
         nsView.updateDropRegistration(isManagementLayerActive: isManagementLayerActive)
@@ -51,17 +57,19 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
 
     @MainActor
     final class Coordinator {
-        private var targetBinding: Binding<DrawerPaneDropTarget?>
-        private var shouldAcceptDropClosure: (SplitDropPayload, UUID, DrawerDropZone) -> Bool
-        private var handleDropClosure: (SplitDropPayload, UUID, DrawerDropZone) -> Void
+        private var targetBinding: Binding<DrawerRearrangeTarget?>
+        private var shouldAcceptDropClosure: (SplitDropPayload, DrawerRearrangeTarget) -> Bool
+        private var handleDropClosure: (SplitDropPayload, DrawerRearrangeTarget) -> Void
 
         private(set) var paneFrames: [UUID: CGRect] = [:]
+        private(set) var layout = DrawerGridLayout()
+        private(set) var containerBounds: CGRect = .zero
         private(set) var isManagementLayerActive: Bool = false
 
         init(
-            targetBinding: Binding<DrawerPaneDropTarget?>,
-            shouldAcceptDrop: @escaping (SplitDropPayload, UUID, DrawerDropZone) -> Bool,
-            handleDrop: @escaping (SplitDropPayload, UUID, DrawerDropZone) -> Void
+            targetBinding: Binding<DrawerRearrangeTarget?>,
+            shouldAcceptDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget) -> Bool,
+            handleDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget) -> Void
         ) {
             self.targetBinding = targetBinding
             self.shouldAcceptDropClosure = shouldAcceptDrop
@@ -69,9 +77,9 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
         }
 
         func updateHandlers(
-            targetBinding: Binding<DrawerPaneDropTarget?>,
-            shouldAcceptDrop: @escaping (SplitDropPayload, UUID, DrawerDropZone) -> Bool,
-            handleDrop: @escaping (SplitDropPayload, UUID, DrawerDropZone) -> Void
+            targetBinding: Binding<DrawerRearrangeTarget?>,
+            shouldAcceptDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget) -> Bool,
+            handleDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget) -> Void
         ) {
             self.targetBinding = targetBinding
             self.shouldAcceptDropClosure = shouldAcceptDrop
@@ -80,13 +88,17 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
 
         func updateLayout(
             paneFrames: [UUID: CGRect],
+            layout: DrawerGridLayout,
+            containerBounds: CGRect,
             isManagementLayerActive: Bool
         ) {
             self.paneFrames = paneFrames
+            self.layout = layout
+            self.containerBounds = containerBounds
             self.isManagementLayerActive = isManagementLayerActive
         }
 
-        func setTarget(_ target: DrawerPaneDropTarget?) {
+        func setTarget(_ target: DrawerRearrangeTarget?) {
             if targetBinding.wrappedValue != target {
                 targetBinding.wrappedValue = target
             }
@@ -101,15 +113,17 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
             return types.contains(where: { SplitContainerDropCaptureOverlay.supportedPasteboardTypes.contains($0) })
         }
 
-        func handleDragUpdate(from pasteboard: NSPasteboard, location: CGPoint) -> DrawerPaneDropTarget? {
+        func handleDragUpdate(from pasteboard: NSPasteboard, location: CGPoint) -> DrawerRearrangeTarget? {
             guard let payload = decodeSplitDropPayload(from: pasteboard) else { return nil }
 
             return DrawerPaneDragCoordinator.resolveLatchedTarget(
                 location: location,
                 paneFrames: paneFrames,
+                layout: layout,
+                containerBounds: containerBounds,
                 currentTarget: targetBinding.wrappedValue,
-                shouldAcceptDrop: { paneId, zone in
-                    shouldAcceptDropClosure(payload, paneId, zone)
+                shouldAcceptDrop: { target in
+                    shouldAcceptDropClosure(payload, target)
                 }
             )
         }
@@ -120,14 +134,16 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
             guard
                 let resolvedTarget = DrawerPaneDragCoordinator.resolveTarget(
                     location: location,
-                    paneFrames: paneFrames
+                    paneFrames: paneFrames,
+                    layout: layout,
+                    containerBounds: containerBounds
                 ),
-                shouldAcceptDropClosure(payload, resolvedTarget.paneId, resolvedTarget.zone)
+                shouldAcceptDropClosure(payload, resolvedTarget)
             else {
                 return false
             }
 
-            handleDropClosure(payload, resolvedTarget.paneId, resolvedTarget.zone)
+            handleDropClosure(payload, resolvedTarget)
             return true
         }
     }

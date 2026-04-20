@@ -63,7 +63,7 @@ struct DrawerPanel: View {
     let onOpenPaneGitHub: (UUID) -> Void
 
     @State private var drawerPaneFrames: [UUID: CGRect] = [:]
-    @State private var dropTarget: DrawerPaneDropTarget?
+    @State private var dropTarget: DrawerRearrangeTarget?
     @State private var dropTargetWatchdogTask: Task<Void, Never>?
     @State private var drawerActionDispatcher: PaneTabActionDispatcher
     private var managementLayer: ManagementLayerAtom {
@@ -180,13 +180,9 @@ struct DrawerPanel: View {
 
     private func shouldAcceptDrawerDrop(
         payload: SplitDropPayload,
-        destinationPaneId: UUID,
-        zone: DrawerDropZone
+        target: DrawerRearrangeTarget
     ) -> Bool {
-        guard let drawer = store.paneAtom.pane(parentPaneId)?.drawer else { return false }
-        guard drawer.layout.contains(destinationPaneId) else { return false }
         guard case .existingPane(let sourcePaneId, _) = payload.kind else { return false }
-        guard sourcePaneId != destinationPaneId else { return false }
         guard let sourcePane = store.paneAtom.pane(sourcePaneId) else { return false }
         guard sourcePane.parentPaneId == parentPaneId else { return false }
 
@@ -201,10 +197,7 @@ struct DrawerPanel: View {
         let moveAction = PaneActionCommand.moveDrawerPane(
             parentPaneId: parentPaneId,
             drawerPaneId: sourcePaneId,
-            target: drawer.layout.legacyMoveTarget(
-                targetPaneId: destinationPaneId,
-                direction: zone.newDirection
-            ) ?? .rowSlot(row: .top, insertionIndex: 0)
+            target: target
         )
         if case .success = WorkspaceCommandValidator.validate(moveAction, state: snapshot) {
             return true
@@ -214,12 +207,9 @@ struct DrawerPanel: View {
 
     private func handleDrawerDrop(
         payload: SplitDropPayload,
-        destinationPaneId: UUID,
-        zone: DrawerDropZone
+        target: DrawerRearrangeTarget
     ) {
-        guard let drawer = store.paneAtom.pane(parentPaneId)?.drawer else { return }
         guard case .existingPane(let sourcePaneId, _) = payload.kind else { return }
-        guard sourcePaneId != destinationPaneId else { return }
         guard let sourcePane = store.paneAtom.pane(sourcePaneId) else { return }
         guard sourcePane.parentPaneId == parentPaneId else { return }
 
@@ -227,10 +217,7 @@ struct DrawerPanel: View {
             .moveDrawerPane(
                 parentPaneId: parentPaneId,
                 drawerPaneId: sourcePaneId,
-                target: drawer.layout.legacyMoveTarget(
-                    targetPaneId: destinationPaneId,
-                    direction: zone.newDirection
-                ) ?? .rowSlot(row: .top, insertionIndex: 0)
+                target: target
             )
         )
     }
@@ -254,7 +241,8 @@ struct DrawerPanel: View {
     }
 
     var body: some View {
-        GeometryReader { _ in
+        GeometryReader { geometry in
+            let containerBounds = CGRect(origin: .zero, size: geometry.size)
             ZStack(alignment: .topLeading) {
                 VStack(spacing: 0) {
                     // Resize handle at top
@@ -287,12 +275,21 @@ struct DrawerPanel: View {
                 }
 
                 if managementLayer.isActive {
-                    DrawerDropTargetOverlay(target: dropTarget, paneFrames: drawerPaneFrames)
-                        .allowsHitTesting(false)
+                    DrawerDropTargetOverlay(
+                        target: dropTarget,
+                        targetRects: DrawerPaneDragCoordinator.targetRects(
+                            paneFrames: drawerPaneFrames,
+                            layout: layout,
+                            containerBounds: containerBounds
+                        )
+                    )
+                    .allowsHitTesting(false)
                 }
 
                 DrawerSplitContainerDropCaptureOverlay(
                     paneFrames: drawerPaneFrames,
+                    layout: layout,
+                    containerBounds: containerBounds,
                     target: $dropTarget,
                     isManagementLayerActive: managementLayer.isActive,
                     shouldAcceptDrop: shouldAcceptDrawerDrop,

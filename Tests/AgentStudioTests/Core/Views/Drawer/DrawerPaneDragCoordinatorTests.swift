@@ -1,0 +1,144 @@
+import CoreGraphics
+import Foundation
+import Testing
+
+@testable import AgentStudio
+
+@Suite(.serialized)
+struct DrawerPaneDragCoordinatorTests {
+    @Test
+    func oneRow_resolvesHorizontalSlots() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let frames: [UUID: CGRect] = [
+            a: CGRect(x: 0, y: 40, width: 100, height: 80),
+            b: CGRect(x: 110, y: 40, width: 100, height: 80),
+            c: CGRect(x: 220, y: 40, width: 100, height: 80),
+        ]
+
+        let target = DrawerPaneDragCoordinator.resolveTarget(
+            location: CGPoint(x: 160, y: 80),
+            paneFrames: frames,
+            layout: DrawerGridLayout(topRow: Layout.autoTiled([a, b, c])),
+            containerBounds: CGRect(x: 0, y: 0, width: 320, height: 140)
+        )
+
+        #expect(target == .rowSlot(row: .top, insertionIndex: 1))
+    }
+
+    @Test
+    func oneRow_resolvesTopBandToCreateSecondRow() {
+        let a = UUID()
+        let frames: [UUID: CGRect] = [a: CGRect(x: 20, y: 40, width: 100, height: 80)]
+
+        let target = DrawerPaneDragCoordinator.resolveTarget(
+            location: CGPoint(x: 70, y: 15),
+            paneFrames: frames,
+            layout: DrawerGridLayout(topRow: Layout.autoTiled([a])),
+            containerBounds: CGRect(x: 0, y: 0, width: 200, height: 140)
+        )
+
+        #expect(target == .createSecondRow(position: .top))
+    }
+
+    @Test
+    func oneRow_exactMidpoint_prefersSmallerInsertionIndex() {
+        let a = UUID()
+        let b = UUID()
+        let frames: [UUID: CGRect] = [
+            a: CGRect(x: 0, y: 40, width: 100, height: 80),
+            b: CGRect(x: 110, y: 40, width: 100, height: 80),
+        ]
+
+        let midpointX = (frames[a]!.midX + frames[b]!.midX) / 2
+        let target = DrawerPaneDragCoordinator.resolveTarget(
+            location: CGPoint(x: midpointX, y: 80),
+            paneFrames: frames,
+            layout: DrawerGridLayout(topRow: Layout.autoTiled([a, b])),
+            containerBounds: CGRect(x: 0, y: 0, width: 220, height: 140)
+        )
+
+        #expect(target == .rowSlot(row: .top, insertionIndex: 1))
+    }
+
+    @Test
+    func twoRows_resolvesBottomRowSlots() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let frames: [UUID: CGRect] = [
+            a: CGRect(x: 0, y: 0, width: 100, height: 60),
+            b: CGRect(x: 110, y: 0, width: 100, height: 60),
+            c: CGRect(x: 0, y: 80, width: 100, height: 60),
+        ]
+
+        let target = DrawerPaneDragCoordinator.resolveTarget(
+            location: CGPoint(x: 105, y: 110),
+            paneFrames: frames,
+            layout: DrawerGridLayout(
+                topRow: Layout.autoTiled([a, b]),
+                bottomRow: Layout.autoTiled([c]),
+                rowSplitRatio: 0.5
+            ),
+            containerBounds: CGRect(x: 0, y: 0, width: 220, height: 140)
+        )
+
+        #expect(target == .rowSlot(row: .bottom, insertionIndex: 1))
+    }
+
+    @Test
+    func twoRows_pointerOutsideBothRowBands_returnsNil() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let frames: [UUID: CGRect] = [
+            a: CGRect(x: 0, y: 0, width: 100, height: 60),
+            b: CGRect(x: 110, y: 0, width: 100, height: 60),
+            c: CGRect(x: 0, y: 90, width: 100, height: 60),
+        ]
+
+        let target = DrawerPaneDragCoordinator.resolveTarget(
+            location: CGPoint(x: 50, y: 75),
+            paneFrames: frames,
+            layout: DrawerGridLayout(
+                topRow: Layout.autoTiled([a, b]),
+                bottomRow: Layout.autoTiled([c]),
+                rowSplitRatio: 0.5
+            ),
+            containerBounds: CGRect(x: 0, y: 0, width: 220, height: 160)
+        )
+
+        #expect(target == nil)
+    }
+
+    @Test
+    func emptyPaneFrames_returnNil() {
+        let target = DrawerPaneDragCoordinator.resolveTarget(
+            location: CGPoint(x: 50, y: 50),
+            paneFrames: [:],
+            layout: DrawerGridLayout(),
+            containerBounds: CGRect(x: 0, y: 0, width: 220, height: 140)
+        )
+
+        #expect(target == nil)
+    }
+
+    @Test
+    func resolveLatchedTarget_matchesMainPaneContract() {
+        let a = UUID()
+        let frames: [UUID: CGRect] = [a: CGRect(x: 0, y: 40, width: 100, height: 80)]
+        let currentTarget = DrawerRearrangeTarget.rowSlot(row: .top, insertionIndex: 0)
+
+        let target = DrawerPaneDragCoordinator.resolveLatchedTarget(
+            location: CGPoint(x: 500, y: 500),
+            paneFrames: frames,
+            layout: DrawerGridLayout(topRow: Layout.autoTiled([a])),
+            containerBounds: CGRect(x: 0, y: 0, width: 200, height: 140),
+            currentTarget: currentTarget,
+            shouldAcceptDrop: { _ in true }
+        )
+
+        #expect(target == currentTarget)
+    }
+}
