@@ -1132,7 +1132,7 @@ Per `AGENTS.md` testing standards (Swift 6 Testing, colocate `_test.swift`, no w
 - Collapsible group sections
 - Toast / banner / transient popup of any kind
 - Unified keyboard dispatcher (deferred debt; see WIP §5)
-- Introducing `SharedComponents/` at top level (deferred to a dedicated design-system ticket — doc-only in this ticket)
+- Further growth of `SharedComponents/` beyond what existing tickets deliver (this ticket consumes the layer but does not add primitives to it)
 
 ---
 

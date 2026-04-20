@@ -1527,6 +1527,6 @@ Before marking Phase 1 complete, run the full verification matrix:
 - ✗ `⌘⇧I` drawer inbox popover command — Phase 3.
 - ✗ Inbox-specific keymap (`⌥F`, `⌥G`, `⌥S`, arrows, etc.) — Phase 3.
 - ✗ Per-worktree `🔔 N` pill data binding — Phase 3.
-- ✗ `SharedComponents/` at top level — separate design-system ticket.
+- ✗ Adding new primitives to `SharedComponents/` (layer already exists with `EditorChooser/`; this phase consumes it but adds no new primitives).
 
 If any of these appears relevant while executing a Phase 1 task, stop and flag it — it either doesn't belong or the boundary needs revision.

@@ -77,11 +77,11 @@ Sources/AgentStudio/
 │   │
 │   └── Webview/                      # Plain browser pane controller/runtime/views
 │
-├── SharedComponents/                 # Stateless, cross-app UI primitives (design system)
-│                                     #   Imports ONLY from Infrastructure.
-│                                     #   Never subscribes to atoms; state flows via bindings
-│                                     #   and value parameters.
-│                                     #   (To be introduced in a dedicated follow-up ticket.)
+├── SharedComponents/                 # Stateless, cross-app UI primitives (design system).
+│   │                                 #   Imports ONLY from Infrastructure.
+│   │                                 #   Never subscribes to atoms; state flows via bindings
+│   │                                 #   and value parameters.
+│   └── EditorChooser/                # Editor chooser menu content + row item model
 │
 ├── Infrastructure/                   # Utilities used by anyone, domain-agnostic
 │   ├── AtomLib/                      # AtomRegistry, AtomScope, AtomReader, Derived, DerivedSelector
@@ -234,9 +234,23 @@ To keep ownership decisions consistent, use these terms:
   - Includes controller/stateful orchestration, platform event wiring, and cross-service flow.
   - Examples: `MainSplitViewController`, `PaneTabViewController`, `PaneCoordinator`.
 
+- **Component slice**
+  - Reusable UI building blocks that are not themselves a product feature and do not own host placement.
+  - Usually belongs in `SharedComponents/`.
+  - Owns rendering, layout, and small UI-facing models.
+  - Examples: `SharedComponents/EditorChooser/EditorChooserMenuContent`, `SharedComponents/EditorChooser/EditorChoiceItem`.
+
 Practical rule:
 - If a component imports two or more feature services, it is a vertical slice in `App/` (or should be split).
 - If a component has no feature-specific logic and is shared by multiple features, it belongs in a core slice.
+- If a component is reusable UI but not host-specific assembly and not shared domain state, it belongs in `SharedComponents/`.
+
+Host-shell plus feature-content split:
+- Keep host-owned shell assembly in `App/` when placement, anchoring, divider rules, or pane/window wiring are specific to a host surface.
+- Put reusable UI content in `SharedComponents/` when the content may be reused by multiple hosts, even if the first host lives in `App/`.
+- Example:
+  - `App/Panes/DrawerEditorChooser/` owns the drawer button, placement, anchoring, divider, and pane wiring
+  - `SharedComponents/EditorChooser/` owns numbered rows, bookmark UI, and the chooser menu content
 
 ### Why Swift Makes This Free
 

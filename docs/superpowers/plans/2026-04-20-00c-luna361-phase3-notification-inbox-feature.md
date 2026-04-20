@@ -3299,7 +3299,7 @@ git tag luna361-phase3-complete
 
 - ✗ **macOS UNUserNotificationCenter** — separate follow-up ticket.
 - ✗ **Cross-workspace aggregation** — deferred.
-- ✗ **SharedComponents/ rollout** — separate design-system ticket.
+- ✗ **New `SharedComponents/` primitives** — layer already exists (hosts `EditorChooser/`); Phase 3 consumes it for shared UI but introduces no new design-system primitives.
 - ✗ **Repos-navigation keymap** (arrows, enter, etc. in repos sidebar) — future ticket; Phase 3 only adds repos-surface focus publishing, not a keymap.
 - ✗ **Unified keyboard dispatcher** — deferred architectural debt.
 - ✗ **Email / Slack / remote fan-out** — non-goal.

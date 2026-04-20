@@ -43,8 +43,11 @@ enum AppCommand: String, CaseIterable {
     case toggleDrawer
     case navigateDrawerPane
     case closeDrawerPane
+    case openPaneLocationInBookmarkedEditor
+    case openPaneLocationInFinder
+    case openPaneLocationInEditorMenu
     // Repo commands
-    case addRepo, addFolder, removeRepo
+    case watchFolder, removeRepo
     case openWorktree
     case openWorktreeInPane
     // Management layer
@@ -322,10 +325,8 @@ final class CommandDispatcher {
         }
     }
 }
-// MARK: - AppCommand Helpers
-
 extension AppCommand {
-    private enum CommandBarGroupPriority {
+    enum CommandBarGroupPriority {
         static let pane = 0
         static let focus = 1
         static let tab = 2
@@ -697,21 +698,10 @@ extension AppCommand {
                 commandBarGroupName: "Pane",
                 commandBarGroupPriority: CommandBarGroupPriority.pane
             )
-        case .addRepo:
+        case .watchFolder:
             return CommandSpec(
                 command: self,
-                shortcut: .addRepo,
-                label: "Add Repo",
-                icon: "folder.badge.plus",
-                helpText: "Open a repository worktree directly in a new tab",
-                commandBarGroupName: "Repo",
-                commandBarGroupPriority: CommandBarGroupPriority.repo,
-                isHiddenInCommandBar: true
-            )
-        case .addFolder:
-            return CommandSpec(
-                command: self,
-                shortcut: .addFolder,
+                shortcut: nil,
                 label: "Watch Folder",
                 icon: "folder.fill.badge.plus",
                 helpText: "Watch a folder and scan it for repositories",
@@ -739,6 +729,42 @@ extension AppCommand {
                 label: "Open Worktree in Pane",
                 icon: "rectangle.split.2x1",
                 helpText: "Open a worktree in a split pane"
+            )
+        case .openPaneLocationInBookmarkedEditor:
+            return CommandSpec(
+                command: self,
+                shortcut: .openPaneLocationInBookmarkedEditor,
+                label: "Open Pane Location in Bookmarked Editor",
+                icon: "chevron.left.forwardslash.chevron.right",
+                helpText: "Open the selected pane location in the bookmarked editor",
+                appliesTo: [.pane],
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: CommandBarGroupPriority.pane
+            )
+        case .openPaneLocationInFinder:
+            return CommandSpec(
+                command: self,
+                shortcut: .openPaneLocationInFinder,
+                label: "Open Pane Location in Finder",
+                icon: "finder",
+                helpText: "Open the selected pane location in Finder",
+                appliesTo: [.pane],
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: CommandBarGroupPriority.pane
+            )
+        case .openPaneLocationInEditorMenu:
+            return CommandSpec(
+                command: self,
+                shortcut: .openPaneLocationInEditorMenu,
+                label: "Open In Menu",
+                icon: "chevron.up.chevron.down",
+                helpText: "Open the editor chooser for the selected pane",
+                appliesTo: [.pane],
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .toggleManagementLayer:
             return CommandSpec(
@@ -918,80 +944,6 @@ extension AppCommand {
                 icon: "terminal.fill",
                 helpText: "Open a worktree in a fresh terminal tab"
             )
-        }
-    }
-
-    private func hiddenTabSelectionDefinition(index: Int) -> CommandSpec {
-        CommandSpec(
-            command: self,
-            shortcut: selectTabShortcut(index: index),
-            label: "Select Tab \(index)",
-            helpText: "Select tab \(index)",
-            visibleWhen: [.hasActiveTab],
-            commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
-            isHiddenInCommandBar: true
-        )
-    }
-    private func focusDefinition(label: String, icon: String, helpText: String) -> CommandSpec {
-        CommandSpec(
-            command: self,
-            label: label,
-            icon: icon,
-            helpText: helpText,
-            visibleWhen: [.hasActiveTab, .hasMultiplePanes],
-            commandBarGroupName: "Focus",
-            commandBarGroupPriority: CommandBarGroupPriority.focus
-        )
-    }
-    private func arrangementDefinition(label: String, icon: String, helpText: String) -> CommandSpec {
-        CommandSpec(
-            command: self,
-            label: label,
-            icon: icon,
-            helpText: helpText,
-            appliesTo: [.tab],
-            visibleWhen: [.hasActiveTab, .hasArrangements],
-            commandBarGroupName: "Tab",
-            commandBarGroupPriority: CommandBarGroupPriority.tab
-        )
-    }
-    private func worktreeDefinition(label: String, icon: String, helpText: String) -> CommandSpec {
-        CommandSpec(
-            command: self,
-            label: label,
-            icon: icon,
-            helpText: helpText,
-            appliesTo: [.worktree],
-            commandBarGroupName: "Repo",
-            commandBarGroupPriority: CommandBarGroupPriority.repo
-        )
-    }
-    private func managementDefinition(shortcut: AppShortcut, label: String, icon: String, helpText: String)
-        -> CommandSpec
-    {
-        CommandSpec(
-            command: self,
-            shortcut: shortcut,
-            label: label,
-            icon: icon,
-            helpText: helpText,
-            requiresManagementLayer: true,
-            isHiddenInCommandBar: true
-        )
-    }
-    private func selectTabShortcut(index: Int) -> AppShortcut {
-        switch index {
-        case 1: return .selectTab1
-        case 2: return .selectTab2
-        case 3: return .selectTab3
-        case 4: return .selectTab4
-        case 5: return .selectTab5
-        case 6: return .selectTab6
-        case 7: return .selectTab7
-        case 8: return .selectTab8
-        case 9: return .selectTab9
-        default:
-            preconditionFailure("Unsupported tab shortcut index \(index)")
         }
     }
 }

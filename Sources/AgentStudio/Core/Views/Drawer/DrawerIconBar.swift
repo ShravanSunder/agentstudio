@@ -15,7 +15,7 @@ private enum DrawerTooltipTarget: Hashable {
     case toggle
     case add
     case finder
-    case editor
+    case chooser
     case emptyAdd
 }
 
@@ -35,7 +35,7 @@ struct DrawerIconBar: View {
     @State private var isAddHovered = false
     @State private var isToggleHovered = false
     @State private var isFinderHovered = false
-    @State private var isCursorHovered = false
+    @State private var isChooserHovered = false
     @State private var tooltipFrames: [DrawerTooltipTarget: CGRect] = [:]
 
     private enum TrailingActionIcon {
@@ -45,11 +45,30 @@ struct DrawerIconBar: View {
 
     private static let tooltipCoordinateSpaceName = "drawerTooltipBar"
 
+    private var toggleToolTip: String {
+        AppCommand.toggleDrawer.definition.controlToolTip(
+            textOverride: isExpanded ? "Collapse Drawer" : "Expand Drawer"
+        )
+    }
+
+    private var addToolTip: String {
+        AppCommand.addDrawerPane.definition.controlToolTip
+    }
+
+    private var finderToolTip: String {
+        AppCommand.openPaneLocationInFinder.definition.controlToolTip(
+            textOverride: "Open in Finder"
+        )
+    }
+
+    private var chooserToolTip: String {
+        AppCommand.openPaneLocationInEditorMenu.definition.controlToolTip(
+            textOverride: "Open in Editor"
+        )
+    }
+
     var body: some View {
-        let togglePresentation = LocalActionSpec.toggleDrawer(isExpanded: isExpanded).actionSpec
-        let addPresentation = LocalActionSpec.addDrawerPane.actionSpec
         let finderPresentation = LocalActionSpec.openPaneLocationInFinder.actionSpec
-        let editorPresentation = LocalActionSpec.openPaneLocationInPreferredEditor.actionSpec
 
         VStack(spacing: 0) {
             GeometryReader { geo in
@@ -83,7 +102,7 @@ struct DrawerIconBar: View {
                             }
                         }
                         .hoverTooltipAnchor(DrawerTooltipTarget.toggle, in: Self.tooltipCoordinateSpaceName)
-                        .help(togglePresentation.helpText)
+                        .help(toggleToolTip)
 
                         // Vertical divider
                         Divider()
@@ -109,15 +128,68 @@ struct DrawerIconBar: View {
                             }
                         }
                         .hoverTooltipAnchor(DrawerTooltipTarget.add, in: Self.tooltipCoordinateSpaceName)
-                        .help(addPresentation.helpText)
+                        .help(addToolTip)
 
                         Spacer()
 
                         if let trailingActions {
-                            HStack(spacing: 6) {
+                            HStack(spacing: AppStyles.Components.EditorChooser.trailingClusterSpacing) {
+                                Button {
+                                    trailingActions.editorMenuPresented.wrappedValue.toggle()
+                                } label: {
+                                    HStack(spacing: AppStyles.Components.EditorChooser.chooserButtonContentSpacing) {
+                                        Image(systemName: "chevron.left.forwardslash.chevron.right")
+                                            .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
+                                        if let buttonTitle = trailingActions.buttonTitle {
+                                            Text(buttonTitle)
+                                                .lineLimit(1)
+                                                .truncationMode(.tail)
+                                        }
+                                        Image(systemName: "chevron.up.chevron.down")
+                                            .font(
+                                                .system(
+                                                    size: AppStyles.Components.EditorChooser.chooserChevronFontSize,
+                                                    weight: .semibold
+                                                )
+                                            )
+                                    }
+                                    .frame(height: DrawerLayout.iconButtonSize)
+                                    .padding(
+                                        .horizontal,
+                                        AppStyles.Components.EditorChooser.chooserButtonHorizontalPadding
+                                    )
+                                    .background(
+                                        RoundedRectangle(cornerRadius: DrawerLayout.iconButtonCornerRadius)
+                                            .fill(
+                                                isChooserHovered
+                                                    ? Color.primary.opacity(AppStyles.General.Fill.hover)
+                                                    : Color.clear
+                                            )
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                                .popover(
+                                    isPresented: trailingActions.editorMenuPresented,
+                                    arrowEdge: .bottom
+                                ) {
+                                    trailingActions.editorMenuContent
+                                }
+                                .disabled(!trailingActions.canOpenTarget)
+                                .help(chooserToolTip)
+                                .onHover { hovering in
+                                    withAnimation(.easeInOut(duration: AppStyles.General.Animation.fast)) {
+                                        isChooserHovered = hovering
+                                    }
+                                }
+                                .hoverTooltipAnchor(DrawerTooltipTarget.chooser, in: Self.tooltipCoordinateSpaceName)
+
+                                Divider()
+                                    .frame(height: AppStyles.Components.EditorChooser.dividerHeight)
+                                    .padding(.horizontal, AppStyles.Components.EditorChooser.dividerHorizontalPadding)
+
                                 trailingActionButton(
                                     icon: trailingActionIcon(for: finderPresentation.icon) ?? .system(name: "finder"),
-                                    helpText: finderPresentation.helpText,
+                                    helpText: finderToolTip,
                                     isHovered: isFinderHovered,
                                     action: trailingActions.onOpenFinder
                                 )
@@ -128,21 +200,6 @@ struct DrawerIconBar: View {
                                     }
                                 }
                                 .hoverTooltipAnchor(DrawerTooltipTarget.finder, in: Self.tooltipCoordinateSpaceName)
-
-                                trailingActionButton(
-                                    icon: trailingActionIcon(for: editorPresentation.icon)
-                                        ?? .octicon(name: "octicon-code-square"),
-                                    helpText: editorPresentation.helpText,
-                                    isHovered: isCursorHovered,
-                                    action: trailingActions.onOpenCursor
-                                )
-                                .disabled(!trailingActions.canOpenTarget)
-                                .onHover { hovering in
-                                    withAnimation(.easeInOut(duration: AppStyles.General.Animation.fast)) {
-                                        isCursorHovered = hovering
-                                    }
-                                }
-                                .hoverTooltipAnchor(DrawerTooltipTarget.editor, in: Self.tooltipCoordinateSpaceName)
                             }
                         }
                     }
@@ -171,23 +228,24 @@ struct DrawerIconBar: View {
     }
 
     private var activeTooltipTarget: DrawerTooltipTarget? {
+        if trailingActions?.editorMenuPresented.wrappedValue == true { return nil }
         if isToggleHovered { return .toggle }
         if isAddHovered { return .add }
+        if isChooserHovered { return .chooser }
         if isFinderHovered { return .finder }
-        if isCursorHovered { return .editor }
         return nil
     }
 
     private func tooltipText(for target: DrawerTooltipTarget) -> String? {
         switch target {
         case .toggle:
-            return LocalActionSpec.toggleDrawer(isExpanded: isExpanded).actionSpec.helpText
+            return toggleToolTip
         case .add:
-            return LocalActionSpec.addDrawerPane.actionSpec.helpText
+            return addToolTip
         case .finder:
-            return LocalActionSpec.openPaneLocationInFinder.actionSpec.helpText
-        case .editor:
-            return LocalActionSpec.openPaneLocationInPreferredEditor.actionSpec.helpText
+            return finderToolTip
+        case .chooser:
+            return chooserToolTip
         case .emptyAdd:
             return nil
         }
@@ -245,8 +303,11 @@ struct EmptyDrawerBar: View {
 
     private static let tooltipCoordinateSpaceName = "emptyDrawerTooltipBar"
 
+    private var addToolTip: String {
+        AppCommand.addDrawerPane.definition.controlToolTip
+    }
+
     var body: some View {
-        let addPresentation = LocalActionSpec.addDrawerPane.actionSpec
         HStack {
             Spacer()
             GeometryReader { geo in
@@ -272,7 +333,7 @@ struct EmptyDrawerBar: View {
                         }
                     }
                     .hoverTooltipAnchor(DrawerTooltipTarget.emptyAdd, in: Self.tooltipCoordinateSpaceName)
-                    .help(addPresentation.helpText)
+                    .help(addToolTip)
                     .padding(.vertical, DrawerLayout.iconBarVerticalPadding)
 
                     FloatingHoverTooltipPresenter(
@@ -282,7 +343,7 @@ struct EmptyDrawerBar: View {
                     ) { target in
                         switch target {
                         case .emptyAdd:
-                            return addPresentation.helpText
+                            return addToolTip
                         default:
                             return nil
                         }

@@ -5,14 +5,14 @@ import SwiftUI
 enum PaneTabEmptyStateViewFactory {
     static func make(
         model: WorkspaceEmptyStateModel,
-        onAddFolder: @escaping () -> Void,
+        onWatchFolder: @escaping () -> Void,
         onOpenRecent: @escaping (RecentWorkspaceTarget) -> Void,
         onOpenAllRecent: @escaping () -> Void
     ) -> NSHostingView<WorkspaceEmptyStateView> {
         let view = NSHostingView(
             rootView: WorkspaceEmptyStateView(
                 model: model,
-                onAddFolder: onAddFolder,
+                onWatchFolder: onWatchFolder,
                 onOpenRecent: onOpenRecent,
                 onOpenAllRecent: onOpenAllRecent
             )

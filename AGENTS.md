@@ -42,6 +42,21 @@ Instead:
 
 AppKit-main architecture hosting SwiftUI views. Shared app state is actor-bound and accessed through `AtomRegistry` + `AtomScope`, with `atom(\.foo)` as the primary read path. Canonical mutable state lives in `@MainActor @Observable` atoms under `Core/State/MainActor/Atoms`, and persistence wrappers live under `Core/State/MainActor/Persistence`. Two coordinators handle cross-slice sequencing. An `EventBus<RuntimeEnvelope>` connects runtime actors to the main-actor state system, and a separate app lifecycle monitor owns AppKit ingress.
 
+### Folder Arcs
+
+Use these broad ownership rules first, then consult [Directory Structure](docs/architecture/directory_structure.md) for exact placement:
+
+- `App/`
+  Composition root and host-specific assembly. App-owned shells, pane/window controllers, lifecycle wiring, and cross-slice orchestration live here.
+- `Core/`
+  Shared domain state and contracts. Models, atoms, persistence wrappers, validated action routing, runtime contracts, and shared split/drawer primitives live here.
+- `SharedComponents/`
+  Reusable UI building blocks that are not themselves product features and do not own host placement. Use this for reusable menu content, row rendering, and small UI-facing models.
+- `Features/`
+  User-facing capability slices such as Terminal, Bridge, CommandBar, Sidebar, and Webview. Features own capability-specific behavior that is broader than a reusable component.
+- `Infrastructure/`
+  Domain-agnostic utilities and external integrations. Organize these in subfolders by concern, such as `AtomLib/`, `Extensions/`, `Icons/`, `StateMachine/`, and integration-specific folders like `ExternalApps/`.
+
 | Component | Owns | Location |
 |-----------|------|----------|
 | `AtomRegistry` | composition root for shared main-actor atoms and derived helpers | `Infrastructure/AtomLib/AtomRegistry.swift` |
@@ -254,6 +269,7 @@ agent-studio/
 │   │   ├── Windows/MainWindowController.swift
 │   │   ├── Coordination/PaneCoordinator.swift  # Cross-feature sequencing and orchestration
 │   │   └── Panes/                    # Pane tab management and NSView registry
+│   ├── SharedComponents/             # Reusable UI building blocks
 │   ├── Core/                         # Shared domain — models, stores, pane system
 │   │   ├── Models/                   # Layout, Tab, Pane, Repo, Worktree, SidebarSurface,
 │   │   │                             #   KeyboardOwner, ...
@@ -277,9 +293,11 @@ agent-studio/
 │   │   │                             #   App/, not a feature)
 │   │   └── <NewFeature>/             # Features/<Feature>/{Components,Models,Routing,
 │   │                                 #   State/MainActor/{Atoms,Persistence},Views}/
-│   ├── SharedComponents/             # Stateless UI primitives (design system).
-│   │                                 #   Imports only Infrastructure. No atom subscriptions.
-│   │                                 #   State flows via @Binding / value parameters.
+│   ├── SharedComponents/             # Stateless UI primitives (design system). Currently
+│   │                                 #   hosts EditorChooser/; more primitives land here
+│   │                                 #   over time. Imports only Infrastructure. No atom
+│   │                                 #   subscriptions. State flows via @Binding / value
+│   │                                 #   parameters.
 │   └── Infrastructure/               # Domain-agnostic utilities
 ├── docs/architecture/                # Authoritative design docs (see table above)
 ├── docs/plans/                       # Date-prefixed implementation plans
