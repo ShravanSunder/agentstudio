@@ -3,7 +3,6 @@ import Foundation
 
 struct DrawerPaneDragCoordinator {
     static let creationBandHeight: CGFloat = 28
-    private static let slotMarkerWidth: CGFloat = 10
 
     static func resolveTarget(
         location: CGPoint,
@@ -166,25 +165,35 @@ struct DrawerPaneDragCoordinator {
 
         let rowMinY = sortedFrames.map(\.minY).min() ?? 0
         let rowMaxY = sortedFrames.map(\.maxY).max() ?? 0
-        let markerHalfWidth = slotMarkerWidth / 2
+        let boundaries = slotBoundaries(for: sortedFrames)
 
         for insertionIndex in 0...sortedFrames.count {
-            let boundaryX: CGFloat
-            if insertionIndex == 0 {
-                boundaryX = sortedFrames[0].minX
-            } else if insertionIndex == sortedFrames.count {
-                boundaryX = sortedFrames[sortedFrames.count - 1].maxX
-            } else {
-                boundaryX = (sortedFrames[insertionIndex - 1].midX + sortedFrames[insertionIndex].midX) / 2
-            }
-
+            let minX = boundaries[insertionIndex]
+            let maxX = boundaries[insertionIndex + 1]
             rects[.rowSlot(row: row, insertionIndex: insertionIndex)] = CGRect(
-                x: boundaryX - markerHalfWidth,
+                x: minX,
                 y: rowMinY,
-                width: slotMarkerWidth,
+                width: max(maxX - minX, 1),
                 height: rowMaxY - rowMinY
             )
         }
+    }
+
+    private static func slotBoundaries(for sortedFrames: [CGRect]) -> [CGFloat] {
+        guard let firstFrame = sortedFrames.first, let lastFrame = sortedFrames.last else { return [] }
+
+        var boundaries: [CGFloat] = [firstFrame.minX]
+        boundaries.append(firstFrame.midX)
+
+        if sortedFrames.count > 1 {
+            for index in 1..<sortedFrames.count - 1 {
+                boundaries.append(sortedFrames[index].midX)
+            }
+            boundaries.append(lastFrame.midX)
+        }
+
+        boundaries.append(lastFrame.maxX)
+        return boundaries
     }
 
     private static func sortedRowFrames(

@@ -48,7 +48,7 @@ struct PaneTabViewControllerDropRoutingTests {
                 == .moveDrawerPane(
                     parentPaneId: parentPaneId,
                     drawerPaneId: sourcePaneId,
-                    target: .rowSlot(row: .top, insertionIndex: 0)
+                    target: .rowSlot(row: .top, insertionIndex: 1)
                 )
         )
     }
