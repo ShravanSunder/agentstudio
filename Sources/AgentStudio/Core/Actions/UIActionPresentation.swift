@@ -42,7 +42,6 @@ extension CommandSpec {
 
     func controlToolTip(
         textOverride: String? = nil,
-        secondaryText: String? = nil,
         includeShortcut: Bool = true
     ) -> String {
         let baseText: String
@@ -55,18 +54,11 @@ extension CommandSpec {
             baseText = actionSpec.helpText
         }
 
-        let primaryText: String
-        if includeShortcut, let keyBinding {
-            primaryText = "\(baseText) (\(keyBinding.displayString))"
-        } else {
-            primaryText = baseText
+        guard includeShortcut, let keyBinding else {
+            return baseText
         }
 
-        guard let secondaryText else {
-            return primaryText
-        }
-
-        return "\(primaryText)\n\(secondaryText)"
+        return "\(baseText) (\(keyBinding.displayString))"
     }
 }
 

@@ -41,6 +41,7 @@ struct EditorChooserMenuContent: View {
     let items: [EditorChoiceItem]
     let bookmarkedEditorId: EditorTargetId?
     let directLaunchHintText: String?
+    let directLaunchShortcutText: String?
     let style: EditorChooserMenuStyle
     let onSelect: (EditorTargetId) -> Void
     let onToggleBookmark: (EditorTargetId) -> Void
@@ -64,8 +65,8 @@ struct EditorChooserMenuContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: style.rowSpacing) {
-            if let directLaunchHintText {
-                headerHint(directLaunchHintText)
+            if let directLaunchHintText, let directLaunchShortcutText, !directLaunchShortcutText.isEmpty {
+                headerHint(shortcut: directLaunchShortcutText, text: directLaunchHintText)
             }
             ForEach(Self.makeDisplayItems(items: items, bookmarkedEditorId: bookmarkedEditorId)) { item in
                 row(item)
@@ -75,9 +76,9 @@ struct EditorChooserMenuContent: View {
         .frame(width: style.menuWidth)
     }
 
-    private func headerHint(_ text: String) -> some View {
+    private func headerHint(shortcut: String, text: String) -> some View {
         HStack(alignment: .center, spacing: AppStyles.Components.EditorChooser.headerContentSpacing) {
-            Text("⌘O")
+            Text(shortcut)
                 .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, AppStyles.Components.EditorChooser.shortcutHintHorizontalPadding)

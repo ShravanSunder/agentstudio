@@ -22,7 +22,6 @@ struct HoverTooltipBubble: View {
     var body: some View {
         Text(text)
             .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
-            .multilineTextAlignment(.leading)
             .foregroundStyle(.primary)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)

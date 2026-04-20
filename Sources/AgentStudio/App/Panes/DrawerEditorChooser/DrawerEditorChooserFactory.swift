@@ -3,6 +3,9 @@ import SwiftUI
 @MainActor
 enum DrawerEditorChooserFactory {
     private static let maxButtonTitleLength = 20
+    static let directLaunchHintText = "Launch bookmarked"
+    static let directLaunchShortcutText =
+        AppCommand.openPaneLocationInBookmarkedEditor.definition.keyBinding?.displayString ?? ""
 
     static func buttonTitle(
         bookmarkedEditorId: EditorTargetId?,
@@ -17,10 +20,6 @@ enum DrawerEditorChooserFactory {
 
         guard title.count > maxButtonTitleLength else { return title }
         return String(title.prefix(maxButtonTitleLength - 1)) + "…"
-    }
-
-    static func directLaunchHintText() -> String {
-        "Launch bookmarked"
     }
 
     static func makeTrailingActions(
@@ -46,7 +45,8 @@ enum DrawerEditorChooserFactory {
                 EditorChooserMenuContent(
                     items: items,
                     bookmarkedEditorId: uiState.editorChooserState.bookmarkedEditorId,
-                    directLaunchHintText: directLaunchHintText(),
+                    directLaunchHintText: directLaunchHintText,
+                    directLaunchShortcutText: directLaunchShortcutText,
                     style: .standard,
                     onSelect: { editorId in
                         onOpenEditor(editorId)

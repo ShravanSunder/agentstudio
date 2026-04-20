@@ -45,18 +45,30 @@ struct DrawerIconBar: View {
 
     private static let tooltipCoordinateSpaceName = "drawerTooltipBar"
 
-    var body: some View {
-        let toggleToolTip = AppCommand.toggleDrawer.definition.controlToolTip(
+    private var toggleToolTip: String {
+        AppCommand.toggleDrawer.definition.controlToolTip(
             textOverride: isExpanded ? "Collapse Drawer" : "Expand Drawer"
         )
-        let addToolTip = AppCommand.addDrawerPane.definition.controlToolTip
-        let finderPresentation = LocalActionSpec.openPaneLocationInFinder.actionSpec
-        let finderToolTip = AppCommand.openPaneLocationInFinder.definition.controlToolTip(
+    }
+
+    private var addToolTip: String {
+        AppCommand.addDrawerPane.definition.controlToolTip
+    }
+
+    private var finderToolTip: String {
+        AppCommand.openPaneLocationInFinder.definition.controlToolTip(
             textOverride: "Open in Finder"
         )
-        let chooserToolTip = AppCommand.openPaneLocationInEditorMenu.definition.controlToolTip(
+    }
+
+    private var chooserToolTip: String {
+        AppCommand.openPaneLocationInEditorMenu.definition.controlToolTip(
             textOverride: "Open in Editor"
         )
+    }
+
+    var body: some View {
+        let finderPresentation = LocalActionSpec.openPaneLocationInFinder.actionSpec
 
         VStack(spacing: 0) {
             GeometryReader { geo in
@@ -227,19 +239,13 @@ struct DrawerIconBar: View {
     private func tooltipText(for target: DrawerTooltipTarget) -> String? {
         switch target {
         case .toggle:
-            return AppCommand.toggleDrawer.definition.controlToolTip(
-                textOverride: isExpanded ? "Collapse Drawer" : "Expand Drawer"
-            )
+            return toggleToolTip
         case .add:
-            return AppCommand.addDrawerPane.definition.controlToolTip
+            return addToolTip
         case .finder:
-            return AppCommand.openPaneLocationInFinder.definition.controlToolTip(
-                textOverride: "Open in Finder"
-            )
+            return finderToolTip
         case .chooser:
-            return AppCommand.openPaneLocationInEditorMenu.definition.controlToolTip(
-                textOverride: "Open in Editor"
-            )
+            return chooserToolTip
         case .emptyAdd:
             return nil
         }
@@ -297,8 +303,11 @@ struct EmptyDrawerBar: View {
 
     private static let tooltipCoordinateSpaceName = "emptyDrawerTooltipBar"
 
+    private var addToolTip: String {
+        AppCommand.addDrawerPane.definition.controlToolTip
+    }
+
     var body: some View {
-        let addToolTip = AppCommand.addDrawerPane.definition.controlToolTip
         HStack {
             Spacer()
             GeometryReader { geo in
