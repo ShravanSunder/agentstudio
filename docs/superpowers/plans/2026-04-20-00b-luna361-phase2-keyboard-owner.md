@@ -810,7 +810,7 @@ sleep 2
 ```
 
 Then manually:
-1. Press ⌘I → sidebar shows `InboxPlaceholderView`.
+1. Press ⌘I → sidebar shows `InboxNotificationPlaceholderView`.
 2. Click into the sidebar (focus it).
 3. Press ⌘P to open CommandBar → the scope pill shows "Inbox" (not "Everything").
 4. Close CommandBar. Press ⌘S → sidebar shows `RepoExplorerView`.
@@ -920,7 +920,7 @@ cleanly everywhere. LUNA-361 Phase 2."
 
 - [ ] **Manual smoke:**
     - [ ] Launch app
-    - [ ] Press ⌘I → `InboxPlaceholderView` renders
+    - [ ] Press ⌘I → `InboxNotificationPlaceholderView` renders
     - [ ] Click into sidebar (focus it)
     - [ ] Press ⌘P → scope pill shows "Inbox"
     - [ ] Close CommandBar

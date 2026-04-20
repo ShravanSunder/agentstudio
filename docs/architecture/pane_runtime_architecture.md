@@ -613,7 +613,7 @@ AGENT PROCESS (Claude/Codex)
   │              ┌─────────────────┼─────────────────┐
   │              │                 │                  │
   │              ▼                 ▼                  ▼
-  │     NotificationRouter    BridgeRuntime     WorkspaceStore
+  │     InboxNotificationRouter    BridgeRuntime     WorkspaceStore
   │     (Notification Inbox:   (diff pane via    (update tab
   │      sidebar inbox +       bridge+React)     metadata)
   │      per-drawer popover +
@@ -1762,7 +1762,7 @@ Every `ghostty_action_tag_e` case has a defined handling policy. The adapter's s
 | `readOnlyChanged` | Runtime → Bus | Updates `isReadOnly` and emits replayable state | critical | Ghostty default still drives the built-in badge/overlay path |
 | `secureInputRequested` / `secureInputChanged` | Runtime → Bus | Resolves secure-input mode to current boolean state | critical | Request is input, replayable boolean is output |
 | `promptTitleRequested` | Runtime → Bus | One-shot request, not replayed | critical | Current implementation preserves Ghostty default prompt UX |
-| `desktopNotificationRequested` | Runtime → Bus | One-shot request, not replayed | critical | Per LUNA-361, consumed by `NotificationRouter` and routed into `NotificationInboxAtom` (sidebar inbox + drawer popover, not OS notification). Ghostty default desktop-notification path is NOT invoked. |
+| `desktopNotificationRequested` | Runtime → Bus | One-shot request, not replayed | critical | Per LUNA-361, consumed by `InboxNotificationRouter` and routed into `InboxNotificationAtom` (sidebar inbox + drawer popover, not OS notification). Ghostty default desktop-notification path is NOT invoked. |
 | **Runtime-accounted, no bus post** | | | | |
 | `openURLRequested` | Runtime only | Explicitly routed, no replay | critical | Ghostty default still opens the URL |
 | `undoRequested` / `redoRequested` | Runtime only | Explicitly routed, no replay | critical | Ghostty default still handles responder-chain undo/redo |

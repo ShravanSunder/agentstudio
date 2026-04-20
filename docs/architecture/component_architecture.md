@@ -520,7 +520,7 @@ Owned by `WorkspaceStore` as a `private let` member. Pure persistence I/O. No bu
 To keep Jotai-style store boundaries and Valtio-style source-of-truth guarantees intact, persistence is split by domain responsibility:
 
 - Canonical workspace model (`WorkspaceStore`) stays in `workspace.state.json` — contains `watchedPaths`, `CanonicalRepo[]`, `CanonicalWorktree[]`, panes, tabs, layouts
-- Derived enrichment data (`RepoCacheAtom`) in `workspace.cache.json` — contains `RepoEnrichment`, `WorktreeEnrichment`, PR counts. Written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events. Notification unread counts moved to `NotificationInboxAtom` per LUNA-361 (derived via `unreadCount(forWorktreeId:)`, not cached in this tier).
+- Derived enrichment data (`RepoCacheAtom`) in `workspace.cache.json` — contains `RepoEnrichment`, `WorktreeEnrichment`, PR counts. Written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events. Notification unread counts moved to `InboxNotificationAtom` per LUNA-361 (derived via `unreadCount(forWorktreeId:)`, not cached in this tier).
 - Workspace-scoped UI preferences and sidebar composition state (`UIStateAtom`) in `workspace.ui.json`
 - Global app preferences and keybindings are stored separately from workspace state
 
@@ -589,7 +589,7 @@ Explicitly excluded from canonical state:
   - `linesAdded`, `linesDeleted`
   - `prCount`
   - ~~`notificationCount`~~ — removed per LUNA-361; unread counts
-    now come from `NotificationInboxAtom.unreadCount(forWorktreeId:)`
+    now come from `InboxNotificationAtom.unreadCount(forWorktreeId:)`
 
 Required cache validity fields:
 

@@ -50,8 +50,8 @@ Features/Sidebar/  →  Features/RepoExplorer/      [RENAME]
 ├── SidebarGroupHeader.swift → RepoExplorerGroupHeader.swift
 └── SidebarWorktreeRow.swift → RepoExplorerWorktreeRow.swift
 
-Features/NotificationInbox/Views/
-└── InboxPlaceholderView.swift                    [NEW, temporary]
+Features/InboxNotification/Views/
+└── InboxNotificationPlaceholderView.swift                    [NEW, temporary]
                                                   Empty "Inbox coming
                                                   soon" view. Removed
                                                   in Phase 3.
@@ -102,7 +102,7 @@ Tests
 3. Extend `UIStateStore` to persist the new fields (with tests).
 4. Rename `Features/Sidebar/` → `Features/RepoExplorer/` (pure file + type renames).
 5. `RepoExplorerView` declares `RepoExplorerFocus` and publishes `sidebarHasFocus`.
-6. Create `InboxPlaceholderView` (empty temporary view for Phase 1 ⌘I target).
+6. Create `InboxNotificationPlaceholderView` (empty temporary view for Phase 1 ⌘I target).
 7. Create `SidebarSurfaceHost` switcher view.
 8. Migrate `MainSplitViewController` off `UserDefaults`, install `SidebarSurfaceHost`.
 9. `AppDelegate`: await `UIStateStore.load()` before opening windows.
@@ -807,30 +807,30 @@ design §4.3 and the interaction-model WIP §8. LUNA-361 Phase 1."
 
 ---
 
-## Task 6: Create temporary `InboxPlaceholderView`
+## Task 6: Create temporary `InboxNotificationPlaceholderView`
 
-A minimal empty view so `⌘I` in Phase 1 has something to render. Replaced in Phase 3 with the real `InboxSidebarView`.
+A minimal empty view so `⌘I` in Phase 1 has something to render. Replaced in Phase 3 with the real `InboxNotificationSidebarView`.
 
 **Files:**
-- Create: `Sources/AgentStudio/Features/NotificationInbox/Views/InboxPlaceholderView.swift`
+- Create: `Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationPlaceholderView.swift`
 
 - [ ] **Step 1: Create the feature slice directory**
 
-Run: `mkdir -p Sources/AgentStudio/Features/NotificationInbox/Views/`
+Run: `mkdir -p Sources/AgentStudio/Features/InboxNotification/Views/`
 
 - [ ] **Step 2: Create the placeholder view**
 
-Create `Sources/AgentStudio/Features/NotificationInbox/Views/InboxPlaceholderView.swift`:
+Create `Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationPlaceholderView.swift`:
 
 ```swift
 import SwiftUI
 
 /// Placeholder inbox view used in LUNA-361 Phase 1 only.
-/// Replaced by `InboxSidebarView` in Phase 3.
+/// Replaced by `InboxNotificationSidebarView` in Phase 3.
 ///
 /// Exists so `⌘I` has a renderable destination once
 /// `SidebarSurfaceHost` is wired.
-struct InboxPlaceholderView: View {
+struct InboxNotificationPlaceholderView: View {
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: "bell.slash")
@@ -861,12 +861,12 @@ Expected: clean
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Sources/AgentStudio/Features/NotificationInbox/Views/InboxPlaceholderView.swift
-git commit -m "feat(notification-inbox): add InboxPlaceholderView (Phase 1 only)
+git add Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationPlaceholderView.swift
+git commit -m "feat(notification-inbox): add InboxNotificationPlaceholderView (Phase 1 only)
 
 Minimal empty view so CMD+I has a renderable destination once
 SidebarSurfaceHost is wired. Replaced by the real
-InboxSidebarView in Phase 3. LUNA-361 Phase 1."
+InboxNotificationSidebarView in Phase 3. LUNA-361 Phase 1."
 ```
 
 ---
@@ -924,7 +924,7 @@ import SwiftUI
 /// sidebar surface implementations based on
 /// `uiState.sidebarSurface`. Lives in App/Windows/ because it
 /// imports both Features/RepoExplorer/ and
-/// Features/NotificationInbox/ — only App may import across
+/// Features/InboxNotification/ — only App may import across
 /// feature boundaries.
 ///
 /// Each surface view owns its own focus state and publishes
@@ -942,7 +942,7 @@ struct SidebarSurfaceHost: View {
         case .repos:
             RepoExplorerView(/* pass required deps */)
         case .inbox:
-            InboxPlaceholderView()
+            InboxNotificationPlaceholderView()
         }
     }
 
@@ -977,7 +977,7 @@ git add Sources/AgentStudio/App/Windows/SidebarSurfaceHost.swift \
         Tests/AgentStudioTests/App/Windows/SidebarSurfaceHostTests.swift
 git commit -m "feat(app): add SidebarSurfaceHost switcher view
 
-Switches between RepoExplorerView and InboxPlaceholderView
+Switches between RepoExplorerView and InboxNotificationPlaceholderView
 based on uiState.sidebarSurface. Lives in App/Windows/ because
 it imports both features — only App may import across feature
 boundaries. Does NOT publish focus itself; per the
@@ -1341,7 +1341,7 @@ Modify `Sources/AgentStudio/App/Commands/AppCommand.swift`. Add the new cases al
 enum AppCommand: Hashable {
     // ... existing cases ...
     case filterSidebar
-    case showNotificationInbox     // NEW — ⌘I: composite, ensures sidebar
+    case showInboxNotifications     // NEW — ⌘I: composite, ensures sidebar
                                    //       visible, surface = .inbox,
                                    //       moves focus to inbox list
                                    //       unless CommandBar is key
@@ -1358,7 +1358,7 @@ Modify `Sources/AgentStudio/App/Commands/AppShortcut.swift`. Find the existing b
 
 ```swift
 // In the binding table, alongside existing entries:
-ShortcutTrigger(key: "i", modifiers: [.command]): .showNotificationInbox,
+ShortcutTrigger(key: "i", modifiers: [.command]): .showInboxNotifications,
 ShortcutTrigger(key: "s", modifiers: [.command]): .showWorktreeSidebar,
 ```
 
@@ -1369,8 +1369,8 @@ Adjust the syntax to match the existing convention in the file exactly.
 Find `AppDelegate.perform(_ command: AppCommand)` (or equivalent in whatever handles dispatch — possibly `CommandDispatcher` calls into `AppDelegate` via `.perform`). Add two new cases:
 
 ```swift
-case .showNotificationInbox:
-    showNotificationInbox()
+case .showInboxNotifications:
+    showInboxNotifications()
 
 case .showWorktreeSidebar:
     showWorktreeSidebar()
@@ -1380,7 +1380,7 @@ Then add the two helper methods:
 
 ```swift
 @MainActor
-private func showNotificationInbox() {
+private func showInboxNotifications() {
     // 1. Ensure sidebar visible
     mainSplitViewController.ensureSidebarVisible()
 
@@ -1436,7 +1436,7 @@ APP_PID=$!
 ```
 
 Then manually verify:
-1. Press ⌘I → sidebar shows `InboxPlaceholderView` ("Inbox / No notifications yet")
+1. Press ⌘I → sidebar shows `InboxNotificationPlaceholderView` ("Inbox / No notifications yet")
 2. Press ⌘S → sidebar returns to `RepoExplorerView` (worktrees list)
 3. Collapse the sidebar (⌃⌘S or toolbar button, whatever exists), then ⌘I → sidebar reappears showing inbox
 4. Quit and relaunch → sidebar surface persisted; if you left it on inbox, it's still on inbox
@@ -1470,7 +1470,7 @@ unless CommandBar is key; CMD+S respects current focus).
 
 Phase 1 wrap-up: the sidebar shell is now complete. Phase 2
 adds KeyboardOwnerDerived so CommandBar default-scope reacts
-to the current surface; Phase 3 replaces InboxPlaceholderView
+to the current surface; Phase 3 replaces InboxNotificationPlaceholderView
 with the real notification inbox.
 
 LUNA-361 Phase 1."
@@ -1487,7 +1487,7 @@ Before marking Phase 1 complete, run the full verification matrix:
 - [ ] **`mise run lint`** — clean (zero errors, zero warnings, or matches pre-change baseline).
 
 - [ ] **Manual smoke test** — launch the app:
-    - [ ] ⌘I → sidebar shows `InboxPlaceholderView` ("Inbox / No notifications yet").
+    - [ ] ⌘I → sidebar shows `InboxNotificationPlaceholderView` ("Inbox / No notifications yet").
     - [ ] ⌘S → sidebar shows `RepoExplorerView` (worktrees list).
     - [ ] Toggle the sidebar collapsed; relaunch → state persists.
     - [ ] Toggle sidebar surface; relaunch → surface persists.
@@ -1520,7 +1520,7 @@ Before marking Phase 1 complete, run the full verification matrix:
 ## Scope boundaries (what is explicitly NOT in Phase 1)
 
 - ✗ `KeyboardOwner` enum or `KeyboardOwnerDerived` — Phase 2.
-- ✗ `Notification` model, `NotificationInboxAtom`, `NotificationInboxPrefsAtom`, `NotificationInboxStore`, `NotificationRouter`, `PaneFocusTracker` — Phase 3.
+- ✗ `InboxNotification` model, `InboxNotificationAtom`, `InboxNotificationPrefsAtom`, `InboxNotificationStore`, `InboxNotificationRouter`, `PaneFocusTracker` — Phase 3.
 - ✗ Drawer bell icon, `DrawerOverlay.TrailingActions` extensions — Phase 3.
 - ✗ Bridge `inbox.post` RPC handler — Phase 3.
 - ✗ `CommandBar` `.inbox` scope registration or actions — Phase 2 registers, Phase 3 populates.

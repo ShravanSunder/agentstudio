@@ -397,7 +397,7 @@ Management Layer keeps its strong chrome change because it *is* modal and has ea
 
 ```
 ┌─ DROP ──────────────────────────────────────────────────────────┐
-│ • NotificationInboxLayerAtom                                    │
+│ • InboxNotificationLayerAtom                                    │
 │ • CommandBarScope.inbox gated by "isActive"                     │
 │ • Concept of "⌘I toggles a layer"                               │
 └─────────────────────────────────────────────────────────────────┘
@@ -443,7 +443,7 @@ Feature atoms own their domain (clean). Surface selection (which view is current
 ```
 ┌─ Option A: each feature atom has `isShownInSidebar` flag ──────┐
 │                                                                │
-│  NotificationInboxAtom.isShownInSidebar: Bool                  │
+│  InboxNotificationAtom.isShownInSidebar: Bool                  │
 │  RepoExplorerAtom.isShownInSidebar: Bool                       │
 │                                                                │
 │  PRO: fully feature-isolated                                   │
@@ -488,7 +488,7 @@ Feature atoms own their domain (clean). Surface selection (which view is current
 
 1. Type-enforced mutex. An enum makes "only one surface active" a compile-time guarantee.
 2. `UIStateAtom` already holds view preferences of exactly this shape.
-3. Feature atoms stay pure. `NotificationInboxAtom` knows nothing about "am I showing?" — it just holds notifications.
+3. Feature atoms stay pure. `InboxNotificationAtom` knows nothing about "am I showing?" — it just holds notifications.
 4. CommandBar scope gating is trivial: `isVisible: uiState.sidebarSurface == .inbox`.
 5. Free persistence via existing `UIStateStore` (for `sidebarSurface` — `sidebarHasFocus` is runtime-only, not persisted).
 6. Preserves the "KeyboardOwnerDerived reads only atoms" property (rules out Option C).
@@ -580,7 +580,7 @@ atom, which view) — it just holds the tag.
 │  Where state lives                                              │
 │  ──────────────────                                             │
 │  • Feature atoms hold feature domain                            │
-│      NotificationInboxAtom, RepoExplorerAtom, ...               │
+│      InboxNotificationAtom, RepoExplorerAtom, ...               │
 │  • UIStateAtom holds thin view-state tags                       │
 │      sidebarSurface: .repos | .inbox | ...                      │
 │      sidebarHasFocus: Bool                                      │
@@ -621,7 +621,7 @@ atom, which view) — it just holds the tag.
 
 1. Land this doc as WIP. Iterate.
 2. Revise [`2026-04-17-notification-inbox-design.md`](2026-04-17-notification-inbox-design.md):
-    - Drop `NotificationInboxLayerAtom`
+    - Drop `InboxNotificationLayerAtom`
     - Adopt `UIStateAtom.sidebarSurface` and `UIStateAtom.sidebarHasFocus`
     - ⌘I / ⌘S as composite commands
     - Reference `KeyboardOwner` as the naming concept (no code dependency)

@@ -4,11 +4,11 @@
 
 **Goal:** Build the notification inbox feature end-to-end on top of the Phase 1 shell (UIStateAtom composition state + `SidebarSurfaceHost`) and the Phase 2 `KeyboardOwner` plumbing (CommandBar default-scope). At the end of Phase 3: agents and CLI tools can emit notifications that appear in the sidebar Inbox, per-drawer popover, sidebar bell badges, and an in-app log that's searchable / sortable / groupable with full keymap.
 
-**Architecture:** Feature slice at `Features/NotificationInbox/` — self-contained. Two feature atoms (`NotificationInboxAtom` for the log, `NotificationInboxPrefsAtom` for user prefs), one feature store wrapping both, one leaf `NotificationRouter` subscribing to `EventBus<RuntimeEnvelope>`, a `PaneFocusTracker` diffing `WorkspacePaneAtom.activePaneId` transitions, plus SwiftUI views for the sidebar and drawer popover. Bridge feature grows an `inbox.post` RPC method; Core drawer views grow a `TrailingActions` bell slot; CommandBar registers `.inbox`-scoped actions. No composition state lives here — that's on `UIStateAtom` in Core (Phase 1). All paths per `docs/architecture/directory_structure.md` feature-slice self-containment rules.
+**Architecture:** Feature slice at `Features/InboxNotification/` — self-contained. Two feature atoms (`InboxNotificationAtom` for the log, `InboxNotificationPrefsAtom` for user prefs), one feature store wrapping both, one leaf `InboxNotificationRouter` subscribing to `EventBus<RuntimeEnvelope>`, a `PaneFocusTracker` diffing `WorkspacePaneAtom.activePaneId` transitions, plus SwiftUI views for the sidebar and drawer popover. Bridge feature grows an `inbox.post` RPC method; Core drawer views grow a `TrailingActions` bell slot; CommandBar registers `.inbox`-scoped actions. No composition state lives here — that's on `UIStateAtom` in Core (Phase 1). All paths per `docs/architecture/directory_structure.md` feature-slice self-containment rules.
 
-**Tech Stack:** Swift 6.2 · SwiftUI · Swift Testing · existing `EventBus<RuntimeEnvelope>` · existing `RPCRouter` · `@Observable @MainActor` atoms · `AppPolicies.NotificationInbox.maxRetainedNotifications` (added)
+**Tech Stack:** Swift 6.2 · SwiftUI · Swift Testing · existing `EventBus<RuntimeEnvelope>` · existing `RPCRouter` · `@Observable @MainActor` atoms · `AppPolicies.InboxNotification.maxRetained` (added)
 
-**Depends on:** Phase 1 (composition state, RepoExplorer rename, `SidebarSurfaceHost`, `InboxPlaceholderView`). Phase 2 (`KeyboardOwner`, `KeyboardOwnerDerived`, `.inbox` CommandBar scope registered).
+**Depends on:** Phase 1 (composition state, RepoExplorer rename, `SidebarSurfaceHost`, `InboxNotificationPlaceholderView`). Phase 2 (`KeyboardOwner`, `KeyboardOwnerDerived`, `.inbox` CommandBar scope registered).
 
 **Blocks:** Nothing — terminal phase.
 
@@ -27,37 +27,37 @@
 ## File Structure
 
 ```
-Features/NotificationInbox/                              [NEW FULL SLICE]
+Features/InboxNotification/                              [NEW FULL SLICE]
 ├── Models/
-│   └── Notification.swift                               [NEW]
+│   └── InboxNotification.swift                               [NEW]
 ├── Components/
 │   ├── InboxRow.swift                                   [NEW]
-│   ├── InboxGroupHeader.swift                           [NEW]
-│   └── InboxEmptyState.swift                            [NEW]
+│   ├── InboxNotificationGroupHeader.swift                           [NEW]
+│   └── InboxNotificationEmptyState.swift                            [NEW]
 ├── Routing/
-│   ├── NotificationRouter.swift                         [NEW]
+│   ├── InboxNotificationRouter.swift                         [NEW]
 │   └── PaneFocusTracker.swift                           [NEW]
 ├── State/
 │   └── MainActor/
 │       ├── Atoms/
-│       │   ├── NotificationInboxAtom.swift              [NEW]
-│       │   └── NotificationInboxPrefsAtom.swift         [NEW]
+│       │   ├── InboxNotificationAtom.swift              [NEW]
+│       │   └── InboxNotificationPrefsAtom.swift         [NEW]
 │       └── Persistence/
-│           └── NotificationInboxStore.swift             [NEW]
+│           └── InboxNotificationStore.swift             [NEW]
 └── Views/
-    ├── InboxSidebarView.swift                           [NEW]
-    ├── DrawerInboxPopover.swift                         [NEW]
-    ├── DrawerInboxBellHost.swift                        [NEW]
-    └── InboxPlaceholderView.swift                       [DELETE]
+    ├── InboxNotificationSidebarView.swift                           [NEW]
+    ├── InboxNotificationDrawerPopover.swift                         [NEW]
+    ├── InboxNotificationDrawerBellHost.swift                        [NEW]
+    └── InboxNotificationPlaceholderView.swift                       [DELETE]
 
 Core/Models/
-├── NotificationInboxTypes.swift                         [NEW] Grouping + Sort
+├── InboxNotificationTypes.swift                         [NEW] Grouping + Sort
 │                                                              enums; Core-resident
 │                                                              because Notification-
 │                                                              InboxCommands
 │                                                              references them
 │                                                              (spec §8.5.2)
-└── NotificationInboxCommands.swift                      [NEW] callback bundle +
+└── InboxNotificationCommands.swift                      [NEW] callback bundle +
                                                                 read snapshots;
                                                                 cross-feature seam
                                                                 for Features/
@@ -76,7 +76,7 @@ Features/Bridge/Transport/
 Features/CommandBar/
 └── CommandBarDataSource.swift                           [MOD] populate .inbox
                                                                 scope actions via
-                                                                NotificationInbox-
+                                                                InboxNotification-
                                                                 Commands seam (NO
                                                                 atom imports)
 
@@ -97,7 +97,7 @@ App/Boot/
                                                                 into views
 
 App/Commands/
-├── AppCommand.swift                                     [MOD] + .showDrawerInbox
+├── AppCommand.swift                                     [MOD] + .showDrawerInboxNotifications
 └── AppShortcut.swift                                    [MOD] bind ⌘⇧I
 
 App/Windows/
@@ -106,7 +106,7 @@ App/Windows/
                                                                 for Inbox-
                                                                 SidebarView
 
-Tests — full §13 coverage in Tests/AgentStudioTests/Features/NotificationInbox/
+Tests — full §13 coverage in Tests/AgentStudioTests/Features/InboxNotification/
 (plus integration in Tests/AgentStudioTests/Integration/)
 ```
 
@@ -114,35 +114,35 @@ Tests — full §13 coverage in Tests/AgentStudioTests/Features/NotificationInbo
 
 ## Task order rationale
 
-1. **Data types** (Notification, NotificationKind, Grouping, Sort enums) — no dependencies.
-2. **`NotificationInboxAtom`** — the log + queries + mutations.
-3. **`NotificationInboxPrefsAtom`** — grouping/sort/bellEnabled.
-4. **`NotificationInboxStore`** — persists both atoms.
+1. **Data types** (Notification, InboxNotificationKind, Grouping, Sort enums) — no dependencies.
+2. **`InboxNotificationAtom`** — the log + queries + mutations.
+3. **`InboxNotificationPrefsAtom`** — grouping/sort/bellEnabled.
+4. **`InboxNotificationStore`** — persists both atoms.
 5. **`PaneFocusTracker`** — diffs focus transitions; emits a stream.
-6. **`NotificationRouter`** — subscribes to EventBus, applies §7 routing, writes atom.
+6. **`InboxNotificationRouter`** — subscribes to EventBus, applies §7 routing, writes atom.
 7. **Bridge RPC `inbox.post` handler.**
-8. **`InboxRow` / `InboxGroupHeader` / `InboxEmptyState` components.**
-9. **`InboxSidebarView`** — composes components, declares `InboxFocus`, publishes `sidebarHasFocus`, attaches the `⌥F`/`⌥G`/`⌥S`/arrows/Enter/Space keymap.
+8. **`InboxRow` / `InboxNotificationGroupHeader` / `InboxNotificationEmptyState` components.**
+9. **`InboxNotificationSidebarView`** — composes components, declares `InboxFocus`, publishes `sidebarHasFocus`, attaches the `⌥F`/`⌥G`/`⌥S`/arrows/Enter/Space keymap.
 10. **`DrawerOverlay.TrailingActions` extension + `DrawerIconBar` bell rendering.**
-11. **`DrawerInboxBellHost` + `DrawerInboxPopover`.**
+11. **`InboxNotificationDrawerBellHost` + `InboxNotificationDrawerPopover`.**
 12. **`RepoExplorerWorktreeRow` 🔔 N pill binding.**
 13. **CommandBar `.inbox` scope actions populated.**
 14. **⌘⇧I composite command + `AppDelegate` dispatch handler.**
-15. **`SidebarSurfaceHost` swap + `AppDelegate` boot wiring + `InboxPlaceholderView` deletion.**
+15. **`SidebarSurfaceHost` swap + `AppDelegate` boot wiring + `InboxNotificationPlaceholderView` deletion.**
 16. **Integration tests + Phase 3 verification.**
 
 ---
 
-## Task 1: Data types (Notification, NotificationKind, Grouping, Sort)
+## Task 1: Data types (Notification, InboxNotificationKind, Grouping, Sort)
 
 **Files:**
-- Create: `Sources/AgentStudio/Features/NotificationInbox/Models/Notification.swift`
-- Create: `Sources/AgentStudio/Features/NotificationInbox/Models/NotificationInboxTypes.swift`
-- Test: `Tests/AgentStudioTests/Features/NotificationInbox/Models/NotificationTests.swift`
+- Create: `Sources/AgentStudio/Features/InboxNotification/Models/InboxNotification.swift`
+- Create: `Sources/AgentStudio/Features/InboxNotification/Models/InboxNotificationTypes.swift`
+- Test: `Tests/AgentStudioTests/Features/InboxNotification/Models/NotificationTests.swift`
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `Tests/AgentStudioTests/Features/NotificationInbox/Models/NotificationTests.swift`:
+Create `Tests/AgentStudioTests/Features/InboxNotification/Models/NotificationTests.swift`:
 
 ```swift
 import Foundation
@@ -156,7 +156,7 @@ struct NotificationTests {
     func jsonRoundtrip() throws {
         let id = UUID()
         let now = Date()
-        let original = Notification(
+        let original = InboxNotification(
             id: id,
             timestamp: now,
             kind: .agentDesktopNotification,
@@ -179,7 +179,7 @@ struct NotificationTests {
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let decoded = try decoder.decode(Notification.self, from: data)
+        let decoded = try decoder.decode(InboxNotification.self, from: data)
 
         #expect(decoded.id == original.id)
         #expect(decoded.title == original.title)
@@ -189,28 +189,28 @@ struct NotificationTests {
         #expect(decoded.isDismissedFromDrawer == original.isDismissedFromDrawer)
     }
 
-    @Test("NotificationKind enumerates expected cases")
+    @Test("InboxNotificationKind enumerates expected cases")
     func kindCases() {
-        let _: NotificationKind = .agentDesktopNotification
-        let _: NotificationKind = .bellRang
-        let _: NotificationKind = .commandFinished
-        let _: NotificationKind = .agentRpc
-        let _: NotificationKind = .approvalRequested
-        let _: NotificationKind = .securityEvent
+        let _: InboxNotificationKind = .agentDesktopNotification
+        let _: InboxNotificationKind = .bellRang
+        let _: InboxNotificationKind = .commandFinished
+        let _: InboxNotificationKind = .agentRpc
+        let _: InboxNotificationKind = .approvalRequested
+        let _: InboxNotificationKind = .securityEvent
     }
 
-    @Test("NotificationInboxGrouping enumerates expected cases")
+    @Test("InboxNotificationGrouping enumerates expected cases")
     func groupingCases() {
-        let _: NotificationInboxGrouping = .none
-        let _: NotificationInboxGrouping = .byRepo
-        let _: NotificationInboxGrouping = .byPane
-        let _: NotificationInboxGrouping = .byTab
+        let _: InboxNotificationGrouping = .none
+        let _: InboxNotificationGrouping = .byRepo
+        let _: InboxNotificationGrouping = .byPane
+        let _: InboxNotificationGrouping = .byTab
     }
 
-    @Test("NotificationInboxSort enumerates expected cases")
+    @Test("InboxNotificationSort enumerates expected cases")
     func sortCases() {
-        let _: NotificationInboxSort = .newestFirst
-        let _: NotificationInboxSort = .oldestFirst
+        let _: InboxNotificationSort = .newestFirst
+        let _: InboxNotificationSort = .oldestFirst
     }
 }
 ```
@@ -220,9 +220,9 @@ struct NotificationTests {
 Run: `mise run test -- --filter NotificationTests`
 Expected: FAIL — types not defined.
 
-- [ ] **Step 3: Create `Notification.swift`**
+- [ ] **Step 3: Create `InboxNotification.swift`**
 
-Create `Sources/AgentStudio/Features/NotificationInbox/Models/Notification.swift`:
+Create `Sources/AgentStudio/Features/InboxNotification/Models/InboxNotification.swift`:
 
 ```swift
 import Foundation
@@ -236,7 +236,7 @@ import Foundation
 struct Notification: Identifiable, Sendable, Codable, Equatable {
     let id: UUID
     let timestamp: Date
-    let kind: NotificationKind
+    let kind: InboxNotificationKind
     let title: String
     let body: String?
 
@@ -256,7 +256,7 @@ struct Notification: Identifiable, Sendable, Codable, Equatable {
 
 /// The kind of notification. Drives routing decisions and display.
 /// See spec §7 for the event-to-kind routing contract.
-enum NotificationKind: String, Sendable, Codable, Equatable {
+enum InboxNotificationKind: String, Sendable, Codable, Equatable {
     case agentDesktopNotification      // Ghostty OSC 9/777
     case bellRang                      // Ghostty bell
     case commandFinished               // Ghostty command completion, gated
@@ -266,23 +266,23 @@ enum NotificationKind: String, Sendable, Codable, Equatable {
 }
 ```
 
-- [ ] **Step 4: Create `NotificationInboxTypes.swift` in Core/Models**
+- [ ] **Step 4: Create `InboxNotificationTypes.swift` in Core/Models**
 
-Per spec §8.5.2, `NotificationInboxGrouping` and `NotificationInboxSort` live in **Core** (not the feature slice) because `NotificationInboxCommands` (Task 13) references them and that struct is Core-resident. The enums are pure codable tags with no feature-specific logic.
+Per spec §8.5.2, `InboxNotificationGrouping` and `InboxNotificationSort` live in **Core** (not the feature slice) because `InboxNotificationCommands` (Task 13) references them and that struct is Core-resident. The enums are pure codable tags with no feature-specific logic.
 
-Create `Sources/AgentStudio/Core/Models/NotificationInboxTypes.swift`:
+Create `Sources/AgentStudio/Core/Models/InboxNotificationTypes.swift`:
 
 ```swift
 import Foundation
 
 /// How the notification inbox list is grouped. User preference;
-/// persisted via NotificationInboxStore.
+/// persisted via InboxNotificationStore.
 ///
-/// Lives in Core because `NotificationInboxCommands` (also in
+/// Lives in Core because `InboxNotificationCommands` (also in
 /// Core) references it — so `Features/CommandBar/` can consume
-/// inbox prefs without importing `Features/NotificationInbox/`.
+/// inbox prefs without importing `Features/InboxNotification/`.
 /// See spec §8.5.2.
-enum NotificationInboxGrouping: String, Sendable, Codable, Equatable, CaseIterable {
+enum InboxNotificationGrouping: String, Sendable, Codable, Equatable, CaseIterable {
     case none
     case byRepo
     case byPane
@@ -290,10 +290,10 @@ enum NotificationInboxGrouping: String, Sendable, Codable, Equatable, CaseIterab
 }
 
 /// How the notification inbox list is sorted. User preference;
-/// persisted via NotificationInboxStore.
+/// persisted via InboxNotificationStore.
 ///
-/// Same Core placement rationale as NotificationInboxGrouping.
-enum NotificationInboxSort: String, Sendable, Codable, Equatable, CaseIterable {
+/// Same Core placement rationale as InboxNotificationGrouping.
+enum InboxNotificationSort: String, Sendable, Codable, Equatable, CaseIterable {
     case newestFirst
     case oldestFirst
 }
@@ -311,29 +311,29 @@ Run: `mise run lint`
 - [ ] **Step 7: Commit**
 
 ```bash
-git add Sources/AgentStudio/Features/NotificationInbox/Models/Notification.swift \
-        Sources/AgentStudio/Core/Models/NotificationInboxTypes.swift \
-        Tests/AgentStudioTests/Features/NotificationInbox/Models/
+git add Sources/AgentStudio/Features/InboxNotification/Models/InboxNotification.swift \
+        Sources/AgentStudio/Core/Models/InboxNotificationTypes.swift \
+        Tests/AgentStudioTests/Features/InboxNotification/Models/
 git commit -m "feat(notification-inbox): add Notification + support enums
 
 Notification record with denormalized source context,
-NotificationKind (the six routed event classifications),
-NotificationInboxGrouping (.none/.byRepo/.byPane/.byTab), and
-NotificationInboxSort (.newestFirst/.oldestFirst). All feature-
-scoped under Features/NotificationInbox/Models/. LUNA-361 Phase 3."
+InboxNotificationKind (the six routed event classifications),
+InboxNotificationGrouping (.none/.byRepo/.byPane/.byTab), and
+InboxNotificationSort (.newestFirst/.oldestFirst). All feature-
+scoped under Features/InboxNotification/Models/. LUNA-361 Phase 3."
 ```
 
 ---
 
-## Task 2: `NotificationInboxAtom` — the log
+## Task 2: `InboxNotificationAtom` — the log
 
 **Files:**
-- Create: `Sources/AgentStudio/Features/NotificationInbox/State/MainActor/Atoms/NotificationInboxAtom.swift`
-- Test: `Tests/AgentStudioTests/Features/NotificationInbox/State/NotificationInboxAtomTests.swift`
+- Create: `Sources/AgentStudio/Features/InboxNotification/State/MainActor/Atoms/InboxNotificationAtom.swift`
+- Test: `Tests/AgentStudioTests/Features/InboxNotification/State/InboxNotificationAtomTests.swift`
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `Tests/AgentStudioTests/Features/NotificationInbox/State/NotificationInboxAtomTests.swift`:
+Create `Tests/AgentStudioTests/Features/InboxNotification/State/InboxNotificationAtomTests.swift`:
 
 ```swift
 import Foundation
@@ -341,10 +341,10 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("NotificationInboxAtom")
-struct NotificationInboxAtomTests {
+@Suite("InboxNotificationAtom")
+struct InboxNotificationAtomTests {
 
-    private func makeNotification(
+    private func makeInboxNotification(
         id: UUID = UUID(),
         paneId: UUID? = nil,
         worktreeId: UUID? = nil,
@@ -353,7 +353,7 @@ struct NotificationInboxAtomTests {
         isDismissedFromDrawer: Bool = false,
         timestamp: Date = Date()
     ) -> Notification {
-        Notification(
+        InboxNotification(
             id: id,
             timestamp: timestamp,
             kind: .agentDesktopNotification,
@@ -373,16 +373,16 @@ struct NotificationInboxAtomTests {
 
     @Test("append adds to notifications")
     func appendAdds() {
-        let atom = NotificationInboxAtom()
+        let atom = InboxNotificationAtom()
         #expect(atom.notifications.count == 0)
-        atom.append(makeNotification())
+        atom.append(makeInboxNotification())
         #expect(atom.notifications.count == 1)
     }
 
     @Test("markRead(id:) sets isRead true")
     func markReadById() {
-        let atom = NotificationInboxAtom()
-        let n = makeNotification()
+        let atom = InboxNotificationAtom()
+        let n = makeInboxNotification()
         atom.append(n)
         #expect(atom.notifications[0].isRead == false)
         atom.markRead(id: n.id)
@@ -393,10 +393,10 @@ struct NotificationInboxAtomTests {
     func markReadByPane() {
         let paneA = UUID()
         let paneB = UUID()
-        let atom = NotificationInboxAtom()
-        atom.append(makeNotification(paneId: paneA))
-        atom.append(makeNotification(paneId: paneA))
-        atom.append(makeNotification(paneId: paneB))
+        let atom = InboxNotificationAtom()
+        atom.append(makeInboxNotification(paneId: paneA))
+        atom.append(makeInboxNotification(paneId: paneA))
+        atom.append(makeInboxNotification(paneId: paneB))
 
         atom.markRead(paneId: paneA)
 
@@ -407,16 +407,16 @@ struct NotificationInboxAtomTests {
 
     @Test("markAllRead sets isRead true on every entry")
     func markAllRead() {
-        let atom = NotificationInboxAtom()
-        for _ in 0..<5 { atom.append(makeNotification()) }
+        let atom = InboxNotificationAtom()
+        for _ in 0..<5 { atom.append(makeInboxNotification()) }
         atom.markAllRead()
         #expect(atom.notifications.allSatisfy { $0.isRead })
     }
 
     @Test("dismissFromDrawer(id:) sets flag true")
     func dismissFromDrawerById() {
-        let atom = NotificationInboxAtom()
-        let n = makeNotification()
+        let atom = InboxNotificationAtom()
+        let n = makeInboxNotification()
         atom.append(n)
         atom.dismissFromDrawer(id: n.id)
         #expect(atom.notifications[0].isDismissedFromDrawer == true)
@@ -425,17 +425,17 @@ struct NotificationInboxAtomTests {
     @Test("dismissFromDrawer(paneId:) sets flag true for every pane entry")
     func dismissFromDrawerByPane() {
         let paneA = UUID()
-        let atom = NotificationInboxAtom()
-        atom.append(makeNotification(paneId: paneA))
-        atom.append(makeNotification(paneId: paneA))
+        let atom = InboxNotificationAtom()
+        atom.append(makeInboxNotification(paneId: paneA))
+        atom.append(makeInboxNotification(paneId: paneA))
         atom.dismissFromDrawer(paneId: paneA)
         #expect(atom.notifications.allSatisfy { $0.isDismissedFromDrawer })
     }
 
     @Test("toggleReadState flips the value")
     func toggleReadState() {
-        let atom = NotificationInboxAtom()
-        let n = makeNotification()
+        let atom = InboxNotificationAtom()
+        let n = makeInboxNotification()
         atom.append(n)
         atom.toggleReadState(id: n.id)
         #expect(atom.notifications[0].isRead == true)
@@ -447,10 +447,10 @@ struct NotificationInboxAtomTests {
     func unreadCountForPane() {
         let paneA = UUID()
         let paneB = UUID()
-        let atom = NotificationInboxAtom()
-        atom.append(makeNotification(paneId: paneA, isRead: false))
-        atom.append(makeNotification(paneId: paneA, isRead: true))
-        atom.append(makeNotification(paneId: paneB, isRead: false))
+        let atom = InboxNotificationAtom()
+        atom.append(makeInboxNotification(paneId: paneA, isRead: false))
+        atom.append(makeInboxNotification(paneId: paneA, isRead: true))
+        atom.append(makeInboxNotification(paneId: paneB, isRead: false))
         #expect(atom.unreadCount(forPaneId: paneA) == 1)
         #expect(atom.unreadCount(forPaneId: paneB) == 1)
     }
@@ -458,19 +458,19 @@ struct NotificationInboxAtomTests {
     @Test("unreadCount(forWorktreeId:) counts matches")
     func unreadCountForWorktree() {
         let wtA = UUID()
-        let atom = NotificationInboxAtom()
-        atom.append(makeNotification(worktreeId: wtA, isRead: false))
-        atom.append(makeNotification(worktreeId: wtA, isRead: true))
-        atom.append(makeNotification(worktreeId: nil, isRead: false))
+        let atom = InboxNotificationAtom()
+        atom.append(makeInboxNotification(worktreeId: wtA, isRead: false))
+        atom.append(makeInboxNotification(worktreeId: wtA, isRead: true))
+        atom.append(makeInboxNotification(worktreeId: nil, isRead: false))
         #expect(atom.unreadCount(forWorktreeId: wtA) == 1)
     }
 
     @Test("unreadCount(forTabId:) counts matches")
     func unreadCountForTab() {
         let tabA = UUID()
-        let atom = NotificationInboxAtom()
-        atom.append(makeNotification(tabId: tabA, isRead: false))
-        atom.append(makeNotification(tabId: tabA, isRead: false))
+        let atom = InboxNotificationAtom()
+        atom.append(makeInboxNotification(tabId: tabA, isRead: false))
+        atom.append(makeInboxNotification(tabId: tabA, isRead: false))
         #expect(atom.unreadCount(forTabId: tabA) == 2)
     }
 
@@ -479,36 +479,36 @@ struct NotificationInboxAtomTests {
         let p1 = UUID()
         let p2 = UUID()
         let p3 = UUID()
-        let atom = NotificationInboxAtom()
-        atom.append(makeNotification(paneId: p1, isRead: false))
-        atom.append(makeNotification(paneId: p2, isRead: false))
-        atom.append(makeNotification(paneId: p3, isRead: false))
+        let atom = InboxNotificationAtom()
+        atom.append(makeInboxNotification(paneId: p1, isRead: false))
+        atom.append(makeInboxNotification(paneId: p2, isRead: false))
+        atom.append(makeInboxNotification(paneId: p3, isRead: false))
         #expect(atom.unreadCount(forDrawerPaneIds: [p1, p2]) == 2)
     }
 
     @Test("globalUnreadCount counts all unread")
     func globalUnread() {
-        let atom = NotificationInboxAtom()
-        atom.append(makeNotification(isRead: false))
-        atom.append(makeNotification(isRead: true))
-        atom.append(makeNotification(isRead: false))
+        let atom = InboxNotificationAtom()
+        atom.append(makeInboxNotification(isRead: false))
+        atom.append(makeInboxNotification(isRead: true))
+        atom.append(makeInboxNotification(isRead: false))
         #expect(atom.globalUnreadCount == 2)
     }
 
     @Test("retention cap: inserting beyond cap evicts oldest")
     func retentionCap() {
-        let atom = NotificationInboxAtom()
-        let cap = AppPolicies.NotificationInbox.maxRetainedNotifications
+        let atom = InboxNotificationAtom()
+        let cap = AppPolicies.InboxNotification.maxRetained
         let base = Date(timeIntervalSince1970: 1_000_000)
         // Fill to cap with distinct timestamps
         for i in 0..<cap {
-            atom.append(makeNotification(
+            atom.append(makeInboxNotification(
                 timestamp: base.addingTimeInterval(TimeInterval(i))))
         }
         #expect(atom.notifications.count == cap)
         let oldestId = atom.notifications.first?.id
         // One more push
-        atom.append(makeNotification(
+        atom.append(makeInboxNotification(
             timestamp: base.addingTimeInterval(TimeInterval(cap + 1))))
         #expect(atom.notifications.count == cap)
         #expect(atom.notifications.contains(where: { $0.id == oldestId }) == false,
@@ -517,10 +517,10 @@ struct NotificationInboxAtomTests {
 
     @Test("clearReadHistory removes read entries, keeps unread")
     func clearReadHistory() {
-        let atom = NotificationInboxAtom()
-        atom.append(makeNotification(isRead: true))
-        atom.append(makeNotification(isRead: false))
-        atom.append(makeNotification(isRead: true))
+        let atom = InboxNotificationAtom()
+        atom.append(makeInboxNotification(isRead: true))
+        atom.append(makeInboxNotification(isRead: false))
+        atom.append(makeInboxNotification(isRead: true))
         atom.clearReadHistory()
         #expect(atom.notifications.count == 1)
         #expect(atom.notifications[0].isRead == false)
@@ -528,8 +528,8 @@ struct NotificationInboxAtomTests {
 
     @Test("clearAll removes everything")
     func clearAll() {
-        let atom = NotificationInboxAtom()
-        for _ in 0..<3 { atom.append(makeNotification()) }
+        let atom = InboxNotificationAtom()
+        for _ in 0..<3 { atom.append(makeInboxNotification()) }
         atom.clearAll()
         #expect(atom.notifications.isEmpty)
     }
@@ -538,12 +538,12 @@ struct NotificationInboxAtomTests {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `mise run test -- --filter NotificationInboxAtomTests`
+Run: `mise run test -- --filter InboxNotificationAtomTests`
 Expected: FAIL — atom does not exist.
 
-- [ ] **Step 3: Create `NotificationInboxAtom.swift`**
+- [ ] **Step 3: Create `InboxNotificationAtom.swift`**
 
-Create `Sources/AgentStudio/Features/NotificationInbox/State/MainActor/Atoms/NotificationInboxAtom.swift`:
+Create `Sources/AgentStudio/Features/InboxNotification/State/MainActor/Atoms/InboxNotificationAtom.swift`:
 
 ```swift
 import Foundation
@@ -553,20 +553,20 @@ import Observation
 ///
 /// `@Observable @MainActor`. Reads are `private(set)`; mutations
 /// go through methods (valtio pattern). Never touches disk —
-/// persistence lives in `NotificationInboxStore`.
+/// persistence lives in `InboxNotificationStore`.
 ///
-/// Retention cap is `AppPolicies.NotificationInbox
-/// .maxRetainedNotifications`. When append would exceed the cap,
+/// Retention cap is `AppPolicies.InboxNotification
+/// .maxRetained`. When append would exceed the cap,
 /// the oldest entry by timestamp is evicted.
 ///
 /// See spec §4.3.
 @MainActor
 @Observable
-final class NotificationInboxAtom {
+final class InboxNotificationAtom {
 
     // MARK: - State
 
-    private(set) var notifications: [Notification] = []
+    private(set) var notifications: [InboxNotification] = []
 
     // MARK: - Derived reads
 
@@ -604,7 +604,7 @@ final class NotificationInboxAtom {
 
     // MARK: - Mutations
 
-    func append(_ notification: Notification) {
+    func append(_ notification: InboxNotification) {
         notifications.append(notification)
         enforceRetentionCap()
     }
@@ -658,7 +658,7 @@ final class NotificationInboxAtom {
     }
 
     private func enforceRetentionCap() {
-        let cap = AppPolicies.NotificationInbox.maxRetainedNotifications
+        let cap = AppPolicies.InboxNotification.maxRetained
         guard notifications.count > cap else { return }
         // Evict oldest by timestamp. Typical insertion order is
         // newest-at-end (timestamps monotonically increasing), so
@@ -672,7 +672,7 @@ final class NotificationInboxAtom {
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `mise run test -- --filter NotificationInboxAtomTests`
+Run: `mise run test -- --filter InboxNotificationAtomTests`
 Expected: PASS (all tests)
 
 - [ ] **Step 5: Lint**
@@ -682,25 +682,25 @@ Run: `mise run lint`
 - [ ] **Step 6: Commit**
 
 ```bash
-git add Sources/AgentStudio/Features/NotificationInbox/State/MainActor/Atoms/NotificationInboxAtom.swift \
-        Tests/AgentStudioTests/Features/NotificationInbox/State/NotificationInboxAtomTests.swift
-git commit -m "feat(notification-inbox): add NotificationInboxAtom
+git add Sources/AgentStudio/Features/InboxNotification/State/MainActor/Atoms/InboxNotificationAtom.swift \
+        Tests/AgentStudioTests/Features/InboxNotification/State/InboxNotificationAtomTests.swift
+git commit -m "feat(notification-inbox): add InboxNotificationAtom
 
 @Observable @MainActor log. private(set) reads, method-gated
 mutation. Derived unreadCount queries across paneId, worktree-
 Id, tabId, and [paneIds] dimensions, plus globalUnreadCount.
-Retention cap enforced via AppPolicies.NotificationInbox
-.maxRetainedNotifications — oldest-by-timestamp evicted on
+Retention cap enforced via AppPolicies.InboxNotification
+.maxRetained — oldest-by-timestamp evicted on
 overflow. LUNA-361 Phase 3."
 ```
 
 ---
 
-## Task 3: `NotificationInboxPrefsAtom`
+## Task 3: `InboxNotificationPrefsAtom`
 
 **Files:**
-- Create: `Sources/AgentStudio/Features/NotificationInbox/State/MainActor/Atoms/NotificationInboxPrefsAtom.swift`
-- Test: `Tests/AgentStudioTests/Features/NotificationInbox/State/NotificationInboxPrefsAtomTests.swift`
+- Create: `Sources/AgentStudio/Features/InboxNotification/State/MainActor/Atoms/InboxNotificationPrefsAtom.swift`
+- Test: `Tests/AgentStudioTests/Features/InboxNotification/State/InboxNotificationPrefsAtomTests.swift`
 
 - [ ] **Step 1: Write failing tests**
 
@@ -709,12 +709,12 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("NotificationInboxPrefsAtom")
-struct NotificationInboxPrefsAtomTests {
+@Suite("InboxNotificationPrefsAtom")
+struct InboxNotificationPrefsAtomTests {
 
     @Test("defaults")
     func defaults() {
-        let atom = NotificationInboxPrefsAtom()
+        let atom = InboxNotificationPrefsAtom()
         #expect(atom.grouping == .none)
         #expect(atom.sort == .newestFirst)
         #expect(atom.bellEnabled == false)
@@ -722,21 +722,21 @@ struct NotificationInboxPrefsAtomTests {
 
     @Test("setGrouping")
     func setGrouping() {
-        let atom = NotificationInboxPrefsAtom()
+        let atom = InboxNotificationPrefsAtom()
         atom.setGrouping(.byRepo)
         #expect(atom.grouping == .byRepo)
     }
 
     @Test("setSort")
     func setSort() {
-        let atom = NotificationInboxPrefsAtom()
+        let atom = InboxNotificationPrefsAtom()
         atom.setSort(.oldestFirst)
         #expect(atom.sort == .oldestFirst)
     }
 
     @Test("setBellEnabled")
     func setBellEnabled() {
-        let atom = NotificationInboxPrefsAtom()
+        let atom = InboxNotificationPrefsAtom()
         atom.setBellEnabled(true)
         #expect(atom.bellEnabled == true)
         atom.setBellEnabled(false)
@@ -747,28 +747,28 @@ struct NotificationInboxPrefsAtomTests {
 
 - [ ] **Step 2: Implement**
 
-Create `Sources/AgentStudio/Features/NotificationInbox/State/MainActor/Atoms/NotificationInboxPrefsAtom.swift`:
+Create `Sources/AgentStudio/Features/InboxNotification/State/MainActor/Atoms/InboxNotificationPrefsAtom.swift`:
 
 ```swift
 import Foundation
 import Observation
 
 /// User preferences for the notification inbox. Feature-scoped.
-/// Persisted alongside `NotificationInboxAtom` in a single JSON
-/// file via `NotificationInboxStore` (WorkspaceStore pattern —
+/// Persisted alongside `InboxNotificationAtom` in a single JSON
+/// file via `InboxNotificationStore` (WorkspaceStore pattern —
 /// one store wrapping multiple atoms that persist together).
 @MainActor
 @Observable
-final class NotificationInboxPrefsAtom {
-    private(set) var grouping: NotificationInboxGrouping = .none
-    private(set) var sort: NotificationInboxSort = .newestFirst
+final class InboxNotificationPrefsAtom {
+    private(set) var grouping: InboxNotificationGrouping = .none
+    private(set) var sort: InboxNotificationSort = .newestFirst
     private(set) var bellEnabled: Bool = false
 
-    func setGrouping(_ grouping: NotificationInboxGrouping) {
+    func setGrouping(_ grouping: InboxNotificationGrouping) {
         self.grouping = grouping
     }
 
-    func setSort(_ sort: NotificationInboxSort) {
+    func setSort(_ sort: InboxNotificationSort) {
         self.sort = sort
     }
 
@@ -781,23 +781,23 @@ final class NotificationInboxPrefsAtom {
 - [ ] **Step 3: Run tests, lint, commit**
 
 ```bash
-mise run test -- --filter NotificationInboxPrefsAtomTests
+mise run test -- --filter InboxNotificationPrefsAtomTests
 mise run lint
 git add ...
-git commit -m "feat(notification-inbox): add NotificationInboxPrefsAtom
+git commit -m "feat(notification-inbox): add InboxNotificationPrefsAtom
 
 Feature-scoped user prefs: grouping, sort, bellEnabled.
 Defaults: .none / .newestFirst / false. Persisted via
-NotificationInboxStore alongside the log atom. LUNA-361 Phase 3."
+InboxNotificationStore alongside the log atom. LUNA-361 Phase 3."
 ```
 
 ---
 
-## Task 4: `NotificationInboxStore` (persists both atoms)
+## Task 4: `InboxNotificationStore` (persists both atoms)
 
 **Files:**
-- Create: `Sources/AgentStudio/Features/NotificationInbox/State/MainActor/Persistence/NotificationInboxStore.swift`
-- Test: `Tests/AgentStudioTests/Features/NotificationInbox/State/NotificationInboxStoreTests.swift`
+- Create: `Sources/AgentStudio/Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift`
+- Test: `Tests/AgentStudioTests/Features/InboxNotification/State/InboxNotificationStoreTests.swift`
 
 - [ ] **Step 1: Write failing tests**
 
@@ -807,8 +807,8 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("NotificationInboxStore")
-struct NotificationInboxStoreTests {
+@Suite("InboxNotificationStore")
+struct InboxNotificationStoreTests {
 
     private func makeTempURL() -> URL {
         let dir = FileManager.default.temporaryDirectory
@@ -821,16 +821,16 @@ struct NotificationInboxStoreTests {
     @Test("roundtrip: save + load returns equal notifications")
     func roundtrip() async throws {
         let url = makeTempURL()
-        let atom1 = NotificationInboxAtom()
-        let prefs1 = NotificationInboxPrefsAtom()
+        let atom1 = InboxNotificationAtom()
+        let prefs1 = InboxNotificationPrefsAtom()
         let clock = TestClock()
-        let store1 = NotificationInboxStore(
+        let store1 = InboxNotificationStore(
             inboxAtom: atom1,
             prefsAtom: prefs1,
             fileURL: url,
             clock: clock
         )
-        let note = Notification(
+        let note = InboxNotification(
             id: UUID(),
             timestamp: Date(),
             kind: .agentDesktopNotification,
@@ -852,9 +852,9 @@ struct NotificationInboxStoreTests {
         prefs1.setBellEnabled(true)
         try await store1.save()
 
-        let atom2 = NotificationInboxAtom()
-        let prefs2 = NotificationInboxPrefsAtom()
-        let store2 = NotificationInboxStore(
+        let atom2 = InboxNotificationAtom()
+        let prefs2 = InboxNotificationPrefsAtom()
+        let store2 = InboxNotificationStore(
             inboxAtom: atom2,
             prefsAtom: prefs2,
             fileURL: url,
@@ -873,9 +873,9 @@ struct NotificationInboxStoreTests {
     func loadMissingFileUsesDefaults() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("missing-\(UUID()).json")
-        let atom = NotificationInboxAtom()
-        let prefs = NotificationInboxPrefsAtom()
-        let store = NotificationInboxStore(
+        let atom = InboxNotificationAtom()
+        let prefs = InboxNotificationPrefsAtom()
+        let store = InboxNotificationStore(
             inboxAtom: atom,
             prefsAtom: prefs,
             fileURL: url
@@ -890,7 +890,7 @@ struct NotificationInboxStoreTests {
 
 - [ ] **Step 2: Implement**
 
-Create `Sources/AgentStudio/Features/NotificationInbox/State/MainActor/Persistence/NotificationInboxStore.swift`:
+Create `Sources/AgentStudio/Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift`:
 
 ```swift
 import Foundation
@@ -905,9 +905,9 @@ import Observation
 /// (canonical workspace bundle — sibling of workspace.state.json,
 /// workspace.cache.json, workspace.ui.json).
 @MainActor
-final class NotificationInboxStore {
-    let inboxAtom: NotificationInboxAtom
-    let prefsAtom: NotificationInboxPrefsAtom
+final class InboxNotificationStore {
+    let inboxAtom: InboxNotificationAtom
+    let prefsAtom: InboxNotificationPrefsAtom
 
     private let fileURL: URL
     private let clock: any Clock<Duration>
@@ -915,8 +915,8 @@ final class NotificationInboxStore {
     private var debouncedSaveTask: Task<Void, Never>?
 
     init(
-        inboxAtom: NotificationInboxAtom,
-        prefsAtom: NotificationInboxPrefsAtom,
+        inboxAtom: InboxNotificationAtom,
+        prefsAtom: InboxNotificationPrefsAtom,
         fileURL: URL,
         clock: any Clock<Duration> = ContinuousClock(),
         debounceDuration: Duration = .milliseconds(500)
@@ -932,12 +932,12 @@ final class NotificationInboxStore {
 
     private struct Payload: Codable {
         var schemaVersion: Int = 1
-        var notifications: [Notification]
+        var notifications: [InboxNotification]
         var prefs: Prefs
 
         struct Prefs: Codable {
-            var grouping: NotificationInboxGrouping
-            var sort: NotificationInboxSort
+            var grouping: InboxNotificationGrouping
+            var sort: InboxNotificationSort
             var bellEnabled: Bool
         }
     }
@@ -953,7 +953,7 @@ final class NotificationInboxStore {
         decoder.dateDecodingStrategy = .iso8601
         let payload = try decoder.decode(Payload.self, from: data)
         // Replace the atom's notifications wholesale by re-appending.
-        // (NotificationInboxAtom's retention cap enforces size.)
+        // (InboxNotificationAtom's retention cap enforces size.)
         inboxAtom.clearAll()
         for note in payload.notifications {
             inboxAtom.append(note)
@@ -1014,11 +1014,11 @@ In `AppDelegate` boot wiring (Task 15), you'll subscribe to `inboxAtom` and `pre
 - [ ] **Step 4: Run tests, lint, commit**
 
 ```bash
-mise run test -- --filter NotificationInboxStoreTests
+mise run test -- --filter InboxNotificationStoreTests
 mise run lint
-git add Sources/AgentStudio/Features/NotificationInbox/State/MainActor/Persistence/ \
-        Tests/AgentStudioTests/Features/NotificationInbox/State/NotificationInboxStoreTests.swift
-git commit -m "feat(notification-inbox): add NotificationInboxStore
+git add Sources/AgentStudio/Features/InboxNotification/State/MainActor/Persistence/ \
+        Tests/AgentStudioTests/Features/InboxNotification/State/InboxNotificationStoreTests.swift
+git commit -m "feat(notification-inbox): add InboxNotificationStore
 
 One store wrapping both feature atoms (log + prefs). JSON
 persistence to workspace bundle path ~/.agentstudio/workspaces/
@@ -1031,11 +1031,11 @@ by AppDelegate boot sequencing. LUNA-361 Phase 3."
 
 ## Task 5: `PaneFocusTracker`
 
-Emits an `AsyncStream<PaneId>` of focus-gained transitions by diffing `WorkspacePaneAtom.activePaneId`. Consumed by `NotificationRouter` to auto-dismiss notifications when the user focuses their source pane.
+Emits an `AsyncStream<PaneId>` of focus-gained transitions by diffing `WorkspacePaneAtom.activePaneId`. Consumed by `InboxNotificationRouter` to auto-dismiss notifications when the user focuses their source pane.
 
 **Files:**
-- Create: `Sources/AgentStudio/Features/NotificationInbox/Routing/PaneFocusTracker.swift`
-- Test: `Tests/AgentStudioTests/Features/NotificationInbox/Routing/PaneFocusTrackerTests.swift`
+- Create: `Sources/AgentStudio/Features/InboxNotification/Routing/PaneFocusTracker.swift`
+- Test: `Tests/AgentStudioTests/Features/InboxNotification/Routing/PaneFocusTrackerTests.swift`
 
 - [ ] **Step 1: Write failing tests**
 
@@ -1119,7 +1119,7 @@ Adjust `WorkspacePaneAtom` accessor names (`setActivePaneId`) to match the real 
 
 - [ ] **Step 2: Implement**
 
-Create `Sources/AgentStudio/Features/NotificationInbox/Routing/PaneFocusTracker.swift`:
+Create `Sources/AgentStudio/Features/InboxNotification/Routing/PaneFocusTracker.swift`:
 
 ```swift
 import Foundation
@@ -1130,7 +1130,7 @@ import Observation
 ///
 /// `WorkspaceFocusDerived` is snapshot-only — it does not emit
 /// transition events. This tracker closes that gap for
-/// consumers (primarily `NotificationRouter`) that need to
+/// consumers (primarily `InboxNotificationRouter`) that need to
 /// react to "user focused pane X."
 ///
 /// Event-driven via `withObservationTracking` + `onChange`
@@ -1225,19 +1225,19 @@ git commit -m "feat(notification-inbox): add PaneFocusTracker
 Observes WorkspacePaneAtom.activePaneId transitions and emits
 the gained paneId via AsyncStream<UUID>. Closes the gap left
 by WorkspaceFocusDerived being snapshot-only. Consumed by
-NotificationRouter to auto-dismiss notifications when the user
+InboxNotificationRouter to auto-dismiss notifications when the user
 focuses their source pane. LUNA-361 Phase 3."
 ```
 
 ---
 
-## Task 6: `NotificationRouter`
+## Task 6: `InboxNotificationRouter`
 
-The leaf bus subscriber. Implements the §7 routing contract: reads `EventBus<RuntimeEnvelope>` events, gates them per the contract, enriches with repo/worktree/branch context, and appends to `NotificationInboxAtom`.
+The leaf bus subscriber. Implements the §7 routing contract: reads `EventBus<RuntimeEnvelope>` events, gates them per the contract, enriches with repo/worktree/branch context, and appends to `InboxNotificationAtom`.
 
 **Files:**
-- Create: `Sources/AgentStudio/Features/NotificationInbox/Routing/NotificationRouter.swift`
-- Test: `Tests/AgentStudioTests/Features/NotificationInbox/Routing/NotificationRouterTests.swift`
+- Create: `Sources/AgentStudio/Features/InboxNotification/Routing/InboxNotificationRouter.swift`
+- Test: `Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterTests.swift`
 
 - [ ] **Step 1: Read the EventBus and RuntimeEnvelope types**
 
@@ -1252,7 +1252,7 @@ Confirm the types' public API before writing the router. Key things to identify:
 
 - [ ] **Step 2: Write the failing tests**
 
-Create `Tests/AgentStudioTests/Features/NotificationInbox/Routing/NotificationRouterTests.swift`:
+Create `Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterTests.swift`:
 
 ```swift
 import Foundation
@@ -1260,11 +1260,11 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("NotificationRouter routing contract (spec §7)")
-struct NotificationRouterTests {
+@Suite("InboxNotificationRouter routing contract (spec §7)")
+struct InboxNotificationRouterTests {
 
     /// Lightweight fixture. The router under test needs an EventBus
-    /// to subscribe to, a NotificationInboxAtom to write into, a
+    /// to subscribe to, a InboxNotificationAtom to write into, a
     /// prefsAtom for the bell toggle, a workspacePaneAtom for focus
     /// checks, and a paneContextResolver for repo/worktree/branch
     /// enrichment. Build minimal fixtures per the existing test
@@ -1278,10 +1278,10 @@ struct NotificationRouterTests {
 
     struct Fixture {
         let bus: EventBus<RuntimeEnvelope>
-        let inboxAtom: NotificationInboxAtom
-        let prefsAtom: NotificationInboxPrefsAtom
+        let inboxAtom: InboxNotificationAtom
+        let prefsAtom: InboxNotificationPrefsAtom
         let paneAtom: WorkspacePaneAtom
-        let router: NotificationRouter
+        let router: InboxNotificationRouter
     }
 
     // §7 row-by-row tests. Each posts an envelope on the bus, then
@@ -1290,7 +1290,7 @@ struct NotificationRouterTests {
     // wall-clock sleeps.
 
     @Test("desktopNotificationRequested → agentDesktopNotification")
-    func desktopNotification() async throws {
+    func desktopInboxNotification() async throws {
         let f = makeFixture()
         let title = "Codex done"
         let body = "exit 0"
@@ -1449,18 +1449,18 @@ struct NotificationRouterTests {
 
 Fill in the `fatalError("build envelope")` placeholders with the real `RuntimeEnvelope(...)` constructions once the envelope API is confirmed. Every row of the §7 routing table must have at least one test.
 
-- [ ] **Step 3: Implement `NotificationRouter`**
+- [ ] **Step 3: Implement `InboxNotificationRouter`**
 
-Create `Sources/AgentStudio/Features/NotificationInbox/Routing/NotificationRouter.swift`:
+Create `Sources/AgentStudio/Features/InboxNotification/Routing/InboxNotificationRouter.swift`:
 
 ```swift
 import Foundation
 
 /// Leaf subscriber on EventBus<RuntimeEnvelope>. Applies the
 /// §7 routing contract: maps incoming runtime events to
-/// Notification records (or discards them), enriches with
+/// InboxNotification records (or discards them), enriches with
 /// denormalized source context, and appends to
-/// NotificationInboxAtom.
+/// InboxNotificationAtom.
 ///
 /// Also subscribes to PaneFocusTracker.focusGainedStream and
 /// clears read + dismissed-from-drawer flags on focused panes.
@@ -1468,11 +1468,11 @@ import Foundation
 /// See spec §7 (routing contract), §4.2 (dismissal rule), §8.3
 /// (subscription pattern).
 @MainActor
-final class NotificationRouter {
+final class InboxNotificationRouter {
 
     private let bus: EventBus<RuntimeEnvelope>
-    private let inboxAtom: NotificationInboxAtom
-    private let prefsAtom: NotificationInboxPrefsAtom
+    private let inboxAtom: InboxNotificationAtom
+    private let prefsAtom: InboxNotificationPrefsAtom
     private let paneAtom: WorkspacePaneAtom
     private let contextResolver: PaneContextResolver
     private let focusTracker: PaneFocusTracker
@@ -1482,8 +1482,8 @@ final class NotificationRouter {
 
     init(
         bus: EventBus<RuntimeEnvelope>,
-        inboxAtom: NotificationInboxAtom,
-        prefsAtom: NotificationInboxPrefsAtom,
+        inboxAtom: InboxNotificationAtom,
+        prefsAtom: InboxNotificationPrefsAtom,
         paneAtom: WorkspacePaneAtom,
         contextResolver: PaneContextResolver,
         focusTracker: PaneFocusTracker
@@ -1538,9 +1538,9 @@ final class NotificationRouter {
         )
     }
 
-    /// Returns the NotificationKind if the envelope should produce
+    /// Returns the InboxNotificationKind if the envelope should produce
     /// a notification, nil otherwise. Implements spec §7 row-by-row.
-    private func classify(_ envelope: RuntimeEnvelope) -> NotificationKind? {
+    private func classify(_ envelope: RuntimeEnvelope) -> InboxNotificationKind? {
         switch envelope.event {
         case .terminal(.desktopNotificationRequested):
             return .agentDesktopNotification
@@ -1628,7 +1628,7 @@ final class NotificationRouter {
     }
 
     private func append(
-        kind: NotificationKind,
+        kind: InboxNotificationKind,
         title: String,
         body: String?,
         paneId: UUID?
@@ -1636,7 +1636,7 @@ final class NotificationRouter {
         let context = paneId.flatMap {
             contextResolver.resolve(paneId: $0)
         }
-        let note = Notification(
+        let note = InboxNotification(
             id: UUID(),
             timestamp: Date(),
             kind: kind,
@@ -1693,11 +1693,11 @@ Fill in the context resolver with the real `RepoCacheAtom` accessor names by gre
 - [ ] **Step 4: Run tests, lint, commit**
 
 ```bash
-mise run test -- --filter NotificationRouterTests
+mise run test -- --filter InboxNotificationRouterTests
 mise run lint
-git add Sources/AgentStudio/Features/NotificationInbox/Routing/ \
-        Tests/AgentStudioTests/Features/NotificationInbox/Routing/
-git commit -m "feat(notification-inbox): add NotificationRouter
+git add Sources/AgentStudio/Features/InboxNotification/Routing/ \
+        Tests/AgentStudioTests/Features/InboxNotification/Routing/
+git commit -m "feat(notification-inbox): add InboxNotificationRouter
 
 Leaf subscriber on EventBus<RuntimeEnvelope>. Implements spec
 §7 routing contract row-by-row. Enriches with repo/worktree/
@@ -1849,7 +1849,7 @@ func handleInboxPost(params: [String: Any]) throws {
 ```
 
 3. Decide on the `RuntimeEnvelope.event` shape for bridge inbox posts. Two reasonable options:
-    - Add a new `PaneRuntimeEvent` case, e.g., `.bridgeInboxPost(title: String, body: String?)`. Requires updating `NotificationRouter.classify(_:)` to match.
+    - Add a new `PaneRuntimeEvent` case, e.g., `.bridgeInboxPost(title: String, body: String?)`. Requires updating `InboxNotificationRouter.classify(_:)` to match.
     - Wrap in the existing `.plugin(kind:event:)` mechanism — if the codebase already uses plugin events for bridge-specific things, follow that.
 
     Grep `case plugin` and existing bridge event injections to decide. Use whichever matches the codebase's convention.
@@ -1868,20 +1868,20 @@ Registers the inbox.post JSON-RPC method on RPCRouter. Emits
 a PaneRuntimeEvent with paneId inferred from the bridge
 connection's bound pane. Caller-supplied 'paneId' param is
 ignored (agents cannot spoof notifications from other panes).
-Consumed by NotificationRouter as .agentRpc kind. LUNA-361
+Consumed by InboxNotificationRouter as .agentRpc kind. LUNA-361
 Phase 3."
 ```
 
 ---
 
-## Task 8: Inbox components (`InboxRow`, `InboxGroupHeader`, `InboxEmptyState`)
+## Task 8: Inbox components (`InboxRow`, `InboxNotificationGroupHeader`, `InboxNotificationEmptyState`)
 
-Small SwiftUI views. Stateless — take a `Notification` (or group descriptor) and render.
+Small SwiftUI views. Stateless — take a `InboxNotification` (or group descriptor) and render.
 
 **Files:**
-- Create: `Sources/AgentStudio/Features/NotificationInbox/Components/InboxRow.swift`
-- Create: `Sources/AgentStudio/Features/NotificationInbox/Components/InboxGroupHeader.swift`
-- Create: `Sources/AgentStudio/Features/NotificationInbox/Components/InboxEmptyState.swift`
+- Create: `Sources/AgentStudio/Features/InboxNotification/Components/InboxRow.swift`
+- Create: `Sources/AgentStudio/Features/InboxNotification/Components/InboxNotificationGroupHeader.swift`
+- Create: `Sources/AgentStudio/Features/InboxNotification/Components/InboxNotificationEmptyState.swift`
 
 Reference the panel layout in spec §6.
 
@@ -1896,7 +1896,7 @@ import SwiftUI
 ///   Line 3: body (dim, single line, only if non-empty)
 /// See spec §6 row anatomy.
 struct InboxRow: View {
-    let notification: Notification
+    let notification: InboxNotification
     let now: Date     // inject for deterministic "2m ago" formatting
 
     var body: some View {
@@ -1958,12 +1958,12 @@ struct InboxRow: View {
 }
 ```
 
-- [ ] **Step 2: `InboxGroupHeader`**
+- [ ] **Step 2: `InboxNotificationGroupHeader`**
 
 ```swift
 import SwiftUI
 
-struct InboxGroupHeader: View {
+struct InboxNotificationGroupHeader: View {
     let label: String
     let unreadCount: Int
 
@@ -1985,12 +1985,12 @@ struct InboxGroupHeader: View {
 }
 ```
 
-- [ ] **Step 3: `InboxEmptyState`**
+- [ ] **Step 3: `InboxNotificationEmptyState`**
 
 ```swift
 import SwiftUI
 
-struct InboxEmptyState: View {
+struct InboxNotificationEmptyState: View {
     var body: some View {
         VStack {
             Text("No notifications yet")
@@ -2007,7 +2007,7 @@ struct InboxEmptyState: View {
 ```bash
 mise run build
 mise run lint
-git add Sources/AgentStudio/Features/NotificationInbox/Components/
+git add Sources/AgentStudio/Features/InboxNotification/Components/
 git commit -m "feat(notification-inbox): add InboxRow/GroupHeader/EmptyState components
 
 Small stateless SwiftUI views following spec §6 row anatomy.
@@ -2018,16 +2018,16 @@ LUNA-361 Phase 3."
 
 ---
 
-## Task 9: `InboxSidebarView`
+## Task 9: `InboxNotificationSidebarView`
 
 The main inbox screen. Composes components, declares `InboxFocus` (per spec §4.3 / §8.4), publishes `sidebarHasFocus`, attaches all keymap shortcuts, applies grouping + sort + search, handles click-through.
 
 **Files:**
-- Create: `Sources/AgentStudio/Features/NotificationInbox/Views/InboxSidebarView.swift`
+- Create: `Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationSidebarView.swift`
 
 - [ ] **Step 1: Implement the view**
 
-Create `Sources/AgentStudio/Features/NotificationInbox/Views/InboxSidebarView.swift`:
+Create `Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationSidebarView.swift`:
 
 ```swift
 import SwiftUI
@@ -2041,10 +2041,10 @@ enum InboxFocus: Hashable {
     case groupingMenu
 }
 
-struct InboxSidebarView: View {
+struct InboxNotificationSidebarView: View {
 
-    let inboxAtom: NotificationInboxAtom
-    let prefsAtom: NotificationInboxPrefsAtom
+    let inboxAtom: InboxNotificationAtom
+    let prefsAtom: InboxNotificationPrefsAtom
     let uiState: UIStateAtom
 
     // Command dispatcher for click-through focusing of source pane
@@ -2075,7 +2075,7 @@ struct InboxSidebarView: View {
         }
         // ⌥S: toggle sort
         .onKeyPress(.init("s"), modifiers: [.option]) {
-            let next: NotificationInboxSort =
+            let next: InboxNotificationSort =
                 prefsAtom.sort == .newestFirst ? .oldestFirst : .newestFirst
             prefsAtom.setSort(next)
             return .handled
@@ -2091,7 +2091,7 @@ struct InboxSidebarView: View {
                     focusedField = .list  // move to list on Enter
                 }
             Button(action: { /* toggle sort */
-                let next: NotificationInboxSort =
+                let next: InboxNotificationSort =
                     prefsAtom.sort == .newestFirst
                     ? .oldestFirst : .newestFirst
                 prefsAtom.setSort(next)
@@ -2116,7 +2116,7 @@ struct InboxSidebarView: View {
     private var list: some View {
         Group {
             if filtered.isEmpty {
-                InboxEmptyState()
+                InboxNotificationEmptyState()
             } else {
                 scrollableBody
             }
@@ -2128,7 +2128,7 @@ struct InboxSidebarView: View {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(groupedRows, id: \.key) { group in
                     if !group.label.isEmpty {
-                        InboxGroupHeader(
+                        InboxNotificationGroupHeader(
                             label: group.label,
                             unreadCount: group.unreadCount
                         )
@@ -2163,7 +2163,7 @@ struct InboxSidebarView: View {
 
     private var groupingMenu: some View {
         VStack(alignment: .leading) {
-            ForEach(NotificationInboxGrouping.allCases, id: \.self) { g in
+            ForEach(InboxNotificationGrouping.allCases, id: \.self) { g in
                 Button(action: {
                     prefsAtom.setGrouping(g)
                     groupingMenuOpen = false
@@ -2182,7 +2182,7 @@ struct InboxSidebarView: View {
 
     // MARK: - Filtering / grouping / sort
 
-    private var filtered: [Notification] {
+    private var filtered: [InboxNotification] {
         let q = searchText.lowercased()
         if q.isEmpty { return sorted(inboxAtom.notifications) }
         return sorted(inboxAtom.notifications.filter {
@@ -2194,7 +2194,7 @@ struct InboxSidebarView: View {
         })
     }
 
-    private func sorted(_ list: [Notification]) -> [Notification] {
+    private func sorted(_ list: [InboxNotification]) -> [InboxNotification] {
         switch prefsAtom.sort {
         case .newestFirst:
             return list.sorted { $0.timestamp > $1.timestamp }
@@ -2206,7 +2206,7 @@ struct InboxSidebarView: View {
     private struct Group {
         let key: String
         let label: String
-        let notifications: [Notification]
+        let notifications: [InboxNotification]
         var unreadCount: Int {
             notifications.reduce(0) { $1.isRead ? $0 : $0 + 1 }
         }
@@ -2245,7 +2245,7 @@ struct InboxSidebarView: View {
         }
     }
 
-    private func label(for g: NotificationInboxGrouping) -> String {
+    private func label(for g: InboxNotificationGrouping) -> String {
         switch g {
         case .none:   return "None"
         case .byRepo: return "By repo"
@@ -2256,7 +2256,7 @@ struct InboxSidebarView: View {
 
     // MARK: - Actions
 
-    private func activate(_ n: Notification) {
+    private func activate(_ n: InboxNotification) {
         inboxAtom.markRead(id: n.id)
         inboxAtom.dismissFromDrawer(id: n.id)
         if let paneId = n.paneId {
@@ -2275,13 +2275,13 @@ Adjust `CommandDispatcher.dispatch(.focusPane(...))` to match the real API — t
 Write a smoke test ensuring the view instantiates and renders for a small fixture set. Full UI tests (keymap behavior, click-through) are more productive as integration tests in Task 16. For now:
 
 ```swift
-@Test("InboxSidebarView instantiates")
+@Test("InboxNotificationSidebarView instantiates")
 func instantiates() {
-    let inbox = NotificationInboxAtom()
-    let prefs = NotificationInboxPrefsAtom()
+    let inbox = InboxNotificationAtom()
+    let prefs = InboxNotificationPrefsAtom()
     let uiState = UIStateAtom()
     let dispatcher = CommandDispatcher.makeForTest()  // or real
-    let view = InboxSidebarView(
+    let view = InboxNotificationSidebarView(
         inboxAtom: inbox,
         prefsAtom: prefs,
         uiState: uiState,
@@ -2296,9 +2296,9 @@ func instantiates() {
 ```bash
 mise run build
 mise run lint
-git add Sources/AgentStudio/Features/NotificationInbox/Views/InboxSidebarView.swift \
-        Tests/AgentStudioTests/Features/NotificationInbox/Views/
-git commit -m "feat(notification-inbox): add InboxSidebarView
+git add Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationSidebarView.swift \
+        Tests/AgentStudioTests/Features/InboxNotification/Views/
+git commit -m "feat(notification-inbox): add InboxNotificationSidebarView
 
 Main inbox sidebar screen. Declares InboxFocus enum and
 publishes sidebarHasFocus via @FocusState onChange per spec
@@ -2383,34 +2383,34 @@ onOpenInbox is non-nil, DrawerIconBar renders a bell icon
 button as the rightmost trailing slot (after a divider),
 with an optional red-capsule unread-count badge overlay.
 Feature-agnostic — the Features-level wrapper (Phase 3 Task
-11 DrawerInboxBellHost) injects the values. LUNA-361 Phase 3."
+11 InboxNotificationDrawerBellHost) injects the values. LUNA-361 Phase 3."
 ```
 
 ---
 
-## Task 11: `DrawerInboxBellHost` + `DrawerInboxPopover`
+## Task 11: `InboxNotificationDrawerBellHost` + `InboxNotificationDrawerPopover`
 
 **Files:**
-- Create: `Sources/AgentStudio/Features/NotificationInbox/Views/DrawerInboxBellHost.swift`
-- Create: `Sources/AgentStudio/Features/NotificationInbox/Views/DrawerInboxPopover.swift`
+- Create: `Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationDrawerBellHost.swift`
+- Create: `Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationDrawerPopover.swift`
 
-Per spec §3.2, the drawer popover is scoped to panes in the currently focused drawer. `DrawerInboxBellHost` is the Features-level wrapper that reads `NotificationInboxAtom.unreadCount(forDrawerPaneIds:)`, injects into `TrailingActions`, and attaches the popover presentation.
+Per spec §3.2, the drawer popover is scoped to panes in the currently focused drawer. `InboxNotificationDrawerBellHost` is the Features-level wrapper that reads `InboxNotificationAtom.unreadCount(forDrawerPaneIds:)`, injects into `TrailingActions`, and attaches the popover presentation.
 
-- [ ] **Step 1: Implement `DrawerInboxBellHost`**
+- [ ] **Step 1: Implement `InboxNotificationDrawerBellHost`**
 
 ```swift
 import SwiftUI
 
 /// Features-level wrapper around DrawerOverlay that supplies
 /// the bell slot's unread count and open-popover action. Lives
-/// in the feature slice because it reads NotificationInboxAtom.
+/// in the feature slice because it reads InboxNotificationAtom.
 /// Called by whatever instantiates DrawerOverlay (App or
 /// per-pane view layer).
 @MainActor
-struct DrawerInboxBellHost<Content: View>: View {
+struct InboxNotificationDrawerBellHost<Content: View>: View {
     let drawerPaneIds: [UUID]  // the panes this drawer hosts
-    let inboxAtom: NotificationInboxAtom
-    let prefsAtom: NotificationInboxPrefsAtom
+    let inboxAtom: InboxNotificationAtom
+    let prefsAtom: InboxNotificationPrefsAtom
     let dispatcher: CommandDispatcher
     /// The DrawerOverlay (or equivalent) you want to host.
     let content: (DrawerOverlay.TrailingActions) -> Content
@@ -2420,7 +2420,7 @@ struct DrawerInboxBellHost<Content: View>: View {
     var body: some View {
         content(trailingActions())
             .popover(isPresented: $popoverOpen, arrowEdge: .top) {
-                DrawerInboxPopover(
+                InboxNotificationDrawerPopover(
                     drawerPaneIds: drawerPaneIds,
                     inboxAtom: inboxAtom,
                     dispatcher: dispatcher,
@@ -2442,14 +2442,14 @@ struct DrawerInboxBellHost<Content: View>: View {
 
 Adjust `DrawerOverlay.TrailingActions` init to match existing signature — you may need to accept pass-through fields (finder/editor callbacks) from an outer caller and add the bell here.
 
-- [ ] **Step 2: Implement `DrawerInboxPopover`**
+- [ ] **Step 2: Implement `InboxNotificationDrawerPopover`**
 
 ```swift
 import SwiftUI
 
-struct DrawerInboxPopover: View {
+struct InboxNotificationDrawerPopover: View {
     let drawerPaneIds: [UUID]
-    let inboxAtom: NotificationInboxAtom
+    let inboxAtom: InboxNotificationAtom
     let dispatcher: CommandDispatcher
     let onClose: () -> Void
 
@@ -2475,7 +2475,7 @@ struct DrawerInboxPopover: View {
         .padding(12)
     }
 
-    private var relevant: [Notification] {
+    private var relevant: [InboxNotification] {
         let set = Set(drawerPaneIds)
         return inboxAtom.notifications
             .filter { n in
@@ -2488,7 +2488,7 @@ struct DrawerInboxPopover: View {
     private var list: some View {
         Group {
             if relevant.isEmpty {
-                InboxEmptyState()
+                InboxNotificationEmptyState()
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
@@ -2517,9 +2517,9 @@ struct DrawerInboxPopover: View {
 ```bash
 mise run build
 mise run lint
-git add Sources/AgentStudio/Features/NotificationInbox/Views/DrawerInboxBellHost.swift \
-        Sources/AgentStudio/Features/NotificationInbox/Views/DrawerInboxPopover.swift
-git commit -m "feat(notification-inbox): add DrawerInboxBellHost + DrawerInboxPopover
+git add Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationDrawerBellHost.swift \
+        Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationDrawerPopover.swift
+git commit -m "feat(notification-inbox): add InboxNotificationDrawerBellHost + InboxNotificationDrawerPopover
 
 Host wraps DrawerOverlay and injects inboxUnreadCount +
 onOpenInbox into its TrailingActions (bell slot from Task 10).
@@ -2538,7 +2538,7 @@ Phase 3."
 - Modify: `Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift` (passes the count through)
 - Modify: `Sources/AgentStudio/App/Windows/SidebarSurfaceHost.swift` (reads the atom, produces the counts)
 
-**Boundary rule** per `docs/architecture/directory_structure.md` and spec §8.5.1: `Features/RepoExplorer/` MUST NOT import `Features/NotificationInbox/`. The row receives a plain `Int` via prop; the App composition layer (`SidebarSurfaceHost`) is where the atom is read and counts are computed.
+**Boundary rule** per `docs/architecture/directory_structure.md` and spec §8.5.1: `Features/RepoExplorer/` MUST NOT import `Features/InboxNotification/`. The row receives a plain `Int` via prop; the App composition layer (`SidebarSurfaceHost`) is where the atom is read and counts are computed.
 
 - [ ] **Step 1: Find the existing pill-render code**
 
@@ -2576,7 +2576,7 @@ struct RepoExplorerWorktreeRow: View {
 }
 ```
 
-Verify: `grep -rn "NotificationInbox" Sources/AgentStudio/Features/RepoExplorer/` returns **zero** results. The feature has no knowledge that an inbox exists.
+Verify: `grep -rn "InboxNotification" Sources/AgentStudio/Features/RepoExplorer/` returns **zero** results. The feature has no knowledge that an inbox exists.
 
 - [ ] **Step 3: `RepoExplorerView` passes counts per worktree**
 
@@ -2602,7 +2602,7 @@ struct RepoExplorerView: View {
 
 - [ ] **Step 4: `SidebarSurfaceHost` (App) resolves the count**
 
-`SidebarSurfaceHost` in `App/Windows/` can import both `Features/RepoExplorer/` and `Features/NotificationInbox/` — that's the composition layer's job.
+`SidebarSurfaceHost` in `App/Windows/` can import both `Features/RepoExplorer/` and `Features/InboxNotification/` — that's the composition layer's job.
 
 ```swift
 // In SidebarSurfaceHost:
@@ -2615,13 +2615,13 @@ case .repos:
     )
 ```
 
-Propagate `inboxAtom: NotificationInboxAtom` into `SidebarSurfaceHost`'s init (added in Task 15 boot wiring). `SidebarSurfaceHost` is App-level, so this import is legitimate.
+Propagate `inboxAtom: InboxNotificationAtom` into `SidebarSurfaceHost`'s init (added in Task 15 boot wiring). `SidebarSurfaceHost` is App-level, so this import is legitimate.
 
 - [ ] **Step 5: Verify boundary + run tests**
 
 ```bash
 # Must return zero hits:
-grep -rn "NotificationInboxAtom\|NotificationInboxPrefs" Sources/AgentStudio/Features/RepoExplorer/
+grep -rn "InboxNotificationAtom\|InboxNotificationPrefs" Sources/AgentStudio/Features/RepoExplorer/
 
 mise run test -- --filter RepoExplorer
 mise run lint
@@ -2644,37 +2644,37 @@ import boundary. LUNA-361 Phase 3."
 
 ---
 
-## Task 13: Populate `.inbox` CommandBar scope actions via `NotificationInboxCommands`
+## Task 13: Populate `.inbox` CommandBar scope actions via `InboxNotificationCommands`
 
 **Files:**
-- Create: `Sources/AgentStudio/Core/Models/NotificationInboxCommands.swift`
-- Create: `Sources/AgentStudio/Core/Models/NotificationInboxTypes.swift` (move `NotificationInboxGrouping` + `NotificationInboxSort` from the feature slice)
+- Create: `Sources/AgentStudio/Core/Models/InboxNotificationCommands.swift`
+- Create: `Sources/AgentStudio/Core/Models/InboxNotificationTypes.swift` (move `InboxNotificationGrouping` + `InboxNotificationSort` from the feature slice)
 - Modify: `Sources/AgentStudio/Features/CommandBar/CommandBarDataSource.swift`
-- Modify: `Sources/AgentStudio/Features/NotificationInbox/State/MainActor/Atoms/NotificationInboxPrefsAtom.swift` (import the enums from their new Core home)
+- Modify: `Sources/AgentStudio/Features/InboxNotification/State/MainActor/Atoms/InboxNotificationPrefsAtom.swift` (import the enums from their new Core home)
 
-**Boundary rule** per spec §8.5.2: `Features/CommandBar/` MUST NOT import `Features/NotificationInbox/`. CommandBar consumes a `NotificationInboxCommands` struct — a callback bundle + read snapshots — that lives in `Core/Models/`. App composition constructs it with closures that capture the real atoms.
+**Boundary rule** per spec §8.5.2: `Features/CommandBar/` MUST NOT import `Features/InboxNotification/`. CommandBar consumes a `InboxNotificationCommands` struct — a callback bundle + read snapshots — that lives in `Core/Models/`. App composition constructs it with closures that capture the real atoms.
 
-**Note on enum promotion:** Task 1 originally placed `NotificationInboxGrouping` and `NotificationInboxSort` inside `Features/NotificationInbox/Models/`. Because `NotificationInboxCommands` (Core) references them, they must be promoted to `Core/Models/NotificationInboxTypes.swift`. The enums carry no feature-specific logic — pure codable tags — so this promotion is acceptable and was noted in spec §8.5.2. If this task executes after Task 1 has already landed files, `git mv` them.
+**Note on enum promotion:** Task 1 originally placed `InboxNotificationGrouping` and `InboxNotificationSort` inside `Features/InboxNotification/Models/`. Because `InboxNotificationCommands` (Core) references them, they must be promoted to `Core/Models/InboxNotificationTypes.swift`. The enums carry no feature-specific logic — pure codable tags — so this promotion is acceptable and was noted in spec §8.5.2. If this task executes after Task 1 has already landed files, `git mv` them.
 
 - [ ] **Step 1: Move the enums to Core**
 
 ```bash
-git mv Sources/AgentStudio/Features/NotificationInbox/Models/NotificationInboxTypes.swift \
-       Sources/AgentStudio/Core/Models/NotificationInboxTypes.swift
+git mv Sources/AgentStudio/Features/InboxNotification/Models/InboxNotificationTypes.swift \
+       Sources/AgentStudio/Core/Models/InboxNotificationTypes.swift
 ```
 
 Update any consumer imports — grep and confirm the types still resolve (same module, just a different directory, so imports usually don't change).
 
-- [ ] **Step 2: Create `NotificationInboxCommands` in Core**
+- [ ] **Step 2: Create `InboxNotificationCommands` in Core**
 
-Create `Sources/AgentStudio/Core/Models/NotificationInboxCommands.swift`:
+Create `Sources/AgentStudio/Core/Models/InboxNotificationCommands.swift`:
 
 ```swift
 import Foundation
 
 /// Callback bundle + read snapshots that let Core and other
 /// features invoke notification-inbox actions without importing
-/// `Features/NotificationInbox/`.
+/// `Features/InboxNotification/`.
 ///
 /// Constructed by the App composition root (`App/Boot/
 /// AppDelegate.swift`), which captures the feature atoms inside
@@ -2683,12 +2683,12 @@ import Foundation
 ///
 /// See docs/superpowers/specs/2026-04-17-notification-inbox-design.md §8.5.2.
 @MainActor
-struct NotificationInboxCommands: Sendable {
+struct InboxNotificationCommands: Sendable {
     // Mutations
     var markAllAsRead: () -> Void
     var clearReadHistory: () -> Void
     var clearAll: () -> Void
-    var setGrouping: (NotificationInboxGrouping) -> Void
+    var setGrouping: (InboxNotificationGrouping) -> Void
     var toggleSort: () -> Void
     var toggleBellEnabled: () -> Void
     var returnToWorktreeSidebar: () -> Void
@@ -2696,23 +2696,23 @@ struct NotificationInboxCommands: Sendable {
     // Read snapshots (for CommandBar label text like
     // "Enable bell" vs "Disable bell")
     var bellEnabled: () -> Bool
-    var currentGrouping: () -> NotificationInboxGrouping
-    var currentSort: () -> NotificationInboxSort
+    var currentGrouping: () -> InboxNotificationGrouping
+    var currentSort: () -> InboxNotificationSort
 }
 ```
 
-- [ ] **Step 3: Consume `NotificationInboxCommands` in `CommandBarDataSource`**
+- [ ] **Step 3: Consume `InboxNotificationCommands` in `CommandBarDataSource`**
 
-Modify `CommandBarDataSource.swift`. Replace the atom imports (there should be none now after the boundary fix) with a `NotificationInboxCommands` dependency:
+Modify `CommandBarDataSource.swift`. Replace the atom imports (there should be none now after the boundary fix) with a `InboxNotificationCommands` dependency:
 
 ```swift
 final class CommandBarDataSource {
     // ... existing properties ...
-    private let notificationInboxCommands: NotificationInboxCommands?
+    private let notificationInboxCommands: InboxNotificationCommands?
 
     init(
         // ... existing dependencies ...
-        notificationInboxCommands: NotificationInboxCommands?
+        notificationInboxCommands: InboxNotificationCommands?
     ) {
         // ... existing assignments ...
         self.notificationInboxCommands = notificationInboxCommands
@@ -2755,7 +2755,7 @@ case .inbox:
         }
     ))
 
-    for grouping in NotificationInboxGrouping.allCases {
+    for grouping in InboxNotificationGrouping.allCases {
         rows.append(CommandBarItem(
             id: "inbox.grouping.\(grouping.rawValue)",
             label: "Change grouping: \(labelFor(grouping))",
@@ -2791,19 +2791,19 @@ case .inbox:
     return rows
 ```
 
-The `CommandBarDataSource` file contains **zero** imports or references to `NotificationInboxAtom` / `NotificationInboxPrefsAtom`. The only notification types it knows are the Core-resident `NotificationInboxGrouping` / `NotificationInboxSort` enums and the `NotificationInboxCommands` struct.
+The `CommandBarDataSource` file contains **zero** imports or references to `InboxNotificationAtom` / `InboxNotificationPrefsAtom`. The only notification types it knows are the Core-resident `InboxNotificationGrouping` / `InboxNotificationSort` enums and the `InboxNotificationCommands` struct.
 
 - [ ] **Step 4: Verify the boundary**
 
 ```bash
 # All must return zero hits in Features/CommandBar/:
-grep -rn "NotificationInboxAtom\|NotificationInboxPrefs" Sources/AgentStudio/Features/CommandBar/
-grep -rn "import.*NotificationInbox\|Features/NotificationInbox" Sources/AgentStudio/Features/CommandBar/
+grep -rn "InboxNotificationAtom\|InboxNotificationPrefs" Sources/AgentStudio/Features/CommandBar/
+grep -rn "import.*InboxNotification\|Features/InboxNotification" Sources/AgentStudio/Features/CommandBar/
 ```
 
 - [ ] **Step 5: Tests**
 
-Write a `CommandBarDataSourceInboxScopeTests.swift` that drives the data source with a fake `NotificationInboxCommands` (the test constructs one with capture-counters instead of real atoms):
+Write a `CommandBarDataSourceInboxScopeTests.swift` that drives the data source with a fake `InboxNotificationCommands` (the test constructs one with capture-counters instead of real atoms):
 
 ```swift
 @MainActor
@@ -2868,11 +2868,11 @@ struct CommandBarDataSourceInboxScopeTests {
 final class InboxCommandsSink {
     var bellEnabled: Bool = false
     var markAllAsReadCount = 0
-    var setGroupingCalls: [NotificationInboxGrouping] = []
+    var setGroupingCalls: [InboxNotificationGrouping] = []
     // ... etc ...
 
-    func makeCommands() -> NotificationInboxCommands {
-        NotificationInboxCommands(
+    func makeCommands() -> InboxNotificationCommands {
+        InboxNotificationCommands(
             markAllAsRead:       { self.markAllAsReadCount += 1 },
             clearReadHistory:    { },
             clearAll:            { },
@@ -2894,23 +2894,23 @@ This test suite explicitly exercises the boundary: if someone accidentally reint
 
 ```bash
 mise run lint
-git add Sources/AgentStudio/Core/Models/NotificationInboxCommands.swift \
-        Sources/AgentStudio/Core/Models/NotificationInboxTypes.swift \
+git add Sources/AgentStudio/Core/Models/InboxNotificationCommands.swift \
+        Sources/AgentStudio/Core/Models/InboxNotificationTypes.swift \
         Sources/AgentStudio/Features/CommandBar/ \
-        Sources/AgentStudio/Features/NotificationInbox/State/MainActor/Atoms/NotificationInboxPrefsAtom.swift \
+        Sources/AgentStudio/Features/InboxNotification/State/MainActor/Atoms/InboxNotificationPrefsAtom.swift \
         Tests/AgentStudioTests/Features/CommandBar/
-git commit -m "feat(command-bar): populate .inbox scope via NotificationInboxCommands seam
+git commit -m "feat(command-bar): populate .inbox scope via InboxNotificationCommands seam
 
-Introduces NotificationInboxCommands in Core/Models — a
+Introduces InboxNotificationCommands in Core/Models — a
 callback bundle + read snapshots that let CommandBar consume
 inbox actions without importing the feature. Promotes
-NotificationInboxGrouping and NotificationInboxSort to
-Core/Models/NotificationInboxTypes.swift so the commands
+InboxNotificationGrouping and InboxNotificationSort to
+Core/Models/InboxNotificationTypes.swift so the commands
 struct can reference them without crossing feature boundaries.
 
 Implements the seven inbox-scoped action rows from spec §5.2
 through the commands struct. Features/CommandBar/ has ZERO
-imports of Features/NotificationInbox/ after this change.
+imports of Features/InboxNotification/ after this change.
 LUNA-361 Phase 3."
 ```
 
@@ -2919,7 +2919,7 @@ LUNA-361 Phase 3."
 ## Task 14: ⌘⇧I composite command — drawer inbox popover
 
 **Files:**
-- Modify: `Sources/AgentStudio/App/Commands/AppCommand.swift` — add `.showDrawerInbox`
+- Modify: `Sources/AgentStudio/App/Commands/AppCommand.swift` — add `.showDrawerInboxNotifications`
 - Modify: `Sources/AgentStudio/App/Commands/AppShortcut.swift` — bind ⌘⇧I
 - Modify: `Sources/AgentStudio/App/Boot/AppDelegate.swift` — dispatch handler
 
@@ -2934,7 +2934,7 @@ case showDrawerInbox
 
 ```swift
 // AppShortcut.swift
-ShortcutTrigger(key: "i", modifiers: [.command, .shift]): .showDrawerInbox,
+ShortcutTrigger(key: "i", modifiers: [.command, .shift]): .showDrawerInboxNotifications,
 ```
 
 - [ ] **Step 3: Implement the handler**
@@ -2943,7 +2943,7 @@ Per spec §3.2, `⌘⇧I` opens the drawer inbox popover **for the drawer of the
 
 ```swift
 // In AppDelegate.perform(_ command:) dispatch switch:
-case .showDrawerInbox:
+case .showDrawerInboxNotifications:
     openDrawerInboxForFocusedPane()
 ```
 
@@ -2964,7 +2964,7 @@ private func openDrawerInboxForFocusedPane() {
     }
 
     // Activate the drawer popover. The presentation mechanism
-    // depends on how DrawerInboxBellHost exposes its popover —
+    // depends on how InboxNotificationDrawerBellHost exposes its popover —
     // likely via a binding controlled by the view layer, so this
     // handler may route through a shared `drawerInboxPopover-
     // Presenter` object. Follow the existing pattern for other
@@ -2973,7 +2973,7 @@ private func openDrawerInboxForFocusedPane() {
 }
 ```
 
-If no clean mechanism exists to pop a SwiftUI popover from AppDelegate, store a small `@Published` / `@Observable` request ID on a singleton presenter atom (`DrawerInboxPresenterAtom`) that the `DrawerInboxBellHost` observes and translates into `popoverOpen = true`. Keep this minimal.
+If no clean mechanism exists to pop a SwiftUI popover from AppDelegate, store a small `@Published` / `@Observable` request ID on a singleton presenter atom (`InboxNotificationDrawerPresenterAtom`) that the `InboxNotificationDrawerBellHost` observes and translates into `popoverOpen = true`. Keep this minimal.
 
 - [ ] **Step 4: Tests, lint, commit**
 
@@ -3001,29 +3001,29 @@ git add ...
 git commit -m "feat(app): wire CMD+SHIFT+I drawer inbox popover command
 
 Resolves the focused pane's drawer parent per spec §10.2 and
-opens DrawerInboxPopover scoped to that drawer's paneIds. No-op
+opens InboxNotificationDrawerPopover scoped to that drawer's paneIds. No-op
 when focus is not on a pane inside a drawer. LUNA-361 Phase 3."
 ```
 
 ---
 
-## Task 15: Swap placeholder, boot wiring, delete `InboxPlaceholderView`
+## Task 15: Swap placeholder, boot wiring, delete `InboxNotificationPlaceholderView`
 
 **Files:**
 - Modify: `Sources/AgentStudio/App/Windows/SidebarSurfaceHost.swift`
 - Modify: `Sources/AgentStudio/App/Boot/AppDelegate.swift`
-- Delete: `Sources/AgentStudio/Features/NotificationInbox/Views/InboxPlaceholderView.swift`
+- Delete: `Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationPlaceholderView.swift`
 
-- [ ] **Step 1: Replace `InboxPlaceholderView` with `InboxSidebarView` in `SidebarSurfaceHost`**
+- [ ] **Step 1: Replace `InboxNotificationPlaceholderView` with `InboxNotificationSidebarView` in `SidebarSurfaceHost`**
 
 ```swift
 // BEFORE (Phase 1)
 case .inbox:
-    InboxPlaceholderView()
+    InboxNotificationPlaceholderView()
 
 // AFTER (Phase 3)
 case .inbox:
-    InboxSidebarView(
+    InboxNotificationSidebarView(
         inboxAtom: inboxAtom,
         prefsAtom: prefsAtom,
         uiState: uiState,
@@ -3036,7 +3036,7 @@ Propagate the new dependencies (`inboxAtom`, `prefsAtom`, `dispatcher`) through 
 - [ ] **Step 2: Delete the placeholder**
 
 ```bash
-git rm Sources/AgentStudio/Features/NotificationInbox/Views/InboxPlaceholderView.swift
+git rm Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationPlaceholderView.swift
 ```
 
 - [ ] **Step 3: Wire the boot sequence in `AppDelegate.swift`**
@@ -3047,9 +3047,9 @@ Post-Phase-2 state: `AppDelegate` already awaits `UIStateStore.load()` and const
 // During applicationDidFinishLaunching, after store loads:
 
 // 1. Instantiate feature atoms
-let notificationInboxAtom = NotificationInboxAtom()
-let notificationInboxPrefsAtom = NotificationInboxPrefsAtom()
-let notificationInboxStore = NotificationInboxStore(
+let notificationInboxAtom = InboxNotificationAtom()
+let notificationInboxPrefsAtom = InboxNotificationPrefsAtom()
+let notificationInboxStore = InboxNotificationStore(
     inboxAtom: notificationInboxAtom,
     prefsAtom: notificationInboxPrefsAtom,
     fileURL: workspaceBundleURL.appendingPathComponent(
@@ -3059,7 +3059,7 @@ do {
     try notificationInboxStore.load()
 } catch {
     // Greenfield: file missing or corrupt → defaults, no crash
-    Logger.boot.error("NotificationInboxStore load failed: \(error)")
+    Logger.boot.error("InboxNotificationStore load failed: \(error)")
 }
 
 // 2. Wire PaneFocusTracker
@@ -3071,8 +3071,8 @@ let paneContextResolver = PaneContextResolver(
     repoCacheAtom: store.repoCacheAtom
 )
 
-// 4. Wire NotificationRouter
-let notificationRouter = NotificationRouter(
+// 4. Wire InboxNotificationRouter
+let notificationRouter = InboxNotificationRouter(
     bus: paneRuntimeEventBus,
     inboxAtom: notificationInboxAtom,
     prefsAtom: notificationInboxPrefsAtom,
@@ -3088,11 +3088,11 @@ let notificationRouter = NotificationRouter(
 //    Mirror how UIStateStore / RepoCacheStore do this in their
 //    boot paths.
 
-// 6. Construct the NotificationInboxCommands callback bundle
+// 6. Construct the InboxNotificationCommands callback bundle
 //    (spec §8.5.2 cross-feature seam). This is how Features/
 //    CommandBar/ consumes inbox actions without importing the
 //    feature atom.
-let notificationInboxCommands = NotificationInboxCommands(
+let notificationInboxCommands = InboxNotificationCommands(
     markAllAsRead:       { [weak notificationInboxAtom] in
         notificationInboxAtom?.markAllRead()
     },
@@ -3107,7 +3107,7 @@ let notificationInboxCommands = NotificationInboxCommands(
     },
     toggleSort:          { [weak notificationInboxPrefsAtom] in
         guard let p = notificationInboxPrefsAtom else { return }
-        let next: NotificationInboxSort =
+        let next: InboxNotificationSort =
             p.sort == .newestFirst ? .oldestFirst : .newestFirst
         p.setSort(next)
     },
@@ -3132,7 +3132,7 @@ let notificationInboxCommands = NotificationInboxCommands(
 // 7. Inject the commands into CommandBarDataSource. The data
 //    source is already instantiated earlier in the boot path;
 //    extend its constructor to accept an optional
-//    NotificationInboxCommands and pass it here.
+//    InboxNotificationCommands and pass it here.
 //    (If CommandBarDataSource construction currently happens
 //     before the feature atoms are ready, restructure the boot
 //     order so it happens after. The cyclic dependency is
@@ -3143,9 +3143,9 @@ let notificationInboxCommands = NotificationInboxCommands(
 //    - SidebarSurfaceHost receives notificationInboxAtom (to
 //      read unreadCount(forWorktreeId:) and pass counts into
 //      RepoExplorerView) and the prefs atom (to drive
-//      InboxSidebarView).
-//    - DrawerInboxBellHost receives both atoms + dispatcher
-//      (it lives INSIDE Features/NotificationInbox/ so atom
+//      InboxNotificationSidebarView).
+//    - InboxNotificationDrawerBellHost receives both atoms + dispatcher
+//      (it lives INSIDE Features/InboxNotification/ so atom
 //      imports are fine there).
 //    - RepoExplorerWorktreeRow does NOT receive atoms — only
 //      a plain Int unreadCount (per Task 12).
@@ -3160,15 +3160,15 @@ mise run build
 mise run test
 mise run lint
 git add ...
-git commit -m "feat(app): wire NotificationInbox boot + swap placeholder for real view
+git commit -m "feat(app): wire InboxNotification boot + swap placeholder for real view
 
-AppDelegate instantiates NotificationInboxAtom,
-NotificationInboxPrefsAtom, NotificationInboxStore,
-PaneContextResolver, PaneFocusTracker, and NotificationRouter;
+AppDelegate instantiates InboxNotificationAtom,
+InboxNotificationPrefsAtom, InboxNotificationStore,
+PaneContextResolver, PaneFocusTracker, and InboxNotificationRouter;
 loads the store; propagates atoms through MainWindowController
 and SidebarSurfaceHost. Debounced save wired via observation
-of both atoms. InboxPlaceholderView deleted — SidebarSurfaceHost
-now renders InboxSidebarView in the .inbox case. LUNA-361
+of both atoms. InboxNotificationPlaceholderView deleted — SidebarSurfaceHost
+now renders InboxNotificationSidebarView in the .inbox case. LUNA-361
 Phase 3."
 ```
 
@@ -3177,7 +3177,7 @@ Phase 3."
 ## Task 16: Integration tests + Phase 3 verification
 
 **Files:**
-- Create: `Tests/AgentStudioTests/Integration/NotificationInboxIntegrationTests.swift`
+- Create: `Tests/AgentStudioTests/Integration/InboxNotificationIntegrationTests.swift`
 
 Per spec §13, end-to-end tests proving emit → display.
 
@@ -3190,18 +3190,18 @@ import Testing
 
 @MainActor
 @Suite("Notification Inbox integration (emit → display)")
-struct NotificationInboxIntegrationTests {
+struct InboxNotificationIntegrationTests {
 
     @Test("desktopNotificationRequested on bus → atom has notification with context")
     func emitToAtom() async throws {
         // Wire the full chain: bus + router + atom + context resolver
         let paneAtom = WorkspacePaneAtom()
         let repoCache = RepoCacheAtom()
-        let inbox = NotificationInboxAtom()
-        let prefs = NotificationInboxPrefsAtom()
+        let inbox = InboxNotificationAtom()
+        let prefs = InboxNotificationPrefsAtom()
         let bus = EventBus<RuntimeEnvelope>()
         let paneFocus = PaneFocusTracker(paneAtom: paneAtom)
-        let router = NotificationRouter(
+        let router = InboxNotificationRouter(
             bus: bus,
             inboxAtom: inbox,
             prefsAtom: prefs,
@@ -3240,7 +3240,7 @@ struct NotificationInboxIntegrationTests {
     @Test("focus-gained on pane → auto-dismiss all notifications for that pane")
     func focusGainedAutoDismiss() { /* ... */ }
 
-    @Test("Bridge inbox.post RPC → ends up in NotificationInboxAtom")
+    @Test("Bridge inbox.post RPC → ends up in InboxNotificationAtom")
     func bridgeRPCEndToEnd() { /* ... */ }
 }
 ```
@@ -3266,7 +3266,7 @@ Fill in envelope constructors and fixture helpers against the real APIs.
     - [ ] Quit and relaunch → notifications and prefs persist.
     - [ ] Restore corruption test: manually delete `notification-inbox.json` → relaunch → app works, inbox empty.
 - [ ] Grep for dead references:
-    - [ ] `grep -rn "InboxPlaceholderView" Sources/` → zero hits (file deleted + consumers updated).
+    - [ ] `grep -rn "InboxNotificationPlaceholderView" Sources/` → zero hits (file deleted + consumers updated).
     - [ ] `grep -rn "TODO.*Phase 3\|FIXME.*Phase 3" Sources/` → zero hits.
 
 - [ ] **Step 3: Commit**
@@ -3275,8 +3275,8 @@ Fill in envelope constructors and fixture helpers against the real APIs.
 git add Tests/AgentStudioTests/Integration/
 git commit -m "test: add notification inbox integration tests
 
-End-to-end from EventBus emission through NotificationRouter
-into NotificationInboxAtom, plus click-through routing, focus-
+End-to-end from EventBus emission through InboxNotificationRouter
+into InboxNotificationAtom, plus click-through routing, focus-
 gained auto-dismissal, and Bridge inbox.post RPC roundtrip.
 Completes LUNA-361 Phase 3 test coverage."
 ```
