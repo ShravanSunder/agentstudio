@@ -152,16 +152,17 @@ struct WorkspaceUIState: Codable {
     var filterText: String
 
     // Composition state (added LUNA-361) — app-wide UI shell state
-    var sidebarCollapsed: Bool             // OWNERSHIP MIGRATION: was
-                                           //   owned by MainSplitView-
+    var sidebarCollapsed: Bool             // OWNERSHIP MOVE (LUNA-361):
+                                           //   was owned by MainSplitView-
                                            //   Controller + UserDefaults
                                            //   key "sidebarCollapsed";
                                            //   now atom-owned + persisted
                                            //   in workspace.ui.json.
-                                           //   Dual-written to UserDefaults
-                                           //   short-term for restore
-                                           //   compatibility; follow-up
-                                           //   ticket drops UserDefaults.
+                                           //   Greenfield cutover: no
+                                           //   dual-write, no migration
+                                           //   from the legacy UserDefaults
+                                           //   value. UserDefaults key is
+                                           //   dead code after LUNA-361.
     var sidebarSurface: SidebarSurface     // .repos | .inbox; new surfaces
                                            //   extend the enum monotonically
     // sidebarHasFocus is NOT persisted — runtime-only, resets to false

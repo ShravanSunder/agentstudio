@@ -29,8 +29,7 @@
 ```
 Features/NotificationInbox/                              [NEW FULL SLICE]
 ├── Models/
-│   ├── Notification.swift                               [NEW]
-│   └── NotificationInboxTypes.swift                     [NEW]
+│   └── Notification.swift                               [NEW]
 ├── Components/
 │   ├── InboxRow.swift                                   [NEW]
 │   ├── InboxGroupHeader.swift                           [NEW]
@@ -51,6 +50,19 @@ Features/NotificationInbox/                              [NEW FULL SLICE]
     ├── DrawerInboxBellHost.swift                        [NEW]
     └── InboxPlaceholderView.swift                       [DELETE]
 
+Core/Models/
+├── NotificationInboxTypes.swift                         [NEW] Grouping + Sort
+│                                                              enums; Core-resident
+│                                                              because Notification-
+│                                                              InboxCommands
+│                                                              references them
+│                                                              (spec §8.5.2)
+└── NotificationInboxCommands.swift                      [NEW] callback bundle +
+                                                                read snapshots;
+                                                                cross-feature seam
+                                                                for Features/
+                                                                CommandBar/
+
 Core/Views/Drawer/
 ├── DrawerOverlay.swift                                  [MOD] + TrailingActions
 │                                                               .onOpenInbox,
@@ -63,12 +75,20 @@ Features/Bridge/Transport/
 
 Features/CommandBar/
 └── CommandBarDataSource.swift                           [MOD] populate .inbox
-                                                                scope actions
+                                                                scope actions via
+                                                                NotificationInbox-
+                                                                Commands seam (NO
+                                                                atom imports)
 
 Features/RepoExplorer/
-└── RepoExplorerWorktreeRow.swift                        [MOD] 🔔 N pill binds
-                                                                to NotificationInbox-
-                                                                Atom.unreadCount
+├── RepoExplorerWorktreeRow.swift                        [MOD] 🔔 N pill takes
+│                                                                Int unreadCount
+│                                                                prop — NO atom
+│                                                                import (spec §8.5.1)
+└── RepoExplorerView.swift                               [MOD] accepts a
+                                                                 (Worktree) -> Int
+                                                                 closure to pass
+                                                                 counts through
 
 App/Boot/
 └── AppDelegate.swift                                    [MOD] instantiate atoms
@@ -246,15 +266,22 @@ enum NotificationKind: String, Sendable, Codable, Equatable {
 }
 ```
 
-- [ ] **Step 4: Create `NotificationInboxTypes.swift`**
+- [ ] **Step 4: Create `NotificationInboxTypes.swift` in Core/Models**
 
-Create `Sources/AgentStudio/Features/NotificationInbox/Models/NotificationInboxTypes.swift`:
+Per spec §8.5.2, `NotificationInboxGrouping` and `NotificationInboxSort` live in **Core** (not the feature slice) because `NotificationInboxCommands` (Task 13) references them and that struct is Core-resident. The enums are pure codable tags with no feature-specific logic.
+
+Create `Sources/AgentStudio/Core/Models/NotificationInboxTypes.swift`:
 
 ```swift
 import Foundation
 
-/// How the inbox list is grouped. User preference; persisted via
-/// NotificationInboxStore.
+/// How the notification inbox list is grouped. User preference;
+/// persisted via NotificationInboxStore.
+///
+/// Lives in Core because `NotificationInboxCommands` (also in
+/// Core) references it — so `Features/CommandBar/` can consume
+/// inbox prefs without importing `Features/NotificationInbox/`.
+/// See spec §8.5.2.
 enum NotificationInboxGrouping: String, Sendable, Codable, Equatable, CaseIterable {
     case none
     case byRepo
@@ -262,8 +289,10 @@ enum NotificationInboxGrouping: String, Sendable, Codable, Equatable, CaseIterab
     case byTab
 }
 
-/// How the inbox list is sorted. User preference; persisted via
-/// NotificationInboxStore.
+/// How the notification inbox list is sorted. User preference;
+/// persisted via NotificationInboxStore.
+///
+/// Same Core placement rationale as NotificationInboxGrouping.
 enum NotificationInboxSort: String, Sendable, Codable, Equatable, CaseIterable {
     case newestFirst
     case oldestFirst
@@ -282,7 +311,8 @@ Run: `mise run lint`
 - [ ] **Step 7: Commit**
 
 ```bash
-git add Sources/AgentStudio/Features/NotificationInbox/Models/ \
+git add Sources/AgentStudio/Features/NotificationInbox/Models/Notification.swift \
+        Sources/AgentStudio/Core/Models/NotificationInboxTypes.swift \
         Tests/AgentStudioTests/Features/NotificationInbox/Models/
 git commit -m "feat(notification-inbox): add Notification + support enums
 
@@ -1018,27 +1048,46 @@ import Testing
 @Suite("PaneFocusTracker")
 struct PaneFocusTrackerTests {
 
+    /// Drain up to `expected` events from the stream with a
+    /// bounded number of runloop cycles. No wall-clock sleep.
+    /// If fewer events arrive than expected within the bound,
+    /// returns what was collected.
+    private func collect(
+        from tracker: PaneFocusTracker,
+        expected: Int,
+        maxIterations: Int = 50
+    ) async -> [UUID] {
+        var collected: [UUID] = []
+        // AsyncStream delivers on whichever actor is iterating; we
+        // drain synchronously within the test by yielding the
+        // runloop a bounded number of times.
+        let task = Task { @MainActor in
+            for await id in tracker.focusGainedStream {
+                collected.append(id)
+                if collected.count >= expected { break }
+            }
+        }
+        for _ in 0..<maxIterations where collected.count < expected {
+            await Task.yield()
+        }
+        task.cancel()
+        return collected
+    }
+
     @Test("emits paneId on transition A → B")
     func emitsOnTransition() async {
         let paneAtom = WorkspacePaneAtom()
         let tracker = PaneFocusTracker(paneAtom: paneAtom)
-
-        var collected: [UUID] = []
-        let task = Task {
-            for await id in tracker.focusGainedStream {
-                collected.append(id)
-                if collected.count >= 2 { break }
-            }
-        }
-
         let paneA = UUID()
         let paneB = UUID()
-        paneAtom.setActivePaneId(paneA)  // adjust to real setter
-        try? await Task.sleep(for: .milliseconds(10))
-        paneAtom.setActivePaneId(paneB)
-        try? await Task.sleep(for: .milliseconds(10))
 
-        _ = await task.value
+        paneAtom.setActivePaneId(paneA)   // adjust to real setter
+        // Let the onChange + re-register hop finish.
+        await Task.yield()
+        paneAtom.setActivePaneId(paneB)
+        await Task.yield()
+
+        let collected = await collect(from: tracker, expected: 2)
         #expect(collected == [paneA, paneB])
         tracker.stop()
     }
@@ -1047,29 +1096,26 @@ struct PaneFocusTrackerTests {
     func noEmitOnNoChange() async {
         let paneAtom = WorkspacePaneAtom()
         let tracker = PaneFocusTracker(paneAtom: paneAtom)
-
         let paneA = UUID()
-        paneAtom.setActivePaneId(paneA)
 
-        var count = 0
-        let task = Task {
-            for await _ in tracker.focusGainedStream {
-                count += 1
-            }
-        }
-        try? await Task.sleep(for: .milliseconds(20))
-        // Same paneId again — should not emit a second time
         paneAtom.setActivePaneId(paneA)
-        try? await Task.sleep(for: .milliseconds(20))
-        task.cancel()
+        await Task.yield()
+        // Same paneId again — must not emit
+        paneAtom.setActivePaneId(paneA)
+        await Task.yield()
+
+        let collected = await collect(
+            from: tracker, expected: 2, maxIterations: 10)
+        #expect(collected == [paneA],
+                "only the initial transition should emit; same-value writes must not")
         tracker.stop()
-        _ = await task.value
-        #expect(count == 1, "only initial assignment should emit")
     }
 }
 ```
 
 Adjust `WorkspacePaneAtom` accessor names (`setActivePaneId`) to match the real atom API — grep the codebase.
+
+**Why `Task.yield()` instead of `Task.sleep(...)`:** per `AGENTS.md` "No Wall-Clock Tests," tests must wait for events, not for arbitrary time. The tracker's `onChange` closure schedules a `Task { @MainActor ... }`; yielding the runloop a bounded number of times gives that task a chance to run without tying the test to a specific wall-clock budget. If the test still flakes, the answer is NOT to add sleep — it's to expose a deterministic seam (e.g., an injected re-register callback) for tests to drive.
 
 - [ ] **Step 2: Implement**
 
@@ -1087,9 +1133,20 @@ import Observation
 /// consumers (primarily `NotificationRouter`) that need to
 /// react to "user focused pane X."
 ///
-/// Lifecycle: `start()` is called at boot by the composition
-/// root; `stop()` is called at shutdown. The stream continuation
-/// is finished on stop.
+/// Event-driven via `withObservationTracking` + `onChange`
+/// re-registration. No polling, no sleeps. Matches the existing
+/// pattern at:
+///   - `Sources/AgentStudio/App/Panes/TabBar/TabBarAdapter.swift`
+///     line ~85 ("withObservationTracking fires once per
+///     registration, so we re-register")
+///   - `Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift`
+///     line ~116
+///   - `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
+///     line ~345
+///
+/// Grep `withObservationTracking` in the codebase before
+/// implementing to confirm the idiom is unchanged since this
+/// plan was written.
 @MainActor
 final class PaneFocusTracker {
     private let paneAtom: WorkspacePaneAtom
@@ -1097,51 +1154,65 @@ final class PaneFocusTracker {
     let focusGainedStream: AsyncStream<UUID>
 
     private var lastActivePaneId: UUID?
-    private var observationTask: Task<Void, Never>?
+    private var isStopped: Bool = false
 
     init(paneAtom: WorkspacePaneAtom) {
         self.paneAtom = paneAtom
         let (stream, continuation) = AsyncStream.makeStream(of: UUID.self)
         self.focusGainedStream = stream
         self.continuation = continuation
-        start()
+        // Seed lastActivePaneId with the current value so the first
+        // real transition registers correctly.
+        self.lastActivePaneId = paneAtom.activePaneId
+        observe()
     }
 
-    func start() {
-        guard observationTask == nil else { return }
-        observationTask = Task { [weak self] in
-            await self?.observeLoop()
+    /// Register a one-shot observation. When `activePaneId`
+    /// changes, `onChange` fires on the main actor; we handle
+    /// the transition and re-register to catch the next change.
+    /// No polling.
+    private func observe() {
+        guard !isStopped else { return }
+        withObservationTracking {
+            // Read-to-register. Swift observation tracks whichever
+            // properties we access inside the closure.
+            _ = paneAtom.activePaneId
+        } onChange: { [weak self] in
+            // onChange is delivered off-main by Swift observation;
+            // hop back to main to touch @MainActor state and
+            // re-register safely.
+            Task { @MainActor [weak self] in
+                guard let self, !self.isStopped else { return }
+                self.handleTransition()
+                self.observe()   // re-register for the next change
+            }
         }
+    }
+
+    private func handleTransition() {
+        let current = paneAtom.activePaneId
+        defer { lastActivePaneId = current }
+        guard current != lastActivePaneId,
+              let gainedId = current
+        else { return }
+        continuation.yield(gainedId)
     }
 
     func stop() {
-        observationTask?.cancel()
-        observationTask = nil
+        isStopped = true
         continuation.finish()
-    }
-
-    private func observeLoop() async {
-        while !Task.isCancelled {
-            let current = withObservationTracking {
-                paneAtom.activePaneId  // adjust if the property name differs
-            } onChange: { }
-            if current != lastActivePaneId, let id = current {
-                continuation.yield(id)
-            }
-            lastActivePaneId = current
-            // Yield until the next observation change fires via
-            // the onChange handler — in practice the observation
-            // library re-runs the body. If the codebase prefers
-            // a different pattern (e.g., a callback installed on
-            // the atom directly), mirror that.
-            try? await Task.yield()
-            try? await Task.sleep(for: .milliseconds(10))
-        }
     }
 }
 ```
 
-If the existing codebase has a canonical pattern for observation-based streams over `@Observable` atoms, match it — the above is a reasonable default but a cleaner idiom (e.g., a `ValueStream` utility) may already exist. Grep `withObservationTracking` in the codebase before committing to this exact shape.
+**Pattern notes:**
+
+- `withObservationTracking`'s `onChange` closure fires exactly once per registration, then the tracking is torn down. To keep observing we re-register from inside `onChange`. This is the codebase convention (`TabBarAdapter.swift:85` has an explicit comment calling it out).
+- `onChange` is not guaranteed to run on the main actor — the `Task { @MainActor ... }` hop is necessary before touching any `@MainActor` state.
+- Avoid busy-loops (`while !Task.isCancelled { sleep }`) entirely — they waste main-actor CPU and can reorder or drop transitions under load.
+- If you discover the codebase has a wrapper utility (`ValueStream`, a generic `observe(_:)` helper, etc.) that encapsulates this pattern, use it. Grep first.
+
+**Tests** can rely on synchronous propagation: after `paneAtom.setActivePaneId(x)`, the `onChange` closure schedules a `Task { @MainActor }` which resolves on the next runloop cycle. Use a bounded-wait primitive (`await fulfillment(of:)`, `TestClock.advance`, or a small `await Task.yield()` loop bounded by iteration count) rather than `Task.sleep(for:)` for deterministic tests. Per `AGENTS.md` "No Wall-Clock Tests."
 
 - [ ] **Step 3: Tests, lint, commit**
 
@@ -2460,103 +2531,216 @@ Phase 3."
 
 ---
 
-## Task 12: `RepoExplorerWorktreeRow` 🔔 N pill binds to `NotificationInboxAtom`
+## Task 12: `RepoExplorerWorktreeRow` 🔔 N pill — primitive `unreadCount` prop
 
 **Files:**
 - Modify: `Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift`
+- Modify: `Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift` (passes the count through)
+- Modify: `Sources/AgentStudio/App/Windows/SidebarSurfaceHost.swift` (reads the atom, produces the counts)
+
+**Boundary rule** per `docs/architecture/directory_structure.md` and spec §8.5.1: `Features/RepoExplorer/` MUST NOT import `Features/NotificationInbox/`. The row receives a plain `Int` via prop; the App composition layer (`SidebarSurfaceHost`) is where the atom is read and counts are computed.
 
 - [ ] **Step 1: Find the existing pill-render code**
 
-Grep:
 ```bash
 grep -n "🔔\|bell\|notificationCount" Sources/AgentStudio/Features/RepoExplorer/
 ```
 
-Today the pill likely shows a placeholder `0`. Replace the data source with `inboxAtom.unreadCount(forWorktreeId: ...)`.
+Today the pill likely shows a placeholder `0`. Replace with the injected count prop.
 
-- [ ] **Step 2: Inject `inboxAtom` dependency**
-
-Propagate `inboxAtom` through the view chain from wherever `RepoExplorerView` is instantiated (the view receives it from `SidebarSurfaceHost`, which receives it from the composition root in Task 15). Add as a stored property on `RepoExplorerWorktreeRow`:
+- [ ] **Step 2: Add `unreadCount: Int` prop — no atom reference**
 
 ```swift
 struct RepoExplorerWorktreeRow: View {
     let worktree: Worktree
-    let inboxAtom: NotificationInboxAtom   // NEW
+    let unreadCount: Int            // NEW — primitive prop, no atom import
     // ... existing fields ...
 
     var body: some View {
         // ... existing row content ...
         HStack {
             // ... other pills ...
-            bellPill  // bound to the atom
+            bellPill
         }
     }
 
     private var bellPill: some View {
-        let count = inboxAtom.unreadCount(forWorktreeId: worktree.id)
-        return HStack(spacing: 2) {
+        HStack(spacing: 2) {
             Image(systemName: "bell")
                 .font(.system(size: 10))
-            Text("\(count)")
+            Text("\(unreadCount)")
                 .font(.system(size: 10))
         }
-        .foregroundStyle(count > 0 ? .red : .secondary)
+        .foregroundStyle(unreadCount > 0 ? .red : .secondary)
     }
 }
 ```
 
-- [ ] **Step 3: Run tests (existing RepoExplorer tests) to ensure nothing breaks; lint; commit**
+Verify: `grep -rn "NotificationInbox" Sources/AgentStudio/Features/RepoExplorer/` returns **zero** results. The feature has no knowledge that an inbox exists.
+
+- [ ] **Step 3: `RepoExplorerView` passes counts per worktree**
+
+`RepoExplorerView` is already a feature-internal view. It receives a closure from its caller (`SidebarSurfaceHost`) that maps each worktree to its unread count. No atom reference either:
+
+```swift
+struct RepoExplorerView: View {
+    // ... existing props ...
+    let unreadCount: (Worktree) -> Int     // NEW — plain closure
+
+    var body: some View {
+        // ... existing layout ...
+        ForEach(worktrees) { wt in
+            RepoExplorerWorktreeRow(
+                worktree: wt,
+                unreadCount: unreadCount(wt),
+                // ... existing props ...
+            )
+        }
+    }
+}
+```
+
+- [ ] **Step 4: `SidebarSurfaceHost` (App) resolves the count**
+
+`SidebarSurfaceHost` in `App/Windows/` can import both `Features/RepoExplorer/` and `Features/NotificationInbox/` — that's the composition layer's job.
+
+```swift
+// In SidebarSurfaceHost:
+case .repos:
+    RepoExplorerView(
+        // ... existing props ...
+        unreadCount: { [weak inboxAtom] wt in
+            inboxAtom?.unreadCount(forWorktreeId: wt.id) ?? 0
+        }
+    )
+```
+
+Propagate `inboxAtom: NotificationInboxAtom` into `SidebarSurfaceHost`'s init (added in Task 15 boot wiring). `SidebarSurfaceHost` is App-level, so this import is legitimate.
+
+- [ ] **Step 5: Verify boundary + run tests**
 
 ```bash
+# Must return zero hits:
+grep -rn "NotificationInboxAtom\|NotificationInboxPrefs" Sources/AgentStudio/Features/RepoExplorer/
+
 mise run test -- --filter RepoExplorer
 mise run lint
-git add Sources/AgentStudio/Features/RepoExplorer/
-git commit -m "feat(repo-explorer): bind worktree bell pill to NotificationInboxAtom
+```
 
-RepoExplorerWorktreeRow now reads unread count from
-NotificationInboxAtom.unreadCount(forWorktreeId:). Replaces
-the placeholder 0. LUNA-361 Phase 3."
+- [ ] **Step 6: Commit**
+
+```bash
+git add Sources/AgentStudio/Features/RepoExplorer/ \
+        Sources/AgentStudio/App/Windows/SidebarSurfaceHost.swift
+git commit -m "feat(repo-explorer): worktree bell pill binds to primitive unreadCount prop
+
+RepoExplorerWorktreeRow takes Int unreadCount, not the atom,
+so Features/RepoExplorer/ does not import Features/Notification-
+Inbox/. The atom read lives in App/Windows/SidebarSurfaceHost,
+which resolves counts per worktree and passes them via a closure
+through RepoExplorerView. Preserves the Features/X -> Features/Y
+import boundary. LUNA-361 Phase 3."
 ```
 
 ---
 
-## Task 13: Populate `.inbox` CommandBar scope actions
+## Task 13: Populate `.inbox` CommandBar scope actions via `NotificationInboxCommands`
 
 **Files:**
+- Create: `Sources/AgentStudio/Core/Models/NotificationInboxCommands.swift`
+- Create: `Sources/AgentStudio/Core/Models/NotificationInboxTypes.swift` (move `NotificationInboxGrouping` + `NotificationInboxSort` from the feature slice)
 - Modify: `Sources/AgentStudio/Features/CommandBar/CommandBarDataSource.swift`
+- Modify: `Sources/AgentStudio/Features/NotificationInbox/State/MainActor/Atoms/NotificationInboxPrefsAtom.swift` (import the enums from their new Core home)
 
-- [ ] **Step 1: Define inbox-scoped action rows**
+**Boundary rule** per spec §8.5.2: `Features/CommandBar/` MUST NOT import `Features/NotificationInbox/`. CommandBar consumes a `NotificationInboxCommands` struct — a callback bundle + read snapshots — that lives in `Core/Models/`. App composition constructs it with closures that capture the real atoms.
 
-Per spec §5.2, the `.inbox` scope should offer:
+**Note on enum promotion:** Task 1 originally placed `NotificationInboxGrouping` and `NotificationInboxSort` inside `Features/NotificationInbox/Models/`. Because `NotificationInboxCommands` (Core) references them, they must be promoted to `Core/Models/NotificationInboxTypes.swift`. The enums carry no feature-specific logic — pure codable tags — so this promotion is acceptable and was noted in spec §8.5.2. If this task executes after Task 1 has already landed files, `git mv` them.
 
-- Mark all as read
-- Clear read history
-- Clear all notifications (with confirmation)
-- Change grouping → None / By repo / By pane / By tab
-- Toggle sort order
-- Enable bell notifications / Disable bell notifications
-- Return to worktree sidebar (⌘S)
+- [ ] **Step 1: Move the enums to Core**
 
-- [ ] **Step 2: Wire each action**
+```bash
+git mv Sources/AgentStudio/Features/NotificationInbox/Models/NotificationInboxTypes.swift \
+       Sources/AgentStudio/Core/Models/NotificationInboxTypes.swift
+```
 
-In `CommandBarDataSource.swift` where `.inbox` currently returns `[]` (from Phase 2), populate:
+Update any consumer imports — grep and confirm the types still resolve (same module, just a different directory, so imports usually don't change).
+
+- [ ] **Step 2: Create `NotificationInboxCommands` in Core**
+
+Create `Sources/AgentStudio/Core/Models/NotificationInboxCommands.swift`:
+
+```swift
+import Foundation
+
+/// Callback bundle + read snapshots that let Core and other
+/// features invoke notification-inbox actions without importing
+/// `Features/NotificationInbox/`.
+///
+/// Constructed by the App composition root (`App/Boot/
+/// AppDelegate.swift`), which captures the feature atoms inside
+/// the closures. Consumers hold the struct by value and invoke
+/// closures without knowing about atoms.
+///
+/// See docs/superpowers/specs/2026-04-17-notification-inbox-design.md §8.5.2.
+@MainActor
+struct NotificationInboxCommands: Sendable {
+    // Mutations
+    var markAllAsRead: () -> Void
+    var clearReadHistory: () -> Void
+    var clearAll: () -> Void
+    var setGrouping: (NotificationInboxGrouping) -> Void
+    var toggleSort: () -> Void
+    var toggleBellEnabled: () -> Void
+    var returnToWorktreeSidebar: () -> Void
+
+    // Read snapshots (for CommandBar label text like
+    // "Enable bell" vs "Disable bell")
+    var bellEnabled: () -> Bool
+    var currentGrouping: () -> NotificationInboxGrouping
+    var currentSort: () -> NotificationInboxSort
+}
+```
+
+- [ ] **Step 3: Consume `NotificationInboxCommands` in `CommandBarDataSource`**
+
+Modify `CommandBarDataSource.swift`. Replace the atom imports (there should be none now after the boundary fix) with a `NotificationInboxCommands` dependency:
+
+```swift
+final class CommandBarDataSource {
+    // ... existing properties ...
+    private let notificationInboxCommands: NotificationInboxCommands?
+
+    init(
+        // ... existing dependencies ...
+        notificationInboxCommands: NotificationInboxCommands?
+    ) {
+        // ... existing assignments ...
+        self.notificationInboxCommands = notificationInboxCommands
+    }
+}
+```
+
+`notificationInboxCommands` is optional so the CommandBar data source has a clear "inbox disabled" state (no inbox actions shown). App composition always provides it when the feature is alive.
+
+Replace the `.inbox` scope case to use the callback bundle:
 
 ```swift
 case .inbox:
+    guard let cmds = notificationInboxCommands else { return [] }
     var rows: [CommandBarItem] = []
 
     rows.append(CommandBarItem(
         id: "inbox.markAllAsRead",
         label: "Mark all as read",
         icon: .system(name: "checkmark.circle"),
-        action: { _ in inboxAtom.markAllRead() }
+        action: { _ in cmds.markAllAsRead() }
     ))
 
     rows.append(CommandBarItem(
         id: "inbox.clearReadHistory",
         label: "Clear read history",
         icon: .system(name: "trash"),
-        action: { _ in inboxAtom.clearReadHistory() }
+        action: { _ in cmds.clearReadHistory() }
     ))
 
     rows.append(CommandBarItem(
@@ -2564,81 +2748,170 @@ case .inbox:
         label: "Clear all notifications…",
         icon: .system(name: "trash.fill"),
         action: { ctx in
-            // Show an NSAlert confirmation before clearing
             ctx.confirm(
                 message: "Clear all notifications?",
-                onConfirm: { inboxAtom.clearAll() }
+                onConfirm: { cmds.clearAll() }
             )
         }
     ))
 
-    // Grouping switcher — four rows
-    for g in NotificationInboxGrouping.allCases {
+    for grouping in NotificationInboxGrouping.allCases {
         rows.append(CommandBarItem(
-            id: "inbox.grouping.\(g.rawValue)",
-            label: "Change grouping: \(labelFor(g))",
+            id: "inbox.grouping.\(grouping.rawValue)",
+            label: "Change grouping: \(labelFor(grouping))",
             icon: .system(name: "line.3.horizontal"),
-            action: { _ in prefsAtom.setGrouping(g) }
+            action: { _ in cmds.setGrouping(grouping) }
         ))
     }
 
-    // Sort toggle
     rows.append(CommandBarItem(
         id: "inbox.toggleSort",
         label: "Toggle sort order",
         icon: .system(name: "arrow.up.arrow.down"),
-        action: { _ in
-            let next: NotificationInboxSort =
-                prefsAtom.sort == .newestFirst
-                ? .oldestFirst : .newestFirst
-            prefsAtom.setSort(next)
-        }
+        action: { _ in cmds.toggleSort() }
     ))
 
-    // Bell toggle — label reflects current state
-    let bellLabel = prefsAtom.bellEnabled
+    let bellLabel = cmds.bellEnabled()
         ? "Disable bell notifications"
         : "Enable bell notifications"
     rows.append(CommandBarItem(
         id: "inbox.toggleBell",
         label: bellLabel,
         icon: .system(name: "bell"),
-        action: { _ in
-            prefsAtom.setBellEnabled(!prefsAtom.bellEnabled)
-        }
+        action: { _ in cmds.toggleBellEnabled() }
     ))
 
-    // Return to worktree sidebar
     rows.append(CommandBarItem(
         id: "inbox.returnToWorktrees",
         label: "Return to worktree sidebar (⌘S)",
         icon: .system(name: "sidebar.left"),
-        action: { ctx in ctx.dispatcher.dispatch(.showWorktreeSidebar) }
+        action: { _ in cmds.returnToWorktreeSidebar() }
     ))
 
     return rows
 ```
 
-Match `CommandBarItem` init signature and `action` closure shape exactly — grep an existing item construction to mirror. If actions take a `context` type, follow that convention.
+The `CommandBarDataSource` file contains **zero** imports or references to `NotificationInboxAtom` / `NotificationInboxPrefsAtom`. The only notification types it knows are the Core-resident `NotificationInboxGrouping` / `NotificationInboxSort` enums and the `NotificationInboxCommands` struct.
 
-Propagate `inboxAtom` and `prefsAtom` dependencies into `CommandBarDataSource` (update its init / factory).
-
-- [ ] **Step 3: Tests, lint, commit**
-
-Extend `CommandBarDataSourceTests.swift` (create if absent) with an inbox-scope smoke test: instantiate the data source with atoms, request items for `.inbox`, assert the expected item ids are present.
+- [ ] **Step 4: Verify the boundary**
 
 ```bash
-mise run test -- --filter CommandBar
-mise run lint
-git add Sources/AgentStudio/Features/CommandBar/
-git commit -m "feat(command-bar): populate .inbox scope with action rows
+# All must return zero hits in Features/CommandBar/:
+grep -rn "NotificationInboxAtom\|NotificationInboxPrefs" Sources/AgentStudio/Features/CommandBar/
+grep -rn "import.*NotificationInbox\|Features/NotificationInbox" Sources/AgentStudio/Features/CommandBar/
+```
 
-Implements the seven inbox-scoped CommandBar actions from
-spec §5.2: Mark all as read, Clear read history, Clear all
-(with confirmation), Change grouping (four rows), Toggle
-sort, Enable/Disable bell (reflects state), Return to
-worktree sidebar. Reads NotificationInboxAtom and Notification-
-InboxPrefsAtom through injected dependencies. LUNA-361 Phase 3."
+- [ ] **Step 5: Tests**
+
+Write a `CommandBarDataSourceInboxScopeTests.swift` that drives the data source with a fake `NotificationInboxCommands` (the test constructs one with capture-counters instead of real atoms):
+
+```swift
+@MainActor
+@Suite("CommandBar .inbox scope actions")
+struct CommandBarDataSourceInboxScopeTests {
+
+    @Test("emits seven inbox-scoped action rows plus four grouping rows")
+    func emitsExpectedRows() {
+        let sink = InboxCommandsSink()
+        let cmds = sink.makeCommands()
+        let ds = CommandBarDataSource(
+            // ... existing fixture ...,
+            notificationInboxCommands: cmds
+        )
+        let rows = ds.items(for: .inbox, context: /* ... */)
+        let ids = Set(rows.map(\.id))
+        #expect(ids.contains("inbox.markAllAsRead"))
+        #expect(ids.contains("inbox.clearReadHistory"))
+        #expect(ids.contains("inbox.clearAll"))
+        #expect(ids.contains("inbox.grouping.none"))
+        #expect(ids.contains("inbox.grouping.byRepo"))
+        #expect(ids.contains("inbox.grouping.byPane"))
+        #expect(ids.contains("inbox.grouping.byTab"))
+        #expect(ids.contains("inbox.toggleSort"))
+        #expect(ids.contains("inbox.toggleBell"))
+        #expect(ids.contains("inbox.returnToWorktrees"))
+    }
+
+    @Test("toggleBell label reflects current bell state")
+    func bellLabel() {
+        let sink = InboxCommandsSink()
+        sink.bellEnabled = false
+        let cmds = sink.makeCommands()
+        let ds = CommandBarDataSource(
+            // ... fixture ...,
+            notificationInboxCommands: cmds
+        )
+        let rows = ds.items(for: .inbox, context: /* ... */)
+        let bell = rows.first { $0.id == "inbox.toggleBell" }
+        #expect(bell?.label == "Enable bell notifications")
+
+        sink.bellEnabled = true
+        let rows2 = ds.items(for: .inbox, context: /* ... */)
+        let bell2 = rows2.first { $0.id == "inbox.toggleBell" }
+        #expect(bell2?.label == "Disable bell notifications")
+    }
+
+    @Test("returns empty rows when notificationInboxCommands is nil")
+    func disabled() {
+        let ds = CommandBarDataSource(
+            // ... fixture ...,
+            notificationInboxCommands: nil
+        )
+        let rows = ds.items(for: .inbox, context: /* ... */)
+        #expect(rows.isEmpty)
+    }
+}
+
+/// Test-local stand-in — captures invocations without needing
+/// the real feature atoms.
+@MainActor
+final class InboxCommandsSink {
+    var bellEnabled: Bool = false
+    var markAllAsReadCount = 0
+    var setGroupingCalls: [NotificationInboxGrouping] = []
+    // ... etc ...
+
+    func makeCommands() -> NotificationInboxCommands {
+        NotificationInboxCommands(
+            markAllAsRead:       { self.markAllAsReadCount += 1 },
+            clearReadHistory:    { },
+            clearAll:            { },
+            setGrouping:         { self.setGroupingCalls.append($0) },
+            toggleSort:          { },
+            toggleBellEnabled:   { self.bellEnabled.toggle() },
+            returnToWorktreeSidebar: { },
+            bellEnabled:     { self.bellEnabled },
+            currentGrouping: { .none },
+            currentSort:     { .newestFirst }
+        )
+    }
+}
+```
+
+This test suite explicitly exercises the boundary: if someone accidentally reintroduces an atom import later, the test still passes (sink is self-contained), but `grep` guards catch it.
+
+- [ ] **Step 6: Lint, commit**
+
+```bash
+mise run lint
+git add Sources/AgentStudio/Core/Models/NotificationInboxCommands.swift \
+        Sources/AgentStudio/Core/Models/NotificationInboxTypes.swift \
+        Sources/AgentStudio/Features/CommandBar/ \
+        Sources/AgentStudio/Features/NotificationInbox/State/MainActor/Atoms/NotificationInboxPrefsAtom.swift \
+        Tests/AgentStudioTests/Features/CommandBar/
+git commit -m "feat(command-bar): populate .inbox scope via NotificationInboxCommands seam
+
+Introduces NotificationInboxCommands in Core/Models — a
+callback bundle + read snapshots that let CommandBar consume
+inbox actions without importing the feature. Promotes
+NotificationInboxGrouping and NotificationInboxSort to
+Core/Models/NotificationInboxTypes.swift so the commands
+struct can reference them without crossing feature boundaries.
+
+Implements the seven inbox-scoped action rows from spec §5.2
+through the commands struct. Features/CommandBar/ has ZERO
+imports of Features/NotificationInbox/ after this change.
+LUNA-361 Phase 3."
 ```
 
 ---
@@ -2815,11 +3088,70 @@ let notificationRouter = NotificationRouter(
 //    Mirror how UIStateStore / RepoCacheStore do this in their
 //    boot paths.
 
-// 6. Propagate atoms through MainWindowController / SidebarSurfaceHost /
-//    DrawerInboxBellHost / RepoExplorerWorktreeRow.
+// 6. Construct the NotificationInboxCommands callback bundle
+//    (spec §8.5.2 cross-feature seam). This is how Features/
+//    CommandBar/ consumes inbox actions without importing the
+//    feature atom.
+let notificationInboxCommands = NotificationInboxCommands(
+    markAllAsRead:       { [weak notificationInboxAtom] in
+        notificationInboxAtom?.markAllRead()
+    },
+    clearReadHistory:    { [weak notificationInboxAtom] in
+        notificationInboxAtom?.clearReadHistory()
+    },
+    clearAll:            { [weak notificationInboxAtom] in
+        notificationInboxAtom?.clearAll()
+    },
+    setGrouping:         { [weak notificationInboxPrefsAtom] grouping in
+        notificationInboxPrefsAtom?.setGrouping(grouping)
+    },
+    toggleSort:          { [weak notificationInboxPrefsAtom] in
+        guard let p = notificationInboxPrefsAtom else { return }
+        let next: NotificationInboxSort =
+            p.sort == .newestFirst ? .oldestFirst : .newestFirst
+        p.setSort(next)
+    },
+    toggleBellEnabled:   { [weak notificationInboxPrefsAtom] in
+        guard let p = notificationInboxPrefsAtom else { return }
+        p.setBellEnabled(!p.bellEnabled)
+    },
+    returnToWorktreeSidebar: { [weak commandDispatcher] in
+        commandDispatcher?.dispatch(.showWorktreeSidebar)
+    },
+    bellEnabled:     { [weak notificationInboxPrefsAtom] in
+        notificationInboxPrefsAtom?.bellEnabled ?? false
+    },
+    currentGrouping: { [weak notificationInboxPrefsAtom] in
+        notificationInboxPrefsAtom?.grouping ?? .none
+    },
+    currentSort:     { [weak notificationInboxPrefsAtom] in
+        notificationInboxPrefsAtom?.sort ?? .newestFirst
+    }
+)
+
+// 7. Inject the commands into CommandBarDataSource. The data
+//    source is already instantiated earlier in the boot path;
+//    extend its constructor to accept an optional
+//    NotificationInboxCommands and pass it here.
+//    (If CommandBarDataSource construction currently happens
+//     before the feature atoms are ready, restructure the boot
+//     order so it happens after. The cyclic dependency is
+//     only apparent — commands are closures that capture
+//     lazily.)
+
+// 8. Propagate through view layer:
+//    - SidebarSurfaceHost receives notificationInboxAtom (to
+//      read unreadCount(forWorktreeId:) and pass counts into
+//      RepoExplorerView) and the prefs atom (to drive
+//      InboxSidebarView).
+//    - DrawerInboxBellHost receives both atoms + dispatcher
+//      (it lives INSIDE Features/NotificationInbox/ so atom
+//      imports are fine there).
+//    - RepoExplorerWorktreeRow does NOT receive atoms — only
+//      a plain Int unreadCount (per Task 12).
 ```
 
-Retain references to the router and tracker so they aren't deallocated. Call `router.stop()` / `tracker.stop()` during application termination if the app has an explicit shutdown sequence.
+Retain references to the router, tracker, and commands so they aren't deallocated. Call `router.stop()` / `tracker.stop()` during application termination if the app has an explicit shutdown sequence.
 
 - [ ] **Step 4: Build, test, lint, commit**
 
