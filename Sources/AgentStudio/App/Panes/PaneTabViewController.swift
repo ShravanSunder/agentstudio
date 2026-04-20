@@ -83,6 +83,13 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             }
             self.dispatchAction(action)
         },
+        shouldHandleSplitDragPayload: { [weak self] payload in
+            guard let self else {
+                RestoreTrace.log("PaneTabActionDispatcher.shouldHandleSplitDragPayload dropped ownerReleased")
+                return false
+            }
+            return self.shouldHandleSplitDragPayload(payload)
+        },
         shouldAcceptDrop: { [weak self] payload, destPaneId, zone in
             guard let self else {
                 RestoreTrace.log(
@@ -865,6 +872,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         destPaneId: UUID,
         zone: DropZone
     ) -> Bool {
+        guard shouldHandleSplitDragPayload(payload) else {
+            return false
+        }
         let snapshot = dragDropSnapshot()
         return Self.splitDropCommitPlan(
             payload: payload,
@@ -878,6 +888,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
     /// Handle a completed drop on a split pane.
     private func handleSplitDrop(payload: SplitDropPayload, destPaneId: UUID, zone: DropZone) {
+        guard shouldHandleSplitDragPayload(payload) else {
+            return
+        }
         let snapshot = dragDropSnapshot()
         guard
             let plan = Self.splitDropCommitPlan(
@@ -973,6 +986,16 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             sourcePane: sourcePane,
             zone: zone
         )
+    }
+
+    private func shouldHandleSplitDragPayload(_ payload: SplitDropPayload) -> Bool {
+        switch payload.kind {
+        case .existingPane(let sourcePaneId, _):
+            guard let sourcePane = store.paneAtom.pane(sourcePaneId) else { return false }
+            return sourcePane.parentPaneId == nil
+        case .existingTab, .newTerminal:
+            return true
+        }
     }
 
     // MARK: - Empty State

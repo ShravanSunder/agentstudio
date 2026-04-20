@@ -205,6 +205,42 @@ final class PaneDropPlannerTests {
     }
 
     @Test
+    func drawerPane_toMainLayoutSplit_returnsIneligible() {
+        let sourceTabId = UUID()
+        let parentPaneId = UUID()
+        let sourcePaneId = UUID()
+        let targetPaneId = UUID()
+        let sourceTab = TabSnapshot(
+            id: sourceTabId,
+            visiblePaneIds: [parentPaneId, sourcePaneId, targetPaneId],
+            ownedPaneIds: [parentPaneId, sourcePaneId, targetPaneId],
+            activePaneId: parentPaneId
+        )
+        let state = makeSnapshot(
+            tabs: [sourceTab],
+            activeTabId: sourceTabId,
+            drawerParentByPaneId: [sourcePaneId: parentPaneId],
+            drawerLayoutByParentPaneId: [
+                parentPaneId: DrawerGridLayout(topRow: Layout.autoTiled([sourcePaneId]))
+            ]
+        )
+        let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId))
+
+        let result = PaneDropPlanner.previewDecision(
+            payload: payload,
+            destination: .split(
+                targetPaneId: targetPaneId,
+                targetTabId: sourceTabId,
+                direction: .right,
+                targetDrawerParentPaneId: nil
+            ),
+            state: state
+        )
+
+        #expect(result == .ineligible)
+    }
+
+    @Test
     func layoutPane_toSplitLayout_resolvesActionPlan() {
         let sourceTabId = UUID()
         let targetTabId = UUID()

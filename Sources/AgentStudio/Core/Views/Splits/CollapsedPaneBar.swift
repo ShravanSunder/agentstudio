@@ -279,15 +279,14 @@ struct CollapsedPaneBar: View {
         GeometryReader { geo in
             if let dropTargetCoordinateSpace {
                 let frame = geo.frame(in: .named(dropTargetCoordinateSpace))
-                if useDrawerFramePreference {
+                let frameDestinations = PaneFramePublicationPolicy.destinations(
+                    useDrawerFramePreference: useDrawerFramePreference
+                )
+                if frameDestinations.contains(.drawerContainer) {
                     Color.clear
                         .preference(
                             key: DrawerPaneFramePreferenceKey.self,
                             value: [paneId: frame]
-                        )
-                        .preference(
-                            key: PaneFramePreferenceKey.self,
-                            value: [paneId: geo.frame(in: .named("tabContainer"))]
                         )
                 } else {
                     Color.clear.preference(

@@ -434,16 +434,13 @@ struct PaneLeafContainer: View {
                         // coordinate space (tab container or drawer container).
                         let rawFrame = geo.frame(in: .named(dropTargetCoordinateSpace))
                         let measuredFrame = normalizedMeasuredFrame(from: rawFrame)
-                        if useDrawerFramePreference {
-                            let tabRawFrame = geo.frame(in: .named("tabContainer"))
-                            let tabMeasuredFrame = normalizedMeasuredFrame(from: tabRawFrame)
+                        let frameDestinations = PaneFramePublicationPolicy.destinations(
+                            useDrawerFramePreference: useDrawerFramePreference
+                        )
+                        if frameDestinations.contains(.drawerContainer) {
                             Color.clear.preference(
                                 key: DrawerPaneFramePreferenceKey.self,
                                 value: [paneHost.id: measuredFrame]
-                            )
-                            .preference(
-                                key: PaneFramePreferenceKey.self,
-                                value: [paneHost.id: tabMeasuredFrame]
                             )
                         } else {
                             Color.clear.preference(

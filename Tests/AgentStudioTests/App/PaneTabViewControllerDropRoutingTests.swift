@@ -246,4 +246,44 @@ struct PaneTabViewControllerDropRoutingTests {
 
         #expect(commitPlan == nil)
     }
+
+    @Test
+    func splitDropCommitPlan_returnsNil_forDrawerPaneToLayoutTarget() {
+        let parentPaneId = UUIDv7.generate()
+        let sourcePaneId = UUIDv7.generate()
+        let destinationPaneId = UUIDv7.generate()
+        let tabId = UUIDv7.generate()
+
+        var sourcePane = makePane(id: sourcePaneId)
+        sourcePane.kind = .drawerChild(parentPaneId: parentPaneId)
+        let destinationPane = makePane(id: destinationPaneId)
+
+        let state = makeSnapshot(
+            tabs: [
+                TabSnapshot(
+                    id: tabId,
+                    visiblePaneIds: [parentPaneId, destinationPaneId],
+                    ownedPaneIds: [parentPaneId, sourcePaneId, destinationPaneId],
+                    activePaneId: parentPaneId
+                )
+            ],
+            activeTabId: tabId,
+            drawerParentByPaneId: [sourcePaneId: parentPaneId],
+            drawerLayoutByParentPaneId: [
+                parentPaneId: DrawerGridLayout(topRow: Layout.autoTiled([sourcePaneId]))
+            ]
+        )
+        let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: tabId))
+
+        let commitPlan = PaneTabViewController.splitDropCommitPlan(
+            payload: payload,
+            destinationPane: destinationPane,
+            destinationPaneId: destinationPaneId,
+            zone: .right,
+            activeTabId: tabId,
+            state: state
+        )
+
+        #expect(commitPlan == nil)
+    }
 }

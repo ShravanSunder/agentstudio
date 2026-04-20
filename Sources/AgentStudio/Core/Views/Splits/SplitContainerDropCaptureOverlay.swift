@@ -132,6 +132,10 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
                 dragSession = .idle
                 return nil
             }
+            guard actionDispatcher.shouldHandleSplitDragPayload(payload) else {
+                dragSession = .previewing(payload: payload)
+                return nil
+            }
 
             if let resolvedTarget = resolveTarget(at: location, payload: payload) {
                 let candidate = DragSessionCandidate(payload: payload, target: resolvedTarget)
@@ -149,7 +153,15 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
                 return false
             }
 
-            guard let payload = decodeSplitDropPayload(from: pasteboard),
+            guard let payload = decodeSplitDropPayload(from: pasteboard) else {
+                dragSession = .teardown
+                return false
+            }
+            guard actionDispatcher.shouldHandleSplitDragPayload(payload) else {
+                dragSession = .teardown
+                return false
+            }
+            guard
                 let resolvedTarget = resolveTarget(at: location, payload: payload)
             else {
                 dragSession = .teardown
