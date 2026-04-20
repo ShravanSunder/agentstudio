@@ -1166,7 +1166,13 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func shouldConsumeScopeAwarePaneTrigger(_ trigger: ShortcutTrigger) -> Bool {
-        scopeAwarePaneCommand(for: trigger) != nil
+        switch trigger {
+        case .init(key: .character(.i), modifiers: [.option]),
+            .init(key: .character(.k), modifiers: [.option]):
+            return true
+        default:
+            return scopeAwarePaneCommand(for: trigger) != nil
+        }
     }
 
     private func shouldCreateFirstDrawerPane(

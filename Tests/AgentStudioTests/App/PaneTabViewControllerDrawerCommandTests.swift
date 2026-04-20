@@ -309,8 +309,8 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(harness.store.tab(tab.id)?.activePaneId == parent.id)
     }
 
-    @Test("option-k in main row no longer opens the drawer")
-    func optionK_mainPane_doesNotEnterDrawer() throws {
+    @Test("option-k in main row is consumed without opening the drawer")
+    func optionK_mainPane_isConsumedWithoutEnteringDrawer() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -336,13 +336,13 @@ struct PaneTabViewControllerDrawerCommandTests {
             )
         )
 
-        #expect(!harness.controller.handleAppOwnedKeyEvent(event, requiresNeutralDrawerFocus: false))
+        #expect(harness.controller.handleAppOwnedKeyEvent(event, requiresNeutralDrawerFocus: false))
         #expect(harness.store.pane(parent.id)?.drawer?.isExpanded == false)
         #expect(atom(\.workspaceFocusOwner).owner == .mainPane(paneId: parent.id))
     }
 
-    @Test("option-i in main row falls through without app-owned handling")
-    func optionI_mainPane_fallsThrough() throws {
+    @Test("option-i in main row is consumed without app-owned navigation")
+    func optionI_mainPane_isConsumedWithoutNavigation() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -368,7 +368,7 @@ struct PaneTabViewControllerDrawerCommandTests {
             )
         )
 
-        #expect(!harness.controller.handleAppOwnedKeyEvent(event, requiresNeutralDrawerFocus: false))
+        #expect(harness.controller.handleAppOwnedKeyEvent(event, requiresNeutralDrawerFocus: false))
         #expect(atom(\.workspaceFocusOwner).owner == .mainPane(paneId: parent.id))
     }
 

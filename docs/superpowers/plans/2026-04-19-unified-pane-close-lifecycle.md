@@ -20,14 +20,18 @@ That note established three facts:
 2. The remaining crash is a stale `ViewRegistry.slot(for:)` read during SwiftUI's close-transition frame, hitting the lazy-fallback `assertionFailure`.
 3. `.closePane`, `.closeTab`, and `.removeDrawerPane` encode three different close meanings for one user gesture.
 
-This plan also incorporates findings from an adversarial Codex review of an earlier iteration of this plan. Four material issues were surfaced and are resolved by the design below:
+This plan incorporates findings from two rounds of adversarial Codex review. Six material issues were surfaced and are resolved by the design below:
 
 - **Drawer-close UX bypassed the unified pipeline.** `DrawerPanel.swift:119-120` rewrote `.closePane` → `.removeDrawerPane` at dispatch time, so real drawer close never reached `executeClosePane`. Fixed in Task 1.
 - **Parent-pane close hard-deleted drawer-child slots during the transition window.** An expanded drawer under a closing parent hit the same stale-slot race. Fixed in Task 2.
 - **A global `retiredPaneIds` gated against a per-surface `renderedIds` re-created the exact race class.** Drawer surface could finalize a slot still being rendered by the main strip. Fixed by the surface-scoped design in Task 3.
-- **Zoomed and all-minimized render modes bypassed the lifecycle hooks entirely.** Closes from those branches would leak tombstones forever. Fixed by routing lifecycle through `FlatTabStripContainer`-level registration.
+- **Zoomed and all-minimized render modes bypassed the lifecycle hooks entirely.** Closes from those branches would leak tombstones forever.
+- **Per-branch surface registration reintroduced the race at branch-switch boundaries.** The earlier iteration registered a separate surface per branch (zoomed / all-minimized / main-strip); SwiftUI's `.onDisappear`/`.onAppear` are not transactional at branch switches, so the old branch could unregister and trigger finalization in the gap before the new branch published. Fixed by moving registration up to `FlatTabStripContainer` — one stable surface per tab, whose published id set changes with mode but whose registration lifetime matches the tab.
+- **Task 3's unit tests used `ensureSlot` as the observation probe, which per D6 promotes retired slots in place.** The tests could pass while the union finalization logic was silently broken. Fixed with non-promoting DEBUG probes (`peekSlotForTesting`, `isRetiredForTesting`).
 
 The plan also updates the rationale for D6 (promote-in-place on revive): the original justification was "observer continuity," which is defeated by `FlatPaneStripContent.swift:75`'s `.id("\(uuid)-registered=\(host != nil)")` strategy that remounts the subtree when `host` toggles. The real benefit of tombstones is **making `slot(for:)` safe against the stale transition-frame read** — no lazy fallback, no `assertionFailure`. Promote-in-place is kept as a minor allocation optimization on undo revive, nothing more.
+
+D9's rationale is also softened from the earlier iteration. Calling `retireSlot` before the atom mutation does not give SwiftUI a "head start" — both mutations land in the same `@MainActor` turn and SwiftUI observes the end state together. The ordering is kept for debugging-readable call order (retire adjacent to teardown, before structural removal), not as a correctness property.
 
 ## Design Decisions
 
@@ -42,11 +46,13 @@ These decisions were made during design review and govern the task-level edits b
 | D5 | `ViewRegistry` splits `removeSlot` (immediate delete, unchanged) from `retireSlot` (opt-in tombstone). Only close-transition-driven paths retire. Non-transition callers (rollback, undo GC, orphan purge, undo-restore cleanup) keep `removeSlot`. | Prevents tombstones from leaking at 10+ non-transition call sites. |
 | D6 | `ensureSlot` on a retired id promotes the tombstone in place (same `PaneViewSlot` identity). | Minor allocation savings on undo revive. (The earlier rationale of "observer continuity" is moot because `FlatPaneStripContent.swift:75` remounts on `host != nil` toggle regardless of slot identity.) |
 | D7 | Finalization is causal, not timer-driven. Each render surface publishes its rendered pane ids to `ViewRegistry`. A retired slot is finalized only when absent from the union of all surfaces' published ids. | Surface-scoped gating is the correct invariant: a tombstone cannot be deleted while any surface is still rendering it. |
+| D7.1 | Surface registration lives at the **container level**, not at per-branch level. `FlatTabStripContainer` publishes one surface id per tab (`"tab:\(tabId)"`); mode switches (zoomed ↔ minimized ↔ main-strip) update the *contents* of the published id set rather than toggling surface registrations. Drawer surfaces register separately from their own container tree. | SwiftUI's `.onAppear`/`.onDisappear` are not transactional at branch boundaries. Per-branch registration created a gap where unregister-before-reregister triggered finalization with an empty union. Container-level registration makes the surface lifetime match the container lifetime; mode switch is a publication update, not a surface toggle. |
 | D8 | Surface registration and lifecycle methods live on `ViewRegistry` directly. No new monitor class. | `ApplicationLifecycleMonitor` earns its class because `NSNotificationCenter` needs observer-retain machinery to isolate; SwiftUI closures have no such machinery. |
-| D9 | `retireSlot` is called inside `performClose` (not at transition scheduling) **before** the atom mutation that drops the paneId from the rendered segment list. | Ensures the tombstone exists before SwiftUI's reaction to the mutation fires `.onDisappear` / `.onChange`, so the finalization gate sees the retired state. |
+| D9 | `retireSlot` is called inside `performClose` (not at transition scheduling), adjacent to `teardownView` and before the atom mutation that removes the paneId from the layout. | Ordering hygiene for call-site readability. Both mutations land in the same `@MainActor` turn and SwiftUI observes the end state together; this is NOT a head-start race. |
 | D10 | `PaneCloseTransitionCoordinator` gets `cancelCloseTransition(paneId:)`. `undoCloseTab` calls it for every paneId in the snapshot before restoring. | Prevents a pending `performClose` from firing after undo has already restored the pane. |
 | D11 | Drawer close UX dispatches `.closePane`, not `.removeDrawerPane`. `.removeDrawerPane` becomes an internal coordinator action only. | One structural primitive at every UI entry point. Also makes drawer close undoable for the first time. |
 | D12 | `executeClosePane`'s main-pane branch retires drawer-child slots (not `removeSlot`s them) when a parent pane with an expanded drawer is closed. | Drawer children render through the same `slot(for:)` path; they need tombstone protection during the same transition frame. |
+| D13 | `ViewRegistry` exposes DEBUG-only `peekSlotForTesting(_:)` and `isRetiredForTesting(_:)` probes that neither promote nor create slots. Task 3 tests use these instead of `ensureSlot`. | `ensureSlot` per D6 promotes retired slots in place, which mutates the thing we are trying to observe. Using `ensureSlot` as a probe makes the union-logic regression silently pass even when broken. |
 
 ## Current Code References
 
@@ -114,7 +120,12 @@ unregisterSurface(surfaceId)
     finalization check
 ```
 
-Surface ids are stable strings tied to the surface's stable identity (e.g., `"mainStrip:\(tabId)"`, `"drawerStrip:\(parentPaneId):\(row)"`, `"zoomed:\(tabId)"`, `"minimized:\(tabId)"`). Views re-publish on body evaluation; the registry's set-replacement semantics make this idempotent.
+Surface ids are stable strings tied to the surface's **container lifetime**, not its mode. The wiring has exactly two kinds of surfaces:
+
+- **`"tab:\(tabId)"`** — published by `FlatTabStripContainer`. The content of the published id set changes with rendering mode (zoomed → `[zoomedPaneId]`; all-minimized → minimized ids; main-strip → segment ids), but the surface id itself is stable for the tab's lifetime. Mode switches are publication updates, not surface toggles.
+- **`"drawerShell:\(parentPaneId)"`** — published by `DrawerPanel` for each expanded drawer. Distinct container tree; unaffected by tab mode switches.
+
+Views re-publish on body evaluation; the registry's set-replacement semantics make this idempotent.
 
 ### What must stop
 
@@ -155,6 +166,7 @@ Surface ids are stable strings tied to the surface's stable identity (e.g., `"ma
   - Add `finalizeRetiredSlotRemoval(for:)`.
   - Promote-in-place on `ensureSlot(for:)` when id is retired.
   - Add surface registration: `surfaceRenderedIds(_:ids:)`, `unregisterSurface(_:)`.
+  - Add DEBUG-only probes: `peekSlotForTesting(_:)`, `isRetiredForTesting(_:)`.
 
 - Modify: `Sources/AgentStudio/Core/Actions/ActionValidator.swift`
   - Remove `.closePane` → `.closeTab` canonicalization.
@@ -165,7 +177,7 @@ Surface ids are stable strings tied to the surface's stable identity (e.g., `"ma
 
 - Modify: `Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift`
   - Remove the `.closePane` → `.removeDrawerPane` rewrite. Dispatch `.closePane` directly.
-  - Publish surface-rendered ids for each drawer row's strip to `ViewRegistry`.
+  - Publish `"drawerShell:\(parentPaneId)"` surface id at the drawer-shell level (one surface per expanded drawer).
 
 - Modify: `Sources/AgentStudio/App/Coordination/PaneCoordinator+ActionExecution.swift`
   - `executeClosePane` chooses snapshot shape; drawer-child path delegates to `.removeDrawerPane`; main-pane path retires pane slot **and drawer-child slots** (no hard-delete during transition); empty tab is removed after structural removal.
@@ -174,11 +186,10 @@ Surface ids are stable strings tied to the surface's stable identity (e.g., `"ma
 - Modify: `Sources/AgentStudio/Core/Views/Splits/PaneCloseTransitionCoordinator.swift`
   - Add `cancelCloseTransition(_ paneId: UUID)`.
 
-- Modify: `Sources/AgentStudio/Core/Views/Splits/FlatPaneStripContent.swift`
-  - Publish `"mainStrip:\(tabId)"` or drawer-row surface ids to `ViewRegistry` on rendered-id changes and unregister on disappear.
-
 - Modify: `Sources/AgentStudio/Core/Views/Splits/FlatTabStripContainer.swift`
-  - Publish surface ids for the zoomed-pane branch (`"zoomed:\(tabId)"`) and the all-minimized branch (`"minimized:\(tabId)"`).
+  - Publish one surface id per tab: `"tab:\(tabId)"`. The published id set is computed from the active render mode (zoomed → `[zoomedPaneId]`; all-minimized → minimized ids; main-strip → segment ids). Mode switches update the publication; they do NOT toggle surface registrations. Unregister only when the whole container unmounts.
+
+- No changes required to `Sources/AgentStudio/Core/Views/Splits/FlatPaneStripContent.swift` for surface registration. Its rendered ids are consumed upstream by `FlatTabStripContainer` via `metrics.paneSegments`; it does not register independently.
 
 - Modify: `Sources/AgentStudio/App/Coordination/PaneCoordinator+Undo.swift`
   - `undoCloseTab()` calls `closeTransitionCoordinator.cancelCloseTransition(paneId:)` for every paneId in the snapshot before restoring.
@@ -322,14 +333,19 @@ case .closePane(_, let paneId):
     action(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
 ```
 
-Replace with a passthrough that preserves the original `tabId` from the dispatch context:
+Replace with a passthrough that preserves the dispatched `tabId`:
 
 ```swift
 case .closePane(let tabId, let paneId):
     action(.closePane(tabId: tabId, paneId: paneId))
 ```
 
-(Note: the receiver of `action` must have the tabId in scope. If the current closure signature drops it, thread the tabId through so the drawer can dispatch a valid `.closePane`. If the drawer does not know the tabId, resolve it via `store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id` before dispatch.)
+**Scope check before editing.** Inspect the enclosing `PaneCommand` switch to confirm `tabId` is present in the incoming `.closePane` payload and reachable in this closure. Two likely states:
+
+1. The switch already binds `tabId` from the payload (the typical shape). In that case the one-line change above is complete.
+2. The closure was dropping `tabId` intentionally (perhaps because the drawer treated drawer-child close as distinct). In that case also verify the outer dispatch site propagates the tabId. If any call site constructs the `.closePane` without a tabId, resolve it at that site via `store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id` before dispatch.
+
+The dispatch must land a `.closePane(tabId:paneId:)` that `WorkspaceCommandValidator` accepts (the validator's `.closePane` branch requires both). A dispatch with a stale or missing `tabId` will fail validation and no-op, silently regressing drawer close.
 
 - [ ] **Step 6: Re-run the focused validator test**
 
@@ -653,12 +669,11 @@ EOF
 
 **Files:**
 - Modify: `Sources/AgentStudio/App/Panes/ViewRegistry.swift`
-- Modify: `Sources/AgentStudio/Core/Views/Splits/FlatPaneStripContent.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Splits/FlatTabStripContainer.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift`
 - Test: `Tests/AgentStudioTests/Core/Stores/PaneContentWiringTests.swift`
 
-**Why:** The stale `slot(for:)` crash happens because SwiftUI renders one more transition frame reading the removed paneId after structural removal. The fix is to keep the slot object alive through the transition as a tombstone (`host = nil`) and finalize it only when no render surface is still rendering it. This requires the finalization gate to be **surface-scoped**, not global: an earlier iteration of this plan tried a global `retiredPaneIds` against one surface's `renderedIds`, which let the drawer surface's `.onChange` finalize a slot still being rendered by the main strip. The fix is each surface publishes the ids it is currently rendering; finalization requires the union across all surfaces to exclude the id. Surfaces are tracked by stable string id. `removeSlot` keeps its immediate-delete semantics for the ten-plus non-transition call sites. Every render surface that reads `slot(for:)` must participate — including the zoomed and all-minimized branches of `FlatTabStripContainer` that an earlier iteration of this plan missed entirely.
+**Why:** The stale `slot(for:)` crash happens because SwiftUI renders one more transition frame reading the removed paneId after structural removal. The fix is to keep the slot object alive through the transition as a tombstone (`host = nil`) and finalize it only when no render surface is still rendering it. Two earlier iterations of this plan got the scoping wrong: first a global `retiredPaneIds` vs a per-surface `renderedIds` (drawer surface could finalize a slot the main strip was still rendering), then per-branch surface registration inside `FlatTabStripContainer` (branch switches unregistered-then-reregistered, creating a gap where finalization ran against an empty union). This revision puts registration at the **container level** — `FlatTabStripContainer` publishes one surface id (`"tab:\(tabId)"`) whose id set changes with rendering mode but whose registration lifetime matches the tab. Mode switches update the publication; they do not toggle surface registrations. Drawer surfaces register separately from `DrawerPanel`. `removeSlot` keeps its immediate-delete semantics for the ten-plus non-transition call sites. Task 3 tests use DEBUG-only non-promoting probes so the union-finalization logic is actually observed rather than being revived by `ensureSlot` on the assertion.
 
 - [ ] **Step 1: Failing regression — retire keeps slot readable until finalized**
 
@@ -716,6 +731,8 @@ func viewRegistry_ensureSlot_promotesRetiredInPlace() {
 
 - [ ] **Step 4: Failing regression — surface-scoped finalization (the core design property)**
 
+Uses the non-promoting probes `peekSlotForTesting` and `isRetiredForTesting` instead of `ensureSlot`. These are added in Step 7. Using `ensureSlot` as the probe would clear the retired flag and silently mask a broken union check.
+
 ```swift
 @Test("a retired slot is finalized only when no surface renders it")
 func viewRegistry_retiredSlot_requiresUnionAbsence() {
@@ -723,19 +740,20 @@ func viewRegistry_retiredSlot_requiresUnionAbsence() {
     let paneId = UUID()
     let originalSlot = registry.ensureSlot(for: paneId)
 
-    registry.surfaceRenderedIds("mainStrip:tab1", ids: [paneId])
-    registry.surfaceRenderedIds("drawerStrip:parent1", ids: [])
+    registry.surfaceRenderedIds("tab:tab1", ids: [paneId])
+    registry.surfaceRenderedIds("drawerShell:parent1", ids: [])
     registry.retireSlot(for: paneId)
 
-    // Main strip still renders paneId; drawer update MUST NOT finalize.
-    registry.surfaceRenderedIds("drawerStrip:parent1", ids: [])
-    let afterDrawerUpdate = registry.ensureSlot(for: paneId)
-    #expect(afterDrawerUpdate === originalSlot)
+    // Drawer update arrives without the paneId; tab surface still renders it.
+    // Retired state and slot identity MUST survive.
+    registry.surfaceRenderedIds("drawerShell:parent1", ids: [])
+    #expect(registry.isRetiredForTesting(paneId) == true)
+    #expect(registry.peekSlotForTesting(paneId) === originalSlot)
 
-    // Only when the main strip also drops the id does finalization happen.
-    registry.surfaceRenderedIds("mainStrip:tab1", ids: [])
-    let afterMainUpdate = registry.ensureSlot(for: paneId)
-    #expect(afterMainUpdate !== originalSlot)
+    // Tab surface finally drops the paneId. Finalization must fire now.
+    registry.surfaceRenderedIds("tab:tab1", ids: [])
+    #expect(registry.isRetiredForTesting(paneId) == false)
+    #expect(registry.peekSlotForTesting(paneId) == nil)
 }
 ```
 
@@ -748,16 +766,51 @@ func viewRegistry_unregisterSurface_finalizesOrphanedRetired() {
     let paneId = UUID()
     let originalSlot = registry.ensureSlot(for: paneId)
 
-    registry.surfaceRenderedIds("zoomed:tab1", ids: [paneId])
+    registry.surfaceRenderedIds("tab:tab1", ids: [paneId])
     registry.retireSlot(for: paneId)
 
-    // While the zoomed surface is registered and renders paneId, the slot
-    // cannot be finalized.
-    #expect(registry.slot(for: paneId) === originalSlot)
+    // Tab surface still renders the paneId; retired state holds.
+    #expect(registry.isRetiredForTesting(paneId) == true)
+    #expect(registry.peekSlotForTesting(paneId) === originalSlot)
 
-    registry.unregisterSurface("zoomed:tab1")
-    let afterUnregister = registry.ensureSlot(for: paneId)
-    #expect(afterUnregister !== originalSlot)
+    // Surface unmounts (tab container goes away). Finalization fires.
+    registry.unregisterSurface("tab:tab1")
+    #expect(registry.isRetiredForTesting(paneId) == false)
+    #expect(registry.peekSlotForTesting(paneId) == nil)
+}
+```
+
+- [ ] **Step 5a: Failing regression — container-level registration survives mode switches without transient finalization**
+
+This is the test that would have caught the per-branch race the earlier iteration missed. Mode switching publishes a new id set on the same stable surface id; no unregister happens in between.
+
+```swift
+@Test("container-level surface survives render-mode switches without finalizing tombstones")
+func viewRegistry_containerSurface_modeSwitch_doesNotFinalize() {
+    let registry = ViewRegistry()
+    let zoomedPaneId = UUID()
+    let otherPaneId = UUID()
+    let zoomedSlot = registry.ensureSlot(for: zoomedPaneId)
+    let otherSlot = registry.ensureSlot(for: otherPaneId)
+
+    // Main-strip mode: both ids rendered.
+    registry.surfaceRenderedIds("tab:tab1", ids: [zoomedPaneId, otherPaneId])
+    // Retire one while main-strip mode is active.
+    registry.retireSlot(for: otherPaneId)
+
+    // User switches to zoomed mode. The surface id is the SAME; the publication
+    // drops otherPaneId. Finalization may fire for otherPaneId (no surface
+    // renders it) — this is correct. The zoomed pane's slot is unaffected.
+    registry.surfaceRenderedIds("tab:tab1", ids: [zoomedPaneId])
+    #expect(registry.peekSlotForTesting(zoomedPaneId) === zoomedSlot)
+    #expect(registry.isRetiredForTesting(otherPaneId) == false)
+    #expect(registry.peekSlotForTesting(otherPaneId) == nil)
+
+    // Switch back to main-strip mode. otherPaneId is not in the publication
+    // anymore (it was closed). No spurious finalization of any OTHER retired id.
+    registry.surfaceRenderedIds("tab:tab1", ids: [zoomedPaneId])
+    #expect(registry.peekSlotForTesting(zoomedPaneId) === zoomedSlot)
+    _ = otherSlot  // suppress unused warning
 }
 ```
 
@@ -853,90 +906,82 @@ private func finalizeRetiredSlotsNotRenderedByAnySurface() {
         finalizeRetiredSlotRemoval(for: paneId)
     }
 }
+
+#if DEBUG
+    // D13: non-promoting, non-creating test probes. Use these in tests instead
+    // of ensureSlot, which per D6 promotes retired slots in place and would
+    // mask broken finalization logic.
+    func peekSlotForTesting(_ paneId: UUID) -> PaneViewSlot? {
+        slots[paneId]
+    }
+
+    func isRetiredForTesting(_ paneId: UUID) -> Bool {
+        retiredPaneIds.contains(paneId)
+    }
+#endif
 ```
 
-- [ ] **Step 8: Wire surface registration in `FlatPaneStripContent`**
+- [ ] **Step 8: Wire the single container-level surface in `FlatTabStripContainer`**
 
-At the top of the strip body, declare a surface id derived from the tab id (and a drawer row discriminator when used inside a drawer). Replace the existing `ForEach` enclosure with a version that publishes on change and unregisters on disappear:
+`FlatTabStripContainer` switches between three mutually exclusive render modes via `if / else if / else` at lines 58-109. Per D7.1, registration lives at the container — one surface id per tab, a stable lifetime matching the container, and a published id set computed from whichever branch is currently active. Branch switches are NOT surface toggles; they are publication updates.
+
+Compute the rendered id set at the top of the body:
 
 ```swift
-// surfaceId is injected by the container so the same FlatPaneStripContent
-// reused for drawer rows gets a distinct id from the main strip:
-//   main strip                -> "mainStrip:\(tabId)"
-//   drawer strip, first row   -> "drawerStrip:\(parentPaneId):0"
-//   drawer strip, second row  -> "drawerStrip:\(parentPaneId):1"
-let renderedIds: Set<UUID> = Set(metrics.paneSegments.map(\.paneId))
+let tabSurfaceId = "tab:\(tabId)"
 
-content
-    .onChange(of: metrics.paneSegments.map(\.paneId)) { _, newIds in
-        viewRegistry.surfaceRenderedIds(surfaceId, ids: Set(newIds))
+let renderedTabIds: Set<UUID> = {
+    if let zoomedPaneId {
+        return [zoomedPaneId]
+    } else if metrics.allMinimized {
+        return Set(minimizedPaneIds)
+    } else {
+        return Set(metrics.paneSegments.map(\.paneId))
     }
-    .onAppear {
-        viewRegistry.surfaceRenderedIds(surfaceId, ids: renderedIds)
-    }
-    .onDisappear {
-        viewRegistry.unregisterSurface(surfaceId)
-    }
+}()
 ```
 
-Pass `surfaceId: String` as a new initializer parameter on `FlatPaneStripContent` and thread it from every call site (main strip call in `FlatTabStripContainer`, drawer-row calls in `DrawerPanel`). The array-based `onChange` (not `Set(...)`) avoids the per-body Set allocation that a raw `Set(...)` comparison would incur.
-
-- [ ] **Step 9: Wire surface registration for zoomed + all-minimized branches in `FlatTabStripContainer`**
-
-In the zoomed branch (currently `.id(zoomedPaneId)`), publish the single zoomed id:
+Attach the lifecycle hooks to the container body (outside the branch `if/else`), so the registration never unregisters during a mode switch:
 
 ```swift
-zoomedContent
-    .onChange(of: zoomedPaneId) { _, newId in
-        if let newId {
-            viewRegistry.surfaceRenderedIds("zoomed:\(tabId)", ids: [newId])
-        } else {
-            viewRegistry.unregisterSurface("zoomed:\(tabId)")
-        }
-    }
+containerBody
     .onAppear {
-        if let zoomedPaneId {
-            viewRegistry.surfaceRenderedIds("zoomed:\(tabId)", ids: [zoomedPaneId])
-        }
+        viewRegistry.surfaceRenderedIds(tabSurfaceId, ids: renderedTabIds)
+    }
+    .onChange(of: renderedTabIds) { _, newIds in
+        viewRegistry.surfaceRenderedIds(tabSurfaceId, ids: newIds)
     }
     .onDisappear {
-        viewRegistry.unregisterSurface("zoomed:\(tabId)")
+        viewRegistry.unregisterSurface(tabSurfaceId)
     }
 ```
 
-In the all-minimized branch, publish the minimized id set:
+`FlatPaneStripContent` is NOT modified for surface registration. Its rendered segments contribute to the tab surface via `metrics.paneSegments`, which `FlatTabStripContainer` already reads.
+
+- [ ] **Step 9: Wire the drawer-shell surface in `DrawerPanel`**
+
+Drawer panels are a separate container tree (overlay rendered on top of the tab container). Each expanded drawer publishes its own surface id:
 
 ```swift
-allMinimizedContent
+let drawerSurfaceId = "drawerShell:\(parentPaneId)"
+
+let renderedDrawerIds: Set<UUID> = Set(drawer.paneIds)
+
+drawerShellBody
     .onAppear {
-        viewRegistry.surfaceRenderedIds("minimized:\(tabId)", ids: minimizedPaneIds)
+        viewRegistry.surfaceRenderedIds(drawerSurfaceId, ids: renderedDrawerIds)
     }
-    .onChange(of: minimizedPaneIds) { _, newIds in
-        viewRegistry.surfaceRenderedIds("minimized:\(tabId)", ids: newIds)
+    .onChange(of: renderedDrawerIds) { _, newIds in
+        viewRegistry.surfaceRenderedIds(drawerSurfaceId, ids: newIds)
     }
     .onDisappear {
-        viewRegistry.unregisterSurface("minimized:\(tabId)")
+        viewRegistry.unregisterSurface(drawerSurfaceId)
     }
 ```
 
-- [ ] **Step 10: Wire surface registration in `DrawerPanel`**
+If a drawer can be collapsed without unmounting `DrawerPanel` (content stays in hierarchy but hidden), the `.onChange` path still keeps the publication accurate because `drawer.paneIds` is the source of truth. When the drawer fully unmounts (its parent pane closed and removed), `.onDisappear` unregisters the surface and finalization runs for any retired drawer-child tombstones not otherwise rendered.
 
-Each row that embeds a `FlatPaneStripContent` passes its own drawer-row surface id. If `DrawerPanel` also renders any direct `slot(for:)` readers outside of nested strips, publish an additional surface id for the drawer shell itself:
-
-```swift
-drawerShell
-    .onAppear {
-        viewRegistry.surfaceRenderedIds("drawerShell:\(parentPaneId)", ids: renderedDrawerPaneIds)
-    }
-    .onChange(of: renderedDrawerPaneIds) { _, newIds in
-        viewRegistry.surfaceRenderedIds("drawerShell:\(parentPaneId)", ids: newIds)
-    }
-    .onDisappear {
-        viewRegistry.unregisterSurface("drawerShell:\(parentPaneId)")
-    }
-```
-
-- [ ] **Step 11: Re-run the focused registry tests**
+- [ ] **Step 10: Re-run the focused registry tests**
 
 ```bash
 SWIFT_BUILD_DIR=".build-agent-$$" mise run test -- \
@@ -949,12 +994,11 @@ Expected:
 PASS
 ```
 
-- [ ] **Step 12: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
 git add \
   Sources/AgentStudio/App/Panes/ViewRegistry.swift \
-  Sources/AgentStudio/Core/Views/Splits/FlatPaneStripContent.swift \
   Sources/AgentStudio/Core/Views/Splits/FlatTabStripContainer.swift \
   Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift \
   Tests/AgentStudioTests/Core/Stores/PaneContentWiringTests.swift
@@ -962,13 +1006,17 @@ git commit -F - <<'EOF'
 fix: surface-scoped tombstone lifecycle in ViewRegistry
 
 - Split removeSlot (immediate) from retireSlot (opt-in tombstone).
-- Each render surface publishes its rendered id set; a retired slot
-  is finalized only when no surface renders it. Fixes the cross-surface
-  race where one surface's .onChange could delete a slot still being
-  rendered by another.
-- Main strip, drawer rows, zoomed branch, and all-minimized branch all
-  participate. No render mode can orphan a tombstone.
+- Surface registration is container-level: FlatTabStripContainer
+  publishes one stable "tab:\(tabId)" surface whose id set changes
+  with render mode. Mode switches are publication updates, not
+  surface toggles, so there is no per-branch handoff race.
+- DrawerPanel publishes "drawerShell:\(parentPaneId)" as a separate
+  surface from its own container tree.
+- A retired slot is finalized only when no registered surface
+  renders it in its published id set.
 - ensureSlot promotes retired slots in place for allocation savings.
+- DEBUG-only peekSlotForTesting / isRetiredForTesting probes allow
+  tests to observe tombstone state without promoting it.
 
 Co-authored-by: Codex <noreply@openai.com>
 EOF
@@ -1170,15 +1218,19 @@ EOF
 | Empty drawer stays expanded after last child | Task 2 (via existing `WorkspacePaneAtom.removeDrawerPane`) |
 | Slot tombstone protects stale transition reads (D5) | Task 3 |
 | Surface-scoped finalization (D7) | Task 3 |
-| Every render mode participates (D8) | Task 3 (main strip, drawer rows, zoomed, minimized) |
-| retireSlot before atom mutation (D9) | Task 2 (main-pane path ordering) |
+| Container-level registration (no branch handoff race) (D7.1) | Task 3 (`FlatTabStripContainer` publishes one surface per tab) |
+| Every render mode participates | Task 3 (mode switches update the publication, not the registration) |
+| Drawer surfaces register independently | Task 3 (`DrawerPanel` publishes `"drawerShell:\(parentPaneId)"`) |
+| retireSlot adjacent to teardown (D9) | Task 2 (ordering hygiene, not a head-start race) |
 | No ghost close after undo (D10) | Task 4 |
+| Non-promoting test probes validate union logic (D13) | Task 3 (`peekSlotForTesting` / `isRetiredForTesting`) |
 | Full verification | Task 5 |
 
 ### Invariants protected
 
-1. **Tombstones are bounded.** A retired slot exists only while at least one registered surface renders its id. When the last surface drops it, finalization runs. Zoomed, minimized, main strip, and drawer rows all publish — no render mode can leak.
-2. **Cross-surface finalization is impossible.** Finalization gates on the union of all surfaces' rendered ids, not on any single surface's callback. A drawer surface's `.onChange` cannot delete a tombstone that the main strip is still rendering.
+1. **Tombstones are bounded.** A retired slot exists only while at least one registered surface renders its id. When the last surface drops it, finalization runs. `FlatTabStripContainer` publishes one surface per tab across every render mode; `DrawerPanel` publishes one surface per expanded drawer. No render mode can leak.
+2. **No branch-handoff race.** Registration is at the container level, not the branch level. Mode switches (zoomed ↔ minimized ↔ main-strip) update the *contents* of the published id set, not the registration itself. There is no SwiftUI `.onDisappear`/`.onAppear` handoff window where finalization could run against an empty union.
+3. **Cross-surface finalization is impossible.** Finalization gates on the union of all surfaces' rendered ids, not on any single surface's callback. The drawer surface's `.onChange` cannot delete a tombstone that the tab surface is still rendering.
 3. **Undo fidelity is preserved.** Tab-level snapshots continue for any close that empties a tab, regardless of which action initiated it. Pane snapshots cover everything else, including drawer children (new: drawer close becomes undoable).
 4. **zmx is independent.** Daemon and surface live in `SurfaceManager.undoStack` with their own TTL. Slot tombstones do not touch them.
 5. **Focus ordering is preserved.** Drawer-child close keeps its prerefocus / clear-first-responder / post-removal ladder via delegation to `.removeDrawerPane`.
@@ -1213,9 +1265,9 @@ The correctness property that makes tombstones work is different: `slot(for:)` r
 
 ### Debugging note linkage
 
-- Task 1 removes every `.closePane` rewrite across validator, tab controller, and drawer UI so the unified pipeline fires on real drawer close UX — the miss the adversarial review caught.
-- Task 2 makes `executeClosePane` the one structural close path, preserves the drawer focus ladder, and retires drawer-child slots on parent close (the second adversarial miss).
-- Task 3 directly addresses the `ViewRegistry.slot(for:)` stale-read crash documented in `docs/superpowers/debugging/2026-04-19-last-drawer-pane-crash.md`, with surface-scoped finalization so the drawer/strip cross-surface race cannot recur and the zoomed/minimized branches cannot leak.
+- Task 1 removes every `.closePane` rewrite across validator, tab controller, and drawer UI so the unified pipeline fires on real drawer close UX — the miss the first adversarial review caught.
+- Task 2 makes `executeClosePane` the one structural close path, preserves the drawer focus ladder, and retires drawer-child slots on parent close (the second first-round adversarial miss).
+- Task 3 directly addresses the `ViewRegistry.slot(for:)` stale-read crash documented in `docs/superpowers/debugging/2026-04-19-last-drawer-pane-crash.md`, with container-level surface registration so: (a) the drawer/strip cross-surface race cannot recur, (b) zoomed and all-minimized render modes cannot leak tombstones, and (c) the per-branch registration race the second adversarial review caught is eliminated by construction. Test probes are non-promoting so the union logic is actually validated instead of being revived by the assertion itself.
 - Task 4 closes the cancel-on-undo race the tombstone alone does not fix.
 
 ### Placeholder scan
