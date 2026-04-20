@@ -183,7 +183,7 @@ struct DrawerPanelOverlay: View {
 
             // Dismiss scrim with even-odd fill: the exclusion rect is a "hole"
             // so clicks inside the drawer area never reach this tap gesture.
-            Color.clear
+            Color.black.opacity(0.001)
                 .contentShape(
                     .interaction,
                     OutsideDismissShape(exclusionRect: exclusionRect),

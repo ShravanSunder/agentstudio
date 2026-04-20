@@ -87,6 +87,20 @@ struct PaneLeafContainer: View {
         store.paneAtom.pane(paneHost.id)?.parentPaneId
     }
 
+    private var tabContainsExpandedDrawer: Bool {
+        guard let tab = store.tabLayoutAtom.tab(tabId) else { return false }
+        return tab.paneIds.contains { paneId in
+            store.paneAtom.pane(paneId)?.drawer?.isExpanded == true
+        }
+    }
+
+    private var suppressMainPaneManagementInteraction: Bool {
+        PaneInteractionOcclusionPolicy.suppressMainPaneManagementInteraction(
+            isDrawerChild: isDrawerChild,
+            tabContainsExpandedDrawer: tabContainsExpandedDrawer
+        )
+    }
+
     private var isClosing: Bool {
         closeTransitionCoordinator.closingPaneIds.contains(paneHost.id)
     }
@@ -95,10 +109,12 @@ struct PaneLeafContainer: View {
     /// The direct pointer query fixes the Cmd+E case where management layer toggles
     /// while the pointer is already inside the pane and no hover transition fires.
     private var isManagementHovered: Bool {
-        isHovered || isPointerInsidePaneView
+        guard !suppressMainPaneManagementInteraction else { return false }
+        return isHovered || isPointerInsidePaneView
     }
 
     private var isPointerInsidePaneView: Bool {
+        guard !suppressMainPaneManagementInteraction else { return false }
         guard managementLayer.isActive else { return false }
         guard let window = paneHost.window else { return false }
         let pointInWindow = window.mouseLocationOutsideOfEventStream
@@ -185,7 +201,11 @@ struct PaneLeafContainer: View {
                 }
 
                 // Hover border: drag affordance in management layer
-                if managementLayer.isActive && isManagementHovered && !isSplitResizing {
+                if managementLayer.isActive
+                    && isManagementHovered
+                    && !isSplitResizing
+                    && !suppressMainPaneManagementInteraction
+                {
                     RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.panel)
                         .strokeBorder(Color.white.opacity(AppStyles.General.Stroke.visible), lineWidth: 1)
                         .allowsHitTesting(false)
@@ -195,7 +215,7 @@ struct PaneLeafContainer: View {
                 // Drag handle: compact centered pill in management layer.
                 // The Color.clear fills the ZStack for centering; allowsHitTesting(false)
                 // ensures only the capsule itself intercepts mouse events.
-                if managementLayer.isActive && !isSplitResizing {
+                if managementLayer.isActive && !isSplitResizing && !suppressMainPaneManagementInteraction {
                     ZStack {
                         Color.clear
                             .allowsHitTesting(false)
@@ -247,7 +267,7 @@ struct PaneLeafContainer: View {
                 }
 
                 // Pane controls: minimize + close (top-left, management layer)
-                if managementLayer.isActive && !isSplitResizing {
+                if managementLayer.isActive && !isSplitResizing && !suppressMainPaneManagementInteraction {
                     VStack {
                         HStack(spacing: AppStyles.General.Spacing.standard) {
                             Button {
@@ -312,7 +332,7 @@ struct PaneLeafContainer: View {
                 }
 
                 // Quarter-moon split and browser buttons (top-right, management layer)
-                if managementLayer.isActive && !isSplitResizing {
+                if managementLayer.isActive && !isSplitResizing && !suppressMainPaneManagementInteraction {
                     VStack {
                         HStack {
                             Spacer()
@@ -371,7 +391,7 @@ struct PaneLeafContainer: View {
 
             }
             .contentShape(Rectangle())
-            .onHover { isHovered = $0 }
+            .onHover { isHovered = suppressMainPaneManagementInteraction ? false : $0 }
             .onTapGesture {
                 if let drawerParentPaneId {
                     onPaneFocusTrigger(
