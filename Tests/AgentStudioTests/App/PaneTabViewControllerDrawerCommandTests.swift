@@ -275,8 +275,8 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(atom(\.workspaceFocusOwner).owner == .drawerPane(parentPaneId: parent.id, paneId: firstDrawerPaneId))
     }
 
-    @Test("option-j from empty drawer focus is a no-op instead of main-row movement")
-    func optionJ_emptyDrawerFocus_doesNotMoveMainRow() throws {
+    @Test("option-j from empty drawer focus falls through instead of being consumed")
+    func optionJ_emptyDrawerFocus_fallsThrough() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -305,7 +305,7 @@ struct PaneTabViewControllerDrawerCommandTests {
             )
         )
 
-        #expect(harness.controller.handleAppOwnedKeyEvent(event, requiresNeutralDrawerFocus: false))
+        #expect(!harness.controller.handleAppOwnedKeyEvent(event, requiresNeutralDrawerFocus: false))
         #expect(harness.store.tab(tab.id)?.activePaneId == parent.id)
     }
 
@@ -338,6 +338,37 @@ struct PaneTabViewControllerDrawerCommandTests {
 
         #expect(!harness.controller.handleAppOwnedKeyEvent(event, requiresNeutralDrawerFocus: false))
         #expect(harness.store.pane(parent.id)?.drawer?.isExpanded == false)
+        #expect(atom(\.workspaceFocusOwner).owner == .mainPane(paneId: parent.id))
+    }
+
+    @Test("option-i in main row falls through without app-owned handling")
+    func optionI_mainPane_fallsThrough() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parent.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(parent.id, inTab: tab.id)
+        atom(\.workspaceFocusOwner).focusMainPane(parent.id)
+
+        let event = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.option],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: "i",
+                charactersIgnoringModifiers: "i",
+                isARepeat: false,
+                keyCode: 34
+            )
+        )
+
+        #expect(!harness.controller.handleAppOwnedKeyEvent(event, requiresNeutralDrawerFocus: false))
         #expect(atom(\.workspaceFocusOwner).owner == .mainPane(paneId: parent.id))
     }
 

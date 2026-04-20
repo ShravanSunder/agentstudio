@@ -1166,18 +1166,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func shouldConsumeScopeAwarePaneTrigger(_ trigger: ShortcutTrigger) -> Bool {
-        let scope = normalizedWorkspaceNavigationScopeState()
-        switch trigger {
-        case .init(key: .character(.i), modifiers: [.option]):
-            return scope != .mainPane(paneId: activeMainPaneId())
-        case .init(key: .character(.j), modifiers: [.option]),
-            .init(key: .character(.l), modifiers: [.option]):
-            return true
-        case .init(key: .character(.k), modifiers: [.option]):
-            return scope != .mainPane(paneId: activeMainPaneId())
-        default:
-            return false
-        }
+        scopeAwarePaneCommand(for: trigger) != nil
     }
 
     private func shouldCreateFirstDrawerPane(
