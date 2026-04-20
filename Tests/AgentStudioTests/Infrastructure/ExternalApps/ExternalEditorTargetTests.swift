@@ -16,7 +16,8 @@ struct ExternalEditorTargetTests {
         ]
 
         let targets = ExternalEditorTarget.refreshInstalledTargets { bundleIdentifier in
-            installedBundleIds.contains(bundleIdentifier)
+            guard installedBundleIds.contains(bundleIdentifier) else { return nil }
+            return URL(fileURLWithPath: "/Applications/\(bundleIdentifier).app")
         }
 
         #expect(targets.map(\.id) == ["cursor", "antigravity", "xcode"])

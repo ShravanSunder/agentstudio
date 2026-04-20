@@ -167,6 +167,9 @@ struct PaneLeafContainer: View {
                                 uiState: atom(\.uiState),
                                 paneId: locationTargetPaneId,
                                 canOpenTarget: locationContext.targetPath != nil,
+                                refreshInstalledTargets: {
+                                    ExternalEditorTarget.refreshInstalledTargets()
+                                },
                                 onOpenFinder: { openInFinder(locationContext) },
                                 onOpenEditor: { editorId in
                                     openInEditor(editorId, locationContext)

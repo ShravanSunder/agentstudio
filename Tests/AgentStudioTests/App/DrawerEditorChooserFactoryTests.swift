@@ -8,14 +8,14 @@ import Testing
 struct DrawerEditorChooserFactoryTests {
     @Test
     func buttonTitle_withoutBookmark_isNil() {
-        let items = [
-            EditorChoiceItem(id: "cursor", title: "Cursor", appIcon: nil, shortcutNumber: 1),
-            EditorChoiceItem(id: "vscode", title: "VS Code", appIcon: nil, shortcutNumber: 2),
+        let targets = [
+            ExternalEditorTarget.cursor,
+            ExternalEditorTarget.vscode,
         ]
 
         let title = DrawerEditorChooserFactory.buttonTitle(
             bookmarkedEditorId: nil,
-            items: items
+            targets: targets
         )
 
         #expect(title == nil)
@@ -23,14 +23,14 @@ struct DrawerEditorChooserFactoryTests {
 
     @Test
     func buttonTitle_withBookmark_usesBookmarkedTitle() {
-        let items = [
-            EditorChoiceItem(id: "cursor", title: "Cursor", appIcon: nil, shortcutNumber: 1),
-            EditorChoiceItem(id: "vscode", title: "VS Code", appIcon: nil, shortcutNumber: 2),
+        let targets = [
+            ExternalEditorTarget.cursor,
+            ExternalEditorTarget.vscode,
         ]
 
         let title = DrawerEditorChooserFactory.buttonTitle(
             bookmarkedEditorId: "vscode",
-            items: items
+            targets: targets
         )
 
         #expect(title == "VS Code")
@@ -38,20 +38,74 @@ struct DrawerEditorChooserFactoryTests {
 
     @Test
     func buttonTitle_truncatesAfterTwentyCharacters() {
-        let items = [
-            EditorChoiceItem(
+        let targets = [
+            ExternalEditorTarget(
                 id: "long",
                 title: "Antigravity Something",
-                appIcon: nil,
-                shortcutNumber: 1
+                bundleIdentifier: "com.example.long",
+                cliFallbacks: [],
+                appIcon: nil
             )
         ]
 
         let title = DrawerEditorChooserFactory.buttonTitle(
             bookmarkedEditorId: "long",
-            items: items
+            targets: targets
         )
 
         #expect(title == "Antigravity Somethi…")
+    }
+
+    @Test
+    func makeTrailingActions_refreshesInstalledTargetsOnlyWhenOpeningChooser() {
+        let uiState = UIStateAtom()
+        let paneId = UUID()
+        var refreshCallCount = 0
+
+        let actions = DrawerEditorChooserFactory.makeTrailingActions(
+            uiState: uiState,
+            paneId: paneId,
+            canOpenTarget: true,
+            refreshInstalledTargets: {
+                refreshCallCount += 1
+                return [.cursor]
+            },
+            onOpenFinder: {},
+            onOpenEditor: { _ in }
+        )
+
+        #expect(refreshCallCount == 0)
+        #expect(uiState.availableEditorTargets.isEmpty)
+
+        actions.editorMenuPresented.wrappedValue = true
+
+        #expect(refreshCallCount == 1)
+        #expect(uiState.availableEditorTargets.map(\.id) == [ExternalEditorTarget.cursor.id])
+        #expect(uiState.editorChooserState.openForPaneId == paneId)
+    }
+
+    @Test
+    func makeTrailingActions_closingChooserClearsOpenStateWithoutRefreshing() {
+        let uiState = UIStateAtom()
+        let paneId = UUID()
+        var refreshCallCount = 0
+
+        let actions = DrawerEditorChooserFactory.makeTrailingActions(
+            uiState: uiState,
+            paneId: paneId,
+            canOpenTarget: true,
+            refreshInstalledTargets: {
+                refreshCallCount += 1
+                return [.cursor]
+            },
+            onOpenFinder: {},
+            onOpenEditor: { _ in }
+        )
+
+        actions.editorMenuPresented.wrappedValue = true
+        actions.editorMenuPresented.wrappedValue = false
+
+        #expect(refreshCallCount == 1)
+        #expect(uiState.editorChooserState.openForPaneId == nil)
     }
 }

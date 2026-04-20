@@ -15,6 +15,7 @@ final class UIStateAtom {
     private(set) var isFilterVisible: Bool = false
     private(set) var showMinimizedBars: Bool = true
     private(set) var editorChooserState: EditorChooserState = .init()
+    private(set) var availableEditorTargets: [ExternalEditorTarget] = []
 
     func setExpandedGroups(_ groups: Set<String>) {
         expandedGroups = groups
@@ -56,6 +57,10 @@ final class UIStateAtom {
         editorChooserState.openForPaneId = paneId
     }
 
+    func setAvailableEditorTargets(_ targets: [ExternalEditorTarget]) {
+        availableEditorTargets = targets
+    }
+
     func hydrate(
         expandedGroups: Set<String>,
         checkoutColors: [String: String],
@@ -70,6 +75,7 @@ final class UIStateAtom {
         self.isFilterVisible = isFilterVisible
         self.showMinimizedBars = showMinimizedBars
         self.editorChooserState = editorChooserState
+        self.availableEditorTargets = []
         // The open chooser belongs to the current live pane tree only, not persisted state.
         self.editorChooserState.openForPaneId = nil
     }
@@ -81,5 +87,6 @@ final class UIStateAtom {
         isFilterVisible = false
         showMinimizedBars = true
         editorChooserState = .init()
+        availableEditorTargets = []
     }
 }
