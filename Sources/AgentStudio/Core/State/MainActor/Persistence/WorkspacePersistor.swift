@@ -157,6 +157,10 @@ struct WorkspacePersistor {
 
     /// UI preference snapshot persisted separately from canonical and cache state.
     struct PersistableUIState: Codable {
+        struct PersistedEditorChooserState: Codable {
+            var bookmarkedEditorId: EditorTargetId?
+        }
+
         var schemaVersion: Int
         var workspaceId: UUID
         var expandedGroups: Set<String>
@@ -164,6 +168,7 @@ struct WorkspacePersistor {
         var filterText: String
         var isFilterVisible: Bool
         var showMinimizedBars: Bool
+        var editorChooserState: PersistedEditorChooserState
 
         init(
             workspaceId: UUID,
@@ -171,7 +176,8 @@ struct WorkspacePersistor {
             checkoutColors: [String: String] = [:],
             filterText: String = "",
             isFilterVisible: Bool = false,
-            showMinimizedBars: Bool = true
+            showMinimizedBars: Bool = true,
+            editorChooserState: PersistedEditorChooserState = .init()
         ) {
             self.schemaVersion = WorkspacePersistor.currentSchemaVersion
             self.workspaceId = workspaceId
@@ -180,6 +186,7 @@ struct WorkspacePersistor {
             self.filterText = filterText
             self.isFilterVisible = isFilterVisible
             self.showMinimizedBars = showMinimizedBars
+            self.editorChooserState = editorChooserState
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -190,6 +197,7 @@ struct WorkspacePersistor {
             case filterText
             case isFilterVisible
             case showMinimizedBars
+            case editorChooserState
         }
 
         init(from decoder: Decoder) throws {
@@ -201,6 +209,15 @@ struct WorkspacePersistor {
             self.filterText = try container.decode(String.self, forKey: .filterText)
             self.isFilterVisible = try container.decode(Bool.self, forKey: .isFilterVisible)
             self.showMinimizedBars = try container.decodeIfPresent(Bool.self, forKey: .showMinimizedBars) ?? true
+            do {
+                self.editorChooserState =
+                    try container.decodeIfPresent(
+                        PersistedEditorChooserState.self,
+                        forKey: .editorChooserState
+                    ) ?? .init()
+            } catch {
+                self.editorChooserState = .init()
+            }
         }
 
     }

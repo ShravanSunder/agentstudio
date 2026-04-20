@@ -6,8 +6,10 @@ import SwiftUI
 struct DrawerOverlay: View {
     struct TrailingActions {
         let canOpenTarget: Bool
+        let editorMenuContent: AnyView
+        let editorMenuPresented: Binding<Bool>
+        let buttonTitle: String?
         let onOpenFinder: () -> Void
-        let onOpenCursor: () -> Void
     }
 
     let paneId: UUID

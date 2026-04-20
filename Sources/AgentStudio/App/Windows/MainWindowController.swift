@@ -256,7 +256,6 @@ extension MainWindowController: NSToolbarDelegate {
             .flexibleSpace,
             .managementLayer,
             .space,
-            .addFolder,
         ]
     }
 
@@ -280,41 +279,9 @@ extension MainWindowController: NSToolbarDelegate {
             item.view = hostingView
             return item
 
-        case .addFolder:
-            let definition = CommandDispatcher.shared.definition(for: .addFolder)
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = definition.actionSpec.label
-            item.paletteLabel = definition.actionSpec.label
-            item.toolTip = definition.controlToolTip
-            let button = NSButton(
-                title: definition.actionSpec.label,
-                target: self,
-                action: #selector(addFolderAction)
-            )
-            button.bezelStyle = .rounded
-            button.bezelColor = .systemTeal
-            button.controlSize = .regular
-            button.image = NSImage(
-                systemSymbolName: "folder.fill.badge.plus",
-                accessibilityDescription: definition.actionSpec.label
-            )
-            button.imagePosition = .imageLeading
-            // NSButton crams the image against the title on .rounded bezels.
-            // An attributed title with leading padding gives a proper gap.
-            button.attributedTitle = NSAttributedString(
-                string: "  " + definition.actionSpec.label,
-                attributes: [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)]
-            )
-            item.view = button
-            return item
-
         default:
             return nil
         }
-    }
-
-    @objc private func addFolderAction() {
-        CommandDispatcher.shared.dispatch(.addFolder)
     }
 }
 

@@ -45,6 +45,9 @@ Sources/AgentStudio/
 │                                     #   PaneLeafContainer, SplitContainerDropCaptureOverlay,
 │                                     #   PaneDragCoordinator, PaneDropTargetOverlay, SplitView
 │
+├── SharedComponents/                 # Reusable UI building blocks
+│   └── EditorChooser/                # Editor chooser menu content + row item model
+│
 ├── Features/
 │   ├── Bridge/                       # React/WebView pane system
 │   │   ├── Transport/                # JSON-RPC transport and bootstrap wiring
@@ -97,13 +100,14 @@ Sources/AgentStudio/
 This is the single most important constraint. It determines where every file lives:
 
 ```
-App/            ──imports──►  Core/, Features/, Infrastructure/
-Features/*      ──imports──►  Core/, Infrastructure/
+App/            ──imports──►  Core/, Features/, SharedComponents/, Infrastructure/
+Features/*      ──imports──►  Core/, SharedComponents/, Infrastructure/
+SharedComponents/ ──imports──►  Infrastructure/
 Core/           ──imports──►  Infrastructure/
 Infrastructure/ ──imports──►  (nothing internal)
 ```
 
-**Never:** `Core/ → Features/`, `Features/X → Features/Y`, `Infrastructure/ → Core/`
+**Never:** `Core/ → Features/`, `Core/ → SharedComponents/`, `Features/X → Features/Y`, `Infrastructure/ → Core/`
 
 If a file needs to know about `SurfaceManager` (Terminal) **and** `BridgePaneController` (Bridge), it can't be in `Core`. It lives in `App/` (composition root) or uses protocols defined in `Core/`.
 
@@ -122,9 +126,23 @@ To keep ownership decisions consistent, use these terms:
   - Includes controller/stateful orchestration, platform event wiring, and cross-service flow.
   - Examples: `MainSplitViewController`, `PaneTabViewController`, `PaneCoordinator`.
 
+- **Component slice**
+  - Reusable UI building blocks that are not themselves a product feature and do not own host placement.
+  - Usually belongs in `SharedComponents/`.
+  - Owns rendering, layout, and small UI-facing models.
+  - Examples: `SharedComponents/EditorChooser/EditorChooserMenuContent`, `SharedComponents/EditorChooser/EditorChoiceItem`.
+
 Practical rule:
 - If a component imports two or more feature services, it is a vertical slice in `App/` (or should be split).
 - If a component has no feature-specific logic and is shared by multiple features, it belongs in a core slice.
+- If a component is reusable UI but not host-specific assembly and not shared domain state, it belongs in `SharedComponents/`.
+
+Host-shell plus feature-content split:
+- Keep host-owned shell assembly in `App/` when placement, anchoring, divider rules, or pane/window wiring are specific to a host surface.
+- Put reusable UI content in `SharedComponents/` when the content may be reused by multiple hosts, even if the first host lives in `App/`.
+- Example:
+  - `App/Panes/DrawerEditorChooser/` owns the drawer button, placement, anchoring, divider, and pane wiring
+  - `SharedComponents/EditorChooser/` owns numbered rows, bookmark UI, and the chooser menu content
 
 ### Why Swift Makes This Free
 

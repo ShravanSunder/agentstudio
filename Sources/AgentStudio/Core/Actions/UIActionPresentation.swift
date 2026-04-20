@@ -37,10 +37,28 @@ extension CommandSpec {
     }
 
     var controlToolTip: String {
-        if let keyBinding {
-            return "\(actionSpec.label) (\(keyBinding.displayString))"
+        controlToolTip()
+    }
+
+    func controlToolTip(
+        textOverride: String? = nil,
+        includeShortcut: Bool = true
+    ) -> String {
+        let baseText: String
+
+        if let textOverride {
+            baseText = textOverride
+        } else if keyBinding != nil {
+            baseText = actionSpec.label
+        } else {
+            baseText = actionSpec.helpText
         }
-        return actionSpec.helpText
+
+        guard includeShortcut, let keyBinding else {
+            return baseText
+        }
+
+        return "\(baseText) (\(keyBinding.displayString))"
     }
 }
 
@@ -89,7 +107,8 @@ enum LocalActionSpec {
     case add
     case rename
     case openPaneLocationInFinder
-    case openPaneLocationInPreferredEditor
+    case openPaneLocationInBookmarkedEditor
+    case openPaneLocationInEditorMenu
     case toggleDrawer(isExpanded: Bool)
     case addDrawerPane
 
@@ -220,10 +239,17 @@ enum LocalActionSpec {
             return ActionSpec(
                 label: "Open pane location in Finder", helpText: "Open pane location in Finder",
                 icon: .system("finder"))
-        case .openPaneLocationInPreferredEditor:
+        case .openPaneLocationInBookmarkedEditor:
             return ActionSpec(
-                label: "Open pane location in Cursor or VS Code", helpText: "Open pane location in Cursor or VS Code",
+                label: "Open pane location in bookmarked editor",
+                helpText: "Open pane location in the bookmarked editor",
                 icon: .octicon("octicon-code-square"))
+        case .openPaneLocationInEditorMenu:
+            return ActionSpec(
+                label: "Open pane location in app menu",
+                helpText: "Choose an app for this pane location",
+                icon: .system("chevron.up.chevron.down")
+            )
         case .toggleDrawer(let isExpanded):
             return ActionSpec(
                 label: isExpanded ? "Collapse Drawer" : "Expand Drawer",

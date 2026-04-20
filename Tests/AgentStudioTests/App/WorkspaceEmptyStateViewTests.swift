@@ -293,10 +293,11 @@ struct WorkspaceEmptyStateViewTests {
 
     // MARK: - Watch Folder rename
 
-    @Test("addFolder command label is Watch Folder")
+    @Test("watchFolder command label is Watch Folder")
     @MainActor
-    func addFolderCommandLabelIsWatchFolder() {
-        let definition = CommandDispatcher.shared.definition(for: .addFolder)
+    func watchFolderCommandLabelIsWatchFolder() {
+        let definition = CommandDispatcher.shared.definition(for: .watchFolder)
         #expect(definition.actionSpec.label == "Watch Folder")
+        #expect(definition.shortcut == nil)
     }
 }
