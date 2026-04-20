@@ -3,10 +3,10 @@ import Testing
 
 @testable import AgentStudio
 
-/// Tests for SidebarFilter — the extracted filter algorithm
+/// Tests for RepoExplorerFilter — the extracted filter algorithm
 /// used by SidebarContentView for sidebar search.
 @Suite(.serialized)
-struct SidebarFilterTests {
+struct RepoExplorerFilterTests {
     private func presentableRepos(_ repos: [Repo]) -> [RepoPresentationItem] {
         repos.map(RepoPresentationItem.init(repo:))
     }
@@ -22,7 +22,7 @@ struct SidebarFilterTests {
         ]
 
         // Act
-        let result = SidebarFilter.filter(repos: presentableRepos(repos), query: "")
+        let result = RepoExplorerFilter.filter(repos: presentableRepos(repos), query: "")
 
         // Assert
         #expect(result.count == 2)
@@ -49,7 +49,7 @@ struct SidebarFilterTests {
         ]
 
         // Act
-        let result = SidebarFilter.filter(repos: presentableRepos(repos), query: "my-project")
+        let result = RepoExplorerFilter.filter(repos: presentableRepos(repos), query: "my-project")
 
         // Assert
         #expect(result.count == 1)
@@ -65,7 +65,7 @@ struct SidebarFilterTests {
         ]
 
         // Act
-        let result = SidebarFilter.filter(repos: presentableRepos(repos), query: "agentstudio")
+        let result = RepoExplorerFilter.filter(repos: presentableRepos(repos), query: "agentstudio")
 
         // Assert
         #expect(result.count == 1)
@@ -88,7 +88,7 @@ struct SidebarFilterTests {
         ]
 
         // Act
-        let result = SidebarFilter.filter(repos: presentableRepos(repos), query: "auth")
+        let result = RepoExplorerFilter.filter(repos: presentableRepos(repos), query: "auth")
 
         // Assert
         #expect(result.count == 1)
@@ -108,7 +108,7 @@ struct SidebarFilterTests {
         ]
 
         // Act
-        let result = SidebarFilter.filter(repos: presentableRepos(repos), query: "feature-auth")
+        let result = RepoExplorerFilter.filter(repos: presentableRepos(repos), query: "feature-auth")
 
         // Assert
         #expect(result.count == 1)
@@ -129,7 +129,7 @@ struct SidebarFilterTests {
         ]
 
         // Act
-        let result = SidebarFilter.filter(repos: presentableRepos(repos), query: "feature")
+        let result = RepoExplorerFilter.filter(repos: presentableRepos(repos), query: "feature")
 
         // Assert
         #expect(result.count == 1)
@@ -147,7 +147,7 @@ struct SidebarFilterTests {
         ]
 
         // Act
-        let result = SidebarFilter.filter(repos: presentableRepos(repos), query: "zzz-nonexistent")
+        let result = RepoExplorerFilter.filter(repos: presentableRepos(repos), query: "zzz-nonexistent")
 
         // Assert
         #expect(result.isEmpty)
@@ -179,7 +179,7 @@ struct SidebarFilterTests {
         ]
 
         // Act
-        let result = SidebarFilter.filter(repos: presentableRepos(repos), query: "auth")
+        let result = RepoExplorerFilter.filter(repos: presentableRepos(repos), query: "auth")
 
         // Assert
         #expect(result.count == 2)
@@ -206,7 +206,7 @@ struct SidebarFilterTests {
         ]
 
         // Act
-        let result = SidebarFilter.filter(repos: presentableRepos(repos), query: "cool")
+        let result = RepoExplorerFilter.filter(repos: presentableRepos(repos), query: "cool")
 
         // Assert
         #expect(result.count == 1)
@@ -217,7 +217,7 @@ struct SidebarFilterTests {
     @Test
     func test_filter_emptyRepoList_returnsEmpty() {
         // Act
-        let result = SidebarFilter.filter(repos: [RepoPresentationItem](), query: "anything")
+        let result = RepoExplorerFilter.filter(repos: [RepoPresentationItem](), query: "anything")
 
         // Assert
         #expect(result.isEmpty)
@@ -231,7 +231,7 @@ struct SidebarFilterTests {
         ]
 
         // Act
-        let result = SidebarFilter.filter(repos: presentableRepos(repos), query: "feature")
+        let result = RepoExplorerFilter.filter(repos: presentableRepos(repos), query: "feature")
 
         // Assert
         #expect(result.isEmpty)
@@ -245,7 +245,7 @@ struct SidebarFilterTests {
         ]
 
         // Act
-        let result = SidebarFilter.filter(repos: presentableRepos(repos), query: "empty")
+        let result = RepoExplorerFilter.filter(repos: presentableRepos(repos), query: "empty")
 
         // Assert
         #expect(result.count == 1)

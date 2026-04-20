@@ -25,6 +25,8 @@ final class UIStateStore {
                 filterText: state.filterText,
                 isFilterVisible: state.isFilterVisible,
                 showMinimizedBars: state.showMinimizedBars,
+                sidebarCollapsed: state.sidebarCollapsed,
+                sidebarSurface: state.sidebarSurface,
                 editorChooserState: .init(
                     openForPaneId: nil,
                     bookmarkedEditorId: state.editorChooserState.bookmarkedEditorId
@@ -33,6 +35,7 @@ final class UIStateStore {
         case .missing:
             break
         case .corrupt(let error):
+            _ = persistor.quarantineCorruptUIFile(for: workspaceId)
             uiStateStoreLogger.warning("UI state file corrupt, using defaults: \(error)")
         }
     }
@@ -49,6 +52,8 @@ final class UIStateStore {
                 filterText: atom.filterText,
                 isFilterVisible: atom.isFilterVisible,
                 showMinimizedBars: atom.showMinimizedBars,
+                sidebarCollapsed: atom.sidebarCollapsed,
+                sidebarSurface: atom.sidebarSurface,
                 editorChooserState: .init(bookmarkedEditorId: atom.editorChooserState.bookmarkedEditorId)
             )
         )

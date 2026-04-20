@@ -303,7 +303,7 @@ struct PrimarySidebarPipelineIntegrationTests {
             #expect(pullRequestCountsConverged)
 
             let sidebarRepos = workspaceStore.repos.map(RepoPresentationItem.init(repo:))
-            let metadata = RepoSidebarContentView.buildRepoMetadata(
+            let metadata = RepoExplorerView.buildRepoMetadata(
                 repos: sidebarRepos,
                 repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId
             )

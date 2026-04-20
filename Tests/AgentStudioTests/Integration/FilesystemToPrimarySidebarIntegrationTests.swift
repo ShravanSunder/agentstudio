@@ -57,7 +57,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
             #expect(prCountsConverged)
 
             let sidebarRepos = testSystem.workspaceStore.repos.map(RepoPresentationItem.init(repo:))
-            let metadataByRepoId = RepoSidebarContentView.buildRepoMetadata(
+            let metadataByRepoId = RepoExplorerView.buildRepoMetadata(
                 repos: sidebarRepos,
                 repoEnrichmentByRepoId: testSystem.repoCache.repoEnrichmentByRepoId
             )
@@ -85,7 +85,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
             }
 
             // Search model should still find grouped finance checkouts.
-            let filtered = SidebarFilter.filter(repos: sidebarRepos, query: "rlvr")
+            let filtered = RepoExplorerFilter.filter(repos: sidebarRepos, query: "rlvr")
             #expect(!filtered.isEmpty)
         }
     }

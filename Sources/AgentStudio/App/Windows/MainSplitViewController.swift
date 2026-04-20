@@ -3,6 +3,9 @@ import SwiftUI
 
 /// Main split view controller with sidebar and terminal content area
 class MainSplitViewController: NSSplitViewController {
+    typealias SidebarRootViewBuilder =
+        @MainActor (WorkspaceStore, UIStateAtom, @escaping () -> Void) -> AnyView
+
     private var sidebarHostingController: NSHostingController<AnyView>?
     private var paneTabViewController: PaneTabViewController?
 
@@ -16,6 +19,7 @@ class MainSplitViewController: NSSplitViewController {
     private let appLifecycleStore: AppLifecycleAtom
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
+    private let sidebarRootViewBuilder: SidebarRootViewBuilder
 
     func syncVisibleTerminalGeometry(reason: StaticString) {
         paneTabViewController?.syncVisibleTerminalGeometry(reason: reason)
@@ -27,7 +31,16 @@ class MainSplitViewController: NSSplitViewController {
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         appLifecycleStore: AppLifecycleAtom,
         tabBarAdapter: TabBarAdapter,
-        viewRegistry: ViewRegistry
+        viewRegistry: ViewRegistry,
+        sidebarRootViewBuilder: @escaping SidebarRootViewBuilder = { store, uiState, onRefocusActivePane in
+            AnyView(
+                SidebarSurfaceHost(
+                    store: store,
+                    uiState: uiState,
+                    onRefocusActivePane: onRefocusActivePane
+                )
+            )
+        }
     ) {
         self.store = store
         self.actionExecutor = actionExecutor
@@ -35,14 +48,13 @@ class MainSplitViewController: NSSplitViewController {
         self.appLifecycleStore = appLifecycleStore
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
+        self.sidebarRootViewBuilder = sidebarRootViewBuilder
         super.init(nibName: nil, bundle: nil)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) not supported")
     }
-
-    private static let sidebarCollapsedKey = "sidebarCollapsed"
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -64,13 +76,14 @@ class MainSplitViewController: NSSplitViewController {
         splitView.autosaveName = "MainSplitView"  // Persists divider position
 
         // Create sidebar (SwiftUI via NSHostingController)
-        let sidebarView = SidebarViewWrapper(
-            store: store,
-            onRefocusActivePane: { [weak paneTabVC] in
+        let sidebarView = sidebarRootViewBuilder(
+            store,
+            uiState,
+            { [weak paneTabVC] in
                 paneTabVC?.refocusActivePane()
             }
         )
-        let sidebarHosting = NSHostingController(rootView: AnyView(sidebarView))
+        let sidebarHosting = NSHostingController(rootView: sidebarView)
         sidebarHosting.sizingOptions = []
         self.sidebarHostingController = sidebarHosting
 
@@ -78,7 +91,7 @@ class MainSplitViewController: NSSplitViewController {
         sidebarItem.minimumThickness = 200
         sidebarItem.maximumThickness = 400
         sidebarItem.canCollapse = true
-        sidebarItem.collapseBehavior = .preferResizingSiblingsWithFixedSplitView
+        sidebarItem.collapseBehavior = NSSplitViewItem.CollapseBehavior.preferResizingSiblingsWithFixedSplitView
         addSplitViewItem(sidebarItem)
 
         let paneTabItem = NSSplitViewItem(viewController: paneTabVC)
@@ -88,14 +101,14 @@ class MainSplitViewController: NSSplitViewController {
         // Restore sidebar collapsed state — force collapse if no repos
         if store.repositoryTopologyAtom.repos.isEmpty {
             sidebarItem.isCollapsed = true
-        } else if UserDefaults.standard.bool(forKey: Self.sidebarCollapsedKey) {
+        } else if uiState.sidebarCollapsed {
             sidebarItem.isCollapsed = true
         }
     }
 
     private func saveSidebarState() {
         let isCollapsed = splitViewItems.first?.isCollapsed ?? false
-        UserDefaults.standard.set(isCollapsed, forKey: Self.sidebarCollapsedKey)
+        uiState.setSidebarCollapsed(isCollapsed)
     }
 
     func savePersistentUIState() {
@@ -129,6 +142,29 @@ class MainSplitViewController: NSSplitViewController {
         }
     }
 
+    func ensureSidebarVisible() {
+        expandSidebar()
+    }
+
+    func focusSidebar() {
+        guard isViewLoaded else { return }
+        guard let window = view.window else { return }
+
+        switch uiState.sidebarSurface {
+        case .repos:
+            _ = window.makeFirstResponder(sidebarHostingController?.view)
+        case .inbox:
+            guard
+                let focusTarget = sidebarHostingController?.view.descendantView(
+                    matching: InboxNotificationPlaceholderView.focusTargetIdentifier
+                )
+            else {
+                return
+            }
+            _ = window.makeFirstResponder(focusTarget)
+        }
+    }
+
     func toggleSidebarFromCommand() {
         handleToggleSidebar()
     }
@@ -144,8 +180,28 @@ class MainSplitViewController: NSSplitViewController {
         uiState.setFilterVisible(true)
     }
 
+    func showInboxNotifications(commandBarIsKey: Bool) {
+        ensureSidebarVisible()
+        uiState.setSidebarSurface(.inbox)
+        if !commandBarIsKey {
+            Task { @MainActor [weak self] in
+                await Task.yield()
+                self?.focusSidebar()
+            }
+        }
+    }
+
+    func showWorktreeSidebar() {
+        ensureSidebarVisible()
+        uiState.setSidebarSurface(.repos)
+    }
+
     func refocusActivePane() {
         paneTabViewController?.refocusActivePane()
+    }
+
+    func shutdown() {
+        paneTabViewController?.shutdown()
     }
 
     // MARK: - Subtle Divider
@@ -164,19 +220,23 @@ class MainSplitViewController: NSSplitViewController {
         RestoreTrace.log(
             "MainSplitViewController.splitViewDidResizeSubviews splitBounds=\(NSStringFromRect(splitView.bounds)) sidebarCollapsed=\(isSidebarCollapsed)"
         )
+        saveSidebarState()
         paneTabViewController?.syncVisibleTerminalGeometry(reason: "splitViewDidResizeSubviews")
     }
 }
 
-// MARK: - Sidebar View Wrapper
+extension NSView {
+    fileprivate func descendantView(matching identifier: NSUserInterfaceItemIdentifier) -> NSView? {
+        if self.identifier == identifier {
+            return self
+        }
 
-/// SwiftUI wrapper that bridges to the AppKit world.
-/// Uses WorkspaceStore instead of SessionManager.
-struct SidebarViewWrapper: View {
-    let store: WorkspaceStore
-    let onRefocusActivePane: () -> Void
+        for subview in subviews {
+            if let match = subview.descendantView(matching: identifier) {
+                return match
+            }
+        }
 
-    var body: some View {
-        RepoSidebarContentView(store: store, onRefocusActivePane: onRefocusActivePane)
+        return nil
     }
 }

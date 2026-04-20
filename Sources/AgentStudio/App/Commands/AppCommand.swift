@@ -62,6 +62,8 @@ enum AppCommand: String, CaseIterable {
     case managementLayerExit
     // Workspace commands
     case toggleSidebar
+    case showInboxNotifications
+    case showWorktreeSidebar
     case newFloatingTerminal
     // Window commands
     case newWindow
@@ -823,6 +825,28 @@ extension AppCommand {
                 helpText: "Show or hide the sidebar",
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window
+            )
+        case .showInboxNotifications:
+            return CommandSpec(
+                command: self,
+                shortcut: .showInboxNotifications,
+                label: "Show Inbox",
+                icon: "bell",
+                helpText: "Show the notification inbox in the sidebar",
+                commandBarGroupName: "Window",
+                commandBarGroupPriority: CommandBarGroupPriority.window,
+                isHiddenInCommandBar: true
+            )
+        case .showWorktreeSidebar:
+            return CommandSpec(
+                command: self,
+                shortcut: .showWorktreeSidebar,
+                label: "Show Worktrees",
+                icon: "sidebar.left",
+                helpText: "Show the repo explorer in the sidebar",
+                commandBarGroupName: "Window",
+                commandBarGroupPriority: CommandBarGroupPriority.window,
+                isHiddenInCommandBar: true
             )
         case .newFloatingTerminal:
             return CommandSpec(

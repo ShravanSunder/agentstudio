@@ -27,6 +27,9 @@ struct UIStateStoreTests {
         atom.setFilterText("terminal")
         atom.setFilterVisible(true)
         atom.setShowMinimizedBars(false)
+        atom.setSidebarCollapsed(true)
+        atom.setSidebarSurface(.inbox)
+        atom.setSidebarHasFocus(true)
 
         try uiStateStore.flush(for: workspaceId)
 
@@ -39,6 +42,9 @@ struct UIStateStoreTests {
         #expect(restoredAtom.filterText == "terminal")
         #expect(restoredAtom.isFilterVisible)
         #expect(restoredAtom.showMinimizedBars == false)
+        #expect(restoredAtom.sidebarCollapsed)
+        #expect(restoredAtom.sidebarSurface == .inbox)
+        #expect(restoredAtom.sidebarHasFocus == false)
     }
 
     @Test
@@ -50,6 +56,9 @@ struct UIStateStoreTests {
         atom.setFilterText("agent")
         atom.setFilterVisible(true)
         atom.setShowMinimizedBars(false)
+        atom.setSidebarCollapsed(true)
+        atom.setSidebarSurface(.inbox)
+        atom.setSidebarHasFocus(true)
 
         try store.flush(for: workspaceId)
 
@@ -59,6 +68,9 @@ struct UIStateStoreTests {
         #expect(restoredAtom.filterText == "agent")
         #expect(restoredAtom.isFilterVisible)
         #expect(restoredAtom.showMinimizedBars == false)
+        #expect(restoredAtom.sidebarCollapsed)
+        #expect(restoredAtom.sidebarSurface == .inbox)
+        #expect(restoredAtom.sidebarHasFocus == false)
     }
 
     @Test
@@ -77,6 +89,16 @@ struct UIStateStoreTests {
         #expect(atom.filterText.isEmpty)
         #expect(!atom.isFilterVisible)
         #expect(atom.showMinimizedBars)
+        #expect(atom.sidebarCollapsed == false)
+        #expect(atom.sidebarSurface == .repos)
+        #expect(atom.sidebarHasFocus == false)
+        let quarantinedFiles = try FileManager.default.contentsOfDirectory(
+            at: tempDir,
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.lastPathComponent.hasPrefix("\(workspaceId.uuidString).workspace.ui.corrupt-")
+        }
+        #expect(quarantinedFiles.count == 1)
     }
 
     @Test
@@ -117,6 +139,31 @@ struct UIStateStoreTests {
         store.restore(for: workspaceId)
 
         #expect(atom.showMinimizedBars)
+    }
+
+    @Test
+    func restore_missingSidebarCompositionFields_defaultsToCollapsedFalseAndReposSurface() throws {
+        let workspaceId = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "workspaceId": "\(workspaceId.uuidString)",
+                "expandedGroups": [],
+                "checkoutColors": {},
+                "filterText": "",
+                "isFilterVisible": false,
+                "showMinimizedBars": true
+            }
+            """
+        let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
+        try Data(json.utf8).write(to: uiURL, options: .atomic)
+
+        let atom = UIStateAtom()
+        UIStateStore(atom: atom, persistor: persistor).restore(for: workspaceId)
+
+        #expect(atom.sidebarCollapsed == false)
+        #expect(atom.sidebarSurface == .repos)
+        #expect(atom.sidebarHasFocus == false)
     }
 
     @Test

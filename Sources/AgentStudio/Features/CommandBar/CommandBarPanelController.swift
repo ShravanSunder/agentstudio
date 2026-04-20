@@ -30,6 +30,10 @@ final class CommandBarPanelController {
     /// The parent window the command bar is attached to.
     private weak var parentWindow: NSWindow?
 
+    var isKeyWindow: Bool {
+        panel?.isKeyWindow == true
+    }
+
     // MARK: - Initialization
 
     init(

@@ -2,7 +2,7 @@ import Foundation
 
 /// Pure filter logic for sidebar repo/worktree searching.
 /// Extracted for testability and single source of truth.
-enum SidebarFilter {
+enum RepoExplorerFilter {
     /// Filter repos by a search query with worktree-level granularity.
     ///
     /// - If `query` is empty, returns all repos unchanged.

@@ -191,6 +191,14 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         splitViewController?.showSidebarFilter()
     }
 
+    func showInboxNotifications(commandBarIsKey: Bool) {
+        splitViewController?.showInboxNotifications(commandBarIsKey: commandBarIsKey)
+    }
+
+    func showWorktreeSidebar() {
+        splitViewController?.showWorktreeSidebar()
+    }
+
     func expandSidebar() {
         splitViewController?.expandSidebar()
     }

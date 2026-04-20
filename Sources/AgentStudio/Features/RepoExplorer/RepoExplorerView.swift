@@ -2,9 +2,25 @@ import AppKit
 import Foundation
 import SwiftUI
 
+enum RepoExplorerFocus: Hashable {
+    case filter
+    case list
+    case row(UUID)
+}
+
+enum RepoExplorerFocusPublisher {
+    @MainActor
+    static func publish(
+        focusedField: RepoExplorerFocus?,
+        into uiState: UIStateAtom
+    ) {
+        uiState.setSidebarHasFocus(focusedField != nil)
+    }
+}
+
 /// Redesigned sidebar content grouped by repository identity (worktree family / remote).
 @MainActor
-struct RepoSidebarContentView: View {
+struct RepoExplorerView: View {
     struct SidebarProjection {
         let resolvedGroups: [RepoPresentationGroup]
         let loadingRepos: [RepoPresentationItem]
@@ -25,7 +41,7 @@ struct RepoSidebarContentView: View {
     @State private var expandedGroups: Set<String> = []
     @State private var filterText: String = ""
     @State private var debouncedQuery: String = ""
-    @FocusState private var isFilterFocused: Bool
+    @FocusState private var focusedField: RepoExplorerFocus?
 
     @State private var checkoutColorByRepoId: [String: String] = [:]
     @State private var notificationCountsByWorktreeId: [UUID: Int] = [:]
@@ -58,7 +74,7 @@ struct RepoSidebarContentView: View {
         sidebarProjection.loadingRepos
     }
 
-    private var resolvedListEntries: [SidebarListEntry] {
+    private var resolvedListEntries: [RepoExplorerListEntry] {
         Self.buildListEntries(
             groups: groups,
             expandedGroupIds: expandedGroups,
@@ -117,15 +133,19 @@ struct RepoSidebarContentView: View {
         }
         .onDisappear {
             debounceTask?.cancel()
+            RepoExplorerFocusPublisher.publish(
+                focusedField: nil,
+                into: uiState
+            )
         }
         .onChange(of: uiState.isFilterVisible) { _, isVisible in
             if isVisible {
                 Task { @MainActor in
                     await Task.yield()
-                    isFilterFocused = true
+                    focusedField = .filter
                 }
             } else {
-                isFilterFocused = false
+                focusedField = nil
                 if !filterText.isEmpty || !debouncedQuery.isEmpty {
                     filterText = ""
                     debouncedQuery = ""
@@ -151,6 +171,12 @@ struct RepoSidebarContentView: View {
                 }
             }
         }
+        .onChange(of: focusedField) { _, newValue in
+            RepoExplorerFocusPublisher.publish(
+                focusedField: newValue,
+                into: uiState
+            )
+        }
     }
 
     private var filterBar: some View {
@@ -163,12 +189,12 @@ struct RepoSidebarContentView: View {
                 .textFieldStyle(.plain)
                 .font(.system(size: AppStyles.General.Typography.textSm))
                 .foregroundStyle(.primary)
-                .focused($isFilterFocused)
+                .focused($focusedField, equals: .filter)
                 .onExitCommand {
                     hideFilter()
                 }
                 .onKeyPress(.downArrow) {
-                    isFilterFocused = false
+                    focusedField = nil
                     return .handled
                 }
 
@@ -223,7 +249,7 @@ struct RepoSidebarContentView: View {
                     Button {
                         toggleGroupExpansion(group.id)
                     } label: {
-                        SidebarResolvedGroupHeaderRow(
+                        RepoExplorerResolvedGroupHeaderRow(
                             isExpanded: isGroupExpanded(group.id),
                             repoTitle: group.repoTitle,
                             organizationName: group.organizationName
@@ -259,7 +285,7 @@ struct RepoSidebarContentView: View {
                         repoId: repoId,
                         worktreeId: worktreeId
                     ) {
-                        SidebarWorktreeRow(
+                        RepoExplorerWorktreeRow(
                             worktree: resolvedWorktreeContext.worktree,
                             checkoutTitle: checkoutTitle(
                                 for: resolvedWorktreeContext.worktree,
@@ -328,7 +354,7 @@ struct RepoSidebarContentView: View {
             if !loadingReposList.isEmpty {
                 Section {
                     ForEach(loadingReposList, id: \.id) { repo in
-                        SidebarLoadingRepoRow(repoName: repo.name)
+                        RepoExplorerLoadingRepoRow(repoName: repo.name)
                             .listRowInsets(
                                 EdgeInsets(
                                     top: 0,
@@ -341,7 +367,7 @@ struct RepoSidebarContentView: View {
                             .allowsHitTesting(false)
                     }
                 } header: {
-                    SidebarLoadingSectionHeaderRow()
+                    RepoExplorerLoadingSectionHeaderRow()
                         .padding(.top, 8)
                         .padding(.bottom, 4)
                 }
@@ -397,7 +423,10 @@ struct RepoSidebarContentView: View {
         return repo.name
     }
 
-    static func checkoutIconKind(for worktree: Worktree, in repo: RepoPresentationItem) -> SidebarCheckoutIconKind {
+    static func checkoutIconKind(
+        for worktree: Worktree,
+        in repo: RepoPresentationItem
+    ) -> RepoExplorerCheckoutIconKind {
         let isMainCheckout =
             worktree.isMainWorktree
             || worktree.path.standardizedFileURL.path == repo.repoPath.standardizedFileURL.path
@@ -409,7 +438,10 @@ struct RepoSidebarContentView: View {
         return .mainCheckout
     }
 
-    private func checkoutIconKind(for worktree: Worktree, in repo: RepoPresentationItem) -> SidebarCheckoutIconKind {
+    private func checkoutIconKind(
+        for worktree: Worktree,
+        in repo: RepoPresentationItem
+    ) -> RepoExplorerCheckoutIconKind {
         Self.checkoutIconKind(for: worktree, in: repo)
     }
 
@@ -423,7 +455,7 @@ struct RepoSidebarContentView: View {
     private func hideFilter() {
         filterText = ""
         debouncedQuery = ""
-        isFilterFocused = false
+        focusedField = nil
         uiState.setFilterText("")
         uiState.setFilterVisible(false)
         onRefocusActivePane()
@@ -435,7 +467,7 @@ struct RepoSidebarContentView: View {
 
 }
 
-enum SidebarListEntry: Identifiable {
+enum RepoExplorerListEntry: Identifiable {
     case resolvedGroupHeader(RepoPresentationGroup)
     case resolvedWorktreeRow(groupId: String, repoId: UUID, worktreeId: UUID)
 
@@ -449,7 +481,7 @@ enum SidebarListEntry: Identifiable {
     }
 }
 
-private struct SidebarLoadingSectionHeaderRow: View {
+private struct RepoExplorerLoadingSectionHeaderRow: View {
     var body: some View {
         HStack(spacing: AppStyles.General.Spacing.standard) {
             Rectangle()
@@ -480,7 +512,7 @@ private struct SidebarLoadingSectionHeaderRow: View {
     }
 }
 
-private struct SidebarLoadingRepoRow: View {
+private struct RepoExplorerLoadingRepoRow: View {
     let repoName: String
 
     var body: some View {
@@ -515,7 +547,7 @@ struct GitBranchStatus: Equatable, Sendable {
     static let unknown = Self(isDirty: false, syncState: .unknown, prCount: nil, linesAdded: 0, linesDeleted: 0)
 }
 
-extension RepoSidebarContentView {
+extension RepoExplorerView {
     static func checkoutColorHex(
         for repo: RepoPresentationItem,
         in group: RepoPresentationGroup,
@@ -542,8 +574,8 @@ extension RepoSidebarContentView {
         groups: [RepoPresentationGroup],
         expandedGroupIds: Set<String>,
         isFiltering: Bool
-    ) -> [SidebarListEntry] {
-        var entries: [SidebarListEntry] = []
+    ) -> [RepoExplorerListEntry] {
+        var entries: [RepoExplorerListEntry] = []
 
         for group in groups {
             entries.append(.resolvedGroupHeader(group))
@@ -592,7 +624,7 @@ extension RepoSidebarContentView {
     ) -> SidebarProjection {
         let resolvedRepos = resolvedRepos(repos, enrichmentByRepoId: repoEnrichmentByRepoId)
         let loadingRepos = loadingRepos(repos, enrichmentByRepoId: repoEnrichmentByRepoId)
-        let filteredResolvedRepos = SidebarFilter.filter(repos: resolvedRepos, query: query)
+        let filteredResolvedRepos = RepoExplorerFilter.filter(repos: resolvedRepos, query: query)
         let filteredLoadingRepos = filterLoadingRepos(loadingRepos, query: query)
         let repoMetadataById = RepoPresentationColoring.buildRepoMetadata(
             repos: filteredResolvedRepos,

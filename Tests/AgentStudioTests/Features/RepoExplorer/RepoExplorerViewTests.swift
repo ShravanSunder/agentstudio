@@ -4,8 +4,8 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("RepoSidebarContentView")
-struct RepoSidebarContentViewTests {
+@Suite("RepoExplorerView")
+struct RepoExplorerViewTests {
     init() {
         installTestAtomRegistryIfNeeded()
     }
@@ -32,7 +32,7 @@ struct RepoSidebarContentViewTests {
             repos: [repo]
         )
 
-        let entries = RepoSidebarContentView.buildListEntries(
+        let entries = RepoExplorerView.buildListEntries(
             groups: [group],
             expandedGroupIds: [group.id],
             isFiltering: false
@@ -70,7 +70,7 @@ struct RepoSidebarContentViewTests {
             repos: [repo]
         )
 
-        let entries = RepoSidebarContentView.buildListEntries(
+        let entries = RepoExplorerView.buildListEntries(
             groups: [group],
             expandedGroupIds: [],
             isFiltering: false
@@ -108,7 +108,7 @@ struct RepoSidebarContentViewTests {
             ]
         )
 
-        let entries = RepoSidebarContentView.buildListEntries(
+        let entries = RepoExplorerView.buildListEntries(
             groups: [resolvedGroup],
             expandedGroupIds: [],
             isFiltering: false
@@ -145,7 +145,7 @@ struct RepoSidebarContentViewTests {
             ]
         )
         let worktree = repo.worktrees[0]
-        #expect(RepoSidebarContentView.checkoutIconKind(for: worktree, in: repo) == .mainCheckout)
+        #expect(RepoExplorerView.checkoutIconKind(for: worktree, in: repo) == .mainCheckout)
     }
 
     @Test("checkout icon kind uses git-worktree for a secondary worktree")
@@ -172,7 +172,7 @@ struct RepoSidebarContentViewTests {
             ]
         )
         let worktree = repo.worktrees[1]
-        #expect(RepoSidebarContentView.checkoutIconKind(for: worktree, in: repo) == .gitWorktree)
+        #expect(RepoExplorerView.checkoutIconKind(for: worktree, in: repo) == .gitWorktree)
     }
 
     @Test("checkout icon kind uses star for a standalone repo")
@@ -192,7 +192,7 @@ struct RepoSidebarContentViewTests {
                 )
             ]
         )
-        #expect(RepoSidebarContentView.checkoutIconKind(for: repo.worktrees[0], in: repo) == .mainCheckout)
+        #expect(RepoExplorerView.checkoutIconKind(for: repo.worktrees[0], in: repo) == .mainCheckout)
     }
 
     @Test("worktrees of the same repo share color, different repo in same group gets different color")
@@ -242,16 +242,16 @@ struct RepoSidebarContentViewTests {
         )
 
         // All worktrees of repoA share color (keyed by repo.id)
-        let colorA = RepoSidebarContentView.checkoutColorHex(for: repoA, in: group)
+        let colorA = RepoExplorerView.checkoutColorHex(for: repoA, in: group)
 
         // repoB gets a different color
-        let colorB = RepoSidebarContentView.checkoutColorHex(for: repoB, in: group)
+        let colorB = RepoExplorerView.checkoutColorHex(for: repoB, in: group)
 
         // Family invariant: same repo = same color, different repo = different color
         #expect(colorA != colorB, "Different repos in same group should get different colors")
 
         // Color is deterministic — calling again produces same result
-        let colorAAgain = RepoSidebarContentView.checkoutColorHex(for: repoA, in: group)
+        let colorAAgain = RepoExplorerView.checkoutColorHex(for: repoA, in: group)
         #expect(colorA == colorAAgain, "Color should be deterministic for same repo")
     }
 
@@ -292,8 +292,8 @@ struct RepoSidebarContentViewTests {
             repos: [repoA, repoB]
         )
 
-        let colorA = RepoSidebarContentView.checkoutColorHex(for: repoA, in: group)
-        let colorB = RepoSidebarContentView.checkoutColorHex(for: repoB, in: group)
+        let colorA = RepoExplorerView.checkoutColorHex(for: repoA, in: group)
+        let colorB = RepoExplorerView.checkoutColorHex(for: repoB, in: group)
 
         #expect(colorA != colorB)
     }
@@ -321,7 +321,7 @@ struct RepoSidebarContentViewTests {
             repos: [repo]
         )
 
-        let color = RepoSidebarContentView.checkoutColorHex(for: repo, in: group)
+        let color = RepoExplorerView.checkoutColorHex(for: repo, in: group)
 
         #expect(color == RepoPresentationGrouping.automaticPaletteHexes[0])
     }
@@ -354,7 +354,7 @@ struct RepoSidebarContentViewTests {
             worktrees: [Worktree(repoId: missingId, name: "main", path: URL(fileURLWithPath: "/tmp/missing-repo"))]
         )
 
-        let projection = RepoSidebarContentView.projectSidebar(
+        let projection = RepoExplorerView.projectSidebar(
             repos: [resolvedRepo, unresolvedRepo, missingRepo],
             repoEnrichmentByRepoId: [
                 resolvedId: .resolvedRemote(
@@ -389,7 +389,7 @@ struct RepoSidebarContentViewTests {
             worktrees: [Worktree(repoId: UUID(), name: "main", path: URL(fileURLWithPath: "/tmp/loading-target"))]
         )
 
-        let projection = RepoSidebarContentView.projectSidebar(
+        let projection = RepoExplorerView.projectSidebar(
             repos: [loadingRepo],
             repoEnrichmentByRepoId: [:],
             query: "loading"
@@ -410,7 +410,7 @@ struct RepoSidebarContentViewTests {
             worktrees: [Worktree(repoId: UUID(), name: "main", path: URL(fileURLWithPath: "/tmp/loading-target"))]
         )
 
-        let projection = RepoSidebarContentView.projectSidebar(
+        let projection = RepoExplorerView.projectSidebar(
             repos: [loadingRepo],
             repoEnrichmentByRepoId: [:],
             query: "no-match"
@@ -438,7 +438,7 @@ struct RepoSidebarContentViewTests {
             )
         )
 
-        let status = RepoSidebarContentView.branchStatus(
+        let status = RepoExplorerView.branchStatus(
             enrichment: enrichment,
             pullRequestCount: 3
         )
@@ -475,7 +475,7 @@ struct RepoSidebarContentViewTests {
             )
         )
 
-        let status = RepoSidebarContentView.branchStatus(
+        let status = RepoExplorerView.branchStatus(
             enrichment: enrichment,
             pullRequestCount: 1
         )
@@ -489,7 +489,7 @@ struct RepoSidebarContentViewTests {
 
     @Test("branchStatus keeps unknown local state when snapshot missing")
     func branchStatusFallsBackToUnknownWithoutLocalSnapshot() {
-        let status = RepoSidebarContentView.branchStatus(
+        let status = RepoExplorerView.branchStatus(
             enrichment: nil,
             pullRequestCount: 7
         )
@@ -505,7 +505,7 @@ struct RepoSidebarContentViewTests {
         let prOnlyWorktreeId = UUID()
         let repoId = UUID()
 
-        let merged = RepoSidebarContentView.mergeBranchStatuses(
+        let merged = RepoExplorerView.mergeBranchStatuses(
             worktreeEnrichmentsByWorktreeId: [
                 localOnlyWorktreeId: WorktreeEnrichment(
                     worktreeId: localOnlyWorktreeId,
@@ -544,7 +544,7 @@ struct RepoSidebarContentViewTests {
             )
         )
 
-        let merged = RepoSidebarContentView.mergeBranchStatuses(
+        let merged = RepoExplorerView.mergeBranchStatuses(
             worktreeEnrichmentsByWorktreeId: [worktreeId: enrichment],
             pullRequestCountsByWorktreeId: [worktreeId: 5]
         )
@@ -606,14 +606,14 @@ struct RepoSidebarContentViewTests {
             worktrees: [Worktree(repoId: UUID(), name: "main", path: URL(fileURLWithPath: "/tmp/agent-studio"))]
         )
 
-        let loadingProjection = RepoSidebarContentView.projectSidebar(
+        let loadingProjection = RepoExplorerView.projectSidebar(
             repos: [repo],
             repoEnrichmentByRepoId: [
                 repo.id: .awaitingOrigin(repoId: repo.id)
             ],
             query: ""
         )
-        let resolvedProjection = RepoSidebarContentView.projectSidebar(
+        let resolvedProjection = RepoExplorerView.projectSidebar(
             repos: [repo],
             repoEnrichmentByRepoId: [
                 repo.id: .resolvedRemote(
@@ -631,8 +631,8 @@ struct RepoSidebarContentViewTests {
             query: ""
         )
 
-        let loadingFingerprint = RepoSidebarContentView.projectionFingerprint(for: loadingProjection)
-        let resolvedFingerprint = RepoSidebarContentView.projectionFingerprint(for: resolvedProjection)
+        let loadingFingerprint = RepoExplorerView.projectionFingerprint(for: loadingProjection)
+        let resolvedFingerprint = RepoExplorerView.projectionFingerprint(for: resolvedProjection)
 
         #expect(loadingFingerprint != resolvedFingerprint)
         #expect(loadingProjection.loadingRepos.map(\.id) == [repo.id])
@@ -649,7 +649,7 @@ struct RepoSidebarContentViewTests {
             worktrees: [Worktree(repoId: UUID(), name: "main", path: URL(fileURLWithPath: "/tmp/MyProject"))]
         )
 
-        let metadata = RepoSidebarContentView.buildRepoMetadata(
+        let metadata = RepoExplorerView.buildRepoMetadata(
             repos: [repo],
             repoEnrichmentByRepoId: [
                 repo.id: .resolvedLocal(
@@ -733,7 +733,7 @@ struct RepoSidebarContentViewTests {
             worktrees: [Worktree(repoId: UUID(), name: "main", path: URL(fileURLWithPath: "/tmp/agent-studio-local"))]
         )
 
-        let metadata = RepoSidebarContentView.buildRepoMetadata(
+        let metadata = RepoExplorerView.buildRepoMetadata(
             repos: [repo],
             repoEnrichmentByRepoId: [
                 repo.id: .resolvedRemote(
@@ -788,7 +788,7 @@ struct RepoSidebarContentViewTests {
             repos: [repoA, repoB]
         )
 
-        let primaryRepo = RepoSidebarContentView.primaryRepoForGroup(group)
+        let primaryRepo = RepoExplorerView.primaryRepoForGroup(group)
         #expect(primaryRepo?.id == repoA.id)
     }
 
@@ -815,7 +815,7 @@ struct RepoSidebarContentViewTests {
             repos: [repoA, repoB]
         )
 
-        let primaryRepo = RepoSidebarContentView.primaryRepoForGroup(group)
+        let primaryRepo = RepoExplorerView.primaryRepoForGroup(group)
         #expect(primaryRepo?.name == "a-repo")
     }
 }

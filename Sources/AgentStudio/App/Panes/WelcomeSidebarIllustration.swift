@@ -122,14 +122,14 @@ struct WelcomeSidebarIllustration: View {
 
     private var ghosttyGroup: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SidebarResolvedGroupHeaderRow(
+            RepoExplorerResolvedGroupHeaderRow(
                 isExpanded: true,
                 repoTitle: "ghostty",
                 organizationName: "ghostty-org"
             )
 
             VStack(alignment: .leading, spacing: 0) {
-                SidebarWorktreeRow(
+                RepoExplorerWorktreeRow(
                     worktree: ghosttyMainWorktree,
                     checkoutTitle: "ghostty",
                     branchName: "main",
@@ -144,7 +144,7 @@ struct WelcomeSidebarIllustration: View {
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
-                SidebarWorktreeRow(
+                RepoExplorerWorktreeRow(
                     worktree: ghosttyGpuRendererWorktree,
                     checkoutTitle: "ghostty.gpu-renderer",
                     branchName: "feature/gpu-renderer",
@@ -159,7 +159,7 @@ struct WelcomeSidebarIllustration: View {
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
-                SidebarWorktreeRow(
+                RepoExplorerWorktreeRow(
                     worktree: ghosttyFixKeybindsWorktree,
                     checkoutTitle: "ghostty.fix-keybinds",
                     branchName: "fix/keybind-passthrough",
@@ -181,14 +181,14 @@ struct WelcomeSidebarIllustration: View {
 
     private var uvGroup: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SidebarResolvedGroupHeaderRow(
+            RepoExplorerResolvedGroupHeaderRow(
                 isExpanded: true,
                 repoTitle: "uv",
                 organizationName: "astral-sh"
             )
 
             VStack(alignment: .leading, spacing: 0) {
-                SidebarWorktreeRow(
+                RepoExplorerWorktreeRow(
                     worktree: uvMainWorktree,
                     checkoutTitle: "uv",
                     branchName: "main",
@@ -203,7 +203,7 @@ struct WelcomeSidebarIllustration: View {
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
-                SidebarWorktreeRow(
+                RepoExplorerWorktreeRow(
                     worktree: uvFixResolverWorktree,
                     checkoutTitle: "uv.fix-resolver",
                     branchName: "fix/resolver-perf",

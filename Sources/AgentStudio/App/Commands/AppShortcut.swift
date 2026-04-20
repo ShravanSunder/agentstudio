@@ -8,6 +8,7 @@ enum ShortcutCharacterKey: String, CaseIterable {
     case d
     case e
     case f
+    case i
     case k
     case m
     case n
@@ -121,6 +122,8 @@ enum AppShortcut: String, CaseIterable {
     case toggleManagementLayer
     case toggleSidebar
     case filterSidebar
+    case showInboxNotifications
+    case showWorktreeSidebar
     case newWindow
     case closeWindow
     case showCommandBarEverything
@@ -214,6 +217,16 @@ enum AppShortcut: String, CaseIterable {
         case .filterSidebar:
             return .init(
                 trigger: .init(key: .character(.f), modifiers: [.command, .shift]),
+                contexts: [.global]
+            )
+        case .showInboxNotifications:
+            return .init(
+                trigger: .init(key: .character(.i), modifiers: [.command]),
+                contexts: [.global]
+            )
+        case .showWorktreeSidebar:
+            return .init(
+                trigger: .init(key: .character(.s), modifiers: [.command]),
                 contexts: [.global]
             )
         case .newWindow:

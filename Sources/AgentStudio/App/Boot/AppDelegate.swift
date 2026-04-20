@@ -900,7 +900,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 extension AppDelegate: ShellCommandHandling {
     func canExecute(_ command: AppCommand) -> Bool {
         switch command {
-        case .watchFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle,
+        case .watchFolder, .toggleSidebar, .filterSidebar,
+            .showInboxNotifications, .showWorktreeSidebar,
+            .signInGitHub, .signInGoogle,
             .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
             true
@@ -918,6 +920,14 @@ extension AppDelegate: ShellCommandHandling {
             return true
         case .filterSidebar:
             mainWindowController?.showSidebarFilter()
+            return true
+        case .showInboxNotifications:
+            mainWindowController?.showInboxNotifications(
+                commandBarIsKey: commandBarController.isKeyWindow
+            )
+            return true
+        case .showWorktreeSidebar:
+            mainWindowController?.showWorktreeSidebar()
             return true
         case .newWindow:
             newWindow()

@@ -37,7 +37,7 @@ struct SidebarGroupRow: View {
     }
 }
 
-struct SidebarResolvedGroupHeaderRow: View {
+struct RepoExplorerResolvedGroupHeaderRow: View {
     let isExpanded: Bool
     let repoTitle: String
     let organizationName: String?

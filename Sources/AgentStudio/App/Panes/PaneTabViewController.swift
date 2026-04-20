@@ -347,14 +347,28 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             })
     }
 
-    isolated deinit {
+    func shutdown() {
         if let monitor = arrangementBarEventMonitor {
             NSEvent.removeMonitor(monitor)
+            arrangementBarEventMonitor = nil
         }
         for task in notificationTasks {
             task.cancel()
         }
         notificationTasks.removeAll()
+    }
+
+    isolated deinit {
+        let monitor = arrangementBarEventMonitor
+        let tasks = notificationTasks
+        Task { @MainActor in
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+            for task in tasks {
+                task.cancel()
+            }
+        }
     }
 
     // MARK: - Store Observation (AppKit-Level Concerns)
@@ -1560,7 +1574,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         case .renameTab:
             guard let activeTabId = store.tabLayoutAtom.activeTabId else { break }
             tabRenamePopoverState.present(for: activeTabId)
-        case .watchFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle:
+        case .watchFolder, .toggleSidebar, .filterSidebar,
+            .showInboxNotifications, .showWorktreeSidebar,
+            .signInGitHub, .signInGoogle:
             break
         case .addDrawerPane:
             guard let tabId = store.tabLayoutAtom.activeTabId,

@@ -168,6 +168,8 @@ struct WorkspacePersistor {
         var filterText: String
         var isFilterVisible: Bool
         var showMinimizedBars: Bool
+        var sidebarCollapsed: Bool
+        var sidebarSurface: SidebarSurface
         var editorChooserState: PersistedEditorChooserState
 
         init(
@@ -177,6 +179,8 @@ struct WorkspacePersistor {
             filterText: String = "",
             isFilterVisible: Bool = false,
             showMinimizedBars: Bool = true,
+            sidebarCollapsed: Bool = false,
+            sidebarSurface: SidebarSurface = .repos,
             editorChooserState: PersistedEditorChooserState = .init()
         ) {
             self.schemaVersion = WorkspacePersistor.currentSchemaVersion
@@ -186,6 +190,8 @@ struct WorkspacePersistor {
             self.filterText = filterText
             self.isFilterVisible = isFilterVisible
             self.showMinimizedBars = showMinimizedBars
+            self.sidebarCollapsed = sidebarCollapsed
+            self.sidebarSurface = sidebarSurface
             self.editorChooserState = editorChooserState
         }
 
@@ -197,6 +203,8 @@ struct WorkspacePersistor {
             case filterText
             case isFilterVisible
             case showMinimizedBars
+            case sidebarCollapsed
+            case sidebarSurface
             case editorChooserState
         }
 
@@ -209,6 +217,9 @@ struct WorkspacePersistor {
             self.filterText = try container.decode(String.self, forKey: .filterText)
             self.isFilterVisible = try container.decode(Bool.self, forKey: .isFilterVisible)
             self.showMinimizedBars = try container.decodeIfPresent(Bool.self, forKey: .showMinimizedBars) ?? true
+            self.sidebarCollapsed = try container.decodeIfPresent(Bool.self, forKey: .sidebarCollapsed) ?? false
+            self.sidebarSurface =
+                try container.decodeIfPresent(SidebarSurface.self, forKey: .sidebarSurface) ?? .repos
             do {
                 self.editorChooserState =
                     try container.decodeIfPresent(
@@ -314,6 +325,30 @@ struct WorkspacePersistor {
 
     func loadUI(for workspaceId: UUID) -> LoadResult<PersistableUIState> {
         decodeFromFile(uiFileURL(for: workspaceId), as: PersistableUIState.self)
+    }
+
+    @discardableResult
+    func quarantineCorruptUIFile(for workspaceId: UUID) -> URL? {
+        let sourceURL = uiFileURL(for: workspaceId)
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            return nil
+        }
+
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let quarantinedURL = workspacesDir.appending(
+            path: "\(workspaceId.uuidString).workspace.ui.corrupt-\(timestamp).json"
+        )
+
+        do {
+            try FileManager.default.moveItem(at: sourceURL, to: quarantinedURL)
+            return quarantinedURL
+        } catch {
+            persistorLogger.error(
+                "Failed to quarantine corrupt UI file \(sourceURL.lastPathComponent): \(error)"
+            )
+            return nil
+        }
     }
 
     // MARK: - Delete

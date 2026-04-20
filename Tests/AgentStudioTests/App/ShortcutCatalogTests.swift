@@ -80,6 +80,21 @@ struct ShortcutCatalogTests {
     }
 
     @Test
+    func shortcutDecoder_decodesSidebarSurfaceShortcuts() {
+        let showInbox = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.i), modifiers: [.command]),
+            in: .global
+        )
+        let showRepos = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.s), modifiers: [.command]),
+            in: .global
+        )
+
+        #expect(showInbox == .showInboxNotifications)
+        #expect(showRepos == .showWorktreeSidebar)
+    }
+
+    @Test
     func shortcutDecoder_decodesAddDrawerPaneShortcut() {
         let addDrawerPane = ShortcutDecoder.shortcut(
             for: .init(key: .character(.d), modifiers: [.command, .shift]),

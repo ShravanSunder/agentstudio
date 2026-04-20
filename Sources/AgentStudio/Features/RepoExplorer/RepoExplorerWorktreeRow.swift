@@ -1,15 +1,15 @@
 import AppKit
 import SwiftUI
 
-enum SidebarCheckoutIconKind {
+enum RepoExplorerCheckoutIconKind {
     case mainCheckout
     case gitWorktree
 }
 
-struct SidebarWorktreeRowContent: View {
+struct RepoExplorerWorktreeRowContent: View {
     let checkoutTitle: String
     let branchName: String
-    let checkoutIconKind: SidebarCheckoutIconKind
+    let checkoutIconKind: RepoExplorerCheckoutIconKind
     let iconColor: Color
     let branchStatus: GitBranchStatus
     let notificationCount: Int
@@ -129,11 +129,11 @@ struct SidebarWorktreeRowContent: View {
     }
 }
 
-struct SidebarWorktreeRow: View {
+struct RepoExplorerWorktreeRow: View {
     let worktree: Worktree
     let checkoutTitle: String
     let branchName: String
-    let checkoutIconKind: SidebarCheckoutIconKind
+    let checkoutIconKind: RepoExplorerCheckoutIconKind
     let iconColor: Color
     let branchStatus: GitBranchStatus
     let notificationCount: Int
@@ -145,7 +145,7 @@ struct SidebarWorktreeRow: View {
     @State private var isHovering = false
 
     var body: some View {
-        SidebarWorktreeRowContent(
+        RepoExplorerWorktreeRowContent(
             checkoutTitle: checkoutTitle,
             branchName: branchName,
             checkoutIconKind: checkoutIconKind,
