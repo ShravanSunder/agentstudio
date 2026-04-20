@@ -39,7 +39,8 @@ struct PaneTabViewControllerDropRoutingTests {
             payload: payload,
             destinationPane: destinationPane,
             sourcePane: sourcePane,
-            zone: .left
+            zone: .left,
+            layout: DrawerGridLayout(topRow: Layout.autoTiled([sourcePaneId, destinationPaneId]))
         )
 
         #expect(
@@ -47,8 +48,7 @@ struct PaneTabViewControllerDropRoutingTests {
                 == .moveDrawerPane(
                     parentPaneId: parentPaneId,
                     drawerPaneId: sourcePaneId,
-                    targetDrawerPaneId: destinationPaneId,
-                    direction: .left
+                    target: .rowSlot(row: .top, insertionIndex: 0)
                 )
         )
     }
@@ -72,7 +72,8 @@ struct PaneTabViewControllerDropRoutingTests {
             payload: payload,
             destinationPane: destinationPane,
             sourcePane: sourcePane,
-            zone: .right
+            zone: .right,
+            layout: DrawerGridLayout(topRow: Layout.autoTiled([sourcePaneId, destinationPaneId]))
         )
 
         #expect(action == nil)
@@ -94,7 +95,8 @@ struct PaneTabViewControllerDropRoutingTests {
             payload: payload,
             destinationPane: destinationPane,
             sourcePane: sourcePane,
-            zone: .left
+            zone: .left,
+            layout: DrawerGridLayout(topRow: Layout.autoTiled([sourcePaneId]))
         )
 
         #expect(action == nil)
@@ -150,7 +152,7 @@ struct PaneTabViewControllerDropRoutingTests {
     }
 
     @Test
-    func splitDropCommitPlan_returnsMoveDrawerPlan_forSameDrawerParent() {
+    func splitDropCommitPlan_returnsNil_forSameDrawerParentDrawerMove() {
         let parentPaneId = UUIDv7.generate()
         let sourcePaneId = UUIDv7.generate()
         let destinationPaneId = UUIDv7.generate()
@@ -191,17 +193,7 @@ struct PaneTabViewControllerDropRoutingTests {
             state: state
         )
 
-        #expect(
-            commitPlan
-                == .paneAction(
-                    .moveDrawerPane(
-                        parentPaneId: parentPaneId,
-                        drawerPaneId: sourcePaneId,
-                        targetDrawerPaneId: destinationPaneId,
-                        direction: .left
-                    )
-                )
-        )
+        #expect(commitPlan == nil)
     }
 
     @Test

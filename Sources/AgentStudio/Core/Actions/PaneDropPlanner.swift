@@ -95,23 +95,8 @@ enum PaneDropPlanner {
         targetDrawerParentPaneId: UUID?,
         state: ActionStateSnapshot
     ) -> PaneDropPreviewDecision {
-        if let drawerParentPaneId = targetDrawerParentPaneId {
-            guard case .existingPane(let sourcePaneId, _) = payload.kind else {
-                return .ineligible
-            }
-            guard sourcePaneId != targetPaneId else {
-                return .ineligible
-            }
-            guard state.drawerParentPaneId(of: sourcePaneId) == drawerParentPaneId else {
-                return .ineligible
-            }
-            let action = PaneActionCommand.moveDrawerPane(
-                parentPaneId: drawerParentPaneId,
-                drawerPaneId: sourcePaneId,
-                targetDrawerPaneId: targetPaneId,
-                direction: direction
-            )
-            return eligiblePaneAction(action, state: state)
+        if targetDrawerParentPaneId != nil {
+            return .ineligible
         }
 
         if case .existingPane(let sourcePaneId, _) = payload.kind,

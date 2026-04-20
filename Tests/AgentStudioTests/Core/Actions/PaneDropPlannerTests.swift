@@ -117,7 +117,7 @@ final class PaneDropPlannerTests {
     }
 
     @Test
-    func drawerPane_sameParentDrawerSplit_returnsMoveDrawerPlan() {
+    func drawerPane_sameParentDrawerSplit_returnsIneligible() {
         let sourceTabId = UUID()
         let parentPaneId = UUID()
         let sourcePaneId = UUID()
@@ -152,19 +152,7 @@ final class PaneDropPlannerTests {
             state: state
         )
 
-        #expect(
-            result
-                == .eligible(
-                    .paneAction(
-                        .moveDrawerPane(
-                            parentPaneId: parentPaneId,
-                            drawerPaneId: sourcePaneId,
-                            targetDrawerPaneId: destinationPaneId,
-                            direction: .left
-                        )
-                    )
-                )
-        )
+        #expect(result == .ineligible)
     }
 
     @Test

@@ -984,7 +984,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             payload: payload,
             destinationPane: destinationPane,
             sourcePane: sourcePane,
-            zone: zone
+            zone: zone,
+            layout: destinationPane?.parentPaneId.flatMap { store.paneAtom.pane($0)?.drawer?.layout }
         )
     }
 
@@ -1542,7 +1543,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             .toggleDrawer(let parentPaneId),
             .setActiveDrawerPane(let parentPaneId, _),
             .insertDrawerPane(let parentPaneId, _, _),
-            .moveDrawerPane(let parentPaneId, _, _, _),
+            .moveDrawerPane(let parentPaneId, _, _),
             .minimizeDrawerPane(let parentPaneId, _),
             .expandDrawerPane(let parentPaneId, _):
             syncFocusOwnerAfterDrawerMutation(parentPaneId: parentPaneId)

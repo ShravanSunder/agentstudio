@@ -314,30 +314,20 @@ final class WorkspacePaneAtom {
     func moveDrawerPane(
         _ drawerPaneId: UUID,
         in parentPaneId: UUID,
-        to targetDrawerPaneId: UUID,
-        direction: SplitNewDirection
+        target: DrawerRearrangeTarget
     ) {
         guard var parentPane = panes[parentPaneId], var drawer = parentPane.drawer else {
             workspacePaneLogger.warning("moveDrawerPane: parent pane \(parentPaneId) has no drawer")
             return
         }
-        guard drawerPaneId != targetDrawerPaneId else { return }
-
-        guard drawer.paneIds.contains(drawerPaneId), drawer.paneIds.contains(targetDrawerPaneId) else {
+        guard drawer.paneIds.contains(drawerPaneId) else {
             workspacePaneLogger.warning(
-                "moveDrawerPane: failed moving pane \(drawerPaneId) near \(targetDrawerPaneId) in \(parentPaneId)"
+                "moveDrawerPane: failed moving pane \(drawerPaneId) in \(parentPaneId)"
             )
             return
         }
 
-        guard
-            let layoutWithoutSource = drawer.layout.removing(paneId: drawerPaneId),
-            let movedLayout = layoutWithoutSource.inserting(
-                paneId: drawerPaneId,
-                at: targetDrawerPaneId,
-                direction: direction
-            )
-        else {
+        guard let movedLayout = drawer.layout.projectedMove(paneId: drawerPaneId, target: target) else {
             return
         }
 

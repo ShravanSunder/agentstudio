@@ -542,12 +542,11 @@ extension PaneCoordinator {
                 direction: direction
             )
 
-        case .moveDrawerPane(let parentPaneId, let drawerPaneId, let targetDrawerPaneId, let direction):
+        case .moveDrawerPane(let parentPaneId, let drawerPaneId, let target):
             store.paneAtom.moveDrawerPane(
                 drawerPaneId,
                 in: parentPaneId,
-                to: targetDrawerPaneId,
-                direction: direction
+                target: target
             )
             focusVisiblePaneHost(drawerPaneId)
 

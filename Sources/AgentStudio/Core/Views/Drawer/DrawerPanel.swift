@@ -201,8 +201,10 @@ struct DrawerPanel: View {
         let moveAction = PaneActionCommand.moveDrawerPane(
             parentPaneId: parentPaneId,
             drawerPaneId: sourcePaneId,
-            targetDrawerPaneId: destinationPaneId,
-            direction: zone.newDirection
+            target: drawer.layout.legacyMoveTarget(
+                targetPaneId: destinationPaneId,
+                direction: zone.newDirection
+            ) ?? .rowSlot(row: .top, insertionIndex: 0)
         )
         if case .success = WorkspaceCommandValidator.validate(moveAction, state: snapshot) {
             return true
@@ -215,6 +217,7 @@ struct DrawerPanel: View {
         destinationPaneId: UUID,
         zone: DrawerDropZone
     ) {
+        guard let drawer = store.paneAtom.pane(parentPaneId)?.drawer else { return }
         guard case .existingPane(let sourcePaneId, _) = payload.kind else { return }
         guard sourcePaneId != destinationPaneId else { return }
         guard let sourcePane = store.paneAtom.pane(sourcePaneId) else { return }
@@ -224,8 +227,10 @@ struct DrawerPanel: View {
             .moveDrawerPane(
                 parentPaneId: parentPaneId,
                 drawerPaneId: sourcePaneId,
-                targetDrawerPaneId: destinationPaneId,
-                direction: zone.newDirection
+                target: drawer.layout.legacyMoveTarget(
+                    targetPaneId: destinationPaneId,
+                    direction: zone.newDirection
+                ) ?? .rowSlot(row: .top, insertionIndex: 0)
             )
         )
     }

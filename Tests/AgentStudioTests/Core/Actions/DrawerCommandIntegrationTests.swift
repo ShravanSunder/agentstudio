@@ -167,8 +167,7 @@ final class DrawerCommandIntegrationTests {
             .moveDrawerPane(
                 parentPaneId: parentPaneId,
                 drawerPaneId: dp1.id,
-                targetDrawerPaneId: dp3.id,
-                direction: .right
+                target: .rowSlot(row: .top, insertionIndex: 2)
             )
         )
 
@@ -196,8 +195,7 @@ final class DrawerCommandIntegrationTests {
             .moveDrawerPane(
                 parentPaneId: parentPaneId,
                 drawerPaneId: bottom.id,
-                targetDrawerPaneId: topLeft.id,
-                direction: .down
+                target: .createSecondRow(position: .bottom)
             )
         )
 
@@ -237,8 +235,7 @@ final class DrawerCommandIntegrationTests {
             .moveDrawerPane(
                 parentPaneId: parentPaneId,
                 drawerPaneId: second.id,
-                targetDrawerPaneId: first.id,
-                direction: .down
+                target: .rowSlot(row: .bottom, insertionIndex: 1)
             )
         )
 

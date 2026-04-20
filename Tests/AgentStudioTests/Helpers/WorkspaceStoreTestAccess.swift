@@ -192,14 +192,12 @@ extension WorkspaceStore {
     func moveDrawerPane(
         _ drawerPaneId: UUID,
         in parentPaneId: UUID,
-        to targetDrawerPaneId: UUID,
-        direction: SplitNewDirection
+        target: DrawerRearrangeTarget
     ) {
         paneAtom.moveDrawerPane(
             drawerPaneId,
             in: parentPaneId,
-            to: targetDrawerPaneId,
-            direction: direction
+            target: target
         )
     }
     func removeDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) {

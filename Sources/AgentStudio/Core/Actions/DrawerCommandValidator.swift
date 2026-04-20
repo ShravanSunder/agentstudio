@@ -69,8 +69,7 @@ enum DrawerCommandValidator {
     static func validateMove(
         parentPaneId: UUID,
         drawerPaneId: UUID,
-        targetDrawerPaneId: UUID,
-        direction: SplitNewDirection,
+        target: DrawerRearrangeTarget,
         state: ActionStateSnapshot
     ) -> Result<Void, ActionValidationError> {
         if let membershipError = validateMembership(
@@ -80,31 +79,12 @@ enum DrawerCommandValidator {
         ) {
             return .failure(membershipError)
         }
-        guard state.drawerParentPaneId(of: targetDrawerPaneId) == parentPaneId else {
-            return .failure(.paneNotFound(paneId: targetDrawerPaneId, tabId: state.activeTabId ?? UUID()))
-        }
         guard let currentLayout = state.drawerLayout(for: parentPaneId) else {
             return .failure(.invalidDrawerLayout(parentPaneId: parentPaneId))
         }
-        guard let layoutWithoutSource = currentLayout.removing(paneId: drawerPaneId) else {
+        guard currentLayout.projectedMove(paneId: drawerPaneId, target: target) != nil else {
             return .failure(.invalidDrawerLayout(parentPaneId: parentPaneId))
         }
-        guard
-            let resultingLayout = layoutWithoutSource.inserting(
-                paneId: drawerPaneId,
-                at: targetDrawerPaneId,
-                direction: direction
-            )
-        else {
-            return .failure(.invalidDrawerLayout(parentPaneId: parentPaneId))
-        }
-
-        return validateResultingLayout(
-            resultingLayout,
-            parentPaneId: parentPaneId,
-            state: state,
-            requestedDirection: direction,
-            wouldCreateThirdRow: false
-        )
+        return .success(())
     }
 }

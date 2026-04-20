@@ -273,12 +273,11 @@ enum WorkspaceCommandValidator {
                 state: state
             ).map { ValidatedAction(action) }
 
-        case .moveDrawerPane(let parentPaneId, let drawerPaneId, let targetDrawerPaneId, let direction):
+        case .moveDrawerPane(let parentPaneId, let drawerPaneId, let target):
             return DrawerCommandValidator.validateMove(
                 parentPaneId: parentPaneId,
                 drawerPaneId: drawerPaneId,
-                targetDrawerPaneId: targetDrawerPaneId,
-                direction: direction,
+                target: target,
                 state: state
             ).map { ValidatedAction(action) }
 
