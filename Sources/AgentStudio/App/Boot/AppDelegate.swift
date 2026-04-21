@@ -969,18 +969,15 @@ extension AppDelegate: ShellCommandHandling {
             appLogger.warning("No window available for \(context, privacy: .public)")
             return
         }
+        // Must compute the owner before presenting the panel. Once the
+        // CommandBar becomes key, `isWorkspaceWindowKey` flips false.
+        let owner = KeyboardOwnerDerived().current(
+            windowLifecycle: windowLifecycleStore,
+            managementLayer: atomStore.managementLayer,
+            uiState: uiState
+        )
         let defaultRootScope: CommandBarScope =
-            if prefix == nil,
-                KeyboardOwnerDerived().current(
-                    windowLifecycle: windowLifecycleStore,
-                    managementLayer: atomStore.managementLayer,
-                    uiState: uiState
-                ) == .sidebar(.inbox)
-            {
-                .inbox
-            } else {
-                .everything
-            }
+            prefix == nil ? CommandBarState.defaultScope(for: owner) : .everything
         commandBarController.show(
             prefix: prefix,
             defaultRootScope: defaultRootScope,

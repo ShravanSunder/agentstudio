@@ -184,14 +184,14 @@ final class CommandBarState {
             managementLayer: managementLayer,
             uiState: uiState
         )
-        let defaultScope: CommandBarScope =
-            if owner == .sidebar(.inbox) {
-                .inbox
-            } else {
-                .everything
-            }
-        state.show(defaultScope: defaultScope)
+        state.show(defaultScope: defaultScope(for: owner))
         return state
+    }
+
+    /// Root-scope mapping is shared by the production AppDelegate open path and
+    /// the test fixture entry point above so new owner→scope rows stay in sync.
+    static func defaultScope(for owner: KeyboardOwner) -> CommandBarScope {
+        owner == .sidebar(.inbox) ? .inbox : .everything
     }
 
     /// Push a nested level onto the navigation stack.

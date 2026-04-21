@@ -43,8 +43,8 @@ struct CommandBarInboxScopeDefaultingTests {
         #expect(state.rawInput.isEmpty)
     }
 
-    @Test("opening CommandBar with owner=.none preserves existing default")
-    func noneOwnerPreservesExistingDefault() {
+    @Test("opening CommandBar with owner=.mainWindowChain preserves existing default")
+    func mainWindowChainOwnerPreservesExistingDefault() {
         let (window, management, uiState) = makeAtoms(isInboxOwner: false)
         let id = UUID()
         window.recordWindowRegistered(id)
@@ -97,5 +97,37 @@ struct CommandBarInboxScopeDefaultingTests {
 
         #expect(state.activeScope == .everything)
         #expect(state.currentScope == .everything)
+    }
+
+    @Test("focused inbox publisher flows through owner mapping into inbox default scope")
+    func inboxFocusPublisherFlowsIntoInboxDefaultScope() {
+        let window = WindowLifecycleAtom()
+        let management = ManagementLayerAtom()
+        let uiState = UIStateAtom()
+        let id = UUID()
+        window.recordWindowRegistered(id)
+        window.recordWindowBecameKey(id)
+        uiState.setSidebarSurface(.inbox)
+
+        InboxNotificationPlaceholderFocusPublisher.publish(
+            hasFocus: true,
+            into: uiState
+        )
+
+        let owner = KeyboardOwnerDerived().current(
+            windowLifecycle: window,
+            managementLayer: management,
+            uiState: uiState
+        )
+
+        #expect(owner == .sidebar(.inbox))
+        #expect(CommandBarState.defaultScope(for: owner) == .inbox)
+        #expect(
+            CommandBarState.forOpen(
+                windowLifecycle: window,
+                managementLayer: management,
+                uiState: uiState
+            ).currentScope == .inbox
+        )
     }
 }

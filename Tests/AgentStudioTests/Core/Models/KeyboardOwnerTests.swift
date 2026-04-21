@@ -10,17 +10,17 @@ struct KeyboardOwnerTests {
         let managementLayer = KeyboardOwner.managementLayer
         let inboxOwner = KeyboardOwner.sidebar(.inbox)
         let reposOwner = KeyboardOwner.sidebar(.repos)
-        let noneOwner = KeyboardOwner.none
+        let mainWindowChain = KeyboardOwner.mainWindowChain
 
         #expect(otherWindow == KeyboardOwner.otherWindow)
         #expect(managementLayer == KeyboardOwner.managementLayer)
         #expect(inboxOwner == KeyboardOwner.sidebar(.inbox))
         #expect(reposOwner == KeyboardOwner.sidebar(.repos))
-        #expect(noneOwner == KeyboardOwner.none)
+        #expect(mainWindowChain == KeyboardOwner.mainWindowChain)
 
         #expect(inboxOwner != reposOwner)
         #expect(otherWindow != managementLayer)
-        #expect(noneOwner != inboxOwner)
+        #expect(mainWindowChain != inboxOwner)
     }
 
     @Test("pattern matches .sidebar with associated surface")

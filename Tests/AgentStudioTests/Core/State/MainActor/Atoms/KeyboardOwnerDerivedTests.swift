@@ -53,8 +53,8 @@ struct KeyboardOwnerDerivedTests {
         #expect(owner == .managementLayer)
     }
 
-    @Test("sidebar collapsed returns .none")
-    func sidebarCollapsedReturnsNone() {
+    @Test("sidebar collapsed returns .mainWindowChain")
+    func sidebarCollapsedReturnsMainWindowChain() {
         let (window, management, uiState) = makeAtoms()
         makeWindowKey(window)
         uiState.setSidebarCollapsed(true)
@@ -66,11 +66,11 @@ struct KeyboardOwnerDerivedTests {
             uiState: uiState
         )
 
-        #expect(owner == .none)
+        #expect(owner == .mainWindowChain)
     }
 
-    @Test("sidebar visible but no focus returns .none")
-    func sidebarVisibleNoFocusReturnsNone() {
+    @Test("sidebar visible but no focus returns .mainWindowChain")
+    func sidebarVisibleNoFocusReturnsMainWindowChain() {
         let (window, management, uiState) = makeAtoms()
         makeWindowKey(window)
 
@@ -80,7 +80,7 @@ struct KeyboardOwnerDerivedTests {
             uiState: uiState
         )
 
-        #expect(owner == .none)
+        #expect(owner == .mainWindowChain)
     }
 
     @Test("sidebar visible with focus and .repos returns .sidebar(.repos)")

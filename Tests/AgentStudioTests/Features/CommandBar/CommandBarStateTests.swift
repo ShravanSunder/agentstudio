@@ -749,6 +749,44 @@ final class CommandBarStateTests {
         #expect(state.activeScope == .everything)
     }
 
+    @Test
+    func test_show_prefixOverridesDefaultScope() {
+        state.show(prefix: ">", defaultScope: .inbox)
+        #expect(state.activeScope == .commands)
+
+        state.dismiss()
+
+        state.show(prefix: "#", defaultScope: .inbox)
+        #expect(state.activeScope == .repos)
+
+        state.dismiss()
+
+        state.show(prefix: "$", defaultScope: .inbox)
+        #expect(state.activeScope == .panes)
+    }
+
+    @Test
+    func test_switchPrefix_resetsDefaultRootScopeToEverything() {
+        state.show(defaultScope: .inbox)
+        #expect(state.defaultRootScope == .inbox)
+
+        state.switchPrefix(">")
+
+        #expect(state.defaultRootScope == .everything)
+        #expect(state.activeScope == .commands)
+    }
+
+    @Test
+    func test_dismiss_resetsDefaultRootScopeToEverything() {
+        state.show(defaultScope: .inbox)
+        #expect(state.defaultRootScope == .inbox)
+
+        state.dismiss()
+
+        #expect(state.defaultRootScope == .everything)
+        #expect(state.activeScope == .everything)
+    }
+
     // MARK: - Persistence — loadRecents
 
     @Test
