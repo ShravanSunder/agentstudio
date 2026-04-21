@@ -301,9 +301,10 @@ struct WorkspaceEmptyStateView: View {
                     action: { CommandDispatcher.shared.dispatch(.showCommandBarRepos) }
                 )
 
-                launcherIconShortcutButton(
-                    systemImage: "folder.badge.plus",
-                    helpText: "Watch Folder",
+                launcherShortcutRow(
+                    keyImage: "folder.badge.plus",
+                    title: "Watch Folder",
+                    subtitle: "Scan and keep watching a folder for repos.",
                     action: { CommandDispatcher.shared.dispatch(.watchFolder) }
                 )
             }
@@ -325,30 +326,6 @@ struct WorkspaceEmptyStateView: View {
             subtitle: subtitle,
             action: action
         )
-    }
-
-    private func launcherIconShortcutButton(
-        systemImage: String,
-        helpText: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemImage)
-                .font(AppStyles.Welcome.Typography.h3)
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 44, height: 44)
-                .background(
-                    RoundedRectangle(cornerRadius: AppStyles.Welcome.launcherShortcutRowCornerRadius)
-                        .fill(Color.white.opacity(AppStyles.Welcome.cardFillOpacity))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: AppStyles.Welcome.launcherShortcutRowCornerRadius)
-                        .stroke(Color.white.opacity(AppStyles.Welcome.cardStrokeOpacity), lineWidth: 1)
-                )
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(helpText)
     }
 
     private func launcherRecentSection(
