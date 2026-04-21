@@ -247,7 +247,7 @@ struct ManagementLayerTests {
             let definition = CommandDispatcher.shared.definition(for: .toggleManagementLayer)
             #expect(definition.keyBinding?.key == "r")
             #expect(definition.keyBinding?.modifiers == [.command])
-            #expect(definition.icon == "rectangle.split.2x2")
+            #expect(definition.icon == .system(.rectangleSplit2x2))
         }
     }
 
@@ -255,7 +255,7 @@ struct ManagementLayerTests {
     func test_managementLayerExit_commandDefinition() async {
         withTestAtomRegistry { _ in
             let definition = CommandDispatcher.shared.definition(for: .managementLayerExit)
-            #expect(definition.icon == "rectangle.split.2x2.fill")
+            #expect(definition.icon == .system(.rectangleSplit2x2Fill))
         }
     }
 

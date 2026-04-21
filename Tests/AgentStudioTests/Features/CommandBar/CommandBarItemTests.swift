@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import AgentStudio
@@ -168,7 +169,7 @@ struct CommandBarItemTests {
         #expect(item.id == "test-item")
         #expect(item.title == "Test Item")
         #expect(item.subtitle == nil)
-        #expect(item.icon == "terminal")
+        #expect(item.icon == .system(.terminal))
         #expect(item.iconColor == nil)
         #expect(item.shortcutKeys == nil)
         #expect(item.group == "Commands")
@@ -205,7 +206,7 @@ struct CommandBarItemTests {
             id: "close-tab",
             title: "Close Tab",
             subtitle: "Tab 1",
-            icon: "xmark",
+            icon: .system(.xmark),
             iconColor: .red,
             shortcutKeys: keys,
             group: "Tab",
@@ -219,8 +220,8 @@ struct CommandBarItemTests {
         #expect(item.id == "close-tab")
         #expect(item.title == "Close Tab")
         #expect(item.subtitle == "Tab 1")
-        #expect(item.icon == "xmark")
-        #expect(item.iconColor == .red)
+        #expect(item.icon == .system(.xmark))
+        #expect(item.iconColor == Color.red)
         #expect(item.shortcutKeys?.count == 2)
         #expect(item.group == "Tab")
         #expect(item.groupPriority == 1)

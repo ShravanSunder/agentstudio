@@ -159,7 +159,7 @@ enum CommandBarDataSource {
                 id: "tab-\(tab.id.uuidString)",
                 title: title,
                 subtitle: subtitle,
-                icon: "rectangle.stack",
+                icon: .system(.rectangleStack),
                 group: Group.tabs,
                 groupPriority: Priority.tabs,
                 keywords: keywords,
@@ -241,7 +241,7 @@ enum CommandBarDataSource {
                     id: "tab-\(tab.id.uuidString)",
                     title: tabTitle,
                     subtitle: isActiveTab ? "Active Tab" : nil,
-                    icon: "rectangle.stack",
+                    icon: .system(.rectangleStack),
                     group: tabGroupName,
                     groupPriority: tabIndex,
                     keywords: ["tab", "switch"],
@@ -445,7 +445,7 @@ enum CommandBarDataSource {
                         id: "target-tab-\(tab.id.uuidString)",
                         title: title,
                         subtitle: "Tab \(index + 1)",
-                        icon: "rectangle.stack",
+                        icon: .system(.rectangleStack),
                         group: "Tabs",
                         groupPriority: 0,
                         action: .dispatchTargeted(def.command, target: tab.id, targetType: .tab)
@@ -486,7 +486,7 @@ enum CommandBarDataSource {
                             id: "target-worktree-\(worktree.id.uuidString)",
                             title: worktree.name,
                             subtitle: repo.name,
-                            icon: worktree.isMainWorktree ? "star.fill" : "arrow.triangle.branch",
+                            icon: worktree.isMainWorktree ? .system(.starFill) : .system(.arrowTriangleBranch),
                             group: "Worktrees",
                             groupPriority: 2 + repoIndex,
                             action: .dispatchTargeted(def.command, target: worktree.id, targetType: .worktree)
@@ -595,7 +595,7 @@ enum CommandBarDataSource {
             id: "target-move-dest-tab-\(sourceContext.paneId.uuidString)-\(targetTabId.uuidString)",
             title: tabTitle,
             subtitle: "Tab \(tabIndex + 1)",
-            icon: "rectangle.stack",
+            icon: .system(.rectangleStack),
             group: "Tabs",
             groupPriority: 0,
             action: .custom {
@@ -630,7 +630,7 @@ enum CommandBarDataSource {
                     id: "target-arrangement-\(arrangement.id.uuidString)",
                     title: arrangement.name,
                     subtitle: arrangement.isDefault ? "Default" : "\(arrangement.visiblePaneIds.count) panes",
-                    icon: arrangement.isDefault ? "rectangle.3.group" : "rectangle.3.group.fill",
+                    icon: arrangement.isDefault ? .system(.rectangle3Group) : .system(.rectangle3GroupFill),
                     group: "Arrangements",
                     groupPriority: 0,
                     action: .dispatchTargeted(def.command, target: arrangement.id, targetType: .tab)
@@ -672,7 +672,7 @@ enum CommandBarDataSource {
                     id: "target-drawer-\(drawerPaneId.uuidString)",
                     title: paneDisplayLabel(for: drawerPane, store: store, repoCache: repoCache),
                     subtitle: isActive ? "Active" : "Drawer \(index + 1)",
-                    icon: "terminal",
+                    icon: .system(.terminal),
                     group: "Drawer Panes",
                     groupPriority: 0,
                     action: .dispatchTargeted(def.command, target: drawerPaneId, targetType: .pane)
@@ -690,15 +690,15 @@ enum CommandBarDataSource {
 
     // MARK: - Helpers
 
-    private static func iconForPane(_ pane: Pane) -> String {
+    private static func iconForPane(_ pane: Pane) -> CommandIcon {
         switch pane.content {
-        case .webview: return "globe"
-        case .bridgePanel: return "rectangle.split.2x1"
-        case .codeViewer: return "doc.text"
+        case .webview: return .system(.globe)
+        case .bridgePanel: return .system(.rectangleSplit2x1)
+        case .codeViewer: return .system(.docText)
         default:
             switch pane.source {
-            case .floating: return "terminal.fill"
-            case .worktree: return "terminal"
+            case .floating: return .system(.terminalFill)
+            case .worktree: return .system(.terminal)
             }
         }
     }

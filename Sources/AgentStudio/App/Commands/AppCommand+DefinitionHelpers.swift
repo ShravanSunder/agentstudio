@@ -6,6 +6,7 @@ extension AppCommand {
             command: self,
             shortcut: selectTabShortcut(index: index),
             label: "Select Tab \(index)",
+            icon: .system(.rectangleStack),
             helpText: "Select tab \(index)",
             visibleWhen: [.hasActiveTab],
             commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
@@ -13,11 +14,11 @@ extension AppCommand {
         )
     }
 
-    func focusDefinition(label: String, icon: String, helpText: String) -> CommandSpec {
+    func focusDefinition(label: String, icon: SystemSymbol, helpText: String) -> CommandSpec {
         CommandSpec(
             command: self,
             label: label,
-            icon: icon,
+            icon: .system(icon),
             helpText: helpText,
             visibleWhen: [.hasActiveTab, .hasMultiplePanes],
             commandBarGroupName: "Focus",
@@ -25,11 +26,11 @@ extension AppCommand {
         )
     }
 
-    func arrangementDefinition(label: String, icon: String, helpText: String) -> CommandSpec {
+    func arrangementDefinition(label: String, icon: SystemSymbol, helpText: String) -> CommandSpec {
         CommandSpec(
             command: self,
             label: label,
-            icon: icon,
+            icon: .system(icon),
             helpText: helpText,
             appliesTo: [.tab],
             visibleWhen: [.hasActiveTab, .hasArrangements],
@@ -38,11 +39,11 @@ extension AppCommand {
         )
     }
 
-    func worktreeDefinition(label: String, icon: String, helpText: String) -> CommandSpec {
+    func worktreeDefinition(label: String, icon: SystemSymbol, helpText: String) -> CommandSpec {
         CommandSpec(
             command: self,
             label: label,
-            icon: icon,
+            icon: .system(icon),
             helpText: helpText,
             appliesTo: [.worktree],
             commandBarGroupName: "Repo",
@@ -50,12 +51,13 @@ extension AppCommand {
         )
     }
 
-    func managementDefinition(shortcut: AppShortcut, label: String, icon: String, helpText: String) -> CommandSpec {
+    func managementDefinition(shortcut: AppShortcut, label: String, icon: SystemSymbol, helpText: String) -> CommandSpec
+    {
         CommandSpec(
             command: self,
             shortcut: shortcut,
             label: label,
-            icon: icon,
+            icon: .system(icon),
             helpText: helpText,
             requiresManagementLayer: true,
             isHiddenInCommandBar: true

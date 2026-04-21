@@ -270,9 +270,9 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         button.bezelColor = .systemTeal
         button.controlSize = .regular
 
-        if case .system(let systemName)? = definition.actionSpec.icon {
+        if case .system(let systemName) = definition.actionSpec.icon {
             button.image = NSImage(
-                systemSymbolName: systemName,
+                systemSymbolName: systemName.rawValue,
                 accessibilityDescription: definition.actionSpec.label
             )
         }
