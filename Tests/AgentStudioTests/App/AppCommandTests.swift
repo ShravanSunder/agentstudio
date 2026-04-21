@@ -584,7 +584,7 @@ final class AppCommandTests {
         // Assert
         #expect(def.keyBinding?.key == "f")
         #expect(def.keyBinding?.modifiers.contains(.command) ?? false)
-        #expect(def.keyBinding?.modifiers.contains(.shift) ?? false)
+        #expect(!(def.keyBinding?.modifiers.contains(.shift) ?? false))
     }
 
     @MainActor

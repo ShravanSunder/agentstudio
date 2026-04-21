@@ -9,6 +9,7 @@ struct SidebarSurfaceHost: View {
     let store: WorkspaceStore
     let uiState: UIStateAtom
     let onRefocusActivePane: () -> Void
+    let onDismissInbox: @MainActor @Sendable () -> Void
 
     var body: some View {
         switch uiState.sidebarSurface {
@@ -18,7 +19,10 @@ struct SidebarSurfaceHost: View {
                 onRefocusActivePane: onRefocusActivePane
             )
         case .inbox:
-            InboxNotificationPlaceholderView(uiState: uiState)
+            InboxNotificationPlaceholderView(
+                uiState: uiState,
+                onEscape: onDismissInbox
+            )
         }
     }
 

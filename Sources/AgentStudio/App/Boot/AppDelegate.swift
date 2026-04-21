@@ -671,7 +671,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         // View menu
         let viewMenu = NSMenu(title: "View")
-        viewMenu.addItem(menuItem(command: .toggleSidebar, action: #selector(toggleSidebar)))
         viewMenu.addItem(menuItem(command: .filterSidebar, action: #selector(filterSidebar)))
         viewMenu.addItem(NSMenuItem.separator())
 

@@ -95,6 +95,16 @@ struct ShortcutCatalogTests {
     }
 
     @Test
+    func shortcutDecoder_decodesSidebarFilterShortcut() {
+        let showFilter = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.f), modifiers: [.command]),
+            in: .global
+        )
+
+        #expect(showFilter == .filterSidebar)
+    }
+
+    @Test
     func shortcutDecoder_decodesAddDrawerPaneShortcut() {
         let addDrawerPane = ShortcutDecoder.shortcut(
             for: .init(key: .character(.d), modifiers: [.command, .shift]),

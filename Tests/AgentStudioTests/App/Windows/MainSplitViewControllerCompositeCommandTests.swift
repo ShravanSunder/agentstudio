@@ -55,8 +55,8 @@ struct MainSplitViewControllerCompositeCommandTests {
         await withMainSplitViewControllerHarness(
             withRepos: true,
             configureUIState: { $0.setSidebarCollapsed(true) },
-            sidebarRootViewBuilder: { uiState in
-                AnyView(DelayedInboxPlaceholderSidebarView(uiState: uiState))
+            sidebarRootViewBuilder: { uiState, onEscape in
+                AnyView(DelayedInboxPlaceholderSidebarView(uiState: uiState, onEscape: onEscape))
             },
             body: { harness in
                 harness.controller.showInboxNotifications(commandBarIsKey: false)
@@ -90,10 +90,72 @@ struct MainSplitViewControllerCompositeCommandTests {
             }
         )
     }
+
+    @Test("showInboxNotifications toggles a visible inbox sidebar closed")
+    func showInboxNotificationsTogglesVisibleInboxClosed() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            body: { harness in
+                harness.controller.showInboxNotifications(commandBarIsKey: false)
+                await eventually("inbox should be visible and focused") {
+                    harness.atoms.uiState.sidebarSurface == .inbox
+                        && harness.atoms.uiState.sidebarHasFocus
+                        && harness.controller.isSidebarCollapsed == false
+                }
+
+                harness.controller.showInboxNotifications(commandBarIsKey: false)
+                await eventually("visible inbox should collapse on second toggle") {
+                    harness.controller.isSidebarCollapsed
+                        && harness.atoms.uiState.sidebarCollapsed
+                        && harness.atoms.uiState.sidebarHasFocus == false
+                }
+            }
+        )
+    }
+
+    @Test("showWorktreeSidebar toggles a visible repos sidebar closed")
+    func showWorktreeSidebarTogglesVisibleReposClosed() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            body: { harness in
+                #expect(harness.controller.isSidebarCollapsed == false)
+                #expect(harness.atoms.uiState.sidebarSurface == .repos)
+
+                harness.controller.showWorktreeSidebar()
+                await eventually("visible repos should collapse on toggle") {
+                    harness.controller.isSidebarCollapsed
+                        && harness.atoms.uiState.sidebarCollapsed
+                        && harness.atoms.uiState.sidebarHasFocus == false
+                }
+            }
+        )
+    }
+
+    @Test("showSidebarFilter switches inbox surface back to repos and reveals filter")
+    func showSidebarFilterSwitchesInboxBackToRepos() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            body: { harness in
+                harness.controller.showInboxNotifications(commandBarIsKey: false)
+                await eventually("inbox should be visible") {
+                    harness.atoms.uiState.sidebarSurface == .inbox
+                        && harness.controller.isSidebarCollapsed == false
+                }
+
+                harness.controller.showSidebarFilter()
+
+                #expect(harness.atoms.uiState.sidebarSurface == .repos)
+                #expect(harness.atoms.uiState.isFilterVisible == true)
+                #expect(harness.controller.isSidebarCollapsed == false)
+            }
+        )
+    }
+
 }
 
 struct DelayedInboxPlaceholderSidebarView: View {
     let uiState: UIStateAtom
+    let onEscape: @MainActor @Sendable () -> Void
 
     @State private var isInboxMounted = false
 
@@ -107,7 +169,10 @@ struct DelayedInboxPlaceholderSidebarView: View {
                     }
             case .inbox:
                 if isInboxMounted {
-                    InboxNotificationPlaceholderView(uiState: uiState)
+                    InboxNotificationPlaceholderView(
+                        uiState: uiState,
+                        onEscape: onEscape
+                    )
                 } else {
                     Color.clear
                         .task {

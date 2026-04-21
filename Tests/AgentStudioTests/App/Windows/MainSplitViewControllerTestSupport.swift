@@ -15,14 +15,15 @@ struct MainSplitViewControllerHarness {
     let tempDir: URL
 }
 
-typealias MainSplitViewControllerTestSidebarBuilder = @MainActor (UIStateAtom) -> AnyView
+typealias MainSplitViewControllerTestSidebarBuilder =
+    @MainActor (UIStateAtom, @escaping @MainActor @Sendable () -> Void) -> AnyView
 
 @MainActor
 func withMainSplitViewControllerHarness<T>(
     withRepos: Bool = true,
     configureUIState: @MainActor (UIStateAtom) -> Void = { _ in },
-    sidebarRootViewBuilder: @escaping MainSplitViewControllerTestSidebarBuilder = { uiState in
-        AnyView(MainSplitViewControllerTestSidebarView(uiState: uiState))
+    sidebarRootViewBuilder: @escaping MainSplitViewControllerTestSidebarBuilder = { uiState, onEscape in
+        AnyView(MainSplitViewControllerTestSidebarView(uiState: uiState, onEscape: onEscape))
     },
     body: @MainActor (MainSplitViewControllerHarness) async throws -> T
 ) async rethrows -> T {
@@ -70,8 +71,8 @@ func withMainSplitViewControllerHarness<T>(
         appLifecycleStore: appLifecycleStore,
         tabBarAdapter: tabBarAdapter,
         viewRegistry: viewRegistry,
-        sidebarRootViewBuilder: { _, uiState, _ in
-            sidebarRootViewBuilder(uiState)
+        sidebarRootViewBuilder: { _, uiState, _, onDismissInbox in
+            sidebarRootViewBuilder(uiState, onDismissInbox)
         }
     )
     let window = NSWindow(
@@ -106,8 +107,9 @@ func withMainSplitViewControllerHarness<T>(
     return result
 }
 
-private struct MainSplitViewControllerTestSidebarView: View {
+struct MainSplitViewControllerTestSidebarView: View {
     let uiState: UIStateAtom
+    let onEscape: @MainActor @Sendable () -> Void
 
     var body: some View {
         Group {
@@ -115,7 +117,10 @@ private struct MainSplitViewControllerTestSidebarView: View {
             case .repos:
                 Color.clear
             case .inbox:
-                InboxNotificationPlaceholderView(uiState: uiState)
+                InboxNotificationPlaceholderView(
+                    uiState: uiState,
+                    onEscape: onEscape
+                )
             }
         }
         .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)

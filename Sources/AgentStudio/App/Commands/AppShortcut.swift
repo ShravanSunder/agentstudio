@@ -120,7 +120,6 @@ enum AppShortcut: String, CaseIterable {
     case openPaneLocationInFinder
     case openPaneLocationInEditorMenu
     case toggleManagementLayer
-    case toggleSidebar
     case filterSidebar
     case showInboxNotifications
     case showWorktreeSidebar
@@ -209,14 +208,9 @@ enum AppShortcut: String, CaseIterable {
                 trigger: .init(key: .character(.r), modifiers: [.command]),
                 contexts: [.global, .terminalAppOwned]
             )
-        case .toggleSidebar:
-            return .init(
-                trigger: .init(key: .character(.s), modifiers: [.command, .shift]),
-                contexts: [.global]
-            )
         case .filterSidebar:
             return .init(
-                trigger: .init(key: .character(.f), modifiers: [.command, .shift]),
+                trigger: .init(key: .character(.f), modifiers: [.command]),
                 contexts: [.global]
             )
         case .showInboxNotifications:

@@ -4,8 +4,26 @@ import SwiftUI
 /// Main split view controller with sidebar and terminal content area
 class MainSplitViewController: NSSplitViewController {
     typealias SidebarRootViewBuilder =
-        @MainActor (WorkspaceStore, UIStateAtom, @escaping () -> Void) -> AnyView
+        @MainActor (WorkspaceStore, UIStateAtom, @escaping () -> Void, @escaping @MainActor @Sendable () -> Void) ->
+        AnyView
     private static let inboxFocusRetryTurns = 20
+
+    @MainActor
+    private static func defaultSidebarRootViewBuilder(
+        store: WorkspaceStore,
+        uiState: UIStateAtom,
+        onRefocusActivePane: @escaping () -> Void,
+        onDismissInbox: @escaping @MainActor @Sendable () -> Void
+    ) -> AnyView {
+        AnyView(
+            SidebarSurfaceHost(
+                store: store,
+                uiState: uiState,
+                onRefocusActivePane: onRefocusActivePane,
+                onDismissInbox: onDismissInbox
+            )
+        )
+    }
 
     private var sidebarHostingController: NSHostingController<AnyView>?
     private var paneTabViewController: PaneTabViewController?
@@ -36,15 +54,7 @@ class MainSplitViewController: NSSplitViewController {
         appLifecycleStore: AppLifecycleAtom,
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
-        sidebarRootViewBuilder: @escaping SidebarRootViewBuilder = { store, uiState, onRefocusActivePane in
-            AnyView(
-                SidebarSurfaceHost(
-                    store: store,
-                    uiState: uiState,
-                    onRefocusActivePane: onRefocusActivePane
-                )
-            )
-        }
+        sidebarRootViewBuilder: @escaping SidebarRootViewBuilder = Self.defaultSidebarRootViewBuilder
     ) {
         self.store = store
         self.actionExecutor = actionExecutor
@@ -85,6 +95,10 @@ class MainSplitViewController: NSSplitViewController {
             uiState,
             { [weak paneTabVC] in
                 paneTabVC?.refocusActivePane()
+            },
+            { [weak self] in
+                self?.collapseSidebar()
+                self?.refocusActivePane()
             }
         )
         let sidebarHosting = NSHostingController(rootView: sidebarView)
@@ -166,6 +180,21 @@ class MainSplitViewController: NSSplitViewController {
         expandSidebar()
     }
 
+    func collapseSidebar() {
+        guard isViewLoaded else {
+            shouldExpandSidebarOnLoad = false
+            uiState.setSidebarCollapsed(true)
+            uiState.setSidebarHasFocus(false)
+            return
+        }
+        guard let sidebarItem = splitViewItems.first, !sidebarItem.isCollapsed else { return }
+        sidebarItem.animator().isCollapsed = true
+        uiState.setSidebarHasFocus(false)
+        Task { @MainActor [weak self] in
+            self?.saveSidebarState()
+        }
+    }
+
     @discardableResult
     func focusSidebar() -> Bool {
         guard isViewLoaded else { return false }
@@ -212,11 +241,18 @@ class MainSplitViewController: NSSplitViewController {
             return
         }
 
+        if uiState.sidebarSurface == .inbox {
+            uiState.setSidebarSurface(.repos)
+        }
         expandSidebar()
         uiState.setFilterVisible(true)
     }
 
     func showInboxNotifications(commandBarIsKey: Bool) {
+        if !isSidebarCollapsed && uiState.sidebarSurface == .inbox {
+            collapseSidebar()
+            return
+        }
         ensureSidebarVisible()
         uiState.setSidebarSurface(.inbox)
         if commandBarIsKey {
@@ -233,6 +269,10 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     func showWorktreeSidebar() {
+        if !isSidebarCollapsed && uiState.sidebarSurface == .repos {
+            collapseSidebar()
+            return
+        }
         sidebarFocusTask?.cancel()
         shouldFocusSidebarWhenVisible = false
         ensureSidebarVisible()

@@ -307,6 +307,11 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         arrangementBarEventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if let trigger = ShortcutDecoder.decode(event: event),
                 let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .global),
+                Self.shouldDispatchGlobalShortcut(
+                    shortcut.command,
+                    uiState: atom(\.uiState),
+                    managementLayer: atom(\.managementLayer)
+                ),
                 CommandDispatcher.shared.canDispatch(shortcut.command)
             {
                 CommandDispatcher.shared.dispatch(shortcut.command)
@@ -327,6 +332,23 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private func setupNotificationObservers() {
         guard notificationTasks.isEmpty else { return }
         setupAppNotificationObservers()
+    }
+
+    static func shouldDispatchGlobalShortcut(
+        _ command: AppCommand,
+        uiState: UIStateAtom,
+        managementLayer: ManagementLayerAtom
+    ) -> Bool {
+        switch command {
+        case .filterSidebar:
+            return
+                !managementLayer.isActive
+                && !uiState.sidebarCollapsed
+                && uiState.sidebarHasFocus
+                && uiState.sidebarSurface == .repos
+        default:
+            return true
+        }
     }
 
     private func setupAppNotificationObservers() {

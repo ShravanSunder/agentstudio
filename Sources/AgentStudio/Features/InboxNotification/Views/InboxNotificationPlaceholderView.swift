@@ -13,6 +13,7 @@ enum InboxNotificationPlaceholderFocusPublisher {
 
 private final class InboxNotificationPlaceholderFocusableView: NSView {
     var onFocusChange: @MainActor (Bool) -> Void = { _ in }
+    var onEscape: @MainActor @Sendable () -> Void = {}
 
     override var acceptsFirstResponder: Bool { true }
 
@@ -31,10 +32,16 @@ private final class InboxNotificationPlaceholderFocusableView: NSView {
         }
         return didResignFirstResponder
     }
+
+    override func cancelOperation(_ sender: Any?) {
+        _ = sender
+        onEscape()
+    }
 }
 
 private struct InboxNotificationPlaceholderFocusBridge: NSViewRepresentable {
     let uiState: UIStateAtom
+    let onEscape: @MainActor @Sendable () -> Void
 
     func makeNSView(context: Context) -> InboxNotificationPlaceholderFocusableView {
         let view = InboxNotificationPlaceholderFocusableView()
@@ -45,6 +52,7 @@ private struct InboxNotificationPlaceholderFocusBridge: NSViewRepresentable {
                 into: uiState
             )
         }
+        view.onEscape = onEscape
         return view
     }
 
@@ -58,6 +66,7 @@ private struct InboxNotificationPlaceholderFocusBridge: NSViewRepresentable {
                 into: uiState
             )
         }
+        nsView.onEscape = onEscape
     }
 
     static func dismantleNSView(
@@ -76,12 +85,16 @@ struct InboxNotificationPlaceholderView: View {
     )
 
     let uiState: UIStateAtom
+    let onEscape: @MainActor @Sendable () -> Void
 
     var body: some View {
         VStack(spacing: 12) {
-            InboxNotificationPlaceholderFocusBridge(uiState: uiState)
-                .frame(width: 1, height: 1)
-                .opacity(0.001)
+            InboxNotificationPlaceholderFocusBridge(
+                uiState: uiState,
+                onEscape: onEscape
+            )
+            .frame(width: 1, height: 1)
+            .opacity(0.001)
 
             Image(systemName: "bell.slash")
                 .imageScale(.large)

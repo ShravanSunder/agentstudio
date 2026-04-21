@@ -128,20 +128,33 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     // MARK: - Titlebar Accessory
 
     private func setupTitlebarAccessory() {
-        let toggleSidebarPresentation = CommandDispatcher.shared.definition(for: .toggleSidebar)
+        let worktreeSidebarPresentation = CommandDispatcher.shared.definition(for: .showWorktreeSidebar)
+        let inboxSidebarPresentation = CommandDispatcher.shared.definition(for: .showInboxNotifications)
         let filterSidebarPresentation = CommandDispatcher.shared.definition(for: .filterSidebar)
 
-        // Sidebar toggle button
-        let toggleButton = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
-        toggleButton.image = NSImage(
+        // Worktree sidebar button
+        let worktreeButton = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
+        worktreeButton.image = NSImage(
             systemSymbolName: "sidebar.left",
-            accessibilityDescription: toggleSidebarPresentation.actionSpec.label
+            accessibilityDescription: worktreeSidebarPresentation.actionSpec.label
         )
-        toggleButton.bezelStyle = .accessoryBarAction
-        toggleButton.isBordered = false
-        toggleButton.target = self
-        toggleButton.action = #selector(toggleSidebarAction)
-        toggleButton.toolTip = toggleSidebarPresentation.controlToolTip
+        worktreeButton.bezelStyle = .accessoryBarAction
+        worktreeButton.isBordered = false
+        worktreeButton.target = self
+        worktreeButton.action = #selector(showWorktreeSidebarAction)
+        worktreeButton.toolTip = worktreeSidebarPresentation.controlToolTip
+
+        // Inbox sidebar button
+        let inboxButton = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
+        inboxButton.image = NSImage(
+            systemSymbolName: "bell",
+            accessibilityDescription: inboxSidebarPresentation.actionSpec.label
+        )
+        inboxButton.bezelStyle = .accessoryBarAction
+        inboxButton.isBordered = false
+        inboxButton.target = self
+        inboxButton.action = #selector(showInboxSidebarAction)
+        inboxButton.toolTip = inboxSidebarPresentation.controlToolTip
 
         // Search button
         let searchButton = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
@@ -155,12 +168,12 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         searchButton.action = #selector(filterSidebarAction)
         searchButton.toolTip = filterSidebarPresentation.controlToolTip
 
-        // Stack both buttons horizontally with standard titlebar spacing
-        let stack = NSStackView(views: [toggleButton, searchButton])
+        // Stack buttons horizontally with standard titlebar spacing
+        let stack = NSStackView(views: [worktreeButton, inboxButton, searchButton])
         stack.orientation = .horizontal
         stack.spacing = 8
         stack.edgeInsets = NSEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)
-        stack.frame = NSRect(x: 0, y: 0, width: 78, height: 28)
+        stack.frame = NSRect(x: 0, y: 0, width: 122, height: 28)
 
         let accessoryVC = NSTitlebarAccessoryViewController()
         accessoryVC.view = stack
@@ -249,6 +262,14 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     @objc private func toggleSidebarAction() {
         toggleSidebar()
+    }
+
+    @objc private func showWorktreeSidebarAction() {
+        showWorktreeSidebar()
+    }
+
+    @objc private func showInboxSidebarAction() {
+        showInboxNotifications(commandBarIsKey: false)
     }
 
     @objc private func filterSidebarAction() {

@@ -819,7 +819,6 @@ extension AppCommand {
         case .toggleSidebar:
             return CommandSpec(
                 command: self,
-                shortcut: .toggleSidebar,
                 label: "Toggle Sidebar",
                 icon: "sidebar.left",
                 helpText: "Show or hide the sidebar",
@@ -830,9 +829,9 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 shortcut: .showInboxNotifications,
-                label: "Show Inbox",
+                label: "Toggle Inbox",
                 icon: "bell",
-                helpText: "Show the notification inbox in the sidebar",
+                helpText: "Show or hide the notification inbox in the sidebar",
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window,
                 isHiddenInCommandBar: true
@@ -841,9 +840,9 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 shortcut: .showWorktreeSidebar,
-                label: "Show Worktrees",
+                label: "Toggle Worktrees",
                 icon: "sidebar.left",
-                helpText: "Show the repo explorer in the sidebar",
+                helpText: "Show or hide the repo explorer in the sidebar",
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window,
                 isHiddenInCommandBar: true
