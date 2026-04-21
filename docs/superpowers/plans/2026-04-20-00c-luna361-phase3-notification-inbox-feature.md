@@ -101,10 +101,21 @@ App/Commands/
 └── AppShortcut.swift                                    [MOD] bind ⌘⇧I
 
 App/Windows/
-└── SidebarSurfaceHost.swift                             [MOD] swap Inbox-
-                                                                PlaceholderView
-                                                                for Inbox-
-                                                                SidebarView
+├── SidebarSurfaceHost.swift                             [MOD] swap Inbox-
+│                                                                PlaceholderView
+│                                                                for Inbox-
+│                                                                SidebarView
+└── MainWindowController.swift                           [MOD] add bell button
+                                                                to sidebar
+                                                                toolbar accessory
+                                                                (spec §3.1) —
+                                                                Task 9a
+
+Infrastructure/
+└── AppPolicies.swift                                    [MOD] + InboxNotification.
+                                                                commandFinishedMin-
+                                                                DurationSeconds
+                                                                (Task 6 Step 0)
 
 Tests — full §13 coverage in Tests/AgentStudioTests/Features/InboxNotification/
 (plus integration in Tests/AgentStudioTests/Integration/)
@@ -122,7 +133,8 @@ Tests — full §13 coverage in Tests/AgentStudioTests/Features/InboxNotificatio
 6. **`InboxNotificationRouter`** — subscribes to EventBus, applies §7 routing, writes atom.
 7. **Bridge RPC `inbox.post` handler.**
 8. **`InboxRow` / `InboxNotificationGroupHeader` / `InboxNotificationEmptyState` components.**
-9. **`InboxNotificationSidebarView`** — composes components, declares `InboxFocus`, publishes `sidebarHasFocus`, attaches the `⌥F`/`⌥G`/`⌥S`/arrows/Enter/Space keymap.
+9. **`InboxNotificationSidebarView`** — composes components, declares `InboxFocus`, publishes `sidebarHasFocus`, attaches the full spec §5.3 keymap: `⌥F`/`⌥G`/`⌥S`/`↓↑`/`⌥↓⌥↑`/`⌘↓⌘↑`/`Enter`/`Space`/`Esc`, with group-header non-focusability and dead-pane flash fallback.
+9a. **Sidebar toolbar bell icon** (spec §3.1) — primary visible entry point in `MainWindowController`'s sidebar toolbar; red-dot unread indicator; click dispatches `.showInboxNotifications`.
 10. **`DrawerOverlay.TrailingActions` extension + `DrawerIconBar` bell rendering.**
 11. **`InboxNotificationDrawerBellHost` + `InboxNotificationDrawerPopover`.**
 12. **`RepoExplorerWorktreeRow` 🔔 N pill binding.**
@@ -1236,8 +1248,27 @@ focuses their source pane. LUNA-361 Phase 3."
 The leaf bus subscriber. Implements the §7 routing contract: reads `EventBus<RuntimeEnvelope>` events, gates them per the contract, enriches with repo/worktree/branch context, and appends to `InboxNotificationAtom`.
 
 **Files:**
+- Modify: `Sources/AgentStudio/Infrastructure/AppPolicies.swift` — add `commandFinishedMinDurationSeconds`
 - Create: `Sources/AgentStudio/Features/InboxNotification/Routing/InboxNotificationRouter.swift`
 - Test: `Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterTests.swift`
+
+- [ ] **Step 0: Add the `commandFinishedMinDurationSeconds` policy**
+
+Open `Sources/AgentStudio/Infrastructure/AppPolicies.swift` and extend the existing `InboxNotification` namespace:
+
+```swift
+enum InboxNotification {
+    static let maxRetained: Int = 1000
+
+    /// Minimum command duration (in seconds) before an unfocused-pane
+    /// `commandFinished` event produces a notification. Spec §7 routing
+    /// contract. Provisional; revisit once agents start emitting these
+    /// at scale.
+    static let commandFinishedMinDurationSeconds: UInt64 = 10
+}
+```
+
+Keep the threshold here so test fixtures and router share the same value and future tuning edits one file only.
 
 - [ ] **Step 1: Read the EventBus and RuntimeEnvelope types**
 
@@ -1402,6 +1433,81 @@ struct InboxNotificationRouterTests {
         #expect(f.inboxAtom.notifications.isEmpty)
     }
 
+    @Test("SecurityEvent.sandboxStopped → no notification")
+    func securitySandboxStopped() async throws {
+        let f = makeFixture()
+        let envelope = /* .security(.sandboxStopped(...)) */
+            fatalError("build envelope")
+        await f.bus.post(envelope)
+        try? await Task.sleep(for: .milliseconds(20))
+        #expect(f.inboxAtom.notifications.isEmpty)
+    }
+
+    @Test("SecurityEvent.sandboxHealthChanged(healthy:true) → no notification")
+    func securitySandboxHealthRecovered() async throws {
+        let f = makeFixture()
+        let envelope = /* .security(.sandboxHealthChanged(healthy: true)) */
+            fatalError("build envelope")
+        await f.bus.post(envelope)
+        try? await Task.sleep(for: .milliseconds(20))
+        #expect(f.inboxAtom.notifications.isEmpty)
+    }
+
+    @Test("SecurityEvent.sandboxHealthChanged true→false transition → notification")
+    func securitySandboxHealthTransitionToUnhealthy() async throws {
+        let f = makeFixture()
+        // First observed false counts as a transition (starts assumed healthy).
+        let envelope = /* .security(.sandboxHealthChanged(healthy: false)) */
+            fatalError("build envelope")
+        await f.bus.post(envelope)
+        try? await Task.sleep(for: .milliseconds(20))
+        #expect(f.inboxAtom.notifications.count == 1)
+        #expect(f.inboxAtom.notifications[0].kind == .securityEvent)
+    }
+
+    @Test("SecurityEvent.sandboxHealthChanged repeated false → no new notification")
+    func securitySandboxHealthRepeatedFalse() async throws {
+        let f = makeFixture()
+        let envelope = /* .security(.sandboxHealthChanged(healthy: false)) */
+            fatalError("build envelope")
+        await f.bus.post(envelope)   // transition → notifies
+        await f.bus.post(envelope)   // still false → must NOT re-notify
+        try? await Task.sleep(for: .milliseconds(20))
+        #expect(f.inboxAtom.notifications.count == 1,
+                "spec §7: only transitions to false alert")
+    }
+
+    @Test("SecurityEvent.secretAccessed → notification")
+    func securitySecretAccessed() async throws {
+        let f = makeFixture()
+        let envelope = /* .security(.secretAccessed(...)) */
+            fatalError("build envelope")
+        await f.bus.post(envelope)
+        try? await Task.sleep(for: .milliseconds(20))
+        #expect(f.inboxAtom.notifications.count == 1)
+        #expect(f.inboxAtom.notifications[0].kind == .securityEvent)
+    }
+
+    @Test("SecurityEvent.filesystemAccessDenied → notification")
+    func securityFilesystemAccessDenied() async throws {
+        let f = makeFixture()
+        let envelope = /* .security(.filesystemAccessDenied(...)) */
+            fatalError("build envelope")
+        await f.bus.post(envelope)
+        try? await Task.sleep(for: .milliseconds(20))
+        #expect(f.inboxAtom.notifications.count == 1)
+    }
+
+    @Test("SecurityEvent.processSpawnBlocked → notification")
+    func securityProcessSpawnBlocked() async throws {
+        let f = makeFixture()
+        let envelope = /* .security(.processSpawnBlocked(...)) */
+            fatalError("build envelope")
+        await f.bus.post(envelope)
+        try? await Task.sleep(for: .milliseconds(20))
+        #expect(f.inboxAtom.notifications.count == 1)
+    }
+
     // Default-deny rows
     @Test("FilesystemEvent events do NOT notify")
     func filesystemEventsIgnored() async throws {
@@ -1549,10 +1655,12 @@ final class InboxNotificationRouter {
             return prefsAtom.bellEnabled ? .bellRang : nil
 
         case .terminal(.commandFinished(_, let duration)):
-            // Only if pane is NOT focused AND duration >= 10s
+            // Only if pane is NOT focused AND duration >= threshold.
+            // Threshold lives in AppPolicies so it is tunable and visible
+            // alongside the retention cap. See spec §7.
             guard let pid = paneId(from: envelope),
                   paneAtom.activePaneId != pid,
-                  duration >= 10
+                  duration >= AppPolicies.InboxNotification.commandFinishedMinDurationSeconds
             else { return nil }
             return .commandFinished
 
@@ -1570,14 +1678,24 @@ final class InboxNotificationRouter {
              .security(.processSpawnBlocked):
             return .securityEvent
 
-        case .security(.sandboxHealthChanged(let healthy)) where !healthy:
-            return .securityEvent
+        // Spec §7: sandbox health alerts fire only on the transition
+        // true→false. Repeated false events are not re-alerts.
+        case .security(.sandboxHealthChanged(let healthy)):
+            let wasHealthy = sandboxHealthWasHealthy
+            sandboxHealthWasHealthy = healthy
+            return (wasHealthy && !healthy) ? .securityEvent : nil
 
         // Default deny for everything else:
         default:
             return nil
         }
     }
+
+    /// Tracks the previous sandbox-health value so `.sandboxHealthChanged`
+    /// only notifies on a true→false transition. Initialized to `true` so
+    /// the first observed `healthy: false` counts as a transition (we
+    /// assume the sandbox started healthy).
+    private var sandboxHealthWasHealthy: Bool = true
 
     private func paneId(from envelope: RuntimeEnvelope) -> UUID? {
         if case .pane(let pid) = envelope.source { return pid }
@@ -1945,18 +2063,29 @@ struct InboxRow: View {
     }
 
     private var contextLine: String? {
-        guard let repo = notification.repoName else { return nil }
-        if let worktree = notification.worktreeName {
-            if let branch = notification.branchName,
-               branch != worktree {
-                return "\(repo) · \(worktree) / \(branch)"
+        // Dead-source fallback per spec §8.6: the pane/repo/worktree
+        // may have been closed since the notification landed. Prefer
+        // repo+worktree; degrade through branch-only; finally show
+        // "unknown source" so the row is never contextless (which
+        // would make the notification meaningless to the user).
+        if let repo = notification.repoName {
+            if let worktree = notification.worktreeName {
+                if let branch = notification.branchName, branch != worktree {
+                    return "\(repo) · \(worktree) / \(branch)"
+                }
+                return "\(repo) · \(worktree)"
             }
-            return "\(repo) · \(worktree)"
+            return repo
         }
-        return repo
+        if let branch = notification.branchName {
+            return branch
+        }
+        return "unknown source"
     }
 }
 ```
+
+**Live relative time:** the row must keep `"2m"` ticking as minutes pass while the inbox is visible. Pass a `now: Date` parameter (evaluated at each render) driven by an inbox-level `TimelineView(.periodic(from: .now, by: 60))` or a `@State` `Timer` owned by `InboxNotificationSidebarView`. Do **not** capture `Date()` inside `InboxRow.body`'s computed properties — that evaluates once per SwiftUI diff, not once per minute. Task 9 owns the ticker; this view is stateless and receives `now` from its parent.
 
 - [ ] **Step 2: `InboxNotificationGroupHeader`**
 
@@ -2046,13 +2175,25 @@ struct InboxNotificationSidebarView: View {
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
     let uiState: UIStateAtom
+    // Needed for the dead-pane fallback in `activate(_:)` — we must
+    // check pane liveness before dispatching focusPane. Spec §8.6.
+    let workspacePaneAtom: WorkspacePaneAtom
 
     // Command dispatcher for click-through focusing of source pane
     let dispatcher: CommandDispatcher
 
+    // Callback injected by the sidebar surface host to return focus
+    // to the active pane when Esc leaves the inbox. Same pattern as
+    // RepoExplorerView's onRefocusActivePane.
+    let onRefocusActivePane: () -> Void
+
     @FocusState private var focusedField: InboxFocus?
     @State private var searchText: String = ""
     @State private var groupingMenuOpen: Bool = false
+    // IDs of rows currently flashing as "source-pane unavailable"
+    // feedback (spec §8.6 dead-pane fallback). Cleared after the
+    // flash animation duration.
+    @State private var flashingRowIds: Set<UUID> = []
 
     var body: some View {
         VStack(spacing: 0) {
@@ -2080,6 +2221,93 @@ struct InboxNotificationSidebarView: View {
             prefsAtom.setSort(next)
             return .handled
         }
+        // ⌥↓ / ⌥↑: jump to next/prev group's first row (skip headers)
+        .onKeyPress(.downArrow, modifiers: [.option]) {
+            moveFocusToGroupBoundary(.next) ? .handled : .ignored
+        }
+        .onKeyPress(.upArrow, modifiers: [.option]) {
+            moveFocusToGroupBoundary(.previous) ? .handled : .ignored
+        }
+        // ⌘↓ / ⌘↑: first / last notification
+        .onKeyPress(.downArrow, modifiers: [.command]) {
+            moveFocusToEnd(.last) ? .handled : .ignored
+        }
+        .onKeyPress(.upArrow, modifiers: [.command]) {
+            moveFocusToEnd(.first) ? .handled : .ignored
+        }
+        // Esc: if the search field is active, clear+exit it;
+        //       else return focus to the pane content (sidebar
+        //       loses focus → sidebarHasFocus goes false).
+        .onExitCommand {
+            if focusedField == .search {
+                if searchText.isEmpty {
+                    focusedField = .list
+                } else {
+                    searchText = ""
+                    focusedField = .list
+                }
+            } else {
+                focusedField = nil
+                onRefocusActivePane()
+            }
+        }
+    }
+
+    /// Group-header rows are NEVER focus stops for plain arrow navigation.
+    /// Spec §5.3: "Headers (group labels) are never focus stops for ↓/↑;
+    /// arrow keys skip between item rows only."
+    /// `InboxNotificationGroupHeader` therefore omits `.focused(...)`
+    /// binding — only `InboxRow` participates. For `.byTab` grouping,
+    /// the intra-group pane sub-headers follow the same rule: they
+    /// render via a non-focusable helper view, not `InboxRow`.
+    ///
+    /// ⌥↓ / ⌥↑ navigate BETWEEN groups and land on the FIRST item row
+    /// of the target group (again skipping the header itself). See
+    /// `moveFocusToGroupBoundary` below.
+    private enum Direction { case next, previous }
+    private enum Endpoint { case first, last }
+
+    @discardableResult
+    private func moveFocusToGroupBoundary(_ direction: Direction) -> Bool {
+        let groups = groupedRows
+        guard !groups.isEmpty else { return false }
+
+        // Find which group currently holds the focused row.
+        let currentGroupIndex: Int? = groups.firstIndex { g in
+            guard case .row(let id) = focusedField else { return false }
+            return g.notifications.contains { $0.id == id }
+        }
+
+        let targetIndex: Int
+        switch direction {
+        case .next:
+            if let i = currentGroupIndex, i + 1 < groups.count {
+                targetIndex = i + 1
+            } else { return false }
+        case .previous:
+            if let i = currentGroupIndex, i - 1 >= 0 {
+                targetIndex = i - 1
+            } else { return false }
+        }
+
+        guard let firstRow = groups[targetIndex].notifications.first else {
+            return false
+        }
+        focusedField = .row(firstRow.id)
+        return true
+    }
+
+    @discardableResult
+    private func moveFocusToEnd(_ endpoint: Endpoint) -> Bool {
+        let rows = groupedRows.flatMap(\.notifications)
+        guard !rows.isEmpty else { return false }
+        switch endpoint {
+        case .first:
+            focusedField = .row(rows.first!.id)
+        case .last:
+            focusedField = .row(rows.last!.id)
+        }
+        return true
     }
 
     private var header: some View {
@@ -2124,41 +2352,63 @@ struct InboxNotificationSidebarView: View {
     }
 
     private var scrollableBody: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(groupedRows, id: \.key) { group in
-                    if !group.label.isEmpty {
-                        InboxNotificationGroupHeader(
-                            label: group.label,
-                            unreadCount: group.unreadCount
-                        )
-                    }
-                    ForEach(group.notifications) { note in
-                        InboxRow(notification: note, now: Date())
-                            .focused($focusedField, equals: .row(note.id))
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                activate(note)
-                            }
-                            .onKeyPress(.return) {
-                                if focusedField == .row(note.id) {
+        // TimelineView drives a periodic re-render (every 60s) so
+        // InboxRow's "2m" / "11m" labels stay accurate while the
+        // inbox is visible. `context.date` is the "now" value for
+        // this render; InboxRow receives it and computes the
+        // relative string from it. Without this wrapper, Date()
+        // would only be captured on SwiftUI diff — rows would say
+        // "2m" forever until another unrelated state change.
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(groupedRows, id: \.key) { group in
+                        if !group.label.isEmpty {
+                            // Group headers are NEVER focus stops for
+                            // arrow navigation (spec §5.3). The header
+                            // view omits `.focused(...)` so the FocusState
+                            // responder chain skips past them.
+                            InboxNotificationGroupHeader(
+                                label: group.label,
+                                unreadCount: group.unreadCount
+                            )
+                        }
+                        ForEach(group.notifications) { note in
+                            InboxRow(notification: note, now: context.date)
+                                .focused($focusedField, equals: .row(note.id))
+                                .contentShape(Rectangle())
+                                .background(
+                                    flashingRowIds.contains(note.id)
+                                        ? Color.accentColor.opacity(0.2)
+                                        : Color.clear
+                                )
+                                .animation(
+                                    .easeOut(duration: 0.3),
+                                    value: flashingRowIds.contains(note.id)
+                                )
+                                .onTapGesture {
                                     activate(note)
-                                    return .handled
                                 }
-                                return .ignored
-                            }
-                            .onKeyPress(.space) {
-                                if focusedField == .row(note.id) {
-                                    inboxAtom.toggleReadState(id: note.id)
-                                    return .handled
+                                .onKeyPress(.return) {
+                                    if focusedField == .row(note.id) {
+                                        activate(note)
+                                        return .handled
+                                    }
+                                    return .ignored
                                 }
-                                return .ignored
-                            }
+                                .onKeyPress(.space) {
+                                    if focusedField == .row(note.id) {
+                                        inboxAtom.toggleReadState(id: note.id)
+                                        return .handled
+                                    }
+                                    return .ignored
+                                }
+                        }
                     }
                 }
             }
+            .focused($focusedField, equals: .list)
         }
-        .focused($focusedField, equals: .list)
     }
 
     private var groupingMenu: some View {
@@ -2256,11 +2506,32 @@ struct InboxNotificationSidebarView: View {
 
     // MARK: - Actions
 
+    /// Spec §8.6 click-through routing.
+    /// 1. markRead
+    /// 2. dismissFromDrawer (consistency with §4.2 rule — focusing the
+    ///    source is a stronger signal than drawer-local dismissal)
+    /// 3. If the source pane still exists, dispatch focusPane.
+    /// 4. If the pane is gone (or was nil), flash the row briefly and
+    ///    stay in the inbox. No error modal.
     private func activate(_ n: InboxNotification) {
         inboxAtom.markRead(id: n.id)
         inboxAtom.dismissFromDrawer(id: n.id)
-        if let paneId = n.paneId {
+
+        let paneAlive: Bool = {
+            guard let pid = n.paneId else { return false }
+            return workspacePaneAtom.pane(pid) != nil
+        }()
+
+        if paneAlive, let paneId = n.paneId {
             dispatcher.dispatch(.focusPane(paneId))
+            return
+        }
+
+        // Dead-pane fallback — flash the row, no modal.
+        flashingRowIds.insert(n.id)
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(600))
+            flashingRowIds.remove(n.id)
         }
     }
 }
@@ -2280,16 +2551,35 @@ func instantiates() {
     let inbox = InboxNotificationAtom()
     let prefs = InboxNotificationPrefsAtom()
     let uiState = UIStateAtom()
+    let panes = WorkspacePaneAtom()
     let dispatcher = CommandDispatcher.makeForTest()  // or real
     let view = InboxNotificationSidebarView(
         inboxAtom: inbox,
         prefsAtom: prefs,
         uiState: uiState,
-        dispatcher: dispatcher
+        workspacePaneAtom: panes,
+        dispatcher: dispatcher,
+        onRefocusActivePane: {}
     )
     #expect(view.body is (any View))  // trivial — exercise the init
 }
 ```
+
+**Keymap coverage tests** (promote to real behavioral tests during Task 16 integration; smoke-list here for the implementer's reference):
+- `⌥F` → focusedField == .search
+- `⌥G` → groupingMenuOpen flips
+- `⌥S` → prefsAtom.sort flips
+- `⌥↓` from first-group row → focuses first row of second group (skips header)
+- `⌥↑` from second-group row → focuses first row of first group
+- `⌘↓` → focuses last row overall
+- `⌘↑` → focuses first row overall
+- `↓`/`↑` at group boundary → skips over header (never lands on header)
+- `Enter` on focused row → activate() (markRead + dismissFromDrawer + focusPane if alive, flash if dead)
+- `Space` on focused row → toggleReadState, no navigation
+- `Esc` with search non-empty → clears searchText, moves focus to list
+- `Esc` with search empty and focused on .search → focus to list
+- `Esc` with focus elsewhere → focus = nil, onRefocusActivePane() called
+- Click on row with dead `paneId` → row flashes, focus stays in inbox, no modal
 
 - [ ] **Step 3: Build, lint, commit**
 
@@ -2302,11 +2592,217 @@ git commit -m "feat(notification-inbox): add InboxNotificationSidebarView
 
 Main inbox sidebar screen. Declares InboxFocus enum and
 publishes sidebarHasFocus via @FocusState onChange per spec
-§4.3 contract. Keymap: ⌥F (search), ⌥G (grouping menu),
-⌥S (sort toggle), arrows/Enter/Space (row navigation),
-click-through via dispatcher → PaneActionCommand.focusPane.
+§4.3 contract. Full keymap per spec §5.3:
+  - ⌥F focus search, ⌥G toggle grouping menu, ⌥S toggle sort
+  - ↓/↑ row nav (headers non-focusable — skipped)
+  - ⌥↓/⌥↑ next/prev group (lands on first row of group)
+  - ⌘↓/⌘↑ last/first notification
+  - Enter activate, Space toggle read/unread
+  - Esc clears search else returns focus to pane
+Click-through via dispatcher → PaneActionCommand.focusPane.
+Dead-pane fallback: row flashes, stay in inbox, no modal
+(spec §8.6 step 5). Relative timestamps re-render every 60s
+via TimelineView so '2m' stays accurate while visible.
 Search filters across title/body/repo/worktree/branch.
-Grouping: none/by repo/by pane/by tab. LUNA-361 Phase 3."
+Grouping: none/by repo/by pane/by tab.
+LUNA-361 Phase 3."
+```
+
+---
+
+## Task 9a: Sidebar toolbar bell icon — main entry point (spec §3.1)
+
+Spec §3.1: *"Toolbar entry point: a new bell icon in the existing sidebar toolbar, next to the show/hide sidebar button. Shows a red dot (v1 default) when unread > 0. Clicking it runs the same composite command as ⌘I."*
+
+This is the primary user-visible affordance for opening the inbox. Distinct from:
+- the per-worktree `🔔 N` pill in `RepoExplorerWorktreeRow` (Task 12)
+- the drawer bell inside each drawer (Task 10)
+- the `⌘I` keyboard shortcut (Phase 1 / Phase 2a)
+
+Without this task, the only discoverable way to reach the inbox is the keyboard shortcut, which most users will never find.
+
+**Files:**
+- Modify: `Sources/AgentStudio/App/Windows/MainWindowController.swift` — add bell button alongside the existing sidebar-toggle + filter buttons
+- Modify: `Sources/AgentStudio/Core/Actions/LocalActionSpec.swift` (or wherever `filterSidebar` / `toggleSidebar` presentations live) — add a presentation for the bell
+- Test: `Tests/AgentStudioTests/App/Windows/MainWindowControllerInboxToolbarButtonTests.swift`
+
+- [ ] **Step 1: Locate the existing toolbar setup**
+
+```bash
+grep -n "toggleSidebarPresentation\|filterSidebarPresentation\|trailingAccessory\|NSToolbar" Sources/AgentStudio/App/Windows/MainWindowController.swift
+```
+
+Phase 1 established the pattern: `MainWindowController` reads a `CommandSpec` via `CommandDispatcher.shared.definition(for:)`, builds an `NSButton` with the spec's label/icon, and installs it in the sidebar toolbar. Mirror that shape exactly.
+
+- [ ] **Step 2: Write the failing test**
+
+```swift
+import AppKit
+import Testing
+@testable import AgentStudio
+
+@MainActor
+@Suite("MainWindowController inbox toolbar button")
+struct MainWindowControllerInboxToolbarButtonTests {
+
+    @Test("bell button is installed next to the sidebar-toggle button")
+    func buttonPresent() async {
+        await withMainSplitViewControllerHarness(withRepos: true) { h in
+            // The harness exposes `window`; the bell button lives in its
+            // titlebar accessory view controller.
+            let accessory = h.window.titlebarAccessoryViewControllers.first
+            let bells = accessory?.view.subviews.compactMap { $0 as? NSButton }
+                .filter { $0.identifier?.rawValue == "inboxToolbarBell" }
+            #expect(bells?.count == 1)
+        }
+    }
+
+    @Test("clicking the bell dispatches .showInboxNotifications")
+    func clickDispatches() async {
+        await withMainSplitViewControllerHarness(withRepos: true) { h in
+            let probe = CommandDispatchProbe()
+            CommandDispatcher.shared.install(probe: probe)
+            defer { CommandDispatcher.shared.uninstallProbe() }
+
+            let accessory = h.window.titlebarAccessoryViewControllers.first
+            let bell = accessory?.view.subviews
+                .compactMap { $0 as? NSButton }
+                .first { $0.identifier?.rawValue == "inboxToolbarBell" }
+            bell?.performClick(nil)
+
+            #expect(probe.dispatched.contains(.showInboxNotifications))
+        }
+    }
+
+    @Test("bell shows red dot when inbox has unread")
+    func redDotOnUnread() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            configureUIState: { _ in /* unread is on InboxNotificationAtom */ }
+        ) { h in
+            // Seed at least one unread on the inbox atom via the harness.
+            h.atoms.inboxNotification.append(/* unread notification */)
+
+            await Task.yield()
+
+            let accessory = h.window.titlebarAccessoryViewControllers.first
+            let bell = accessory?.view.subviews
+                .compactMap { $0 as? NSButton }
+                .first { $0.identifier?.rawValue == "inboxToolbarBell" }
+            let hasDot = bell?.subviews.contains { $0.identifier?.rawValue == "inboxToolbarBellDot" } ?? false
+            #expect(hasDot == true)
+        }
+    }
+}
+```
+
+The harness may need a tiny extension to expose `atoms.inboxNotification` — add it alongside the existing Phase-1 fixtures.
+
+- [ ] **Step 3: Add the bell button to `MainWindowController`**
+
+Extend the titlebar-accessory setup that currently builds the toggle + filter buttons. Pattern:
+
+```swift
+private func makeInboxToolbarBell(
+    inboxAtom: InboxNotificationAtom
+) -> NSButton {
+    let bell = NSButton(frame: .zero)
+    bell.bezelStyle = .texturedRounded
+    bell.isBordered = false
+    bell.image = NSImage(systemSymbolName: "bell",
+                        accessibilityDescription: "Show inbox")
+    bell.target = self
+    bell.action = #selector(showInboxNotificationsFromToolbar)
+    bell.identifier = .init("inboxToolbarBell")
+    bell.toolTip = "Show Inbox (⌘I)"
+
+    // Unread indicator: small red circle overlaid top-right when
+    // the atom reports unread > 0. Observed via withObservationTracking
+    // so the indicator toggles without a manual timer.
+    let dot = NSView(frame: NSRect(x: 0, y: 0, width: 6, height: 6))
+    dot.wantsLayer = true
+    dot.layer?.backgroundColor = NSColor.systemRed.cgColor
+    dot.layer?.cornerRadius = 3
+    dot.identifier = .init("inboxToolbarBellDot")
+    dot.isHidden = globalUnreadCount(inboxAtom) == 0
+    bell.addSubview(dot)
+    // Pin dot to top-right of bell image; omit frame math for brevity.
+
+    // Observation-tracked refresh:
+    observeUnreadCount(atom: inboxAtom, dot: dot)
+
+    return bell
+}
+
+@objc private func showInboxNotificationsFromToolbar() {
+    CommandDispatcher.shared.dispatch(.showInboxNotifications)
+}
+
+private func observeUnreadCount(
+    atom: InboxNotificationAtom,
+    dot: NSView
+) {
+    withObservationTracking {
+        _ = globalUnreadCount(atom)
+    } onChange: { [weak self, weak dot, weak atom] in
+        Task { @MainActor in
+            guard let dot, let atom else { return }
+            dot.isHidden = globalUnreadCount(atom) == 0
+            self?.observeUnreadCount(atom: atom, dot: dot)
+        }
+    }
+}
+
+/// Global unread — total across all panes/worktrees/tabs.
+/// Distinct from `InboxNotificationAtom.unreadCount(forPaneId:)` /
+/// `(forWorktreeId:)` which scope to one entity. The toolbar bell
+/// needs the global tally.
+private func globalUnreadCount(_ atom: InboxNotificationAtom) -> Int {
+    atom.notifications.reduce(0) { $1.isRead ? $0 : $0 + 1 }
+}
+```
+
+Install the bell in the existing titlebar accessory view **after** the filter button (so it ends up at the far right of the sidebar toolbar). The spec says "next to the show/hide sidebar button" — visual placement in the accessory view must match the mockup in §3.1 (bell is the rightmost control on the sidebar side).
+
+- [ ] **Step 4: Run tests + lint**
+
+```bash
+mise run test -- --filter MainWindowControllerInboxToolbarButtonTests
+mise run lint
+```
+
+- [ ] **Step 5: Visual verification (peekaboo)**
+
+```bash
+mise run build
+BUILD_PATH=".build-agent-$PPID"
+"$BUILD_PATH/debug/AgentStudio" &
+PID=$!
+peekaboo see --app "PID:$PID" --json
+```
+
+Verify:
+- Bell icon visible in sidebar toolbar, after the filter icon
+- Clicking bell opens the inbox (surface switches to `.inbox`)
+- With unread notifications, red dot overlays the bell
+- With zero unread, no dot
+
+Kill: `kill "$PID"`
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add Sources/AgentStudio/App/Windows/MainWindowController.swift \
+        Sources/AgentStudio/Core/Actions/ \
+        Tests/AgentStudioTests/App/Windows/MainWindowControllerInboxToolbarButtonTests.swift
+git commit -m "feat(notification-inbox): add sidebar toolbar bell icon
+
+Primary user-visible entry point to the inbox (spec §3.1).
+Lives in MainWindowController's titlebar accessory view next
+to the existing sidebar-toggle and filter buttons. Shows a
+red dot when InboxNotificationAtom.unreadCount > 0; click
+dispatches .showInboxNotifications. Observation-tracked
+refresh — no manual timer. LUNA-361 Phase 3."
 ```
 
 ---
@@ -3252,19 +3748,25 @@ Fill in envelope constructors and fixture helpers against the real APIs.
 - [ ] `mise run test` — every test in the whole project passes.
 - [ ] `mise run lint` — clean.
 - [ ] Manual verification (launch app):
-    - [ ] Emit an OSC 9/777 notification from a terminal (e.g., `printf '\033]777;notify;Test;Body\a'`) → notification appears in inbox sidebar, in worktree bell pill, and in drawer bell (if pane is in a drawer).
-    - [ ] Click the notification in the inbox → focuses source pane, marks read, clears from drawer.
-    - [ ] Press ⌘I → focus inbox → press ⌥F → search field focused → type "test" → filtered results.
-    - [ ] ⌥G → grouping menu opens → select "By repo" → list regroups.
-    - [ ] ⌥S → sort toggle flips.
-    - [ ] Arrow down → focus moves into list → Enter → focuses source pane.
-    - [ ] Space on a row → toggles read/unread.
-    - [ ] Open CommandBar (⌘P) with inbox focused → scope defaults to .inbox → pick "Mark all as read" → all marked read.
-    - [ ] Disable bell via CommandBar action → fire a Ghostty bell → no notification.
-    - [ ] Enable bell → fire Ghostty bell → bellRang notification appears.
-    - [ ] Focus a pane inside a drawer → ⌘⇧I → drawer inbox popover opens.
-    - [ ] Quit and relaunch → notifications and prefs persist.
-    - [ ] Restore corruption test: manually delete `notification-inbox.json` → relaunch → app works, inbox empty.
+    - [ ] **Toolbar entry**: sidebar toolbar shows bell icon after the filter button. Click it → inbox opens (surface swaps, focus lands in inbox).
+    - [ ] **Toolbar unread dot**: emit a notification → red dot appears on the bell. Mark all read → dot disappears.
+    - [ ] **OSC 9/777 end-to-end**: emit `printf '\033]777;notify;Test;Body\a'` from a terminal → notification appears in inbox sidebar, worktree bell pill, and drawer bell (if pane is in a drawer).
+    - [ ] **Click-through (live pane)**: click notification → focuses source pane, marks read, clears from drawer.
+    - [ ] **Click-through (dead pane)**: close the source pane, then click its notification in the inbox → row flashes briefly, focus stays in inbox, no modal, notification still marked read.
+    - [ ] **Keymap ⌥F / ⌥G / ⌥S**: ⌥F focuses search, ⌥G opens grouping menu, ⌥S flips sort.
+    - [ ] **Keymap ↓↑**: arrows move focus between item rows, group headers are SKIPPED (never a focus stop).
+    - [ ] **Keymap ⌥↓ / ⌥↑**: jumps to the first row of the next/previous group.
+    - [ ] **Keymap ⌘↓ / ⌘↑**: jumps to last / first notification overall.
+    - [ ] **Keymap Enter / Space**: Enter activates (click-through), Space toggles read/unread without jumping.
+    - [ ] **Keymap Esc**: with non-empty search → clears search, focus moves to list. With focus elsewhere → focus leaves sidebar, returns to active pane.
+    - [ ] **Live relative time**: leave inbox open for ~2 minutes → existing row timestamps tick forward (e.g., "2m" → "4m") without requiring any interaction.
+    - [ ] **CommandBar .inbox scope**: open CommandBar (⌘P) with inbox focused → scope defaults to .inbox → rows include Mark all as read / Clear read history / Clear all / grouping x4 / toggle sort / toggle bell / return to worktrees.
+    - [ ] **Bell toggle via CommandBar**: disable bell → fire Ghostty bell → no notification. Re-enable → bell notification appears.
+    - [ ] **Sandbox health transitions**: emit `sandboxHealthChanged(healthy:false)` twice → only the FIRST produces a notification. Emit `sandboxHealthChanged(healthy:true)` → no notification. Subsequent `false` → produces a new notification.
+    - [ ] **commandFinished duration gating**: run an unfocused-pane command that finishes in < 10s → no notification. >= 10s → notification appears. Same command in the focused pane → no notification at any duration.
+    - [ ] **Drawer popover**: focus a pane inside a drawer → ⌘⇧I → drawer inbox popover opens.
+    - [ ] **Persistence**: quit and relaunch → notifications and prefs persist.
+    - [ ] **Corruption**: manually delete `notification-inbox.json` → relaunch → app works, inbox empty.
 - [ ] Grep for dead references:
     - [ ] `grep -rn "InboxNotificationPlaceholderView" Sources/` → zero hits (file deleted + consumers updated).
     - [ ] `grep -rn "TODO.*Phase 3\|FIXME.*Phase 3" Sources/` → zero hits.
