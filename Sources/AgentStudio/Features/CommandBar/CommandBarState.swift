@@ -37,6 +37,7 @@ final class CommandBarState {
 
     /// Root scope that remains stable while navigating nested levels.
     private(set) var pinnedScope: CommandBarScope = .everything
+    private(set) var defaultRootScope: CommandBarScope = .everything
 
     // MARK: - Selection
 
@@ -70,7 +71,7 @@ final class CommandBarState {
         case "> ": return .commands
         case "$ ": return .panes
         case "# ": return .repos
-        default: return .everything
+        default: return defaultRootScope
         }
     }
 
@@ -110,6 +111,7 @@ final class CommandBarState {
         case .commands: return "Run a command..."
         case .panes: return "Search panes..."
         case .repos: return "Open repo or worktree..."
+        case .inbox: return "Search inbox..."
         }
     }
 
@@ -121,6 +123,7 @@ final class CommandBarState {
         case .commands: return "chevron.right.2"
         case .panes: return "terminal"
         case .repos: return "octicon-repo"
+        case .inbox: return "bell"
         }
     }
 
@@ -132,7 +135,11 @@ final class CommandBarState {
 
     /// Show the command bar with an optional prefix pre-filled.
     /// Adds a trailing space after known prefixes so the cursor lands after it.
-    func show(prefix: String? = nil) {
+    func show(
+        prefix: String? = nil,
+        defaultScope: CommandBarScope = .everything
+    ) {
+        defaultRootScope = prefix == nil ? defaultScope : .everything
         if let prefix, !prefix.isEmpty, [">", "$", "#"].contains(prefix) {
             rawInput = prefix + " "
         } else {
@@ -150,6 +157,7 @@ final class CommandBarState {
         isVisible = false
         rawInput = ""
         pinnedScope = .everything
+        defaultRootScope = .everything
         navigationStack = []
         selectedIndex = 0
         stateLogger.debug("Command bar dismissed")
@@ -158,9 +166,32 @@ final class CommandBarState {
     /// Switch prefix in-place (when already open, pressing a different shortcut).
     func switchPrefix(_ prefix: String) {
         navigationStack = []
+        defaultRootScope = .everything
         rawInput = prefix.isEmpty ? "" : prefix + " "
         pinnedScope = activeScope
         selectedIndex = 0
+    }
+
+    @MainActor
+    static func forOpen(
+        windowLifecycle: WindowLifecycleAtom,
+        managementLayer: ManagementLayerAtom,
+        uiState: UIStateAtom
+    ) -> CommandBarState {
+        let state = CommandBarState()
+        let owner = KeyboardOwnerDerived().current(
+            windowLifecycle: windowLifecycle,
+            managementLayer: managementLayer,
+            uiState: uiState
+        )
+        let defaultScope: CommandBarScope =
+            if owner == .sidebar(.inbox) {
+                .inbox
+            } else {
+                .everything
+            }
+        state.show(defaultScope: defaultScope)
+        return state
     }
 
     /// Push a nested level onto the navigation stack.

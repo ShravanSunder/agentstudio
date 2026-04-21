@@ -969,7 +969,23 @@ extension AppDelegate: ShellCommandHandling {
             appLogger.warning("No window available for \(context, privacy: .public)")
             return
         }
-        commandBarController.show(prefix: prefix, parentWindow: window)
+        let defaultRootScope: CommandBarScope =
+            if prefix == nil,
+                KeyboardOwnerDerived().current(
+                    windowLifecycle: windowLifecycleStore,
+                    managementLayer: atomStore.managementLayer,
+                    uiState: uiState
+                ) == .sidebar(.inbox)
+            {
+                .inbox
+            } else {
+                .everything
+            }
+        commandBarController.show(
+            prefix: prefix,
+            defaultRootScope: defaultRootScope,
+            parentWindow: window
+        )
     }
 
 }

@@ -78,6 +78,8 @@ enum CommandBarDataSource {
             return paneAndTabItems(store: store, repoCache: repoCache)
         case .repos:
             return repoScopeItems(store: store)
+        case .inbox:
+            return []
         }
     }
 

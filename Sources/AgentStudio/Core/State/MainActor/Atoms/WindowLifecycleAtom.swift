@@ -15,6 +15,10 @@ final class WindowLifecycleAtom {
         isLaunchLayoutSettled && !terminalContainerBounds.isEmpty
     }
 
+    var isWorkspaceWindowKey: Bool {
+        keyWindowId.map { registeredWindowIds.contains($0) } ?? false
+    }
+
     func recordWindowRegistered(_ windowId: UUID) {
         registeredWindowIds.insert(windowId)
     }

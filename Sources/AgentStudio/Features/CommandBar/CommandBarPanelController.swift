@@ -51,7 +51,11 @@ final class CommandBarPanelController {
 
     /// Show the command bar. If already visible with a different prefix, switch in-place.
     /// If already visible with the same prefix (or no prefix), preserve current state.
-    func show(prefix: String? = nil, parentWindow: NSWindow) {
+    func show(
+        prefix: String? = nil,
+        defaultRootScope: CommandBarScope = .everything,
+        parentWindow: NSWindow
+    ) {
         self.parentWindow = parentWindow
 
         if state.isVisible {
@@ -68,7 +72,7 @@ final class CommandBarPanelController {
         }
 
         // Create panel and backdrop
-        state.show(prefix: prefix)
+        state.show(prefix: prefix, defaultScope: defaultRootScope)
         presentPanel(parentWindow: parentWindow)
     }
 
@@ -322,6 +326,8 @@ final class CommandBarPanelController {
             return "$ "
         case .repos:
             return "# "
+        case .inbox:
+            return nil
         }
     }
 
