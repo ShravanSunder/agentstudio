@@ -67,4 +67,27 @@ struct MainSplitViewControllerSidebarStateTests {
             }
         )
     }
+
+    @Test("showWorktreeSidebar expands a restored collapsed inbox surface back to repos")
+    func showWorktreeSidebarExpandsCollapsedInboxSurface() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            configureUIState: {
+                $0.setSidebarCollapsed(true)
+                $0.setSidebarSurface(.inbox)
+            },
+            body: { harness in
+                #expect(harness.controller.isSidebarCollapsed == true)
+                #expect(harness.atoms.uiState.sidebarSurface == .inbox)
+
+                harness.controller.showWorktreeSidebar()
+
+                await eventually("showWorktreeSidebar should expand collapsed inbox state") {
+                    harness.controller.isSidebarCollapsed == false
+                        && harness.atoms.uiState.sidebarCollapsed == false
+                        && harness.atoms.uiState.sidebarSurface == .repos
+                }
+            }
+        )
+    }
 }

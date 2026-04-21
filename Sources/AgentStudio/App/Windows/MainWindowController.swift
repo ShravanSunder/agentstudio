@@ -173,7 +173,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         stack.orientation = .horizontal
         stack.spacing = 8
         stack.edgeInsets = NSEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)
-        stack.frame = NSRect(x: 0, y: 0, width: 122, height: 28)
+        stack.frame = NSRect(x: 0, y: 0, width: 128, height: 28)
 
         let accessoryVC = NSTitlebarAccessoryViewController()
         accessoryVC.view = stack

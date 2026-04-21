@@ -144,8 +144,8 @@ struct MainSplitViewControllerCompositeCommandTests {
 
                 harness.controller.showSidebarFilter()
 
-                #expect(harness.atoms.uiState.sidebarSurface == .repos)
-                #expect(harness.atoms.uiState.isFilterVisible == true)
+                #expect(harness.atoms.uiState.sidebarSurface == .inbox)
+                #expect(harness.atoms.uiState.isFilterVisible == false)
                 #expect(harness.controller.isSidebarCollapsed == false)
             }
         )

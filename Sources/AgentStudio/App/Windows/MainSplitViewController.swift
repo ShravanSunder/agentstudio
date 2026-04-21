@@ -54,7 +54,7 @@ class MainSplitViewController: NSSplitViewController {
         appLifecycleStore: AppLifecycleAtom,
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
-        sidebarRootViewBuilder: @escaping SidebarRootViewBuilder = Self.defaultSidebarRootViewBuilder
+        sidebarRootViewBuilder: @escaping SidebarRootViewBuilder = MainSplitViewController.defaultSidebarRootViewBuilder
     ) {
         self.store = store
         self.actionExecutor = actionExecutor
@@ -235,15 +235,13 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     func showSidebarFilter() {
+        guard uiState.sidebarSurface == .repos else { return }
         if uiState.isFilterVisible {
             uiState.setFilterVisible(false)
             refocusActivePane()
             return
         }
 
-        if uiState.sidebarSurface == .inbox {
-            uiState.setSidebarSurface(.repos)
-        }
         expandSidebar()
         uiState.setFilterVisible(true)
     }
