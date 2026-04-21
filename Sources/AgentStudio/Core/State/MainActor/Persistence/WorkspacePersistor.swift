@@ -210,16 +210,46 @@ struct WorkspacePersistor {
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+            let schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+
+            func decodeV1Field<Value: Decodable>(
+                _ type: Value.Type,
+                forKey key: CodingKeys,
+                default defaultValue: @autoclosure () -> Value
+            ) throws -> Value {
+                if let value = try container.decodeIfPresent(type, forKey: key) {
+                    return value
+                }
+
+                if schemaVersion >= 1 {
+                    persistorLogger.warning(
+                        "PersistableUIState schemaVersion=\(schemaVersion) missing field \(key.rawValue, privacy: .public); using default"
+                    )
+                }
+                return defaultValue()
+            }
+
+            self.schemaVersion = schemaVersion
             self.workspaceId = try container.decode(UUID.self, forKey: .workspaceId)
             self.expandedGroups = try container.decode(Set<String>.self, forKey: .expandedGroups)
             self.checkoutColors = try container.decode([String: String].self, forKey: .checkoutColors)
             self.filterText = try container.decode(String.self, forKey: .filterText)
             self.isFilterVisible = try container.decode(Bool.self, forKey: .isFilterVisible)
-            self.showMinimizedBars = try container.decodeIfPresent(Bool.self, forKey: .showMinimizedBars) ?? true
-            self.sidebarCollapsed = try container.decodeIfPresent(Bool.self, forKey: .sidebarCollapsed) ?? false
-            self.sidebarSurface =
-                try container.decodeIfPresent(SidebarSurface.self, forKey: .sidebarSurface) ?? .repos
+            self.showMinimizedBars = try decodeV1Field(
+                Bool.self,
+                forKey: .showMinimizedBars,
+                default: true
+            )
+            self.sidebarCollapsed = try decodeV1Field(
+                Bool.self,
+                forKey: .sidebarCollapsed,
+                default: false
+            )
+            self.sidebarSurface = try decodeV1Field(
+                SidebarSurface.self,
+                forKey: .sidebarSurface,
+                default: .repos
+            )
             do {
                 self.editorChooserState =
                     try container.decodeIfPresent(

@@ -64,7 +64,7 @@ private struct InboxNotificationPlaceholderFocusBridge: NSViewRepresentable {
         _ nsView: InboxNotificationPlaceholderFocusableView,
         coordinator: ()
     ) {
-        Task { @MainActor in
+        MainActor.assumeIsolated {
             nsView.onFocusChange(false)
         }
     }

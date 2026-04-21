@@ -4,8 +4,6 @@ import SwiftUI
 
 enum RepoExplorerFocus: Hashable {
     case filter
-    case list
-    case row(UUID)
 }
 
 enum RepoExplorerFocusPublisher {

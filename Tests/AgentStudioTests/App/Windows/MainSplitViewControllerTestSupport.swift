@@ -15,10 +15,15 @@ struct MainSplitViewControllerHarness {
     let tempDir: URL
 }
 
+typealias MainSplitViewControllerTestSidebarBuilder = @MainActor (UIStateAtom) -> AnyView
+
 @MainActor
 func withMainSplitViewControllerHarness<T>(
     withRepos: Bool = true,
     configureUIState: @MainActor (UIStateAtom) -> Void = { _ in },
+    sidebarRootViewBuilder: @escaping MainSplitViewControllerTestSidebarBuilder = { uiState in
+        AnyView(MainSplitViewControllerTestSidebarView(uiState: uiState))
+    },
     body: @MainActor (MainSplitViewControllerHarness) async throws -> T
 ) async rethrows -> T {
     let tempDir = FileManager.default.temporaryDirectory
@@ -66,7 +71,7 @@ func withMainSplitViewControllerHarness<T>(
         tabBarAdapter: tabBarAdapter,
         viewRegistry: viewRegistry,
         sidebarRootViewBuilder: { _, uiState, _ in
-            AnyView(MainSplitViewControllerTestSidebarView(uiState: uiState))
+            sidebarRootViewBuilder(uiState)
         }
     )
     let window = NSWindow(

@@ -56,7 +56,11 @@ struct MainSplitViewControllerSidebarStateTests {
             body: { harness in
                 harness.controller.toggleSidebarFromCommand()
                 await Task.yield()
+                #expect(harness.controller.isSidebarCollapsed == true)
                 #expect(harness.atoms.uiState.sidebarCollapsed == true)
+
+                harness.atoms.uiState.setSidebarCollapsed(false)
+                #expect(harness.atoms.uiState.sidebarCollapsed == false)
 
                 harness.controller.splitViewDidResizeSubviews(Notification(name: .init("test")))
                 #expect(harness.atoms.uiState.sidebarCollapsed == true)

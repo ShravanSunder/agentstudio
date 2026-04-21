@@ -5,9 +5,13 @@ import SwiftUI
 class MainSplitViewController: NSSplitViewController {
     typealias SidebarRootViewBuilder =
         @MainActor (WorkspaceStore, UIStateAtom, @escaping () -> Void) -> AnyView
+    private static let inboxFocusRetryTurns = 20
 
     private var sidebarHostingController: NSHostingController<AnyView>?
     private var paneTabViewController: PaneTabViewController?
+    private var sidebarFocusTask: Task<Void, Never>?
+    private var shouldExpandSidebarOnLoad = false
+    private var shouldFocusSidebarWhenVisible = false
 
     // MARK: - Dependencies (injected)
 
@@ -99,15 +103,26 @@ class MainSplitViewController: NSSplitViewController {
         addSplitViewItem(paneTabItem)
 
         // Restore sidebar collapsed state — force collapse if no repos
-        if store.repositoryTopologyAtom.repos.isEmpty {
+        if shouldExpandSidebarOnLoad {
+            sidebarItem.isCollapsed = false
+            shouldExpandSidebarOnLoad = false
+        } else if store.repositoryTopologyAtom.repos.isEmpty {
             sidebarItem.isCollapsed = true
         } else if uiState.sidebarCollapsed {
             sidebarItem.isCollapsed = true
         }
     }
 
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        guard shouldFocusSidebarWhenVisible else { return }
+        shouldFocusSidebarWhenVisible = false
+        scheduleSidebarFocus()
+    }
+
     private func saveSidebarState() {
         let isCollapsed = splitViewItems.first?.isCollapsed ?? false
+        guard uiState.sidebarCollapsed != isCollapsed else { return }
         uiState.setSidebarCollapsed(isCollapsed)
     }
 
@@ -135,6 +150,11 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     func expandSidebar() {
+        guard isViewLoaded else {
+            shouldExpandSidebarOnLoad = true
+            uiState.setSidebarCollapsed(false)
+            return
+        }
         guard let sidebarItem = splitViewItems.first, sidebarItem.isCollapsed else { return }
         sidebarItem.animator().isCollapsed = false
         Task { @MainActor [weak self] in
@@ -146,22 +166,38 @@ class MainSplitViewController: NSSplitViewController {
         expandSidebar()
     }
 
-    func focusSidebar() {
-        guard isViewLoaded else { return }
-        guard let window = view.window else { return }
+    @discardableResult
+    func focusSidebar() -> Bool {
+        guard isViewLoaded else { return false }
+        guard let window = view.window else { return false }
+        window.makeKey()
 
         switch uiState.sidebarSurface {
         case .repos:
-            _ = window.makeFirstResponder(sidebarHostingController?.view)
+            return window.makeFirstResponder(sidebarHostingController?.view)
         case .inbox:
             guard
                 let focusTarget = sidebarHostingController?.view.descendantView(
                     matching: InboxNotificationPlaceholderView.focusTargetIdentifier
                 )
             else {
-                return
+                return false
             }
-            _ = window.makeFirstResponder(focusTarget)
+            return window.makeFirstResponder(focusTarget)
+        }
+    }
+
+    private func scheduleSidebarFocus() {
+        sidebarFocusTask?.cancel()
+        sidebarFocusTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for _ in 0..<Self.inboxFocusRetryTurns {
+                guard !Task.isCancelled else { return }
+                if self.focusSidebar() {
+                    return
+                }
+                await Task.yield()
+            }
         }
     }
 
@@ -183,15 +219,22 @@ class MainSplitViewController: NSSplitViewController {
     func showInboxNotifications(commandBarIsKey: Bool) {
         ensureSidebarVisible()
         uiState.setSidebarSurface(.inbox)
-        if !commandBarIsKey {
-            Task { @MainActor [weak self] in
-                await Task.yield()
-                self?.focusSidebar()
-            }
+        if commandBarIsKey {
+            sidebarFocusTask?.cancel()
+            shouldFocusSidebarWhenVisible = false
+            uiState.setSidebarHasFocus(false)
+            return
         }
+        guard isViewLoaded, view.window != nil else {
+            shouldFocusSidebarWhenVisible = true
+            return
+        }
+        scheduleSidebarFocus()
     }
 
     func showWorktreeSidebar() {
+        sidebarFocusTask?.cancel()
+        shouldFocusSidebarWhenVisible = false
         ensureSidebarVisible()
         uiState.setSidebarSurface(.repos)
     }
@@ -201,6 +244,8 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     func shutdown() {
+        sidebarFocusTask?.cancel()
+        shouldFocusSidebarWhenVisible = false
         paneTabViewController?.shutdown()
     }
 

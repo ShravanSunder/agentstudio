@@ -9,8 +9,6 @@ struct RepoExplorerFocusTests {
     @Test("RepoExplorerFocus enum includes well-known cases")
     func enumCases() {
         let _: RepoExplorerFocus = .filter
-        let _: RepoExplorerFocus = .list
-        let _: RepoExplorerFocus = .row(UUID())
     }
 
     @Test("publishing non-nil focus flips sidebarHasFocus true")

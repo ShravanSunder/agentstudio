@@ -340,7 +340,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                         await MainActor.run { [weak self] in
                             self?.handleTerminalProcessTerminated(paneId: paneId)
                         }
-                    default:
+                    case .terminalProcessTerminationHandled, .worktreeBellRang:
                         continue
                     }
                 }
@@ -1388,6 +1388,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
     func handleTerminalProcessTerminated(paneId: UUID) {
         if let pane = store.paneAtom.pane(paneId) {
+            AppEventBus.post(.terminalProcessTerminationHandled(paneId: paneId))
             if let parentPaneId = pane.parentPaneId,
                 store.tabLayoutAtom.tabContaining(paneId: parentPaneId) != nil
             {
