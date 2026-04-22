@@ -1,16 +1,6 @@
 import AppKit
 import SwiftUI
 
-enum InboxNotificationPlaceholderFocusPublisher {
-    @MainActor
-    static func publish(
-        hasFocus: Bool,
-        into uiState: UIStateAtom
-    ) {
-        uiState.setSidebarHasFocus(hasFocus)
-    }
-}
-
 private final class InboxNotificationPlaceholderFocusableView: NSView {
     var onFocusChange: @MainActor (Bool) -> Void = { _ in }
     var onEscape: @MainActor @Sendable () -> Void = {}
@@ -47,7 +37,7 @@ private struct InboxNotificationPlaceholderFocusBridge: NSViewRepresentable {
         let view = InboxNotificationPlaceholderFocusableView()
         view.identifier = InboxNotificationPlaceholderView.focusTargetIdentifier
         view.onFocusChange = { hasFocus in
-            InboxNotificationPlaceholderFocusPublisher.publish(
+            InboxNotificationPlaceholderView.publishFocusChange(
                 hasFocus: hasFocus,
                 into: uiState
             )
@@ -61,7 +51,7 @@ private struct InboxNotificationPlaceholderFocusBridge: NSViewRepresentable {
         context: Context
     ) {
         nsView.onFocusChange = { hasFocus in
-            InboxNotificationPlaceholderFocusPublisher.publish(
+            InboxNotificationPlaceholderView.publishFocusChange(
                 hasFocus: hasFocus,
                 into: uiState
             )
@@ -83,6 +73,14 @@ struct InboxNotificationPlaceholderView: View {
     static let focusTargetIdentifier = NSUserInterfaceItemIdentifier(
         "InboxNotificationPlaceholderView.focusTarget"
     )
+
+    @MainActor
+    static func publishFocusChange(
+        hasFocus: Bool,
+        into uiState: UIStateAtom
+    ) {
+        uiState.setSidebarHasFocus(hasFocus)
+    }
 
     let uiState: UIStateAtom
     let onEscape: @MainActor @Sendable () -> Void

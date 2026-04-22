@@ -308,7 +308,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             if let trigger = ShortcutDecoder.decode(event: event),
                 let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .global),
                 Self.shouldDispatchGlobalShortcut(
-                    shortcut.command,
+                    shortcut,
                     uiState: atom(\.uiState),
                     managementLayer: atom(\.managementLayer)
                 ),
@@ -335,19 +335,38 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     static func shouldDispatchGlobalShortcut(
-        _ command: AppCommand,
+        _ shortcut: AppShortcut,
         uiState: UIStateAtom,
         managementLayer: ManagementLayerAtom
     ) -> Bool {
-        switch command {
+        // Why: Phase 2 sidebar shortcuts are intentionally opt-in here. An
+        // exhaustive switch makes new global shortcuts choose a routing policy
+        // explicitly instead of inheriting accidental process-wide behavior.
+        switch shortcut {
+        case .closeTab, .newTab, .undoCloseTab, .nextTab, .prevTab,
+            .addDrawerPane, .toggleDrawer, .openPaneLocationInBookmarkedEditor,
+            .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
+            .toggleManagementLayer, .showInboxNotifications, .showWorktreeSidebar,
+            .newWindow, .closeWindow, .showCommandBarEverything,
+            .showCommandBarCommands, .showCommandBarPanes, .selectTab1,
+            .selectTab2, .selectTab3, .selectTab4, .selectTab5, .selectTab6,
+            .selectTab7, .selectTab8, .selectTab9, .managementLayerFocusLeft,
+            .managementLayerFocusRight, .managementLayerEnterDrawer,
+            .managementLayerExitDrawer, .managementLayerOpenDrawer,
+            .managementLayerCreateTerminal, .managementLayerCreateBrowser,
+            .managementLayerExit:
+            return true
         case .filterSidebar:
+            // Contract: returning false does not drop the key event. It allows the
+            // normal responder chain to keep Terminal Find and future inbox search
+            // bindings alive instead of globally stealing ⌘F.
             return
                 !managementLayer.isActive
                 && !uiState.sidebarCollapsed
                 && uiState.sidebarHasFocus
                 && uiState.sidebarSurface == .repos
-        default:
-            return true
+        case .scrollToBottom:
+            return false
         }
     }
 

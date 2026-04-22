@@ -751,17 +751,17 @@ final class CommandBarStateTests {
 
     @Test
     func test_show_prefixOverridesDefaultScope() {
-        state.show(prefix: ">", defaultScope: .inbox)
+        state.show(prefix: ">")
         #expect(state.activeScope == .commands)
 
         state.dismiss()
 
-        state.show(prefix: "#", defaultScope: .inbox)
+        state.show(prefix: "#")
         #expect(state.activeScope == .repos)
 
         state.dismiss()
 
-        state.show(prefix: "$", defaultScope: .inbox)
+        state.show(prefix: "$")
         #expect(state.activeScope == .panes)
     }
 

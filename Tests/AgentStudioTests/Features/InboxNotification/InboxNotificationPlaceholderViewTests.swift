@@ -9,7 +9,7 @@ struct InboxNotificationPlaceholderViewTests {
     func focusPublishTrue() {
         let uiState = UIStateAtom()
 
-        InboxNotificationPlaceholderFocusPublisher.publish(
+        InboxNotificationPlaceholderView.publishFocusChange(
             hasFocus: true,
             into: uiState
         )
@@ -22,7 +22,7 @@ struct InboxNotificationPlaceholderViewTests {
         let uiState = UIStateAtom()
         uiState.setSidebarHasFocus(true)
 
-        InboxNotificationPlaceholderFocusPublisher.publish(
+        InboxNotificationPlaceholderView.publishFocusChange(
             hasFocus: false,
             into: uiState
         )

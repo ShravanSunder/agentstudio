@@ -11,6 +11,11 @@ private let stateLogger = Logger(subsystem: "com.agentstudio", category: "Comman
 /// Always accessed on the main thread (SwiftUI views + AppKit panel controller).
 @Observable
 final class CommandBarState {
+    enum OpenMode: Equatable {
+        case prefix(String)
+        case defaultScope(CommandBarScope)
+    }
+
     // MARK: - Visibility
 
     var isVisible: Bool = false
@@ -133,13 +138,27 @@ final class CommandBarState {
 
     // MARK: - Actions
 
-    /// Show the command bar with an optional prefix pre-filled.
-    /// Adds a trailing space after known prefixes so the cursor lands after it.
-    func show(
-        prefix: String? = nil,
-        defaultScope: CommandBarScope = .everything
-    ) {
-        defaultRootScope = prefix == nil ? defaultScope : .everything
+    /// Show the command bar rooted at a specific scope.
+    func show(defaultScope: CommandBarScope = .everything) {
+        show(mode: .defaultScope(defaultScope))
+    }
+
+    /// Show the command bar with a prefix pre-filled.
+    func show(prefix: String) {
+        show(mode: .prefix(prefix))
+    }
+
+    private func show(mode: OpenMode) {
+        let prefix: String?
+        switch mode {
+        case .prefix(let requestedPrefix):
+            prefix = requestedPrefix
+            defaultRootScope = .everything
+        case .defaultScope(let scope):
+            prefix = nil
+            defaultRootScope = scope
+        }
+
         if let prefix, !prefix.isEmpty, [">", "$", "#"].contains(prefix) {
             rawInput = prefix + " "
         } else {
@@ -179,7 +198,7 @@ final class CommandBarState {
         uiState: UIStateAtom
     ) -> CommandBarState {
         let state = CommandBarState()
-        let owner = KeyboardOwnerDerived().current(
+        let owner = KeyboardOwner.current(
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer,
             uiState: uiState

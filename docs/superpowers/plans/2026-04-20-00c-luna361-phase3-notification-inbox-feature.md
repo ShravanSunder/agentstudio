@@ -245,7 +245,7 @@ import Foundation
 /// denormalized at emit time so history renders coherently even
 /// if the source pane is later closed. Click-through uses `paneId`
 /// and degrades gracefully if the pane is gone (see spec §8.5).
-struct Notification: Identifiable, Sendable, Codable, Equatable {
+struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
     let id: UUID
     let timestamp: Date
     let kind: InboxNotificationKind
@@ -1293,6 +1293,13 @@ import Testing
 @MainActor
 @Suite("InboxNotificationRouter routing contract (spec §7)")
 struct InboxNotificationRouterTests {
+    enum FixtureOutline: Error {
+        case missingFixture
+        case unresolvedEnvelope
+        case unresolvedNotification
+        case unresolvedRPCRouter
+        case unresolvedFixtureData
+    }
 
     /// Lightweight fixture. The router under test needs an EventBus
     /// to subscribe to, a InboxNotificationAtom to write into, a
@@ -1300,11 +1307,11 @@ struct InboxNotificationRouterTests {
     /// checks, and a paneContextResolver for repo/worktree/branch
     /// enrichment. Build minimal fixtures per the existing test
     /// helper conventions in the codebase.
-    private func makeFixture() -> Fixture {
+    private func makeFixture() throws -> Fixture {
         // Construct atoms, bus, resolver; return a struct holding them
         // plus the router under test. Follow existing test-support
         // patterns (grep `struct.*Fixture` under Tests/).
-        fatalError("implement with existing fixture utilities")
+        throw FixtureOutline.missingFixture
     }
 
     struct Fixture {
@@ -1315,6 +1322,22 @@ struct InboxNotificationRouterTests {
         let router: InboxNotificationRouter
     }
 
+    private func unresolvedEnvelope(_ reason: String) throws -> RuntimeEnvelope {
+        _ = reason
+        throw FixtureOutline.unresolvedEnvelope
+    }
+
+    private func unresolvedNotification(_ reason: String) throws -> InboxNotification {
+        _ = reason
+        throw FixtureOutline.unresolvedNotification
+    }
+
+    private func waitForRouterDelivery() async {
+        for _ in 0..<8 {
+            await Task.yield()
+        }
+    }
+
     // §7 row-by-row tests. Each posts an envelope on the bus, then
     // checks inboxAtom.notifications for the expected kind / count.
     // Per the spec, tests rely on an injected clock rather than
@@ -1322,7 +1345,7 @@ struct InboxNotificationRouterTests {
 
     @Test("desktopNotificationRequested → agentDesktopNotification")
     func desktopInboxNotification() async throws {
-        let f = makeFixture()
+        let f = try makeFixture()
         let title = "Codex done"
         let body = "exit 0"
         let paneId = UUID()
@@ -1330,11 +1353,11 @@ struct InboxNotificationRouterTests {
         let envelope = /* build RuntimeEnvelope with source=.pane(paneId),
                           event=.terminal(.desktopNotificationRequested(
                               title: title, body: body)) */
-            fatalError("build envelope")
+            try unresolvedEnvelope("grep RuntimeEnvelope first")
 
         await f.bus.post(envelope)
         // drain
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitForRouterDelivery()
 
         #expect(f.inboxAtom.notifications.count == 1)
         #expect(f.inboxAtom.notifications[0].kind == .agentDesktopNotification)
@@ -1345,68 +1368,68 @@ struct InboxNotificationRouterTests {
 
     @Test("bellRang with bellEnabled=false → no notification")
     func bellGatedOff() async throws {
-        let f = makeFixture()
+        let f = try makeFixture()
         #expect(f.prefsAtom.bellEnabled == false)
         let envelope = /* build .terminal(.bellRang) */
-            fatalError("build envelope")
+            try unresolvedEnvelope("grep RuntimeEnvelope first")
         await f.bus.post(envelope)
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitForRouterDelivery()
         #expect(f.inboxAtom.notifications.isEmpty)
     }
 
     @Test("bellRang with bellEnabled=true → bellRang notification")
     func bellGatedOn() async throws {
-        let f = makeFixture()
+        let f = try makeFixture()
         f.prefsAtom.setBellEnabled(true)
         let envelope = /* .terminal(.bellRang) */
-            fatalError("build envelope")
+            try unresolvedEnvelope("grep RuntimeEnvelope first")
         await f.bus.post(envelope)
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitForRouterDelivery()
         #expect(f.inboxAtom.notifications.count == 1)
         #expect(f.inboxAtom.notifications[0].kind == .bellRang)
     }
 
     @Test("commandFinished with focused pane → no notification")
     func commandFinishedFocused() async throws {
-        let f = makeFixture()
+        let f = try makeFixture()
         let paneId = UUID()
         f.paneAtom.setActivePaneId(paneId)  // adjust to real API
         let envelope = /* .terminal(.commandFinished(exitCode: 0, duration: 30))
                           on source=.pane(paneId) */
-            fatalError("build envelope")
+            try unresolvedEnvelope("grep RuntimeEnvelope first")
         await f.bus.post(envelope)
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitForRouterDelivery()
         #expect(f.inboxAtom.notifications.isEmpty)
     }
 
     @Test("commandFinished unfocused, duration < 10s → no notification")
     func commandFinishedShort() async throws {
-        let f = makeFixture()
+        let f = try makeFixture()
         let envelope = /* commandFinished on unfocused pane, duration = 3 */
-            fatalError("build envelope")
+            try unresolvedEnvelope("grep RuntimeEnvelope first")
         await f.bus.post(envelope)
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitForRouterDelivery()
         #expect(f.inboxAtom.notifications.isEmpty)
     }
 
     @Test("commandFinished unfocused, duration >= 10s → commandFinished notification")
     func commandFinishedLong() async throws {
-        let f = makeFixture()
+        let f = try makeFixture()
         let envelope = /* commandFinished on unfocused pane, duration = 15 */
-            fatalError("build envelope")
+            try unresolvedEnvelope("grep RuntimeEnvelope first")
         await f.bus.post(envelope)
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitForRouterDelivery()
         #expect(f.inboxAtom.notifications.count == 1)
         #expect(f.inboxAtom.notifications[0].kind == .commandFinished)
     }
 
     @Test("approvalRequested always notifies")
     func approvalRequested() async throws {
-        let f = makeFixture()
+        let f = try makeFixture()
         let envelope = /* artifact event with approvalRequested */
-            fatalError("build envelope")
+            try unresolvedEnvelope("grep RuntimeEnvelope first")
         await f.bus.post(envelope)
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitForRouterDelivery()
         #expect(f.inboxAtom.notifications.count == 1)
         #expect(f.inboxAtom.notifications[0].kind == .approvalRequested)
     }
@@ -1414,134 +1437,134 @@ struct InboxNotificationRouterTests {
     // Security event subset
     @Test("SecurityEvent.networkEgressBlocked → notification")
     func securityNetworkEgress() async throws {
-        let f = makeFixture()
+        let f = try makeFixture()
         let envelope = /* .security(.networkEgressBlocked(...)) */
-            fatalError("build envelope")
+            try unresolvedEnvelope("grep RuntimeEnvelope first")
         await f.bus.post(envelope)
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitForRouterDelivery()
         #expect(f.inboxAtom.notifications.count == 1)
         #expect(f.inboxAtom.notifications[0].kind == .securityEvent)
     }
 
     @Test("SecurityEvent.sandboxStarted → no notification (lifecycle, not alert)")
     func securitySandboxStarted() async throws {
-        let f = makeFixture()
+        let f = try makeFixture()
         let envelope = /* .security(.sandboxStarted(...)) */
-            fatalError("build envelope")
+            try unresolvedEnvelope("grep RuntimeEnvelope first")
         await f.bus.post(envelope)
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitForRouterDelivery()
         #expect(f.inboxAtom.notifications.isEmpty)
     }
 
     @Test("SecurityEvent.sandboxStopped → no notification")
     func securitySandboxStopped() async throws {
-        let f = makeFixture()
+        let f = try makeFixture()
         let envelope = /* .security(.sandboxStopped(...)) */
-            fatalError("build envelope")
+            try unresolvedEnvelope("grep RuntimeEnvelope first")
         await f.bus.post(envelope)
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitForRouterDelivery()
         #expect(f.inboxAtom.notifications.isEmpty)
     }
 
     @Test("SecurityEvent.sandboxHealthChanged(healthy:true) → no notification")
     func securitySandboxHealthRecovered() async throws {
-        let f = makeFixture()
+        let f = try makeFixture()
         let envelope = /* .security(.sandboxHealthChanged(healthy: true)) */
-            fatalError("build envelope")
+            try unresolvedEnvelope("grep RuntimeEnvelope first")
         await f.bus.post(envelope)
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitForRouterDelivery()
         #expect(f.inboxAtom.notifications.isEmpty)
     }
 
     @Test("SecurityEvent.sandboxHealthChanged true→false transition → notification")
     func securitySandboxHealthTransitionToUnhealthy() async throws {
-        let f = makeFixture()
+        let f = try makeFixture()
         // First observed false counts as a transition (starts assumed healthy).
         let envelope = /* .security(.sandboxHealthChanged(healthy: false)) */
-            fatalError("build envelope")
+            try unresolvedEnvelope("grep RuntimeEnvelope first")
         await f.bus.post(envelope)
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitForRouterDelivery()
         #expect(f.inboxAtom.notifications.count == 1)
         #expect(f.inboxAtom.notifications[0].kind == .securityEvent)
     }
 
     @Test("SecurityEvent.sandboxHealthChanged repeated false → no new notification")
     func securitySandboxHealthRepeatedFalse() async throws {
-        let f = makeFixture()
+        let f = try makeFixture()
         let envelope = /* .security(.sandboxHealthChanged(healthy: false)) */
-            fatalError("build envelope")
+            try unresolvedEnvelope("grep RuntimeEnvelope first")
         await f.bus.post(envelope)   // transition → notifies
         await f.bus.post(envelope)   // still false → must NOT re-notify
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitForRouterDelivery()
         #expect(f.inboxAtom.notifications.count == 1,
                 "spec §7: only transitions to false alert")
     }
 
     @Test("SecurityEvent.secretAccessed → notification")
     func securitySecretAccessed() async throws {
-        let f = makeFixture()
+        let f = try makeFixture()
         let envelope = /* .security(.secretAccessed(...)) */
-            fatalError("build envelope")
+            try unresolvedEnvelope("grep RuntimeEnvelope first")
         await f.bus.post(envelope)
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitForRouterDelivery()
         #expect(f.inboxAtom.notifications.count == 1)
         #expect(f.inboxAtom.notifications[0].kind == .securityEvent)
     }
 
     @Test("SecurityEvent.filesystemAccessDenied → notification")
     func securityFilesystemAccessDenied() async throws {
-        let f = makeFixture()
+        let f = try makeFixture()
         let envelope = /* .security(.filesystemAccessDenied(...)) */
-            fatalError("build envelope")
+            try unresolvedEnvelope("grep RuntimeEnvelope first")
         await f.bus.post(envelope)
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitForRouterDelivery()
         #expect(f.inboxAtom.notifications.count == 1)
     }
 
     @Test("SecurityEvent.processSpawnBlocked → notification")
     func securityProcessSpawnBlocked() async throws {
-        let f = makeFixture()
+        let f = try makeFixture()
         let envelope = /* .security(.processSpawnBlocked(...)) */
-            fatalError("build envelope")
+            try unresolvedEnvelope("grep RuntimeEnvelope first")
         await f.bus.post(envelope)
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitForRouterDelivery()
         #expect(f.inboxAtom.notifications.count == 1)
     }
 
     // Default-deny rows
     @Test("FilesystemEvent events do NOT notify")
     func filesystemEventsIgnored() async throws {
-        let f = makeFixture()
+        let f = try makeFixture()
         let envelope = /* filesChanged event */
-            fatalError("build envelope")
+            try unresolvedEnvelope("grep RuntimeEnvelope first")
         await f.bus.post(envelope)
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitForRouterDelivery()
         #expect(f.inboxAtom.notifications.isEmpty)
     }
 
     @Test("progressReportUpdated → no notification")
     func progressIgnored() async throws {
-        let f = makeFixture()
+        let f = try makeFixture()
         let envelope = /* .terminal(.progressReportUpdated(...)) */
-            fatalError("build envelope")
+            try unresolvedEnvelope("grep RuntimeEnvelope first")
         await f.bus.post(envelope)
-        try? await Task.sleep(for: .milliseconds(20))
+        await waitForRouterDelivery()
         #expect(f.inboxAtom.notifications.isEmpty)
     }
 
     // Auto-dismiss via PaneFocusTracker
     @Test("focus-gained clears unread for that pane")
     func focusGainedClearsUnread() async throws {
-        let f = makeFixture()
+        let f = try makeFixture()
         let paneId = UUID()
         // Pre-seed a notification for paneId
         f.inboxAtom.append(/* notification with paneId */
-            fatalError("build notification"))
+            try unresolvedNotification("construct fixture notification"))
         #expect(f.inboxAtom.unreadCount(forPaneId: paneId) == 1)
 
         // Simulate focus gained
         f.paneAtom.setActivePaneId(paneId)
-        try? await Task.sleep(for: .milliseconds(50))
+        await waitForRouterDelivery()
 
         #expect(f.inboxAtom.unreadCount(forPaneId: paneId) == 0,
                 "router should mark read on focus-gained")
@@ -1553,7 +1576,7 @@ struct InboxNotificationRouterTests {
 }
 ```
 
-Fill in the `fatalError("build envelope")` placeholders with the real `RuntimeEnvelope(...)` constructions once the envelope API is confirmed. Every row of the §7 routing table must have at least one test.
+Fill in the `try unresolvedEnvelope("grep RuntimeEnvelope first")` placeholders with the real `RuntimeEnvelope(...)` constructions once the envelope API is confirmed. Every row of the §7 routing table must have at least one test.
 
 - [ ] **Step 3: Implement `InboxNotificationRouter`**
 
@@ -1932,8 +1955,8 @@ struct InboxPostHandlerTests {
     private func makeRPCRouter(
         paneId: UUID,
         onEmit: @escaping (RuntimeEnvelope) -> Void
-    ) -> RPCRouter { fatalError() }
-    private func fixtureData(_ name: String) throws -> Data { fatalError() }
+    ) throws -> RPCRouter { throw FixtureOutline.unresolvedRPCRouter }
+    private func fixtureData(_ name: String) throws -> Data { throw FixtureOutline.unresolvedFixtureData }
 }
 ```
 
@@ -2529,8 +2552,8 @@ struct InboxNotificationSidebarView: View {
 
         // Dead-pane fallback — flash the row, no modal.
         flashingRowIds.insert(n.id)
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(600))
+        Task { @MainActor [flashClock] in
+            try? await flashClock.sleep(for: .milliseconds(600))
             flashingRowIds.remove(n.id)
         }
     }
@@ -3181,19 +3204,19 @@ import Foundation
 @MainActor
 struct InboxNotificationCommands: Sendable {
     // Mutations
-    var markAllAsRead: () -> Void
-    var clearReadHistory: () -> Void
-    var clearAll: () -> Void
-    var setGrouping: (InboxNotificationGrouping) -> Void
-    var toggleSort: () -> Void
-    var toggleBellEnabled: () -> Void
-    var returnToWorktreeSidebar: () -> Void
+    var markAllAsRead: @MainActor @Sendable () -> Void
+    var clearReadHistory: @MainActor @Sendable () -> Void
+    var clearAll: @MainActor @Sendable () -> Void
+    var setGrouping: @MainActor @Sendable (InboxNotificationGrouping) -> Void
+    var toggleSort: @MainActor @Sendable () -> Void
+    var toggleBellEnabled: @MainActor @Sendable () -> Void
+    var returnToWorktreeSidebar: @MainActor @Sendable () -> Void
 
     // Read snapshots (for CommandBar label text like
     // "Enable bell" vs "Disable bell")
-    var bellEnabled: () -> Bool
-    var currentGrouping: () -> InboxNotificationGrouping
-    var currentSort: () -> InboxNotificationSort
+    var bellEnabled: @MainActor @Sendable () -> Bool
+    var currentGrouping: @MainActor @Sendable () -> InboxNotificationGrouping
+    var currentSort: @MainActor @Sendable () -> InboxNotificationSort
 }
 ```
 
@@ -3716,9 +3739,9 @@ struct InboxNotificationIntegrationTests {
         // Post envelope
         let envelope = /* .terminal(.desktopNotificationRequested(
             title: "Codex done", body: "exit 0"))
-            with source=.pane(paneId) */ fatalError()
+            with source=.pane(paneId) */ try unresolvedEnvelope("wire source=.pane(paneId) against the real RuntimeEnvelope cases")
         await bus.post(envelope)
-        try? await Task.sleep(for: .milliseconds(50))
+        await waitForRouterDelivery()
 
         #expect(inbox.notifications.count == 1)
         let n = inbox.notifications[0]

@@ -823,7 +823,8 @@ extension AppCommand {
                 icon: "sidebar.left",
                 helpText: "Show or hide the sidebar",
                 commandBarGroupName: "Window",
-                commandBarGroupPriority: CommandBarGroupPriority.window
+                commandBarGroupPriority: CommandBarGroupPriority.window,
+                isHiddenInCommandBar: true
             )
         case .showInboxNotifications:
             return CommandSpec(

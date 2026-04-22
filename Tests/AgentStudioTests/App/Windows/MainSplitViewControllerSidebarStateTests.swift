@@ -90,4 +90,20 @@ struct MainSplitViewControllerSidebarStateTests {
             }
         )
     }
+
+    @Test("collapseSidebar before viewDidLoad records collapsed shell state for restore")
+    func collapseSidebarBeforeViewLoadPersistsIntent() async {
+        await withUnloadedMainSplitViewControllerHarness(
+            withRepos: true,
+            body: { harness in
+                #expect(harness.controller.isViewLoaded == false)
+                #expect(harness.atoms.uiState.sidebarCollapsed == false)
+
+                harness.controller.collapseSidebar()
+
+                #expect(harness.atoms.uiState.sidebarCollapsed == true)
+                #expect(harness.atoms.uiState.sidebarHasFocus == false)
+            }
+        )
+    }
 }

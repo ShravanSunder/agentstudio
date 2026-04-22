@@ -212,6 +212,12 @@ final class AppCommandTests {
     }
 
     @Test
+    func test_toggleSidebar_isHiddenInCommandBar() {
+        let definition = CommandDispatcher.shared.definition(for: .toggleSidebar)
+        #expect(definition.isHiddenInCommandBar)
+    }
+
+    @Test
     func test_dispatcher_registersDefinitionForEveryCommand() {
         let dispatcher = CommandDispatcher.shared
 

@@ -6,8 +6,6 @@ import Testing
 @MainActor
 @Suite("KeyboardOwnerDerived precedence")
 struct KeyboardOwnerDerivedTests {
-    private let derived = KeyboardOwnerDerived()
-
     private func makeAtoms() -> (
         window: WindowLifecycleAtom,
         management: ManagementLayerAtom,
@@ -29,7 +27,7 @@ struct KeyboardOwnerDerivedTests {
     func notKeyReturnsOtherWindow() {
         let (window, management, uiState) = makeAtoms()
 
-        let owner = derived.current(
+        let owner = KeyboardOwner.current(
             windowLifecycle: window,
             managementLayer: management,
             uiState: uiState
@@ -44,7 +42,7 @@ struct KeyboardOwnerDerivedTests {
         makeWindowKey(window)
         management.activate()
 
-        let owner = derived.current(
+        let owner = KeyboardOwner.current(
             windowLifecycle: window,
             managementLayer: management,
             uiState: uiState
@@ -60,7 +58,7 @@ struct KeyboardOwnerDerivedTests {
         uiState.setSidebarCollapsed(true)
         uiState.setSidebarHasFocus(true)
 
-        let owner = derived.current(
+        let owner = KeyboardOwner.current(
             windowLifecycle: window,
             managementLayer: management,
             uiState: uiState
@@ -74,7 +72,7 @@ struct KeyboardOwnerDerivedTests {
         let (window, management, uiState) = makeAtoms()
         makeWindowKey(window)
 
-        let owner = derived.current(
+        let owner = KeyboardOwner.current(
             windowLifecycle: window,
             managementLayer: management,
             uiState: uiState
@@ -90,7 +88,7 @@ struct KeyboardOwnerDerivedTests {
         uiState.setSidebarHasFocus(true)
         uiState.setSidebarSurface(.repos)
 
-        let owner = derived.current(
+        let owner = KeyboardOwner.current(
             windowLifecycle: window,
             managementLayer: management,
             uiState: uiState
@@ -106,7 +104,7 @@ struct KeyboardOwnerDerivedTests {
         uiState.setSidebarHasFocus(true)
         uiState.setSidebarSurface(.inbox)
 
-        let owner = derived.current(
+        let owner = KeyboardOwner.current(
             windowLifecycle: window,
             managementLayer: management,
             uiState: uiState
@@ -120,7 +118,7 @@ struct KeyboardOwnerDerivedTests {
         let (window, management, uiState) = makeAtoms()
         management.activate()
 
-        let owner = derived.current(
+        let owner = KeyboardOwner.current(
             windowLifecycle: window,
             managementLayer: management,
             uiState: uiState
@@ -137,7 +135,7 @@ struct KeyboardOwnerDerivedTests {
         uiState.setSidebarHasFocus(true)
         uiState.setSidebarSurface(.inbox)
 
-        let owner = derived.current(
+        let owner = KeyboardOwner.current(
             windowLifecycle: window,
             managementLayer: management,
             uiState: uiState

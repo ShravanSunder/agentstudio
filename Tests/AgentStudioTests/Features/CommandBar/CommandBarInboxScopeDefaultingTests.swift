@@ -109,12 +109,12 @@ struct CommandBarInboxScopeDefaultingTests {
         window.recordWindowBecameKey(id)
         uiState.setSidebarSurface(.inbox)
 
-        InboxNotificationPlaceholderFocusPublisher.publish(
+        InboxNotificationPlaceholderView.publishFocusChange(
             hasFocus: true,
             into: uiState
         )
 
-        let owner = KeyboardOwnerDerived().current(
+        let owner = KeyboardOwner.current(
             windowLifecycle: window,
             managementLayer: management,
             uiState: uiState

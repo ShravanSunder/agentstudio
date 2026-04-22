@@ -19,14 +19,11 @@ typealias MainSplitViewControllerTestSidebarBuilder =
     @MainActor (UIStateAtom, @escaping @MainActor @Sendable () -> Void) -> AnyView
 
 @MainActor
-func withMainSplitViewControllerHarness<T>(
-    withRepos: Bool = true,
-    configureUIState: @MainActor (UIStateAtom) -> Void = { _ in },
-    sidebarRootViewBuilder: @escaping MainSplitViewControllerTestSidebarBuilder = { uiState, onEscape in
-        AnyView(MainSplitViewControllerTestSidebarView(uiState: uiState, onEscape: onEscape))
-    },
-    body: @MainActor (MainSplitViewControllerHarness) async throws -> T
-) async rethrows -> T {
+private func makeMainSplitViewControllerHarness(
+    withRepos: Bool,
+    configureUIState: @MainActor (UIStateAtom) -> Void,
+    sidebarRootViewBuilder: @escaping MainSplitViewControllerTestSidebarBuilder
+) -> MainSplitViewControllerHarness {
     let tempDir = FileManager.default.temporaryDirectory
         .appending(path: "main-split-view-controller-tests-\(UUID().uuidString)")
     let persistor = WorkspacePersistor(workspacesDir: tempDir)
@@ -71,8 +68,8 @@ func withMainSplitViewControllerHarness<T>(
         appLifecycleStore: appLifecycleStore,
         tabBarAdapter: tabBarAdapter,
         viewRegistry: viewRegistry,
-        sidebarRootViewBuilder: { _, uiState, _, onDismissInbox in
-            sidebarRootViewBuilder(uiState, onDismissInbox)
+        sidebarRootViewBuilder: { dependencies in
+            sidebarRootViewBuilder(dependencies.uiState, dependencies.onDismissInbox)
         }
     )
     let window = NSWindow(
@@ -82,7 +79,7 @@ func withMainSplitViewControllerHarness<T>(
         defer: false
     )
 
-    let harness = MainSplitViewControllerHarness(
+    return MainSplitViewControllerHarness(
         atoms: atoms,
         store: store,
         coordinator: coordinator,
@@ -90,20 +87,61 @@ func withMainSplitViewControllerHarness<T>(
         window: window,
         tempDir: tempDir
     )
+}
 
-    let result = try await AtomScope.$override.withValue(atoms) {
-        window.contentViewController = controller
-        _ = controller.view
-        window.makeKeyAndOrderFront(nil)
+@MainActor
+func withMainSplitViewControllerHarness<T>(
+    withRepos: Bool = true,
+    configureUIState: @MainActor (UIStateAtom) -> Void = { _ in },
+    sidebarRootViewBuilder: @escaping MainSplitViewControllerTestSidebarBuilder = { uiState, onEscape in
+        AnyView(MainSplitViewControllerTestSidebarView(uiState: uiState, onEscape: onEscape))
+    },
+    body: @MainActor (MainSplitViewControllerHarness) async throws -> T
+) async rethrows -> T {
+    let harness = makeMainSplitViewControllerHarness(
+        withRepos: withRepos,
+        configureUIState: configureUIState,
+        sidebarRootViewBuilder: sidebarRootViewBuilder
+    )
+
+    let result = try await AtomScope.$override.withValue(harness.atoms) {
+        harness.window.contentViewController = harness.controller
+        _ = harness.controller.view
+        harness.window.makeKeyAndOrderFront(nil)
         return try await body(harness)
     }
 
-    controller.shutdown()
-    window.contentViewController = nil
-    window.orderOut(nil)
+    harness.controller.shutdown()
+    harness.window.contentViewController = nil
+    harness.window.orderOut(nil)
     await Task.yield()
-    await coordinator.shutdown()
-    try? FileManager.default.removeItem(at: tempDir)
+    await harness.coordinator.shutdown()
+    try? FileManager.default.removeItem(at: harness.tempDir)
+    return result
+}
+
+@MainActor
+func withUnloadedMainSplitViewControllerHarness<T>(
+    withRepos: Bool = true,
+    configureUIState: @MainActor (UIStateAtom) -> Void = { _ in },
+    sidebarRootViewBuilder: @escaping MainSplitViewControllerTestSidebarBuilder = { uiState, onEscape in
+        AnyView(MainSplitViewControllerTestSidebarView(uiState: uiState, onEscape: onEscape))
+    },
+    body: @MainActor (MainSplitViewControllerHarness) async throws -> T
+) async rethrows -> T {
+    let harness = makeMainSplitViewControllerHarness(
+        withRepos: withRepos,
+        configureUIState: configureUIState,
+        sidebarRootViewBuilder: sidebarRootViewBuilder
+    )
+
+    let result = try await AtomScope.$override.withValue(harness.atoms) {
+        try await body(harness)
+    }
+
+    harness.controller.shutdown()
+    await harness.coordinator.shutdown()
+    try? FileManager.default.removeItem(at: harness.tempDir)
     return result
 }
 

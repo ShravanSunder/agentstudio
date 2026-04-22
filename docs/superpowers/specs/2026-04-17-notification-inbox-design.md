@@ -86,7 +86,7 @@ Three persistent surfaces. None transient.
 ### 4.1 `InboxNotification` record
 
 ```swift
-struct Notification: Identifiable, Sendable, Codable {
+struct InboxNotification: Identifiable, Sendable, Codable {
     let id: UUID                       // stable, assigned at emit
     let timestamp: Date                // emit time (wall clock)
     let kind: InboxNotificationKind
@@ -912,19 +912,19 @@ The parent — `SidebarSurfaceHost` in `App/Windows/` — lives at the compositi
 @MainActor
 struct InboxNotificationCommands: Sendable {
     // Mutations
-    var markAllAsRead: () -> Void
-    var clearReadHistory: () -> Void
-    var clearAll: () -> Void
-    var setGrouping: (InboxNotificationGrouping) -> Void
-    var toggleSort: () -> Void
-    var toggleBellEnabled: () -> Void
-    var returnToWorktreeSidebar: () -> Void
+    var markAllAsRead: @MainActor @Sendable () -> Void
+    var clearReadHistory: @MainActor @Sendable () -> Void
+    var clearAll: @MainActor @Sendable () -> Void
+    var setGrouping: @MainActor @Sendable (InboxNotificationGrouping) -> Void
+    var toggleSort: @MainActor @Sendable () -> Void
+    var toggleBellEnabled: @MainActor @Sendable () -> Void
+    var returnToWorktreeSidebar: @MainActor @Sendable () -> Void
 
     // Read snapshots — CommandBar uses these for label text
     // (e.g., "Enable bell" vs "Disable bell")
-    var bellEnabled: () -> Bool
-    var currentGrouping: () -> InboxNotificationGrouping
-    var currentSort: () -> InboxNotificationSort
+    var bellEnabled: @MainActor @Sendable () -> Bool
+    var currentGrouping: @MainActor @Sendable () -> InboxNotificationGrouping
+    var currentSort: @MainActor @Sendable () -> InboxNotificationSort
 }
 ```
 

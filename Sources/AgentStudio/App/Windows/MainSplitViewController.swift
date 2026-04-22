@@ -1,26 +1,28 @@
 import AppKit
 import SwiftUI
 
+struct SidebarRootViewDependencies {
+    let store: WorkspaceStore
+    let uiState: UIStateAtom
+    let onRefocusActivePane: () -> Void
+    let onDismissInbox: @MainActor @Sendable () -> Void
+}
+
 /// Main split view controller with sidebar and terminal content area
 class MainSplitViewController: NSSplitViewController {
-    typealias SidebarRootViewBuilder =
-        @MainActor (WorkspaceStore, UIStateAtom, @escaping () -> Void, @escaping @MainActor @Sendable () -> Void) ->
-        AnyView
+    typealias SidebarRootViewBuilder = @MainActor (SidebarRootViewDependencies) -> AnyView
     private static let inboxFocusRetryTurns = 20
 
     @MainActor
     private static func defaultSidebarRootViewBuilder(
-        store: WorkspaceStore,
-        uiState: UIStateAtom,
-        onRefocusActivePane: @escaping () -> Void,
-        onDismissInbox: @escaping @MainActor @Sendable () -> Void
+        dependencies: SidebarRootViewDependencies
     ) -> AnyView {
         AnyView(
             SidebarSurfaceHost(
-                store: store,
-                uiState: uiState,
-                onRefocusActivePane: onRefocusActivePane,
-                onDismissInbox: onDismissInbox
+                store: dependencies.store,
+                uiState: dependencies.uiState,
+                onRefocusActivePane: dependencies.onRefocusActivePane,
+                onDismissInbox: dependencies.onDismissInbox
             )
         )
     }
@@ -91,15 +93,17 @@ class MainSplitViewController: NSSplitViewController {
 
         // Create sidebar (SwiftUI via NSHostingController)
         let sidebarView = sidebarRootViewBuilder(
-            store,
-            uiState,
-            { [weak paneTabVC] in
-                paneTabVC?.refocusActivePane()
-            },
-            { [weak self] in
-                self?.collapseSidebar()
-                self?.refocusActivePane()
-            }
+            SidebarRootViewDependencies(
+                store: store,
+                uiState: uiState,
+                onRefocusActivePane: { [weak paneTabVC] in
+                    paneTabVC?.refocusActivePane()
+                },
+                onDismissInbox: { [weak self] in
+                    self?.collapseSidebar()
+                    self?.refocusActivePane()
+                }
+            )
         )
         let sidebarHosting = NSHostingController(rootView: sidebarView)
         sidebarHosting.sizingOptions = []
@@ -116,7 +120,8 @@ class MainSplitViewController: NSSplitViewController {
         paneTabItem.minimumThickness = 400
         addSplitViewItem(paneTabItem)
 
-        // Restore sidebar collapsed state — force collapse if no repos
+        // Pre-load collapse/expand requests only update atoms. Once AppKit has
+        // splitViewItems, realize the persisted presentation exactly once here.
         if shouldExpandSidebarOnLoad {
             sidebarItem.isCollapsed = false
             shouldExpandSidebarOnLoad = false
@@ -144,12 +149,18 @@ class MainSplitViewController: NSSplitViewController {
         saveSidebarState()
     }
 
-    private func handleToggleSidebar() {
-        toggleSidebar(nil)
-        // Yield to the next MainActor turn so the sidebar item's collapsed state is updated.
+    private func scheduleSaveSidebarState() {
         Task { @MainActor [weak self] in
             self?.saveSidebarState()
         }
+    }
+
+    private func handleToggleSidebar() {
+        toggleSidebar(nil)
+        // Contract: AppKit flips the split item collapsed flag asynchronously while
+        // processing toggleSidebar(_:). Save on the next turn so UIState observes
+        // the post-toggle truth instead of the stale pre-toggle value.
+        scheduleSaveSidebarState()
     }
 
     private func handleFilterSidebar() {
@@ -171,9 +182,7 @@ class MainSplitViewController: NSSplitViewController {
         }
         guard let sidebarItem = splitViewItems.first, sidebarItem.isCollapsed else { return }
         sidebarItem.animator().isCollapsed = false
-        Task { @MainActor [weak self] in
-            self?.saveSidebarState()
-        }
+        scheduleSaveSidebarState()
     }
 
     func ensureSidebarVisible() {
@@ -182,6 +191,9 @@ class MainSplitViewController: NSSplitViewController {
 
     func collapseSidebar() {
         guard isViewLoaded else {
+            // Contract: restore and composite commands may ask for collapse before
+            // splitViewItems exist. Clear the pending expansion bit here so the
+            // last pre-load intent wins once viewDidLoad realizes shell state.
             shouldExpandSidebarOnLoad = false
             uiState.setSidebarCollapsed(true)
             uiState.setSidebarHasFocus(false)
@@ -190,9 +202,7 @@ class MainSplitViewController: NSSplitViewController {
         guard let sidebarItem = splitViewItems.first, !sidebarItem.isCollapsed else { return }
         sidebarItem.animator().isCollapsed = true
         uiState.setSidebarHasFocus(false)
-        Task { @MainActor [weak self] in
-            self?.saveSidebarState()
-        }
+        scheduleSaveSidebarState()
     }
 
     @discardableResult
@@ -235,6 +245,8 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     func showSidebarFilter() {
+        // Why: until inbox has its own search affordance, ⌘F should preserve the
+        // current surface instead of silently flipping the user back to repos.
         guard uiState.sidebarSurface == .repos else { return }
         if uiState.isFilterVisible {
             uiState.setFilterVisible(false)
@@ -247,6 +259,8 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     func showInboxNotifications(commandBarIsKey: Bool) {
+        // Contract: a visible inbox means the user is already on the requested
+        // surface, so the second invocation is a close toggle rather than a no-op.
         if !isSidebarCollapsed && uiState.sidebarSurface == .inbox {
             collapseSidebar()
             return
@@ -267,6 +281,8 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     func showWorktreeSidebar() {
+        // Contract: keep ⌘S symmetric with ⌘I. A second press on the visible
+        // requested surface closes the sidebar instead of reasserting state.
         if !isSidebarCollapsed && uiState.sidebarSurface == .repos {
             collapseSidebar()
             return

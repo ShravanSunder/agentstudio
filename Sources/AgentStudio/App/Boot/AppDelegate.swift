@@ -970,18 +970,17 @@ extension AppDelegate: ShellCommandHandling {
         }
         // Must compute the owner before presenting the panel. Once the
         // CommandBar becomes key, `isWorkspaceWindowKey` flips false.
-        let owner = KeyboardOwnerDerived().current(
+        let owner = KeyboardOwner.current(
             windowLifecycle: windowLifecycleStore,
             managementLayer: atomStore.managementLayer,
             uiState: uiState
         )
-        let defaultRootScope: CommandBarScope =
-            prefix == nil ? CommandBarState.defaultScope(for: owner) : .everything
-        commandBarController.show(
-            prefix: prefix,
-            defaultRootScope: defaultRootScope,
-            parentWindow: window
-        )
+        if let prefix {
+            commandBarController.show(prefix: prefix, parentWindow: window)
+        } else {
+            let scope = CommandBarState.defaultScope(for: owner)
+            commandBarController.show(defaultRootScope: scope, parentWindow: window)
+        }
     }
 
 }

@@ -51,9 +51,20 @@ final class CommandBarPanelController {
 
     /// Show the command bar. If already visible with a different prefix, switch in-place.
     /// If already visible with the same prefix (or no prefix), preserve current state.
-    func show(
-        prefix: String? = nil,
-        defaultRootScope: CommandBarScope = .everything,
+    func show(parentWindow: NSWindow) {
+        show(mode: .defaultScope(.everything), parentWindow: parentWindow)
+    }
+
+    func show(prefix: String, parentWindow: NSWindow) {
+        show(mode: .prefix(prefix), parentWindow: parentWindow)
+    }
+
+    func show(defaultRootScope: CommandBarScope, parentWindow: NSWindow) {
+        show(mode: .defaultScope(defaultRootScope), parentWindow: parentWindow)
+    }
+
+    private func show(
+        mode: CommandBarState.OpenMode,
         parentWindow: NSWindow
     ) {
         self.parentWindow = parentWindow
@@ -61,18 +72,33 @@ final class CommandBarPanelController {
         if state.isVisible {
             let currentPrefix = normalizedPrefix(for: state.currentScope)
             let normalizedRequestedPrefix: String? =
-                normalizedPrefix(for: prefix)
+                switch mode {
+                case .prefix(let prefix):
+                    normalizedPrefix(for: prefix)
+                case .defaultScope:
+                    nil
+                }
 
             if currentPrefix == normalizedRequestedPrefix {
                 return
             } else {
-                state.switchPrefix(prefix ?? "")
+                switch mode {
+                case .prefix(let prefix):
+                    state.switchPrefix(prefix)
+                case .defaultScope:
+                    state.show(defaultScope: defaultRootScope(for: mode))
+                }
                 return
             }
         }
 
         // Create panel and backdrop
-        state.show(prefix: prefix, defaultScope: defaultRootScope)
+        switch mode {
+        case .prefix(let prefix):
+            state.show(prefix: prefix)
+        case .defaultScope(let defaultRootScope):
+            state.show(defaultScope: defaultRootScope)
+        }
         presentPanel(parentWindow: parentWindow)
     }
 
@@ -214,7 +240,11 @@ final class CommandBarPanelController {
             return true
         case .showPrefix(let prefix):
             guard let parentWindow else { return false }
-            show(prefix: prefix, parentWindow: parentWindow)
+            if let prefix {
+                show(prefix: prefix, parentWindow: parentWindow)
+            } else {
+                show(parentWindow: parentWindow)
+            }
             return true
         case .executeRow(let item):
             executeItem(item)
@@ -225,6 +255,15 @@ final class CommandBarPanelController {
             return true
         case .unhandled:
             return false
+        }
+    }
+
+    private func defaultRootScope(for mode: CommandBarState.OpenMode) -> CommandBarScope {
+        switch mode {
+        case .prefix:
+            return .everything
+        case .defaultScope(let scope):
+            return scope
         }
     }
 

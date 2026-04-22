@@ -131,8 +131,8 @@ struct MainSplitViewControllerCompositeCommandTests {
         )
     }
 
-    @Test("showSidebarFilter switches inbox surface back to repos and reveals filter")
-    func showSidebarFilterSwitchesInboxBackToRepos() async {
+    @Test("showSidebarFilter leaves inbox untouched until inbox search exists")
+    func showSidebarFilterIsNoOpFromInbox() async {
         await withMainSplitViewControllerHarness(
             withRepos: true,
             body: { harness in
@@ -147,6 +147,30 @@ struct MainSplitViewControllerCompositeCommandTests {
                 #expect(harness.atoms.uiState.sidebarSurface == .inbox)
                 #expect(harness.atoms.uiState.isFilterVisible == false)
                 #expect(harness.controller.isSidebarCollapsed == false)
+            }
+        )
+    }
+
+    @Test("showInboxNotifications expands a restored collapsed inbox surface")
+    func showInboxNotificationsExpandsCollapsedInboxSurface() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            configureUIState: {
+                $0.setSidebarCollapsed(true)
+                $0.setSidebarSurface(.inbox)
+            },
+            body: { harness in
+                #expect(harness.controller.isSidebarCollapsed == true)
+                #expect(harness.atoms.uiState.sidebarSurface == .inbox)
+
+                harness.controller.showInboxNotifications(commandBarIsKey: false)
+
+                await eventually("collapsed inbox state should expand instead of collapsing") {
+                    harness.controller.isSidebarCollapsed == false
+                        && harness.atoms.uiState.sidebarCollapsed == false
+                        && harness.atoms.uiState.sidebarSurface == .inbox
+                        && harness.atoms.uiState.sidebarHasFocus
+                }
             }
         )
     }
