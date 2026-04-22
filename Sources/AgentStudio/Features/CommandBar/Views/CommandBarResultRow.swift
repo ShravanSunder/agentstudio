@@ -20,14 +20,8 @@ struct CommandBarResultRow: View {
     var body: some View {
         HStack(spacing: AppStyles.CommandBar.Rows.iconSpacing) {
             // Icon
-            if let iconName = item.icon {
-                Image(systemName: iconName)
-                    .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
-                    .foregroundStyle(iconColor)
-                    .frame(
-                        width: AppStyles.CommandBar.Rows.iconSize,
-                        height: AppStyles.CommandBar.Rows.iconSize
-                    )
+            if let icon = item.icon {
+                iconView(icon)
             } else {
                 Color.clear.frame(
                     width: AppStyles.CommandBar.Rows.iconSize,
@@ -121,5 +115,26 @@ struct CommandBarResultRow: View {
         if isDimmed { return Color.primary.opacity(0.25) }
         if isSelected { return Color.accentColor }
         return item.iconColor ?? Color.primary.opacity(0.50)
+    }
+
+    @ViewBuilder
+    private func iconView(_ icon: CommandIcon) -> some View {
+        switch icon {
+        case .system(let systemSymbol):
+            Image(systemName: systemSymbol.rawValue)
+                .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
+                .foregroundStyle(iconColor)
+                .frame(
+                    width: AppStyles.CommandBar.Rows.iconSize,
+                    height: AppStyles.CommandBar.Rows.iconSize
+                )
+        case .octicon(let octiconSymbol):
+            OcticonImage(name: octiconSymbol.rawValue, size: AppStyles.CommandBar.Rows.iconSize)
+                .foregroundStyle(iconColor)
+                .frame(
+                    width: AppStyles.CommandBar.Rows.iconSize,
+                    height: AppStyles.CommandBar.Rows.iconSize
+                )
+        }
     }
 }

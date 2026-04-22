@@ -105,7 +105,7 @@ struct CommandBarShortcutRouterTests {
         let item = CommandBarItem(
             id: "cmd-scrollToBottom",
             title: "Scroll to Bottom",
-            icon: "arrow.down.to.line",
+            icon: .system(.arrowDownToLine),
             shortcutTrigger: AppShortcut.scrollToBottom.trigger,
             group: "Pane",
             groupPriority: 0,

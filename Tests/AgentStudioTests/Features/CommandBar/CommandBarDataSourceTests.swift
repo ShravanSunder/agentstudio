@@ -854,7 +854,7 @@ struct CommandBarDataSourceTests {
         // Main worktree should rely on icon/subtitle rather than title decoration
         let mainItem = items.first { $0.title.contains("main") }
         #expect(mainItem?.title == "main")
-        #expect(mainItem?.icon == "star.fill")
+        #expect(mainItem?.icon == .system(.starFill))
         #expect(mainItem?.subtitle == "main worktree")
 
     }

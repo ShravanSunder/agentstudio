@@ -182,7 +182,7 @@ struct CommandBarEmbeddedPreview: View {
         CommandBarItem(
             id: "preview-pane-dev-server",
             title: "dev server",
-            icon: "star.fill",
+            icon: .system(.starFill),
             iconColor: AppStyles.Shell.Sidebar.paletteColor(
                 at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex
             ),
@@ -193,7 +193,7 @@ struct CommandBarEmbeddedPreview: View {
         CommandBarItem(
             id: "preview-pane-test-watcher",
             title: "test watcher",
-            icon: "arrow.triangle.branch",
+            icon: .system(.arrowTriangleBranch),
             iconColor: AppStyles.Shell.Sidebar.paletteColor(
                 at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex
             ),
@@ -204,7 +204,7 @@ struct CommandBarEmbeddedPreview: View {
         CommandBarItem(
             id: "preview-pane-claude-shader",
             title: "claude · shader polish",
-            icon: "arrow.triangle.branch",
+            icon: .system(.arrowTriangleBranch),
             iconColor: AppStyles.Shell.Sidebar.paletteColor(
                 at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex
             ),
@@ -215,7 +215,7 @@ struct CommandBarEmbeddedPreview: View {
         CommandBarItem(
             id: "preview-pane-benchmarks",
             title: "benchmarks",
-            icon: "arrow.triangle.branch",
+            icon: .system(.arrowTriangleBranch),
             iconColor: AppStyles.Shell.Sidebar.paletteColor(
                 at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex
             ),
@@ -226,7 +226,7 @@ struct CommandBarEmbeddedPreview: View {
         CommandBarItem(
             id: "preview-pane-build-zig-release",
             title: "build · zig release",
-            icon: "arrow.triangle.branch",
+            icon: .system(.arrowTriangleBranch),
             iconColor: AppStyles.Shell.Sidebar.paletteColor(
                 at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex
             ),
@@ -237,7 +237,7 @@ struct CommandBarEmbeddedPreview: View {
         CommandBarItem(
             id: "preview-pane-api-server",
             title: "api server",
-            icon: "star.fill",
+            icon: .system(.starFill),
             iconColor: AppStyles.Shell.Sidebar.paletteColor(
                 at: WelcomeSidebarIllustrationConstants.uvPaletteIndex
             ),
@@ -248,7 +248,7 @@ struct CommandBarEmbeddedPreview: View {
         CommandBarItem(
             id: "preview-pane-redis-local",
             title: "redis · local",
-            icon: "arrow.triangle.branch",
+            icon: .system(.arrowTriangleBranch),
             iconColor: AppStyles.Shell.Sidebar.paletteColor(
                 at: WelcomeSidebarIllustrationConstants.uvPaletteIndex
             ),
@@ -259,7 +259,7 @@ struct CommandBarEmbeddedPreview: View {
         CommandBarItem(
             id: "preview-pane-logs-tail",
             title: "logs · tail -f",
-            icon: "arrow.triangle.branch",
+            icon: .system(.arrowTriangleBranch),
             iconColor: AppStyles.Shell.Sidebar.paletteColor(
                 at: WelcomeSidebarIllustrationConstants.uvPaletteIndex
             ),
@@ -275,7 +275,7 @@ struct CommandBarEmbeddedPreview: View {
         CommandBarItem(
             id: "preview-ghostty",
             title: "ghostty",
-            icon: "star.fill",
+            icon: .system(.starFill),
             iconColor: AppStyles.Shell.Sidebar.paletteColor(
                 at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex
             ),
@@ -286,7 +286,7 @@ struct CommandBarEmbeddedPreview: View {
         CommandBarItem(
             id: "preview-ghostrider",
             title: "ghostrider",
-            icon: "star.fill",
+            icon: .system(.starFill),
             iconColor: AppStyles.Shell.Sidebar.paletteColor(
                 at: WelcomeSidebarIllustrationConstants.uvPaletteIndex
             ),
@@ -297,7 +297,7 @@ struct CommandBarEmbeddedPreview: View {
         CommandBarItem(
             id: "preview-ghostty-gpu-renderer",
             title: "ghostty.gpu-renderer",
-            icon: "arrow.triangle.branch",
+            icon: .system(.arrowTriangleBranch),
             iconColor: AppStyles.Shell.Sidebar.paletteColor(
                 at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex
             ),
@@ -308,7 +308,7 @@ struct CommandBarEmbeddedPreview: View {
         CommandBarItem(
             id: "preview-ghostty-fix-keybinds",
             title: "ghostty.fix-keybinds",
-            icon: "arrow.triangle.branch",
+            icon: .system(.arrowTriangleBranch),
             iconColor: AppStyles.Shell.Sidebar.paletteColor(
                 at: WelcomeSidebarIllustrationConstants.ghosttyPaletteIndex
             ),
@@ -319,7 +319,7 @@ struct CommandBarEmbeddedPreview: View {
         CommandBarItem(
             id: "preview-ghostrider-fix-engine",
             title: "ghostrider.fix-engine",
-            icon: "arrow.triangle.branch",
+            icon: .system(.arrowTriangleBranch),
             iconColor: AppStyles.Shell.Sidebar.paletteColor(
                 at: WelcomeSidebarIllustrationConstants.uvPaletteIndex
             ),

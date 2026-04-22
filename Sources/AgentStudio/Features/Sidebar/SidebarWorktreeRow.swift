@@ -240,23 +240,19 @@ struct SidebarWorktreeRow: View {
 
     @ViewBuilder
     private func menuLabel(actionSpec: ActionSpec) -> some View {
-        if let icon = actionSpec.icon {
-            switch icon {
-            case .system(let systemName):
-                Label(actionSpec.label, systemImage: systemName)
-            case .octicon(let octiconName):
-                if let image = OcticonLoader.shared.image(named: octiconName) {
-                    Label {
-                        Text(actionSpec.label)
-                    } icon: {
-                        Image(nsImage: image)
-                    }
-                } else {
-                    Label(actionSpec.label, systemImage: "questionmark.square.dashed")
+        switch actionSpec.icon {
+        case .system(let systemSymbol):
+            Label(actionSpec.label, systemImage: systemSymbol.rawValue)
+        case .octicon(let octiconSymbol):
+            if let image = OcticonLoader.shared.image(named: octiconSymbol.rawValue) {
+                Label {
+                    Text(actionSpec.label)
+                } icon: {
+                    Image(nsImage: image)
                 }
+            } else {
+                Label(actionSpec.label, systemImage: "questionmark.square.dashed")
             }
-        } else {
-            Text(actionSpec.label)
         }
     }
 }

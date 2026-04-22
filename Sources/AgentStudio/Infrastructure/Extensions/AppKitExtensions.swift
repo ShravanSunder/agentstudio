@@ -17,4 +17,5 @@ extension NSPasteboard.PasteboardType {
 
 extension NSToolbarItem.Identifier {
     static let managementLayer = NSToolbarItem.Identifier("managementLayer")
+    static let watchFolder = NSToolbarItem.Identifier("watchFolder")
 }
