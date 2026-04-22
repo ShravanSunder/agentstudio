@@ -36,21 +36,7 @@ struct Drawer: Codable, Hashable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         paneIds = try container.decode([UUID].self, forKey: .paneIds)
-
-        // Backward-compat: persisted workspaces from before the drawer-grid
-        // rework stored `layout` as a single flat `Layout`. Current format is
-        // `DrawerGridLayout` (one or optional two rows). Try the current
-        // format first; on failure, decode as legacy `Layout` and wrap into a
-        // one-row grid. Without this, old workspace files silently fail to
-        // decode and the workspace is treated as corrupt → empty-state
-        // restore (user-visible data loss on upgrade).
-        if let gridLayout = try? container.decode(DrawerGridLayout.self, forKey: .layout) {
-            layout = gridLayout
-        } else {
-            let legacyLayout = try container.decode(Layout.self, forKey: .layout)
-            layout = DrawerGridLayout(topRow: legacyLayout, bottomRow: nil, rowSplitRatio: 0.5)
-        }
-
+        layout = try container.decode(DrawerGridLayout.self, forKey: .layout)
         activePaneId = try container.decodeIfPresent(UUID.self, forKey: .activePaneId)
         isExpanded = try container.decode(Bool.self, forKey: .isExpanded)
         minimizedPaneIds = []  // transient — always starts empty on decode
