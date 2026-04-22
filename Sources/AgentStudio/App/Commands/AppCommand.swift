@@ -143,7 +143,7 @@ struct CommandSpec {
     let helpText: String
     let appliesTo: Set<SearchItemType>
     let requiresManagementLayer: Bool
-    let visibleWhen: Set<FocusRequirement>
+    let visibleWhen: Set<CommandRequirement>
     let commandBarGroupName: String
     let commandBarGroupPriority: Int
     let isHiddenInCommandBar: Bool
@@ -156,7 +156,7 @@ struct CommandSpec {
         helpText: String,
         appliesTo: Set<SearchItemType> = [],
         requiresManagementLayer: Bool = false,
-        visibleWhen: Set<FocusRequirement> = [],
+        visibleWhen: Set<CommandRequirement> = [],
         commandBarGroupName: String = "Commands",
         commandBarGroupPriority: Int = 7,
         isHiddenInCommandBar: Bool = false

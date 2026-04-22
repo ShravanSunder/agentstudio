@@ -58,8 +58,8 @@ final class AtomRegistry {
         WorkspaceLookupDerived()
     }
 
-    var workspaceFocus: WorkspaceFocusDerived {
-        WorkspaceFocusDerived()
+    var commandContext: CommandContextDerived {
+        CommandContextDerived()
     }
 
     var tabDisplay: TabDisplayDerived {

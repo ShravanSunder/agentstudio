@@ -570,7 +570,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
-        let focus = atom(\.workspaceFocus).currentFocus(
+        let focus = atom(\.commandContext).currentFocus(
             workspaceTab: workspaceTab,
             workspacePane: store.paneAtom
         )

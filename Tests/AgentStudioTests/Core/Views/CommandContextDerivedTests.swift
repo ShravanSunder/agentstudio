@@ -5,7 +5,7 @@ import Testing
 
 @MainActor
 @Suite(.serialized)
-struct WorkspaceFocusDerivedTests {
+struct CommandContextDerivedTests {
     init() {
         installTestAtomRegistryIfNeeded()
     }
@@ -13,7 +13,7 @@ struct WorkspaceFocusDerivedTests {
     @Test
     func emptyWorkspaceHasNoActiveContext() {
         withTestAtomRegistry { _ in
-            let focus = atom(\.workspaceFocus).currentFocus(
+            let focus = atom(\.commandContext).currentFocus(
                 workspaceTab: atom(\.workspaceTab),
                 workspacePane: atom(\.workspacePane)
             )
@@ -24,7 +24,7 @@ struct WorkspaceFocusDerivedTests {
     }
 
     @Test
-    func activeTerminalTabReportsFocusRequirements() {
+    func activeTerminalTabReportsCommandRequirements() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
@@ -36,7 +36,7 @@ struct WorkspaceFocusDerivedTests {
             store.appendTab(tab)
             store.setActiveTab(tab.id)
 
-            let focus = atom(\.workspaceFocus).currentFocus(
+            let focus = atom(\.commandContext).currentFocus(
                 workspaceTab: atom(\.workspaceTab),
                 workspacePane: atom(\.workspacePane)
             )
@@ -82,7 +82,7 @@ struct WorkspaceFocusDerivedTests {
             )
             _ = store.addDrawerPane(to: paneA.id)
 
-            let focus = atom(\.workspaceFocus).currentFocus(
+            let focus = atom(\.commandContext).currentFocus(
                 workspaceTab: atom(\.workspaceTab),
                 workspacePane: atom(\.workspacePane)
             )
@@ -117,7 +117,7 @@ struct WorkspaceFocusDerivedTests {
             store.appendTab(tab)
             store.setActiveTab(tab.id)
 
-            let focus = atom(\.workspaceFocus).currentFocus(
+            let focus = atom(\.commandContext).currentFocus(
                 workspaceTab: atom(\.workspaceTab),
                 workspacePane: atom(\.workspacePane)
             )

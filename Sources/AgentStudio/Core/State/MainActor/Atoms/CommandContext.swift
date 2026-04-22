@@ -1,7 +1,7 @@
 import Foundation
 
 /// Workspace state requirements that determine whether a command should be visible.
-enum FocusRequirement: Hashable, CaseIterable, Sendable {
+enum CommandRequirement: Hashable, CaseIterable, Sendable {
     case hasActiveTab
     case hasActivePane
     case hasMultiplePanes
@@ -16,7 +16,7 @@ enum FocusRequirement: Hashable, CaseIterable, Sendable {
 }
 
 /// App-wide workspace focus snapshot shared by command visibility and other UI readers.
-struct WorkspaceFocus: Equatable, Sendable {
+struct CommandContext: Equatable, Sendable {
     enum ContentType: Equatable, Sendable {
         case terminal
         case webview
@@ -25,7 +25,7 @@ struct WorkspaceFocus: Equatable, Sendable {
         case unsupported
         case noActivePane
 
-        fileprivate var visibilityRequirement: FocusRequirement? {
+        fileprivate var visibilityRequirement: CommandRequirement? {
             switch self {
             case .terminal:
                 return .paneIsTerminal
@@ -41,7 +41,7 @@ struct WorkspaceFocus: Equatable, Sendable {
         }
     }
 
-    private static let contentRequirements: Set<FocusRequirement> = [
+    private static let contentRequirements: Set<CommandRequirement> = [
         .paneIsTerminal,
         .paneIsWebview,
         .paneIsBridge,
@@ -53,7 +53,7 @@ struct WorkspaceFocus: Equatable, Sendable {
     let activeRepoId: UUID?
     let activeWorktreeId: UUID?
     let paneContentType: ContentType
-    let satisfiedRequirements: Set<FocusRequirement>
+    let satisfiedRequirements: Set<CommandRequirement>
 
     init(
         activeTabId: UUID? = nil,
@@ -61,7 +61,7 @@ struct WorkspaceFocus: Equatable, Sendable {
         activeRepoId: UUID? = nil,
         activeWorktreeId: UUID? = nil,
         paneContentType: ContentType,
-        satisfiedRequirements: Set<FocusRequirement>
+        satisfiedRequirements: Set<CommandRequirement>
     ) {
         var normalizedRequirements = satisfiedRequirements.subtracting(Self.contentRequirements)
         if let contentRequirement = paneContentType.visibilityRequirement {
@@ -114,7 +114,7 @@ struct WorkspaceFocus: Equatable, Sendable {
 }
 
 extension CommandSpec {
-    func isVisible(in focus: WorkspaceFocus) -> Bool {
+    func isVisible(in focus: CommandContext) -> Bool {
         visibleWhen.isSubset(of: focus.satisfiedRequirements)
     }
 }

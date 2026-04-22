@@ -1,12 +1,12 @@
 import Foundation
 
 @MainActor
-struct WorkspaceFocusDerived {
+struct CommandContextDerived {
     func currentFocus(
         workspaceTab: WorkspaceTabDerived,
         workspacePane: WorkspacePaneAtom
-    ) -> WorkspaceFocus {
-        var satisfiedRequirements: Set<FocusRequirement> = []
+    ) -> CommandContext {
+        var satisfiedRequirements: Set<CommandRequirement> = []
 
         guard
             let activeTabId = workspaceTab.shellAtom.activeTabId,
@@ -30,7 +30,7 @@ struct WorkspaceFocusDerived {
         }
 
         guard let activePaneId = tab.activePaneId else {
-            return WorkspaceFocus(
+            return CommandContext(
                 activeTabId: activeTabId,
                 paneContentType: .noActivePane,
                 satisfiedRequirements: satisfiedRequirements
@@ -38,7 +38,7 @@ struct WorkspaceFocusDerived {
         }
 
         guard let pane = workspacePane.pane(activePaneId) else {
-            return WorkspaceFocus(
+            return CommandContext(
                 activeTabId: activeTabId,
                 paneContentType: .noActivePane,
                 satisfiedRequirements: satisfiedRequirements
@@ -54,7 +54,7 @@ struct WorkspaceFocusDerived {
             }
         }
 
-        let paneContentType: WorkspaceFocus.ContentType
+        let paneContentType: CommandContext.ContentType
         switch pane.content {
         case .terminal:
             paneContentType = .terminal
@@ -68,7 +68,7 @@ struct WorkspaceFocusDerived {
             paneContentType = .unsupported
         }
 
-        return WorkspaceFocus(
+        return CommandContext(
             activeTabId: activeTabId,
             activePaneId: activePaneId,
             activeRepoId: pane.repoId,
