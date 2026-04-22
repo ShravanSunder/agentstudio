@@ -49,7 +49,7 @@ enum CommandBarDataSource {
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
-        let focus = atom(\.workspaceFocus).currentFocus(
+        let focus = atom(\.commandContext).currentFocus(
             workspaceTab: workspaceTab,
             workspacePane: store.paneAtom
         )
@@ -67,7 +67,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         dispatcher: CommandDispatcher,
-        focus: WorkspaceFocus
+        focus: CommandContext
     ) -> [CommandBarItem] {
         switch scope {
         case .everything:
@@ -110,7 +110,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         dispatcher: CommandDispatcher,
-        focus: WorkspaceFocus
+        focus: CommandContext
     ) -> [CommandBarItem] {
         var items: [CommandBarItem] = []
         items.append(contentsOf: paneItems(store: store, repoCache: repoCache))
@@ -286,7 +286,7 @@ enum CommandBarDataSource {
     /// Visible command definitions, filtered once.
     private static func visibleCommands(
         dispatcher: CommandDispatcher,
-        focus: WorkspaceFocus
+        focus: CommandContext
     ) -> [CommandSpec] {
         dispatcher.definitions.values.filter {
             !$0.isHiddenInCommandBar && $0.isVisible(in: focus)
@@ -298,7 +298,7 @@ enum CommandBarDataSource {
         dispatcher: CommandDispatcher,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        focus: WorkspaceFocus
+        focus: CommandContext
     ) -> [CommandBarItem] {
         visibleCommands(dispatcher: dispatcher, focus: focus)
             .sorted { $0.command.rawValue < $1.command.rawValue }
@@ -318,7 +318,7 @@ enum CommandBarDataSource {
         dispatcher: CommandDispatcher,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        focus: WorkspaceFocus,
+        focus: CommandContext,
         groupName: String,
         priority: Int
     ) -> [CommandBarItem] {
