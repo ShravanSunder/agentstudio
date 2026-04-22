@@ -1,0 +1,25 @@
+import Foundation
+
+@MainActor
+enum DrawerDragOwnershipPolicy {
+    static func expandedDrawerParentPaneId(
+        tabId: UUID,
+        tabLayoutAtom: WorkspaceTabLayoutAtom,
+        paneAtom: WorkspacePaneAtom
+    ) -> UUID? {
+        guard let tab = tabLayoutAtom.tab(tabId) else { return nil }
+
+        for paneId in tab.paneIds where paneAtom.pane(paneId)?.drawer?.isExpanded == true {
+            return paneId
+        }
+
+        return nil
+    }
+
+    static func mainSplitDragEnabled(
+        managementLayerActive: Bool,
+        expandedDrawerParentPaneId: UUID?
+    ) -> Bool {
+        managementLayerActive && expandedDrawerParentPaneId == nil
+    }
+}
