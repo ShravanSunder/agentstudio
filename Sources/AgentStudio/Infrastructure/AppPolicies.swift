@@ -12,5 +12,9 @@ enum AppPolicies {
         /// When `append` would exceed this cap, the oldest entry is evicted.
         /// Provisional; revisit if real usage requires deeper history. (LUNA-361)
         static let maxRetained: Int = 1000
+
+        /// Minimum command duration before an unfocused command-finished event
+        /// is promoted into inbox history.
+        static let commandFinishedMinDurationSeconds: UInt64 = 10
     }
 }
