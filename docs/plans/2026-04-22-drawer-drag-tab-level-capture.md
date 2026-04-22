@@ -95,15 +95,26 @@ Acceptance: in a real drag, drops land at the slot the visual overlay highlights
 
 ## Acceptance criteria
 
+### Hard — gate for claiming the bug is fixed
+
 - [ ] `mise run build` passes
 - [ ] `mise run lint` passes (0 violations)
 - [ ] `mise run test` passes (2384+ tests)
 - [ ] New fixture test from pid=69705's resolutions passes
-- [ ] New registration-invariant test passes
+- [ ] New registration-invariant test passes ("when drawer expanded, exactly one `.agentStudioPaneDrop` destination at tab depth; zero in DrawerPanel subtree")
 - [ ] Manual drag: drop-to-slot mapping visually correct in all quadrants of the drawer panel (top-left, top-right, bottom-left, bottom-right, top-row, bottom-row, createSecondRow regions)
 - [ ] Main-pane drag still works (regression check — positive control)
-- [ ] No diagnostic-only files present on the branch (no `DrawerDragProbeOverlay.swift`, no `DragEventTracer.swift`)
-- [ ] No `oracle/` docs on the branch (this plan file only)
+
+Do NOT proceed beyond this tier until all hard gates are green. The bug-fix determination lives here.
+
+### Soft — cleanup / archaeology staging (tracked, not blocking)
+
+- [ ] Probe file `DrawerDragProbeOverlay.swift` removed or rerouted into LUNA-368 test utilities
+- [ ] `DragEventTracer.swift` stub absorbed into LUNA-368's tracer refactor (kept as-is or deleted per that ticket's decision)
+- [ ] `oracle/` archaeology staging decision: keep on `drawer-improvements` for reference, move to a dedicated `drawer-target-debugging-archive` branch, or delete
+- [ ] Verbose diagnostic logs in capture NSViews pared down (keep session IDs + owner tags; drop ancestor-chain dumps and heavy registration detail)
+
+These can land in follow-up commits after the hard gates pass. They do not block confirming the bug fix works.
 
 ## Risks
 

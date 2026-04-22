@@ -2,11 +2,60 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Unify the drag-target resolution algorithm across main panes and drawer panes so both share one core resolver parameterized by config. Eliminates the fork between `PaneDragCoordinator` (main) and `DrawerPaneDragCoordinator` (drawer), keeps visual highlight and resolution in lockstep, and enforces context-specific rules (main = flat strip, drawer n×1 = strip + can-grow, drawer n×2 = two rows).
+**Goal:** Unify the drag-target *resolution* algorithm across main panes and drawer panes so both share one core resolver parameterized by config. Eliminates the fork between `PaneDragCoordinator` (main) and `DrawerPaneDragCoordinator` (drawer), keeps visual highlight and resolution in lockstep, and enforces context-specific rules (main = flat strip, drawer n×1 = strip + can-grow, drawer n×2 = two rows).
 
-**Architecture:** Introduce a pure, config-parameterized `DropTargetResolver` that consumes a `DropTargetConfig` value and emits a shared `DropTarget` type. Main/drawer keep their own storage actions and target-type translation, but the geometric resolution and visual target-rect enumeration live in one place. Sizing policy (what fraction of space a new/moved pane gets) is extracted alongside so insertion and visualization agree.
+**Scope boundary (updated 2026-04-22 after adversarial review):** THIS PLAN covers *geometry + target-vocabulary unification only*. It does **not** change insertion/removal sizing behavior — that is a product decision and lives in a sibling plan: `2026-04-22-drop-sizing-policy.md`. Running both plans together was rejected in review because sizing is a product change, geometry is a refactor.
+
+**Architecture:** Introduce a pure, config-parameterized `DropTargetResolver` that consumes a `DropTargetConfig` value and emits a shared `DropTarget` type. Main/drawer keep their own storage actions and target-type translation; the geometric resolution and visual target-rect enumeration live in one place.
 
 **Tech Stack:** Swift 6.2, `Testing` (no XCTest), `swift-format`, mise-orchestrated `mise run build/test/lint`. No new third-party deps. Pure-value algorithm module; all SwiftUI/AppKit plumbing stays in existing overlay NSViews.
+
+---
+
+## Prerequisites — MUST complete before Task 1
+
+These are hard blockers. Any attempt to execute Task 1 without satisfying them is a plan violation.
+
+### Prereq 1 — Tab-level capture structural fix lands and is confirmed
+
+- [ ] `docs/plans/2026-04-22-drawer-drag-tab-level-capture.md` Phase B has been applied on `drawer-improvements`
+- [ ] All "Hard" acceptance criteria in that plan are green (build/lint/test/fixture/registration-invariant/manual drag)
+- [ ] At least **2 calendar days of dogfooding** on `drawer-improvements` with no new drag routing / coord-math regressions reported
+- [ ] The current `DrawerPaneDragCoordinator` and `PaneDragCoordinator` contracts are stable and not in mid-refactor
+
+**Why:** Both plans touch `DrawerPanel`, `DrawerPanelOverlay`, `FlatTabStripContainer`, `DrawerPaneDragCoordinator`, `DrawerDropTargetOverlay`. Running this plan before Phase B is validated loses the signal on whether the structural fix actually solved the bug. Adversarial review (Codex-on-plan, 2026-04-22) called this out explicitly.
+
+### Prereq 2 — Main-pane golden fixture
+
+The riskiest part of this plan is Task 11 (main-pane adapter). Task 11 changes the main resolver from "contained-pane + tie-breaker" to "slot-midpoint" geometry. That is a subtle semantic shift that the existing unit tests do not exercise end-to-end against real user drag traces. Without an empirical replay fixture, regressions will only be caught by dogfooding — too late, too noisy.
+
+- [ ] Capture 3 real main-pane drag sessions on a built app (`AGENTSTUDIO_RESTORE_TRACE=1 .build/debug/AgentStudio`):
+  - Session A: 2-pane horizontal split, drag through middle + both edges
+  - Session B: 4-pane horizontal split, drag with overlapping midpoint transitions
+  - Session C: 1-pane + edge-corridor drag (confirms `edgeCorridorWidth = 24` behavior)
+- [ ] Extract the `(location, resolved PaneDropTarget)` pairs into `Tests/AgentStudioTests/Fixtures/MainDrag-<session>.json` (≥ 150 resolutions per session)
+- [ ] Add `MainDragFixtureReplayTests.swift` that replays all three against **the current `PaneDragCoordinator`** (pre-refactor) and proves all assertions pass
+- [ ] Commit the fixtures + replay test. They become the golden baseline Task 11 must preserve.
+
+**Why:** Codex adversarial review: "A single drawer fixture can easily go green while the main-pane adapter and two-row drawer paths are wrong." Main-pane fixture coverage is not optional.
+
+### Prereq 3 — Two-row drawer fixture
+
+The existing pid=69705 fixture covers drawer n×1. If Task 11 or Task 10 regresses two-row resolution, no empirical test catches it.
+
+- [ ] Capture 1 drag session with drawer in n×2 mode covering top-row, bottom-row, and inter-row boundary transitions
+- [ ] Extract to `Tests/AgentStudioTests/Fixtures/DrawerTwoRowDrag.json`
+- [ ] Add to `DropTargetResolverFixtureTests.swift` alongside the n×1 pid=69705 replay
+
+### Prereq 4 — Open design questions resolved with user
+
+The four open design questions (§"Open design questions for review cycle" below) must have written answers before Task 1. Specifically:
+
+- Q1 Main-pane corridor anchor: keep pane-ID anchor in adapter layer? **Default answer proposed:** YES (preserves animation hooks; adapter translates at boundary)
+- Q2 Contained-target vs slot-midpoint on main: which rule wins? **Default answer proposed:** slot-midpoint everywhere (cleaner, matches drawer), accepting subtle boundary shifts; fixture from Prereq 2 must pass both before and after
+- Q4 `DropZone.swift` deletion: defer? **Default answer proposed:** YES, keep `DropZone.left/.right` in `PaneActionCommand.insertPane(direction:)` for persistence stability; translate at adapter boundary only
+
+Q3 (sizing policy) is **not** part of this plan — see scope boundary. Addressed in `2026-04-22-drop-sizing-policy.md`.
 
 ---
 
@@ -1425,160 +1474,24 @@ git commit -m "refactor: PaneDragCoordinator adapts to shared DropTargetResolver
 
 ---
 
-## Task 12: Sizing policy — extract + tests
+## Tasks 12 & 13 — MOVED
 
-**Files:**
-- Create: `Sources/AgentStudio/Core/Views/Splits/DropSizingPolicy.swift`
-- Create: `Tests/AgentStudioTests/Core/Views/Splits/DropSizingPolicyTests.swift`
+Sizing policy (extraction + wiring) has been split into its own plan:
+**`docs/plans/2026-04-22-drop-sizing-policy.md`**.
 
-- [ ] **Step 1: Write the failing test**
+That plan is a product-decision spec — current behavior in `Layout.inserting` is
+"halve the target pane's ratio," NOT equal redistribution (Codex adversarial
+review caught this baseline error in v1 of this plan). The sizing plan enumerates
+options (keep-halving / equal-redistribution / proportional-preservation) with
+tradeoffs and requires user sign-off before any code lands.
 
-```swift
-import Foundation
-import Testing
-
-@testable import AgentStudio
-
-@Suite
-struct DropSizingPolicyTests {
-    @Test
-    func ratiosAfterInsertion_intoEmptyRow_returnsSingleFullPane() {
-        let ratios = DropSizingPolicy.ratiosAfterInsertion(
-            existingRatios: [],
-            insertionIndex: 0
-        )
-        #expect(ratios == [1.0])
-    }
-
-    @Test
-    func ratiosAfterInsertion_preservesExistingProportions() {
-        // Two existing panes at 0.6 and 0.4. Insert a third.
-        // Expected: new pane gets 1/3; existing panes share 2/3 in their prior 3:2 ratio.
-        let ratios = DropSizingPolicy.ratiosAfterInsertion(
-            existingRatios: [0.6, 0.4],
-            insertionIndex: 1
-        )
-        // 1/3 = ~0.333, existing: 0.6*(2/3) = 0.4, 0.4*(2/3) = ~0.267
-        #expect(abs(ratios[0] - 0.4) < 0.001)
-        #expect(abs(ratios[1] - 1.0 / 3.0) < 0.001)
-        #expect(abs(ratios[2] - (0.4 * (2.0 / 3.0))) < 0.001)
-        #expect(abs(ratios.reduce(0, +) - 1.0) < 0.001)
-    }
-
-    @Test
-    func ratiosAfterRemoval_proportionallyRedistributes() {
-        // Three panes 0.5, 0.25, 0.25. Remove index 0.
-        // Remaining two at 0.25+0.25 = 0.5 should scale to [0.5, 0.5] (equal share
-        // of the vacated 0.5 in their prior proportions).
-        let ratios = DropSizingPolicy.ratiosAfterRemoval(
-            existingRatios: [0.5, 0.25, 0.25],
-            removalIndex: 0
-        )
-        #expect(ratios.count == 2)
-        #expect(abs(ratios[0] - 0.5) < 0.001)
-        #expect(abs(ratios[1] - 0.5) < 0.001)
-    }
-}
-```
-
-- [ ] **Step 2: Run tests to verify fail**
-
-Run: `mise run test --filter DropSizingPolicyTests`
-Expected: FAIL — `DropSizingPolicy` not defined.
-
-- [ ] **Step 3: Write implementation**
-
-```swift
-// Sources/AgentStudio/Core/Views/Splits/DropSizingPolicy.swift
-import Foundation
-
-enum DropSizingPolicy {
-    static let defaultRowSplitRatio: Double = 0.5
-
-    static func ratiosAfterInsertion(
-        existingRatios: [Double],
-        insertionIndex: Int
-    ) -> [Double] {
-        if existingRatios.isEmpty { return [1.0] }
-
-        let newPaneShare = 1.0 / Double(existingRatios.count + 1)
-        let remaining = 1.0 - newPaneShare
-        let existingSum = existingRatios.reduce(0, +)
-        let scale = existingSum > 0 ? remaining / existingSum : 0
-
-        var result = existingRatios.map { $0 * scale }
-        let clampedIndex = max(0, min(insertionIndex, result.count))
-        result.insert(newPaneShare, at: clampedIndex)
-        return result
-    }
-
-    static func ratiosAfterRemoval(
-        existingRatios: [Double],
-        removalIndex: Int
-    ) -> [Double] {
-        guard removalIndex >= 0, removalIndex < existingRatios.count else {
-            return existingRatios
-        }
-        var result = existingRatios
-        let removed = result.remove(at: removalIndex)
-        let remainingSum = result.reduce(0, +)
-        guard remainingSum > 0 else { return result }
-        let scale = (remainingSum + removed) / remainingSum
-        return result.map { $0 * scale }
-    }
-}
-```
-
-- [ ] **Step 4: Run tests to verify pass**
-
-Run: `mise run test --filter DropSizingPolicyTests`
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add Sources/AgentStudio/Core/Views/Splits/DropSizingPolicy.swift \
-        Tests/AgentStudioTests/Core/Views/Splits/DropSizingPolicyTests.swift
-git commit -m "feat: add DropSizingPolicy for shared insertion/removal ratios"
-```
+Do NOT add sizing changes to this plan. If insertion behavior appears to need
+a change to make a task in this plan work, that is a signal to revisit the
+sizing plan, not to shortcut it here.
 
 ---
 
-## Task 13: Wire `DropSizingPolicy` into main + drawer insertion paths
-
-**Files:**
-- Modify: `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` (drawer insertion functions)
-- Modify: wherever main-pane insertion computes ratios (locate via grep)
-
-- [ ] **Step 1: Find current insertion ratio logic**
-
-```bash
-grep -rn "ratio.*=.*1.0 / Double\|rat.*equalize\|paneRatio" Sources/AgentStudio/Core/State/ Sources/AgentStudio/Core/Models/ Sources/AgentStudio/Core/Actions/
-```
-
-Expected: 1–3 call sites assigning equal ratios on insertion.
-
-- [ ] **Step 2: Replace equalization with `DropSizingPolicy.ratiosAfterInsertion` at each site**
-
-For each site: extract existing ratios (if any), call `DropSizingPolicy.ratiosAfterInsertion`, write resulting ratios back.
-
-**This is a behavior change** — equal → proportional. Only land if user signed off in the review cycle (open question #3).
-
-- [ ] **Step 3: Run full test suite**
-
-Run: `mise run test`
-Expected: some tests may fail if they hardcoded equal ratios. Update those tests to assert new proportional-preservation behavior.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add -u
-git commit -m "refactor: insertion paths use DropSizingPolicy proportional rule"
-```
-
----
-
-## Task 14: Unify visual overlay via shared target rects
+## Task 12: Unify visual overlay via shared target rects
 
 **Files:**
 - Modify: `Sources/AgentStudio/Core/Views/Drawer/DrawerDropTargetOverlay.swift`
@@ -1645,7 +1558,7 @@ git commit -m "refactor: overlays consume targetRects from shared resolver"
 
 ---
 
-## Task 15: Remove dead code + final audit
+## Task 13: Remove dead code + final audit
 
 **Files:**
 - Audit: `Sources/AgentStudio/Core/Views/Splits/DropZone.swift`
@@ -1678,27 +1591,38 @@ git commit -m "chore: clean up drop-target legacy geometry"
 
 ---
 
-## Self-review — ran against plan
+## Self-review — ran against plan (post-revision 2026-04-22)
 
 **Spec coverage:**
 - User req (1) drag-to-top/bottom only in n×2: enforced by `.drawerTwoRow` config having both rows (no `.newRowBand`), `.drawerSingleRow` having only `.drawerTop` + `.newRowBand`. ✓
 - User req (2) main doesn't allow top/bottom semantics: `.main` config has only `[.main]` row and no `newRowBand`. ✓
-- User req (3) sizing/movement fits algo: `DropSizingPolicy` (Task 12 + 13). ✓
-- Shared algo + config parameterization: Tasks 1–3, covered by resolver tests and fixture. ✓
-- Visual overlay sync with resolution: Task 7 (`targetRects`) + Task 14 (overlay wiring). ✓
-- Adversarial review cycle compatibility: open questions §1–4 explicitly flagged for review before Task 1 execution. ✓
+- User req (3) sizing/movement fits algo: DELEGATED to `2026-04-22-drop-sizing-policy.md`. This plan does not change sizing behavior. ✓
+- Shared algo + config parameterization: Tasks 1–3, covered by resolver tests + fixtures. ✓
+- Visual overlay sync with resolution: Task 7 (`targetRects`) + Task 12 (overlay wiring). ✓
+- Sequencing with Phase B: Prereq 1 explicit. ✓
+- Main-pane fixture coverage: Prereq 2 explicit. ✓
+- Two-row drawer fixture coverage: Prereq 3 explicit. ✓
+
+**Adversarial review findings addressed:**
+- [HIGH] Sizing baseline wrong (current is halving, not equalize): removed from this plan, moved to sizing-policy plan with correct baseline. ✓
+- [HIGH] Adapter Tasks 10/11 premature: retained in this plan but now gated behind Prereq 2 (main fixture) and Prereq 4 (open questions resolved). ✓
+- [MED] Fixture coverage too narrow: Prereqs 2 + 3 add main + two-row fixtures as blocking prereqs. ✓
+- [P1] Not orthogonal to Phase B: Prereq 1 now explicit. ✓
+- [P1] Plan too wide: split into this plan + sizing plan. ✓
 
 **Placeholder scan:** No "TBD" / "implement later" / "add validation" / bare "similar to Task N" references. Every code step contains the actual Swift.
 
-**Type consistency:** `DropTarget.slot(row:index:)` used consistently. `DropTargetResolver` method names stable: `resolve`, `targetRects`, `resolveLatched`. `DropSizingPolicy.ratiosAfterInsertion` / `ratiosAfterRemoval` names stable. Config factory names (`.main`, `.drawerSingleRow`, `.drawerTwoRow`) stable.
+**Type consistency:** `DropTarget.slot(row:index:)` used consistently. `DropTargetResolver` method names stable: `resolve`, `targetRects`, `resolveLatched`. Config factory names (`.main`, `.drawerSingleRow`, `.drawerTwoRow`) stable.
 
 ---
 
 ## Execution handoff
 
-**Plan complete and saved to `docs/plans/2026-04-22-unified-drop-target-algo.md`.**
+**Plan revised and saved to `docs/plans/2026-04-22-unified-drop-target-algo.md`.**
 
-Before any task is executed, the four open design questions need user sign-off via adversarial review cycle. Once those land, two execution options:
+Do NOT start Task 1 until all four Prereqs are green. Specifically: Phase B of `2026-04-22-drawer-drag-tab-level-capture.md` must land and be dogfooded, the main-pane and two-row fixtures must exist and replay-test against the CURRENT coordinators, and the four open design questions need user answers.
+
+After Prereqs are met, two execution options:
 
 1. **Subagent-Driven (recommended)** — fresh subagent per task, adversarial review between tasks, fast iteration
 2. **Inline Execution** — execute tasks in this session using executing-plans, batch execution with checkpoints
