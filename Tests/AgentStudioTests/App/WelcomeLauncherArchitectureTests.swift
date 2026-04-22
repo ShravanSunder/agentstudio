@@ -27,7 +27,7 @@ struct WelcomeLauncherArchitectureTests {
         #expect(source.contains("keyImage: \"folder.badge.plus\""))
         #expect(source.contains("title: \"Watch Folder\""))
         #expect(source.contains("subtitle: \"Scan and keep watching a folder for repos.\""))
-        #expect(source.contains("action: onWatchFolder"))
+        #expect(source.contains("action: { CommandDispatcher.shared.dispatch(.watchFolder) }"))
         #expect(!source.contains("private func launcherIconShortcutButton("))
     }
 

@@ -158,7 +158,7 @@ enum LocalActionSpec {
                 label: "Clear Filter", helpText: "Clear filter", icon: .system(.xmarkCircleFill))
         case .refreshWorktrees:
             return ActionSpec(
-                label: "Refresh Worktrees", helpText: "Refresh watched worktrees", icon: .system(.arrowUturnBackward))
+                label: "Refresh Worktrees", helpText: "Refresh watched worktrees", icon: .system(.arrowClockwise))
         case .chooseFolderToScan:
             return ActionSpec(
                 label: "Choose a Folder to Scan…", helpText: "Choose a folder to scan",
@@ -202,7 +202,7 @@ enum LocalActionSpec {
         case .browserStop:
             return ActionSpec(label: "Stop Loading", helpText: "Stop loading", icon: .system(.xmark))
         case .browserReload:
-            return ActionSpec(label: "Reload", helpText: "Reload (⌘R)", icon: .system(.arrowUturnBackward))
+            return ActionSpec(label: "Reload", helpText: "Reload (⌘R)", icon: .system(.arrowClockwise))
         case .browserHome:
             return ActionSpec(label: "New Tab Page", helpText: "New tab page", icon: .system(.house))
         case .browserAddFavorite:

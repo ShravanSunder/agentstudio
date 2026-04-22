@@ -593,7 +593,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Toggle Split Zoom",
-                icon: .system(.arrowUpLeftAndArrowDownRight),
+                icon: .system(.plusMagnifyingglass),
                 helpText: "Toggle zoom for the active pane",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane, .hasMultiplePanes],

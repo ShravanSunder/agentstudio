@@ -79,4 +79,10 @@ struct UIActionPresentationTests {
         #expect(AppCommand.watchFolder.definition.icon == .system(.folderFillBadgePlus))
         #expect(AppCommand.watchFolder.definition.actionSpec.icon == .system(.folderFillBadgePlus))
     }
+
+    @Test
+    func refreshAndReloadUseClockwiseArrow() {
+        #expect(LocalActionSpec.refreshWorktrees.actionSpec.icon == .system(.arrowClockwise))
+        #expect(LocalActionSpec.browserReload.actionSpec.icon == .system(.arrowClockwise))
+    }
 }

@@ -199,6 +199,16 @@ final class AppCommandTests {
         #expect(!def.requiresManagementLayer)
     }
 
+    @Test
+    func test_toggleSplitZoom_hasDistinctZoomIcon() {
+        let splitZoom = CommandDispatcher.shared.definition(for: .toggleSplitZoom)
+        let expandPane = CommandDispatcher.shared.definition(for: .expandPane)
+
+        #expect(splitZoom.icon == .system(.plusMagnifyingglass))
+        #expect(expandPane.icon == .system(.arrowUpLeftAndArrowDownRight))
+        #expect(splitZoom.icon != expandPane.icon)
+    }
+
     // MARK: - CommandDispatcher
 
     @MainActor
