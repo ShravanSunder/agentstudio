@@ -199,7 +199,7 @@ struct DrawerPanelOverlay: View {
                             layout: info.drawer.layout,
                             parentPaneId: info.paneId,
                             tabId: tabId,
-                            activePaneId: info.drawer.activePaneId,
+                            activeChildId: info.drawer.activeChildId,
                             minimizedPaneIds: info.drawer.minimizedPaneIds,
                             closeTransitionCoordinator: closeTransitionCoordinator,
                             height: panelHeight,

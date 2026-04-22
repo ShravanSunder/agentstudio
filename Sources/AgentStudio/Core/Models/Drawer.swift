@@ -8,7 +8,7 @@ struct Drawer: Codable, Hashable {
     /// Spatial arrangement of panes (same Layout type as Tab uses).
     var layout: Layout
     /// Currently focused pane in the drawer. Nil only when empty.
-    var activePaneId: UUID?
+    var activeChildId: UUID?
     /// Whether the drawer panel is expanded (visible) or collapsed.
     var isExpanded: Bool
     /// Panes currently minimized to narrow vertical bars. Transient — not persisted.
@@ -17,19 +17,19 @@ struct Drawer: Codable, Hashable {
     init(
         paneIds: [UUID] = [],
         layout: Layout = Layout(),
-        activePaneId: UUID? = nil,
+        activeChildId: UUID? = nil,
         isExpanded: Bool = false,
         minimizedPaneIds: Set<UUID> = []
     ) {
         self.paneIds = paneIds
         self.layout = layout
-        self.activePaneId = activePaneId
+        self.activeChildId = activeChildId
         self.isExpanded = isExpanded
         self.minimizedPaneIds = minimizedPaneIds
     }
 
     enum CodingKeys: CodingKey {
-        case paneIds, layout, activePaneId, isExpanded
+        case paneIds, layout, activeChildId, isExpanded
         // minimizedPaneIds excluded — transient, not persisted
     }
 
@@ -37,7 +37,7 @@ struct Drawer: Codable, Hashable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         paneIds = try container.decode([UUID].self, forKey: .paneIds)
         layout = try container.decode(Layout.self, forKey: .layout)
-        activePaneId = try container.decodeIfPresent(UUID.self, forKey: .activePaneId)
+        activeChildId = try container.decodeIfPresent(UUID.self, forKey: .activeChildId)
         isExpanded = try container.decode(Bool.self, forKey: .isExpanded)
         minimizedPaneIds = []  // transient — always starts empty on decode
     }

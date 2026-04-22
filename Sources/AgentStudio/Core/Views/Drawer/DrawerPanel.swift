@@ -48,7 +48,7 @@ struct DrawerPanel: View {
     let layout: Layout
     let parentPaneId: UUID
     let tabId: UUID
-    let activePaneId: UUID?
+    let activeChildId: UUID?
     let minimizedPaneIds: Set<UUID>
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let height: CGFloat
@@ -74,7 +74,7 @@ struct DrawerPanel: View {
         layout: Layout,
         parentPaneId: UUID,
         tabId: UUID,
-        activePaneId: UUID?,
+        activeChildId: UUID?,
         minimizedPaneIds: Set<UUID>,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         height: CGFloat,
@@ -91,7 +91,7 @@ struct DrawerPanel: View {
         self.layout = layout
         self.parentPaneId = parentPaneId
         self.tabId = tabId
-        self.activePaneId = activePaneId
+        self.activeChildId = activeChildId
         self.minimizedPaneIds = minimizedPaneIds
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.height = height
@@ -207,7 +207,7 @@ struct DrawerPanel: View {
                         FlatPaneStripContent(
                             layout: layout,
                             tabId: tabId,
-                            activePaneId: activePaneId,
+                            activePaneId: activeChildId,
                             minimizedPaneIds: minimizedPaneIds,
                             collapsedPaneWidth: CollapsedPaneBar.barWidth,
                             onSaveArrangement: nil,
@@ -325,7 +325,7 @@ struct DrawerPanel: View {
                     layout: Layout(),
                     parentPaneId: UUID(),
                     tabId: UUID(),
-                    activePaneId: nil,
+                    activeChildId: nil,
                     minimizedPaneIds: [],
                     closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
                     height: 200,

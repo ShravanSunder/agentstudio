@@ -450,7 +450,7 @@ extension PaneCoordinator {
             store.paneAtom.toggleDrawer(for: paneId)
             if let drawer = store.paneAtom.pane(paneId)?.drawer,
                 drawer.isExpanded,
-                let activeDrawerPaneId = drawer.activePaneId
+                let activeDrawerPaneId = drawer.activeChildId
             {
                 restoreViewsForActiveTabIfNeeded()
                 focusVisiblePaneHost(activeDrawerPaneId)

@@ -753,7 +753,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private func visibleActiveDrawerPaneId(for parentPaneId: UUID) -> UUID? {
         guard let drawer = store.paneAtom.pane(parentPaneId)?.drawer else { return nil }
         guard drawer.isExpanded else { return nil }
-        guard let drawerPaneId = drawer.activePaneId else { return nil }
+        guard let drawerPaneId = drawer.activeChildId else { return nil }
         guard !drawer.minimizedPaneIds.contains(drawerPaneId) else { return nil }
         return drawerPaneId
     }
@@ -1641,7 +1641,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 let paneId = tab.activePaneId,
                 let pane = store.paneAtom.pane(paneId),
                 let drawer = pane.drawer,
-                let activeDrawerPaneId = drawer.activePaneId
+                let activeDrawerPaneId = drawer.activeChildId
             else { break }
             dispatchAction(.removeDrawerPane(parentPaneId: paneId, drawerPaneId: activeDrawerPaneId))
 

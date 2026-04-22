@@ -669,7 +669,7 @@ enum CommandBarDataSource {
         {
             items = drawer.paneIds.enumerated().compactMap { index, drawerPaneId -> CommandBarItem? in
                 guard let drawerPane = workspacePane.pane(drawerPaneId) else { return nil }
-                let isActive = drawer.activePaneId == drawerPaneId
+                let isActive = drawer.activeChildId == drawerPaneId
                 return CommandBarItem(
                     id: "target-drawer-\(drawerPaneId.uuidString)",
                     title: paneDisplayLabel(for: drawerPane, store: store, repoCache: repoCache),

@@ -32,7 +32,7 @@ final class WorkspaceStoreDrawerTests {
         #expect((updated.drawer) != nil)
         #expect(updated.drawer!.paneIds.count == 1)
         #expect(updated.drawer!.paneIds[0] == dp!.id)
-        #expect(updated.drawer!.activePaneId == dp!.id)
+        #expect(updated.drawer!.activeChildId == dp!.id)
         #expect(updated.drawer!.isExpanded)
 
         // Drawer pane is a real entry in store.panes
@@ -52,7 +52,7 @@ final class WorkspaceStoreDrawerTests {
 
         let updated = store.pane(pane.id)!
         #expect(updated.drawer!.paneIds.count == 2)
-        #expect(updated.drawer!.activePaneId == dp2.id)  // last added becomes active
+        #expect(updated.drawer!.activeChildId == dp2.id)  // last added becomes active
         #expect(updated.drawer!.paneIds[1] == dp2.id)
 
         // Both drawer panes are in the layout
@@ -178,7 +178,7 @@ final class WorkspaceStoreDrawerTests {
         // Active is dp2 (last added), remove dp2
         store.removeDrawerPane(dp2.id, from: pane.id)
 
-        #expect(store.pane(pane.id)!.drawer!.activePaneId == dp1.id)
+        #expect(store.pane(pane.id)!.drawer!.activeChildId == dp1.id)
     }
 
     @Test
@@ -193,7 +193,7 @@ final class WorkspaceStoreDrawerTests {
         let updated = store.pane(pane.id)!
         #expect((updated.drawer) != nil)
         #expect(updated.drawer!.paneIds.isEmpty)
-        #expect((updated.drawer!.activePaneId) == nil)
+        #expect((updated.drawer!.activeChildId) == nil)
     }
 
     @Test
@@ -277,7 +277,7 @@ final class WorkspaceStoreDrawerTests {
 
         store.setActiveDrawerPane(dp1.id, in: pane.id)
 
-        #expect(store.pane(pane.id)!.drawer!.activePaneId == dp1.id)
+        #expect(store.pane(pane.id)!.drawer!.activeChildId == dp1.id)
     }
 
     @Test
@@ -289,7 +289,7 @@ final class WorkspaceStoreDrawerTests {
         store.setActiveDrawerPane(UUID(), in: pane.id)
 
         // Should remain unchanged
-        #expect(store.pane(pane.id)!.drawer!.activePaneId == dp.id)
+        #expect(store.pane(pane.id)!.drawer!.activeChildId == dp.id)
     }
 
     // MARK: - moveDrawerPane
@@ -316,7 +316,7 @@ final class WorkspaceStoreDrawerTests {
         let afterOrder = drawer.layout.paneIds
         #expect(Set(afterOrder) == Set([dp1.id, dp2.id, dp3.id]))
         #expect(afterOrder.last == dp1.id)
-        #expect(drawer.activePaneId == dp1.id)
+        #expect(drawer.activeChildId == dp1.id)
     }
 
     @Test
@@ -416,7 +416,7 @@ final class WorkspaceStoreDrawerTests {
         // Assert — minimizing last pane is now allowed
         #expect(result)
         #expect(store.pane(pane.id)!.drawer!.minimizedPaneIds.contains(dp.id))
-        #expect((store.pane(pane.id)!.drawer!.activePaneId) == nil)
+        #expect((store.pane(pane.id)!.drawer!.activeChildId) == nil)
     }
 
     @Test
@@ -458,7 +458,7 @@ final class WorkspaceStoreDrawerTests {
 
         // Assert — minimizing last pane is now allowed
         #expect(store.pane(pane.id)!.drawer!.minimizedPaneIds.contains(dp.id))
-        #expect((store.pane(pane.id)!.drawer!.activePaneId) == nil)
+        #expect((store.pane(pane.id)!.drawer!.activeChildId) == nil)
     }
 
     @Test
@@ -474,7 +474,7 @@ final class WorkspaceStoreDrawerTests {
         store.minimizeDrawerPane(dp2.id, in: pane.id)
 
         // Assert — active should switch to dp1
-        #expect(store.pane(pane.id)!.drawer!.activePaneId == dp1.id)
+        #expect(store.pane(pane.id)!.drawer!.activeChildId == dp1.id)
     }
 
     @Test
@@ -617,7 +617,7 @@ final class WorkspaceStoreDrawerTests {
         #expect((restoredPane) != nil)
         if let restored = restoredPane {
             #expect(restored.drawer!.paneIds.count == 1)
-            #expect(restored.drawer!.activePaneId == dp.id)
+            #expect(restored.drawer!.activeChildId == dp.id)
 
             // Drawer child pane should also be restored in store
             let restoredDrawerPane = store2.pane(dp.id)
