@@ -792,9 +792,10 @@ UNCHANGED referenced                        ~8
 └──────────────────────────────────────────────────────────────────┘
 
          ┌─ Side input ────────────────────────────────────────┐
-         │ PaneFocusTracker (@MainActor) observes              │
-         │ WorkspacePaneAtom.activePaneId transitions →        │
-         │ AsyncStream<PaneId> → InboxNotificationRouter →          │
+         │ PaneFocusTracker / AttendedPaneAtom (@MainActor)    │
+         │ observe active-tab activePaneId when the workspace  │
+         │ window is key and management is inactive →          │
+         │ AsyncStream<PaneId> → InboxNotificationRouter →     │
          │ InboxNotificationAtom.markRead(paneId:)             │
          │                    .dismissFromDrawer(paneId:)      │
          └─────────────────────────────────────────────────────┘
@@ -996,13 +997,22 @@ The `🔔 N` pill already rendered per-worktree reads from `InboxNotificationAto
 
 ### 10.1 Pane focus detection
 
-`WorkspaceFocusDerived` at `Core/State/MainActor/Atoms/WorkspaceFocusDerived.swift` is stateless and snapshot-based. It exposes `activePaneId` but does not emit transition events. To clear state on "pane X gained focus":
+`AttendedPaneAtom` in `Core/State/MainActor/Atoms/AttendedPaneAtom.swift` is the canonical attended-pane composite. It derives the currently attended pane from:
 
-- `PaneFocusTracker` (part of the feature slice) observes `WorkspacePaneAtom` via `Observation.withObservationTracking` and diffs successive `activePaneId` values.
-- Emits `AsyncStream<PaneId>` of focus-gained transitions consumed by `InboxNotificationRouter`.
-- Router dispatches `InboxNotificationAtom.markRead(paneId:)` and `InboxNotificationAtom.dismissFromDrawer(paneId:)`.
+- `WorkspaceTabLayoutAtom.activeTab?.activePaneId`
+- `WindowLifecycleAtom.isWorkspaceWindowKey`
+- `ManagementLayerAtom.isActive`
 
-Placement: `Features/InboxNotification/Routing/PaneFocusTracker.swift`.
+`PaneFocusTracker` consumes that composite rather than inventing its own pane-focus truth:
+
+- `AttendedPaneAtom.attendedPaneId` is the snapshot answer to "which pane is the user actually attending right now?"
+- `AttendedPaneAtom.transitions` emits `AsyncStream<PaneId?>` whenever that answer changes.
+- `PaneFocusTracker` can be a thin feature-slice adapter over that stream, or the router can subscribe directly.
+- `InboxNotificationRouter` uses the attended-pane transitions to call `InboxNotificationAtom.markRead(paneId:)` and `InboxNotificationAtom.dismissFromDrawer(paneId:)`.
+
+Placement:
+- `Core/State/MainActor/Atoms/AttendedPaneAtom.swift`
+- `Features/InboxNotification/Routing/PaneFocusTracker.swift`
 
 ### 10.2 Drawer model
 

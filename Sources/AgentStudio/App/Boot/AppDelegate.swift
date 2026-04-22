@@ -85,7 +85,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         store.restore()
         managementLayerMonitor = ManagementLayerMonitor()
         appLifecycleStore = AppLifecycleAtom()
-        windowLifecycleStore = WindowLifecycleAtom()
+        windowLifecycleStore = atomStore.windowLifecycle
         applicationLifecycleMonitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore

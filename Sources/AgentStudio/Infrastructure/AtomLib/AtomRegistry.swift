@@ -7,6 +7,7 @@ final class AtomRegistry {
     let workspaceTabArrangement: WorkspaceTabArrangementAtom
     let workspaceTabLayout: WorkspaceTabLayoutAtom
     let workspaceMutationCoordinator: WorkspaceMutationCoordinator
+    let windowLifecycle: WindowLifecycleAtom
     let repoCache: RepoCacheAtom
     let uiState: UIStateAtom
     let managementLayer: ManagementLayerAtom
@@ -20,6 +21,7 @@ final class AtomRegistry {
         workspaceTabShell: WorkspaceTabShellAtom = .init(),
         workspaceTabArrangement: WorkspaceTabArrangementAtom = .init(),
         workspaceMutationCoordinator: WorkspaceMutationCoordinator? = nil,
+        windowLifecycle: WindowLifecycleAtom = .init(),
         repoCache: RepoCacheAtom = .init(),
         uiState: UIStateAtom = .init(),
         managementLayer: ManagementLayerAtom = .init(),
@@ -43,6 +45,7 @@ final class AtomRegistry {
                 workspaceTabShellAtom: workspaceTabShell,
                 workspaceTabArrangementAtom: workspaceTabArrangement
             )
+        self.windowLifecycle = windowLifecycle
         self.repoCache = repoCache
         self.uiState = uiState
         self.managementLayer = managementLayer
@@ -61,6 +64,12 @@ final class AtomRegistry {
     var commandContext: CommandContextDerived {
         CommandContextDerived()
     }
+
+    lazy var attendedPane = AttendedPaneAtom(
+        tabLayout: workspaceTabLayout,
+        windowLifecycle: windowLifecycle,
+        managementLayer: managementLayer
+    )
 
     var tabDisplay: TabDisplayDerived {
         TabDisplayDerived()

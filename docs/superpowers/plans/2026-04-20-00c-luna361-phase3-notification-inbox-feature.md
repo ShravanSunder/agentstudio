@@ -4,7 +4,7 @@
 
 **Goal:** Build the notification inbox feature end-to-end on top of the Phase 1 shell (UIStateAtom composition state + `SidebarSurfaceHost`) and the Phase 2 `KeyboardOwner` plumbing (CommandBar default-scope). At the end of Phase 3: agents and CLI tools can emit notifications that appear in the sidebar Inbox, per-drawer popover, sidebar bell badges, and an in-app log that's searchable / sortable / groupable with full keymap.
 
-**Architecture:** Feature slice at `Features/InboxNotification/` — self-contained. Two feature atoms (`InboxNotificationAtom` for the log, `InboxNotificationPrefsAtom` for user prefs), one feature store wrapping both, one leaf `InboxNotificationRouter` subscribing to `EventBus<RuntimeEnvelope>`, a `PaneFocusTracker` diffing `WorkspacePaneAtom.activePaneId` transitions, plus SwiftUI views for the sidebar and drawer popover. Bridge feature grows an `inbox.post` RPC method; Core drawer views grow a `TrailingActions` bell slot; CommandBar registers `.inbox`-scoped actions. No composition state lives here — that's on `UIStateAtom` in Core (Phase 1). All paths per `docs/architecture/directory_structure.md` feature-slice self-containment rules.
+**Architecture:** Feature slice at `Features/InboxNotification/` — self-contained. Two feature atoms (`InboxNotificationAtom` for the log, `InboxNotificationPrefsAtom` for user prefs), one feature store wrapping both, one leaf `InboxNotificationRouter` subscribing to `EventBus<RuntimeEnvelope>`, and a Core-level `AttendedPaneAtom` that derives the currently attended pane from tab layout + window key state + management-layer state. A feature-slice `PaneFocusTracker` can adapt that stream for router auto-dismiss semantics. SwiftUI views drive the sidebar and drawer popover. Bridge feature grows an `inbox.post` RPC method; Core drawer views grow a `TrailingActions` bell slot; CommandBar registers `.inbox`-scoped actions. No composition state lives here — that's on `UIStateAtom` in Core (Phase 1). All paths per `docs/architecture/directory_structure.md` feature-slice self-containment rules.
 
 **Tech Stack:** Swift 6.2 · SwiftUI · Swift Testing · existing `EventBus<RuntimeEnvelope>` · existing `RPCRouter` · `@Observable @MainActor` atoms · `AppPolicies.InboxNotification.maxRetained` (added)
 
@@ -1043,7 +1043,7 @@ by AppDelegate boot sequencing. LUNA-361 Phase 3."
 
 ## Task 5: `PaneFocusTracker`
 
-Emits an `AsyncStream<PaneId>` of focus-gained transitions by diffing `WorkspacePaneAtom.activePaneId`. Consumed by `InboxNotificationRouter` to auto-dismiss notifications when the user focuses their source pane.
+Emits an `AsyncStream<PaneId>` of focus-gained transitions from the real attended-pane source of truth. `WorkspacePaneAtom` does not own a workspace-wide `activePaneId`, so this feature must build on `AttendedPaneAtom` (Task 5a / Commit C) which derives the attended pane from `WorkspaceTabLayoutAtom.activeTab?.activePaneId`, `WindowLifecycleAtom.isWorkspaceWindowKey`, and `ManagementLayerAtom.isActive`.
 
 **Files:**
 - Create: `Sources/AgentStudio/Features/InboxNotification/Routing/PaneFocusTracker.swift`
@@ -1088,15 +1088,25 @@ struct PaneFocusTrackerTests {
 
     @Test("emits paneId on transition A → B")
     func emitsOnTransition() async {
-        let paneAtom = WorkspacePaneAtom()
-        let tracker = PaneFocusTracker(paneAtom: paneAtom)
+        let tabLayout = WorkspaceTabLayoutAtom()
+        let windowLifecycle = WindowLifecycleAtom()
+        let managementLayer = ManagementLayerAtom()
+        let attendedPane = AttendedPaneAtom(
+            tabLayout: tabLayout,
+            windowLifecycle: windowLifecycle,
+            managementLayer: managementLayer
+        )
+        let tracker = PaneFocusTracker(attendedPane: attendedPane)
         let paneA = UUID()
         let paneB = UUID()
+        let tab = makeTab(paneIds: [paneA, paneB], activePaneId: paneA)
 
-        paneAtom.setActivePaneId(paneA)   // adjust to real setter
-        // Let the onChange + re-register hop finish.
+        tabLayout.appendTab(tab)
+        let windowId = UUID()
+        windowLifecycle.recordWindowRegistered(windowId)
+        windowLifecycle.recordWindowBecameKey(windowId)
         await Task.yield()
-        paneAtom.setActivePaneId(paneB)
+        tabLayout.setActivePane(paneB, inTab: tab.id)
         await Task.yield()
 
         let collected = await collect(from: tracker, expected: 2)
@@ -1106,14 +1116,25 @@ struct PaneFocusTrackerTests {
 
     @Test("does not emit when activePaneId stays the same")
     func noEmitOnNoChange() async {
-        let paneAtom = WorkspacePaneAtom()
-        let tracker = PaneFocusTracker(paneAtom: paneAtom)
+        let tabLayout = WorkspaceTabLayoutAtom()
+        let windowLifecycle = WindowLifecycleAtom()
+        let managementLayer = ManagementLayerAtom()
+        let attendedPane = AttendedPaneAtom(
+            tabLayout: tabLayout,
+            windowLifecycle: windowLifecycle,
+            managementLayer: managementLayer
+        )
+        let tracker = PaneFocusTracker(attendedPane: attendedPane)
         let paneA = UUID()
+        let tab = makeTab(paneIds: [paneA], activePaneId: paneA)
 
-        paneAtom.setActivePaneId(paneA)
+        tabLayout.appendTab(tab)
+        let windowId = UUID()
+        windowLifecycle.recordWindowRegistered(windowId)
+        windowLifecycle.recordWindowBecameKey(windowId)
         await Task.yield()
         // Same paneId again — must not emit
-        paneAtom.setActivePaneId(paneA)
+        tabLayout.setActivePane(paneA, inTab: tab.id)
         await Task.yield()
 
         let collected = await collect(
@@ -1137,13 +1158,14 @@ Create `Sources/AgentStudio/Features/InboxNotification/Routing/PaneFocusTracker.
 import Foundation
 import Observation
 
-/// Observes `WorkspacePaneAtom.activePaneId` transitions and
-/// emits the gained paneId via an `AsyncStream`.
+/// Observes `AttendedPaneAtom.transitions` and emits only non-nil
+/// gained pane ids via an `AsyncStream`.
 ///
-/// `WorkspaceFocusDerived` is snapshot-only — it does not emit
-/// transition events. This tracker closes that gap for
-/// consumers (primarily `InboxNotificationRouter`) that need to
-/// react to "user focused pane X."
+/// `AttendedPaneAtom` is the canonical composite for "what pane is
+/// the user actually attending right now?" This feature-scoped
+/// tracker exists to give the router a narrow `AsyncStream<UUID>`
+/// interface for auto-dismiss behavior without re-deriving the
+/// attention model locally.
 ///
 /// Event-driven via `withObservationTracking` + `onChange`
 /// re-registration. No polling, no sleeps. Matches the existing
@@ -1161,57 +1183,32 @@ import Observation
 /// plan was written.
 @MainActor
 final class PaneFocusTracker {
-    private let paneAtom: WorkspacePaneAtom
+    private let attendedPane: AttendedPaneAtom
     private let continuation: AsyncStream<UUID>.Continuation
     let focusGainedStream: AsyncStream<UUID>
 
-    private var lastActivePaneId: UUID?
+    private var streamTask: Task<Void, Never>?
     private var isStopped: Bool = false
 
-    init(paneAtom: WorkspacePaneAtom) {
-        self.paneAtom = paneAtom
+    init(attendedPane: AttendedPaneAtom) {
+        self.attendedPane = attendedPane
         let (stream, continuation) = AsyncStream.makeStream(of: UUID.self)
         self.focusGainedStream = stream
         self.continuation = continuation
-        // Seed lastActivePaneId with the current value so the first
-        // real transition registers correctly.
-        self.lastActivePaneId = paneAtom.activePaneId
-        observe()
-    }
-
-    /// Register a one-shot observation. When `activePaneId`
-    /// changes, `onChange` fires on the main actor; we handle
-    /// the transition and re-register to catch the next change.
-    /// No polling.
-    private func observe() {
-        guard !isStopped else { return }
-        withObservationTracking {
-            // Read-to-register. Swift observation tracks whichever
-            // properties we access inside the closure.
-            _ = paneAtom.activePaneId
-        } onChange: { [weak self] in
-            // onChange is delivered off-main by Swift observation;
-            // hop back to main to touch @MainActor state and
-            // re-register safely.
-            Task { @MainActor [weak self] in
-                guard let self, !self.isStopped else { return }
-                self.handleTransition()
-                self.observe()   // re-register for the next change
+        streamTask = Task { [weak self] in
+            guard let self else { return }
+            for await paneId in attendedPane.transitions {
+                guard !Task.isCancelled, !self.isStopped else { return }
+                if let paneId {
+                    continuation.yield(paneId)
+                }
             }
         }
     }
 
-    private func handleTransition() {
-        let current = paneAtom.activePaneId
-        defer { lastActivePaneId = current }
-        guard current != lastActivePaneId,
-              let gainedId = current
-        else { return }
-        continuation.yield(gainedId)
-    }
-
     func stop() {
         isStopped = true
+        streamTask?.cancel()
         continuation.finish()
     }
 }
@@ -1224,7 +1221,7 @@ final class PaneFocusTracker {
 - Avoid busy-loops (`while !Task.isCancelled { sleep }`) entirely — they waste main-actor CPU and can reorder or drop transitions under load.
 - If you discover the codebase has a wrapper utility (`ValueStream`, a generic `observe(_:)` helper, etc.) that encapsulates this pattern, use it. Grep first.
 
-**Tests** can rely on synchronous propagation: after `paneAtom.setActivePaneId(x)`, the `onChange` closure schedules a `Task { @MainActor }` which resolves on the next runloop cycle. Use a bounded-wait primitive (`await fulfillment(of:)`, `TestClock.advance`, or a small `await Task.yield()` loop bounded by iteration count) rather than `Task.sleep(for:)` for deterministic tests. Per `AGENTS.md` "No Wall-Clock Tests."
+**Tests** can rely on synchronous propagation: after `tabLayout.setActivePane(_:inTab:)`, the observation pipeline schedules a `Task { @MainActor }` which resolves on the next runloop cycle. Use a bounded-wait primitive (`await fulfillment(of:)`, `TestClock.advance`, or a small `await Task.yield()` loop bounded by iteration count) rather than `Task.sleep(for:)` for deterministic tests. Per `AGENTS.md` "No Wall-Clock Tests."
 
 - [ ] **Step 3: Tests, lint, commit**
 
