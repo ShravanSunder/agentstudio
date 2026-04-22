@@ -243,7 +243,12 @@ struct PaneLeafContainer: View {
                         .contentShape(
                             RoundedRectangle(cornerRadius: AppStyles.Shell.ManagementLayer.dragHandleCornerRadius)
                         )
-                        .onHover { isDragHandleHovered = $0 }
+                        .onHover { hovered in
+                            isDragHandleHovered = hovered
+                            RestoreTrace.log(
+                                "PaneLeafContainer.dragHandle.onHover hovered=\(hovered) pane=\(paneHost.id) drawerParent=\(drawerParentPaneId?.uuidString ?? "nil")"
+                            )
+                        }
                         .draggable(
                             PaneDragPayload(
                                 paneId: paneHost.id,
@@ -251,16 +256,10 @@ struct PaneLeafContainer: View {
                                 drawerParentPaneId: drawerParentPaneId
                             )
                         ) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: AppStyles.Shell.ManagementLayer.dragHandleCornerRadius)
-                                    .fill(Color(.windowBackgroundColor).opacity(0.8))
-                                Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
-                                    .font(.system(size: AppStyles.General.Icon.toolbar, weight: .medium))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .frame(
-                                width: AppStyles.Shell.ManagementLayer.dragHandleWidth,
-                                height: AppStyles.Shell.ManagementLayer.dragHandleHeight
+                            DragHandleDragPreview(
+                                paneId: paneHost.id,
+                                drawerParentPaneId: drawerParentPaneId,
+                                tabId: tabId
                             )
                         }
                     }
@@ -546,6 +545,56 @@ struct PaneLeafContainer: View {
     private func openInCursor(_ context: PaneManagementContext) {
         guard let targetPath = context.targetPath else { return }
         ExternalWorkspaceOpener.openInPreferredEditor(targetPath)
+    }
+
+}
+
+// MARK: - DragHandleDragPreview
+
+/// Preview view shown by SwiftUI's `.draggable(_:preview:)` when a drag session
+/// actually begins. By wrapping the preview in a dedicated `View` struct with
+/// `init` + `onAppear` traces, we can distinguish "SwiftUI evaluated the preview
+/// closure during body construction" (doesn't mean a drag started) from
+/// "SwiftUI initiated an NSDraggingSession and is rendering this preview
+/// attached to the cursor" (definitive signal that .draggable recognized).
+struct DragHandleDragPreview: View {
+    let paneId: UUID
+    let drawerParentPaneId: UUID?
+    let tabId: UUID
+
+    init(paneId: UUID, drawerParentPaneId: UUID?, tabId: UUID) {
+        self.paneId = paneId
+        self.drawerParentPaneId = drawerParentPaneId
+        self.tabId = tabId
+        RestoreTrace.log(
+            "DragHandleDragPreview.init pane=\(paneId) drawerParent=\(drawerParentPaneId?.uuidString ?? "nil") tab=\(tabId)"
+        )
+    }
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: AppStyles.Shell.ManagementLayer.dragHandleCornerRadius)
+                .fill(Color(.windowBackgroundColor).opacity(0.8))
+            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                .font(.system(size: AppStyles.General.Icon.toolbar, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .frame(
+            width: AppStyles.Shell.ManagementLayer.dragHandleWidth,
+            height: AppStyles.Shell.ManagementLayer.dragHandleHeight
+        )
+        .onAppear {
+            let sessionID = DragSession.start()
+            let source = drawerParentPaneId == nil ? "main-pane" : "drawer-pane"
+            RestoreTrace.log(
+                "DragHandleDragPreview.onAppear session=\(sessionID) source=\(source) pane=\(paneId) drawerParent=\(drawerParentPaneId?.uuidString ?? "nil") tab=\(tabId)"
+            )
+        }
+        .onDisappear {
+            RestoreTrace.log(
+                "DragHandleDragPreview.onDisappear pane=\(paneId) drawerParent=\(drawerParentPaneId?.uuidString ?? "nil") tab=\(tabId)"
+            )
+        }
     }
 }
 

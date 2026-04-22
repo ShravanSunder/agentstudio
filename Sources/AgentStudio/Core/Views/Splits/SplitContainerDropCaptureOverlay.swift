@@ -129,20 +129,33 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
 
         func handleDragUpdate(from pasteboard: NSPasteboard, location: CGPoint) -> PaneDropTarget? {
             guard let payload = decodeSplitDropPayload(from: pasteboard) else {
+                let pasteboardTypes = pasteboard.types?.map(\.rawValue).joined(separator: ",") ?? "nil"
+                RestoreTrace.log(
+                    "SplitContainer.handleDragUpdate decode=nil location=\(NSStringFromPoint(location)) types=\(pasteboardTypes)"
+                )
                 dragSession = .idle
                 return nil
             }
             guard actionDispatcher.shouldHandleSplitDragPayload(payload) else {
+                RestoreTrace.log(
+                    "SplitContainer.handleDragUpdate rejectedByDispatcher location=\(NSStringFromPoint(location)) payload=\(String(describing: payload))"
+                )
                 dragSession = .previewing(payload: payload)
                 return nil
             }
 
             if let resolvedTarget = resolveTarget(at: location, payload: payload) {
+                RestoreTrace.log(
+                    "SplitContainer.handleDragUpdate target=\(resolvedTarget.paneId) zone=\(resolvedTarget.zone) location=\(NSStringFromPoint(location))"
+                )
                 let candidate = DragSessionCandidate(payload: payload, target: resolvedTarget)
                 dragSession = .armed(candidate: candidate)
                 return resolvedTarget
             }
 
+            RestoreTrace.log(
+                "SplitContainer.handleDragUpdate target=nil location=\(NSStringFromPoint(location)) payload=\(String(describing: payload))"
+            )
             dragSession = .previewing(payload: payload)
             return nil
         }
@@ -190,6 +203,9 @@ final class SplitContainerDropCaptureView: NSView {
     weak var coordinator: SplitContainerDropCaptureOverlay.Coordinator?
 
     private var isRegisteredForManagementLayer = false
+    private var isManagementLayerActiveRequest = false
+
+    override var isFlipped: Bool { true }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -205,21 +221,55 @@ final class SplitContainerDropCaptureView: NSView {
     }
 
     func updateDropRegistration(isManagementLayerActive: Bool) {
-        guard isRegisteredForManagementLayer != isManagementLayerActive else { return }
-        if isManagementLayerActive {
+        isManagementLayerActiveRequest = isManagementLayerActive
+        applyDropRegistration()
+    }
+
+    /// Registers/unregisters for dragged types based on the management-layer request
+    /// AND on whether the view has a non-empty frame. AppKit's drag destination
+    /// traversal skips views with empty bounds; gating on `!bounds.isEmpty` plus
+    /// re-applying on every frame change keeps registration in sync with layout.
+    private func applyDropRegistration() {
+        let shouldRegister = isManagementLayerActiveRequest && !bounds.isEmpty
+        guard isRegisteredForManagementLayer != shouldRegister else { return }
+        if shouldRegister {
             registerForDraggedTypes(SplitContainerDropCaptureOverlay.supportedPasteboardTypes)
+            let windowFrame = superview.map { $0.convert(frame, to: nil) } ?? .zero
+            let hasWindow = window != nil
+            RestoreTrace.log(
+                "SplitContainer.updateDropRegistration registered flipped=\(isFlipped) local=\(NSStringFromRect(frame)) windowFrame=\(NSStringFromRect(windowFrame)) hasWindow=\(hasWindow)"
+            )
         } else {
             unregisterDraggedTypes()
+            RestoreTrace.log(
+                "SplitContainer.updateDropRegistration unregistered managementActive=\(isManagementLayerActiveRequest) boundsEmpty=\(bounds.isEmpty)"
+            )
         }
-        isRegisteredForManagementLayer = isManagementLayerActive
+        isRegisteredForManagementLayer = shouldRegister
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        applyDropRegistration()
+    }
+
+    override func layout() {
+        super.layout()
+        applyDropRegistration()
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        routeDragUpdate(sender)
+        RestoreTrace.log(
+            "SplitContainer.draggingEntered raw=\(NSStringFromPoint(sender.draggingLocation))"
+        )
+        return routeDragUpdate(sender)
     }
 
     override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        routeDragUpdate(sender)
+        RestoreTrace.log(
+            "SplitContainer.draggingUpdated raw=\(NSStringFromPoint(sender.draggingLocation))"
+        )
+        return routeDragUpdate(sender)
     }
 
     override func draggingExited(_ sender: (any NSDraggingInfo)?) {
@@ -255,6 +305,9 @@ final class SplitContainerDropCaptureView: NSView {
         let target = coordinator.handleDragUpdate(
             from: sender.draggingPasteboard,
             location: location
+        )
+        RestoreTrace.log(
+            "SplitContainer.routeDragUpdate converted=\(NSStringFromPoint(location)) target=\(String(describing: target))"
         )
         coordinator.setTarget(target)
         return target == nil ? [] : .move
