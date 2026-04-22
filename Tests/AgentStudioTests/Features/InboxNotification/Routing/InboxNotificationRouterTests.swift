@@ -308,4 +308,28 @@ struct InboxNotificationRouterTests {
         fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
+
+    @Test("agent notification requests become agentRpc inbox rows")
+    func agentNotificationRequested() async {
+        let fixture = makeFixture()
+        await waitForBusSubscriberCount(fixture.bus, atLeast: 1)
+        let paneId = PaneId()
+        _ = addTerminalPane(paneId, to: fixture)
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .agentNotificationRequested(title: "Claude Code finished", body: "3 files changed")
+            )
+        )
+        await waitForRouterDelivery()
+
+        #expect(fixture.inboxAtom.notifications.count == 1)
+        #expect(fixture.inboxAtom.notifications[0].kind == .agentRpc)
+        #expect(fixture.inboxAtom.notifications[0].title == "Claude Code finished")
+        #expect(fixture.inboxAtom.notifications[0].body == "3 files changed")
+        fixture.router.stop()
+        fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
 }

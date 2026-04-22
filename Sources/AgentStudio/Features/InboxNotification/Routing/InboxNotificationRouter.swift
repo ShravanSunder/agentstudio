@@ -86,6 +86,8 @@ final class InboxNotificationRouter {
         switch envelope.event {
         case .terminal(.desktopNotificationRequested):
             return .agentDesktopNotification
+        case .agentNotificationRequested:
+            return .agentRpc
         case .terminal(.bellRang):
             return prefsAtom.bellEnabled ? .bellRang : nil
         case .terminal(.commandFinished(_, let duration)):
@@ -112,11 +114,13 @@ final class InboxNotificationRouter {
         switch event {
         case .terminal(.desktopNotificationRequested(let title, _)):
             return title
+        case .agentNotificationRequested(let title, _):
+            return title
         case .terminal(.bellRang):
             return "Bell"
         case .terminal(.commandFinished(let exitCode, _)):
             return exitCode == 0 ? "Command finished" : "Command failed (exit \(exitCode))"
-        case .artifact(.approvalRequested(let request)):
+        case .artifact(.approvalRequested):
             return "Approval requested"
         case .security(.networkEgressBlocked):
             return "Network egress blocked"
@@ -137,6 +141,8 @@ final class InboxNotificationRouter {
         switch event {
         case .terminal(.desktopNotificationRequested(_, let body)):
             return body.isEmpty ? nil : body
+        case .agentNotificationRequested(_, let body):
+            return body?.isEmpty == true ? nil : body
         case .terminal(.commandFinished(let exitCode, let duration)):
             return "exit \(exitCode) · \(formattedDuration(duration))"
         case .artifact(.approvalRequested(let request)):

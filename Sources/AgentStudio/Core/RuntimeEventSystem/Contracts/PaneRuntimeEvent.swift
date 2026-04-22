@@ -11,6 +11,7 @@ enum PaneRuntimeEvent: Sendable {
     case browser(BrowserEvent)
     case diff(DiffEvent)
     case editor(EditorEvent)
+    case agentNotificationRequested(title: String, body: String?)
     case plugin(kind: PaneContentType, event: any PaneKindEvent & Sendable)
     case paneFilesystemContext(PaneFilesystemContextEvent)
     case filesystem(FilesystemEvent)
@@ -27,6 +28,8 @@ extension PaneRuntimeEvent {
         case .browser(let event): return event.actionPolicy
         case .diff(let event): return event.actionPolicy
         case .editor(let event): return event.actionPolicy
+        case .agentNotificationRequested:
+            return .critical
         case .plugin(_, let event): return event.actionPolicy
         case .paneFilesystemContext(let event): return event.actionPolicy
         case .lifecycle, .filesystem, .artifact, .security, .error:

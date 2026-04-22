@@ -282,6 +282,14 @@ final class BridgePaneController {
         registerStub(AgentMethods.CancelTaskMethod.self)
         registerStub(AgentMethods.InjectPromptMethod.self)
 
+        // inbox namespace
+        router.register(method: InboxMethods.PostMethod.self) { @MainActor [weak self] params in
+            self?.ingestRuntimeEvent(
+                .agentNotificationRequested(title: params.title, body: params.body)
+            )
+            return nil
+        }
+
         // system namespace
         registerStub(SystemMethods.HealthMethod.self)
         registerStub(SystemMethods.CapabilitiesMethod.self)
