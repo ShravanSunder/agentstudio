@@ -8,6 +8,8 @@ import Observation
 @MainActor
 @Observable
 final class AttendedPaneAtom {
+    // Do not add a setter: attended state must be derived from the input atoms
+    // so background windows and management layers cannot masquerade as attention.
     private(set) var attendedPaneId: UUID?
 
     let transitions: AsyncStream<UUID?>

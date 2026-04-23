@@ -72,6 +72,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private let executor: ActionExecutor
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
+    private let drawerInboxPresentation: DrawerInboxPresentation?
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let tabRenamePopoverState: TabRenamePopoverState
     private let arrangementInlineRenameState: ArrangementInlineRenameState
@@ -141,6 +142,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         executor: ActionExecutor,
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
+        drawerInboxPresentation: DrawerInboxPresentation? = nil,
         installedEditorTargetsProvider: @escaping @MainActor () -> [ExternalEditorTarget] = {
             ExternalEditorTarget.refreshInstalledTargets()
         },
@@ -165,6 +167,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         self.executor = executor
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
+        self.drawerInboxPresentation = drawerInboxPresentation
         self.installedEditorTargetsProvider = installedEditorTargetsProvider
         self.openEditorHandler = openEditorHandler
         self.openFinderHandler = openFinderHandler
@@ -346,7 +349,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         case .closeTab, .newTab, .undoCloseTab, .nextTab, .prevTab,
             .addDrawerPane, .toggleDrawer, .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
-            .toggleManagementLayer, .showInboxNotifications, .showWorktreeSidebar,
+            .toggleManagementLayer, .showInboxNotifications, .showDrawerInboxNotifications, .showWorktreeSidebar,
             .newWindow, .closeWindow, .showCommandBarEverything,
             .showCommandBarCommands, .showCommandBarPanes, .selectTab1,
             .selectTab2, .selectTab3, .selectTab4, .selectTab5, .selectTab6,
@@ -772,6 +775,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             onPaneFocusTrigger: { [weak self] trigger in
                 self?.handlePaneFocusTrigger(trigger)
             },
+            drawerInboxPresentation: drawerInboxPresentation,
             onOpenPaneGitHub: { [weak self] paneId in
                 self?.openGitHubWebview(for: paneId)
             }
@@ -1617,7 +1621,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             guard let activeTabId = store.tabLayoutAtom.activeTabId else { break }
             tabRenamePopoverState.present(for: activeTabId)
         case .watchFolder, .toggleSidebar, .filterSidebar,
-            .showInboxNotifications, .showWorktreeSidebar,
+            .showInboxNotifications, .showDrawerInboxNotifications, .showWorktreeSidebar,
             .signInGitHub, .signInGoogle:
             break
         case .addDrawerPane:

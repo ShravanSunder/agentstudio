@@ -4,7 +4,7 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("InboxNotificationRouter routing contract")
+@Suite("InboxNotificationRouter routing contract", .serialized)
 struct InboxNotificationRouterTests {
     struct Fixture {
         let bus: EventBus<RuntimeEnvelope>
@@ -19,7 +19,7 @@ struct InboxNotificationRouterTests {
         let router: InboxNotificationRouter
     }
 
-    private func makeFixture() -> Fixture {
+    private func makeFixture() async -> Fixture {
         let bus = EventBus<RuntimeEnvelope>()
         let inboxAtom = InboxNotificationAtom()
         let prefsAtom = InboxNotificationPrefsAtom()
@@ -39,8 +39,10 @@ struct InboxNotificationRouterTests {
             prefsAtom: prefsAtom,
             paneAtom: paneAtom,
             tabLayout: tabLayout,
+            attendedPane: attendedPane,
             focusTracker: tracker
         )
+        await router.start()
 
         return Fixture(
             bus: bus,
@@ -121,16 +123,19 @@ struct InboxNotificationRouterTests {
         )
     }
 
-    private func waitForRouterDelivery() async {
-        for _ in 0..<20 {
-            await Task.yield()
+    private func waitForNotificationCount(
+        _ count: Int,
+        in fixture: Fixture,
+        description: String
+    ) async {
+        await assertEventuallyMain(description) {
+            fixture.inboxAtom.notifications.count == count
         }
     }
 
     @Test("desktopNotificationRequested posts an inbox notification")
     func desktopNotificationRequested() async {
-        let fixture = makeFixture()
-        await waitForBusSubscriberCount(fixture.bus, atLeast: 1)
+        let fixture = await makeFixture()
         let paneId = PaneId()
         _ = addTerminalPane(paneId, to: fixture)
 
@@ -140,7 +145,11 @@ struct InboxNotificationRouterTests {
                 event: .terminal(.desktopNotificationRequested(title: "Done", body: "exit 0"))
             )
         )
-        await waitForRouterDelivery()
+        await waitForNotificationCount(
+            1,
+            in: fixture,
+            description: "desktop notification should be routed"
+        )
 
         #expect(fixture.inboxAtom.notifications.count == 1)
         #expect(fixture.inboxAtom.notifications[0].kind == .agentDesktopNotification)
@@ -154,18 +163,19 @@ struct InboxNotificationRouterTests {
 
     @Test("bell is gated by prefs")
     func bellIsGated() async {
-        let fixture = makeFixture()
-        await waitForBusSubscriberCount(fixture.bus, atLeast: 1)
+        let fixture = await makeFixture()
         let paneId = PaneId()
         _ = addTerminalPane(paneId, to: fixture)
 
         _ = await fixture.bus.post(makePaneEnvelope(paneId: paneId, event: .terminal(.bellRang)))
-        await waitForRouterDelivery()
-        #expect(fixture.inboxAtom.notifications.isEmpty)
 
         fixture.prefsAtom.setBellEnabled(true)
         _ = await fixture.bus.post(makePaneEnvelope(paneId: paneId, event: .terminal(.bellRang), seq: 2))
-        await waitForRouterDelivery()
+        await waitForNotificationCount(
+            1,
+            in: fixture,
+            description: "enabled bell should be routed once"
+        )
         #expect(fixture.inboxAtom.notifications.count == 1)
         #expect(fixture.inboxAtom.notifications[0].kind == .bellRang)
         fixture.router.stop()
@@ -175,8 +185,7 @@ struct InboxNotificationRouterTests {
 
     @Test("commandFinished only notifies for unfocused long-running commands")
     func commandFinishedGating() async {
-        let fixture = makeFixture()
-        await waitForBusSubscriberCount(fixture.bus, atLeast: 1)
+        let fixture = await makeFixture()
         makeWindowKey(fixture.windowLifecycle)
 
         let focusedPaneId = PaneId()
@@ -189,8 +198,6 @@ struct InboxNotificationRouterTests {
                 event: .terminal(.commandFinished(exitCode: 0, duration: 20))
             )
         )
-        await waitForRouterDelivery()
-        #expect(fixture.inboxAtom.notifications.isEmpty)
 
         let unfocusedPaneId = PaneId()
         _ = addTerminalPane(unfocusedPaneId, to: fixture)
@@ -204,8 +211,6 @@ struct InboxNotificationRouterTests {
                 seq: 2
             )
         )
-        await waitForRouterDelivery()
-        #expect(fixture.inboxAtom.notifications.isEmpty)
 
         _ = await fixture.bus.post(
             makePaneEnvelope(
@@ -214,7 +219,11 @@ struct InboxNotificationRouterTests {
                 seq: 3
             )
         )
-        await waitForRouterDelivery()
+        await waitForNotificationCount(
+            1,
+            in: fixture,
+            description: "unattended long-running command should be routed once"
+        )
         #expect(fixture.inboxAtom.notifications.count == 1)
         #expect(fixture.inboxAtom.notifications[0].kind == .commandFinished)
         #expect(fixture.inboxAtom.notifications[0].paneId == unfocusedPaneId.uuid)
@@ -223,10 +232,39 @@ struct InboxNotificationRouterTests {
         fixture.attendedPane.stop()
     }
 
+    @Test("commandFinished uses attended pane instead of active tab for focus gating")
+    func commandFinishedUsesAttendedPaneForFocusGating() async {
+        let fixture = await makeFixture()
+
+        let paneId = PaneId()
+        _ = addTerminalPane(paneId, to: fixture)
+        #expect(fixture.tabLayout.activeTab?.activePaneId == paneId.uuid)
+        #expect(fixture.attendedPane.attendedPaneId == nil)
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.commandFinished(exitCode: 0, duration: 20))
+            )
+        )
+        await waitForNotificationCount(
+            1,
+            in: fixture,
+            description: "unattended active pane should route while window is not key"
+        )
+
+        #expect(fixture.inboxAtom.notifications.count == 1)
+        if fixture.inboxAtom.notifications.count == 1 {
+            #expect(fixture.inboxAtom.notifications[0].kind == .commandFinished)
+        }
+        fixture.router.stop()
+        fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
+
     @Test("approvalRequested and selected security alerts notify")
     func approvalAndSecurityRouting() async {
-        let fixture = makeFixture()
-        await waitForBusSubscriberCount(fixture.bus, atLeast: 1)
+        let fixture = await makeFixture()
         let paneId = PaneId()
         let repoId = UUID()
         let worktreeId = UUID()
@@ -259,7 +297,11 @@ struct InboxNotificationRouterTests {
                 seq: 4
             )
         )
-        await waitForRouterDelivery()
+        await waitForNotificationCount(
+            2,
+            in: fixture,
+            description: "approval and sandbox health should be routed"
+        )
 
         #expect(fixture.inboxAtom.notifications.count == 2)
         #expect(fixture.inboxAtom.notifications[0].kind == .approvalRequested)
@@ -271,10 +313,83 @@ struct InboxNotificationRouterTests {
         fixture.attendedPane.stop()
     }
 
+    @Test("sandbox health unhealthy edge is tracked per pane and reset on stop")
+    func sandboxHealthEdgesArePerPaneAndResetOnStop() async {
+        let fixture = await makeFixture()
+        let firstPaneId = PaneId()
+        let secondPaneId = PaneId()
+        _ = addTerminalPane(firstPaneId, to: fixture)
+        _ = addTerminalPane(secondPaneId, to: fixture)
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: firstPaneId,
+                event: .security(.sandboxHealthChanged(healthy: false))
+            )
+        )
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: secondPaneId,
+                event: .security(.sandboxHealthChanged(healthy: false)),
+                seq: 2
+            )
+        )
+        await waitForNotificationCount(
+            2,
+            in: fixture,
+            description: "each pane should route its own unhealthy edge"
+        )
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: secondPaneId,
+                event: .security(.sandboxHealthChanged(healthy: false)),
+                seq: 3
+            )
+        )
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: firstPaneId,
+                event: .security(.sandboxHealthChanged(healthy: true)),
+                seq: 4
+            )
+        )
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: firstPaneId,
+                event: .security(.sandboxHealthChanged(healthy: false)),
+                seq: 5
+            )
+        )
+        await waitForNotificationCount(
+            3,
+            in: fixture,
+            description: "healthy transition should arm only that pane's next unhealthy edge"
+        )
+
+        fixture.router.stop()
+        await fixture.router.start()
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: secondPaneId,
+                event: .security(.sandboxHealthChanged(healthy: false)),
+                seq: 6
+            )
+        )
+        await waitForNotificationCount(
+            4,
+            in: fixture,
+            description: "router restart should reset sandbox edge state"
+        )
+
+        fixture.router.stop()
+        fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
+
     @Test("focus-gained marks pane notifications read and dismissed from drawer")
     func focusGainedClearsUnread() async {
-        let fixture = makeFixture()
-        await waitForBusSubscriberCount(fixture.bus, atLeast: 1)
+        let fixture = await makeFixture()
         let paneId = PaneId()
         _ = addTerminalPane(paneId, to: fixture)
 
@@ -300,7 +415,10 @@ struct InboxNotificationRouterTests {
 
         await Task.yield()
         makeWindowKey(fixture.windowLifecycle)
-        await waitForRouterDelivery()
+        await assertEventuallyMain("focus gain should mark pane notification read") {
+            fixture.inboxAtom.unreadCount(forPaneId: paneId.uuid) == 0
+                && fixture.inboxAtom.notifications[0].isDismissedFromDrawer
+        }
 
         #expect(fixture.inboxAtom.unreadCount(forPaneId: paneId.uuid) == 0)
         #expect(fixture.inboxAtom.notifications[0].isDismissedFromDrawer)
@@ -311,8 +429,7 @@ struct InboxNotificationRouterTests {
 
     @Test("agent notification requests become agentRpc inbox rows")
     func agentNotificationRequested() async {
-        let fixture = makeFixture()
-        await waitForBusSubscriberCount(fixture.bus, atLeast: 1)
+        let fixture = await makeFixture()
         let paneId = PaneId()
         _ = addTerminalPane(paneId, to: fixture)
 
@@ -322,7 +439,11 @@ struct InboxNotificationRouterTests {
                 event: .agentNotificationRequested(title: "Claude Code finished", body: "3 files changed")
             )
         )
-        await waitForRouterDelivery()
+        await waitForNotificationCount(
+            1,
+            in: fixture,
+            description: "agent notification should be routed"
+        )
 
         #expect(fixture.inboxAtom.notifications.count == 1)
         #expect(fixture.inboxAtom.notifications[0].kind == .agentRpc)

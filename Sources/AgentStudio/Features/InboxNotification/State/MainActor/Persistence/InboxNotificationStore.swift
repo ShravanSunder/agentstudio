@@ -1,4 +1,10 @@
 import Foundation
+import os.log
+
+private let inboxNotificationStoreLogger = Logger(
+    subsystem: "com.agentstudio",
+    category: "InboxNotificationStore"
+)
 
 /// Persistence wrapper over the notification-inbox feature atoms.
 ///
@@ -46,7 +52,14 @@ final class InboxNotificationStore {
         let data = try Data(contentsOf: fileURL)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        let payload = try decoder.decode(Payload.self, from: data)
+        let payload: Payload
+        do {
+            payload = try decoder.decode(Payload.self, from: data)
+        } catch {
+            _ = quarantineCorruptFile()
+            inboxNotificationStoreLogger.warning("Inbox notification file corrupt, using defaults: \(error)")
+            throw error
+        }
 
         inboxAtom.clearAll()
         for notification in payload.notifications {
@@ -58,6 +71,10 @@ final class InboxNotificationStore {
     }
 
     func save() async throws {
+        try flush()
+    }
+
+    func flush() throws {
         let payload = Payload(
             schemaVersion: 1,
             notifications: inboxAtom.notifications,
@@ -89,10 +106,36 @@ final class InboxNotificationStore {
             } catch is CancellationError {
                 return
             } catch {
+                inboxNotificationStoreLogger.error("Inbox notification debounce failed: \(error)")
                 return
             }
             guard !Task.isCancelled else { return }
-            try? await save()
+            do {
+                try await save()
+            } catch {
+                inboxNotificationStoreLogger.error("Inbox notification save failed: \(error)")
+            }
+        }
+    }
+
+    @discardableResult
+    private func quarantineCorruptFile() -> URL? {
+        guard FileManager.default.fileExists(atPath: fileURL.path) else { return nil }
+
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let baseName = fileURL.deletingPathExtension().lastPathComponent
+        let quarantinedURL = fileURL.deletingLastPathComponent()
+            .appending(path: "\(baseName).corrupt-\(timestamp).json")
+
+        do {
+            try FileManager.default.moveItem(at: fileURL, to: quarantinedURL)
+            return quarantinedURL
+        } catch {
+            inboxNotificationStoreLogger.error(
+                "Failed to quarantine corrupt inbox notification file \(self.fileURL.lastPathComponent): \(error)"
+            )
+            return nil
         }
     }
 }

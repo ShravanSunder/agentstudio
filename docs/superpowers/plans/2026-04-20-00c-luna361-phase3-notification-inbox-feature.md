@@ -1231,11 +1231,12 @@ mise run lint
 git add ...
 git commit -m "feat(notification-inbox): add PaneFocusTracker
 
-Observes WorkspacePaneAtom.activePaneId transitions and emits
-the gained paneId via AsyncStream<UUID>. Closes the gap left
-by WorkspaceFocusDerived being snapshot-only. Consumed by
-InboxNotificationRouter to auto-dismiss notifications when the user
-focuses their source pane. LUNA-361 Phase 3."
+Observes AttendedPaneAtom.transitions and emits non-nil gained
+pane ids via AsyncStream<UUID>. Keeps attended-pane semantics on
+the Core composite source of truth instead of re-deriving focus in
+the feature slice. Consumed by InboxNotificationRouter to auto-
+dismiss notifications when the user focuses their source pane.
+LUNA-361 Phase 3."
 ```
 
 ---

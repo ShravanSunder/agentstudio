@@ -284,6 +284,7 @@ final class BridgePaneController {
 
         // inbox namespace
         router.register(method: InboxMethods.PostMethod.self) { @MainActor [weak self] params in
+            // Pane identity comes from this controller, not RPC params, so web content cannot spoof another pane.
             self?.ingestRuntimeEvent(
                 .agentNotificationRequested(title: params.title, body: params.body)
             )

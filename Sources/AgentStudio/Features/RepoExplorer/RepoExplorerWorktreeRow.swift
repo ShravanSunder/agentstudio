@@ -12,7 +12,7 @@ struct RepoExplorerWorktreeRowContent: View {
     let checkoutIconKind: RepoExplorerCheckoutIconKind
     let iconColor: Color
     let branchStatus: GitBranchStatus
-    let notificationCount: Int
+    let unreadCount: Int
 
     private var syncCounts: (ahead: String, behind: String) {
         switch branchStatus.syncState {
@@ -105,8 +105,8 @@ struct RepoExplorerWorktreeRowContent: View {
 
                 SidebarChip(
                     iconAsset: "octicon-bell",
-                    text: "\(notificationCount)",
-                    style: notificationCount > 0 ? .accent(iconColor) : .neutral
+                    text: "\(unreadCount)",
+                    style: unreadCount > 0 ? .accent(iconColor) : .neutral
                 )
             }
             .padding(.leading, AppStyles.Shell.Sidebar.statusRowLeadingIndent)
@@ -136,7 +136,7 @@ struct RepoExplorerWorktreeRow: View {
     let checkoutIconKind: RepoExplorerCheckoutIconKind
     let iconColor: Color
     let branchStatus: GitBranchStatus
-    let notificationCount: Int
+    let unreadCount: Int
     let onOpen: () -> Void
     let onOpenNew: () -> Void
     let onOpenInPane: () -> Void
@@ -151,7 +151,7 @@ struct RepoExplorerWorktreeRow: View {
             checkoutIconKind: checkoutIconKind,
             iconColor: iconColor,
             branchStatus: branchStatus,
-            notificationCount: notificationCount
+            unreadCount: unreadCount
         )
         .padding(.vertical, AppStyles.Shell.Sidebar.rowVerticalInset)
         .padding(.horizontal, AppStyles.General.Spacing.tight / 2)

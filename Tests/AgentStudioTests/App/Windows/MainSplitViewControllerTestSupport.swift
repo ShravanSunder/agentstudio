@@ -155,13 +155,65 @@ struct MainSplitViewControllerTestSidebarView: View {
             case .repos:
                 Color.clear
             case .inbox:
-                InboxNotificationPlaceholderView(
+                MainSplitViewControllerTestInboxView(
                     uiState: uiState,
                     onEscape: onEscape
                 )
             }
         }
         .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+final class MainSplitViewControllerTestInboxFocusableView: NSView {
+    var onFocusChange: @MainActor (Bool) -> Void = { _ in }
+    var onEscape: @MainActor @Sendable () -> Void = {}
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func becomeFirstResponder() -> Bool {
+        let didBecome = super.becomeFirstResponder()
+        if didBecome {
+            onFocusChange(true)
+        }
+        return didBecome
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let didResign = super.resignFirstResponder()
+        if didResign {
+            onFocusChange(false)
+        }
+        return didResign
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        _ = sender
+        onEscape()
+    }
+}
+
+struct MainSplitViewControllerTestInboxView: NSViewRepresentable {
+    let uiState: UIStateAtom
+    let onEscape: @MainActor @Sendable () -> Void
+
+    func makeNSView(context: Context) -> MainSplitViewControllerTestInboxFocusableView {
+        let view = MainSplitViewControllerTestInboxFocusableView()
+        view.identifier = InboxNotificationSidebarView.focusTargetIdentifier
+        view.onFocusChange = { uiState.setSidebarHasFocus($0) }
+        view.onEscape = onEscape
+        return view
+    }
+
+    func updateNSView(_ nsView: MainSplitViewControllerTestInboxFocusableView, context: Context) {
+        nsView.onFocusChange = { uiState.setSidebarHasFocus($0) }
+        nsView.onEscape = onEscape
+    }
+
+    static func dismantleNSView(_ nsView: MainSplitViewControllerTestInboxFocusableView, coordinator: ()) {
+        MainActor.assumeIsolated {
+            nsView.onFocusChange(false)
+        }
     }
 }
 

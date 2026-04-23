@@ -25,6 +25,7 @@ enum CommandBarDataSource {
         static let windowCommands = "Window"
         static let webviewCommands = "Webview"
         static let authCommands = "Auth"
+        static let inboxCommands = "Inbox"
     }
 
     enum Priority {
@@ -43,7 +44,8 @@ enum CommandBarDataSource {
         scope: CommandBarScope,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        dispatcher: CommandDispatcher
+        dispatcher: CommandDispatcher,
+        notificationInboxCommands: InboxNotificationCommands? = nil
     ) -> [CommandBarItem] {
         let workspaceTab = WorkspaceTabDerived(
             shellAtom: store.tabShellAtom,
@@ -58,7 +60,8 @@ enum CommandBarDataSource {
             store: store,
             repoCache: repoCache,
             dispatcher: dispatcher,
-            focus: focus
+            focus: focus,
+            notificationInboxCommands: notificationInboxCommands
         )
     }
 
@@ -67,7 +70,8 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         dispatcher: CommandDispatcher,
-        focus: CommandContext
+        focus: CommandContext,
+        notificationInboxCommands: InboxNotificationCommands? = nil
     ) -> [CommandBarItem] {
         switch scope {
         case .everything:
@@ -79,7 +83,7 @@ enum CommandBarDataSource {
         case .repos:
             return repoScopeItems(store: store)
         case .inbox:
-            return []
+            return inboxItems(commands: notificationInboxCommands)
         }
     }
 

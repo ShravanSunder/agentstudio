@@ -1,0 +1,221 @@
+import AppKit
+import Foundation
+import GhosttyKit
+import Testing
+
+@testable import AgentStudio
+
+@MainActor
+@Suite("MainWindowController inbox toolbar button", .serialized)
+struct MainWindowControllerInboxToolbarButtonTests {
+    init() {
+        installTestAtomRegistryIfNeeded()
+    }
+
+    @Test("bell button is installed next to the sidebar controls")
+    func bellButtonIsInstalled() async {
+        await withMainWindowControllerHarness { harness in
+            let bellButton =
+                findDescendant(
+                    in: harness.window,
+                    identifier: "inboxToolbarBell"
+                ) as? NSButton
+
+            #expect(bellButton != nil)
+            #expect(bellButton?.image?.accessibilityDescription == "Toggle Inbox")
+        }
+    }
+
+    @Test("clicking bell opens inbox surface")
+    func clickingBellOpensInboxSurface() async {
+        await withMainWindowControllerHarness { harness in
+            let bellButton =
+                findDescendant(
+                    in: harness.window,
+                    identifier: "inboxToolbarBell"
+                ) as? NSButton
+
+            bellButton?.performClick(nil)
+
+            await eventually("inbox bell should switch sidebar surface") {
+                harness.atoms.uiState.sidebarSurface == .inbox
+            }
+        }
+    }
+
+    @Test("bell red dot tracks global unread count")
+    func bellRedDotTracksUnreadCount() async {
+        let inboxAtom = InboxNotificationAtom()
+        await withMainWindowControllerHarness(inboxAtom: inboxAtom) { harness in
+            let dot = findDescendant(
+                in: harness.window,
+                identifier: "inboxToolbarBellDot"
+            )
+
+            #expect(dot != nil)
+            #expect(dot?.isHidden == true)
+
+            inboxAtom.append(makeUnreadNotification())
+
+            await eventually("inbox bell dot should become visible") {
+                dot?.isHidden == false
+            }
+        }
+    }
+
+    private func makeUnreadNotification() -> InboxNotification {
+        InboxNotification(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 100),
+            kind: .agentRpc,
+            title: "Agent finished",
+            body: nil,
+            paneId: nil,
+            tabId: nil,
+            repoId: nil,
+            repoName: nil,
+            worktreeId: nil,
+            worktreeName: nil,
+            branchName: nil,
+            isRead: false,
+            isDismissedFromDrawer: false
+        )
+    }
+}
+
+@MainActor
+private struct MainWindowControllerHarness {
+    let atoms: AtomRegistry
+    let store: WorkspaceStore
+    let coordinator: PaneCoordinator
+    let controller: MainWindowController
+    let window: NSWindow
+    let tempDir: URL
+}
+
+@MainActor
+private func withMainWindowControllerHarness<T>(
+    inboxAtom: InboxNotificationAtom = InboxNotificationAtom(),
+    body: @MainActor (MainWindowControllerHarness) async throws -> T
+) async rethrows -> T {
+    let tempDir = FileManager.default.temporaryDirectory
+        .appending(path: "main-window-controller-tests-\(UUID().uuidString)")
+    let persistor = WorkspacePersistor(workspacesDir: tempDir)
+    let atoms = AtomRegistry()
+    let store = WorkspaceStore(
+        metadataAtom: atoms.workspaceMetadata,
+        repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
+        paneAtom: atoms.workspacePane,
+        tabLayoutAtom: atoms.workspaceTabLayout,
+        mutationCoordinator: atoms.workspaceMutationCoordinator,
+        persistor: persistor
+    )
+    store.restore()
+
+    let viewRegistry = ViewRegistry()
+    let runtime = SessionRuntime(atom: atoms.sessionRuntime, store: store)
+    let coordinator = PaneCoordinator(
+        store: store,
+        viewRegistry: viewRegistry,
+        runtime: runtime,
+        surfaceManager: InboxToolbarTestSurfaceManager(),
+        runtimeRegistry: RuntimeRegistry(),
+        windowLifecycleStore: atoms.windowLifecycle
+    )
+    let actionExecutor = ActionExecutor(coordinator: coordinator, store: store)
+    let appLifecycleStore = AppLifecycleAtom()
+    let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
+        appLifecycleStore: appLifecycleStore,
+        windowLifecycleStore: atoms.windowLifecycle
+    )
+    let tabBarAdapter = TabBarAdapter(store: store, repoCache: atoms.repoCache)
+
+    var controller: MainWindowController?
+    let result = try await AtomScope.$override.withValue(atoms) {
+        let windowController = MainWindowController(
+            store: store,
+            actionExecutor: actionExecutor,
+            applicationLifecycleMonitor: applicationLifecycleMonitor,
+            appLifecycleStore: appLifecycleStore,
+            tabBarAdapter: tabBarAdapter,
+            viewRegistry: viewRegistry,
+            inboxAtom: inboxAtom
+        )
+        controller = windowController
+        windowController.showWindow(nil)
+
+        let harness = MainWindowControllerHarness(
+            atoms: atoms,
+            store: store,
+            coordinator: coordinator,
+            controller: windowController,
+            window: windowController.window!,
+            tempDir: tempDir
+        )
+
+        return try await body(harness)
+    }
+
+    (controller?.window?.contentViewController as? MainSplitViewController)?.shutdown()
+    controller?.close()
+    await coordinator.shutdown()
+    try? FileManager.default.removeItem(at: tempDir)
+    return result
+}
+
+@MainActor
+private func findDescendant(in window: NSWindow, identifier: String) -> NSView? {
+    for accessory in window.titlebarAccessoryViewControllers {
+        if let match = findDescendant(in: accessory.view, identifier: identifier) {
+            return match
+        }
+    }
+    return window.contentView.flatMap { findDescendant(in: $0, identifier: identifier) }
+}
+
+@MainActor
+private func findDescendant(in view: NSView, identifier: String) -> NSView? {
+    if view.identifier?.rawValue == identifier {
+        return view
+    }
+    for subview in view.subviews {
+        if let match = findDescendant(in: subview, identifier: identifier) {
+            return match
+        }
+    }
+    return nil
+}
+
+private final class InboxToolbarTestSurfaceManager: PaneCoordinatorSurfaceManaging {
+    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
+
+    init() {
+        self.cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
+            continuation.finish()
+        }
+    }
+
+    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
+
+    func syncFocus(activeSurfaceId: UUID?) {}
+
+    func createSurface(
+        config: Ghostty.SurfaceConfiguration,
+        metadata: SurfaceMetadata
+    ) -> Result<ManagedSurface, SurfaceError> {
+        .failure(.ghosttyNotInitialized)
+    }
+
+    @discardableResult
+    func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView? {
+        nil
+    }
+
+    func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {}
+
+    func undoClose() -> ManagedSurface? { nil }
+
+    func requeueUndo(_ surfaceId: UUID) {}
+
+    func destroy(_ surfaceId: UUID) {}
+}

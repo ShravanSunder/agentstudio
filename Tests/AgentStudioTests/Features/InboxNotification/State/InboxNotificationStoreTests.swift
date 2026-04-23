@@ -87,4 +87,33 @@ struct InboxNotificationStoreTests {
         #expect(prefs.grouping == .none)
         #expect(prefs.bellEnabled == false)
     }
+
+    @Test("load from corrupt file quarantines the file before falling back to defaults")
+    func loadCorruptFileQuarantinesBeforeDefaulting() throws {
+        let url = makeTempURL()
+        try "not json".write(to: url, atomically: true, encoding: .utf8)
+        let atom = InboxNotificationAtom()
+        let prefs = InboxNotificationPrefsAtom()
+        let store = InboxNotificationStore(
+            inboxAtom: atom,
+            prefsAtom: prefs,
+            fileURL: url
+        )
+
+        try? store.load()
+
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+        #expect(atom.notifications.isEmpty)
+        #expect(prefs.grouping == .none)
+        #expect(prefs.bellEnabled == false)
+
+        let quarantinedFiles = try FileManager.default.contentsOfDirectory(
+            at: url.deletingLastPathComponent(),
+            includingPropertiesForKeys: nil
+        )
+        .filter {
+            $0.lastPathComponent.hasPrefix("notification-inbox.corrupt-")
+        }
+        #expect(quarantinedFiles.count == 1)
+    }
 }

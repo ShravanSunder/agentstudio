@@ -11,44 +11,40 @@ final class InboxNotificationAtom {
     private(set) var notifications: [InboxNotification] = []
 
     func unreadCount(forPaneId paneId: UUID) -> Int {
-        notifications.reduce(0) { count, notification in
-            notification.paneId == paneId && !notification.isRead ? count + 1 : count
-        }
+        unreadCount { $0.paneId == paneId }
     }
 
     func unreadCount(forWorktreeId worktreeId: UUID) -> Int {
-        notifications.reduce(0) { count, notification in
-            notification.worktreeId == worktreeId && !notification.isRead ? count + 1 : count
-        }
+        unreadCount { $0.worktreeId == worktreeId }
     }
 
     func unreadCount(forTabId tabId: UUID) -> Int {
-        notifications.reduce(0) { count, notification in
-            notification.tabId == tabId && !notification.isRead ? count + 1 : count
-        }
+        unreadCount { $0.tabId == tabId }
     }
 
     func unreadCount(forDrawerPaneIds paneIds: [UUID]) -> Int {
         let paneIdSet = Set(paneIds)
-        return notifications.reduce(0) { count, notification in
+        return unreadCount { notification in
             guard
                 let paneId = notification.paneId,
-                paneIdSet.contains(paneId),
-                !notification.isRead
+                paneIdSet.contains(paneId)
             else {
-                return count
+                return false
             }
-            return count + 1
+            return true
         }
     }
 
     var globalUnreadCount: Int {
-        notifications.reduce(0) { count, notification in
-            notification.isRead ? count : count + 1
-        }
+        unreadCount { _ in true }
     }
 
     func append(_ notification: InboxNotification) {
+        if let index = notifications.firstIndex(where: { $0.id == notification.id }) {
+            notifications[index] = notification
+            enforceRetentionCap()
+            return
+        }
         notifications.append(notification)
         enforceRetentionCap()
     }
@@ -94,6 +90,14 @@ final class InboxNotificationAtom {
     private func update(id: UUID, mutate: (inout InboxNotification) -> Void) {
         guard let index = notifications.firstIndex(where: { $0.id == id }) else { return }
         mutate(&notifications[index])
+    }
+
+    private func unreadCount(
+        matching predicate: (InboxNotification) -> Bool
+    ) -> Int {
+        notifications.reduce(0) { count, notification in
+            !notification.isRead && predicate(notification) ? count + 1 : count
+        }
     }
 
     private func enforceRetentionCap() {

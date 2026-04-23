@@ -9,7 +9,32 @@ struct SingleTabContent: View {
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
+    let drawerInboxPresentation: DrawerInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
+
+    init(
+        tabId: UUID,
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom,
+        viewRegistry: ViewRegistry,
+        appLifecycleStore: AppLifecycleAtom,
+        closeTransitionCoordinator: PaneCloseTransitionCoordinator,
+        actionDispatcher: PaneActionDispatching,
+        onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
+        drawerInboxPresentation: DrawerInboxPresentation? = nil,
+        onOpenPaneGitHub: @escaping (UUID) -> Void
+    ) {
+        self.tabId = tabId
+        self.store = store
+        self.repoCache = repoCache
+        self.viewRegistry = viewRegistry
+        self.appLifecycleStore = appLifecycleStore
+        self.closeTransitionCoordinator = closeTransitionCoordinator
+        self.actionDispatcher = actionDispatcher
+        self.onPaneFocusTrigger = onPaneFocusTrigger
+        self.drawerInboxPresentation = drawerInboxPresentation
+        self.onOpenPaneGitHub = onOpenPaneGitHub
+    }
 
     private static func traceMissingTab(tabId: UUID) -> Int {
         RestoreTrace.log("SingleTabContent.body missingTab tabId=\(tabId)")
@@ -38,6 +63,7 @@ struct SingleTabContent: View {
                 repoCache: repoCache,
                 viewRegistry: viewRegistry,
                 appLifecycleStore: appLifecycleStore,
+                drawerInboxPresentation: drawerInboxPresentation,
                 onOpenPaneGitHub: onOpenPaneGitHub
             )
             .background(AppStyles.Shell.PaneChrome.background)

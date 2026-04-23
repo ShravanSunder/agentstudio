@@ -219,6 +219,7 @@ struct DrawerPanel: View {
                             viewRegistry: viewRegistry,
                             coordinateSpaceName: Self.drawerDropCoordinateSpace,
                             useDrawerFramePreference: true,
+                            drawerInboxPresentation: nil,
                             onOpenPaneGitHub: onOpenPaneGitHub
                         )
                         .padding(.horizontal, DrawerLayout.panelContentPadding)

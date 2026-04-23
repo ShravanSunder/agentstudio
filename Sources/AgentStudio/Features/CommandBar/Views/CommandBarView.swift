@@ -9,6 +9,7 @@ struct CommandBarView: View {
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let dispatcher: CommandDispatcher
+    let notificationInboxCommands: InboxNotificationCommands?
     let onShortcutTrigger: (ShortcutTrigger) -> Bool
     let onExecuteItem: (CommandBarItem, EnterModifier) -> Void
 
@@ -90,7 +91,8 @@ struct CommandBarView: View {
             store: store,
             repoCache: repoCache,
             dispatcher: dispatcher,
-            focus: currentContext
+            focus: currentContext,
+            notificationInboxCommands: notificationInboxCommands
         )
     }
 

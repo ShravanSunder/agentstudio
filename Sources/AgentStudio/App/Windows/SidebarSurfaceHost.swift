@@ -3,11 +3,13 @@ import SwiftUI
 struct SidebarSurfaceHost: View {
     enum ChildKind: Equatable {
         case repoExplorer
-        case inboxPlaceholder
+        case inbox
     }
 
     let store: WorkspaceStore
     let uiState: UIStateAtom
+    let inboxAtom: InboxNotificationAtom
+    let prefsAtom: InboxNotificationPrefsAtom
     let onRefocusActivePane: () -> Void
     let onDismissInbox: @MainActor @Sendable () -> Void
 
@@ -16,12 +18,19 @@ struct SidebarSurfaceHost: View {
         case .repos:
             RepoExplorerView(
                 store: store,
-                onRefocusActivePane: onRefocusActivePane
+                onRefocusActivePane: onRefocusActivePane,
+                unreadCount: { worktree in
+                    Self.unreadCount(for: worktree, inboxAtom: inboxAtom)
+                }
             )
         case .inbox:
-            InboxNotificationPlaceholderView(
+            InboxNotificationSidebarView(
+                inboxAtom: inboxAtom,
+                prefsAtom: prefsAtom,
                 uiState: uiState,
-                onEscape: onDismissInbox
+                workspacePaneAtom: store.paneAtom,
+                dispatcher: .shared,
+                onRefocusActivePane: onDismissInbox
             )
         }
     }
@@ -31,7 +40,14 @@ struct SidebarSurfaceHost: View {
         case .repos:
             .repoExplorer
         case .inbox:
-            .inboxPlaceholder
+            .inbox
         }
+    }
+
+    static func unreadCount(
+        for worktree: Worktree,
+        inboxAtom: InboxNotificationAtom
+    ) -> Int {
+        inboxAtom.unreadCount(forWorktreeId: worktree.id)
     }
 }

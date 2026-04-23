@@ -14,6 +14,7 @@ struct FlatTabStripContainer: View {
     let repoCache: RepoCacheAtom
     let viewRegistry: ViewRegistry
     let appLifecycleStore: AppLifecycleAtom
+    let drawerInboxPresentation: DrawerInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
 
     @State private var paneFrames: [UUID: CGRect] = [:]
@@ -22,6 +23,38 @@ struct FlatTabStripContainer: View {
     @State private var dropTargetWatchdogTask: Task<Void, Never>?
     private var managementLayer: ManagementLayerAtom {
         atom(\.managementLayer)
+    }
+
+    init(
+        layout: Layout,
+        tabId: UUID,
+        activePaneId: UUID?,
+        zoomedPaneId: UUID?,
+        minimizedPaneIds: Set<UUID>,
+        closeTransitionCoordinator: PaneCloseTransitionCoordinator,
+        actionDispatcher: PaneActionDispatching,
+        onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom,
+        viewRegistry: ViewRegistry,
+        appLifecycleStore: AppLifecycleAtom,
+        drawerInboxPresentation: DrawerInboxPresentation? = nil,
+        onOpenPaneGitHub: @escaping (UUID) -> Void
+    ) {
+        self.layout = layout
+        self.tabId = tabId
+        self.activePaneId = activePaneId
+        self.zoomedPaneId = zoomedPaneId
+        self.minimizedPaneIds = minimizedPaneIds
+        self.closeTransitionCoordinator = closeTransitionCoordinator
+        self.actionDispatcher = actionDispatcher
+        self.onPaneFocusTrigger = onPaneFocusTrigger
+        self.store = store
+        self.repoCache = repoCache
+        self.viewRegistry = viewRegistry
+        self.appLifecycleStore = appLifecycleStore
+        self.drawerInboxPresentation = drawerInboxPresentation
+        self.onOpenPaneGitHub = onOpenPaneGitHub
     }
 
     private var onSaveArrangement: (() -> Void)? {
@@ -104,6 +137,7 @@ struct FlatTabStripContainer: View {
                         viewRegistry: viewRegistry,
                         coordinateSpaceName: "tabContainer",
                         useDrawerFramePreference: false,
+                        drawerInboxPresentation: drawerInboxPresentation,
                         onOpenPaneGitHub: onOpenPaneGitHub
                     )
                     .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: closingPaneIds)
@@ -182,7 +216,8 @@ struct FlatTabStripContainer: View {
             closeTransitionCoordinator: closeTransitionCoordinator,
             actionDispatcher: actionDispatcher,
             onPaneFocusTrigger: onPaneFocusTrigger,
-            onOpenPaneGitHub: onOpenPaneGitHub
+            onOpenPaneGitHub: onOpenPaneGitHub,
+            drawerInboxPresentation: drawerInboxPresentation
         )
     }
 

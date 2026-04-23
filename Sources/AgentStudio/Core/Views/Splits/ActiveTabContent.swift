@@ -14,6 +14,7 @@ struct ActiveTabContent: View {
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
+    let drawerInboxPresentation: DrawerInboxPresentation? = nil
     let onOpenPaneGitHub: (UUID) -> Void
 
     private static func traceBody(
@@ -59,6 +60,7 @@ struct ActiveTabContent: View {
                 repoCache: repoCache,
                 viewRegistry: viewRegistry,
                 appLifecycleStore: appLifecycleStore,
+                drawerInboxPresentation: drawerInboxPresentation,
                 onOpenPaneGitHub: onOpenPaneGitHub
             )
             .background(AppStyles.Shell.PaneChrome.background)

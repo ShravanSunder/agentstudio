@@ -7,11 +7,12 @@ final class InboxNotificationRouter {
     private let prefsAtom: InboxNotificationPrefsAtom
     private let paneAtom: WorkspacePaneAtom
     private let tabLayout: WorkspaceTabLayoutAtom
+    private let attendedPane: AttendedPaneAtom
     private let focusTracker: PaneFocusTracker
 
     private var busTask: Task<Void, Never>?
     private var focusTask: Task<Void, Never>?
-    private var sandboxHealthWasHealthy = true
+    private var sandboxHealthWasHealthyByPaneId: [UUID: Bool] = [:]
 
     init(
         bus: EventBus<RuntimeEnvelope>,
@@ -19,6 +20,7 @@ final class InboxNotificationRouter {
         prefsAtom: InboxNotificationPrefsAtom,
         paneAtom: WorkspacePaneAtom,
         tabLayout: WorkspaceTabLayoutAtom,
+        attendedPane: AttendedPaneAtom,
         focusTracker: PaneFocusTracker
     ) {
         self.bus = bus
@@ -26,8 +28,8 @@ final class InboxNotificationRouter {
         self.prefsAtom = prefsAtom
         self.paneAtom = paneAtom
         self.tabLayout = tabLayout
+        self.attendedPane = attendedPane
         self.focusTracker = focusTracker
-        start()
     }
 
     func stop() {
@@ -35,14 +37,17 @@ final class InboxNotificationRouter {
         busTask = nil
         focusTask?.cancel()
         focusTask = nil
+        sandboxHealthWasHealthyByPaneId.removeAll()
     }
 
-    private func start() {
+    func start() async {
+        guard busTask == nil, focusTask == nil else { return }
+
+        let stream = await bus.subscribe()
         busTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let stream = await self.bus.subscribe()
             for await envelope in stream {
                 guard !Task.isCancelled else { return }
+                guard let self, !Task.isCancelled else { return }
                 self.handle(envelope)
             }
         }
@@ -91,7 +96,8 @@ final class InboxNotificationRouter {
         case .terminal(.bellRang):
             return prefsAtom.bellEnabled ? .bellRang : nil
         case .terminal(.commandFinished(_, let duration)):
-            guard envelope.paneId.uuid != tabLayout.activeTab?.activePaneId else { return nil }
+            // The app must notify for the selected pane when the window is not actually attended.
+            guard envelope.paneId.uuid != attendedPane.attendedPaneId else { return nil }
             guard duration >= AppPolicies.InboxNotification.commandFinishedMinDurationSeconds else { return nil }
             return .commandFinished
         case .artifact(.approvalRequested):
@@ -102,8 +108,11 @@ final class InboxNotificationRouter {
             .security(.processSpawnBlocked):
             return .securityEvent
         case .security(.sandboxHealthChanged(let healthy)):
-            let shouldNotify = sandboxHealthWasHealthy && !healthy
-            sandboxHealthWasHealthy = healthy
+            let paneId = envelope.paneId.uuid
+            let wasHealthy = sandboxHealthWasHealthyByPaneId[paneId, default: true]
+            // Health is edge-triggered per pane so one unhealthy runtime does not mute another.
+            let shouldNotify = wasHealthy && !healthy
+            sandboxHealthWasHealthyByPaneId[paneId] = healthy
             return shouldNotify ? .securityEvent : nil
         default:
             return nil

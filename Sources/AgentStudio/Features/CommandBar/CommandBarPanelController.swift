@@ -21,6 +21,7 @@ final class CommandBarPanelController {
     private let store: WorkspaceStore
     private let repoCache: RepoCacheAtom
     private let dispatcher: CommandDispatcher
+    private let notificationInboxCommands: InboxNotificationCommands?
 
     // MARK: - Panel
 
@@ -39,11 +40,13 @@ final class CommandBarPanelController {
     init(
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        dispatcher: CommandDispatcher
+        dispatcher: CommandDispatcher,
+        notificationInboxCommands: InboxNotificationCommands? = nil
     ) {
         self.store = store
         self.repoCache = repoCache
         self.dispatcher = dispatcher
+        self.notificationInboxCommands = notificationInboxCommands
         state.loadRecents()
     }
 
@@ -135,6 +138,7 @@ final class CommandBarPanelController {
             store: store,
             repoCache: repoCache,
             dispatcher: dispatcher,
+            notificationInboxCommands: notificationInboxCommands,
             onShortcutTrigger: { [weak self] trigger in
                 self?.handleShortcutTrigger(trigger) ?? false
             },
@@ -189,7 +193,8 @@ final class CommandBarPanelController {
             store: store,
             repoCache: repoCache,
             dispatcher: dispatcher,
-            focus: currentContext
+            focus: currentContext,
+            notificationInboxCommands: notificationInboxCommands
         )
     }
 

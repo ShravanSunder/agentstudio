@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import os.log
 
-private let appLogger = Logger(subsystem: "com.agentstudio", category: "AppDelegate")
+let appLogger = Logger(subsystem: "com.agentstudio", category: "AppDelegate")
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var mainWindowController: MainWindowController?
@@ -12,6 +12,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var store: WorkspaceStore!
     var repoCache: RepoCacheAtom! { atomStore.repoCache }
     var uiState: UIStateAtom! { atomStore.uiState }
+    var inboxNotificationAtom: InboxNotificationAtom!
+    var inboxNotificationPrefsAtom: InboxNotificationPrefsAtom!
+    var inboxNotificationStore: InboxNotificationStore!
+    var inboxNotificationRouter: InboxNotificationRouter!
+    var inboxPaneFocusTracker: PaneFocusTracker!
+    var inboxNotificationDrawerPresenter: InboxNotificationDrawerPresenter!
     var repoCacheStore: RepoCacheStore!
     var uiStateStore: UIStateStore!
     var workspaceCacheCoordinator: WorkspaceCacheCoordinator!
@@ -82,6 +88,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         )
         repoCacheStore = RepoCacheStore(atom: atomStore.repoCache)
         uiStateStore = UIStateStore(atom: atomStore.uiState)
+        inboxNotificationAtom = InboxNotificationAtom()
+        inboxNotificationPrefsAtom = InboxNotificationPrefsAtom()
+        inboxNotificationDrawerPresenter = InboxNotificationDrawerPresenter()
         store.restore()
         managementLayerMonitor = ManagementLayerMonitor()
         appLifecycleStore = AppLifecycleAtom()
@@ -102,8 +111,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func bootLoadUIStore(persistor: WorkspacePersistor) {
-        _ = persistor
         uiStateStore.restore(for: store.metadataAtom.workspaceId)
+        bootLoadInboxNotificationStore(persistor: persistor)
     }
 
     private func bootEstablishRuntimeBus(
@@ -150,8 +159,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         commandBarController = CommandBarPanelController(
             store: store,
             repoCache: repoCache,
-            dispatcher: .shared
+            dispatcher: .shared,
+            notificationInboxCommands: makeInboxNotificationCommands()
         )
+        bootStartInboxNotificationRouter(bus: paneRuntimeBus)
         CommandDispatcher.shared.appCommandRouter = self
         oauthService = OAuthService()
     }
@@ -322,7 +333,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
             tabBarAdapter: tabBarAdapter,
-            viewRegistry: viewRegistry
+            viewRegistry: viewRegistry,
+            inboxAtom: inboxNotificationAtom,
+            inboxPrefsAtom: inboxNotificationPrefsAtom,
+            drawerInboxPresenter: inboxNotificationDrawerPresenter
         )
         mainWindowController?.prepareLaunchMaximizeAndRestore()
         mainWindowController?.showWindow(nil)
@@ -500,7 +514,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 applicationLifecycleMonitor: applicationLifecycleMonitor,
                 appLifecycleStore: appLifecycleStore,
                 tabBarAdapter: tabBarAdapter,
-                viewRegistry: viewRegistry
+                viewRegistry: viewRegistry,
+                inboxAtom: inboxNotificationAtom,
+                inboxPrefsAtom: inboxNotificationPrefsAtom,
+                drawerInboxPresenter: inboxNotificationDrawerPresenter
             )
             mainWindowController?.showWindow(nil)
             wireLifecycleConsumers()
@@ -520,6 +537,14 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             try uiStateStore.flush(for: store.metadataAtom.workspaceId)
         } catch {
             appLogger.warning("Workspace UI flush failed at termination: \(error.localizedDescription)")
+        }
+
+        inboxNotificationRouter?.stop()
+        inboxPaneFocusTracker?.stop()
+        do {
+            try inboxNotificationStore?.flush()
+        } catch {
+            appLogger.warning("Inbox notification flush failed at termination: \(error.localizedDescription)")
         }
 
         // Always flush on quit — the pre-persist hook syncs runtime webview state
@@ -900,7 +925,7 @@ extension AppDelegate: ShellCommandHandling {
     func canExecute(_ command: AppCommand) -> Bool {
         switch command {
         case .watchFolder, .toggleSidebar, .filterSidebar,
-            .showInboxNotifications, .showWorktreeSidebar,
+            .showInboxNotifications, .showDrawerInboxNotifications, .showWorktreeSidebar,
             .signInGitHub, .signInGoogle,
             .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
@@ -924,6 +949,9 @@ extension AppDelegate: ShellCommandHandling {
             mainWindowController?.showInboxNotifications(
                 commandBarIsKey: commandBarController.isKeyWindow
             )
+            return true
+        case .showDrawerInboxNotifications:
+            openDrawerInboxForActiveDrawer()
             return true
         case .showWorktreeSidebar:
             mainWindowController?.showWorktreeSidebar()
@@ -959,27 +987,6 @@ extension AppDelegate: ShellCommandHandling {
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
         switch (command, targetType) {
         default: return false
-        }
-    }
-
-    private func showCommandBar(prefix: String?, context: String) {
-        appLogger.info("showCommandBar context=\(context, privacy: .public)")
-        guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
-            appLogger.warning("No window available for \(context, privacy: .public)")
-            return
-        }
-        // Must compute the owner before presenting the panel. Once the
-        // CommandBar becomes key, `isWorkspaceWindowKey` flips false.
-        let owner = KeyboardOwner.current(
-            windowLifecycle: windowLifecycleStore,
-            managementLayer: atomStore.managementLayer,
-            uiState: uiState
-        )
-        if let prefix {
-            commandBarController.show(prefix: prefix, parentWindow: window)
-        } else {
-            let scope = CommandBarState.defaultScope(for: owner)
-            commandBarController.show(defaultRootScope: scope, parentWindow: window)
         }
     }
 

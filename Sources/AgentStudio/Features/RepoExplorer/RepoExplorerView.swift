@@ -27,6 +27,7 @@ struct RepoExplorerView: View {
 
     let store: WorkspaceStore
     let onRefocusActivePane: () -> Void
+    let unreadCount: (Worktree) -> Int
 
     private var repoCache: RepoCacheAtom {
         atom(\.repoCache)
@@ -42,7 +43,6 @@ struct RepoExplorerView: View {
     @FocusState private var focusedField: RepoExplorerFocus?
 
     @State private var checkoutColorByRepoId: [String: String] = [:]
-    @State private var notificationCountsByWorktreeId: [UUID: Int] = [:]
 
     @State private var debounceTask: Task<Void, Never>?
 
@@ -112,22 +112,6 @@ struct RepoExplorerView: View {
             filterText = uiState.filterText
             debouncedQuery = uiState.filterText
             checkoutColorByRepoId = uiState.checkoutColors
-            notificationCountsByWorktreeId = repoCache.notificationCountByWorktreeId
-        }
-        .task {
-            let stream = await AppEventBus.shared.subscribe()
-            for await event in stream {
-                switch event {
-                case .worktreeBellRang(let paneId):
-                    guard
-                        let pane = store.paneAtom.pane(paneId),
-                        let worktreeId = pane.worktreeId
-                    else { continue }
-                    notificationCountsByWorktreeId[worktreeId, default: 0] += 1
-                default:
-                    continue
-                }
-            }
         }
         .onDisappear {
             debounceTask?.cancel()
@@ -299,12 +283,8 @@ struct RepoExplorerView: View {
                                 in: resolvedWorktreeContext.group
                             ),
                             branchStatus: worktreeStatusById[resolvedWorktreeContext.worktree.id] ?? .unknown,
-                            notificationCount: notificationCountsByWorktreeId[
-                                resolvedWorktreeContext.worktree.id,
-                                default: 0
-                            ],
+                            unreadCount: unreadCount(resolvedWorktreeContext.worktree),
                             onOpen: {
-                                clearNotifications(for: resolvedWorktreeContext.worktree.id)
                                 CommandDispatcher.shared.dispatch(
                                     .openWorktree,
                                     target: resolvedWorktreeContext.worktree.id,
@@ -312,7 +292,6 @@ struct RepoExplorerView: View {
                                 )
                             },
                             onOpenNew: {
-                                clearNotifications(for: resolvedWorktreeContext.worktree.id)
                                 CommandDispatcher.shared.dispatch(
                                     .openNewTerminalInTab,
                                     target: resolvedWorktreeContext.worktree.id,
@@ -320,7 +299,6 @@ struct RepoExplorerView: View {
                                 )
                             },
                             onOpenInPane: {
-                                clearNotifications(for: resolvedWorktreeContext.worktree.id)
                                 CommandDispatcher.shared.dispatch(
                                     .openWorktreeInPane,
                                     target: resolvedWorktreeContext.worktree.id,
@@ -407,10 +385,6 @@ struct RepoExplorerView: View {
         guard let repo = group.repos.first(where: { $0.id == repoId }) else { return nil }
         guard let worktree = repo.worktrees.first(where: { $0.id == worktreeId }) else { return nil }
         return (group, repo, worktree)
-    }
-
-    private func clearNotifications(for worktreeId: UUID) {
-        notificationCountsByWorktreeId[worktreeId] = 0
     }
 
     private func checkoutTitle(for worktree: Worktree, in repo: RepoPresentationItem) -> String {

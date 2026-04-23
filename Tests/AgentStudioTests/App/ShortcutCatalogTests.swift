@@ -95,6 +95,16 @@ struct ShortcutCatalogTests {
     }
 
     @Test
+    func shortcutDecoder_decodesDrawerInboxShortcut() {
+        let showDrawerInbox = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.i), modifiers: [.command, .shift]),
+            in: .global
+        )
+
+        #expect(showDrawerInbox == .showDrawerInboxNotifications)
+    }
+
+    @Test
     func shortcutDecoder_decodesSidebarFilterShortcut() {
         let showFilter = ShortcutDecoder.shortcut(
             for: .init(key: .character(.f), modifiers: [.command]),

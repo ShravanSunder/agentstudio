@@ -41,6 +41,25 @@ struct InboxNotificationAtomTests {
         #expect(atom.notifications.count == 1)
     }
 
+    @Test("append replaces existing notification with same id")
+    func appendReplacesDuplicateId() {
+        let atom = InboxNotificationAtom()
+        let id = UUID()
+        let original = makeInboxNotification(
+            id: id,
+            timestamp: Date(timeIntervalSince1970: 1)
+        )
+        let retry = makeInboxNotification(
+            id: id,
+            timestamp: Date(timeIntervalSince1970: 2)
+        )
+
+        atom.append(original)
+        atom.append(retry)
+
+        #expect(atom.notifications == [retry])
+    }
+
     @Test("markRead(id:) sets isRead true")
     func markReadById() {
         let atom = InboxNotificationAtom()

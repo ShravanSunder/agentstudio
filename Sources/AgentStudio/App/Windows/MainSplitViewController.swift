@@ -4,6 +4,8 @@ import SwiftUI
 struct SidebarRootViewDependencies {
     let store: WorkspaceStore
     let uiState: UIStateAtom
+    let inboxAtom: InboxNotificationAtom
+    let prefsAtom: InboxNotificationPrefsAtom
     let onRefocusActivePane: () -> Void
     let onDismissInbox: @MainActor @Sendable () -> Void
 }
@@ -21,6 +23,8 @@ class MainSplitViewController: NSSplitViewController {
             SidebarSurfaceHost(
                 store: dependencies.store,
                 uiState: dependencies.uiState,
+                inboxAtom: dependencies.inboxAtom,
+                prefsAtom: dependencies.prefsAtom,
                 onRefocusActivePane: dependencies.onRefocusActivePane,
                 onDismissInbox: dependencies.onDismissInbox
             )
@@ -43,6 +47,9 @@ class MainSplitViewController: NSSplitViewController {
     private let appLifecycleStore: AppLifecycleAtom
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
+    private let inboxAtom: InboxNotificationAtom
+    private let inboxPrefsAtom: InboxNotificationPrefsAtom
+    private let drawerInboxPresenter: InboxNotificationDrawerPresenter
     private let sidebarRootViewBuilder: SidebarRootViewBuilder
 
     func syncVisibleTerminalGeometry(reason: StaticString) {
@@ -56,6 +63,9 @@ class MainSplitViewController: NSSplitViewController {
         appLifecycleStore: AppLifecycleAtom,
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
+        inboxAtom: InboxNotificationAtom = InboxNotificationAtom(),
+        inboxPrefsAtom: InboxNotificationPrefsAtom = InboxNotificationPrefsAtom(),
+        drawerInboxPresenter: InboxNotificationDrawerPresenter = InboxNotificationDrawerPresenter(),
         sidebarRootViewBuilder: @escaping SidebarRootViewBuilder = MainSplitViewController.defaultSidebarRootViewBuilder
     ) {
         self.store = store
@@ -64,6 +74,9 @@ class MainSplitViewController: NSSplitViewController {
         self.appLifecycleStore = appLifecycleStore
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
+        self.inboxAtom = inboxAtom
+        self.inboxPrefsAtom = inboxPrefsAtom
+        self.drawerInboxPresenter = drawerInboxPresenter
         self.sidebarRootViewBuilder = sidebarRootViewBuilder
         super.init(nibName: nil, bundle: nil)
     }
@@ -82,7 +95,8 @@ class MainSplitViewController: NSSplitViewController {
             appLifecycleStore: appLifecycleStore,
             executor: actionExecutor,
             tabBarAdapter: tabBarAdapter,
-            viewRegistry: viewRegistry
+            viewRegistry: viewRegistry,
+            drawerInboxPresentation: makeDrawerInboxPresentation()
         )
         self.paneTabViewController = paneTabVC
 
@@ -96,6 +110,8 @@ class MainSplitViewController: NSSplitViewController {
             SidebarRootViewDependencies(
                 store: store,
                 uiState: uiState,
+                inboxAtom: inboxAtom,
+                prefsAtom: inboxPrefsAtom,
                 onRefocusActivePane: { [weak paneTabVC] in
                     paneTabVC?.refocusActivePane()
                 },
@@ -143,6 +159,37 @@ class MainSplitViewController: NSSplitViewController {
         let isCollapsed = splitViewItems.first?.isCollapsed ?? false
         guard uiState.sidebarCollapsed != isCollapsed else { return }
         uiState.setSidebarCollapsed(isCollapsed)
+    }
+
+    private func makeDrawerInboxPresentation() -> DrawerInboxPresentation {
+        DrawerInboxPresentation(
+            unreadCount: { [inboxAtom] drawerPaneIds in
+                inboxAtom.unreadCount(forDrawerPaneIds: drawerPaneIds)
+            },
+            open: { [drawerInboxPresenter] drawerPaneIds in
+                drawerInboxPresenter.open(forDrawerPaneIds: drawerPaneIds)
+            },
+            requestId: { [drawerInboxPresenter] in
+                drawerInboxPresenter.request?.id
+            },
+            requestDrawerPaneIds: { [drawerInboxPresenter] in
+                drawerInboxPresenter.request?.drawerPaneIds
+            },
+            clearRequest: { [drawerInboxPresenter] requestId in
+                guard let request = drawerInboxPresenter.request, request.id == requestId else { return }
+                drawerInboxPresenter.clearRequest(request)
+            },
+            popoverContent: { [inboxAtom] drawerPaneIds, onClose in
+                AnyView(
+                    InboxNotificationDrawerPopover(
+                        drawerPaneIds: drawerPaneIds,
+                        inboxAtom: inboxAtom,
+                        dispatcher: CommandDispatcher.shared,
+                        onClose: onClose
+                    )
+                )
+            }
+        )
     }
 
     func savePersistentUIState() {
@@ -217,7 +264,7 @@ class MainSplitViewController: NSSplitViewController {
         case .inbox:
             guard
                 let focusTarget = sidebarHostingController?.view.descendantView(
-                    matching: InboxNotificationPlaceholderView.focusTargetIdentifier
+                    matching: InboxNotificationSidebarView.focusTargetIdentifier
                 )
             else {
                 return false

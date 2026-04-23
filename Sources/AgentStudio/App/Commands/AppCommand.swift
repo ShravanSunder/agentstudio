@@ -63,6 +63,7 @@ enum AppCommand: String, CaseIterable {
     // Workspace commands
     case toggleSidebar
     case showInboxNotifications
+    case showDrawerInboxNotifications
     case showWorktreeSidebar
     case newFloatingTerminal
     // Window commands
@@ -833,6 +834,17 @@ extension AppCommand {
                 label: "Toggle Inbox",
                 icon: "bell",
                 helpText: "Show or hide the notification inbox in the sidebar",
+                commandBarGroupName: "Window",
+                commandBarGroupPriority: CommandBarGroupPriority.window,
+                isHiddenInCommandBar: true
+            )
+        case .showDrawerInboxNotifications:
+            return CommandSpec(
+                command: self,
+                shortcut: .showDrawerInboxNotifications,
+                label: "Show Drawer Inbox",
+                icon: "bell.badge",
+                helpText: "Show notifications for the active drawer",
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window,
                 isHiddenInCommandBar: true

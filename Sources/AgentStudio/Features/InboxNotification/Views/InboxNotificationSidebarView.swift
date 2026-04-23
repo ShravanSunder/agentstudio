@@ -66,44 +66,6 @@ enum InboxFocus: Hashable {
 
 @MainActor
 struct InboxNotificationSidebarView: View {
-    struct Group: Identifiable, Equatable {
-        let key: String
-        let label: String
-        let notifications: [InboxNotification]
-
-        var id: String { key }
-
-        var unreadCount: Int {
-            notifications.reduce(0) { count, notification in
-                notification.isRead ? count : count + 1
-            }
-        }
-    }
-
-    enum RenderedEntry: Identifiable, Equatable {
-        case groupHeader(key: String, label: String, unreadCount: Int)
-        case notification(InboxNotification)
-
-        var id: String {
-            switch self {
-            case .groupHeader(let key, _, _):
-                return "header:\(key)"
-            case .notification(let notification):
-                return "notification:\(notification.id.uuidString)"
-            }
-        }
-    }
-
-    enum Direction {
-        case next
-        case previous
-    }
-
-    enum Endpoint {
-        case first
-        case last
-    }
-
     static let focusTargetIdentifier = NSUserInterfaceItemIdentifier(
         "InboxNotificationSidebarView.focusTarget"
     )
@@ -130,7 +92,7 @@ struct InboxNotificationSidebarView: View {
             groupingMenuOpen: $groupingMenuOpen,
             grouping: prefsAtom.grouping,
             focusedField: $focusedField,
-            entries: renderedEntries,
+            sections: listModel.sections,
             flashingRowIds: flashingRowIds,
             onEscape: handleEscape,
             onToggleSort: toggleSort,
@@ -142,126 +104,41 @@ struct InboxNotificationSidebarView: View {
         )
     }
 
-    private var sortedNotifications: [InboxNotification] {
-        switch prefsAtom.sort {
-        case .newestFirst:
-            return inboxAtom.notifications.sorted { $0.timestamp > $1.timestamp }
-        case .oldestFirst:
-            return inboxAtom.notifications.sorted { $0.timestamp < $1.timestamp }
-        }
-    }
-
-    private var filteredNotifications: [InboxNotification] {
-        let trimmedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !trimmedQuery.isEmpty else { return sortedNotifications }
-
-        return sortedNotifications.filter { notification in
-            notification.title.lowercased().contains(trimmedQuery)
-                || (notification.body ?? "").lowercased().contains(trimmedQuery)
-                || (notification.repoName ?? "").lowercased().contains(trimmedQuery)
-                || (notification.worktreeName ?? "").lowercased().contains(trimmedQuery)
-                || (notification.branchName ?? "").lowercased().contains(trimmedQuery)
-        }
-    }
-
-    private var groupedRows: [Group] {
-        let notifications = filteredNotifications
-        switch prefsAtom.grouping {
-        case .none:
-            return [Group(key: "all", label: "", notifications: notifications)]
-        case .byRepo:
-            return buildGroups(
-                notifications: notifications,
-                key: { $0.repoName ?? "(no repo)" },
-                label: { $0.repoName ?? "Unknown Repo" }
-            )
-        case .byPane:
-            return buildGroups(
-                notifications: notifications,
-                key: { $0.paneId?.uuidString ?? "(no pane)" },
-                label: { $0.worktreeName ?? $0.branchName ?? "Unknown Pane" }
-            )
-        case .byTab:
-            return buildGroups(
-                notifications: notifications,
-                key: { $0.tabId?.uuidString ?? "(no tab)" },
-                label: { notification in
-                    guard let tabId = notification.tabId else { return "Unknown Tab" }
-                    return "Tab \(tabId.uuidString.prefix(8))"
-                }
-            )
-        }
-    }
-
-    private var renderedEntries: [RenderedEntry] {
-        if filteredNotifications.isEmpty {
-            return []
-        }
-
-        return groupedRows.flatMap { group in
-            var entries: [RenderedEntry] = []
-            if !group.label.isEmpty {
-                entries.append(
-                    .groupHeader(
-                        key: group.key,
-                        label: group.label,
-                        unreadCount: group.unreadCount
-                    )
-                )
-            }
-            entries.append(contentsOf: group.notifications.map(RenderedEntry.notification))
-            return entries
-        }
-    }
-
-    private func buildGroups(
-        notifications: [InboxNotification],
-        key: (InboxNotification) -> String,
-        label: (InboxNotification) -> String
-    ) -> [Group] {
-        let buckets = Dictionary(grouping: notifications, by: key)
-        return buckets.keys.sorted().compactMap { groupKey in
-            guard let notifications = buckets[groupKey], let first = notifications.first else { return nil }
-            return Group(key: groupKey, label: label(first), notifications: notifications)
-        }
+    private var listModel: InboxNotificationListModel {
+        InboxNotificationListModel(
+            notifications: inboxAtom.notifications,
+            grouping: prefsAtom.grouping,
+            sort: prefsAtom.sort,
+            searchText: searchText
+        )
     }
 
     @discardableResult
-    private func moveFocusToGroupBoundary(_ direction: Direction) -> Bool {
-        let groups = groupedRows
-        guard !groups.isEmpty else { return false }
-
-        let currentGroupIndex = groups.firstIndex { group in
-            guard case .row(let rowId) = focusedField else { return false }
-            return group.notifications.contains { $0.id == rowId }
+    private func moveFocusToGroupBoundary(_ direction: InboxNotificationListNavigationDirection) -> Bool {
+        guard
+            let rowId = listModel.groupBoundaryTarget(
+                from: focusedNotificationId,
+                direction: direction
+            )
+        else {
+            return false
         }
-
-        let targetIndex: Int
-        switch direction {
-        case .next:
-            guard let currentGroupIndex, currentGroupIndex + 1 < groups.count else { return false }
-            targetIndex = currentGroupIndex + 1
-        case .previous:
-            guard let currentGroupIndex, currentGroupIndex - 1 >= 0 else { return false }
-            targetIndex = currentGroupIndex - 1
-        }
-
-        guard let firstNotification = groups[targetIndex].notifications.first else { return false }
-        focusedField = .row(firstNotification.id)
+        focusedField = .row(rowId)
         return true
     }
 
     @discardableResult
-    private func moveFocusToEnd(_ endpoint: Endpoint) -> Bool {
-        let rows = groupedRows.flatMap(\.notifications)
-        guard !rows.isEmpty else { return false }
-        switch endpoint {
-        case .first:
-            focusedField = .row(rows.first!.id)
-        case .last:
-            focusedField = .row(rows.last!.id)
+    private func moveFocusToEnd(_ endpoint: InboxNotificationListEndpoint) -> Bool {
+        guard let rowId = listModel.endpointTarget(endpoint) else {
+            return false
         }
+        focusedField = .row(rowId)
         return true
+    }
+
+    private var focusedNotificationId: UUID? {
+        guard case .row(let rowId) = focusedField else { return nil }
+        return rowId
     }
 
     private func toggleSort() {
@@ -293,6 +170,7 @@ struct InboxNotificationSidebarView: View {
             let paneId = notification.paneId,
             workspacePaneAtom.pane(paneId) != nil
         else {
+            // History is denormalized, so stale rows can outlive their pane; flash instead of dispatching a dead target.
             flashingRowIds.insert(notification.id)
             Task { @MainActor [flashClock] in
                 try? await flashClock.sleep(for: .milliseconds(600))
@@ -312,13 +190,13 @@ private struct InboxSidebarRootContainer: View {
     @Binding var groupingMenuOpen: Bool
     let grouping: InboxNotificationGrouping
     let focusedField: FocusState<InboxFocus?>.Binding
-    let entries: [InboxNotificationSidebarView.RenderedEntry]
+    let sections: [InboxNotificationListSection]
     let flashingRowIds: Set<UUID>
     let onEscape: @MainActor @Sendable () -> Void
     let onToggleSort: () -> Void
     let onSelectGrouping: (InboxNotificationGrouping) -> Void
-    let onMoveGroupBoundary: (InboxNotificationSidebarView.Direction) -> Bool
-    let onMoveEnd: (InboxNotificationSidebarView.Endpoint) -> Bool
+    let onMoveGroupBoundary: (InboxNotificationListNavigationDirection) -> Bool
+    let onMoveEnd: (InboxNotificationListEndpoint) -> Bool
     let onActivate: (InboxNotification) -> Void
     let onToggleRead: (UUID) -> Void
 
@@ -391,7 +269,7 @@ private struct InboxSidebarRootContainer: View {
             Divider()
 
             InboxSidebarContent(
-                entries: entries,
+                sections: sections,
                 focusedField: focusedField,
                 flashingRowIds: flashingRowIds,
                 onActivate: onActivate,
@@ -471,28 +349,36 @@ private struct InboxSidebarHeader: View {
 }
 
 private struct InboxSidebarContent: View {
-    let entries: [InboxNotificationSidebarView.RenderedEntry]
+    let sections: [InboxNotificationListSection]
     let focusedField: FocusState<InboxFocus?>.Binding
     let flashingRowIds: Set<UUID>
     let onActivate: (InboxNotification) -> Void
     let onToggleRead: (UUID) -> Void
 
     var body: some View {
-        if entries.isEmpty {
+        if sections.flatMap(\.notifications).isEmpty {
             InboxNotificationEmptyState()
         } else {
             TimelineView(.periodic(from: .now, by: 60)) { context in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(entries) { entry in
-                            InboxSidebarEntryView(
-                                entry: entry,
-                                now: context.date,
-                                focusedField: focusedField,
-                                isFlashing: entry.notificationId.map { flashingRowIds.contains($0) } ?? false,
-                                onActivate: onActivate,
-                                onToggleRead: onToggleRead
-                            )
+                        ForEach(sections) { section in
+                            if let label = section.label {
+                                InboxNotificationGroupHeader(
+                                    label: label,
+                                    unreadCount: section.unreadCount
+                                )
+                            }
+                            ForEach(section.notifications) { notification in
+                                InboxSidebarNotificationRow(
+                                    notification: notification,
+                                    now: context.date,
+                                    focusedField: focusedField,
+                                    isFlashing: flashingRowIds.contains(notification.id),
+                                    onActivate: onActivate,
+                                    onToggleRead: onToggleRead
+                                )
+                            }
                         }
                     }
                 }
@@ -502,8 +388,8 @@ private struct InboxSidebarContent: View {
     }
 }
 
-private struct InboxSidebarEntryView: View {
-    let entry: InboxNotificationSidebarView.RenderedEntry
+private struct InboxSidebarNotificationRow: View {
+    let notification: InboxNotification
     let now: Date
     let focusedField: FocusState<InboxFocus?>.Binding
     let isFlashing: Bool
@@ -511,39 +397,23 @@ private struct InboxSidebarEntryView: View {
     let onToggleRead: (UUID) -> Void
 
     var body: some View {
-        switch entry {
-        case .groupHeader(_, let label, let unreadCount):
-            InboxNotificationGroupHeader(label: label, unreadCount: unreadCount)
-        case .notification(let notification):
-            InboxRow(notification: notification, now: now)
-                .focused(focusedField, equals: .row(notification.id))
-                .contentShape(Rectangle())
-                .background(isFlashing ? Color.accentColor.opacity(0.18) : Color.clear)
-                .animation(.easeOut(duration: 0.25), value: isFlashing)
-                .onTapGesture {
-                    onActivate(notification)
-                }
-                .onKeyPress(.return) {
-                    guard focusedField.wrappedValue == .row(notification.id) else { return .ignored }
-                    onActivate(notification)
-                    return .handled
-                }
-                .onKeyPress(.space) {
-                    guard focusedField.wrappedValue == .row(notification.id) else { return .ignored }
-                    onToggleRead(notification.id)
-                    return .handled
-                }
-        }
-    }
-}
-
-extension InboxNotificationSidebarView.RenderedEntry {
-    fileprivate var notificationId: UUID? {
-        switch self {
-        case .groupHeader:
-            return nil
-        case .notification(let notification):
-            return notification.id
-        }
+        InboxRow(notification: notification, now: now)
+            .focused(focusedField, equals: .row(notification.id))
+            .contentShape(Rectangle())
+            .background(isFlashing ? Color.accentColor.opacity(0.18) : Color.clear)
+            .animation(.easeOut(duration: 0.25), value: isFlashing)
+            .onTapGesture {
+                onActivate(notification)
+            }
+            .onKeyPress(.return) {
+                guard focusedField.wrappedValue == .row(notification.id) else { return .ignored }
+                onActivate(notification)
+                return .handled
+            }
+            .onKeyPress(.space) {
+                guard focusedField.wrappedValue == .row(notification.id) else { return .ignored }
+                onToggleRead(notification.id)
+                return .handled
+            }
     }
 }

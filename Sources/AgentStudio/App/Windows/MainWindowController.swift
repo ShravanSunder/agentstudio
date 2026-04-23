@@ -1,10 +1,14 @@
 import AppKit
+import Observation
 import SwiftUI
 
 /// Main window controller for AgentStudio
 class MainWindowController: NSWindowController, NSWindowDelegate {
     private var splitViewController: MainSplitViewController?
     private var sidebarAccessory: NSTitlebarAccessoryViewController?
+    private var inboxAtom = InboxNotificationAtom()
+    private weak var inboxToolbarBellDot: NSView?
+    private var isObservingInboxUnread = false
     private var awaitsLaunchRestoreResize = false
     private var awaitsLaunchMaximize = false
     private var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
@@ -19,7 +23,10 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         appLifecycleStore: AppLifecycleAtom,
         tabBarAdapter: TabBarAdapter,
-        viewRegistry: ViewRegistry
+        viewRegistry: ViewRegistry,
+        inboxAtom: InboxNotificationAtom = InboxNotificationAtom(),
+        inboxPrefsAtom: InboxNotificationPrefsAtom = InboxNotificationPrefsAtom(),
+        drawerInboxPresenter: InboxNotificationDrawerPresenter = InboxNotificationDrawerPresenter()
     ) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
@@ -42,6 +49,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
         self.init(window: window)
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
+        self.inboxAtom = inboxAtom
         window.delegate = self
         applicationLifecycleMonitor.handleWindowRegistered(windowId)
 
@@ -52,7 +60,10 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
             tabBarAdapter: tabBarAdapter,
-            viewRegistry: viewRegistry
+            viewRegistry: viewRegistry,
+            inboxAtom: inboxAtom,
+            inboxPrefsAtom: inboxPrefsAtom,
+            drawerInboxPresenter: drawerInboxPresenter
         )
         self.splitViewController = splitVC
         window.contentViewController = splitVC
@@ -152,9 +163,11 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         )
         inboxButton.bezelStyle = .accessoryBarAction
         inboxButton.isBordered = false
+        inboxButton.identifier = NSUserInterfaceItemIdentifier("inboxToolbarBell")
         inboxButton.target = self
         inboxButton.action = #selector(showInboxSidebarAction)
         inboxButton.toolTip = inboxSidebarPresentation.controlToolTip
+        installInboxUnreadDot(on: inboxButton)
 
         // Search button
         let searchButton = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
@@ -181,6 +194,38 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
         window?.addTitlebarAccessoryViewController(accessoryVC)
         self.sidebarAccessory = accessoryVC
+    }
+
+    private func installInboxUnreadDot(on button: NSButton) {
+        let dot = NSView(frame: NSRect(x: 24, y: 18, width: 6, height: 6))
+        dot.identifier = NSUserInterfaceItemIdentifier("inboxToolbarBellDot")
+        dot.wantsLayer = true
+        dot.layer?.backgroundColor = NSColor.systemRed.cgColor
+        dot.layer?.cornerRadius = 3
+        dot.autoresizingMask = [.minXMargin, .minYMargin]
+        button.addSubview(dot)
+        inboxToolbarBellDot = dot
+        updateInboxUnreadDot()
+        observeInboxUnreadCount()
+    }
+
+    private func updateInboxUnreadDot() {
+        inboxToolbarBellDot?.isHidden = inboxAtom.globalUnreadCount == 0
+    }
+
+    private func observeInboxUnreadCount() {
+        guard !isObservingInboxUnread else { return }
+        isObservingInboxUnread = true
+        withObservationTracking {
+            _ = inboxAtom.globalUnreadCount
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isObservingInboxUnread = false
+                self.updateInboxUnreadDot()
+                self.observeInboxUnreadCount()
+            }
+        }
     }
 
     // MARK: - Toolbar

@@ -11,7 +11,7 @@ struct MainSplitViewControllerCompositeCommandTests {
         installTestAtomRegistryIfNeeded()
     }
 
-    @Test("showInboxNotifications expands sidebar and focuses placeholder when command bar is not key")
+    @Test("showInboxNotifications expands sidebar and focuses inbox when command bar is not key")
     func showInboxNotificationsExpandsAndFocuses() async {
         await withMainSplitViewControllerHarness(
             withRepos: true,
@@ -19,12 +19,12 @@ struct MainSplitViewControllerCompositeCommandTests {
             body: { harness in
                 harness.controller.showInboxNotifications(commandBarIsKey: false)
                 await eventually(
-                    "inbox placeholder should become first responder"
+                    "inbox should become first responder"
                 ) {
                     harness.atoms.uiState.sidebarSurface == .inbox
                         && harness.atoms.uiState.sidebarHasFocus
                         && (harness.window.firstResponder as? NSView)?.identifier
-                            == InboxNotificationPlaceholderView.focusTargetIdentifier
+                            == InboxNotificationSidebarView.focusTargetIdentifier
                         && harness.controller.isSidebarCollapsed == false
                 }
             }
@@ -44,46 +44,46 @@ struct MainSplitViewControllerCompositeCommandTests {
                 #expect(harness.atoms.uiState.sidebarHasFocus == false)
                 #expect(
                     (harness.window.firstResponder as? NSView)?.identifier
-                        != InboxNotificationPlaceholderView.focusTargetIdentifier
+                        != InboxNotificationSidebarView.focusTargetIdentifier
                 )
             }
         )
     }
 
-    @Test("showInboxNotifications retries until a delayed inbox placeholder mounts")
-    func showInboxNotificationsRetriesUntilDelayedPlaceholderMounts() async {
+    @Test("showInboxNotifications retries until a delayed inbox mounts")
+    func showInboxNotificationsRetriesUntilDelayedInboxMounts() async {
         await withMainSplitViewControllerHarness(
             withRepos: true,
             configureUIState: { $0.setSidebarCollapsed(true) },
             sidebarRootViewBuilder: { uiState, onEscape in
-                AnyView(DelayedInboxPlaceholderSidebarView(uiState: uiState, onEscape: onEscape))
+                AnyView(DelayedInboxTestSidebarView(uiState: uiState, onEscape: onEscape))
             },
             body: { harness in
                 harness.controller.showInboxNotifications(commandBarIsKey: false)
 
-                await eventually("delayed inbox placeholder should eventually gain focus") {
+                await eventually("delayed inbox should eventually gain focus") {
                     harness.atoms.uiState.sidebarSurface == .inbox
                         && harness.atoms.uiState.sidebarHasFocus
                         && (harness.window.firstResponder as? NSView)?.identifier
-                            == InboxNotificationPlaceholderView.focusTargetIdentifier
+                            == InboxNotificationSidebarView.focusTargetIdentifier
                         && harness.controller.isSidebarCollapsed == false
                 }
             }
         )
     }
 
-    @Test("showWorktreeSidebar returns to repos surface and lets placeholder focus clear naturally")
-    func showWorktreeSidebarSwitchesSurfaceAndClearsPlaceholderFocus() async {
+    @Test("showWorktreeSidebar returns to repos surface and lets inbox focus clear naturally")
+    func showWorktreeSidebarSwitchesSurfaceAndClearsInboxFocus() async {
         await withMainSplitViewControllerHarness(
             withRepos: true,
             body: { harness in
                 harness.controller.showInboxNotifications(commandBarIsKey: false)
-                await eventually("placeholder should gain focus") {
+                await eventually("inbox should gain focus") {
                     harness.atoms.uiState.sidebarHasFocus
                 }
 
                 harness.controller.showWorktreeSidebar()
-                await eventually("placeholder focus should clear after surface swap") {
+                await eventually("inbox focus should clear after surface swap") {
                     harness.atoms.uiState.sidebarSurface == .repos
                         && harness.atoms.uiState.sidebarHasFocus == false
                 }
@@ -177,7 +177,7 @@ struct MainSplitViewControllerCompositeCommandTests {
 
 }
 
-struct DelayedInboxPlaceholderSidebarView: View {
+struct DelayedInboxTestSidebarView: View {
     let uiState: UIStateAtom
     let onEscape: @MainActor @Sendable () -> Void
 
@@ -193,7 +193,7 @@ struct DelayedInboxPlaceholderSidebarView: View {
                     }
             case .inbox:
                 if isInboxMounted {
-                    InboxNotificationPlaceholderView(
+                    MainSplitViewControllerTestInboxView(
                         uiState: uiState,
                         onEscape: onEscape
                     )
