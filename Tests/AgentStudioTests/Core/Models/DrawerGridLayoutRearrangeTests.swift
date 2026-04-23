@@ -5,6 +5,19 @@ import Testing
 
 @Suite(.serialized)
 struct DrawerGridLayoutRearrangeTests {
+    private func requireSuccess(
+        _ result: Result<DrawerGridLayout, DrawerProjectedMoveFailure>,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) throws -> DrawerGridLayout {
+        switch result {
+        case .success(let layout):
+            return layout
+        case .failure(let failure):
+            Issue.record("Expected success, got \(failure)", sourceLocation: sourceLocation)
+            throw failure
+        }
+    }
+
     @Test
     func oneRow_slotInsertion_beforeMiddleAfter_areDistinct() throws {
         let a = UUID()
@@ -12,7 +25,7 @@ struct DrawerGridLayoutRearrangeTests {
         let c = UUID()
         let layout = DrawerGridLayout(topRow: Layout.autoTiled([a, b, c]))
 
-        let before = try #require(
+        let before = try requireSuccess(
             layout.projectedMove(
                 paneId: c,
                 target: .rowSlot(row: .top, insertionIndex: 0),
@@ -21,7 +34,7 @@ struct DrawerGridLayoutRearrangeTests {
         )
         #expect(before.topRow.paneIds == [c, a, b])
 
-        let middle = try #require(
+        let middle = try requireSuccess(
             layout.projectedMove(
                 paneId: a,
                 target: .rowSlot(row: .top, insertionIndex: 2),
@@ -30,7 +43,7 @@ struct DrawerGridLayoutRearrangeTests {
         )
         #expect(middle.topRow.paneIds == [b, a, c])
 
-        let after = try #require(
+        let after = try requireSuccess(
             layout.projectedMove(
                 paneId: a,
                 target: .rowSlot(row: .top, insertionIndex: 3),
@@ -47,7 +60,7 @@ struct DrawerGridLayoutRearrangeTests {
         let c = UUID()
         let layout = DrawerGridLayout(topRow: Layout.autoTiled([a, b, c]))
 
-        let topRow = try #require(
+        let topRow = try requireSuccess(
             layout.projectedMove(
                 paneId: c,
                 target: .createSecondRow(position: .top),
@@ -57,7 +70,7 @@ struct DrawerGridLayoutRearrangeTests {
         #expect(topRow.topRow.paneIds == [c])
         #expect(topRow.bottomRow?.paneIds == [a, b])
 
-        let bottomRow = try #require(
+        let bottomRow = try requireSuccess(
             layout.projectedMove(
                 paneId: a,
                 target: .createSecondRow(position: .bottom),
@@ -80,7 +93,7 @@ struct DrawerGridLayoutRearrangeTests {
             rowSplitRatio: 0.5
         )
 
-        let movedToBottom = try #require(
+        let movedToBottom = try requireSuccess(
             layout.projectedMove(
                 paneId: b,
                 target: .rowSlot(row: .bottom, insertionIndex: 1),
@@ -107,7 +120,7 @@ struct DrawerGridLayoutRearrangeTests {
             )
         )
 
-        let moved = try #require(
+        let moved = try requireSuccess(
             layout.projectedMove(
                 paneId: a,
                 target: .rowSlot(row: .top, insertionIndex: 3),
@@ -144,7 +157,7 @@ struct DrawerGridLayoutRearrangeTests {
             )
         )
 
-        let moved = try #require(
+        let moved = try requireSuccess(
             layout.projectedMove(
                 paneId: b,
                 target: .rowSlot(row: .bottom, insertionIndex: 1),
@@ -174,7 +187,28 @@ struct DrawerGridLayoutRearrangeTests {
                 paneId: a,
                 target: .createSecondRow(position: .bottom),
                 sizingMode: .proportional
-            ) == nil
+            ) == .failure(.secondRowAlreadyExists)
+        )
+    }
+
+    @Test
+    func invalidBottomRowInsertionIndex_returnsTypedFailure() {
+        let a = UUID()
+        let d = UUID()
+        let b = UUID()
+        let c = UUID()
+        let layout = DrawerGridLayout(
+            topRow: Layout.autoTiled([a, d]),
+            bottomRow: Layout.autoTiled([b, c]),
+            rowSplitRatio: 0.5
+        )
+
+        #expect(
+            layout.projectedMove(
+                paneId: a,
+                target: .rowSlot(row: .bottom, insertionIndex: 4),
+                sizingMode: .proportional
+            ) == .failure(.invalidInsertionIndex(row: .bottom, insertionIndex: 4, paneCount: 2))
         )
     }
 

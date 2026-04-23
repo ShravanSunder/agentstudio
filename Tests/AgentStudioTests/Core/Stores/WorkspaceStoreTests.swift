@@ -634,7 +634,7 @@ final class WorkspaceStoreTests {
         // Act — merge tab2 into tab1
         store.mergeTab(
             sourceId: tab2.id, intoTarget: tab1.id,
-            at: s1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget
+            at: s1.id, direction: .horizontal, position: .after
         )
 
         // Assert
@@ -655,7 +655,7 @@ final class WorkspaceStoreTests {
             intoTarget: tab.id,
             at: pane.id,
             direction: .horizontal,
-            position: .after, sizingMode: .halveTarget
+            position: .after
         )
 
         #expect(store.tabs.count == 1)

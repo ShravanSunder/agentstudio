@@ -353,7 +353,8 @@ final class WorkspaceStoreDrawerTests {
         store.moveDrawerPane(
             dp1.id,
             in: pane.id,
-            target: .rowSlot(row: .top, insertionIndex: 3)
+            target: .rowSlot(row: .top, insertionIndex: 3),
+            sizingMode: .proportional
         )
 
         let drawer = store.pane(pane.id)!.drawer!
@@ -373,7 +374,8 @@ final class WorkspaceStoreDrawerTests {
         store.moveDrawerPane(
             dp1.id,
             in: pane.id,
-            target: .rowSlot(row: .bottom, insertionIndex: 0)
+            target: .rowSlot(row: .bottom, insertionIndex: 0),
+            sizingMode: .proportional
         )
 
         let drawer = store.pane(pane.id)!.drawer!

@@ -1,13 +1,40 @@
 import Foundation
 
+enum DrawerProjectedMoveFailure: Error, Equatable, Sendable, CustomStringConvertible {
+    case missingSourcePane(UUID)
+    case sourceRemovalRejected(UUID)
+    case secondRowAlreadyExists
+    case missingBottomRow
+    case invalidInsertionIndex(row: DrawerRowPlacement, insertionIndex: Int, paneCount: Int)
+
+    var description: String {
+        switch self {
+        case .missingSourcePane(let paneId):
+            return "missingSourcePane(\(paneId))"
+        case .sourceRemovalRejected(let paneId):
+            return "sourceRemovalRejected(\(paneId))"
+        case .secondRowAlreadyExists:
+            return "secondRowAlreadyExists"
+        case .missingBottomRow:
+            return "missingBottomRow"
+        case .invalidInsertionIndex(let row, let insertionIndex, let paneCount):
+            return "invalidInsertionIndex(row: \(row), insertionIndex: \(insertionIndex), paneCount: \(paneCount))"
+        }
+    }
+}
+
 extension DrawerGridLayout {
     func projectedMove(
         paneId: UUID,
         target: DrawerRearrangeTarget,
         sizingMode: DropSizingMode
-    ) -> DrawerGridLayout? {
-        guard let sourceLocation = location(of: paneId) else { return nil }
-        guard let layoutWithoutSource = removing(paneId: paneId, sizingMode: .proportional) else { return nil }
+    ) -> Result<DrawerGridLayout, DrawerProjectedMoveFailure> {
+        guard let sourceLocation = location(of: paneId) else {
+            return .failure(.missingSourcePane(paneId))
+        }
+        guard let layoutWithoutSource = removing(paneId: paneId, sizingMode: .proportional) else {
+            return .failure(.sourceRemovalRejected(paneId))
+        }
 
         switch target {
         case .rowSlot(let row, let insertionIndex):
@@ -24,11 +51,14 @@ extension DrawerGridLayout {
                 sizingMode: sizingMode
             )
         case .createSecondRow(let position):
-            guard layoutWithoutSource.bottomRow == nil else { return nil }
-            return layoutWithoutSource.creatingSecondRow(
-                paneId: paneId,
-                position: position
-            )
+            guard layoutWithoutSource.bottomRow == nil else {
+                return .failure(.secondRowAlreadyExists)
+            }
+            return .success(
+                layoutWithoutSource.creatingSecondRow(
+                    paneId: paneId,
+                    position: position
+                ))
         }
     }
 
@@ -37,33 +67,51 @@ extension DrawerGridLayout {
         row: DrawerRowPlacement,
         insertionIndex: Int,
         sizingMode: DropSizingMode
-    ) -> DrawerGridLayout? {
+    ) -> Result<DrawerGridLayout, DrawerProjectedMoveFailure> {
         switch row {
         case .top:
-            guard (0...topRow.paneIds.count).contains(insertionIndex) else { return nil }
+            guard (0...topRow.paneIds.count).contains(insertionIndex) else {
+                return .failure(
+                    .invalidInsertionIndex(
+                        row: .top,
+                        insertionIndex: insertionIndex,
+                        paneCount: topRow.paneIds.count
+                    )
+                )
+            }
             let updated = topRow.insertingWithPolicy(
                 paneId: paneId,
                 insertionIndex: insertionIndex,
                 sizingMode: sizingMode
             )
-            return DrawerGridLayout(
-                topRow: updated,
-                bottomRow: bottomRow,
-                rowSplitRatio: rowSplitRatio
-            )
+            return .success(
+                DrawerGridLayout(
+                    topRow: updated,
+                    bottomRow: bottomRow,
+                    rowSplitRatio: rowSplitRatio
+                ))
         case .bottom:
-            guard let bottomRow else { return nil }
-            guard (0...bottomRow.paneIds.count).contains(insertionIndex) else { return nil }
+            guard let bottomRow else { return .failure(.missingBottomRow) }
+            guard (0...bottomRow.paneIds.count).contains(insertionIndex) else {
+                return .failure(
+                    .invalidInsertionIndex(
+                        row: .bottom,
+                        insertionIndex: insertionIndex,
+                        paneCount: bottomRow.paneIds.count
+                    )
+                )
+            }
             let updated = bottomRow.insertingWithPolicy(
                 paneId: paneId,
                 insertionIndex: insertionIndex,
                 sizingMode: sizingMode
             )
-            return DrawerGridLayout(
-                topRow: topRow,
-                bottomRow: updated,
-                rowSplitRatio: rowSplitRatio
-            )
+            return .success(
+                DrawerGridLayout(
+                    topRow: topRow,
+                    bottomRow: updated,
+                    rowSplitRatio: rowSplitRatio
+                ))
         }
     }
 

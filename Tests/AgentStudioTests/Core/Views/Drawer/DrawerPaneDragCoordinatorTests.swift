@@ -113,6 +113,31 @@ struct DrawerPaneDragCoordinatorTests {
     }
 
     @Test
+    func twoRows_topBandDoesNotResolveToCreateSecondRow() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let frames: [UUID: CGRect] = [
+            a: CGRect(x: 0, y: 20, width: 100, height: 40),
+            b: CGRect(x: 110, y: 20, width: 100, height: 40),
+            c: CGRect(x: 0, y: 80, width: 100, height: 40),
+        ]
+
+        let target = DrawerPaneDragCoordinator.resolveTarget(
+            location: CGPoint(x: 60, y: 10),
+            paneFrames: frames,
+            layout: DrawerGridLayout(
+                topRow: Layout.autoTiled([a, b]),
+                bottomRow: Layout.autoTiled([c]),
+                rowSplitRatio: 0.5
+            ),
+            containerBounds: CGRect(x: 0, y: 0, width: 220, height: 140)
+        )
+
+        #expect(target == nil)
+    }
+
+    @Test
     func emptyPaneFrames_returnNil() {
         let target = DrawerPaneDragCoordinator.resolveTarget(
             location: CGPoint(x: 50, y: 50),

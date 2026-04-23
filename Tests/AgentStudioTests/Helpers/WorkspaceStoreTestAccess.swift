@@ -108,7 +108,7 @@ extension WorkspaceStore {
         at targetPaneId: UUID,
         direction: Layout.SplitDirection,
         position: Layout.Position,
-        sizingMode: DropSizingMode = .halveTarget
+        sizingMode: DropSizingMode
     ) {
         mutationCoordinator.reactivatePane(
             paneId,
@@ -134,7 +134,7 @@ extension WorkspaceStore {
         at targetPaneId: UUID,
         direction: Layout.SplitDirection,
         position: Layout.Position,
-        sizingMode: DropSizingMode = .halveTarget
+        sizingMode: DropSizingMode
     ) -> Bool {
         tabLayoutAtom.insertPane(
             paneId,
@@ -177,7 +177,7 @@ extension WorkspaceStore {
         at targetDrawerPaneId: UUID,
         direction: Layout.SplitDirection,
         position: Layout.Position,
-        sizingMode: DropSizingMode = .halveTarget
+        sizingMode: DropSizingMode
     ) -> Pane? {
         let splitDirection: SplitNewDirection =
             switch (direction, position) {
@@ -199,7 +199,7 @@ extension WorkspaceStore {
         _ drawerPaneId: UUID,
         in parentPaneId: UUID,
         target: DrawerRearrangeTarget,
-        sizingMode: DropSizingMode = .proportional
+        sizingMode: DropSizingMode
     ) {
         paneAtom.moveDrawerPane(
             drawerPaneId,
@@ -241,8 +241,7 @@ extension WorkspaceStore {
         intoTarget targetId: UUID,
         at targetPaneId: UUID,
         direction: Layout.SplitDirection,
-        position: Layout.Position,
-        sizingMode _: DropSizingMode = .halveTarget
+        position: Layout.Position
     ) {
         tabLayoutAtom.mergeTab(
             sourceId: sourceId,

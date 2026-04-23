@@ -334,21 +334,23 @@ final class WorkspacePaneAtom {
             return
         }
 
-        guard
-            let movedLayout = drawer.layout.projectedMove(
-                paneId: drawerPaneId,
-                target: target,
-                sizingMode: sizingMode
+        switch drawer.layout.projectedMove(
+            paneId: drawerPaneId,
+            target: target,
+            sizingMode: sizingMode
+        ) {
+        case .success(let movedLayout):
+            drawer.layout = movedLayout
+            drawer.paneIds = movedLayout.paneIds
+            drawer.activePaneId = drawerPaneId
+            parentPane.kind = .layout(drawer: drawer)
+            panes[parentPaneId] = parentPane
+        case .failure(let failure):
+            workspacePaneLogger.warning(
+                "moveDrawerPane: rejected moving pane \(drawerPaneId) in \(parentPaneId): \(failure.description)"
             )
-        else {
             return
         }
-
-        drawer.layout = movedLayout
-        drawer.paneIds = movedLayout.paneIds
-        drawer.activePaneId = drawerPaneId
-        parentPane.kind = .layout(drawer: drawer)
-        panes[parentPaneId] = parentPane
     }
 
     func removeDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) {

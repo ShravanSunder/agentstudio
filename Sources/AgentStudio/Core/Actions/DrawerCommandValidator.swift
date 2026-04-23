@@ -85,15 +85,18 @@ enum DrawerCommandValidator {
         guard let currentLayout = state.drawerLayout(for: parentPaneId) else {
             return .failure(.invalidDrawerLayout(parentPaneId: parentPaneId))
         }
-        guard
-            currentLayout.projectedMove(
-                paneId: drawerPaneId,
-                target: target,
-                sizingMode: sizingMode
-            ) != nil
-        else {
+        switch currentLayout.projectedMove(
+            paneId: drawerPaneId,
+            target: target,
+            sizingMode: sizingMode
+        ) {
+        case .success:
+            return .success(())
+        case .failure(let failure):
+            RestoreTrace.log(
+                "DrawerCommandValidator.validateMove rejected parent=\(parentPaneId) drawerPane=\(drawerPaneId) target=\(String(describing: target)) failure=\(failure)"
+            )
             return .failure(.invalidDrawerLayout(parentPaneId: parentPaneId))
         }
-        return .success(())
     }
 }
