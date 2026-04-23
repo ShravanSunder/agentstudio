@@ -642,6 +642,40 @@ Keep this as a follow-on after core behavior is validated. If modifier-during-dr
 - [ ] Task E visual indicator when shift held
 - [ ] One-line mention of shift modifier in `docs/guides/` drag-and-drop docs
 
+## Rearrangement sizing — open sub-questions
+
+User added (2026-04-22): rearrangement (moving an existing pane slot→slot or cross-row) also needs the sizing policy applied. Current `moveDrawerPane(target:)` is atomic remove+insert; sizing falls out of `Layout.inserting` (halve target) and `Layout.removing` (adjacent absorb).
+
+Under new policy, rearrangement is source-row `ratiosAfterRemoval` + target `ratiosAfterInsertion` stitched together. Two open sub-questions requiring user sign-off before rearrangement code lands:
+
+### R-1: Does a rearranged pane keep its original ratio, or take a fresh one?
+
+**Option keep-original**: pane ratio `r` is carried from source position to target position. Source row redistributes the vacated `r` via `ratiosAfterRemoval`. Target row accepts the pane with its original `r`, and existing target-row panes scale down proportionally to make room for it.
+
+- Pros: "moving a pane" mental model — pane arrives at its new spot the same size
+- Cons: if source row has very wide pane dropped into a cramped row, target row feels crushed; if narrow pane dropped into wide row, insertion position looks empty
+
+**Option fresh-ratio**: pane ratio is recomputed per target kind — halve-target (if dropped on a pane) or `1/(N+1)` (if dropped in a slot). Source row absorbs vacated ratio; target row recomputes from policy.
+
+- Pros: consistent with insertion sizing rules; predictable regardless of where pane came from
+- Cons: "moving" can cause visual resize — a wide pane becomes narrow when moved into a dense row
+
+### R-2: Does Shift override work for rearrange?
+
+Proposed: yes, same contract.
+- Without shift + target is `.paneSplit` + keep-original: source row proportional removal; target row halves target pane; dragged pane takes the halved slot at its original ratio (clamped to ≤ halved-slot size)
+- Without shift + target is `.paneSlot`: source row proportional removal; target row proportional insertion (dragged pane gets `1/(N+1)` of target row OR keep-original, per R-1)
+- With shift: proportional on both ends, regardless of target kind
+
+User: confirm R-1 direction before writing implementation tasks for rearrange. Until then, only insertion tasks (B, C, D) are concrete. Task F-rearrange is placeholder.
+
+### Task F-rearrange (placeholder)
+
+Implementation blocked on R-1 user decision. When unblocked, will likely involve:
+- New `DropSizingPolicy.ratiosForRearrange(...)` method that produces BOTH source-row and target-row new ratios in one call
+- Wiring in `WorkspacePaneAtom.moveDrawerPane` / equivalent main-pane move path
+- Fixture tests exercising all 4 combinations (shift × target-kind) for both same-row and cross-row rearrange
+
 ## Non-goals
 
 - Geometry resolution (that's the unified-algo plan)

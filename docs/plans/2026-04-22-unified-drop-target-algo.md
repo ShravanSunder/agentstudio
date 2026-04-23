@@ -16,6 +16,15 @@
 
 These are hard blockers. Any attempt to execute Task 1 without satisfying them is a plan violation.
 
+### Prereq 0 — Directory rename + new home for shared primitives
+
+- [ ] `Sources/AgentStudio/Core/Views/Splits/` renamed to `Sources/AgentStudio/Core/Views/Panes/` (27 files, `git mv` per file, one commit)
+- [ ] `Sources/AgentStudio/Core/Views/DragAndDrop/` created (empty or with README) as the home for `DropTargetResolver`, `DropSizingPolicy`, `DropTargetOverlayRenderer`
+- [ ] `Core/Views/Drawer/` unchanged
+- [ ] `mise run build` + `mise run lint` green after rename
+
+**Why:** "Splits/" no longer matches the directory's mixed contents (pane layout + drag/drop + tab content + arrangement UI). "Panes/" is the honest name. Shared drag/drop primitives get their own home. Mechanical change, one commit, no import changes (Swift doesn't encode paths in imports).
+
 ### Prereq 1 — Tab-level capture structural fix lands and is confirmed
 
 - [ ] `docs/plans/2026-04-22-drawer-drag-tab-level-capture.md` Phase B has been applied on `drawer-improvements`
@@ -72,75 +81,119 @@ Q3 (sizing policy) is **not** part of this plan — see scope boundary. Addresse
 ```swift
 /// Stable identifier for a row. Main has exactly one row (`.main`). Drawer
 /// has one or two rows depending on its grid layout.
-enum RowID: Hashable {
+enum RowID: Hashable, Sendable {
     case main
     case drawerTop
     case drawerBottom
 }
 
-/// Unified drop target. Produced by `DropTargetResolver`; consumed by
-/// context-specific dispatchers that translate back to `PaneActionCommand`
-/// variants.
-enum DropTarget: Hashable {
-    /// Insert at index in row. Index may be 0…paneCount; endpoint values
-    /// represent insertion at the leading/trailing edge of the row.
-    case slot(row: RowID, index: Int)
-
-    /// Drawer-n×1 only: grow to n×2 by creating a new row at top or bottom
-    /// with the dragged pane as its first member.
-    case newRow(position: NewRowPosition)
+/// Which half of a pane the cursor is in. Replaces the legacy `DropZone`
+/// enum that currently lives in `Core/Views/Splits/DropZone.swift`.
+enum DropZoneSide: String, Hashable, Sendable, CaseIterable {
+    case left
+    case right
 }
 
-enum NewRowPosition: Hashable {
+/// Vertical position for a newly-created second row in a drawer.
+enum NewRowPosition: Hashable, Sendable {
     case top
     case bottom
+}
+
+/// Unified drop target. Produced by `DropTargetResolver`; consumed by
+/// context-specific dispatchers (main via `PaneDragCoordinator` adapter,
+/// drawer via `DrawerPaneDragCoordinator` adapter) that translate back to
+/// `PaneActionCommand` variants.
+enum DropTarget: Hashable, Sendable {
+    /// Cursor is ON a pane — split that pane along the x-axis.
+    /// `side` indicates which half of the pane.
+    /// Sizing: halve target pane's ratio by default; Shift held at commit
+    /// overrides to proportional preservation (see drop-sizing-policy plan).
+    case paneSplit(paneId: UUID, side: DropZoneSide)
+
+    /// Cursor is BETWEEN panes (or past an endpoint) — insert at this slot.
+    /// No target pane; this is an interstitial position in the named row.
+    /// Sizing: proportional preservation always (no target to halve).
+    case paneSlot(row: RowID, index: Int)
+
+    /// Drawer-n×1 only: cursor is in the top/bottom edge band.
+    /// Grows the drawer to n×2 with the dragged pane as the new row's
+    /// first member. Sizing: mechanical (new row gets rowSplitRatio).
+    case paneNewRow(position: NewRowPosition)
 }
 ```
 
 **Config shape:**
 
 ```swift
-struct DropTargetConfig {
+struct NewRowBandConfig: Hashable, Sendable {
+    /// Height of the top/bottom bands inside `containerBounds` that resolve
+    /// to `.paneNewRow(.top)` / `.paneNewRow(.bottom)`.
+    let bandHeight: CGFloat
+}
+
+struct DropTargetConfig: Hashable, Sendable {
     /// Ordered list of rows available for slot insertion in this context.
     /// Main = [.main]. Drawer n×1 = [.drawerTop]. Drawer n×2 = [.drawerTop, .drawerBottom].
     let rows: [RowID]
 
-    /// If non-nil, the resolver will produce `.newRow(...)` targets when
-    /// the cursor is inside the edge band of `containerBounds`. Drawer n×1
-    /// provides this; main and drawer n×2 do not.
+    /// If non-nil, the resolver emits `.paneNewRow(...)` when the cursor
+    /// is inside the top/bottom edge band. Drawer n×1 provides this; main
+    /// and drawer n×2 do not.
     let newRowBand: NewRowBandConfig?
 
     /// Width of the edge corridor that maps to slot-0 / slot-N even when
     /// the cursor is outside the leftmost/rightmost pane horizontally.
-    /// Main uses 24pt; drawer currently 0 (no corridor). Configurable so
-    /// behavior stays consistent if we unify on one number.
+    /// Main = 24. Drawer = 0 (no corridor).
     let edgeCorridorWidth: CGFloat
-}
 
-struct NewRowBandConfig {
-    /// Height of the top/bottom bands inside `containerBounds` that resolve
-    /// to `.newRow(.top)` / `.newRow(.bottom)`.
-    let bandHeight: CGFloat
+    /// Row-level gate: if false, the resolver NEVER emits `.paneSplit` —
+    /// it only emits `.paneSlot` (and `.paneNewRow` when applicable).
+    /// Drawer = false (row-slot rearrangement only). Main = true.
+    let allowsPaneSplit: Bool
+
+    static let main = DropTargetConfig(
+        rows: [.main],
+        newRowBand: nil,
+        edgeCorridorWidth: 24,
+        allowsPaneSplit: true
+    )
+
+    static let drawerSingleRow = DropTargetConfig(
+        rows: [.drawerTop],
+        newRowBand: NewRowBandConfig(bandHeight: 28),
+        edgeCorridorWidth: 0,
+        allowsPaneSplit: false
+    )
+
+    static let drawerTwoRow = DropTargetConfig(
+        rows: [.drawerTop, .drawerBottom],
+        newRowBand: nil,
+        edgeCorridorWidth: 0,
+        allowsPaneSplit: false
+    )
 }
 ```
 
 **Resolver contract:**
 
 ```swift
-struct DropTargetResolver {
+enum DropTargetResolver {
     static func resolve(
         location: CGPoint,
-        rows: [RowID: [UUID]],         // ordered pane IDs per row
-        paneFrames: [UUID: CGRect],    // pane frames in container-local space
+        rows: [RowID: [UUID]],              // ordered pane IDs per row
+        paneFrames: [UUID: CGRect],         // pane frames in container-local space
         containerBounds: CGRect,
-        config: DropTargetConfig
+        config: DropTargetConfig,
+        splittablePanes: Set<UUID>          // whitelist for .paneSplit emission
     ) -> DropTarget?
 
     static func targetRects(
         rows: [RowID: [UUID]],
         paneFrames: [UUID: CGRect],
         containerBounds: CGRect,
-        config: DropTargetConfig
+        config: DropTargetConfig,
+        splittablePanes: Set<UUID>
     ) -> [DropTarget: CGRect]
 
     static func resolveLatched(
@@ -149,11 +202,113 @@ struct DropTargetResolver {
         paneFrames: [UUID: CGRect],
         containerBounds: CGRect,
         config: DropTargetConfig,
+        splittablePanes: Set<UUID>,
         currentTarget: DropTarget?,
         shouldAccept: (DropTarget) -> Bool
     ) -> DropTarget?
 }
 ```
+
+**Resolver decision flow:**
+
+```
+resolve(location, rows, paneFrames, bounds, config, splittablePanes) → DropTarget?
+  │
+  ├─ 1. If config.newRowBand != nil:
+  │       cursor in top-band? → .paneNewRow(.top)
+  │       cursor in bottom-band? → .paneNewRow(.bottom)
+  │
+  ├─ 2. For each rowID in config.rows (in order):
+  │       a. Cursor Y outside this row's vertical extent? skip.
+  │       b. If config.allowsPaneSplit && any pane P contains cursor
+  │            && splittablePanes.contains(P):
+  │            side = cursor.x < P.midX ? .left : .right
+  │            → .paneSplit(paneId: P, side: side)
+  │       c. Else (no splittable container):
+  │            walk sorted frames by midpoint, return .paneSlot
+  │
+  ├─ 3. If config.edgeCorridorWidth > 0:
+  │       cursor in left corridor of any row? → .paneSlot(row, 0)
+  │       cursor in right corridor of any row? → .paneSlot(row, N)
+  │
+  └─ 4. nil
+```
+
+**Key invariants:**
+- Resolver is pure — no modifier-flag awareness, no UI state, no atom reads
+- Resolver is oblivious to minimized panes EXCEPT via `splittablePanes` (minimized-but-visible panes are in `paneFrames`/`rows` but not in `splittablePanes` → resolver naturally produces `.paneSlot` targets around them instead of `.paneSplit`)
+- Caller is responsible for excluding invisible-minimized panes from `paneFrames`/`rows` entirely (see §"Invisible minimized mode")
+
+## Minimized pane handling — visible bars
+
+State: `minimizedPaneIds: Set<UUID>` on `Pane` / `Drawer`. `showMinimizedBars: Bool` on `UIStateAtom`.
+
+**Render modes:**
+
+| State | `showMinimizedBars` | Render | In `paneFrames`? |
+|---|---|---|---|
+| Not minimized | — | Full-width pane content | YES |
+| Minimized | `true` | Narrow vertical bar (28pt, `CollapsedPaneBar`) | YES — bar emits preference |
+| Minimized | `false` | Nothing (zero-rendered) | NO — empty segment body → no preference |
+
+**Drop semantics user specified:** a minimized pane cannot be "split" — you can't drop on it to halve it. Only slot-insertion (before/after the bar) is allowed.
+
+**Encoding this in the resolver:** the caller constructs `splittablePanes = allPaneIds − minimizedPaneIds` and passes that. When the cursor is on a minimized bar:
+- Step 2b fails (`splittablePanes.contains(P) == false`)
+- Falls through to step 2c
+- Slot-midpoint resolution: cursor x < bar.midX → `.paneSlot(row, barIndex)` (insert before bar); else `.paneSlot(row, barIndex + 1)` (insert after bar)
+
+No special-casing in resolver code. Whitelist filter is enough.
+
+**Callers that build `splittablePanes`:**
+- `FlatTabStripContainer` (main path)
+- `DrawerPanel` (drawer path, via tab-level capture per tab-level-capture plan)
+
+Both already have access to `minimizedPaneIds`.
+
+## Invisible minimized mode — caller filter contract
+
+When `showMinimizedBars == false`, `PaneSegmentSlotView` renders an empty body for minimized segments (confirmed at `Sources/AgentStudio/Core/Views/Splits/FlatPaneStripContent.swift:117` — the `if collapsedPaneWidth > 0` guard). Empty body → no GeometryReader-backed preference → `paneFrames` dict naturally excludes these panes.
+
+**The caller doesn't need extra filter logic for the resolver input** — SwiftUI's layout system does it.
+
+**But there IS an edge case: commit-time index translation.**
+
+```
+Full row (true model):       [minA, visibleA, minB, visibleB, minC]
+Visible only (resolver sees): [visibleA, visibleB]
+                              indices: 0        1
+User drops at resolver slot 1 (between visibleA and visibleB).
+                                ↑ what full-row index does this commit to?
+```
+
+The resolver produces a slot index relative to the VISIBLE row it was shown. When the commit handler (`PaneCoordinator` / `DrawerDropDispatch`) applies the insertion to the underlying `Layout`/`DrawerGridLayout`, it needs to map visible-slot-N → full-row-index-M.
+
+**Proposed rule (to confirm with user before Task C commit wiring):** "visible slot K commits to the position immediately after the K-th visible pane in the full row." Dragged pane lands adjacent to the visible neighbor; minimized-invisible panes are elided conceptually and the new pane takes their place in the ordering.
+
+Implementation lives in the adapter/commit layer, NOT the resolver. One helper: `func fullRowIndex(forVisibleSlot visibleIndex: Int, in fullRow: [UUID], minimizedPaneIds: Set<UUID>) -> Int`.
+
+Flagged as a test-case for the main-drag fixture (Prereq 2) and for the drawer-two-row fixture (Prereq 3): at least one case per fixture with `showMinimizedBars=false`.
+
+## Cross-tab drag — preserve existing behavior
+
+**Existing behavior** (grounded — not a new feature):
+- When dragging a pane (`.agentStudioPaneDrop`), if the cursor hovers over a tab in the tab bar, that tab is auto-selected IMMEDIATELY
+- Implemented at `Sources/AgentStudio/App/Panes/TabBar/DraggableTabBarHostingView.swift:385–393` inside `draggingUpdated(_:)`
+- No dwell timer, no spring-load — single auto-select per tab (tracked by `lastAutoSelectedTabIdForPaneDrag`)
+
+**Constraint for this plan:** don't break this. The resolver runs against the currently-displayed tab's paneFrames. When the tab auto-switches mid-drag, the capture NSView's `coordinator.updateLayout` receives the new tab's state via SwiftUI preference re-propagation; resolver transparently operates on the new tab's layout.
+
+**What might break:**
+- If the new tab has different `splittablePanes` (different minimized state), the resolver behavior shifts mid-drag — expected.
+- If the new tab is a drawer-expanded tab, the drop target semantics shift (n×1 / n×2 vs main) — expected and desired.
+- Target-latch state (current resolved target) must reset on tab change to avoid stale IDs. Add to Task 8 resolveLatched contract: tab-change should clear `currentTarget` before the next `resolve` call. Caller's responsibility; fixture covers by driving a tab-change event and asserting no stale UUID.
+
+**Deeper discussion of cross-tab semantics deferred to a separate follow-up (user's call to "talk about #4 after").** No plan changes beyond the constraint above.
+
+## Tab bar drag = separate mechanism
+
+`DraggableTabBarHostingView` also handles tab-reorder (`.agentStudioTabInternal` payload). That's an entirely separate drag session with its own target model and commit path. Out of scope — this plan does not touch it.
 
 ## Sizing policy — shared
 
@@ -191,42 +346,57 @@ struct DropSizingPolicy {
 
 ## File Structure
 
+**(After Prereq 0 directory rename: `Splits/` → `Panes/`; new `DragAndDrop/` home for shared primitives.)**
+
 ### New files
 
-- `Sources/AgentStudio/Core/Models/DropTarget.swift` — `DropTarget`, `RowID`, `NewRowPosition` value types
+- `Sources/AgentStudio/Core/Models/DropTarget.swift` — `DropTarget`, `RowID`, `DropZoneSide`, `NewRowPosition` value types
 - `Sources/AgentStudio/Core/Models/DropTargetConfig.swift` — `DropTargetConfig`, `NewRowBandConfig` + static factories (`.main`, `.drawerSingleRow`, `.drawerTwoRow`)
-- `Sources/AgentStudio/Core/Views/Splits/DropTargetResolver.swift` — pure resolver (extracted from `PaneDragCoordinator` + `DrawerPaneDragCoordinator`)
-- `Sources/AgentStudio/Core/Views/Splits/DropSizingPolicy.swift` — shared sizing rules
-- `Tests/AgentStudioTests/Core/Views/Splits/DropTargetResolverTests.swift` — unit tests (core geometry) including golden fixtures derived from pid=69705's 512 resolutions
-- `Tests/AgentStudioTests/Core/Views/Splits/DropSizingPolicyTests.swift` — sizing invariant tests
-- `Tests/AgentStudioTests/Core/Models/DropTargetConfigTests.swift` — factory/config invariant tests
+- `Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetResolver.swift` — pure resolver
+- `Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetOverlayRenderer.swift` — shared SwiftUI view modifier for zone/slot/newRow highlight rendering (replaces `DropZone.overlay(...)` / `.overlayRect(...)` / `.markerRect(...)`)
+- `Sources/AgentStudio/Core/Views/DragAndDrop/DropSizingPolicy.swift` — shared sizing rules (see `2026-04-22-drop-sizing-policy.md`)
+- `Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverTests.swift` — unit tests
+- `Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverFixtureTests.swift` — golden-fixture replay (pid=69705 drawer n×1, new two-row drawer fixture per Prereq 3, main fixtures per Prereq 2)
+- `Tests/AgentStudioTests/Core/Views/DragAndDrop/DropSizingPolicyTests.swift`
+- `Tests/AgentStudioTests/Core/Models/DropTargetConfigTests.swift`
+- `Tests/AgentStudioTests/Core/Models/DropTargetTests.swift`
 
-### Modified files
+### Modified files (paths reflect post-rename)
 
-- `Sources/AgentStudio/Core/Views/Splits/PaneDragCoordinator.swift` — thin adapter: translates `PaneDropTarget(paneId, zone)` ↔ `DropTarget.slot(row: .main, index)` using main pane order; delegates geometry to `DropTargetResolver`
+- `Sources/AgentStudio/Core/Views/Panes/PaneDragCoordinator.swift` — thin adapter: translates `PaneDropTarget(paneId, zone)` ↔ `DropTarget` using main pane order + pane-ID re-anchoring per Q1; delegates geometry to `DropTargetResolver`
 - `Sources/AgentStudio/Core/Views/Drawer/DrawerPaneDragCoordinator.swift` — thin adapter: translates `DrawerRearrangeTarget` ↔ `DropTarget` using drawer row structure; delegates geometry to `DropTargetResolver`
-- `Sources/AgentStudio/Core/Views/Drawer/DrawerDropTargetOverlay.swift` — renders highlight from the unified `targetRects` output, no separate rect calc
-- `Sources/AgentStudio/Core/Views/Splits/PaneDropTargetOverlay.swift` — same: renders from unified `targetRects`
-- `Sources/AgentStudio/Core/Views/Splits/DropZone.swift` — (eventually) deleted; `.left`/`.right` zone becomes a slot-index adapter. Defer deletion until all call sites migrated (last task).
-- Callers: `SplitContainerDropCaptureOverlay.swift`, `DrawerSplitContainerDropCaptureOverlay.swift`, `PaneTabViewController.swift` insertion paths, `WorkspacePaneAtom.swift` insertion paths
+- `Sources/AgentStudio/Core/Views/Drawer/DrawerDropTargetOverlay.swift` — renders highlight from the unified `targetRects` output
+- `Sources/AgentStudio/Core/Views/Panes/PaneDropTargetOverlay.swift` — renders highlight from the unified `targetRects` output
+- `Sources/AgentStudio/Core/Views/Panes/SplitContainerDropCaptureOverlay.swift` — builds `splittablePanes` from `minimizedPaneIds`; captures modifier flags in `performDragOperation`
+- `Sources/AgentStudio/Core/Views/Drawer/DrawerSplitContainerDropCaptureOverlay.swift` — builds `splittablePanes` from drawer's `minimizedPaneIds`; captures modifier flags
+- `Sources/AgentStudio/Core/Views/Panes/FlatTabStripContainer.swift` — passes `minimizedPaneIds` into the main capture mount; constructs `splittablePanes` whitelist
+- `Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift` — same for drawer path
+
+### Deleted file
+
+- `Sources/AgentStudio/Core/Views/Panes/DropZone.swift` — **deleted**. Contents migrate:
+  - `enum DropZone { .left, .right }` → `DropZoneSide` in `Core/Models/DropTarget.swift`
+  - `DropZone.calculate(at:in:)` → inlined into `DropTargetResolver` paneSplit branch
+  - `DropZone.overlay(...)` / `.overlayRect(in:)` / `.markerRect(in:)` / private `.overlay(paneFrame:)` → `DropTargetOverlayRenderer.swift`
+  - `DropZone.newDirection` → adapter helper in `PaneDragCoordinator.swift`
 
 ### Non-goals for this plan
 
-- Does NOT change persistence shape (`DrawerGridLayout` stays; `Layout` stays). Migration is a separate concern already handled (see `Drawer.init(from:)`).
-- Does NOT refactor `SplitContainerDropCaptureOverlay` / `DrawerSplitContainerDropCaptureOverlay` NSView plumbing. Those NSViews stay, they just call a unified resolver underneath.
-- Does NOT introduce top/bottom split zones on main panes. User explicitly ruled these out; config enforces.
-- Does NOT wire into Phase B of `2026-04-22-drawer-drag-tab-level-capture.md`. This plan is orthogonal — the structural fix there can land first or after.
+- Does NOT change persistence shape — `DrawerGridLayout` and `Layout` stay; `PaneActionCommand.insertPane(direction: SplitNewDirection)` stays (adapter translates from `DropZoneSide`)
+- Does NOT refactor the `NSView` drop-capture plumbing (`SplitContainerDropCaptureOverlay` / `DrawerSplitContainerDropCaptureOverlay` stay, just call the unified resolver)
+- Does NOT introduce top/bottom split zones on main panes (config enforces)
+- Does NOT change tab-bar drag or cross-tab auto-select (existing behavior preserved; see §"Cross-tab drag")
+- Does NOT change `Drawer.init(from:)` decode or persistence schema (separate work)
+- Does NOT wire rearrangement sizing — that's tracked by `2026-04-22-drop-sizing-policy.md` §"Rearrangement sizing"
 
 ---
 
-## Open design questions for review cycle
+## Open design questions — status
 
-These require user + adversarial review before Task 1 is touched:
-
-1. **Exact main-pane corridor semantics.** Current `PaneDragCoordinator` has `edgeCorridorWidth = 24`. When the cursor is in the left corridor, target is `PaneDropTarget(paneId: leftmost, zone: .left)`. Under the unified model this becomes `.slot(row: .main, index: 0)`. **Question:** Do we keep the pane-ID anchor (for animation) or drop it since `.slot` is pane-agnostic? Proposed: keep `edgeCorridorWidth` config but the adapter layer reattaches `paneId` at translation time.
-2. **"Contained target" vs "slot target"** on main. Main currently picks a contained pane first, then zone within. Drawer uses slot midpoints directly. Under unification, we need one rule. Proposed: slot midpoints everywhere (cleaner, fewer tiebreakers). Tradeoff: main behavior shifts subtly near pane boundaries — need golden tests to catch regressions.
-3. **Sizing: equal vs proportional insertion.** Main currently equalizes; drawer also equalizes. Proposed policy is proportional preservation (new pane gets `1/(N+1)`, existing panes keep relative ratios). This is a **behavior change** user should sign off on before implementation. Alternative: keep equalization rule, just share code. User-preference decision.
-4. **`DropZone.swift` deletion.** Currently `.left`/`.right` are still referenced in `PaneActionCommand.insertPane` direction. Do we collapse the direction into slot-index at the action layer too, or keep the direction enum and translate at the boundary? Proposed: keep direction in `PaneActionCommand` (stable command schema, persistence-adjacent); translate only at resolver/overlay boundary.
+- **Q1 Main-pane corridor pane-ID anchor**: **RESOLVED (user, 2026-04-22)** — keep anchor; adapter reattaches `paneId` for edge-corridor slot translation
+- **Q2 Main-pane: contained-target vs slot-midpoint**: **RESOLVED (user, 2026-04-22)** — hybrid by the resolver's decision flow: when cursor is ON a splittable pane, emit `.paneSplit`; when cursor is BETWEEN panes or on a non-splittable pane, emit `.paneSlot` via midpoint math. No separate "contained-first" mode; `config.allowsPaneSplit` gates whether paneSplit is an option at all.
+- **Q3 Sizing policy**: Option D hybrid with Shift → Option C proportional. Deferred to `2026-04-22-drop-sizing-policy.md`.
+- **Q4 `DropZone.swift` deletion**: **RESOLVED (user, 2026-04-22)** — delete file. Rename enum to `DropZoneSide` in `Core/Models/DropTarget.swift`. Overlay rendering moves to `DropTargetOverlayRenderer.swift` — visual stays identical. Commands still take `SplitNewDirection`; adapter translates `DropZoneSide → SplitNewDirection` at boundary.
 
 ---
 
