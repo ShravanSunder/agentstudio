@@ -448,3 +448,277 @@ Converted this artifact into a timestamped review log.
 File:
 
 - `docs/plans/2026-04-22-drop-sizing-policy-codex-feedback.md`
+
+### 2026-04-23 06:28:18 EDT — Second review opened
+
+Reason:
+
+The source plan changed after the first review. The rearrangement section is no longer marked open/blocked; it is now marked resolved.
+
+New source evidence:
+
+- `docs/plans/2026-04-22-drop-sizing-policy.md:645`
+- `docs/plans/2026-04-22-drop-sizing-policy.md:677`
+
+Impact:
+
+The earlier finding "drawer rearrange is both required and blocked" is now partly stale. The contradiction was addressed by marking rearrange concrete, but the updated section introduces new consistency and command-contract problems.
+
+### 2026-04-23 06:30 EDT — Superseded finding: rearrange blocked/required conflict partially resolved
+
+Superseded earlier finding:
+
+- `2026-04-23 05:59 EDT — Finding P2: drawer rearrange is both required and blocked`
+
+Current assessment:
+
+The source plan now says:
+
+- "Rearrangement sizing — resolved 2026-04-23"
+- "Rearrange is now a concrete task in Task D, not blocked."
+
+Evidence:
+
+- `docs/plans/2026-04-22-drop-sizing-policy.md:645`
+- `docs/plans/2026-04-22-drop-sizing-policy.md:677`
+
+Updated status:
+
+The old blocked-vs-required contradiction is no longer the right critique. Keep the historical finding for audit trail, but do not treat it as current unless the source plan reverts.
+
+### 2026-04-23 06:31 EDT — New finding P1: target vocabulary is inconsistent inside the plan
+
+Finding:
+
+The plan now uses two different unified target vocabularies:
+
+- earlier sections use `.splitZone`, `.slot`, `.newRow`
+- the resolved rearrange section uses `.paneSplit`, `.paneSlot`, `.paneNewRow`
+
+Plan evidence:
+
+- `.splitZone`: `docs/plans/2026-04-22-drop-sizing-policy.md:164`
+- `.slot`, `.newRow`: `docs/plans/2026-04-22-drop-sizing-policy.md:166`
+- `.paneSplit`: `docs/plans/2026-04-22-drop-sizing-policy.md:655`
+- `.paneSlot`: `docs/plans/2026-04-22-drop-sizing-policy.md:657`
+- `.paneNewRow`: `docs/plans/2026-04-22-drop-sizing-policy.md:659`
+
+Sibling plan evidence:
+
+The unified target plan's design uses:
+
+- `.paneSplit(paneId:side:)`
+- `.paneSlot(row:index:)`
+- `.paneNewRow(position:)`
+
+Evidence:
+
+- `docs/plans/2026-04-22-unified-drop-target-algo.md:107`
+- `docs/plans/2026-04-22-unified-drop-target-algo.md:112`
+- `docs/plans/2026-04-22-unified-drop-target-algo.md:117`
+- `docs/plans/2026-04-22-unified-drop-target-algo.md:122`
+
+Why it matters:
+
+An implementer following Task B would write tests against `.splitZone`, while an implementer following the rearrange section would write tests against `.paneSplit`. That will either fail to compile or cause duplicate translation types.
+
+Recommendation:
+
+Normalize the sizing plan to the sibling plan's names everywhere:
+
+- `.paneSplit(paneId:side:)`
+- `.paneSlot(row:index:)`
+- `.paneNewRow(position:)`
+
+Also update the Task B tests and implementation snippet. Remove the note that says to stub `.splitZone`.
+
+### 2026-04-23 06:33 EDT — New finding P1: rearrange needs command-level sizing, but only `insertPane` is specified
+
+Finding:
+
+The updated plan says `DropSizingMode` enters `PaneActionCommand.insertPane(..., sizingMode:)` at every origin, but rearrange is executed through move commands, not `insertPane`.
+
+Plan evidence:
+
+- `docs/plans/2026-04-22-drop-sizing-policy.md:651`
+- `docs/plans/2026-04-22-drop-sizing-policy.md:663`
+- `docs/plans/2026-04-22-drop-sizing-policy.md:665`
+- `docs/plans/2026-04-22-drop-sizing-policy.md:677`
+
+Current code evidence:
+
+Drawer rearrange dispatches:
+
+- `PaneActionCommand.moveDrawerPane(parentPaneId:drawerPaneId:target:)`
+
+Evidence:
+
+- `Sources/AgentStudio/Core/Actions/PaneActionCommand.swift:147`
+- `Sources/AgentStudio/Core/Views/Drawer/DrawerDropDispatch.swift:56`
+- `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneAtom.swift:314`
+
+Why it matters:
+
+If rearrange is now concrete, then `DropSizingMode` cannot only live on `insertPane`. The move/rearrange command must carry enough information for source-side proportional removal and target-side insertion mode, especially for Shift and target-kind-dependent behavior.
+
+Recommendation:
+
+Add an explicit command contract for rearrange. Candidate shape:
+
+```swift
+case moveDrawerPane(
+    parentPaneId: UUID,
+    drawerPaneId: UUID,
+    target: DrawerRearrangeTarget,
+    sizingMode: DropSizingMode
+)
+```
+
+If main-pane rearrange is also in scope, add the equivalent main move command or clarify that only drawer rearrange is covered.
+
+Also update validators and `DrawerDropDispatch` so synthetic/mock/hidden-window tests can assert the sizing mode reaches execution.
+
+### 2026-04-23 06:35 EDT — New finding P1: same-row rearrange needs index-adjustment rules
+
+Finding:
+
+The updated plan says same-row rearrange is cleanly handled by remove-then-insert against post-remove ratios, but it does not specify how the target insertion index is adjusted after removing the source pane from the same row.
+
+Plan evidence:
+
+- `docs/plans/2026-04-22-drop-sizing-policy.md:651`
+- `docs/plans/2026-04-22-drop-sizing-policy.md:661`
+- `docs/plans/2026-04-22-drop-sizing-policy.md:685`
+- `docs/plans/2026-04-22-drop-sizing-policy.md:691`
+
+Current code evidence:
+
+Current drawer rearrange already performs remove-then-insert:
+
+- `Sources/AgentStudio/Core/Models/DrawerGridLayout+Rearrange.swift:4`
+
+Current slot insertion receives an index directly:
+
+- `Sources/AgentStudio/Core/Models/DrawerGridLayout+Rearrange.swift:26`
+
+Why it matters:
+
+For same-row forward moves, an insertion index captured before removal may point one slot too far right after the source pane is removed. For same-row backward moves, it may remain valid. The plan calls out same-row edge cases in tests, but the implementation contract should define the adjustment rule, not leave it for tests to discover.
+
+Recommendation:
+
+Add a small deterministic rule to the plan:
+
+- If source and target are the same row and `sourceIndex < originalInsertionIndex`, apply insertion to `originalInsertionIndex - 1` after removal.
+- Otherwise use `originalInsertionIndex`.
+
+Then write unit tests for:
+
+- same-row forward move
+- same-row backward move
+- move to same original slot/no-op
+- move to end slot
+
+### 2026-04-23 06:37 EDT — New finding P2: no-active-pane insertion is underspecified
+
+Finding:
+
+The command-origin table says "No-active-pane in tab" defaults to proportional with target `.paneSlot` at the end of row, but current command and layout insertion APIs require a target pane anchor.
+
+Plan evidence:
+
+- `docs/plans/2026-04-22-drop-sizing-policy.md:667`
+- `docs/plans/2026-04-22-drop-sizing-policy.md:673`
+
+Current code evidence:
+
+- `PaneActionCommand.insertPane` requires `targetPaneId`: `Sources/AgentStudio/Core/Actions/PaneActionCommand.swift:57`
+- `WorkspaceTabArrangementAtom.insertPane` requires `targetPaneId`: `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceTabArrangementAtom.swift:55`
+- `Layout.inserting` requires `targetPaneId`: `Sources/AgentStudio/Core/Models/Layout.swift:69`
+
+Why it matters:
+
+A `.paneSlot` at end of row is not representable by today's command shape unless it is translated back to a target pane plus side. For an empty row or no active pane, there may be no anchor. This needs either a slot-based command or a specific fallback path.
+
+Recommendation:
+
+Choose one:
+
+- Add slot-based insertion APIs that can insert by row/index, including empty rows.
+- Keep target-pane commands and remove the no-active-pane row from this table unless a valid anchor can always be derived.
+
+### 2026-04-23 06:39 EDT — New finding P2: five-layer rearrange test gate is likely too heavy for every combination
+
+Finding:
+
+The updated plan requires all five test layers green for every rearrange combination being shipped.
+
+Plan evidence:
+
+- `docs/plans/2026-04-22-drop-sizing-policy.md:679`
+- `docs/plans/2026-04-22-drop-sizing-policy.md:681`
+- `docs/plans/2026-04-22-drop-sizing-policy.md:691`
+- `docs/plans/2026-04-22-drop-sizing-policy.md:693`
+
+Why it matters:
+
+The unit and invariant layers are appropriate for the full combination matrix. Requiring mock `NSDraggingInfo`, hidden-window UI, and golden fixtures for every combination risks making the plan expensive and brittle. It may also force UI-level tests for behavior that is pure ratio math.
+
+Recommendation:
+
+Scale the test gate by risk:
+
+- Full matrix in Layer A pure unit tests.
+- Random/property coverage in Layer D invariants.
+- Representative high-risk paths in Layer B/C.
+- Fixture coverage for captured real-user flows, not every theoretical combination.
+
+This keeps the plan rigorous without turning every ratio case into an end-to-end drag test.
+
+### 2026-04-23 06:41 EDT — Second review assessment
+
+Current status after the source-plan update:
+
+Improved:
+
+- Rearrangement is no longer open-ended; the plan now chooses fresh-ratio via remove + insert.
+- The plan now acknowledges sizing mode must be command-level, not only drag-level.
+- The test strategy explicitly names same-row and cross-row rearrange risks.
+
+Still blocking:
+
+- The target vocabulary is inconsistent and still depends on the sibling unified-target plan.
+- The AppKit/view-boundary issue remains.
+- The main insertion command contract remains incomplete.
+- Removal wiring remains incomplete.
+- Rearrangement now needs its own command-level sizing contract, not only `insertPane(..., sizingMode:)`.
+- Same-row slot index adjustment must be specified.
+
+Updated recommendation:
+
+Do not execute this plan yet. Revise the plan once more, mainly to make the target vocabulary and command contracts precise.
+
+### 2026-04-23 — Sizing plan updated; all findings addressed
+
+Applied to `docs/plans/2026-04-22-drop-sizing-policy.md` across three commits (`0448129`, `33973b3`):
+
+**First-review findings:**
+- P1-1 (unified vocabulary dependency): added Prerequisites section at top of sizing plan making dependency on unified-plan target types (DropTarget, DropZoneSide, RowID, NewRowPosition) explicit. No stubs, no duplicates. Sizing plan cannot execute before unified plan Tasks 1-2 land.
+- P1-2 (AppKit leak into model/state): Task B split into two pieces. `DropSizingRatioPolicy` in `Core/Models/` is pure (Foundation only). `DropSizingModeResolver` in `Core/Views/DragAndDrop/` takes `isShiftHeld: Bool` — no AppKit imports in the resolver either; callers at AppKit boundary read `NSEvent.modifierFlags.contains(.shift)` and pass `Bool`.
+- P1-3 (dispatch contract): Task C makes `sizingMode: DropSizingMode` explicit on `PaneActionCommand.insertPane` AND `PaneActionCommand.moveDrawerPane`. No default values; every construction site declares intent. Command origins enumerated (drag, plus-button, menu, merge-tab, reactivate) — keyboard split explicitly removed because it does not exist in AgentStudio.
+- P1-4 (removal not wired): Task D3 added. User-initiated removal paths use `.proportional`; repair paths (`TabArrangementRepairRules`) keep `.halveTarget` (which on removal = adjacent-absorb). Asymmetry documented + inline-commented at sites.
+
+**Second-review findings:**
+- P1 (target vocabulary inconsistent): normalized to `.paneSplit` / `.paneSlot` / `.paneNewRow` throughout. All `.splitZone` / `.slot` / `.newRow` references replaced.
+- P1 (rearrange needs command-level sizing): covered by P1-3 fix (`moveDrawerPane` gains `sizingMode`). Task D2 added for drawer rearrange via remove+insert composition.
+- P1 (same-row index adjustment): Task C-index adds `RearrangeIndexAdjustment` pure helper with the deterministic rule (`sourceIndex < originalInsertionIndex → index - 1; else unchanged`). Unit-tested 4 scenarios (forward, backward, no-op, cross-row).
+- P2 (no-active-pane underspecified): command-origins table now explicit — plus-button without active pane uses `.proportional` with `.paneSlot` at end of row; insertion APIs add slot-based path when no anchor is available.
+- P2 (five-layer test gate too heavy): test pyramid scaled by risk. Layer A full matrix + Layer D property coverage required; Layers B/C/E representative only. Acceptance threshold documented.
+- P2 (Shared Task A stale): replaced with baseline-confirmation (existing `LayoutFlatStripTests` are green; only add precision edge cases if gaps).
+
+**Superseded:**
+- First-review P2 "drawer rearrange is both required and blocked" was already addressed earlier by R-1 resolution; Task D scope trim in this pass finalizes the cleanup.
+
+**No sibling-plan changes required** — the unified drop-target plan already uses the final vocabulary; no stray `⌘D` keyboard-split reference exists there.
+
+This log remains the historical record. No further action on this file unless a 3rd review is triggered.
