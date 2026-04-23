@@ -15,7 +15,7 @@ enum TabArrangementMutationRules {
         let paneIdsToRemove = Set(defaultArrangement.layout.paneIds).subtracting(paneIds)
         var filteredLayout = defaultArrangement.layout
         for removeId in paneIdsToRemove {
-            if let newLayout = filteredLayout.removing(paneId: removeId) {
+            if let newLayout = filteredLayout.removing(paneId: removeId, sizingMode: .halveTarget) {
                 filteredLayout = newLayout
             }
         }
@@ -56,6 +56,11 @@ enum TabArrangementMutationRules {
     static func removingUserPane(_ paneId: UUID, from arrangements: [PaneArrangement]) -> [PaneArrangement] {
         arrangements.map { arrangement in
             var updated = arrangement
+            guard updated.layout.contains(paneId) else {
+                updated.visiblePaneIds.remove(paneId)
+                updated.minimizedPaneIds.remove(paneId)
+                return updated
+            }
             if let newLayout = updated.layout.removing(paneId: paneId, sizingMode: .proportional) {
                 updated.layout = newLayout
             } else {
@@ -177,12 +182,24 @@ enum TabArrangementMutationRules {
         var currentTarget = targetPaneId
         for paneId in sourcePaneIds {
             updated.arrangements[targetArrangementIndex].layout = updated.arrangements[targetArrangementIndex].layout
-                .inserting(paneId: paneId, at: currentTarget, direction: direction, position: position)
+                .inserting(
+                    paneId: paneId,
+                    at: currentTarget,
+                    direction: direction,
+                    position: position,
+                    sizingMode: .halveTarget
+                )
             updated.arrangements[targetArrangementIndex].visiblePaneIds.insert(paneId)
             if targetArrangementIndex != defaultArrangementIndex {
                 updated.arrangements[defaultArrangementIndex].layout = updated.arrangements[defaultArrangementIndex]
                     .layout
-                    .inserting(paneId: paneId, at: currentTarget, direction: direction, position: position)
+                    .inserting(
+                        paneId: paneId,
+                        at: currentTarget,
+                        direction: direction,
+                        position: position,
+                        sizingMode: .halveTarget
+                    )
                 updated.arrangements[defaultArrangementIndex].visiblePaneIds.insert(paneId)
             }
             if !updated.allPaneIds.contains(paneId) {

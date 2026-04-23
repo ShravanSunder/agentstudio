@@ -4,7 +4,7 @@ extension DrawerGridLayout {
     func projectedMove(
         paneId: UUID,
         target: DrawerRearrangeTarget,
-        sizingMode: DropSizingMode = .halveTarget
+        sizingMode: DropSizingMode
     ) -> DrawerGridLayout? {
         guard let sourceLocation = location(of: paneId) else { return nil }
         guard let layoutWithoutSource = removing(paneId: paneId, sizingMode: .proportional) else { return nil }
@@ -159,8 +159,12 @@ extension Layout {
         let updatedRatios = DropSizingRatioPolicy.ratiosAfterInsertion(
             existingRatios: ratios,
             insertionIndex: clampedIndex,
-            targetPaneIndex: nil,
-            mode: sizingMode
+            mode: insertionSizingMode(
+                for: sizingMode,
+                insertionIndex: clampedIndex,
+                paneCount: paneIds.count,
+                preferredTargetPaneIndex: nil
+            )
         )
         return inserting(paneId: paneId, atIndex: clampedIndex, ratios: updatedRatios)
     }

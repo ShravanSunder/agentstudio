@@ -159,7 +159,7 @@ struct ActionExecutorTestsQuick {
             inTab: tab.id,
             at: paneOne.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
 
         executor.execute(.minimizePane(tabId: tab.id, paneId: paneOne.id))
@@ -207,7 +207,7 @@ struct ActionExecutorTestsQuick {
             inTab: tab.id,
             at: paneOne.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
 
         _ = coordinator.createViewForContent(

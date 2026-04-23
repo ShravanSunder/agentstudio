@@ -21,10 +21,14 @@ final class PaneDropTargetResolutionTests {
         let location = CGPoint(x: 660, y: 100)
 
         // Act
-        let target = PaneDragCoordinator.resolveTarget(location: location, paneFrames: paneFrames, minimizedPaneIds: [])
+        let target = PaneDragCoordinator.resolveTarget(
+            location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
 
         // Assert
-        #expect(target == PaneDropTarget(paneId: bridgePaneId, zone: .left))
+        #expect(
+            target
+                == PaneDropTarget(
+                    paneId: bridgePaneId, zone: .left, sizingTarget: .paneSplit(paneId: bridgePaneId, side: .left)))
     }
 
     @Test
@@ -41,10 +45,14 @@ final class PaneDropTargetResolutionTests {
         let location = CGPoint(x: 610, y: 100)
 
         // Act
-        let target = PaneDragCoordinator.resolveTarget(location: location, paneFrames: paneFrames, minimizedPaneIds: [])
+        let target = PaneDragCoordinator.resolveTarget(
+            location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
 
         // Assert
-        #expect(target == PaneDropTarget(paneId: webviewPaneId, zone: .right))
+        #expect(
+            target
+                == PaneDropTarget(
+                    paneId: webviewPaneId, zone: .right, sizingTarget: .paneSplit(paneId: webviewPaneId, side: .right)))
     }
 
     @Test
@@ -65,16 +73,24 @@ final class PaneDropTargetResolutionTests {
         let leftTarget = PaneDragCoordinator.resolveTarget(
             location: leftCorridorPoint,
             paneFrames: paneFrames,
+            containerBounds: nil,
             minimizedPaneIds: []
         )
         let rightTarget = PaneDragCoordinator.resolveTarget(
             location: rightCorridorPoint,
             paneFrames: paneFrames,
+            containerBounds: nil,
             minimizedPaneIds: []
         )
 
         // Assert
-        #expect(leftTarget == PaneDropTarget(paneId: terminalPaneId, zone: .left))
-        #expect(rightTarget == PaneDropTarget(paneId: bridgePaneId, zone: .right))
+        #expect(
+            leftTarget
+                == PaneDropTarget(
+                    paneId: terminalPaneId, zone: .left, sizingTarget: .paneSplit(paneId: terminalPaneId, side: .left)))
+        #expect(
+            rightTarget
+                == PaneDropTarget(
+                    paneId: bridgePaneId, zone: .right, sizingTarget: .paneSplit(paneId: bridgePaneId, side: .right)))
     }
 }

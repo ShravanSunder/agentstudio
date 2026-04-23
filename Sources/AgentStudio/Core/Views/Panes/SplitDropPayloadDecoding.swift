@@ -14,12 +14,17 @@ func decodeSplitDropPayload(from providers: [NSItemProvider]) async -> SplitDrop
         let paneData = await loadDataRepresentation(
             from: paneProvider,
             typeIdentifier: UTType.agentStudioPane.identifier
-        ),
-        let panePayload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
-    {
-        return SplitDropPayload(
-            kind: .existingPane(paneId: panePayload.paneId, sourceTabId: panePayload.tabId)
         )
+    {
+        do {
+            let panePayload = try JSONDecoder().decode(PaneDragPayload.self, from: paneData)
+            return SplitDropPayload(
+                kind: .existingPane(paneId: panePayload.paneId, sourceTabId: panePayload.tabId)
+            )
+        } catch {
+            RestoreTrace.log(
+                "decodeSplitDropPayload(provider) pane payload decode failed: \(error.localizedDescription)")
+        }
     }
 
     if let tabProvider = providers.first(where: {
@@ -28,10 +33,15 @@ func decodeSplitDropPayload(from providers: [NSItemProvider]) async -> SplitDrop
         let tabData = await loadDataRepresentation(
             from: tabProvider,
             typeIdentifier: UTType.agentStudioTab.identifier
-        ),
-        let tabPayload = try? JSONDecoder().decode(TabDragPayload.self, from: tabData)
+        )
     {
-        return SplitDropPayload(kind: .existingTab(tabId: tabPayload.tabId))
+        do {
+            let tabPayload = try JSONDecoder().decode(TabDragPayload.self, from: tabData)
+            return SplitDropPayload(kind: .existingTab(tabId: tabPayload.tabId))
+        } catch {
+            RestoreTrace.log(
+                "decodeSplitDropPayload(provider) tab payload decode failed: \(error.localizedDescription)")
+        }
     }
 
     if providers.contains(where: {
@@ -47,18 +57,26 @@ func decodeSplitDropPayload(from providers: [NSItemProvider]) async -> SplitDrop
 /// Precedence matches provider decoding:
 /// pane payload > tab payload > new terminal payload.
 func decodeSplitDropPayload(from pasteboard: NSPasteboard) -> SplitDropPayload? {
-    if let paneData = pasteboard.data(forType: .agentStudioPaneDrop),
-        let panePayload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
-    {
-        return SplitDropPayload(
-            kind: .existingPane(paneId: panePayload.paneId, sourceTabId: panePayload.tabId)
-        )
+    if let paneData = pasteboard.data(forType: .agentStudioPaneDrop) {
+        do {
+            let panePayload = try JSONDecoder().decode(PaneDragPayload.self, from: paneData)
+            return SplitDropPayload(
+                kind: .existingPane(paneId: panePayload.paneId, sourceTabId: panePayload.tabId)
+            )
+        } catch {
+            RestoreTrace.log(
+                "decodeSplitDropPayload(pasteboard) pane payload decode failed: \(error.localizedDescription)")
+        }
     }
 
-    if let tabData = pasteboard.data(forType: .agentStudioTabDrop),
-        let tabPayload = try? JSONDecoder().decode(TabDragPayload.self, from: tabData)
-    {
-        return SplitDropPayload(kind: .existingTab(tabId: tabPayload.tabId))
+    if let tabData = pasteboard.data(forType: .agentStudioTabDrop) {
+        do {
+            let tabPayload = try JSONDecoder().decode(TabDragPayload.self, from: tabData)
+            return SplitDropPayload(kind: .existingTab(tabId: tabPayload.tabId))
+        } catch {
+            RestoreTrace.log(
+                "decodeSplitDropPayload(pasteboard) tab payload decode failed: \(error.localizedDescription)")
+        }
     }
 
     if let tabIdString = pasteboard.string(forType: .agentStudioTabInternal),

@@ -9,7 +9,12 @@ struct DragSessionStateTests {
     @Test
     func test_armedSessionRetainsCandidatePayloadAndTarget() {
         let payload = SplitDropPayload(kind: .newTerminal)
-        let target = PaneDropTarget(paneId: UUID(), zone: .left)
+        let paneId = UUID()
+        let target = PaneDropTarget(
+            paneId: paneId,
+            zone: .left,
+            sizingTarget: .paneSplit(paneId: paneId, side: .left)
+        )
         let candidate = DragSessionCandidate(payload: payload, target: target)
         let state = DragSessionState.armed(candidate: candidate)
 
@@ -24,7 +29,12 @@ struct DragSessionStateTests {
     @Test
     func test_committingSessionRetainsCandidate() {
         let payload = SplitDropPayload(kind: .existingTab(tabId: UUID()))
-        let target = PaneDropTarget(paneId: UUID(), zone: .right)
+        let paneId = UUID()
+        let target = PaneDropTarget(
+            paneId: paneId,
+            zone: .right,
+            sizingTarget: .paneSplit(paneId: paneId, side: .right)
+        )
         let candidate = DragSessionCandidate(payload: payload, target: target)
         let state = DragSessionState.committing(candidate: candidate)
 

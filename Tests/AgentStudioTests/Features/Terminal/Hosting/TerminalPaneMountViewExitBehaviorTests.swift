@@ -278,8 +278,11 @@ struct TerminalPaneMountViewExitBehaviorTests {
 
         let tab = Tab(paneId: paneA.id)
         harness.store.appendTab(tab)
-        harness.store.insertPane(paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after)
-        harness.store.insertPane(hiddenPane.id, inTab: tab.id, at: paneB.id, direction: .horizontal, position: .after)
+        harness.store.insertPane(
+            paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+        harness.store.insertPane(
+            hiddenPane.id, inTab: tab.id, at: paneB.id, direction: .horizontal, position: .after,
+            sizingMode: .halveTarget)
         guard
             let focusArrangementId = harness.store.createArrangement(
                 name: "Focus",

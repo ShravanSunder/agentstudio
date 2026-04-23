@@ -135,7 +135,7 @@ struct PaneCoordinatorTests {
             inTab: tab.id,
             at: paneA.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
 
         coordinator.execute(.closePane(tabId: tab.id, paneId: paneB.id))
@@ -334,7 +334,7 @@ struct PaneCoordinatorTests {
             inTab: tab.id,
             at: paneA.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
 
         coordinator.execute(.minimizePane(tabId: tab.id, paneId: paneB.id))
@@ -362,7 +362,7 @@ struct PaneCoordinatorTests {
             inTab: tab.id,
             at: paneA.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
 
         coordinator.execute(.closePane(tabId: tab.id, paneId: paneB.id))

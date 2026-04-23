@@ -75,6 +75,7 @@ struct PaneCloseTransitionCoordinatorTests {
             dispatch: { _ in
                 closeActionFired = true
             },
+            shouldHandleSplitDragPayload: { _ in true },
             shouldAcceptDrop: { _, _, _ in false },
             handleDrop: { _, _, _, _ in }
         )
@@ -156,6 +157,7 @@ struct PaneCloseTransitionCoordinatorTests {
                     Issue.record("Unexpected action dispatched during drawer close transition: \(action)")
                 }
             },
+            shouldHandleSplitDragPayload: { _ in true },
             shouldAcceptDrop: { _, _, _ in false },
             handleDrop: { _, _, _, _ in }
         )

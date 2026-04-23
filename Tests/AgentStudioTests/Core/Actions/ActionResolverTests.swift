@@ -50,7 +50,8 @@ final class WorkspaceCommandResolverTests {
             payload: payload,
             destinationPaneId: targetPaneId,
             destinationTabId: targetTabId,
-            zone: .right,
+            zone: DropZoneSide.right,
+            sizingMode: DropSizingMode.halveTarget,
             state: snapshot
         )
 
@@ -61,7 +62,7 @@ final class WorkspaceCommandResolverTests {
                     sourceTabId: sourceTabId,
                     targetTabId: targetTabId,
                     targetPaneId: targetPaneId,
-                    direction: .right
+                    direction: SplitNewDirection.right
                 ))
     }
 
@@ -88,19 +89,20 @@ final class WorkspaceCommandResolverTests {
             payload: payload,
             destinationPaneId: targetPaneId,
             destinationTabId: targetTabId,
-            zone: .left,
+            zone: DropZoneSide.left,
+            sizingMode: DropSizingMode.halveTarget,
             state: snapshot
         )
 
         // Assert
         #expect(
             result
-                == .insertPane(
-                    source: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
+                == PaneActionCommand.insertPane(
+                    source: PaneSource.existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
                     targetTabId: targetTabId,
                     targetPaneId: targetPaneId,
-                    direction: .left,
-                    sizingMode: .halveTarget
+                    direction: SplitNewDirection.left,
+                    sizingMode: DropSizingMode.halveTarget
                 ))
     }
 
@@ -121,19 +123,20 @@ final class WorkspaceCommandResolverTests {
             payload: payload,
             destinationPaneId: targetPaneId,
             destinationTabId: targetTabId,
-            zone: .right,
+            zone: DropZoneSide.right,
+            sizingMode: DropSizingMode.halveTarget,
             state: snapshot
         )
 
         // Assert
         #expect(
             result
-                == .insertPane(
-                    source: .newTerminal,
+                == PaneActionCommand.insertPane(
+                    source: PaneSource.newTerminal,
                     targetTabId: targetTabId,
                     targetPaneId: targetPaneId,
-                    direction: .right,
-                    sizingMode: .halveTarget
+                    direction: SplitNewDirection.right,
+                    sizingMode: DropSizingMode.halveTarget
                 ))
     }
 
@@ -157,7 +160,8 @@ final class WorkspaceCommandResolverTests {
             payload: payload,
             destinationPaneId: targetPaneId,
             destinationTabId: targetTabId,
-            zone: .right,
+            zone: DropZoneSide.right,
+            sizingMode: DropSizingMode.halveTarget,
             state: snapshot
         )
 
@@ -185,7 +189,8 @@ final class WorkspaceCommandResolverTests {
             payload: payload,
             destinationPaneId: paneIds[0],
             destinationTabId: tabId,
-            zone: .right,
+            zone: DropZoneSide.right,
+            sizingMode: DropSizingMode.halveTarget,
             state: snapshot
         )
 
@@ -196,7 +201,7 @@ final class WorkspaceCommandResolverTests {
                     sourceTabId: tabId,
                     targetTabId: tabId,
                     targetPaneId: paneIds[0],
-                    direction: .right
+                    direction: SplitNewDirection.right
                 ))
 
         // Verify validator rejects self-merge
@@ -476,11 +481,11 @@ final class WorkspaceCommandResolverTests {
         #expect(
             result
                 == .insertPane(
-                    source: .newTerminal,
+                    source: PaneSource.newTerminal,
                     targetTabId: tabId,
                     targetPaneId: paneId,
-                    direction: .right,
-                    sizingMode: .halveTarget
+                    direction: SplitNewDirection.right,
+                    sizingMode: DropSizingMode.halveTarget
                 ))
     }
 
@@ -604,18 +609,19 @@ final class WorkspaceCommandResolverTests {
                 destinationPaneId: paneId,
                 destinationTabId: tabId,
                 zone: zone,
+                sizingMode: DropSizingMode.halveTarget,
                 state: snapshot
             )
 
             // Assert
             #expect(
                 result
-                    == .insertPane(
-                        source: .newTerminal,
+                    == PaneActionCommand.insertPane(
+                        source: PaneSource.newTerminal,
                         targetTabId: tabId,
                         targetPaneId: paneId,
                         direction: expectedDirection,
-                        sizingMode: .halveTarget
+                        sizingMode: DropSizingMode.halveTarget
                     ), "Zone \(zone) should map to direction \(expectedDirection)")
         }
     }

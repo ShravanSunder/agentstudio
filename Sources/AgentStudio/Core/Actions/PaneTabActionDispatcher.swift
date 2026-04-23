@@ -9,7 +9,7 @@ final class PaneTabActionDispatcher: PaneActionDispatching {
 
     init(
         dispatch: @escaping (PaneActionCommand) -> Void,
-        shouldHandleSplitDragPayload: @escaping (SplitDropPayload) -> Bool = { _ in true },
+        shouldHandleSplitDragPayload: @escaping (SplitDropPayload) -> Bool,
         shouldAcceptDrop: @escaping (SplitDropPayload, UUID, DropZoneSide) -> Bool,
         handleDrop: @escaping (SplitDropPayload, UUID, DropZoneSide, DropSizingMode) -> Void
     ) {

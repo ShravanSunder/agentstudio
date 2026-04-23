@@ -150,7 +150,7 @@ enum WorkspaceCommandResolver {
         destinationPaneId: UUID,
         destinationTabId: UUID,
         zone: DropZoneSide,
-        sizingMode: DropSizingMode = .halveTarget,
+        sizingMode: DropSizingMode,
         state: ActionStateSnapshot
     ) -> PaneActionCommand? {
         let direction = splitNewDirection(for: zone)

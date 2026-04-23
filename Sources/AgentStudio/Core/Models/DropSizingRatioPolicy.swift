@@ -5,31 +5,27 @@ enum DropSizingMode: Hashable, Sendable {
     case proportional
 }
 
+enum DropInsertionSizingMode: Hashable, Sendable {
+    case halveTarget(paneIndex: Int)
+    case proportional
+}
+
 enum DropSizingRatioPolicy {
     static func ratiosAfterInsertion(
         existingRatios: [Double],
         insertionIndex: Int,
-        targetPaneIndex: Int?,
-        mode: DropSizingMode
+        mode: DropInsertionSizingMode
     ) -> [Double] {
         if existingRatios.isEmpty { return [1.0] }
 
         let clampedInsertionIndex = max(0, min(insertionIndex, existingRatios.count))
 
         switch mode {
-        case .halveTarget:
-            guard let targetPaneIndex,
-                targetPaneIndex >= 0,
-                targetPaneIndex < existingRatios.count
-            else {
-                return ratiosAfterInsertion(
-                    existingRatios: existingRatios,
-                    insertionIndex: clampedInsertionIndex,
-                    targetPaneIndex: nil,
-                    mode: .proportional
-                )
-            }
-
+        case .halveTarget(let targetPaneIndex):
+            precondition(
+                targetPaneIndex >= 0 && targetPaneIndex < existingRatios.count,
+                "halveTarget insertion requires a valid target pane index"
+            )
             var updatedRatios = existingRatios
             let halvedTargetRatio = updatedRatios[targetPaneIndex] / 2.0
             updatedRatios[targetPaneIndex] = halvedTargetRatio

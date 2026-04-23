@@ -50,19 +50,6 @@ struct DrawerGridLayout: Codable, Hashable {
     func inserting(
         paneId: UUID,
         at targetPaneId: UUID,
-        direction: SplitNewDirection
-    ) -> Self? {
-        inserting(
-            paneId: paneId,
-            at: targetPaneId,
-            direction: direction,
-            sizingMode: .halveTarget
-        )
-    }
-
-    func inserting(
-        paneId: UUID,
-        at targetPaneId: UUID,
         direction: SplitNewDirection,
         sizingMode: DropSizingMode
     ) -> Self? {
@@ -174,10 +161,6 @@ struct DrawerGridLayout: Codable, Hashable {
         }
     }
 
-    func removing(paneId: UUID) -> Self? {
-        removing(paneId: paneId, sizingMode: .halveTarget)
-    }
-
     func removing(paneId: UUID, sizingMode: DropSizingMode) -> Self? {
         if topRow.contains(paneId) {
             if let updatedTopRow = topRow.removing(paneId: paneId, sizingMode: sizingMode) {
@@ -212,7 +195,7 @@ struct DrawerGridLayout: Codable, Hashable {
             )
         }
 
-        return self
+        return nil
     }
 
     func resizing(splitId: UUID, ratio: Double) -> Self {

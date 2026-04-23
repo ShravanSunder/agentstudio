@@ -299,7 +299,8 @@ struct WorkspacePaneFocusDerivedProjectionTests {
         tab.arrangements.append(namedArrangement)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
-        store.insertPane(paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
         _ = store.addDrawerPane(to: paneA.id)
 
         let focus = WorkspacePaneFocusDerived().currentFocus(

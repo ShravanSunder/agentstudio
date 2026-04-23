@@ -95,7 +95,7 @@ final class PaneContentWiringTests {
         store.appendTab(tab)
         store.insertPane(
             webPane.id, inTab: tab.id, at: terminalPane.id,
-            direction: .horizontal, position: .after)
+            direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         let updatedTab = store.tab(tab.id)!
         #expect(updatedTab.panes.contains(terminalPane.id))

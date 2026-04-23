@@ -6,12 +6,9 @@ struct PaneDropTarget: Equatable, Hashable {
     let zone: DropZoneSide
     let sizingTarget: DropTarget
 
-    init(paneId: UUID, zone: DropZoneSide, sizingTarget: DropTarget? = nil) {
-        self.paneId = paneId
-        self.zone = zone
-        self.sizingTarget = sizingTarget ?? .paneSplit(paneId: self.paneId, side: self.zone)
-    }
-
+    // Overlay rects are keyed by the visible pane edge, not by the underlying
+    // sizing intent. Different sizing targets can legitimately map to the same
+    // rendered edge marker.
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.paneId == rhs.paneId && lhs.zone == rhs.zone
     }
@@ -28,7 +25,7 @@ struct PaneDragCoordinator {
     static func resolveTarget(
         location: CGPoint,
         paneFrames: [UUID: CGRect],
-        containerBounds: CGRect? = nil,
+        containerBounds: CGRect?,
         minimizedPaneIds: Set<UUID>
     ) -> PaneDropTarget? {
         let sortedPaneIds = sortedPaneIds(from: paneFrames)
@@ -54,7 +51,7 @@ struct PaneDragCoordinator {
     static func resolveLatchedTarget(
         location: CGPoint,
         paneFrames: [UUID: CGRect],
-        containerBounds: CGRect? = nil,
+        containerBounds: CGRect?,
         minimizedPaneIds: Set<UUID>,
         currentTarget: PaneDropTarget?,
         shouldAcceptDrop: (UUID, DropZoneSide) -> Bool
@@ -109,18 +106,28 @@ struct PaneDragCoordinator {
 
         for paneId in splittablePaneIds {
             guard let paneFrame = paneFrames[paneId] else { continue }
-            rects[PaneDropTarget(paneId: paneId, zone: .left)] = CGRect(
-                x: paneFrame.minX,
-                y: paneFrame.minY,
-                width: paneFrame.width / 2,
-                height: paneFrame.height
-            )
-            rects[PaneDropTarget(paneId: paneId, zone: .right)] = CGRect(
-                x: paneFrame.midX,
-                y: paneFrame.minY,
-                width: paneFrame.width / 2,
-                height: paneFrame.height
-            )
+            rects[
+                PaneDropTarget(
+                    paneId: paneId,
+                    zone: .left,
+                    sizingTarget: .paneSplit(paneId: paneId, side: .left)
+                )] = CGRect(
+                    x: paneFrame.minX,
+                    y: paneFrame.minY,
+                    width: paneFrame.width / 2,
+                    height: paneFrame.height
+                )
+            rects[
+                PaneDropTarget(
+                    paneId: paneId,
+                    zone: .right,
+                    sizingTarget: .paneSplit(paneId: paneId, side: .right)
+                )] = CGRect(
+                    x: paneFrame.midX,
+                    y: paneFrame.minY,
+                    width: paneFrame.width / 2,
+                    height: paneFrame.height
+                )
         }
 
         return rects

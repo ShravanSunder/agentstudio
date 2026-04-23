@@ -42,11 +42,16 @@ struct DropSizingModeResolverTests {
 
     @Test
     func mode_paneNewRow_alwaysProportional() {
-        let mode = DropSizingModeResolver.mode(
+        let topMode = DropSizingModeResolver.mode(
             for: .paneNewRow(position: .top),
             isShiftHeld: false
         )
+        let bottomMode = DropSizingModeResolver.mode(
+            for: .paneNewRow(position: .bottom),
+            isShiftHeld: true
+        )
 
-        #expect(mode == .proportional)
+        #expect(topMode == .proportional)
+        #expect(bottomMode == .proportional)
     }
 }

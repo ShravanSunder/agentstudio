@@ -187,7 +187,7 @@ final class DrawerCommandIntegrationTests {
             in: parentPaneId,
             at: topLeft.id,
             direction: .vertical,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )!
 
         let before = store.pane(parentPaneId)!.drawer!.layout
@@ -231,7 +231,7 @@ final class DrawerCommandIntegrationTests {
             in: parentPaneId,
             at: first.id,
             direction: .vertical,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
 
         executor.execute(
@@ -392,7 +392,8 @@ final class DrawerCommandIntegrationTests {
         let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: p1.id)
         store.appendTab(tab)
-        store.insertPane(p2.id, inTab: tab.id, at: p1.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            p2.id, inTab: tab.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         let dp1 = store.addDrawerPane(to: p1.id)!
         let dp2 = store.addDrawerPane(to: p1.id)!

@@ -81,7 +81,8 @@ extension PaneCoordinator {
             inTab: activeTabId,
             at: targetPaneId,
             direction: .horizontal,
-            position: .after
+            position: .after,
+            sizingMode: .halveTarget
         )
         store.tabLayoutAtom.setActivePane(pane.id, inTab: activeTabId)
         ensureTerminalPaneView(pane)
@@ -161,7 +162,8 @@ extension PaneCoordinator {
             inTab: targetTabId,
             at: sourcePaneId,
             direction: layoutDirection,
-            position: position
+            position: position,
+            sizingMode: .halveTarget
         )
         store.tabLayoutAtom.setActivePane(pane.id, inTab: targetTabId)
 
@@ -456,7 +458,8 @@ extension PaneCoordinator {
                 inTab: tabId,
                 at: parentPaneId,
                 direction: .horizontal,
-                position: .after
+                position: .after,
+                sizingMode: .halveTarget
             )
             store.tabLayoutAtom.setActivePane(drawerPaneId, inTab: tabId)
             restoreViewsForActiveTabIfNeeded()

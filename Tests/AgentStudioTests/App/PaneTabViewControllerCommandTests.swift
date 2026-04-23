@@ -102,7 +102,7 @@ struct PaneTabViewControllerCommandTests {
             inTab: tab.id,
             at: firstPane.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
         harness.store.setActiveTab(tab.id)
         guard
@@ -140,7 +140,7 @@ struct PaneTabViewControllerCommandTests {
             inTab: secondTab.id,
             at: secondTabPaneA.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
         harness.store.setActiveTab(firstTab.id)
         guard
@@ -217,7 +217,7 @@ struct PaneTabViewControllerCommandTests {
             inTab: tab.id,
             at: primaryPane.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
 
         harness.controller.handleTerminalProcessTerminated(paneId: terminatingPane.id)
@@ -280,7 +280,7 @@ struct PaneTabViewControllerCommandTests {
             inTab: tab.id,
             at: visiblePane.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
         let focusArrangementId = harness.store.createArrangement(
             name: "Focus Visible",
@@ -325,7 +325,7 @@ struct PaneTabViewControllerCommandTests {
             inTab: backgroundTab.id,
             at: firstPane.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
         harness.store.appendTab(foregroundTab)
         harness.store.setActiveTab(foregroundTab.id)
@@ -359,7 +359,7 @@ struct PaneTabViewControllerCommandTests {
             inTab: tab.id,
             at: parentPane.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
         guard let drawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
             Issue.record("Expected drawer pane creation")
@@ -532,7 +532,8 @@ struct PaneTabViewControllerCommandTests {
         let second = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
         let tab = Tab(paneId: first.id)
         harness.store.appendTab(tab)
-        harness.store.insertPane(second.id, inTab: tab.id, at: first.id, direction: .horizontal, position: .after)
+        harness.store.insertPane(
+            second.id, inTab: tab.id, at: first.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
         harness.store.setActiveTab(tab.id)
         harness.store.setActivePane(second.id, inTab: tab.id)
 

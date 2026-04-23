@@ -44,7 +44,7 @@ final class TabTests {
         let paneA = UUID()
         let paneB = UUID()
         let layout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         // Act
         let arrangement = PaneArrangement(
@@ -69,8 +69,8 @@ final class TabTests {
         let paneB = UUID()
         let paneC = UUID()
         let layout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
-            .inserting(paneId: paneC, at: paneB, direction: .vertical, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+            .inserting(paneId: paneC, at: paneB, direction: .vertical, position: .after, sizingMode: .halveTarget)
 
         // Act
         let arrangement = PaneArrangement(
@@ -100,7 +100,7 @@ final class TabTests {
         let paneA = UUID()
         let paneB = UUID()
         let layout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         // Act
         let arrangement = PaneArrangement(
@@ -139,7 +139,7 @@ final class TabTests {
         let paneA = UUID()
         let paneB = UUID()
         let layout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)
         let arrangement = PaneArrangement(
             name: "Default", isDefault: true, layout: layout, visiblePaneIds: Set(layout.paneIds))
         let tab = Tab(

@@ -13,7 +13,8 @@ struct TabArrangementSelectionRulesTests {
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: paneA)
-                .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after),
+                .inserting(
+                    paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget),
             visiblePaneIds: [paneA, paneB],
             minimizedPaneIds: [paneA]
         )
@@ -47,7 +48,8 @@ struct TabArrangementSelectionRulesTests {
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: paneA)
-                .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after),
+                .inserting(
+                    paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget),
             visiblePaneIds: [paneA, paneB]
         )
 
@@ -67,7 +69,8 @@ struct TabArrangementSelectionRulesTests {
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: paneA)
-                .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after),
+                .inserting(
+                    paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget),
             visiblePaneIds: [paneA, paneB],
             minimizedPaneIds: [paneB]
         )

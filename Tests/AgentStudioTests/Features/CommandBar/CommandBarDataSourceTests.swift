@@ -45,7 +45,8 @@ struct CommandBarDataSourceTests {
         tab.arrangements.append(namedArrangement)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
-        store.insertPane(paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
         _ = store.addDrawerPane(to: paneA.id)
 
         return store
@@ -274,8 +275,10 @@ struct CommandBarDataSourceTests {
         let tab = Tab(paneId: paneA.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
-        store.insertPane(paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after)
-        store.insertPane(paneC.id, inTab: tab.id, at: paneB.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+        store.insertPane(
+            paneC.id, inTab: tab.id, at: paneB.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         let items = CommandBarDataSource.items(
             scope: .everything, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)

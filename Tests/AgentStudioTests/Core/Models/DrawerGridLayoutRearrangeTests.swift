@@ -15,7 +15,8 @@ struct DrawerGridLayoutRearrangeTests {
         let before = try #require(
             layout.projectedMove(
                 paneId: c,
-                target: .rowSlot(row: .top, insertionIndex: 0)
+                target: .rowSlot(row: .top, insertionIndex: 0),
+                sizingMode: .proportional
             )
         )
         #expect(before.topRow.paneIds == [c, a, b])
@@ -23,7 +24,8 @@ struct DrawerGridLayoutRearrangeTests {
         let middle = try #require(
             layout.projectedMove(
                 paneId: a,
-                target: .rowSlot(row: .top, insertionIndex: 2)
+                target: .rowSlot(row: .top, insertionIndex: 2),
+                sizingMode: .proportional
             )
         )
         #expect(middle.topRow.paneIds == [b, a, c])
@@ -31,7 +33,8 @@ struct DrawerGridLayoutRearrangeTests {
         let after = try #require(
             layout.projectedMove(
                 paneId: a,
-                target: .rowSlot(row: .top, insertionIndex: 3)
+                target: .rowSlot(row: .top, insertionIndex: 3),
+                sizingMode: .proportional
             )
         )
         #expect(after.topRow.paneIds == [b, c, a])
@@ -47,7 +50,8 @@ struct DrawerGridLayoutRearrangeTests {
         let topRow = try #require(
             layout.projectedMove(
                 paneId: c,
-                target: .createSecondRow(position: .top)
+                target: .createSecondRow(position: .top),
+                sizingMode: .proportional
             )
         )
         #expect(topRow.topRow.paneIds == [c])
@@ -56,7 +60,8 @@ struct DrawerGridLayoutRearrangeTests {
         let bottomRow = try #require(
             layout.projectedMove(
                 paneId: a,
-                target: .createSecondRow(position: .bottom)
+                target: .createSecondRow(position: .bottom),
+                sizingMode: .proportional
             )
         )
         #expect(bottomRow.topRow.paneIds == [b, c])
@@ -78,7 +83,8 @@ struct DrawerGridLayoutRearrangeTests {
         let movedToBottom = try #require(
             layout.projectedMove(
                 paneId: b,
-                target: .rowSlot(row: .bottom, insertionIndex: 1)
+                target: .rowSlot(row: .bottom, insertionIndex: 1),
+                sizingMode: .proportional
             )
         )
         #expect(movedToBottom.topRow.paneIds == [a])
@@ -166,7 +172,8 @@ struct DrawerGridLayoutRearrangeTests {
         #expect(
             layout.projectedMove(
                 paneId: a,
-                target: .createSecondRow(position: .bottom)
+                target: .createSecondRow(position: .bottom),
+                sizingMode: .proportional
             ) == nil
         )
     }

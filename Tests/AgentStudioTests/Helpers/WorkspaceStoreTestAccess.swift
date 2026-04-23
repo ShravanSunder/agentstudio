@@ -107,14 +107,16 @@ extension WorkspaceStore {
         inTab tabId: UUID,
         at targetPaneId: UUID,
         direction: Layout.SplitDirection,
-        position: Layout.Position
+        position: Layout.Position,
+        sizingMode: DropSizingMode = .halveTarget
     ) {
         mutationCoordinator.reactivatePane(
             paneId,
             inTab: tabId,
             at: targetPaneId,
             direction: direction,
-            position: position
+            position: position,
+            sizingMode: sizingMode
         )
     }
     func purgeOrphanedPane(_ paneId: UUID) { paneAtom.purgeOrphanedPane(paneId) }
@@ -131,14 +133,16 @@ extension WorkspaceStore {
         inTab tabId: UUID,
         at targetPaneId: UUID,
         direction: Layout.SplitDirection,
-        position: Layout.Position
+        position: Layout.Position,
+        sizingMode: DropSizingMode = .halveTarget
     ) -> Bool {
         tabLayoutAtom.insertPane(
             paneId,
             inTab: tabId,
             at: targetPaneId,
             direction: direction,
-            position: position
+            position: position,
+            sizingMode: sizingMode
         )
     }
     func removePaneFromLayout(_ paneId: UUID, inTab tabId: UUID) {
@@ -172,7 +176,8 @@ extension WorkspaceStore {
         in parentPaneId: UUID,
         at targetDrawerPaneId: UUID,
         direction: Layout.SplitDirection,
-        position: Layout.Position
+        position: Layout.Position,
+        sizingMode: DropSizingMode = .halveTarget
     ) -> Pane? {
         let splitDirection: SplitNewDirection =
             switch (direction, position) {
@@ -186,18 +191,21 @@ extension WorkspaceStore {
             in: parentPaneId,
             at: targetDrawerPaneId,
             direction: splitDirection,
+            sizingMode: sizingMode,
             parentFallbackCWD: fallbackCWD
         )
     }
     func moveDrawerPane(
         _ drawerPaneId: UUID,
         in parentPaneId: UUID,
-        target: DrawerRearrangeTarget
+        target: DrawerRearrangeTarget,
+        sizingMode: DropSizingMode = .proportional
     ) {
         paneAtom.moveDrawerPane(
             drawerPaneId,
             in: parentPaneId,
-            target: target
+            target: target,
+            sizingMode: sizingMode
         )
     }
     func removeDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) {
@@ -233,7 +241,8 @@ extension WorkspaceStore {
         intoTarget targetId: UUID,
         at targetPaneId: UUID,
         direction: Layout.SplitDirection,
-        position: Layout.Position
+        position: Layout.Position,
+        sizingMode _: DropSizingMode = .halveTarget
     ) {
         tabLayoutAtom.mergeTab(
             sourceId: sourceId,

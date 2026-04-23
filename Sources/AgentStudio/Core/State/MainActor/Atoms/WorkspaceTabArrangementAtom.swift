@@ -58,7 +58,7 @@ final class WorkspaceTabArrangementAtom {
         at targetPaneId: UUID,
         direction: Layout.SplitDirection,
         position: Layout.Position,
-        sizingMode: DropSizingMode = .halveTarget
+        sizingMode: DropSizingMode
     ) -> Bool {
         guard let tabIndex = findTabIndex(tabId) else {
             workspaceTabArrangementLogger.warning("insertPane: tab \(tabId) not found")

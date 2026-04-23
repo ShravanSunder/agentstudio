@@ -80,7 +80,7 @@ struct WorkspacePaneFocusDerivedTests {
                 inTab: tab.id,
                 at: paneA.id,
                 direction: .horizontal,
-                position: .after
+                position: .after, sizingMode: .halveTarget
             )
             _ = store.addDrawerPane(to: paneA.id)
 

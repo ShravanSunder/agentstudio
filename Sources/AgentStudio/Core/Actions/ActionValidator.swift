@@ -265,19 +265,21 @@ enum WorkspaceCommandValidator {
             }
             return .success(ValidatedAction(action))
 
-        case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction, _):
+        case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction, let sizingMode):
             return DrawerCommandValidator.validateInsertion(
                 parentPaneId: parentPaneId,
                 targetDrawerPaneId: targetDrawerPaneId,
                 direction: direction,
+                sizingMode: sizingMode,
                 state: state
             ).map { ValidatedAction(action) }
 
-        case .moveDrawerPane(let parentPaneId, let drawerPaneId, let target, _):
+        case .moveDrawerPane(let parentPaneId, let drawerPaneId, let target, let sizingMode):
             return DrawerCommandValidator.validateMove(
                 parentPaneId: parentPaneId,
                 drawerPaneId: drawerPaneId,
                 target: target,
+                sizingMode: sizingMode,
                 state: state
             ).map { ValidatedAction(action) }
 

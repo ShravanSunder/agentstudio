@@ -65,6 +65,6 @@ struct DraggableTabBarGeometryTests {
             tabFrames: threeTabFrames
         )
 
-        #expect(result == tabA || result == tabB)
+        #expect(result == tabB)
     }
 }

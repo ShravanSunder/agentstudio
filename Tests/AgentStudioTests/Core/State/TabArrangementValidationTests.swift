@@ -27,7 +27,9 @@ struct TabArrangementValidationTests {
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: sharedPane)
-                .inserting(paneId: uniquePane, at: sharedPane, direction: .horizontal, position: .after),
+                .inserting(
+                    paneId: uniquePane, at: sharedPane, direction: .horizontal, position: .after,
+                    sizingMode: .halveTarget),
             visiblePaneIds: [sharedPane, uniquePane],
             minimizedPaneIds: [sharedPane]
         )

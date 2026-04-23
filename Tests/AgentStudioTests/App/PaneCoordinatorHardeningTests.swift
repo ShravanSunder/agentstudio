@@ -118,14 +118,14 @@ struct PaneCoordinatorHardeningTests {
             inTab: tab.id,
             at: paneA.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
         harness.store.insertPane(
             paneC.id,
             inTab: tab.id,
             at: paneB.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
         guard
             let focusArrangementId = harness.store.createArrangement(
@@ -290,7 +290,7 @@ struct PaneCoordinatorHardeningTests {
             inTab: tab.id,
             at: firstPane.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
         _ = harness.store.minimizePane(secondPane.id, inTab: tab.id)
 
@@ -506,7 +506,7 @@ struct PaneCoordinatorHardeningTests {
             inTab: tab.id,
             at: terminalPane.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
 
         harness.coordinator.execute(.closeTab(tabId: tab.id))
@@ -554,7 +554,7 @@ struct PaneCoordinatorHardeningTests {
             inTab: tab.id,
             at: terminalPane.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
         guard
             let terminalOnlyArrangementId = harness.store.createArrangement(
@@ -594,7 +594,7 @@ struct PaneCoordinatorHardeningTests {
             inTab: tab.id,
             at: anchorPane.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
 
         guard let drawerPane = harness.store.addDrawerPane(to: parentPane.id) else {

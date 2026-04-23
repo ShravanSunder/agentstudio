@@ -48,7 +48,8 @@ final class DrawerGridLayoutTests {
         let rejected = layout.inserting(
             paneId: incoming,
             at: bottom,
-            direction: .down
+            direction: .down,
+            sizingMode: .halveTarget
         )
 
         #expect(rejected == nil)
@@ -66,7 +67,7 @@ final class DrawerGridLayoutTests {
             rowSplitRatio: 0.5
         )
 
-        let collapsed = try #require(layout.removing(paneId: topOnly))
+        let collapsed = try #require(layout.removing(paneId: topOnly, sizingMode: .halveTarget))
         #expect(collapsed.topRow.paneIds == [bottomLeft, bottomRight])
         #expect(collapsed.bottomRow == nil)
     }
@@ -83,7 +84,7 @@ final class DrawerGridLayoutTests {
             rowSplitRatio: 0.5
         )
 
-        let collapsed = try #require(layout.removing(paneId: bottomOnly))
+        let collapsed = try #require(layout.removing(paneId: bottomOnly, sizingMode: .halveTarget))
         #expect(collapsed.topRow.paneIds == [topLeft, topRight])
         #expect(collapsed.bottomRow == nil)
     }

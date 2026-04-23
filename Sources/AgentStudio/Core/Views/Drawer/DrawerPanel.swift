@@ -131,6 +131,7 @@ struct DrawerPanel: View {
                         action(paneAction)
                     }
                 },
+                shouldHandleSplitDragPayload: { _ in true },
                 shouldAcceptDrop: { _, _, _ in false },
                 handleDrop: { _, _, _, _ in }
             )

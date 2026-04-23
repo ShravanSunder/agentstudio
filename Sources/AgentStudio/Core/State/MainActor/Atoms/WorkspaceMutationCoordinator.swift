@@ -84,7 +84,7 @@ final class WorkspaceMutationCoordinator {
         at targetPaneId: UUID,
         direction: Layout.SplitDirection,
         position: Layout.Position,
-        sizingMode: DropSizingMode = .halveTarget
+        sizingMode: DropSizingMode
     ) -> Bool {
         guard
             let pane = workspacePaneAtom.pane(paneId),

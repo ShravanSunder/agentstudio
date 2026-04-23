@@ -105,7 +105,8 @@ struct WorktreeTemplate: Codable, Identifiable, Hashable {
                 paneId: pane.id,
                 at: lastId,
                 direction: splitDirection,
-                position: .after
+                position: .after,
+                sizingMode: .halveTarget
             )
         }
 

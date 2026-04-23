@@ -34,6 +34,7 @@ enum DrawerCommandValidator {
         parentPaneId: UUID,
         targetDrawerPaneId: UUID,
         direction: SplitNewDirection,
+        sizingMode: DropSizingMode,
         state: ActionStateSnapshot
     ) -> Result<Void, ActionValidationError> {
         guard state.tabShowing(paneId: parentPaneId) != nil else {
@@ -51,7 +52,8 @@ enum DrawerCommandValidator {
             let resultingLayout = currentLayout.inserting(
                 paneId: projectedPaneId,
                 at: targetDrawerPaneId,
-                direction: direction
+                direction: direction,
+                sizingMode: sizingMode
             )
         else {
             return .failure(.invalidDrawerLayout(parentPaneId: parentPaneId))
@@ -70,6 +72,7 @@ enum DrawerCommandValidator {
         parentPaneId: UUID,
         drawerPaneId: UUID,
         target: DrawerRearrangeTarget,
+        sizingMode: DropSizingMode,
         state: ActionStateSnapshot
     ) -> Result<Void, ActionValidationError> {
         if let membershipError = validateMembership(
@@ -82,7 +85,13 @@ enum DrawerCommandValidator {
         guard let currentLayout = state.drawerLayout(for: parentPaneId) else {
             return .failure(.invalidDrawerLayout(parentPaneId: parentPaneId))
         }
-        guard currentLayout.projectedMove(paneId: drawerPaneId, target: target) != nil else {
+        guard
+            currentLayout.projectedMove(
+                paneId: drawerPaneId,
+                target: target,
+                sizingMode: sizingMode
+            ) != nil
+        else {
             return .failure(.invalidDrawerLayout(parentPaneId: parentPaneId))
         }
         return .success(())

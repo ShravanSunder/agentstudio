@@ -284,7 +284,8 @@ struct PaneTabViewControllerDrawerCommandTests {
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
         let tab = Tab(paneId: left.id)
         harness.store.appendTab(tab)
-        harness.store.insertPane(parent.id, inTab: tab.id, at: left.id, direction: .horizontal, position: .after)
+        harness.store.insertPane(
+            parent.id, inTab: tab.id, at: left.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
         harness.store.setActiveTab(tab.id)
         harness.store.setActivePane(parent.id, inTab: tab.id)
         harness.store.toggleDrawer(for: parent.id)
@@ -381,7 +382,8 @@ struct PaneTabViewControllerDrawerCommandTests {
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
         let tab = Tab(paneId: left.id)
         harness.store.appendTab(tab)
-        harness.store.insertPane(parent.id, inTab: tab.id, at: left.id, direction: .horizontal, position: .after)
+        harness.store.insertPane(
+            parent.id, inTab: tab.id, at: left.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
         harness.store.setActiveTab(tab.id)
         harness.store.setActivePane(parent.id, inTab: tab.id)
         harness.store.toggleDrawer(for: parent.id)
@@ -433,7 +435,8 @@ struct PaneTabViewControllerDrawerCommandTests {
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
         let tab = Tab(paneId: left.id)
         harness.store.appendTab(tab)
-        harness.store.insertPane(parent.id, inTab: tab.id, at: left.id, direction: .horizontal, position: .after)
+        harness.store.insertPane(
+            parent.id, inTab: tab.id, at: left.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
         harness.store.setActiveTab(tab.id)
         harness.store.setActivePane(parent.id, inTab: tab.id)
 
@@ -443,7 +446,7 @@ struct PaneTabViewControllerDrawerCommandTests {
                 in: parent.id,
                 at: firstDrawerPane.id,
                 direction: .horizontal,
-                position: .after
+                position: .after, sizingMode: .halveTarget
             )
         )
 
@@ -480,7 +483,8 @@ struct PaneTabViewControllerDrawerCommandTests {
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
         let tab = Tab(paneId: left.id)
         harness.store.appendTab(tab)
-        harness.store.insertPane(parent.id, inTab: tab.id, at: left.id, direction: .horizontal, position: .after)
+        harness.store.insertPane(
+            parent.id, inTab: tab.id, at: left.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
         harness.store.setActiveTab(tab.id)
         harness.store.setActivePane(parent.id, inTab: tab.id)
 
@@ -490,7 +494,7 @@ struct PaneTabViewControllerDrawerCommandTests {
                 in: parent.id,
                 at: firstDrawerPane.id,
                 direction: .horizontal,
-                position: .after
+                position: .after, sizingMode: .halveTarget
             )
         )
         atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parent.id)
@@ -528,7 +532,8 @@ struct PaneTabViewControllerDrawerCommandTests {
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
         let tab = Tab(paneId: left.id)
         harness.store.appendTab(tab)
-        harness.store.insertPane(parent.id, inTab: tab.id, at: left.id, direction: .horizontal, position: .after)
+        harness.store.insertPane(
+            parent.id, inTab: tab.id, at: left.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
         harness.store.setActiveTab(tab.id)
         harness.store.setActivePane(parent.id, inTab: tab.id)
 
@@ -551,7 +556,8 @@ struct PaneTabViewControllerDrawerCommandTests {
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
         let tab = Tab(paneId: left.id)
         harness.store.appendTab(tab)
-        harness.store.insertPane(parent.id, inTab: tab.id, at: left.id, direction: .horizontal, position: .after)
+        harness.store.insertPane(
+            parent.id, inTab: tab.id, at: left.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
         harness.store.setActiveTab(tab.id)
         harness.store.setActivePane(parent.id, inTab: tab.id)
         _ = makePaneTabViewControllerCommandWindow(for: harness.controller)

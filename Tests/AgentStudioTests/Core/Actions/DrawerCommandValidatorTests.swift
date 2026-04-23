@@ -44,6 +44,7 @@ struct DrawerCommandValidatorTests {
             parentPaneId: parent,
             drawerPaneId: c,
             target: .rowSlot(row: .top, insertionIndex: 0),
+            sizingMode: .proportional,
             state: state
         )
 
@@ -66,6 +67,7 @@ struct DrawerCommandValidatorTests {
             parentPaneId: parent,
             drawerPaneId: b,
             target: .createSecondRow(position: .bottom),
+            sizingMode: .proportional,
             state: state
         )
 
@@ -93,6 +95,7 @@ struct DrawerCommandValidatorTests {
             parentPaneId: parent,
             drawerPaneId: a,
             target: .createSecondRow(position: .bottom),
+            sizingMode: .proportional,
             state: state
         )
 

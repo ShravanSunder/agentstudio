@@ -70,21 +70,6 @@ struct Layout: Codable, Hashable {
         paneId: UUID,
         at targetPaneId: UUID,
         direction _: SplitDirection,
-        position: Position
-    ) -> Self {
-        inserting(
-            paneId: paneId,
-            at: targetPaneId,
-            direction: .horizontal,
-            position: position,
-            sizingMode: .halveTarget
-        )
-    }
-
-    func inserting(
-        paneId: UUID,
-        at targetPaneId: UUID,
-        direction _: SplitDirection,
         position: Position,
         sizingMode: DropSizingMode
     ) -> Self {
@@ -103,8 +88,12 @@ struct Layout: Codable, Hashable {
         let updatedRatios = DropSizingRatioPolicy.ratiosAfterInsertion(
             existingRatios: ratios,
             insertionIndex: insertIndex,
-            targetPaneIndex: targetIndex,
-            mode: sizingMode
+            mode: insertionSizingMode(
+                for: sizingMode,
+                insertionIndex: insertIndex,
+                paneCount: panes.count,
+                preferredTargetPaneIndex: targetIndex
+            )
         )
         return inserting(paneId: paneId, atIndex: insertIndex, ratios: updatedRatios)
     }
@@ -123,13 +112,9 @@ struct Layout: Codable, Hashable {
         return Self(panes: updatedPanes, dividerIds: updatedDividerIds)
     }
 
-    func removing(paneId: UUID) -> Self? {
-        removing(paneId: paneId, sizingMode: .halveTarget)
-    }
-
     func removing(paneId: UUID, sizingMode: DropSizingMode) -> Self? {
         guard let removedIndex = panes.firstIndex(where: { $0.paneId == paneId }) else {
-            return self
+            return nil
         }
         guard panes.count > 1 else { return nil }
 
@@ -232,6 +217,24 @@ struct Layout: Codable, Hashable {
         guard let index = panes.firstIndex(where: { $0.paneId == paneId }) else { return nil }
         let previousIndex = (index - 1 + panes.count) % panes.count
         return panes[previousIndex].paneId
+    }
+
+    func insertionSizingMode(
+        for sizingMode: DropSizingMode,
+        insertionIndex: Int,
+        paneCount: Int,
+        preferredTargetPaneIndex: Int?
+    ) -> DropInsertionSizingMode {
+        switch sizingMode {
+        case .proportional:
+            return .proportional
+        case .halveTarget:
+            if let preferredTargetPaneIndex {
+                return .halveTarget(paneIndex: preferredTargetPaneIndex)
+            }
+            let targetPaneIndex = max(0, min(max(insertionIndex - 1, 0), paneCount - 1))
+            return .halveTarget(paneIndex: targetPaneIndex)
+        }
     }
 
     private static func normalized(_ panes: [PaneEntry]) -> [PaneEntry] {

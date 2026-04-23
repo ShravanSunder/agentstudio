@@ -25,7 +25,8 @@ final class LayoutFlatStripTests {
 
         let layout = Layout(paneId: paneA)
 
-        let updated = layout.inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+        let updated = layout.inserting(
+            paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         #expect(updated.paneIds == [paneA, paneB])
         #expect(updated.ratios.count == 2)
@@ -41,7 +42,8 @@ final class LayoutFlatStripTests {
 
         let layout = Layout(paneId: paneA)
 
-        let updated = layout.inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .before)
+        let updated = layout.inserting(
+            paneId: paneB, at: paneA, direction: .horizontal, position: .before, sizingMode: .halveTarget)
 
         #expect(updated.paneIds == [paneB, paneA])
         #expect(updated.ratios == [0.5, 0.5])
@@ -59,7 +61,8 @@ final class LayoutFlatStripTests {
             dividerIds: [UUID()]
         )
 
-        let updated = layout.inserting(paneId: paneC, at: paneB, direction: .horizontal, position: .after)
+        let updated = layout.inserting(
+            paneId: paneC, at: paneB, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         #expect(updated.paneIds == [paneA, paneB, paneC])
         #expect(updated.dividerIds.count == 2)
@@ -84,7 +87,7 @@ final class LayoutFlatStripTests {
             dividerIds: [UUID(), UUID()]
         )
 
-        let updated = layout.removing(paneId: paneB)
+        let updated = layout.removing(paneId: paneB, sizingMode: .halveTarget)
 
         #expect(updated != nil)
         #expect(updated?.paneIds == [paneA, paneC])
@@ -102,7 +105,7 @@ final class LayoutFlatStripTests {
             dividerIds: [UUID()]
         )
 
-        let updated = layout.removing(paneId: paneB)
+        let updated = layout.removing(paneId: paneB, sizingMode: .halveTarget)
 
         #expect(updated != nil)
         #expect(updated?.paneIds == [paneA])
@@ -114,7 +117,7 @@ final class LayoutFlatStripTests {
     func removing_onlyPane_returnsNil() {
         let layout = Layout(paneId: UUID())
 
-        let updated = layout.removing(paneId: layout.paneIds[0])
+        let updated = layout.removing(paneId: layout.paneIds[0], sizingMode: .halveTarget)
 
         #expect(updated == nil)
     }

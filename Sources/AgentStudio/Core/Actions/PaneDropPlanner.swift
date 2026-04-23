@@ -121,13 +121,18 @@ enum PaneDropPlanner {
         {
             return .ineligible
         }
+        guard let zone = dropZoneSide(for: destination.direction) else {
+            RestoreTrace.log(
+                "PaneDropPlanner received unsupported split direction \(String(describing: destination.direction))")
+            return .ineligible
+        }
 
         guard
             let action = WorkspaceCommandResolver.resolveDrop(
                 payload: payload,
                 destinationPaneId: destination.targetPaneId,
                 destinationTabId: destination.targetTabId,
-                zone: dropZoneSide(for: destination.direction),
+                zone: zone,
                 sizingMode: destination.sizingMode,
                 state: state
             )
@@ -152,21 +157,24 @@ enum PaneDropPlanner {
         _ action: PaneActionCommand,
         state: ActionStateSnapshot
     ) -> Bool {
-        if case .success = WorkspaceCommandValidator.validate(action, state: state) {
+        let validation = WorkspaceCommandValidator.validate(action, state: state)
+        if case .success = validation {
             return true
         }
+        RestoreTrace.log(
+            "PaneDropPlanner rejected action \(String(describing: action)) validation=\(String(describing: validation))"
+        )
         return false
     }
 
-    private static func dropZoneSide(for direction: SplitNewDirection) -> DropZoneSide {
+    private static func dropZoneSide(for direction: SplitNewDirection) -> DropZoneSide? {
         switch direction {
         case .left:
             return .left
         case .right:
             return .right
         case .up, .down:
-            // Split drop zones are horizontal-only.
-            return .right
+            return nil
         }
     }
 }

@@ -162,7 +162,7 @@ final class WorkspaceStoreDrawerTests {
                 in: parent.id,
                 at: firstDrawerPane.id,
                 direction: .horizontal,
-                position: .after
+                position: .after, sizingMode: .halveTarget
             )
         )
 
@@ -186,7 +186,7 @@ final class WorkspaceStoreDrawerTests {
                 in: parent.id,
                 at: first.id,
                 direction: .vertical,
-                position: .after
+                position: .after, sizingMode: .halveTarget
             )
         )
 

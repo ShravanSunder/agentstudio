@@ -9,6 +9,7 @@ import UniformTypeIdentifiers
 /// Uses NSPanGestureRecognizer to detect drags while letting SwiftUI handle all other
 /// interactions (clicks, close buttons, right-clicks, hover).
 class DraggableTabBarHostingView: NSView, NSDraggingSource {
+    private static let paneDragHoverDwellDuration: TimeInterval = 0.1
 
     // MARK: - Properties
 
@@ -417,7 +418,10 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         // - Always use insertion index semantics on the tab row
         // - Create/move to a new tab at the insertion target
         if let paneData = pasteboard.data(forType: .agentStudioPaneDrop),
-            let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
+            let payload = decodePaneDragPayload(
+                from: paneData,
+                context: "performDragOperation"
+            )
         {
             if !Self.allowsTabBarInsertion(for: payload) {
                 return false
@@ -442,7 +446,10 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     private func paneDropIsAllowedInTabBar(_ pasteboard: NSPasteboard) -> Bool {
         guard let paneData = pasteboard.data(forType: .agentStudioPaneDrop),
-            let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
+            let payload = decodePaneDragPayload(
+                from: paneData,
+                context: "paneDropIsAllowedInTabBar"
+            )
         else {
             return false
         }
@@ -458,7 +465,10 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     private func updatePaneDragDwellIfNeeded(for sender: NSDraggingInfo) {
         guard
             let paneData = sender.draggingPasteboard.data(forType: .agentStudioPaneDrop),
-            let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
+            let payload = decodePaneDragPayload(
+                from: paneData,
+                context: "updatePaneDragDwellIfNeeded"
+            )
         else {
             resetPaneDragDwell()
             return
@@ -466,12 +476,24 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
         let point = convert(sender.draggingLocation, from: nil)
         let hoveredTabId = tabAtPoint(point)
+        if let hoveredTabId, hoveredTabId != tabBarAdapter?.activeTabId {
+            onSelect?(hoveredTabId)
+
+            if let drawerParentId = DragAutoDismissDecision.shouldAutoDismiss(
+                payload: payload,
+                destinationTabId: hoveredTabId,
+                destinationExpandedDrawerParentPaneId: expandedDrawerParentIdForTab?(hoveredTabId)
+            ) {
+                onAutoDismissDrawerForDrag?(hoveredTabId, drawerParentId)
+            }
+        }
+
         let now = CFAbsoluteTimeGetCurrent()
-        let (next, shouldCommit) = DragDwellState.step(
+        let (next, _) = DragDwellState.step(
             current: dwellState,
             hoveredTabId: hoveredTabId,
             now: now,
-            dwellDuration: 0.1
+            dwellDuration: Self.paneDragHoverDwellDuration
         )
 
         dwellState = next
@@ -479,18 +501,20 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         tabBarAdapter?.dwellProgress = DragDwellProgress.progress(
             state: next,
             now: now,
-            dwellDuration: 0.1
+            dwellDuration: Self.paneDragHoverDwellDuration
         )
+    }
 
-        guard let tabIdToSelect = shouldCommit else { return }
-        onSelect?(tabIdToSelect)
-
-        if let drawerParentId = DragAutoDismissDecision.shouldAutoDismiss(
-            payload: payload,
-            destinationTabId: tabIdToSelect,
-            destinationExpandedDrawerParentPaneId: expandedDrawerParentIdForTab?(tabIdToSelect)
-        ) {
-            onAutoDismissDrawerForDrag?(tabIdToSelect, drawerParentId)
+    private func decodePaneDragPayload(
+        from data: Data,
+        context: StaticString
+    ) -> PaneDragPayload? {
+        do {
+            return try JSONDecoder().decode(PaneDragPayload.self, from: data)
+        } catch {
+            RestoreTrace.log(
+                "DraggableTabBarHostingView.\(context) pane payload decode failed: \(error.localizedDescription)")
+            return nil
         }
     }
 

@@ -42,6 +42,18 @@ struct RearrangeIndexAdjustmentTests {
     }
 
     @Test
+    func sameRow_sourceEqualsOriginalInsertionIndex_unchanged() {
+        let adjustedIndex = RearrangeIndexAdjustment.adjustedInsertionIndex(
+            sourceRow: TestRearrangeRow.main,
+            sourceIndex: 2,
+            targetRow: TestRearrangeRow.main,
+            originalInsertionIndex: 2
+        )
+
+        #expect(adjustedIndex == 2)
+    }
+
+    @Test
     func sameRow_moveToEndSlot_stillShiftsWhenSourceIsEarlier() {
         let adjustedIndex = RearrangeIndexAdjustment.adjustedInsertionIndex(
             sourceRow: TestRearrangeRow.drawerTop,

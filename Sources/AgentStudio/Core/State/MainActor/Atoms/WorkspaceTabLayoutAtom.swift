@@ -85,7 +85,7 @@ final class WorkspaceTabLayoutAtom {
         at targetPaneId: UUID,
         direction: Layout.SplitDirection,
         position: Layout.Position,
-        sizingMode: DropSizingMode = .halveTarget
+        sizingMode: DropSizingMode
     ) -> Bool {
         arrangementAtom.insertPane(
             paneId,

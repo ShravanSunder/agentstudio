@@ -15,10 +15,13 @@ final class PaneDragCoordinatorTests {
         let location = CGPoint(x: 150, y: 300)
 
         // Act
-        let result = PaneDragCoordinator.resolveTarget(location: location, paneFrames: paneFrames, minimizedPaneIds: [])
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
 
         // Assert
-        #expect(result == PaneDropTarget(paneId: paneId, zone: .left))
+        #expect(
+            result == PaneDropTarget(paneId: paneId, zone: .left, sizingTarget: .paneSplit(paneId: paneId, side: .left))
+        )
     }
 
     @Test
@@ -29,10 +32,13 @@ final class PaneDragCoordinatorTests {
         let location = CGPoint(x: 450, y: 300)
 
         // Act
-        let result = PaneDragCoordinator.resolveTarget(location: location, paneFrames: paneFrames, minimizedPaneIds: [])
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
 
         // Assert
-        #expect(result == PaneDropTarget(paneId: paneId, zone: .right))
+        #expect(
+            result
+                == PaneDropTarget(paneId: paneId, zone: .right, sizingTarget: .paneSplit(paneId: paneId, side: .right)))
     }
 
     @Test
@@ -44,10 +50,13 @@ final class PaneDragCoordinatorTests {
         let location = CGPoint(x: 525, y: 250)
 
         // Act
-        let result = PaneDragCoordinator.resolveTarget(location: location, paneFrames: paneFrames, minimizedPaneIds: [])
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
 
         // Assert
-        #expect(result == PaneDropTarget(paneId: paneId, zone: .left))
+        #expect(
+            result == PaneDropTarget(paneId: paneId, zone: .left, sizingTarget: .paneSplit(paneId: paneId, side: .left))
+        )
     }
 
     @Test
@@ -58,7 +67,8 @@ final class PaneDragCoordinatorTests {
         let location = CGPoint(x: 10, y: 10)
 
         // Act
-        let result = PaneDragCoordinator.resolveTarget(location: location, paneFrames: paneFrames, minimizedPaneIds: [])
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
 
         // Assert
         #expect(result == nil)
@@ -76,10 +86,14 @@ final class PaneDragCoordinatorTests {
         let location = CGPoint(x: 99, y: 250)
 
         // Act
-        let result = PaneDragCoordinator.resolveTarget(location: location, paneFrames: paneFrames, minimizedPaneIds: [])
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
 
         // Assert
-        #expect(result == PaneDropTarget(paneId: leftmostPaneId, zone: .left))
+        #expect(
+            result
+                == PaneDropTarget(
+                    paneId: leftmostPaneId, zone: .left, sizingTarget: .paneSplit(paneId: leftmostPaneId, side: .left)))
     }
 
     @Test
@@ -91,11 +105,14 @@ final class PaneDragCoordinatorTests {
 
         // Act
         let result = try #require(
-            PaneDragCoordinator.resolveTarget(location: location, paneFrames: paneFrames, minimizedPaneIds: [])
+            PaneDragCoordinator.resolveTarget(
+                location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
         )
 
         // Assert
-        #expect(result == PaneDropTarget(paneId: paneId, zone: .left))
+        #expect(
+            result == PaneDropTarget(paneId: paneId, zone: .left, sizingTarget: .paneSplit(paneId: paneId, side: .left))
+        )
         #expect(DropSizingModeResolver.mode(for: result.sizingTarget, isShiftHeld: false) == .halveTarget)
     }
 
@@ -112,11 +129,15 @@ final class PaneDragCoordinatorTests {
 
         // Act
         let result = try #require(
-            PaneDragCoordinator.resolveTarget(location: location, paneFrames: paneFrames, minimizedPaneIds: [])
+            PaneDragCoordinator.resolveTarget(
+                location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
         )
 
         // Assert
-        #expect(result == PaneDropTarget(paneId: leftmostPaneId, zone: .left))
+        #expect(
+            result
+                == PaneDropTarget(
+                    paneId: leftmostPaneId, zone: .left, sizingTarget: .paneSplit(paneId: leftmostPaneId, side: .left)))
         #expect(DropSizingModeResolver.mode(for: result.sizingTarget, isShiftHeld: false) == .proportional)
     }
 
@@ -132,10 +153,15 @@ final class PaneDragCoordinatorTests {
         let location = CGPoint(x: 521, y: 250)
 
         // Act
-        let result = PaneDragCoordinator.resolveTarget(location: location, paneFrames: paneFrames, minimizedPaneIds: [])
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
 
         // Assert
-        #expect(result == PaneDropTarget(paneId: rightmostPaneId, zone: .right))
+        #expect(
+            result
+                == PaneDropTarget(
+                    paneId: rightmostPaneId, zone: .right,
+                    sizingTarget: .paneSplit(paneId: rightmostPaneId, side: .right)))
     }
 
     @Test
@@ -159,7 +185,10 @@ final class PaneDragCoordinatorTests {
         )
 
         // Assert
-        #expect(result == PaneDropTarget(paneId: leftmostPaneId, zone: .left))
+        #expect(
+            result
+                == PaneDropTarget(
+                    paneId: leftmostPaneId, zone: .left, sizingTarget: .paneSplit(paneId: leftmostPaneId, side: .left)))
     }
 
     @Test
@@ -183,7 +212,11 @@ final class PaneDragCoordinatorTests {
         )
 
         // Assert
-        #expect(result == PaneDropTarget(paneId: rightmostPaneId, zone: .right))
+        #expect(
+            result
+                == PaneDropTarget(
+                    paneId: rightmostPaneId, zone: .right,
+                    sizingTarget: .paneSplit(paneId: rightmostPaneId, side: .right)))
     }
 
     @Test
@@ -198,7 +231,8 @@ final class PaneDragCoordinatorTests {
         let location = CGPoint(x: 220, y: 220)
 
         // Act
-        let result = PaneDragCoordinator.resolveTarget(location: location, paneFrames: paneFrames, minimizedPaneIds: [])
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
 
         // Assert
         #expect(result?.paneId == smallerPaneId)
@@ -216,17 +250,22 @@ final class PaneDragCoordinatorTests {
         let location = CGPoint(x: 90, y: 380)
 
         // Act
-        let result = PaneDragCoordinator.resolveTarget(location: location, paneFrames: paneFrames, minimizedPaneIds: [])
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
 
         // Assert
-        #expect(result == PaneDropTarget(paneId: leftmostPaneId, zone: .left))
+        #expect(
+            result
+                == PaneDropTarget(
+                    paneId: leftmostPaneId, zone: .left, sizingTarget: .paneSplit(paneId: leftmostPaneId, side: .left)))
     }
 
     @Test
     func test_resolveLatchedTarget_keepsCurrentTarget_whenLocationTemporarilyInvalid() {
         // Arrange
         let paneId = UUID()
-        let currentTarget = PaneDropTarget(paneId: paneId, zone: .left)
+        let currentTarget = PaneDropTarget(
+            paneId: paneId, zone: .left, sizingTarget: .paneSplit(paneId: paneId, side: .left))
         let paneFrames: [UUID: CGRect] = [
             paneId: CGRect(x: 100, y: 100, width: 200, height: 200)
         ]
@@ -236,6 +275,7 @@ final class PaneDragCoordinatorTests {
         let result = PaneDragCoordinator.resolveLatchedTarget(
             location: gapLocation,
             paneFrames: paneFrames,
+            containerBounds: nil,
             minimizedPaneIds: [],
             currentTarget: currentTarget,
             shouldAcceptDrop: { _, _ in true }
@@ -250,7 +290,8 @@ final class PaneDragCoordinatorTests {
         // Arrange
         let firstPaneId = UUID()
         let secondPaneId = UUID()
-        let currentTarget = PaneDropTarget(paneId: firstPaneId, zone: .left)
+        let currentTarget = PaneDropTarget(
+            paneId: firstPaneId, zone: .left, sizingTarget: .paneSplit(paneId: firstPaneId, side: .left))
         let paneFrames: [UUID: CGRect] = [
             firstPaneId: CGRect(x: 100, y: 100, width: 200, height: 200),
             secondPaneId: CGRect(x: 320, y: 100, width: 200, height: 200),
@@ -261,20 +302,25 @@ final class PaneDragCoordinatorTests {
         let result = PaneDragCoordinator.resolveLatchedTarget(
             location: newLocation,
             paneFrames: paneFrames,
+            containerBounds: nil,
             minimizedPaneIds: [],
             currentTarget: currentTarget,
             shouldAcceptDrop: { _, _ in true }
         )
 
         // Assert
-        #expect(result == PaneDropTarget(paneId: secondPaneId, zone: .right))
+        #expect(
+            result
+                == PaneDropTarget(
+                    paneId: secondPaneId, zone: .right, sizingTarget: .paneSplit(paneId: secondPaneId, side: .right)))
     }
 
     @Test
     func test_resolveLatchedTarget_clearsWhenCurrentTargetRejected() {
         // Arrange
         let paneId = UUID()
-        let currentTarget = PaneDropTarget(paneId: paneId, zone: .left)
+        let currentTarget = PaneDropTarget(
+            paneId: paneId, zone: .left, sizingTarget: .paneSplit(paneId: paneId, side: .left))
         let paneFrames: [UUID: CGRect] = [
             paneId: CGRect(x: 100, y: 100, width: 200, height: 200)
         ]
@@ -284,6 +330,7 @@ final class PaneDragCoordinatorTests {
         let result = PaneDragCoordinator.resolveLatchedTarget(
             location: gapLocation,
             paneFrames: paneFrames,
+            containerBounds: nil,
             minimizedPaneIds: [],
             currentTarget: currentTarget,
             shouldAcceptDrop: { _, _ in false }
@@ -343,8 +390,15 @@ final class PaneDragCoordinatorTests {
         )
 
         // Assert
-        #expect(rects[PaneDropTarget(paneId: leftPaneId, zone: .left)] == CGRect(x: 0, y: 0, width: 50, height: 100))
         #expect(
-            rects[PaneDropTarget(paneId: rightPaneId, zone: .right)] == CGRect(x: 150, y: 0, width: 50, height: 100))
+            rects[
+                PaneDropTarget(
+                    paneId: leftPaneId, zone: .left, sizingTarget: .paneSplit(paneId: leftPaneId, side: .left))]
+                == CGRect(x: 0, y: 0, width: 50, height: 100))
+        #expect(
+            rects[
+                PaneDropTarget(
+                    paneId: rightPaneId, zone: .right, sizingTarget: .paneSplit(paneId: rightPaneId, side: .right))]
+                == CGRect(x: 150, y: 0, width: 50, height: 100))
     }
 }

@@ -11,6 +11,18 @@ struct DropTargetConfig: Hashable, Sendable {
     let edgeCorridorWidth: CGFloat
     let allowsPaneSplit: Bool
 
+    private init(
+        rows: [RowID],
+        newRowBand: NewRowBandConfig?,
+        edgeCorridorWidth: CGFloat,
+        allowsPaneSplit: Bool
+    ) {
+        self.rows = rows
+        self.newRowBand = newRowBand
+        self.edgeCorridorWidth = edgeCorridorWidth
+        self.allowsPaneSplit = allowsPaneSplit
+    }
+
     static let main = Self(
         rows: [.main],
         newRowBand: nil,
