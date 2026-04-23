@@ -185,7 +185,11 @@ enum DropTargetResolver {
         paneFrames: [UUID: CGRect],         // pane frames in container-local space
         containerBounds: CGRect,
         config: DropTargetConfig,
-        splittablePanes: Set<UUID>          // whitelist for .paneSplit emission
+        splittablePanes: Set<UUID>          // whitelist for .paneSplit emission.
+                                            // Main path passes all-pane-ids − minimized.
+                                            // Drawer path passes the empty set
+                                            // (config.allowsPaneSplit also forbids regardless).
+                                            // No default — every call site declares intent.
     ) -> DropTarget?
 
     static func targetRects(
@@ -721,25 +725,54 @@ struct DropTargetTests {
     }
 
     @Test
-    func dropTarget_slotEquality() {
-        let a: DropTarget = .slot(row: .main, index: 0)
-        let b: DropTarget = .slot(row: .main, index: 0)
+    func dropZoneSide_leftRightDistinct() {
+        #expect(DropZoneSide.left != .right)
+        #expect(DropZoneSide.allCases.count == 2)
+    }
+
+    @Test
+    func dropTarget_paneSplitEquality() {
+        let paneId = UUID()
+        let a: DropTarget = .paneSplit(paneId: paneId, side: .left)
+        let b: DropTarget = .paneSplit(paneId: paneId, side: .left)
+        let c: DropTarget = .paneSplit(paneId: paneId, side: .right)
+        #expect(a == b)
+        #expect(a != c)
+    }
+
+    @Test
+    func dropTarget_paneSlotEquality() {
+        let a: DropTarget = .paneSlot(row: .main, index: 0)
+        let b: DropTarget = .paneSlot(row: .main, index: 0)
         #expect(a == b)
     }
 
     @Test
-    func dropTarget_newRowPositions() {
-        #expect(DropTarget.newRow(position: .top) != .newRow(position: .bottom))
+    func dropTarget_paneNewRowPositions() {
+        #expect(DropTarget.paneNewRow(position: .top) != .paneNewRow(position: .bottom))
+    }
+
+    @Test
+    func dropTarget_kindsAreDisjoint() {
+        let paneId = UUID()
+        let split: DropTarget = .paneSplit(paneId: paneId, side: .left)
+        let slot: DropTarget = .paneSlot(row: .main, index: 0)
+        let newRow: DropTarget = .paneNewRow(position: .top)
+        #expect(split != slot)
+        #expect(slot != newRow)
+        #expect(split != newRow)
     }
 
     @Test
     func dropTarget_hashable_inSet() {
+        let paneId = UUID()
         let set: Set<DropTarget> = [
-            .slot(row: .main, index: 0),
-            .slot(row: .main, index: 0),
-            .slot(row: .drawerTop, index: 1),
+            .paneSlot(row: .main, index: 0),
+            .paneSlot(row: .main, index: 0),
+            .paneSlot(row: .drawerTop, index: 1),
+            .paneSplit(paneId: paneId, side: .left),
         ]
-        #expect(set.count == 2)
+        #expect(set.count == 3)
     }
 }
 ```
@@ -755,20 +788,32 @@ Expected: FAIL — `DropTarget` and `RowID` not defined.
 // Sources/AgentStudio/Core/Models/DropTarget.swift
 import Foundation
 
+/// Stable identifier for a row.
 enum RowID: Hashable, Sendable {
     case main
     case drawerTop
     case drawerBottom
 }
 
+/// Which half of a pane the cursor is in. Replaces legacy DropZone.
+enum DropZoneSide: String, Hashable, Sendable, CaseIterable {
+    case left
+    case right
+}
+
+/// Vertical position for a drawer new-row creation.
 enum NewRowPosition: Hashable, Sendable {
     case top
     case bottom
 }
 
 enum DropTarget: Hashable, Sendable {
-    case slot(row: RowID, index: Int)
-    case newRow(position: NewRowPosition)
+    /// Cursor on a pane — split target along x-axis.
+    case paneSplit(paneId: UUID, side: DropZoneSide)
+    /// Cursor between panes — insert at slot.
+    case paneSlot(row: RowID, index: Int)
+    /// Drawer n×1 only — grow to n×2.
+    case paneNewRow(position: NewRowPosition)
 }
 ```
 
@@ -805,27 +850,30 @@ import Testing
 @Suite
 struct DropTargetConfigTests {
     @Test
-    func mainConfig_hasSingleMainRowAndNoNewRowBand() {
+    func mainConfig_allowsPaneSplit_withCorridor() {
         let config = DropTargetConfig.main
         #expect(config.rows == [.main])
         #expect(config.newRowBand == nil)
         #expect(config.edgeCorridorWidth == 24)
+        #expect(config.allowsPaneSplit == true)
     }
 
     @Test
-    func drawerSingleRowConfig_hasDrawerTopAndNewRowBand() {
+    func drawerSingleRow_rejectsPaneSplit_hasNewRowBand() {
         let config = DropTargetConfig.drawerSingleRow
         #expect(config.rows == [.drawerTop])
         #expect(config.newRowBand?.bandHeight == 28)
         #expect(config.edgeCorridorWidth == 0)
+        #expect(config.allowsPaneSplit == false)
     }
 
     @Test
-    func drawerTwoRowConfig_hasBothRowsAndNoNewRowBand() {
+    func drawerTwoRow_rejectsPaneSplit_noNewRowBand() {
         let config = DropTargetConfig.drawerTwoRow
         #expect(config.rows == [.drawerTop, .drawerBottom])
         #expect(config.newRowBand == nil)
         #expect(config.edgeCorridorWidth == 0)
+        #expect(config.allowsPaneSplit == false)
     }
 }
 ```
@@ -850,23 +898,29 @@ struct DropTargetConfig: Hashable, Sendable {
     let rows: [RowID]
     let newRowBand: NewRowBandConfig?
     let edgeCorridorWidth: CGFloat
+    /// Row-level gate: when false, resolver NEVER emits `.paneSplit`.
+    /// Drawer = false (row-slot rearrangement only). Main = true.
+    let allowsPaneSplit: Bool
 
     static let main = DropTargetConfig(
         rows: [.main],
         newRowBand: nil,
-        edgeCorridorWidth: 24
+        edgeCorridorWidth: 24,
+        allowsPaneSplit: true
     )
 
     static let drawerSingleRow = DropTargetConfig(
         rows: [.drawerTop],
         newRowBand: NewRowBandConfig(bandHeight: 28),
-        edgeCorridorWidth: 0
+        edgeCorridorWidth: 0,
+        allowsPaneSplit: false
     )
 
     static let drawerTwoRow = DropTargetConfig(
         rows: [.drawerTop, .drawerBottom],
         newRowBand: nil,
-        edgeCorridorWidth: 0
+        edgeCorridorWidth: 0,
+        allowsPaneSplit: false
     )
 }
 ```
@@ -886,11 +940,11 @@ git commit -m "feat: add DropTargetConfig with main/drawer factories"
 
 ---
 
-## Task 3: Resolver — row-slot resolution (no new-row, no edge corridor yet)
+## Task 3: Resolver — row-slot + paneSplit resolution (no new-row, no edge corridor yet)
 
 **Files:**
-- Create: `Sources/AgentStudio/Core/Views/Splits/DropTargetResolver.swift`
-- Test: `Tests/AgentStudioTests/Core/Views/Splits/DropTargetResolverTests.swift`
+- Create: `Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetResolver.swift`
+- Test: `Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverTests.swift`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -921,42 +975,81 @@ struct DropTargetResolverTests {
     }
 
     @Test
-    func resolve_leftHalfOfFirstPane_returnsSlotZero() {
+    func resolve_onPane_allowsPaneSplit_returnsPaneSplit_leftHalf() {
         let ctx = threePaneSingleRow
+        // .main config has allowsPaneSplit = true; splittablePanes = all panes.
+        let target = DropTargetResolver.resolve(
+            location: CGPoint(x: 25, y: 100),  // inside paneA, left of midX=50
+            rows: ctx.rows,
+            paneFrames: ctx.frames,
+            containerBounds: ctx.bounds,
+            config: .main,
+            splittablePanes: [paneA, paneB, paneC]
+        )
+        #expect(target == .paneSplit(paneId: paneA, side: .left))
+    }
+
+    @Test
+    func resolve_onPane_allowsPaneSplit_returnsPaneSplit_rightHalf() {
+        let ctx = threePaneSingleRow
+        let target = DropTargetResolver.resolve(
+            location: CGPoint(x: 75, y: 100),  // inside paneA, right of midX=50
+            rows: ctx.rows,
+            paneFrames: ctx.frames,
+            containerBounds: ctx.bounds,
+            config: .main,
+            splittablePanes: [paneA, paneB, paneC]
+        )
+        #expect(target == .paneSplit(paneId: paneA, side: .right))
+    }
+
+    @Test
+    func resolve_onPane_notSplittable_fallsThroughToPaneSlot() {
+        let ctx = threePaneSingleRow
+        // paneA is minimized → not in splittablePanes → slot-midpoint instead
+        let target = DropTargetResolver.resolve(
+            location: CGPoint(x: 25, y: 100),  // inside paneA, left of midX
+            rows: ctx.rows,
+            paneFrames: ctx.frames,
+            containerBounds: ctx.bounds,
+            config: .main,
+            splittablePanes: [paneB, paneC]  // paneA excluded
+        )
+        #expect(target == .paneSlot(row: .main, index: 0))
+    }
+
+    @Test
+    func resolve_configDisallowsPaneSplit_emitsSlotOnly() {
+        let ctx = threePaneSingleRow
+        // drawer config has allowsPaneSplit = false — even if pane is splittable,
+        // resolver emits .paneSlot.
         let target = DropTargetResolver.resolve(
             location: CGPoint(x: 25, y: 100),
-            rows: ctx.rows,
+            rows: [.drawerTop: [paneA, paneB, paneC]],
             paneFrames: ctx.frames,
             containerBounds: ctx.bounds,
-            config: .main
+            config: .drawerTwoRow,
+            splittablePanes: [paneA, paneB, paneC]
         )
-        #expect(target == .slot(row: .main, index: 0))
+        #expect(target == .paneSlot(row: .drawerTop, index: 0))
     }
 
     @Test
-    func resolve_rightHalfOfFirstPane_returnsSlotOne() {
+    func resolve_betweenPanes_returnsPaneSlot() {
         let ctx = threePaneSingleRow
+        // cursor at x=75 was right-half of paneA. To be BETWEEN panes, we need
+        // cursor outside any pane — force by using allowsPaneSplit=false variant:
+        // drawer config with panes at same geometry.
         let target = DropTargetResolver.resolve(
             location: CGPoint(x: 75, y: 100),
-            rows: ctx.rows,
+            rows: [.drawerTop: [paneA, paneB, paneC]],
             paneFrames: ctx.frames,
             containerBounds: ctx.bounds,
-            config: .main
+            config: .drawerTwoRow,
+            splittablePanes: []
         )
-        #expect(target == .slot(row: .main, index: 1))
-    }
-
-    @Test
-    func resolve_rightHalfOfLastPane_returnsTrailingSlot() {
-        let ctx = threePaneSingleRow
-        let target = DropTargetResolver.resolve(
-            location: CGPoint(x: 275, y: 100),
-            rows: ctx.rows,
-            paneFrames: ctx.frames,
-            containerBounds: ctx.bounds,
-            config: .main
-        )
-        #expect(target == .slot(row: .main, index: 3))
+        // cursor.x=75 > paneA.midX=50 AND <= paneB.midX=150 → slot 1
+        #expect(target == .paneSlot(row: .drawerTop, index: 1))
     }
 
     @Test
@@ -967,9 +1060,27 @@ struct DropTargetResolverTests {
             rows: ctx.rows,
             paneFrames: ctx.frames,
             containerBounds: ctx.bounds,
-            config: .main
+            config: .main,
+            splittablePanes: [paneA, paneB, paneC]
         )
         #expect(target == nil)
+    }
+
+    @Test
+    func resolve_emptyRow_returnsNil() {
+        // Empty-tab fallback: no panes in the main row.
+        let target = DropTargetResolver.resolve(
+            location: CGPoint(x: 150, y: 100),
+            rows: [.main: []],
+            paneFrames: [:],
+            containerBounds: CGRect(x: 0, y: 0, width: 300, height: 200),
+            config: .main,
+            splittablePanes: []
+        )
+        #expect(target == nil)
+        // Caller (e.g. FlatTabStripContainer) is responsible for handling
+        // "add pane to empty tab" via a direct command path, not through the
+        // resolver.
     }
 }
 ```
@@ -982,7 +1093,7 @@ Expected: FAIL — `DropTargetResolver` not defined.
 - [ ] **Step 3: Write minimal implementation**
 
 ```swift
-// Sources/AgentStudio/Core/Views/Splits/DropTargetResolver.swift
+// Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetResolver.swift
 import CoreGraphics
 import Foundation
 
@@ -992,46 +1103,47 @@ enum DropTargetResolver {
         rows: [RowID: [UUID]],
         paneFrames: [UUID: CGRect],
         containerBounds: CGRect,
-        config: DropTargetConfig
+        config: DropTargetConfig,
+        splittablePanes: Set<UUID>
     ) -> DropTarget? {
         for rowID in config.rows {
             guard let paneIds = rows[rowID], !paneIds.isEmpty else { continue }
-            if let slot = resolveRowSlot(
-                location: location,
-                rowID: rowID,
-                paneIds: paneIds,
-                paneFrames: paneFrames
-            ) {
-                return slot
+            let sortedPaneOrder = paneIds
+            let sortedFrames = sortedPaneOrder
+                .compactMap { id -> (UUID, CGRect)? in
+                    guard let f = paneFrames[id] else { return nil }
+                    return (id, f)
+                }
+                .sorted { $0.1.minX < $1.1.minX }
+
+            guard !sortedFrames.isEmpty else { continue }
+            let rowMinY = sortedFrames.map(\.1.minY).min() ?? 0
+            let rowMaxY = sortedFrames.map(\.1.maxY).max() ?? 0
+            guard location.y >= rowMinY, location.y <= rowMaxY else { continue }
+
+            // 1. paneSplit — cursor ON a splittable pane and config allows it
+            if config.allowsPaneSplit {
+                if let (containingId, containingFrame) = sortedFrames.first(where: { $0.1.contains(location) }),
+                    splittablePanes.contains(containingId)
+                {
+                    let side: DropZoneSide = location.x < containingFrame.midX ? .left : .right
+                    return .paneSplit(paneId: containingId, side: side)
+                }
             }
+
+            // 2. paneSlot — midpoint walk over sorted frames
+            if location.x <= sortedFrames[0].1.midX {
+                return .paneSlot(row: rowID, index: 0)
+            }
+            for index in 1..<sortedFrames.count where
+                location.x > sortedFrames[index - 1].1.midX
+                && location.x <= sortedFrames[index].1.midX
+            {
+                return .paneSlot(row: rowID, index: index)
+            }
+            return .paneSlot(row: rowID, index: sortedFrames.count)
         }
         return nil
-    }
-
-    private static func resolveRowSlot(
-        location: CGPoint,
-        rowID: RowID,
-        paneIds: [UUID],
-        paneFrames: [UUID: CGRect]
-    ) -> DropTarget? {
-        let sortedFrames = paneIds.compactMap { paneFrames[$0] }.sorted { $0.minX < $1.minX }
-        guard !sortedFrames.isEmpty else { return nil }
-
-        let rowMinY = sortedFrames.map(\.minY).min() ?? 0
-        let rowMaxY = sortedFrames.map(\.maxY).max() ?? 0
-        guard location.y >= rowMinY, location.y <= rowMaxY else { return nil }
-
-        if location.x <= sortedFrames[0].midX {
-            return .slot(row: rowID, index: 0)
-        }
-        for index in 1..<sortedFrames.count {
-            if location.x > sortedFrames[index - 1].midX,
-                location.x <= sortedFrames[index].midX
-            {
-                return .slot(row: rowID, index: index)
-            }
-        }
-        return .slot(row: rowID, index: sortedFrames.count)
     }
 }
 ```
@@ -1039,14 +1151,14 @@ enum DropTargetResolver {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `mise run test --filter DropTargetResolverTests`
-Expected: PASS — 4 tests.
+Expected: PASS — 7 tests (paneSplit left/right, not-splittable fallthrough, config disallows, between-panes, outside-vertically, empty-row).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Sources/AgentStudio/Core/Views/Splits/DropTargetResolver.swift \
-        Tests/AgentStudioTests/Core/Views/Splits/DropTargetResolverTests.swift
-git commit -m "feat: add DropTargetResolver row-slot resolution"
+git add Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetResolver.swift \
+        Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverTests.swift
+git commit -m "feat: add DropTargetResolver row-slot + paneSplit resolution"
 ```
 
 ---
@@ -1054,8 +1166,8 @@ git commit -m "feat: add DropTargetResolver row-slot resolution"
 ## Task 4: Resolver — new-row bands for drawer single-row config
 
 **Files:**
-- Modify: `Sources/AgentStudio/Core/Views/Splits/DropTargetResolver.swift`
-- Modify: `Tests/AgentStudioTests/Core/Views/Splits/DropTargetResolverTests.swift`
+- Modify: `Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetResolver.swift`
+- Modify: `Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverTests.swift`
 
 - [ ] **Step 1: Write the failing test (append to existing suite)**
 
@@ -1068,9 +1180,10 @@ func resolve_cursorInTopBand_drawerSingleRow_returnsNewRowTop() {
         rows: [.drawerTop: [paneA, paneB, paneC]],
         paneFrames: ctx.frames,
         containerBounds: ctx.bounds,
-        config: .drawerSingleRow
+        config: .drawerSingleRow,
+        splittablePanes: []
     )
-    #expect(target == .newRow(position: .top))
+    #expect(target == .paneNewRow(position: .top))
 }
 
 @Test
@@ -1081,9 +1194,10 @@ func resolve_cursorInBottomBand_drawerSingleRow_returnsNewRowBottom() {
         rows: [.drawerTop: [paneA, paneB, paneC]],
         paneFrames: ctx.frames,
         containerBounds: ctx.bounds,
-        config: .drawerSingleRow
+        config: .drawerSingleRow,
+        splittablePanes: []
     )
-    #expect(target == .newRow(position: .bottom))
+    #expect(target == .paneNewRow(position: .bottom))
 }
 
 @Test
@@ -1094,9 +1208,10 @@ func resolve_cursorInMiddle_drawerSingleRow_returnsSlot() {
         rows: [.drawerTop: [paneA, paneB, paneC]],
         paneFrames: ctx.frames,
         containerBounds: ctx.bounds,
-        config: .drawerSingleRow
+        config: .drawerSingleRow,
+        splittablePanes: []
     )
-    #expect(target == .slot(row: .drawerTop, index: 2))
+    #expect(target == .paneSlot(row: .drawerTop, index: 2))
 }
 
 @Test
@@ -1109,9 +1224,10 @@ func resolve_bandIgnored_whenConfigLacksNewRowBand() {
         rows: [.drawerTop: [paneA, paneB, paneC]],
         paneFrames: ctx.frames,
         containerBounds: ctx.bounds,
-        config: .drawerTwoRow
+        config: .drawerTwoRow,
+        splittablePanes: []
     )
-    #expect(target == .slot(row: .drawerTop, index: 2))
+    #expect(target == .paneSlot(row: .drawerTop, index: 2))
 }
 ```
 
@@ -1123,7 +1239,7 @@ Expected: 4 new tests FAIL — resolver doesn't emit `.newRow` yet.
 - [ ] **Step 3: Extend resolver**
 
 ```swift
-// Sources/AgentStudio/Core/Views/Splits/DropTargetResolver.swift
+// Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetResolver.swift
 // Insert at top of DropTargetResolver.resolve, before the for-rowID loop:
 
 if let band = config.newRowBand {
@@ -1134,7 +1250,7 @@ if let band = config.newRowBand {
         height: band.bandHeight
     )
     if topBand.contains(location) {
-        return .newRow(position: .top)
+        return .paneNewRow(position: .top)
     }
 
     let bottomBand = CGRect(
@@ -1144,7 +1260,7 @@ if let band = config.newRowBand {
         height: band.bandHeight
     )
     if bottomBand.contains(location) {
-        return .newRow(position: .bottom)
+        return .paneNewRow(position: .bottom)
     }
 }
 ```
@@ -1157,8 +1273,8 @@ Expected: PASS — 8 tests total.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Sources/AgentStudio/Core/Views/Splits/DropTargetResolver.swift \
-        Tests/AgentStudioTests/Core/Views/Splits/DropTargetResolverTests.swift
+git add Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetResolver.swift \
+        Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverTests.swift
 git commit -m "feat: resolver emits .newRow targets for drawer single-row band"
 ```
 
@@ -1167,7 +1283,7 @@ git commit -m "feat: resolver emits .newRow targets for drawer single-row band"
 ## Task 5: Resolver — two-row resolution with row priority
 
 **Files:**
-- Modify: `Tests/AgentStudioTests/Core/Views/Splits/DropTargetResolverTests.swift`
+- Modify: `Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverTests.swift`
 
 Note: Task 3 already loops over `config.rows` in order — this task just adds tests proving two-row behavior. No new implementation unless tests fail.
 
@@ -1188,9 +1304,10 @@ func resolve_twoRowDrawer_cursorInTopRow_returnsTopSlot() {
         rows: [.drawerTop: [paneA, paneB], .drawerBottom: [paneC, paneD]],
         paneFrames: frames,
         containerBounds: CGRect(x: 0, y: 0, width: 300, height: 200),
-        config: .drawerTwoRow
+        config: .drawerTwoRow,
+        splittablePanes: []
     )
-    #expect(target == .slot(row: .drawerTop, index: 0))
+    #expect(target == .paneSlot(row: .drawerTop, index: 0))
 }
 
 @Test
@@ -1207,9 +1324,10 @@ func resolve_twoRowDrawer_cursorInBottomRow_returnsBottomSlot() {
         rows: [.drawerTop: [paneA, paneB], .drawerBottom: [paneC, paneD]],
         paneFrames: frames,
         containerBounds: CGRect(x: 0, y: 0, width: 300, height: 200),
-        config: .drawerTwoRow
+        config: .drawerTwoRow,
+        splittablePanes: []
     )
-    #expect(target == .slot(row: .drawerBottom, index: 2))
+    #expect(target == .paneSlot(row: .drawerBottom, index: 2))
 }
 ```
 
@@ -1221,7 +1339,7 @@ Expected: PASS — Task 3's row loop already handles two rows; these confirm.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add Tests/AgentStudioTests/Core/Views/Splits/DropTargetResolverTests.swift
+git add Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverTests.swift
 git commit -m "test: verify resolver two-row behavior"
 ```
 
@@ -1230,8 +1348,8 @@ git commit -m "test: verify resolver two-row behavior"
 ## Task 6: Resolver — edge corridor for main config
 
 **Files:**
-- Modify: `Sources/AgentStudio/Core/Views/Splits/DropTargetResolver.swift`
-- Modify: `Tests/AgentStudioTests/Core/Views/Splits/DropTargetResolverTests.swift`
+- Modify: `Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetResolver.swift`
+- Modify: `Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverTests.swift`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1249,9 +1367,10 @@ func resolve_leftCorridor_main_returnsSlotZero() {
         rows: ctx.rows,
         paneFrames: ctx.frames,
         containerBounds: corridorBounds,
-        config: .main
+        config: .main,
+        splittablePanes: Set(ctx.frames.keys)
     )
-    #expect(target == .slot(row: .main, index: 0))
+    #expect(target == .paneSlot(row: .main, index: 0))
 }
 
 @Test
@@ -1263,9 +1382,10 @@ func resolve_rightCorridor_main_returnsTrailingSlot() {
         rows: ctx.rows,
         paneFrames: ctx.frames,
         containerBounds: corridorBounds,
-        config: .main
+        config: .main,
+        splittablePanes: Set(ctx.frames.keys)
     )
-    #expect(target == .slot(row: .main, index: 3))
+    #expect(target == .paneSlot(row: .main, index: 3))
 }
 
 @Test
@@ -1278,7 +1398,8 @@ func resolve_corridorIgnored_whenConfigCorridorIsZero() {
         rows: [.drawerTop: [paneA, paneB, paneC]],
         paneFrames: ctx.frames,
         containerBounds: corridorBounds,
-        config: .drawerSingleRow
+        config: .drawerSingleRow,
+        splittablePanes: []
     )
     #expect(target == nil)  // outside pane rows, no corridor applies
 }
@@ -1292,7 +1413,7 @@ Expected: 3 new tests FAIL — resolver doesn't emit corridor targets yet.
 - [ ] **Step 3: Extend resolver**
 
 ```swift
-// Sources/AgentStudio/Core/Views/Splits/DropTargetResolver.swift
+// Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetResolver.swift
 // After the for-rowID slot loop in `resolve`, before returning nil,
 // add corridor handling:
 
@@ -1313,7 +1434,7 @@ if config.edgeCorridorWidth > 0 {
             height: rowMaxY - rowMinY
         )
         if leftCorridor.contains(location) {
-            return .slot(row: rowID, index: 0)
+            return .paneSlot(row: rowID, index: 0)
         }
 
         let rightCorridor = CGRect(
@@ -1323,7 +1444,7 @@ if config.edgeCorridorWidth > 0 {
             height: rowMaxY - rowMinY
         )
         if rightCorridor.contains(location) {
-            return .slot(row: rowID, index: sortedFrames.count)
+            return .paneSlot(row: rowID, index: sortedFrames.count)
         }
     }
 }
@@ -1337,8 +1458,8 @@ Expected: PASS — 13 tests total.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Sources/AgentStudio/Core/Views/Splits/DropTargetResolver.swift \
-        Tests/AgentStudioTests/Core/Views/Splits/DropTargetResolverTests.swift
+git add Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetResolver.swift \
+        Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverTests.swift
 git commit -m "feat: resolver emits edge-corridor slot targets for main"
 ```
 
@@ -1347,8 +1468,8 @@ git commit -m "feat: resolver emits edge-corridor slot targets for main"
 ## Task 7: Resolver — `targetRects` for visual overlay
 
 **Files:**
-- Modify: `Sources/AgentStudio/Core/Views/Splits/DropTargetResolver.swift`
-- Modify: `Tests/AgentStudioTests/Core/Views/Splits/DropTargetResolverTests.swift`
+- Modify: `Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetResolver.swift`
+- Modify: `Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverTests.swift`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1360,15 +1481,16 @@ func targetRects_singleRow_emitsSlotAndNewRowRects() {
         rows: [.drawerTop: [paneA, paneB, paneC]],
         paneFrames: ctx.frames,
         containerBounds: ctx.bounds,
-        config: .drawerSingleRow
+        config: .drawerSingleRow,
+        splittablePanes: []
     )
 
     // 4 slots + 2 new-row bands
     #expect(rects.count == 6)
-    #expect(rects[.newRow(position: .top)] != nil)
-    #expect(rects[.newRow(position: .bottom)] != nil)
-    #expect(rects[.slot(row: .drawerTop, index: 0)] != nil)
-    #expect(rects[.slot(row: .drawerTop, index: 3)] != nil)
+    #expect(rects[.paneNewRow(position: .top)] != nil)
+    #expect(rects[.paneNewRow(position: .bottom)] != nil)
+    #expect(rects[.paneSlot(row: .drawerTop, index: 0)] != nil)
+    #expect(rects[.paneSlot(row: .drawerTop, index: 3)] != nil)
 }
 
 @Test
@@ -1378,11 +1500,12 @@ func targetRects_main_emitsOnlySlotRects() {
         rows: ctx.rows,
         paneFrames: ctx.frames,
         containerBounds: ctx.bounds,
-        config: .main
+        config: .main,
+        splittablePanes: Set(ctx.frames.keys)
     )
     // 4 slots, no newRow, no corridor rect (corridor is part of resolve, not enumerated rects — design choice, confirm in review)
     #expect(rects.count == 4)
-    #expect(rects[.newRow(position: .top)] == nil)
+    #expect(rects[.paneNewRow(position: .top)] == nil)
 }
 ```
 
@@ -1394,7 +1517,7 @@ Expected: FAIL — `targetRects` not defined.
 - [ ] **Step 3: Add `targetRects`**
 
 ```swift
-// Sources/AgentStudio/Core/Views/Splits/DropTargetResolver.swift
+// Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetResolver.swift
 extension DropTargetResolver {
     static func targetRects(
         rows: [RowID: [UUID]],
@@ -1405,13 +1528,13 @@ extension DropTargetResolver {
         var rects: [DropTarget: CGRect] = [:]
 
         if let band = config.newRowBand {
-            rects[.newRow(position: .top)] = CGRect(
+            rects[.paneNewRow(position: .top)] = CGRect(
                 x: containerBounds.minX,
                 y: containerBounds.minY,
                 width: containerBounds.width,
                 height: band.bandHeight
             )
-            rects[.newRow(position: .bottom)] = CGRect(
+            rects[.paneNewRow(position: .bottom)] = CGRect(
                 x: containerBounds.minX,
                 y: containerBounds.maxY - band.bandHeight,
                 width: containerBounds.width,
@@ -1437,7 +1560,7 @@ extension DropTargetResolver {
             for insertionIndex in 0...sorted.count {
                 let minX = boundaries[insertionIndex]
                 let maxX = boundaries[insertionIndex + 1]
-                rects[.slot(row: rowID, index: insertionIndex)] = CGRect(
+                rects[.paneSlot(row: rowID, index: insertionIndex)] = CGRect(
                     x: minX,
                     y: rowMinY,
                     width: max(maxX - minX, 1),
@@ -1459,8 +1582,8 @@ Expected: PASS — 15 tests total.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Sources/AgentStudio/Core/Views/Splits/DropTargetResolver.swift \
-        Tests/AgentStudioTests/Core/Views/Splits/DropTargetResolverTests.swift
+git add Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetResolver.swift \
+        Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverTests.swift
 git commit -m "feat: resolver emits targetRects for visual overlay parity"
 ```
 
@@ -1469,8 +1592,8 @@ git commit -m "feat: resolver emits targetRects for visual overlay parity"
 ## Task 8: Resolver — `resolveLatched` wrapper for NSView callbacks
 
 **Files:**
-- Modify: `Sources/AgentStudio/Core/Views/Splits/DropTargetResolver.swift`
-- Modify: `Tests/AgentStudioTests/Core/Views/Splits/DropTargetResolverTests.swift`
+- Modify: `Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetResolver.swift`
+- Modify: `Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverTests.swift`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1484,22 +1607,24 @@ func resolveLatched_acceptsResolvedTarget() {
         paneFrames: ctx.frames,
         containerBounds: ctx.bounds,
         config: .main,
+        splittablePanes: Set(ctx.frames.keys),
         currentTarget: nil,
         shouldAccept: { _ in true }
     )
-    #expect(target == .slot(row: .main, index: 1))
+    #expect(target == .paneSlot(row: .main, index: 1))
 }
 
 @Test
 func resolveLatched_falseAcceptor_keepsCurrent() {
     let ctx = threePaneSingleRow
-    let current: DropTarget = .slot(row: .main, index: 2)
+    let current: DropTarget = .paneSlot(row: .main, index: 2)
     let target = DropTargetResolver.resolveLatched(
         location: CGPoint(x: 75, y: 100),
         rows: ctx.rows,
         paneFrames: ctx.frames,
         containerBounds: ctx.bounds,
         config: .main,
+        splittablePanes: Set(ctx.frames.keys),
         currentTarget: current,
         shouldAccept: { $0 == current }  // only accept the latched one
     )
@@ -1515,6 +1640,7 @@ func resolveLatched_falseAcceptor_noCurrent_returnsNil() {
         paneFrames: ctx.frames,
         containerBounds: ctx.bounds,
         config: .main,
+        splittablePanes: Set(ctx.frames.keys),
         currentTarget: nil,
         shouldAccept: { _ in false }
     )
@@ -1530,7 +1656,7 @@ Expected: FAIL — `resolveLatched` not defined.
 - [ ] **Step 3: Add `resolveLatched`**
 
 ```swift
-// Sources/AgentStudio/Core/Views/Splits/DropTargetResolver.swift
+// Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetResolver.swift
 extension DropTargetResolver {
     static func resolveLatched(
         location: CGPoint,
@@ -1566,8 +1692,8 @@ Expected: PASS — 18 tests total.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Sources/AgentStudio/Core/Views/Splits/DropTargetResolver.swift \
-        Tests/AgentStudioTests/Core/Views/Splits/DropTargetResolverTests.swift
+git add Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetResolver.swift \
+        Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverTests.swift
 git commit -m "feat: add DropTargetResolver.resolveLatched for NSView callbacks"
 ```
 
@@ -1577,7 +1703,7 @@ git commit -m "feat: add DropTargetResolver.resolveLatched for NSView callbacks"
 
 **Files:**
 - Create: `Tests/AgentStudioTests/Fixtures/DrawerDropTargetFixture-pid69705.json`
-- Create: `Tests/AgentStudioTests/Core/Views/Splits/DropTargetResolverFixtureTests.swift`
+- Create: `Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverFixtureTests.swift`
 
 - [ ] **Step 1: Build the fixture**
 
@@ -1619,7 +1745,7 @@ Note: exact scripting is a separate micro-task; the point is the fixture file ex
 - [ ] **Step 2: Write the fixture-replay test**
 
 ```swift
-// Tests/AgentStudioTests/Core/Views/Splits/DropTargetResolverFixtureTests.swift
+// Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverFixtureTests.swift
 import Foundation
 import Testing
 
@@ -1629,22 +1755,51 @@ import Testing
 struct DropTargetResolverFixtureTests {
     struct Fixture: Decodable {
         struct Rect: Decodable { let x: Double; let y: Double; let width: Double; let height: Double }
-        struct Rows: Decodable { let drawerTop: [UUID]?; let drawerBottom: [UUID]? }
+        struct Rows: Decodable {
+            let main: [UUID]?
+            let drawerTop: [UUID]?
+            let drawerBottom: [UUID]?
+        }
         struct Resolution: Decodable {
             struct Point: Decodable { let x: Double; let y: Double }
-            struct ExpectedTarget: Decodable { let kind: String; let row: String?; let index: Int?; let position: String? }
+            struct ExpectedTarget: Decodable {
+                /// "paneSplit" | "paneSlot" | "paneNewRow"
+                let kind: String
+                /// For paneSplit
+                let paneId: UUID?
+                let side: String?       // "left" | "right"
+                /// For paneSlot
+                let row: String?        // "main" | "drawerTop" | "drawerBottom"
+                let index: Int?
+                /// For paneNewRow
+                let position: String?   // "top" | "bottom"
+            }
             let location: Point
             let expectedTarget: ExpectedTarget
         }
+        /// "main" | "drawerSingleRow" | "drawerTwoRow"
+        let configName: String
+        /// pane IDs considered splittable at capture time. Empty for drawer fixtures.
+        /// For main fixtures: captured from `paneFrames.keys − minimizedPaneIds` at drag time.
+        let splittablePaneIds: [UUID]
         let containerBounds: Rect
         let rows: Rows
         let paneFrames: [String: Rect]
         let resolutions: [Resolution]
+
+        var config: DropTargetConfig {
+            switch configName {
+            case "main": return .main
+            case "drawerSingleRow": return .drawerSingleRow
+            case "drawerTwoRow": return .drawerTwoRow
+            default: fatalError("Unknown config name \(configName)")
+            }
+        }
     }
 
-    @Test
-    func replaysPid69705_allResolutionsMatch() throws {
-        let url = Bundle.module.url(forResource: "DrawerDropTargetFixture-pid69705", withExtension: "json")!
+    @Test(arguments: ["DrawerDropTargetFixture-pid69705", "MainDrag-sessionA", "MainDrag-sessionB", "MainDrag-sessionC", "DrawerTwoRowDrag"])
+    func fixture_allResolutionsMatch(fixtureName: String) throws {
+        let url = Bundle.module.url(forResource: fixtureName, withExtension: "json")!
         let data = try Data(contentsOf: url)
         let fixture = try JSONDecoder().decode(Fixture.self, from: data)
 
@@ -1657,32 +1812,48 @@ struct DropTargetResolverFixtureTests {
             acc[uuid] = CGRect(x: pair.value.x, y: pair.value.y, width: pair.value.width, height: pair.value.height)
         }
         var rows: [RowID: [UUID]] = [:]
+        if let mainIds = fixture.rows.main { rows[.main] = mainIds }
         if let top = fixture.rows.drawerTop { rows[.drawerTop] = top }
         if let bottom = fixture.rows.drawerBottom { rows[.drawerBottom] = bottom }
-        let config: DropTargetConfig = fixture.rows.drawerBottom == nil ? .drawerSingleRow : .drawerTwoRow
+
+        let splittable = Set(fixture.splittablePaneIds)
 
         for resolution in fixture.resolutions {
-            let expected: DropTarget? = {
-                switch resolution.expectedTarget.kind {
-                case "slot":
-                    guard let row = resolution.expectedTarget.row, let idx = resolution.expectedTarget.index else { return nil }
-                    let rowID: RowID = row == "drawerTop" ? .drawerTop : .drawerBottom
-                    return .slot(row: rowID, index: idx)
-                case "newRow":
-                    let pos: NewRowPosition = resolution.expectedTarget.position == "top" ? .top : .bottom
-                    return .newRow(position: pos)
-                default:
-                    return nil
-                }
-            }()
+            let expected: DropTarget? = decodeExpected(resolution.expectedTarget)
             let actual = DropTargetResolver.resolve(
                 location: CGPoint(x: resolution.location.x, y: resolution.location.y),
                 rows: rows,
                 paneFrames: frames,
                 containerBounds: bounds,
-                config: config
+                config: fixture.config,
+                splittablePanes: splittable
             )
             #expect(actual == expected, "at \(resolution.location) expected \(String(describing: expected)) got \(String(describing: actual))")
+        }
+    }
+
+    private func decodeExpected(_ et: Fixture.Resolution.ExpectedTarget) -> DropTarget? {
+        switch et.kind {
+        case "paneSplit":
+            guard let paneId = et.paneId, let sideStr = et.side else { return nil }
+            let side: DropZoneSide = sideStr == "left" ? .left : .right
+            return .paneSplit(paneId: paneId, side: side)
+        case "paneSlot":
+            guard let rowStr = et.row, let idx = et.index else { return nil }
+            let rowID: RowID = {
+                switch rowStr {
+                case "main": return .main
+                case "drawerTop": return .drawerTop
+                case "drawerBottom": return .drawerBottom
+                default: fatalError("Unknown row \(rowStr)")
+                }
+            }()
+            return .paneSlot(row: rowID, index: idx)
+        case "paneNewRow":
+            let pos: NewRowPosition = et.position == "top" ? .top : .bottom
+            return .paneNewRow(position: pos)
+        default:
+            return nil
         }
     }
 }
@@ -1699,7 +1870,7 @@ Expected: PASS — all 512 resolutions replay.
 
 ```bash
 git add Tests/AgentStudioTests/Fixtures/DrawerDropTargetFixture-pid69705.json \
-        Tests/AgentStudioTests/Core/Views/Splits/DropTargetResolverFixtureTests.swift
+        Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverFixtureTests.swift
 git commit -m "test: golden fixture — pid=69705 drawer resolutions replay"
 ```
 
@@ -1736,7 +1907,8 @@ struct DrawerPaneDragCoordinator {
             rows: rows,
             paneFrames: paneFrames,
             containerBounds: containerBounds,
-            config: config
+            config: config,
+            splittablePanes: []  // drawer: config.allowsPaneSplit is false; never emits .paneSplit
         ) else { return nil }
         return translate(target)
     }
@@ -1752,7 +1924,8 @@ struct DrawerPaneDragCoordinator {
             rows: rows,
             paneFrames: paneFrames,
             containerBounds: containerBounds,
-            config: config
+            config: config,
+            splittablePanes: []  // drawer: never emits .paneSplit
         )
         var translated: [DrawerRearrangeTarget: CGRect] = [:]
         for (target, rect) in rects {
@@ -1778,6 +1951,7 @@ struct DrawerPaneDragCoordinator {
             paneFrames: paneFrames,
             containerBounds: containerBounds,
             config: config,
+            splittablePanes: [],  // drawer: never emits .paneSplit
             currentTarget: current,
             shouldAccept: { shouldAcceptDrop(translate($0)) }
         ) else { return nil }
@@ -1796,10 +1970,10 @@ struct DrawerPaneDragCoordinator {
 
     private static func translate(_ target: DropTarget) -> DrawerRearrangeTarget {
         switch target {
-        case .slot(let row, let index):
+        case .paneSlot(let row, let index):
             let placement: DrawerRowPlacement = row == .drawerTop ? .top : .bottom
             return .rowSlot(row: placement, insertionIndex: index)
-        case .newRow(let position):
+        case .paneNewRow(let position):
             let placement: DrawerRowPlacement = position == .top ? .top : .bottom
             return .createSecondRow(position: placement)
         }
@@ -1809,10 +1983,10 @@ struct DrawerPaneDragCoordinator {
         switch target {
         case .rowSlot(let row, let insertionIndex):
             let rowID: RowID = row == .top ? .drawerTop : .drawerBottom
-            return .slot(row: rowID, index: insertionIndex)
+            return .paneSlot(row: rowID, index: insertionIndex)
         case .createSecondRow(let position):
             let pos: NewRowPosition = position == .top ? .top : .bottom
-            return .newRow(position: pos)
+            return .paneNewRow(position: pos)
         }
     }
 }
@@ -1837,7 +2011,9 @@ git commit -m "refactor: DrawerPaneDragCoordinator adapts to shared DropTargetRe
 ## Task 11: Migrate `PaneDragCoordinator` to adapter
 
 **Files:**
-- Modify: `Sources/AgentStudio/Core/Views/Splits/PaneDragCoordinator.swift`
+- Modify: `Sources/AgentStudio/Core/Views/Panes/PaneDragCoordinator.swift`
+
+**API change:** the adapter now accepts `minimizedPaneIds: Set<UUID>` so it can construct the `splittablePanes` whitelist for the resolver. Callers (`SplitContainerDropCaptureOverlay.Coordinator`) already receive `minimizedPaneIds` from `FlatTabStripContainer` — they pass it through. No default; every caller declares intent.
 
 - [ ] **Step 1: Replace internals with adapter**
 
@@ -1846,33 +2022,51 @@ struct PaneDragCoordinator {
     static func resolveTarget(
         location: CGPoint,
         paneFrames: [UUID: CGRect],
-        containerBounds: CGRect? = nil
+        containerBounds: CGRect?,
+        minimizedPaneIds: Set<UUID>
     ) -> PaneDropTarget? {
-        let rows: [RowID: [UUID]] = [.main: paneFrames.keys.sorted(by: { paneFrames[$0]!.minX < paneFrames[$1]!.minX })]
+        let sortedRowIds = paneFrames.keys.sorted(by: { paneFrames[$0]!.minX < paneFrames[$1]!.minX })
+        let rows: [RowID: [UUID]] = [.main: sortedRowIds]
         let effectiveBounds = containerBounds ?? derivedBounds(from: paneFrames)
+        let splittable = Set(paneFrames.keys).subtracting(minimizedPaneIds)
+
         guard let target = DropTargetResolver.resolve(
             location: location,
             rows: rows,
             paneFrames: paneFrames,
             containerBounds: effectiveBounds,
-            config: .main
-        ), case .slot(_, let index) = target else {
+            config: .main,
+            splittablePanes: splittable
+        ) else {
             return nil
         }
-        return translate(slotIndex: index, in: rows[.main] ?? [], frames: paneFrames)
+
+        // Main's PaneDropTarget carries paneId + zone. Translate both .paneSplit
+        // (direct mapping) and .paneSlot (anchor to leftmost/rightmost) through
+        // the adapter. .paneNewRow never appears for .main config — guarded by
+        // config.newRowBand == nil.
+        switch target {
+        case .paneSplit(let paneId, let side):
+            return PaneDropTarget(paneId: paneId, zone: side == .left ? .left : .right)
+        case .paneSlot(_, let index):
+            return translate(slotIndex: index, in: sortedRowIds)
+        case .paneNewRow:
+            return nil
+        }
     }
 
     static func resolveLatchedTarget(
         location: CGPoint,
         paneFrames: [UUID: CGRect],
-        containerBounds: CGRect? = nil,
+        containerBounds: CGRect?,
+        minimizedPaneIds: Set<UUID>,
         currentTarget: PaneDropTarget?,
         shouldAcceptDrop: (UUID, DropZone) -> Bool
     ) -> PaneDropTarget? {
-        // Translate current PaneDropTarget -> DropTarget for latched lookup, then back.
         let sortedRowIds = paneFrames.keys.sorted(by: { paneFrames[$0]!.minX < paneFrames[$1]!.minX })
         let rows: [RowID: [UUID]] = [.main: sortedRowIds]
         let effectiveBounds = containerBounds ?? derivedBounds(from: paneFrames)
+        let splittable = Set(paneFrames.keys).subtracting(minimizedPaneIds)
         let currentDrop: DropTarget? = currentTarget.flatMap { toDropTarget($0, sortedIds: sortedRowIds) }
 
         guard let target = DropTargetResolver.resolveLatched(
@@ -1881,15 +2075,22 @@ struct PaneDragCoordinator {
             paneFrames: paneFrames,
             containerBounds: effectiveBounds,
             config: .main,
+            splittablePanes: splittable,
             currentTarget: currentDrop,
             shouldAccept: { candidate in
-                guard let mapped = fromDropTarget(candidate, sortedIds: sortedRowIds, frames: paneFrames) else { return false }
+                guard let mapped = fromDropTarget(candidate, sortedIds: sortedRowIds) else { return false }
                 return shouldAcceptDrop(mapped.paneId, mapped.zone)
             }
-        ), case .slot(_, let index) = target else {
+        ) else { return nil }
+
+        switch target {
+        case .paneSplit(let paneId, let side):
+            return PaneDropTarget(paneId: paneId, zone: side == .left ? .left : .right)
+        case .paneSlot(_, let index):
+            return translate(slotIndex: index, in: sortedRowIds)
+        case .paneNewRow:
             return nil
         }
-        return translate(slotIndex: index, in: sortedRowIds, frames: paneFrames)
     }
 
     private static func derivedBounds(from frames: [UUID: CGRect]) -> CGRect {
@@ -1900,7 +2101,7 @@ struct PaneDragCoordinator {
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 
-    private static func translate(slotIndex: Int, in sortedIds: [UUID], frames: [UUID: CGRect]) -> PaneDropTarget? {
+    private static func translate(slotIndex: Int, in sortedIds: [UUID]) -> PaneDropTarget? {
         guard !sortedIds.isEmpty else { return nil }
         if slotIndex == 0 { return PaneDropTarget(paneId: sortedIds[0], zone: .left) }
         if slotIndex >= sortedIds.count { return PaneDropTarget(paneId: sortedIds.last!, zone: .right) }
@@ -1911,14 +2112,20 @@ struct PaneDragCoordinator {
     private static func toDropTarget(_ pt: PaneDropTarget, sortedIds: [UUID]) -> DropTarget? {
         guard let idx = sortedIds.firstIndex(of: pt.paneId) else { return nil }
         switch pt.zone {
-        case .left:  return .slot(row: .main, index: idx)
-        case .right: return .slot(row: .main, index: idx + 1)
+        case .left:  return .paneSlot(row: .main, index: idx)
+        case .right: return .paneSlot(row: .main, index: idx + 1)
         }
     }
 
-    private static func fromDropTarget(_ dt: DropTarget, sortedIds: [UUID], frames: [UUID: CGRect]) -> PaneDropTarget? {
-        guard case .slot(_, let idx) = dt else { return nil }
-        return translate(slotIndex: idx, in: sortedIds, frames: frames)
+    private static func fromDropTarget(_ dt: DropTarget, sortedIds: [UUID]) -> PaneDropTarget? {
+        switch dt {
+        case .paneSplit(let paneId, let side):
+            return PaneDropTarget(paneId: paneId, zone: side == .left ? .left : .right)
+        case .paneSlot(_, let idx):
+            return translate(slotIndex: idx, in: sortedIds)
+        case .paneNewRow:
+            return nil
+        }
     }
 }
 ```
@@ -1985,11 +2192,12 @@ extension PaneDragCoordinator {
             rows: rows,
             paneFrames: paneFrames,
             containerBounds: containerBounds,
-            config: .main
+            config: .main,
+            splittablePanes: Set(ctx.frames.keys)
         )
         var out: [PaneDropTarget: CGRect] = [:]
         for (target, rect) in shared {
-            guard case .slot(_, let idx) = target else { continue }
+            guard case .paneSlot(_, let idx) = target else { continue }
             if idx == 0, let first = sortedIds.first {
                 out[PaneDropTarget(paneId: first, zone: .left)] = rect
             } else if idx >= sortedIds.count, let last = sortedIds.last {
@@ -2080,7 +2288,7 @@ git commit -m "chore: clean up drop-target legacy geometry"
 
 **Placeholder scan:** No "TBD" / "implement later" / "add validation" / bare "similar to Task N" references. Every code step contains the actual Swift.
 
-**Type consistency:** `DropTarget.slot(row:index:)` used consistently. `DropTargetResolver` method names stable: `resolve`, `targetRects`, `resolveLatched`. Config factory names (`.main`, `.drawerSingleRow`, `.drawerTwoRow`) stable.
+**Type consistency:** `DropTarget.paneSlot(row:index:)` used consistently. `DropTargetResolver` method names stable: `resolve`, `targetRects`, `resolveLatched`. Config factory names (`.main`, `.drawerSingleRow`, `.drawerTwoRow`) stable.
 
 ---
 
