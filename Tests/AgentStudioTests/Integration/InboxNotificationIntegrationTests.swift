@@ -213,4 +213,96 @@ struct InboxNotificationIntegrationTests {
         await forwardingTask.value
         fixture.shutdown()
     }
+
+    @Test("approval and security receive-side events land in list and drawer surfaces")
+    func approvalAndSecurityReceiveSideEventsReachInboxSurfaces() async {
+        let fixture = await makeFixture()
+        let paneId = PaneId()
+        let repoId = UUID()
+        let worktreeId = UUID()
+        _ = addPane(
+            paneId,
+            to: fixture,
+            repoId: repoId,
+            repoName: "agent-studio",
+            worktreeId: worktreeId,
+            worktreeName: "security-worktree"
+        )
+
+        let routedEvents: [PaneRuntimeEvent] = [
+            .artifact(.approvalRequested(request: ApprovalRequest(id: UUID(), summary: "Allow tool?"))),
+            .security(.networkEgressBlocked(destination: "api.example.test", rule: "deny-net")),
+            .security(.filesystemAccessDenied(path: "/tmp/secret", operation: "read")),
+            .security(.secretAccessed(secretId: "OPENAI_API_KEY", consumerId: "agent")),
+            .security(.processSpawnBlocked(command: "curl", rule: "no-shell")),
+            .security(.sandboxHealthChanged(healthy: false)),
+        ]
+        for (index, event) in routedEvents.enumerated() {
+            _ = await fixture.bus.post(
+                RuntimeEnvelopeHarness.paneEnvelope(
+                    event: event,
+                    paneId: paneId,
+                    seq: UInt64(index + 1)
+                )
+            )
+        }
+        _ = await fixture.bus.post(
+            RuntimeEnvelopeHarness.paneEnvelope(
+                event: .security(.sandboxStarted(backend: .local, policy: "default")),
+                paneId: paneId,
+                seq: 100
+            )
+        )
+        _ = await fixture.bus.post(
+            RuntimeEnvelopeHarness.paneEnvelope(
+                event: .security(.sandboxStopped(reason: "done")),
+                paneId: paneId,
+                seq: 101
+            )
+        )
+
+        await assertEventuallyMain("approval and security receive-side events should route") {
+            fixture.inboxAtom.notifications.count == routedEvents.count
+        }
+
+        let notifications = fixture.inboxAtom.notifications
+        #expect(
+            notifications.map(\.kind) == [
+                .approvalRequested,
+                .securityEvent,
+                .securityEvent,
+                .securityEvent,
+                .securityEvent,
+                .securityEvent,
+            ])
+        #expect(notifications.map(\.paneId).allSatisfy { $0 == paneId.uuid })
+        #expect(notifications.map(\.repoId).allSatisfy { $0 == repoId })
+        #expect(notifications.map(\.worktreeId).allSatisfy { $0 == worktreeId })
+        #expect(
+            notifications.map(\.title) == [
+                "Approval requested",
+                "Network egress blocked",
+                "Filesystem access denied",
+                "Secret accessed",
+                "Process spawn blocked",
+                "Sandbox unhealthy",
+            ])
+
+        let listModel = InboxNotificationListModel(
+            notifications: notifications,
+            grouping: .byPane,
+            sort: .newestFirst,
+            searchText: "security-worktree"
+        )
+        #expect(listModel.sections.count == 1)
+        #expect(listModel.sections[0].notifications.count == routedEvents.count)
+
+        let drawerNotifications = InboxNotificationDrawerPopover.relevantNotifications(
+            drawerPaneIds: [paneId.uuid],
+            notifications: notifications
+        )
+        #expect(drawerNotifications.count == routedEvents.count)
+
+        fixture.shutdown()
+    }
 }
