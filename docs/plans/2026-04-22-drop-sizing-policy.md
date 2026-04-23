@@ -642,39 +642,55 @@ Keep this as a follow-on after core behavior is validated. If modifier-during-dr
 - [ ] Task E visual indicator when shift held
 - [ ] One-line mention of shift modifier in `docs/guides/` drag-and-drop docs
 
-## Rearrangement sizing — open sub-questions
+## Rearrangement sizing — resolved 2026-04-23
 
-User added (2026-04-22): rearrangement (moving an existing pane slot→slot or cross-row) also needs the sizing policy applied. Current `moveDrawerPane(target:)` is atomic remove+insert; sizing falls out of `Layout.inserting` (halve target) and `Layout.removing` (adjacent absorb).
+User observation that collapsed the question: rearrange IS just remove + insert. The 3 target kinds already tell us how the arriving pane sizes — no separate "rearrange rule" is needed.
 
-Under new policy, rearrangement is source-row `ratiosAfterRemoval` + target `ratiosAfterInsertion` stitched together. Two open sub-questions requiring user sign-off before rearrangement code lands:
+**Resolution — fresh-ratio via mechanism reuse:**
 
-### R-1: Does a rearranged pane keep its original ratio, or take a fresh one?
+Rearrangement (move-existing-pane) = atomic `ratiosAfterRemoval(source)` composed with `ratiosAfterInsertion(target)`, using the existing insertion policy for the target side based on target kind:
 
-**Option keep-original**: pane ratio `r` is carried from source position to target position. Source row redistributes the vacated `r` via `ratiosAfterRemoval`. Target row accepts the pane with its original `r`, and existing target-row panes scale down proportionally to make room for it.
+| Target kind | Target-side sizing | Source-side sizing |
+|---|---|---|
+| `.paneSplit(paneId, side)` (no shift) | halve target pane; arriving pane takes the halved slot | source row redistributes removed pane's ratio proportionally |
+| `.paneSplit(paneId, side)` + shift | proportional insertion in target row | source row proportional removal |
+| `.paneSlot(row, index)` | proportional insertion in target row (arriving pane gets 1/(N+1)) | source row proportional removal |
+| `.paneSlot(row, index)` + shift | same (shift is no-op for slot — no target to halve) | same |
+| `.paneNewRow(position)` (drawer only) | arriving pane takes 1.0 of new row; new row gets `rowSplitRatio` of panel height | source row proportional removal |
 
-- Pros: "moving a pane" mental model — pane arrives at its new spot the same size
-- Cons: if source row has very wide pane dropped into a cramped row, target row feels crushed; if narrow pane dropped into wide row, insertion position looks empty
+**Key implication:** no new `ratiosForRearrange` method. `DropSizingRatioPolicy` exposes only `ratiosAfterInsertion` + `ratiosAfterRemoval`; rearrange callers compose them. Source and target can be the same row (same-row rearrange) — policy still applies cleanly because remove-then-insert against the post-remove ratios is well-defined.
 
-**Option fresh-ratio**: pane ratio is recomputed per target kind — halve-target (if dropped on a pane) or `1/(N+1)` (if dropped in a slot). Source row absorbs vacated ratio; target row recomputes from policy.
+**Shift modifier is command-level, not drag-only:**
 
-- Pros: consistent with insertion sizing rules; predictable regardless of where pane came from
-- Cons: "moving" can cause visual resize — a wide pane becomes narrow when moved into a dense row
+`DropSizingMode` enters `PaneActionCommand.insertPane(..., sizingMode:)` at every origin:
 
-### R-2: Does Shift override work for rearrange?
+| Command origin | Modifier read at | Default without shift |
+|---|---|---|
+| Drag drop | `performDragOperation` | target-kind-dependent (halve for split, proportional for slot) |
+| Keyboard shortcut (⌘D etc.) | Key-event handler | `.halveTarget` |
+| Menu item | Menu action handler | `.halveTarget` |
+| Plus-button click | Click handler | `.halveTarget` (adjacent to clicked pane) |
+| No-active-pane in tab | Command origin | `.proportional` (target = `.paneSlot` at end of row) |
 
-Proposed: yes, same contract.
-- Without shift + target is `.paneSplit` + keep-original: source row proportional removal; target row halves target pane; dragged pane takes the halved slot at its original ratio (clamped to ≤ halved-slot size)
-- Without shift + target is `.paneSlot`: source row proportional removal; target row proportional insertion (dragged pane gets `1/(N+1)` of target row OR keep-original, per R-1)
-- With shift: proportional on both ends, regardless of target kind
+Shift held at any origin → `.proportional`.
 
-User: confirm R-1 direction before writing implementation tasks for rearrange. Until then, only insertion tasks (B, C, D) are concrete. Task F-rearrange is placeholder.
+**Rearrange is now a concrete task in Task D, not blocked.**
 
-### Task F-rearrange (placeholder)
+## Rearrangement — test pyramid
 
-Implementation blocked on R-1 user decision. When unblocked, will likely involve:
-- New `DropSizingPolicy.ratiosForRearrange(...)` method that produces BOTH source-row and target-row new ratios in one call
-- Wiring in `WorkspacePaneAtom.moveDrawerPane` / equivalent main-pane move path
-- Fixture tests exercising all 4 combinations (shift × target-kind) for both same-row and cross-row rearrange
+Per the test-layer discussion (unit → mock → hidden-window → invariant → fixture), every rearrange combination must be covered:
+
+| Layer | What it tests |
+|---|---|
+| A (pure unit) | `DropSizingRatioPolicy.ratiosAfterRemoval + ratiosAfterInsertion` composed. All (source-row-state × target-kind × shift) matrix. Property tests: sum-to-1.0 on both rows after any rearrange. Same-row rearrange edge cases (removal-then-insertion order correctness). |
+| B (mock `NSDraggingInfo`) | Drive a synthetic rearrange drag against real coordinators with `FakeDraggingInfo`; assert commit produces expected ratios in both source and target rows. |
+| C (hidden window) | Real SwiftUI view tree in off-screen NSWindow. Driven rearrange drag; verify end-state layout matches unit-test prediction. |
+| D (invariant) | Random-generated rearrange scenarios: assert `|sum_source - 1.0| < ε AND |sum_target - 1.0| < ε AND pane-count conservation`. |
+| E (fixture) | Golden-file from captured real-user rearrange drag sessions (captured similarly to pid=69705). Replayed against the resolver + policy. |
+
+Every rearrange edge case — same-row forward, same-row backward, cross-row (drawer n×2 only), onto `.paneSplit`, into `.paneSlot`, with and without shift, source row collapses to empty after remove, target row was empty before insert — must appear in at least Layers A + D. Real-world scenarios additionally go into Layer E.
+
+**No rearrange acceptance without all 5 layers green for the specific combination being shipped.**
 
 ## Non-goals
 
