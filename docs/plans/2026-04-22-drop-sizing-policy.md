@@ -146,7 +146,7 @@ We want one policy. Before we codify it, we must decide which policy.
 **Implementation shape:**
 
 ```swift
-enum SizingMode: Hashable, Sendable {
+enum DropSizingMode: Hashable, Sendable {
     case halveTarget       // Option A semantics
     case proportional      // Option C semantics
 }
@@ -157,13 +157,13 @@ enum DropSizingPolicy {
     static func sizingMode(
         for target: DropTarget,
         modifiers: NSEvent.ModifierFlags
-    ) -> SizingMode {
+    ) -> DropSizingMode {
         if modifiers.contains(.shift) { return .proportional }
 
         switch target {
-        case .splitZone:
+        case .paneSplit:
             return .halveTarget
-        case .slot, .newRow:
+        case .paneSlot, .paneNewRow:
             return .proportional
         }
     }
@@ -172,13 +172,13 @@ enum DropSizingPolicy {
         existingRatios: [Double],
         insertionIndex: Int,
         targetPaneIndex: Int?,      // non-nil only when mode == .halveTarget
-        mode: SizingMode
+        mode: DropSizingMode
     ) -> [Double] { ... }
 
     static func ratiosAfterRemoval(
         existingRatios: [Double],
         removalIndex: Int,
-        mode: SizingMode             // always .proportional for now; reserved for future
+        mode: DropSizingMode             // always .proportional for now; reserved for future
     ) -> [Double] { ... }
 }
 ```
@@ -291,88 +291,71 @@ Before any change. Prevents accidental drift.
   git commit -m "test: codify current insert/remove ratio behavior"
   ```
 
-### Task B — Extract `SizingMode` + `DropSizingPolicy` core
+### Task B — Pure `DropSizingRatioPolicy` in Core/Models + AppKit adapter `DropSizingModeResolver` in Core/Views/DragAndDrop
+
+Split into two pieces to keep model/state code AppKit-free (Codex P1-2):
 
 **Files:**
-- Create: `Sources/AgentStudio/Core/Views/Splits/DropSizingPolicy.swift`
-- Create: `Tests/AgentStudioTests/Core/Views/Splits/DropSizingPolicyTests.swift`
+- Create: `Sources/AgentStudio/Core/Models/DropSizingRatioPolicy.swift` — pure, Foundation only
+- Create: `Tests/AgentStudioTests/Core/Models/DropSizingRatioPolicyTests.swift`
+- Create: `Sources/AgentStudio/Core/Views/DragAndDrop/DropSizingModeResolver.swift` — AppKit boundary
+- Create: `Tests/AgentStudioTests/Core/Views/DragAndDrop/DropSizingModeResolverTests.swift`
 
-- [ ] **Step 1: Write the failing test**
+**Dependency:** `DropTarget` (`.paneSplit`, `.paneSlot`, `.paneNewRow`) must exist — ships from the unified plan. Do NOT stub it in this plan.
+
+- [ ] **Step 1: Write failing tests for pure ratio policy**
 
 ```swift
-import AppKit
+// Tests/AgentStudioTests/Core/Models/DropSizingRatioPolicyTests.swift
 import Foundation
 import Testing
 
 @testable import AgentStudio
 
 @Suite
-struct DropSizingPolicyTests {
-    // MARK: - mode selection
-
-    @Test
-    func sizingMode_splitZone_defaultsToHalveTarget() {
-        let mode = DropSizingPolicy.sizingMode(
-            for: .splitZone(paneId: UUID(), direction: .left),
-            modifiers: []
-        )
-        #expect(mode == .halveTarget)
-    }
-
-    @Test
-    func sizingMode_slot_defaultsToProportional() {
-        let mode = DropSizingPolicy.sizingMode(
-            for: .slot(row: .main, index: 1),
-            modifiers: []
-        )
-        #expect(mode == .proportional)
-    }
-
-    @Test
-    func sizingMode_shiftHeld_forcesProportional_regardlessOfTarget() {
-        let splitModeWithShift = DropSizingPolicy.sizingMode(
-            for: .splitZone(paneId: UUID(), direction: .left),
-            modifiers: .shift
-        )
-        #expect(splitModeWithShift == .proportional)
-
-        let slotModeWithShift = DropSizingPolicy.sizingMode(
-            for: .slot(row: .drawerTop, index: 0),
-            modifiers: .shift
-        )
-        #expect(slotModeWithShift == .proportional)
-    }
-
-    // MARK: - halve-target
+struct DropSizingRatioPolicyTests {
+    // MARK: - halveTarget insertion
 
     @Test
     func ratiosAfterInsertion_halveTarget_halvesOnlyTargetPane() {
-        let result = DropSizingPolicy.ratiosAfterInsertion(
+        let result = DropSizingRatioPolicy.ratiosAfterInsertion(
             existingRatios: [0.5, 0.3, 0.2],
-            insertionIndex: 2,     // insert between index 1 (the 0.3) and index 2 (the 0.2)
-            targetPaneIndex: 1,    // target is the 0.3 pane
+            insertionIndex: 2,
+            targetPaneIndex: 1,
             mode: .halveTarget
         )
         #expect(result.count == 4)
-        #expect(abs(result[0] - 0.5) < 0.001)   // unchanged
-        #expect(abs(result[1] - 0.15) < 0.001)  // halved from 0.3
-        #expect(abs(result[2] - 0.15) < 0.001)  // new pane, took the other half
-        #expect(abs(result[3] - 0.2) < 0.001)   // unchanged
+        #expect(abs(result[0] - 0.5) < 0.001)
+        #expect(abs(result[1] - 0.15) < 0.001)
+        #expect(abs(result[2] - 0.15) < 0.001)
+        #expect(abs(result[3] - 0.2) < 0.001)
         #expect(abs(result.reduce(0, +) - 1.0) < 0.001)
     }
 
-    // MARK: - proportional
+    @Test
+    func ratiosAfterInsertion_halveTarget_noTargetIndex_fallsBackToProportional() {
+        let result = DropSizingRatioPolicy.ratiosAfterInsertion(
+            existingRatios: [0.6, 0.4],
+            insertionIndex: 1,
+            targetPaneIndex: nil,
+            mode: .halveTarget
+        )
+        // With no target, policy falls back to proportional preservation.
+        #expect(abs(result.reduce(0, +) - 1.0) < 0.001)
+        #expect(abs(result[1] - 1.0 / 3.0) < 0.001)
+    }
+
+    // MARK: - proportional insertion
 
     @Test
     func ratiosAfterInsertion_proportional_preservesExistingProportions() {
-        let result = DropSizingPolicy.ratiosAfterInsertion(
+        let result = DropSizingRatioPolicy.ratiosAfterInsertion(
             existingRatios: [0.6, 0.4],
             insertionIndex: 1,
             targetPaneIndex: nil,
             mode: .proportional
         )
         #expect(result.count == 3)
-        // new pane gets 1/3, existing share 2/3 in 3:2 ratio
         #expect(abs(result[0] - 0.4) < 0.001)
         #expect(abs(result[1] - 1.0 / 3.0) < 0.001)
         #expect(abs(result[2] - (0.4 * 2.0 / 3.0)) < 0.001)
@@ -381,7 +364,7 @@ struct DropSizingPolicyTests {
 
     @Test
     func ratiosAfterInsertion_intoEmpty_returnsSingleFullPane() {
-        let result = DropSizingPolicy.ratiosAfterInsertion(
+        let result = DropSizingRatioPolicy.ratiosAfterInsertion(
             existingRatios: [],
             insertionIndex: 0,
             targetPaneIndex: nil,
@@ -393,61 +376,58 @@ struct DropSizingPolicyTests {
     // MARK: - removal
 
     @Test
-    func ratiosAfterRemoval_proportional_redistributesEquallyByProportion() {
-        let result = DropSizingPolicy.ratiosAfterRemoval(
+    func ratiosAfterRemoval_proportional_redistributesByProportion() {
+        let result = DropSizingRatioPolicy.ratiosAfterRemoval(
             existingRatios: [0.5, 0.25, 0.25],
             removalIndex: 0,
             mode: .proportional
         )
         #expect(result.count == 2)
-        // [0.25, 0.25] scaled to sum 1.0 → [0.5, 0.5]
         #expect(abs(result[0] - 0.5) < 0.001)
         #expect(abs(result[1] - 0.5) < 0.001)
+    }
+
+    @Test
+    func ratiosAfterRemoval_adjacentAbsorb_givesRatioToRightNeighbor() {
+        // Repair paths use .halveTarget mode; removal falls back to adjacent-absorb,
+        // which matches Layout.removing behavior today. Preserves conservative
+        // repair semantics while user-path removals use .proportional.
+        let result = DropSizingRatioPolicy.ratiosAfterRemoval(
+            existingRatios: [0.5, 0.3, 0.2],
+            removalIndex: 1,
+            mode: .halveTarget
+        )
+        #expect(result.count == 2)
+        #expect(abs(result[0] - 0.5) < 0.001)
+        #expect(abs(result[1] - 0.5) < 0.001)  // 0.2 + 0.3 absorbed
     }
 }
 ```
 
 - [ ] **Step 2: Run tests to verify fail**
 
-Run: `mise run test --filter DropSizingPolicyTests`
-Expected: FAIL — `DropSizingPolicy` not defined.
+Run: `mise run test --filter DropSizingRatioPolicyTests`
+Expected: FAIL.
 
-- [ ] **Step 3: Implement**
+- [ ] **Step 3: Implement pure ratio policy (no AppKit)**
 
 ```swift
-// Sources/AgentStudio/Core/Views/Splits/DropSizingPolicy.swift
-import AppKit
+// Sources/AgentStudio/Core/Models/DropSizingRatioPolicy.swift
 import Foundation
 
-enum SizingMode: Hashable, Sendable {
+enum DropSizingMode: Hashable, Sendable {
     case halveTarget
     case proportional
 }
 
-enum DropSizingPolicy {
-    static func sizingMode(
-        for target: DropTarget,
-        modifiers: NSEvent.ModifierFlags
-    ) -> SizingMode {
-        if modifiers.contains(.shift) {
-            return .proportional
-        }
-        switch target {
-        case .splitZone:
-            return .halveTarget
-        case .slot, .newRow:
-            return .proportional
-        }
-    }
-
+enum DropSizingRatioPolicy {
     static func ratiosAfterInsertion(
         existingRatios: [Double],
         insertionIndex: Int,
         targetPaneIndex: Int?,
-        mode: SizingMode
+        mode: DropSizingMode
     ) -> [Double] {
         if existingRatios.isEmpty { return [1.0] }
-
         let clampedInsertion = max(0, min(insertionIndex, existingRatios.count))
 
         switch mode {
@@ -455,7 +435,6 @@ enum DropSizingPolicy {
             guard let targetIdx = targetPaneIndex,
                   targetIdx >= 0, targetIdx < existingRatios.count
             else {
-                // Fall back to proportional if caller didn't supply a target.
                 return ratiosAfterInsertion(
                     existingRatios: existingRatios,
                     insertionIndex: clampedInsertion,
@@ -483,7 +462,7 @@ enum DropSizingPolicy {
     static func ratiosAfterRemoval(
         existingRatios: [Double],
         removalIndex: Int,
-        mode: SizingMode
+        mode: DropSizingMode
     ) -> [Double] {
         guard removalIndex >= 0, removalIndex < existingRatios.count else {
             return existingRatios
@@ -493,8 +472,9 @@ enum DropSizingPolicy {
 
         switch mode {
         case .halveTarget:
-            // Not meaningful on removal — degenerate case, reuse adjacent-absorb
-            // which matches the historical Layout.removing behavior.
+            // Degenerate case: "halveTarget" has no insertion target on removal.
+            // We adopt the historical adjacent-absorb rule — right neighbor
+            // (or left if last) takes the removed ratio. Used for repair paths.
             if removalIndex < updated.count {
                 updated[removalIndex] += removed
             } else if !updated.isEmpty {
@@ -512,19 +492,105 @@ enum DropSizingPolicy {
 }
 ```
 
-Note: `DropTarget` must have a `.splitZone(paneId:direction:)` case. If the unified-algo plan has not yet shipped that case, stub it in the `DropTarget` enum as part of this task — it's the same codebase either way.
-
 - [ ] **Step 4: Run tests to verify pass**
 
-Run: `mise run test --filter DropSizingPolicyTests`
+Run: `mise run test --filter DropSizingRatioPolicyTests`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Commit (pure policy lands first)**
 
 ```bash
-git add Sources/AgentStudio/Core/Views/Splits/DropSizingPolicy.swift \
-        Tests/AgentStudioTests/Core/Views/Splits/DropSizingPolicyTests.swift
-git commit -m "feat: DropSizingPolicy — hybrid default, shift → proportional"
+git add Sources/AgentStudio/Core/Models/DropSizingRatioPolicy.swift \
+        Tests/AgentStudioTests/Core/Models/DropSizingRatioPolicyTests.swift
+git commit -m "feat: DropSizingRatioPolicy — pure ratio math, no AppKit"
+```
+
+- [ ] **Step 6: Write failing tests for AppKit-adjacent mode resolver**
+
+```swift
+// Tests/AgentStudioTests/Core/Views/DragAndDrop/DropSizingModeResolverTests.swift
+import Foundation
+import Testing
+
+@testable import AgentStudio
+
+@Suite
+struct DropSizingModeResolverTests {
+    @Test
+    func mode_paneSplit_noShift_isHalveTarget() {
+        let mode = DropSizingModeResolver.mode(
+            for: .paneSplit(paneId: UUID(), side: .left),
+            isShiftHeld: false
+        )
+        #expect(mode == .halveTarget)
+    }
+
+    @Test
+    func mode_paneSplit_shift_isProportional() {
+        let mode = DropSizingModeResolver.mode(
+            for: .paneSplit(paneId: UUID(), side: .right),
+            isShiftHeld: true
+        )
+        #expect(mode == .proportional)
+    }
+
+    @Test
+    func mode_paneSlot_alwaysProportional() {
+        let modeNoShift = DropSizingModeResolver.mode(
+            for: .paneSlot(row: .main, index: 0),
+            isShiftHeld: false
+        )
+        let modeShift = DropSizingModeResolver.mode(
+            for: .paneSlot(row: .drawerTop, index: 2),
+            isShiftHeld: true
+        )
+        #expect(modeNoShift == .proportional)
+        #expect(modeShift == .proportional)
+    }
+
+    @Test
+    func mode_paneNewRow_alwaysProportional() {
+        let mode = DropSizingModeResolver.mode(
+            for: .paneNewRow(position: .top),
+            isShiftHeld: false
+        )
+        #expect(mode == .proportional)
+    }
+}
+```
+
+- [ ] **Step 7: Implement the mode resolver**
+
+The resolver takes a plain `Bool` for shift state; it does NOT import AppKit. Callers (`SplitContainerDropCaptureOverlay.performDragOperation`, etc.) capture `NSEvent.modifierFlags.contains(.shift)` and pass the resulting `Bool`.
+
+```swift
+// Sources/AgentStudio/Core/Views/DragAndDrop/DropSizingModeResolver.swift
+import Foundation
+
+enum DropSizingModeResolver {
+    static func mode(for target: DropTarget, isShiftHeld: Bool) -> DropSizingMode {
+        if isShiftHeld { return .proportional }
+        switch target {
+        case .paneSplit:
+            return .halveTarget
+        case .paneSlot, .paneNewRow:
+            return .proportional
+        }
+    }
+}
+```
+
+- [ ] **Step 8: Run tests to verify pass**
+
+Run: `mise run test --filter DropSizingModeResolverTests`
+Expected: PASS.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add Sources/AgentStudio/Core/Views/DragAndDrop/DropSizingModeResolver.swift \
+        Tests/AgentStudioTests/Core/Views/DragAndDrop/DropSizingModeResolverTests.swift
+git commit -m "feat: DropSizingModeResolver — Bool-in/DropSizingMode-out, no AppKit import"
 ```
 
 ### Task C — Wire `DropSizingPolicy` into main-pane insert path
@@ -595,7 +661,7 @@ Mirror Task C for drawer paths. Files to hit:
 - `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` drawer mutations
 - `Sources/AgentStudio/Core/Models/DrawerGridLayout+Rearrange.swift`
 
-Use the same steps as Task C, with the specific nuance that drawer row-slot drops and drawer newRow drops are all proportional by default (no `.splitZone` target in drawer context).
+Use the same steps as Task C, with the specific nuance that drawer row-slot drops and drawer newRow drops are all proportional by default (no `.paneSplit` target in drawer context).
 
 - [ ] Commit:
   ```bash
@@ -634,7 +700,7 @@ Keep this as a follow-on after core behavior is validated. If modifier-during-dr
   - 4-pane horizontal split, drop-on-pane-zone of pane index 1: only that pane shrinks 50%, other panes unchanged
   - 4-pane horizontal split, drop-on-slot between panes 1 and 2: all four existing panes scale proportionally to 0.8x, new pane gets 0.2 share
   - 4-pane horizontal split, shift-held drop-on-pane-zone: proportional applies, not halve
-  - Drawer n×1, drop onto rowSlot: proportional (since drawer doesn't use splitZone targets)
+  - Drawer n×1, drop onto rowSlot: proportional (since drawer doesn't use .paneSplit targets)
   - Drawer n×1, drag to top band: `newRow(.top)` created
 
 ### Soft — polish
@@ -660,19 +726,39 @@ Rearrangement (move-existing-pane) = atomic `ratiosAfterRemoval(source)` compose
 
 **Key implication:** no new `ratiosForRearrange` method. `DropSizingRatioPolicy` exposes only `ratiosAfterInsertion` + `ratiosAfterRemoval`; rearrange callers compose them. Source and target can be the same row (same-row rearrange) — policy still applies cleanly because remove-then-insert against the post-remove ratios is well-defined.
 
+**Same-row rearrange — index adjustment rule (P1 from codex 2nd review):**
+
+For same-row rearranges the insertion index captured BEFORE removal may shift after the source pane is removed from that row. Deterministic rule, tested as a pure helper (`RearrangeIndexAdjustment.adjustedInsertionIndex(...)`):
+
+```
+if sourceRow == targetRow && sourceIndex < originalInsertionIndex:
+    adjustedIndex = originalInsertionIndex - 1
+else:
+    adjustedIndex = originalInsertionIndex
+```
+
+This is applied AFTER `ratiosAfterRemoval` returns the new source-row ratios, BEFORE `ratiosAfterInsertion` is called against the target row. Cross-row rearranges bypass (source and target rows differ → no shift).
+
+Test cases the pure helper must pass:
+- same-row forward move (source before target): index shifts by -1
+- same-row backward move (source after target): index unchanged
+- no-op (source == target slot): index shifts by -1 → effectively same position
+- move to end slot: still shifts correctly when source is earlier
+
 **Shift modifier is command-level, not drag-only:**
 
-`DropSizingMode` enters `PaneActionCommand.insertPane(..., sizingMode:)` at every origin:
+`DropSizingMode` enters both `PaneActionCommand.insertPane(..., sizingMode:)` AND `PaneActionCommand.moveDrawerPane(..., sizingMode:)` (and equivalent main-pane rearrange commands when added). Origins that actually exist today:
 
 | Command origin | Modifier read at | Default without shift |
 |---|---|---|
-| Drag drop | `performDragOperation` | target-kind-dependent (halve for split, proportional for slot) |
-| Keyboard shortcut (⌘D etc.) | Key-event handler | `.halveTarget` |
-| Menu item | Menu action handler | `.halveTarget` |
-| Plus-button click | Click handler | `.halveTarget` (adjacent to clicked pane) |
-| No-active-pane in tab | Command origin | `.proportional` (target = `.paneSlot` at end of row) |
+| Drag drop (main + drawer) | `performDragOperation` in capture NSView | target-kind-dependent (halve for `.paneSplit`, proportional for `.paneSlot` / `.paneNewRow`) |
+| Plus-button in drawer icon bar (creates new drawer pane) | Click handler | `.halveTarget` if active drawer pane exists; `.proportional` otherwise (target = end-of-row `.paneSlot`) |
+| Menu item / programmatic add-drawer-pane | Action origin | Same as plus-button |
+| Merge tab / reactivate backgrounded pane | Action origin | `.halveTarget` (conservative — matches existing behavior) |
 
-Shift held at any origin → `.proportional`.
+Explicitly NOT in this list (confirmed with user 2026-04-23): there is no ⌘D keyboard split command in AgentStudio. No split-right/split-left keyboard shortcuts exist.
+
+Shift held at any origin → `.proportional` (runtime-read from `NSEvent.modifierFlags` at the originating UI event).
 
 **Rearrange is now a concrete task in Task D, not blocked.**
 
