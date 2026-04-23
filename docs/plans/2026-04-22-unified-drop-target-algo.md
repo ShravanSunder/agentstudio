@@ -2234,35 +2234,949 @@ git commit -m "refactor: overlays consume targetRects from shared resolver"
 
 ---
 
-## Task 13: Remove dead code + final audit
+## Task 13: `DragDwellState` — pure state machine for tab hover dwell
 
 **Files:**
-- Audit: `Sources/AgentStudio/Core/Views/Splits/DropZone.swift`
-- Audit: any ratio-computation code still living inline
+- Create: `Sources/AgentStudio/Core/Views/DragAndDrop/DragDwellState.swift`
+- Test: `Tests/AgentStudioTests/Core/Views/DragAndDrop/DragDwellStateTests.swift`
 
-- [ ] **Step 1: Audit for remaining inline geometry / sizing**
+- [ ] **Step 1: Write the failing tests**
+
+```swift
+import Foundation
+import Testing
+
+@testable import AgentStudio
+
+@Suite
+struct DragDwellStateTests {
+    private let tabA = UUID()
+    private let tabB = UUID()
+    private let tabC = UUID()
+
+    @Test
+    func step_cursorLeavesTabBar_resets() {
+        let state = DragDwellState(hoveredTabId: tabA, dwellStartTime: 10.0, lastCommittedTabId: nil)
+        let (next, commit) = DragDwellState.step(current: state, hoveredTabId: nil, now: 10.05, dwellDuration: 0.1)
+        #expect(next.hoveredTabId == nil)
+        #expect(next.dwellStartTime == nil)
+        #expect(commit == nil)
+    }
+
+    @Test
+    func step_newTab_startsDwell_doesNotCommit() {
+        let (next, commit) = DragDwellState.step(
+            current: .idle,
+            hoveredTabId: tabA,
+            now: 10.0,
+            dwellDuration: 0.1
+        )
+        #expect(next.hoveredTabId == tabA)
+        #expect(next.dwellStartTime == 10.0)
+        #expect(commit == nil)
+    }
+
+    @Test
+    func step_sameTab_underThreshold_doesNotCommit() {
+        let state = DragDwellState(hoveredTabId: tabA, dwellStartTime: 10.0, lastCommittedTabId: nil)
+        let (next, commit) = DragDwellState.step(current: state, hoveredTabId: tabA, now: 10.05, dwellDuration: 0.1)
+        #expect(next.dwellStartTime == 10.0)   // preserved
+        #expect(commit == nil)
+    }
+
+    @Test
+    func step_sameTab_atThreshold_commits() {
+        let state = DragDwellState(hoveredTabId: tabA, dwellStartTime: 10.0, lastCommittedTabId: nil)
+        let (next, commit) = DragDwellState.step(current: state, hoveredTabId: tabA, now: 10.1, dwellDuration: 0.1)
+        #expect(commit == tabA)
+        #expect(next.lastCommittedTabId == tabA)
+    }
+
+    @Test
+    func step_sameTab_overThreshold_commits() {
+        let state = DragDwellState(hoveredTabId: tabA, dwellStartTime: 10.0, lastCommittedTabId: nil)
+        let (next, commit) = DragDwellState.step(current: state, hoveredTabId: tabA, now: 10.5, dwellDuration: 0.1)
+        #expect(commit == tabA)
+        #expect(next.lastCommittedTabId == tabA)
+    }
+
+    @Test
+    func step_switchToDifferentTab_resetsDwell() {
+        let state = DragDwellState(hoveredTabId: tabA, dwellStartTime: 10.0, lastCommittedTabId: nil)
+        let (next, commit) = DragDwellState.step(current: state, hoveredTabId: tabB, now: 10.05, dwellDuration: 0.1)
+        #expect(next.hoveredTabId == tabB)
+        #expect(next.dwellStartTime == 10.05)
+        #expect(commit == nil)
+    }
+
+    @Test
+    func step_afterCommit_sameTab_doesNotReCommit() {
+        let state = DragDwellState(hoveredTabId: tabA, dwellStartTime: 10.0, lastCommittedTabId: tabA)
+        let (_, commit) = DragDwellState.step(current: state, hoveredTabId: tabA, now: 11.0, dwellDuration: 0.1)
+        #expect(commit == nil)
+    }
+
+    @Test
+    func step_afterCommit_differentTab_startsNewDwell() {
+        let state = DragDwellState(hoveredTabId: tabA, dwellStartTime: 10.0, lastCommittedTabId: tabA)
+        let (next, commit) = DragDwellState.step(current: state, hoveredTabId: tabB, now: 11.0, dwellDuration: 0.1)
+        #expect(next.hoveredTabId == tabB)
+        #expect(next.dwellStartTime == 11.0)
+        #expect(next.lastCommittedTabId == tabA)  // preserved
+        #expect(commit == nil)
+    }
+
+    @Test
+    func step_rapidPassAcrossTabs_noCommits() {
+        // Simulate cursor moving A → B → C within < dwell duration each.
+        var state = DragDwellState.idle
+        (state, _) = DragDwellState.step(current: state, hoveredTabId: tabA, now: 10.00, dwellDuration: 0.1)
+        let (afterB, commitB) = DragDwellState.step(current: state, hoveredTabId: tabB, now: 10.05, dwellDuration: 0.1)
+        #expect(commitB == nil)
+        let (afterC, commitC) = DragDwellState.step(current: afterB, hoveredTabId: tabC, now: 10.08, dwellDuration: 0.1)
+        #expect(commitC == nil)
+        #expect(afterC.lastCommittedTabId == nil)
+    }
+
+    // MARK: - Progress
+
+    @Test
+    func progress_zeroAtDwellStart() {
+        let state = DragDwellState(hoveredTabId: tabA, dwellStartTime: 10.0, lastCommittedTabId: nil)
+        let p = DragDwellProgress.progress(state: state, now: 10.0, dwellDuration: 0.1)
+        #expect(p == 0)
+    }
+
+    @Test
+    func progress_halfAtHalfDuration() {
+        let state = DragDwellState(hoveredTabId: tabA, dwellStartTime: 10.0, lastCommittedTabId: nil)
+        let p = DragDwellProgress.progress(state: state, now: 10.05, dwellDuration: 0.1)
+        #expect(abs(p - 0.5) < 0.001)
+    }
+
+    @Test
+    func progress_oneAtDuration() {
+        let state = DragDwellState(hoveredTabId: tabA, dwellStartTime: 10.0, lastCommittedTabId: nil)
+        let p = DragDwellProgress.progress(state: state, now: 10.1, dwellDuration: 0.1)
+        #expect(p == 1)
+    }
+
+    @Test
+    func progress_clampedToOne_overDuration() {
+        let state = DragDwellState(hoveredTabId: tabA, dwellStartTime: 10.0, lastCommittedTabId: nil)
+        let p = DragDwellProgress.progress(state: state, now: 10.5, dwellDuration: 0.1)
+        #expect(p == 1)
+    }
+
+    @Test
+    func progress_zeroWhenCommitted() {
+        let state = DragDwellState(hoveredTabId: tabA, dwellStartTime: 10.0, lastCommittedTabId: tabA)
+        let p = DragDwellProgress.progress(state: state, now: 10.05, dwellDuration: 0.1)
+        #expect(p == 0)
+    }
+
+    @Test
+    func progress_zeroWhenIdle() {
+        let p = DragDwellProgress.progress(state: .idle, now: 10.0, dwellDuration: 0.1)
+        #expect(p == 0)
+    }
+}
+```
+
+- [ ] **Step 2: Run tests to verify fail**
+
+Run: `mise run test --filter DragDwellStateTests`
+Expected: FAIL — `DragDwellState` and `DragDwellProgress` not defined.
+
+- [ ] **Step 3: Implement**
+
+```swift
+// Sources/AgentStudio/Core/Views/DragAndDrop/DragDwellState.swift
+import CoreGraphics
+import Foundation
+
+struct DragDwellState: Equatable, Sendable {
+    var hoveredTabId: UUID?
+    var dwellStartTime: TimeInterval?
+    var lastCommittedTabId: UUID?
+
+    static let idle = DragDwellState()
+
+    static func step(
+        current: DragDwellState,
+        hoveredTabId: UUID?,
+        now: TimeInterval,
+        dwellDuration: TimeInterval
+    ) -> (next: DragDwellState, shouldCommit: UUID?) {
+        guard let hoveredTabId else {
+            return (DragDwellState(
+                hoveredTabId: nil,
+                dwellStartTime: nil,
+                lastCommittedTabId: current.lastCommittedTabId
+            ), nil)
+        }
+
+        if hoveredTabId != current.hoveredTabId {
+            return (DragDwellState(
+                hoveredTabId: hoveredTabId,
+                dwellStartTime: now,
+                lastCommittedTabId: current.lastCommittedTabId
+            ), nil)
+        }
+
+        guard let startTime = current.dwellStartTime else {
+            return (DragDwellState(
+                hoveredTabId: hoveredTabId,
+                dwellStartTime: now,
+                lastCommittedTabId: current.lastCommittedTabId
+            ), nil)
+        }
+
+        if current.lastCommittedTabId == hoveredTabId {
+            return (current, nil)
+        }
+
+        if (now - startTime) >= dwellDuration {
+            return (DragDwellState(
+                hoveredTabId: hoveredTabId,
+                dwellStartTime: startTime,
+                lastCommittedTabId: hoveredTabId
+            ), hoveredTabId)
+        }
+
+        return (current, nil)
+    }
+}
+
+enum DragDwellProgress {
+    static func progress(
+        state: DragDwellState,
+        now: TimeInterval,
+        dwellDuration: TimeInterval
+    ) -> CGFloat {
+        guard
+            let startTime = state.dwellStartTime,
+            state.hoveredTabId != nil,
+            state.hoveredTabId != state.lastCommittedTabId
+        else { return 0 }
+        let raw = (now - startTime) / dwellDuration
+        return CGFloat(max(0, min(1, raw)))
+    }
+}
+```
+
+- [ ] **Step 4: Run tests to verify pass**
+
+Run: `mise run test --filter DragDwellStateTests`
+Expected: PASS — 14 tests (9 step + 5 progress).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add Sources/AgentStudio/Core/Views/DragAndDrop/DragDwellState.swift \
+        Tests/AgentStudioTests/Core/Views/DragAndDrop/DragDwellStateTests.swift
+git commit -m "feat: DragDwellState pure state machine + progress helper"
+```
+
+---
+
+## Task 14: `DragAutoDismissDecision` — when to dismiss destination drawer
+
+**Files:**
+- Create: `Sources/AgentStudio/Core/Views/DragAndDrop/DragAutoDismissDecision.swift`
+- Test: `Tests/AgentStudioTests/Core/Views/DragAndDrop/DragAutoDismissDecisionTests.swift`
+
+- [ ] **Step 1: Write the failing tests**
+
+```swift
+import Foundation
+import Testing
+
+@testable import AgentStudio
+
+@Suite
+struct DragAutoDismissDecisionTests {
+    private let sourceTab = UUID()
+    private let destTab = UUID()
+    private let sourcePaneId = UUID()
+    private let drawerParent = UUID()
+
+    private func mainPayload() -> PaneDragPayload {
+        PaneDragPayload(paneId: sourcePaneId, tabId: sourceTab, drawerParentPaneId: nil)
+    }
+
+    private func drawerChildPayload() -> PaneDragPayload {
+        PaneDragPayload(paneId: sourcePaneId, tabId: sourceTab, drawerParentPaneId: drawerParent)
+    }
+
+    // Edge case 1: main-pane drag + destination tab (drawer expanded) → dismiss
+    @Test
+    func mainDrag_destinationHasExpandedDrawer_returnsDrawerParent() {
+        let expandedDrawerInDest = UUID()
+        let result = DragAutoDismissDecision.shouldAutoDismiss(
+            payload: mainPayload(),
+            destinationTabId: destTab,
+            destinationExpandedDrawerParentPaneId: expandedDrawerInDest
+        )
+        #expect(result == expandedDrawerInDest)
+    }
+
+    // Edge case 2: main-pane drag + destination with no expanded drawer → nil
+    @Test
+    func mainDrag_destinationNoDrawer_returnsNil() {
+        let result = DragAutoDismissDecision.shouldAutoDismiss(
+            payload: mainPayload(),
+            destinationTabId: destTab,
+            destinationExpandedDrawerParentPaneId: nil
+        )
+        #expect(result == nil)
+    }
+
+    // Edge case 3: drawer-child drag → never dismiss (even if dest has drawer)
+    @Test
+    func drawerChildDrag_neverDismisses() {
+        let expandedDrawerInDest = UUID()
+        let result = DragAutoDismissDecision.shouldAutoDismiss(
+            payload: drawerChildPayload(),
+            destinationTabId: destTab,
+            destinationExpandedDrawerParentPaneId: expandedDrawerInDest
+        )
+        #expect(result == nil)
+    }
+
+    // Edge case 9: switching to own tab (destinationTabId == payload.tabId) → nil
+    @Test
+    func mainDrag_destinationIsSourceTab_returnsNil() {
+        let expandedDrawerInSource = UUID()
+        let result = DragAutoDismissDecision.shouldAutoDismiss(
+            payload: mainPayload(),
+            destinationTabId: sourceTab,                            // SAME tab
+            destinationExpandedDrawerParentPaneId: expandedDrawerInSource
+        )
+        #expect(result == nil)
+    }
+
+    // Edge cases 4–7, 10 not testable at this function level (they concern
+    // callers — menu/keyboard/click paths don't invoke this function).
+    // Covered by integration tests in Task 17 (wiring into DraggableTabBarHostingView).
+    // Edge case 8 is a known behavior (drawer stays dismissed if drag cancels) —
+    // also covered by integration, not this pure function.
+}
+```
+
+- [ ] **Step 2: Run tests to verify fail**
+
+Run: `mise run test --filter DragAutoDismissDecisionTests`
+Expected: FAIL — `DragAutoDismissDecision` not defined.
+
+- [ ] **Step 3: Implement**
+
+```swift
+// Sources/AgentStudio/Core/Views/DragAndDrop/DragAutoDismissDecision.swift
+import Foundation
+
+enum DragAutoDismissDecision {
+    static func shouldAutoDismiss(
+        payload: PaneDragPayload,
+        destinationTabId: UUID,
+        destinationExpandedDrawerParentPaneId: UUID?
+    ) -> UUID? {
+        guard payload.drawerParentPaneId == nil else { return nil }
+        guard let drawerParentId = destinationExpandedDrawerParentPaneId else { return nil }
+        guard destinationTabId != payload.tabId else { return nil }
+        return drawerParentId
+    }
+}
+```
+
+- [ ] **Step 4: Run tests to verify pass**
+
+Run: `mise run test --filter DragAutoDismissDecisionTests`
+Expected: PASS — 4 pure-function tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add Sources/AgentStudio/Core/Views/DragAndDrop/DragAutoDismissDecision.swift \
+        Tests/AgentStudioTests/Core/Views/DragAndDrop/DragAutoDismissDecisionTests.swift
+git commit -m "feat: DragAutoDismissDecision — pure trigger rule"
+```
+
+---
+
+## Task 15: `DragLatchResetDecision` — clear drop target on tab switch
+
+**Files:**
+- Create: `Sources/AgentStudio/Core/Views/DragAndDrop/DragLatchResetDecision.swift`
+- Test: `Tests/AgentStudioTests/Core/Views/DragAndDrop/DragLatchResetDecisionTests.swift`
+
+- [ ] **Step 1: Write the failing tests**
+
+```swift
+import Foundation
+import Testing
+
+@testable import AgentStudio
+
+@Suite
+struct DragLatchResetDecisionTests {
+    private let tabA = UUID()
+    private let tabB = UUID()
+    private let paneId = UUID()
+
+    @Test
+    func reset_whenTabChanges_andLatchPresent() {
+        #expect(DragLatchResetDecision.shouldResetLatch(
+            currentLatchedPaneId: paneId,
+            previousActiveTabId: tabA,
+            newActiveTabId: tabB
+        ))
+    }
+
+    @Test
+    func noReset_whenTabUnchanged() {
+        #expect(!DragLatchResetDecision.shouldResetLatch(
+            currentLatchedPaneId: paneId,
+            previousActiveTabId: tabA,
+            newActiveTabId: tabA
+        ))
+    }
+
+    @Test
+    func noReset_whenNoLatchPresent() {
+        #expect(!DragLatchResetDecision.shouldResetLatch(
+            currentLatchedPaneId: nil,
+            previousActiveTabId: tabA,
+            newActiveTabId: tabB
+        ))
+    }
+}
+```
+
+- [ ] **Step 2: Run tests to verify fail**
+
+Run: `mise run test --filter DragLatchResetDecisionTests`
+Expected: FAIL — type not defined.
+
+- [ ] **Step 3: Implement**
+
+```swift
+// Sources/AgentStudio/Core/Views/DragAndDrop/DragLatchResetDecision.swift
+import Foundation
+
+enum DragLatchResetDecision {
+    static func shouldResetLatch(
+        currentLatchedPaneId: UUID?,
+        previousActiveTabId: UUID,
+        newActiveTabId: UUID
+    ) -> Bool {
+        guard currentLatchedPaneId != nil else { return false }
+        return previousActiveTabId != newActiveTabId
+    }
+}
+```
+
+- [ ] **Step 4: Run tests to verify pass**
+
+Run: `mise run test --filter DragLatchResetDecisionTests`
+Expected: PASS — 3 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add Sources/AgentStudio/Core/Views/DragAndDrop/DragLatchResetDecision.swift \
+        Tests/AgentStudioTests/Core/Views/DragAndDrop/DragLatchResetDecisionTests.swift
+git commit -m "feat: DragLatchResetDecision — pure rule for mid-drag tab switch"
+```
+
+---
+
+## Task 16: `DraggableTabBarGeometry.tabId(at:)` — pure tabAtPoint extraction
+
+**Files:**
+- Create: `Sources/AgentStudio/Core/Views/Panes/DraggableTabBarGeometry.swift`
+- Test: `Tests/AgentStudioTests/Core/Views/Panes/DraggableTabBarGeometryTests.swift`
+
+- [ ] **Step 1: Write the failing tests**
+
+```swift
+import CoreGraphics
+import Foundation
+import Testing
+
+@testable import AgentStudio
+
+@Suite
+struct DraggableTabBarGeometryTests {
+    private let tabA = UUID()
+    private let tabB = UUID()
+    private let tabC = UUID()
+
+    private var threeTabFrames: [UUID: CGRect] {
+        [
+            tabA: CGRect(x: 0, y: 0, width: 100, height: 30),
+            tabB: CGRect(x: 100, y: 0, width: 100, height: 30),
+            tabC: CGRect(x: 200, y: 0, width: 100, height: 30),
+        ]
+    }
+
+    @Test
+    func tabId_insideTabA() {
+        let result = DraggableTabBarGeometry.tabId(
+            at: CGPoint(x: 50, y: 15),
+            tabFrames: threeTabFrames
+        )
+        #expect(result == tabA)
+    }
+
+    @Test
+    func tabId_insideTabC() {
+        let result = DraggableTabBarGeometry.tabId(
+            at: CGPoint(x: 250, y: 15),
+            tabFrames: threeTabFrames
+        )
+        #expect(result == tabC)
+    }
+
+    @Test
+    func tabId_outsideAllTabs_returnsNil() {
+        let result = DraggableTabBarGeometry.tabId(
+            at: CGPoint(x: 500, y: 15),
+            tabFrames: threeTabFrames
+        )
+        #expect(result == nil)
+    }
+
+    @Test
+    func tabId_emptyTabFrames_returnsNil() {
+        let result = DraggableTabBarGeometry.tabId(
+            at: CGPoint(x: 50, y: 15),
+            tabFrames: [:]
+        )
+        #expect(result == nil)
+    }
+
+    @Test
+    func tabId_onExactBoundary_isDeterministic() {
+        // Cursor at x=100 — boundary between A and B. CGRect.contains uses
+        // left-inclusive semantics; A owns this point.
+        let result = DraggableTabBarGeometry.tabId(
+            at: CGPoint(x: 100, y: 15),
+            tabFrames: threeTabFrames
+        )
+        #expect(result == tabA || result == tabB)  // tie-break: either is acceptable, doc which.
+    }
+}
+```
+
+- [ ] **Step 2: Run tests to verify fail**
+
+Run: `mise run test --filter DraggableTabBarGeometryTests`
+Expected: FAIL — type not defined.
+
+- [ ] **Step 3: Implement**
+
+```swift
+// Sources/AgentStudio/Core/Views/Panes/DraggableTabBarGeometry.swift
+import CoreGraphics
+import Foundation
+
+enum DraggableTabBarGeometry {
+    /// Returns the ID of the tab whose frame contains the point, or nil.
+    /// Deterministic tie-break on boundaries: leftmost (smallest minX) wins.
+    static func tabId(at point: CGPoint, tabFrames: [UUID: CGRect]) -> UUID? {
+        let hits = tabFrames
+            .filter { $0.value.contains(point) }
+            .sorted { $0.value.minX < $1.value.minX }
+        return hits.first?.key
+    }
+}
+```
+
+- [ ] **Step 4: Extract + replace the existing `tabAtPoint` method in `DraggableTabBarHostingView`**
+
+Replace the private `tabAtPoint(_:)` method with a call to `DraggableTabBarGeometry.tabId(at:tabFrames:)`. Existing behavior preserved.
+
+- [ ] **Step 5: Run tests to verify pass**
+
+Run: `mise run test --filter DraggableTabBarGeometryTests && mise run test --filter DraggableTabBar`
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add Sources/AgentStudio/Core/Views/Panes/DraggableTabBarGeometry.swift \
+        Tests/AgentStudioTests/Core/Views/Panes/DraggableTabBarGeometryTests.swift \
+        Sources/AgentStudio/App/Panes/TabBar/DraggableTabBarHostingView.swift
+git commit -m "refactor: extract DraggableTabBarGeometry.tabId pure helper"
+```
+
+---
+
+## Task 17: `VisibleRowIndexMapping` — invisible-minimized commit-time index translation
+
+**Files:**
+- Create: `Sources/AgentStudio/Core/Views/DragAndDrop/VisibleRowIndexMapping.swift`
+- Test: `Tests/AgentStudioTests/Core/Views/DragAndDrop/VisibleRowIndexMappingTests.swift`
+
+- [ ] **Step 1: Write the failing tests**
+
+```swift
+import Foundation
+import Testing
+
+@testable import AgentStudio
+
+@Suite
+struct VisibleRowIndexMappingTests {
+    private let a = UUID(), b = UUID(), c = UUID(), d = UUID(), e = UUID()
+
+    @Test
+    func fullRowIndex_noMinimized_mapsIdentity() {
+        // Full row = [a, b, c]. Visible = [a, b, c] (same). Visible slot 1 → full slot 1.
+        let idx = VisibleRowIndexMapping.fullRowIndex(
+            forVisibleSlot: 1,
+            fullRow: [a, b, c],
+            minimizedPaneIds: [],
+            showMinimizedBars: true
+        )
+        #expect(idx == 1)
+    }
+
+    @Test
+    func fullRowIndex_showMinimizedBars_minimizedVisibleCountsInSlots() {
+        // When showMinimizedBars=true, minimized panes ARE rendered as bars
+        // and appear in paneFrames. Resolver's slot index is the same as full-row.
+        let idx = VisibleRowIndexMapping.fullRowIndex(
+            forVisibleSlot: 2,
+            fullRow: [a, b, c],
+            minimizedPaneIds: [b],
+            showMinimizedBars: true
+        )
+        #expect(idx == 2)  // identity when minimized bars visible
+    }
+
+    @Test
+    func fullRowIndex_invisibleMinimizedInterleaved_translates() {
+        // Full = [minA, b, minC, d, minE]. Visible = [b, d] (a, c, e hidden).
+        // User drops at visible slot 1 (between b and d).
+        // Rule: visible slot K commits to position immediately after the K-th visible pane.
+        // Visible slot 0 → full index 1 (before b → between minA and b — placed at 1)
+        // Visible slot 1 → full index 3 (between b and minC/d — placed at 3)
+        // Visible slot 2 → full index 5 (after d → end)
+        let full = [a, b, c, d, e]
+        let minimized: Set<UUID> = [a, c, e]
+
+        let slot0 = VisibleRowIndexMapping.fullRowIndex(
+            forVisibleSlot: 0, fullRow: full, minimizedPaneIds: minimized, showMinimizedBars: false
+        )
+        let slot1 = VisibleRowIndexMapping.fullRowIndex(
+            forVisibleSlot: 1, fullRow: full, minimizedPaneIds: minimized, showMinimizedBars: false
+        )
+        let slot2 = VisibleRowIndexMapping.fullRowIndex(
+            forVisibleSlot: 2, fullRow: full, minimizedPaneIds: minimized, showMinimizedBars: false
+        )
+        #expect(slot0 == 1)
+        #expect(slot1 == 3)
+        #expect(slot2 == 5)
+    }
+
+    @Test
+    func fullRowIndex_allInvisibleMinimized_mapsToEnd() {
+        let full = [a, b, c]
+        let minimized: Set<UUID> = [a, b, c]
+        let idx = VisibleRowIndexMapping.fullRowIndex(
+            forVisibleSlot: 0, fullRow: full, minimizedPaneIds: minimized, showMinimizedBars: false
+        )
+        #expect(idx == 3)  // no visible panes; slot 0 maps to end of full row
+    }
+}
+```
+
+- [ ] **Step 2: Run tests to verify fail**
+
+Run: `mise run test --filter VisibleRowIndexMappingTests`
+Expected: FAIL — type not defined.
+
+- [ ] **Step 3: Implement**
+
+```swift
+// Sources/AgentStudio/Core/Views/DragAndDrop/VisibleRowIndexMapping.swift
+import Foundation
+
+enum VisibleRowIndexMapping {
+    /// Translates a visible-slot index (what the resolver produced) to a
+    /// full-row index (what the caller must pass to Layout.inserting or
+    /// equivalent).
+    ///
+    /// - Parameters:
+    ///   - forVisibleSlot: slot index produced by the resolver (0…visiblePaneCount)
+    ///   - fullRow: the complete row including minimized-invisible panes, in order
+    ///   - minimizedPaneIds: which full-row IDs are minimized
+    ///   - showMinimizedBars: when true, minimized panes render as bars and appear
+    ///     in the resolver's inputs → identity mapping. When false, resolver only
+    ///     sees non-minimized panes → this function translates.
+    ///
+    /// Rule when showMinimizedBars=false: visible slot K commits to the position
+    /// immediately after the K-th visible pane in the full row (or end of row for
+    /// the final slot).
+    static func fullRowIndex(
+        forVisibleSlot visibleIndex: Int,
+        fullRow: [UUID],
+        minimizedPaneIds: Set<UUID>,
+        showMinimizedBars: Bool
+    ) -> Int {
+        if showMinimizedBars {
+            return visibleIndex
+        }
+
+        // Walk full row, counting visible panes; return the full index
+        // immediately AFTER the visibleIndex-th visible pane.
+        var seenVisible = 0
+        for (fullIdx, paneId) in fullRow.enumerated() {
+            if minimizedPaneIds.contains(paneId) { continue }
+            if seenVisible == visibleIndex {
+                return fullIdx          // slot is before this visible pane
+            }
+            seenVisible += 1
+        }
+        // All visible panes exhausted — slot is at the end of the full row
+        return fullRow.count
+    }
+}
+```
+
+- [ ] **Step 4: Run tests to verify pass**
+
+Run: `mise run test --filter VisibleRowIndexMappingTests`
+Expected: PASS — 4 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add Sources/AgentStudio/Core/Views/DragAndDrop/VisibleRowIndexMapping.swift \
+        Tests/AgentStudioTests/Core/Views/DragAndDrop/VisibleRowIndexMappingTests.swift
+git commit -m "feat: VisibleRowIndexMapping — commit-time slot translation"
+```
+
+---
+
+## Task 18: Wire `DragDwellState` + `DragAutoDismissDecision` into `DraggableTabBarHostingView`
+
+**Files:**
+- Modify: `Sources/AgentStudio/App/Panes/TabBar/DraggableTabBarHostingView.swift`
+- Modify: `Sources/AgentStudio/App/Panes/PaneTabViewController.swift` (add `onAutoDismissDrawerForDrag` callback handler)
+
+- [ ] **Step 1: Replace the immediate auto-select with dwell-state machine**
+
+Inside `draggingUpdated(_:)`, replace lines 385-393 (the immediate `lastAutoSelectedTabIdForPaneDrag` check) with:
+
+```swift
+if types.contains(.agentStudioPaneDrop),
+   let paneData = sender.draggingPasteboard.data(forType: .agentStudioPaneDrop),
+   let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
+{
+    let point = convert(sender.draggingLocation, from: nil)
+    let hoveredTabId = DraggableTabBarGeometry.tabId(at: point, tabFrames: tabFrames)
+    let (next, shouldCommit) = DragDwellState.step(
+        current: dwellState,
+        hoveredTabId: hoveredTabId,
+        now: CFAbsoluteTimeGetCurrent(),
+        dwellDuration: 0.1
+    )
+    dwellState = next
+    tabBarAdapter?.dwellTabId = next.hoveredTabId
+    tabBarAdapter?.dwellProgress = DragDwellProgress.progress(
+        state: next, now: CFAbsoluteTimeGetCurrent(), dwellDuration: 0.1
+    )
+
+    if let tabIdToSelect = shouldCommit {
+        onSelect?(tabIdToSelect)
+
+        if let drawerParentId = DragAutoDismissDecision.shouldAutoDismiss(
+            payload: payload,
+            destinationTabId: tabIdToSelect,
+            destinationExpandedDrawerParentPaneId: expandedDrawerParentIdForTab?(tabIdToSelect)
+        ) {
+            onAutoDismissDrawerForDrag?(tabIdToSelect, drawerParentId)
+        }
+    }
+}
+```
+
+- [ ] **Step 2: Add new instance state + bindings**
+
+```swift
+private var dwellState = DragDwellState.idle
+var expandedDrawerParentIdForTab: ((_ tabId: UUID) -> UUID?)?
+var onAutoDismissDrawerForDrag: ((_ tabId: UUID, _ drawerParentPaneId: UUID) -> Void)?
+```
+
+- [ ] **Step 3: Reset dwell on exit/end/commit**
+
+In `draggingExited(_:)`, `draggingEnded(_:)`, `performDragOperation(_:)` — reset:
+
+```swift
+dwellState = DragDwellState.idle
+tabBarAdapter?.dwellTabId = nil
+tabBarAdapter?.dwellProgress = 0
+```
+
+- [ ] **Step 4: `PaneTabViewController` implements the callbacks**
+
+```swift
+hostingView.expandedDrawerParentIdForTab = { [weak self] tabId in
+    guard let self else { return nil }
+    return DrawerDragOwnershipPolicy.expandedDrawerParentPaneId(
+        tabId: tabId, tabLayoutAtom: store.tabLayoutAtom, paneAtom: store.paneAtom
+    )
+}
+hostingView.onAutoDismissDrawerForDrag = { [weak self] _, drawerParentId in
+    self?.dispatchAction(.toggleDrawer(paneId: drawerParentId))
+}
+```
+
+- [ ] **Step 5: `TabBarAdapter` gains dwell bindings for the SwiftUI tab view to render the progress indicator**
+
+Add `@Published var dwellTabId: UUID?` and `@Published var dwellProgress: CGFloat = 0` on `TabBarAdapter`. SwiftUI `CustomTabBar` reads and renders a fill animation scaled by `dwellProgress` on the hovered tab.
+
+- [ ] **Step 6: Integration test — hidden NSWindow drives a synthetic drag; verify no commit before 100ms and commit at/after 100ms**
+
+Test file: `Tests/AgentStudioTests/App/Panes/TabBar/DraggableTabBarDwellIntegrationTests.swift`
+
+- [ ] **Step 7: Run full suite**
+
+Run: `mise run test && mise run lint`
+Expected: PASS.
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add -u
+git commit -m "feat: wire dwell timer + auto-dismiss into tab bar drag"
+```
+
+---
+
+## Task 19: Delete `DropZone.swift` — migrate contents to new homes
+
+**Files:**
+- Delete: `Sources/AgentStudio/Core/Views/Panes/DropZone.swift`
+- Verify callers migrated: all sites listed below
+
+- [ ] **Step 1: Find all references**
+
+```bash
+grep -rn "DropZone\." Sources/AgentStudio/ Tests/ | grep -v "DropZoneSide"
+```
+
+Expected sites to migrate (pre-work):
+1. `PaneDropTarget.zone: DropZone` — update to `DropZoneSide`
+2. `PaneActionCommand.insertPane(direction: SplitNewDirection)` — stays; adapter translates
+3. `DropZone.calculate(at:in:)` — inlined in `DropTargetResolver.swift` paneSplit branch (Task 3)
+4. `DropZone.overlay(...)` / `.overlayRect(...)` / `.markerRect(...)` / private `.overlay(paneFrame:)` — migrated into `DropTargetOverlayRenderer.swift` (Task 12)
+5. `DropZone.newDirection` — migrated into `PaneDragCoordinator.swift` adapter (Task 11)
+
+- [ ] **Step 2: Verify each target already has the migration in place**
+
+Run `grep "calculate(at:in:)" Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetResolver.swift` — expect inlined usage (not a function call).
+
+- [ ] **Step 3: Delete the file**
+
+```bash
+git rm Sources/AgentStudio/Core/Views/Panes/DropZone.swift
+```
+
+- [ ] **Step 4: Rename `PaneDropTarget.zone` from `DropZone` to `DropZoneSide`**
+
+- [ ] **Step 5: Build + test**
+
+```bash
+mise run build && mise run test && mise run lint
+```
+
+Expected: PASS. If any grep from Step 1 finds a reference NOT listed in the expected migration list, stop — the migration is incomplete.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add -u
+git commit -m "chore: delete legacy DropZone.swift; contents migrated"
+```
+
+---
+
+## Task 20: Directory rename — `Splits/` → `Panes/`
+
+**Files:** 27 files under `Sources/AgentStudio/Core/Views/Splits/`
+
+- [ ] **Step 1: Move all files**
+
+```bash
+mkdir -p Sources/AgentStudio/Core/Views/Panes
+git mv Sources/AgentStudio/Core/Views/Splits/*.swift Sources/AgentStudio/Core/Views/Panes/
+rmdir Sources/AgentStudio/Core/Views/Splits
+```
+
+- [ ] **Step 2: Create `DragAndDrop/` home**
+
+```bash
+mkdir -p Sources/AgentStudio/Core/Views/DragAndDrop
+mkdir -p Tests/AgentStudioTests/Core/Views/DragAndDrop
+```
+
+- [ ] **Step 3: Build**
+
+Swift doesn't encode paths in imports — no source code edits needed. `Package.swift` doesn't reference `Splits/` directly, so no build-config change.
+
+```bash
+mise run build
+```
+
+Expected: PASS on first try.
+
+- [ ] **Step 4: Lint + test**
+
+```bash
+mise run lint && mise run test
+```
+
+Expected: PASS (no behavior change).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -u
+git commit -m "chore: rename Core/Views/Splits/ to Core/Views/Panes/"
+```
+
+---
+
+## Task 21: Final audit
+
+- [ ] **Step 1: Search for any remaining inline geometry / sizing / legacy names**
 
 ```bash
 grep -rn "DrawerPaneDragCoordinator\.\|PaneDragCoordinator\." Sources/AgentStudio/ | grep -v "Resolver\|SizingPolicy"
 grep -rn "creationBandHeight\|edgeCorridorWidth" Sources/AgentStudio/ | grep -v "DropTargetConfig\|DropTargetResolver"
+grep -rn "DropZone\b" Sources/AgentStudio/ Tests/ | grep -v "DropZoneSide"
 ```
 
-Expected: only adapter files reference old coordinators; no inline duplication remains.
+Expected: only adapter files reference old coordinators; no `DropZone` (without Side) references anywhere.
 
-- [ ] **Step 2: If `DropZone.swift` is no longer emitting anything beyond `.left`/`.right` adapter purposes, consider deleting**
+- [ ] **Step 2: Run full suite + lint**
 
-Only delete if `PaneActionCommand.insertPane(direction:)` is also migrated to slot-index. Per open question #4 this is probably deferred.
+```bash
+mise run test && mise run lint
+```
 
-- [ ] **Step 3: Final full-suite run**
+Expected: both green.
 
-Run: `mise run test && mise run lint`
-Expected: both green, no violations.
-
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add -u
-git commit -m "chore: clean up drop-target legacy geometry"
+git commit -m "chore: final audit — legacy geometry removed"
 ```
 
 ---
