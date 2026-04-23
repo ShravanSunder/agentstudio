@@ -23,15 +23,36 @@ struct InboxNotificationListModelTests {
             kind: .agentRpc,
             title: title,
             body: body,
-            paneId: paneId,
-            tabId: tabId,
-            repoId: nil,
-            repoName: repoName,
-            worktreeId: nil,
-            worktreeName: worktreeName,
-            branchName: branchName,
+            source: makeSource(
+                paneId: paneId,
+                tabId: tabId,
+                repoName: repoName,
+                worktreeName: worktreeName,
+                branchName: branchName
+            ),
             isRead: isRead,
             isDismissedFromDrawer: false
+        )
+    }
+
+    private func makeSource(
+        paneId: UUID?,
+        tabId: UUID?,
+        repoName: String?,
+        worktreeName: String?,
+        branchName: String?
+    ) -> InboxNotification.Source {
+        guard paneId != nil || tabId != nil || repoName != nil || worktreeName != nil || branchName != nil else {
+            return .global
+        }
+        return .pane(
+            .init(
+                paneId: paneId ?? UUID(),
+                tabId: tabId,
+                repoName: repoName,
+                worktreeName: worktreeName,
+                branchName: branchName
+            )
         )
     }
 
@@ -168,5 +189,26 @@ struct InboxNotificationListModelTests {
                 direction: InboxNotificationListNavigationDirection.next
             ) == nil
         )
+    }
+
+    @Test("finds first and last endpoint targets")
+    func findsEndpointTargets() {
+        let first = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "First"
+        )
+        let last = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 200),
+            title: "Last"
+        )
+        let model = InboxNotificationListModel(
+            notifications: [last, first],
+            grouping: .none,
+            sort: .oldestFirst,
+            searchText: ""
+        )
+
+        #expect(model.endpointTarget(.first) == first.id)
+        #expect(model.endpointTarget(.last) == last.id)
     }
 }

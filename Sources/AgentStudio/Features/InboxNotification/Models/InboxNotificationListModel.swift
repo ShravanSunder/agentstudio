@@ -148,10 +148,8 @@ struct InboxNotificationListModel: Equatable {
         label: (InboxNotification) -> String
     ) -> [InboxNotificationListSection] {
         let buckets = Dictionary(grouping: notifications, by: key)
-        return buckets.keys.compactMap { groupKey in
-            guard let notifications = buckets[groupKey], let firstNotification = notifications.first else {
-                return nil
-            }
+        return buckets.map { groupKey, notifications in
+            let firstNotification = notifications[0]
             return InboxNotificationListSection(
                 id: groupKey,
                 label: label(firstNotification),
@@ -160,10 +158,11 @@ struct InboxNotificationListModel: Equatable {
         }.sorted { left, right in
             let leftLabel = left.label ?? ""
             let rightLabel = right.label ?? ""
-            if leftLabel.localizedCaseInsensitiveCompare(rightLabel) == .orderedSame {
+            let labelOrdering = leftLabel.localizedCaseInsensitiveCompare(rightLabel)
+            if labelOrdering == .orderedSame {
                 return left.id < right.id
             }
-            return leftLabel.localizedCaseInsensitiveCompare(rightLabel) == .orderedAscending
+            return labelOrdering == .orderedAscending
         }
     }
 }

@@ -169,14 +169,10 @@ class MainSplitViewController: NSSplitViewController {
             open: { [drawerInboxPresenter] drawerPaneIds in
                 drawerInboxPresenter.open(forDrawerPaneIds: drawerPaneIds)
             },
-            requestId: { [drawerInboxPresenter] in
-                drawerInboxPresenter.request?.id
+            pendingRequest: { [drawerInboxPresenter] in
+                drawerInboxPresenter.request
             },
-            requestDrawerPaneIds: { [drawerInboxPresenter] in
-                drawerInboxPresenter.request?.drawerPaneIds
-            },
-            clearRequest: { [drawerInboxPresenter] requestId in
-                guard let request = drawerInboxPresenter.request, request.id == requestId else { return }
+            clearRequest: { [drawerInboxPresenter] request in
                 drawerInboxPresenter.clearRequest(request)
             },
             popoverContent: { [inboxAtom] drawerPaneIds, onClose in

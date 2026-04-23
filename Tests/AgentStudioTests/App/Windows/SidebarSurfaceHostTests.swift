@@ -31,13 +31,13 @@ struct SidebarSurfaceHostTests {
                 kind: .agentRpc,
                 title: "Build finished",
                 body: nil,
-                paneId: nil,
-                tabId: nil,
-                repoId: nil,
-                repoName: nil,
-                worktreeId: worktreeId,
-                worktreeName: nil,
-                branchName: nil,
+                source: .pane(
+                    .init(
+                        paneId: UUID(),
+                        worktreeId: worktreeId,
+                        worktreeName: "main"
+                    )
+                ),
                 isRead: false,
                 isDismissedFromDrawer: false
             )

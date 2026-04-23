@@ -24,9 +24,9 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         appLifecycleStore: AppLifecycleAtom,
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
-        inboxAtom: InboxNotificationAtom = InboxNotificationAtom(),
-        inboxPrefsAtom: InboxNotificationPrefsAtom = InboxNotificationPrefsAtom(),
-        drawerInboxPresenter: InboxNotificationDrawerPresenter = InboxNotificationDrawerPresenter()
+        inboxAtom: InboxNotificationAtom,
+        inboxPrefsAtom: InboxNotificationPrefsAtom,
+        drawerInboxPresenter: InboxNotificationDrawerPresenter
     ) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),

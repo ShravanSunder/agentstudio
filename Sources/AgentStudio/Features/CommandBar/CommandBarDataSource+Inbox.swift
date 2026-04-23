@@ -1,10 +1,21 @@
 import Foundation
+import os.log
+
+private let commandBarInboxLogger = Logger(
+    subsystem: "com.agentstudio",
+    category: "CommandBarInbox"
+)
 
 @MainActor
 extension CommandBarDataSource {
     static func inboxItems(commands: InboxNotificationCommands?) -> [CommandBarItem] {
-        guard let commands else { return [] }
+        guard let commands else {
+            commandBarInboxLogger.error("Inbox commands unavailable in CommandBar; check boot ordering")
+            return []
+        }
 
+        let actions = commands.actions
+        let snapshot = commands.snapshot()
         var items: [CommandBarItem] = []
         items.append(
             CommandBarItem(
@@ -14,7 +25,7 @@ extension CommandBarDataSource {
                 group: Group.inboxCommands,
                 groupPriority: Priority.commands,
                 keywords: ["inbox", "notification", "read"],
-                action: inboxCommandAction(commands.markAllAsRead)
+                action: inboxCommandAction(actions.markAllAsRead)
             )
         )
         items.append(
@@ -25,7 +36,7 @@ extension CommandBarDataSource {
                 group: Group.inboxCommands,
                 groupPriority: Priority.commands,
                 keywords: ["inbox", "notification", "clear"],
-                action: inboxCommandAction(commands.clearReadHistory)
+                action: inboxCommandAction(actions.clearReadHistory)
             )
         )
         items.append(
@@ -36,7 +47,7 @@ extension CommandBarDataSource {
                 group: Group.inboxCommands,
                 groupPriority: Priority.commands,
                 keywords: ["inbox", "notification", "clear", "delete"],
-                action: inboxCommandAction(commands.clearAll)
+                action: inboxCommandAction(actions.clearAll)
             )
         )
 
@@ -50,7 +61,7 @@ extension CommandBarDataSource {
                     groupPriority: Priority.commands,
                     keywords: ["inbox", "notification", "group", grouping.rawValue],
                     action: inboxCommandAction {
-                        commands.setGrouping(grouping)
+                        actions.setGrouping(grouping)
                     }
                 )
             )
@@ -64,18 +75,18 @@ extension CommandBarDataSource {
                 group: Group.inboxCommands,
                 groupPriority: Priority.commands,
                 keywords: ["inbox", "notification", "sort"],
-                action: inboxCommandAction(commands.toggleSort)
+                action: inboxCommandAction(actions.toggleSort)
             )
         )
         items.append(
             CommandBarItem(
                 id: "inbox.toggleBell",
-                title: commands.bellEnabled() ? "Disable bell notifications" : "Enable bell notifications",
+                title: snapshot.bellEnabled ? "Disable bell notifications" : "Enable bell notifications",
                 icon: "bell",
                 group: Group.inboxCommands,
                 groupPriority: Priority.commands,
                 keywords: ["inbox", "notification", "bell"],
-                action: inboxCommandAction(commands.toggleBellEnabled)
+                action: inboxCommandAction(actions.toggleBellEnabled)
             )
         )
         items.append(
@@ -86,7 +97,7 @@ extension CommandBarDataSource {
                 group: Group.inboxCommands,
                 groupPriority: Priority.commands,
                 keywords: ["inbox", "worktree", "sidebar"],
-                action: inboxCommandAction(commands.returnToWorktreeSidebar)
+                action: inboxCommandAction(actions.returnToWorktreeSidebar)
             )
         )
         return items

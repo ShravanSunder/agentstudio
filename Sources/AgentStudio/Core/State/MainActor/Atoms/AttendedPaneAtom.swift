@@ -12,6 +12,8 @@ final class AttendedPaneAtom {
     // so background windows and management layers cannot masquerade as attention.
     private(set) var attendedPaneId: UUID?
 
+    // AsyncStream is a single-consumer coordinator feed; add explicit fan-out
+    // before introducing another long-lived consumer.
     let transitions: AsyncStream<UUID?>
     private let continuation: AsyncStream<UUID?>.Continuation
 
@@ -37,6 +39,7 @@ final class AttendedPaneAtom {
 
     func stop() {
         guard !isStopped else { return }
+        refresh()
         isStopped = true
         continuation.finish()
     }

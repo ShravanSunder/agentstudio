@@ -48,6 +48,10 @@ struct RepoExplorerWorktreeRowContent: View {
         (branchStatus.linesAdded, branchStatus.linesDeleted)
     }
 
+    static func shouldShowUnreadPill(unreadCount: Int) -> Bool {
+        unreadCount > 0
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
             HStack(spacing: AppStyles.General.Spacing.tight) {
@@ -103,11 +107,13 @@ struct RepoExplorerWorktreeRowContent: View {
                     style: (branchStatus.prCount ?? 0) > 0 ? .accent(iconColor) : .neutral
                 )
 
-                SidebarChip(
-                    iconAsset: "octicon-bell",
-                    text: "\(unreadCount)",
-                    style: unreadCount > 0 ? .accent(iconColor) : .neutral
-                )
+                if Self.shouldShowUnreadPill(unreadCount: unreadCount) {
+                    SidebarChip(
+                        iconAsset: "octicon-bell",
+                        text: "\(unreadCount)",
+                        style: .accent(iconColor)
+                    )
+                }
             }
             .padding(.leading, AppStyles.Shell.Sidebar.statusRowLeadingIndent)
             .frame(maxWidth: .infinity, alignment: .leading)

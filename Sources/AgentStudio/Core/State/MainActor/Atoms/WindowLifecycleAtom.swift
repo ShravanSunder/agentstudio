@@ -18,7 +18,7 @@ final class WindowLifecycleAtom {
     /// True only when a registered workspace window is currently key.
     /// `false` intentionally conflates "no key window", "foreign key window",
     /// and "unregistered key window" because `KeyboardOwnerDerived` only needs
-    /// to distinguish workspace-vs-other ownership in Phase 2.
+    /// to distinguish workspace-vs-other ownership.
     var isWorkspaceWindowKey: Bool {
         keyWindowId.map { registeredWindowIds.contains($0) } ?? false
     }

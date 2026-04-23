@@ -342,7 +342,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         uiState: UIStateAtom,
         managementLayer: ManagementLayerAtom
     ) -> Bool {
-        // Why: Phase 2 sidebar shortcuts are intentionally opt-in here. An
+        // Why: sidebar shortcuts are intentionally opt-in here. An
         // exhaustive switch makes new global shortcuts choose a routing policy
         // explicitly instead of inheriting accidental process-wide behavior.
         switch shortcut {

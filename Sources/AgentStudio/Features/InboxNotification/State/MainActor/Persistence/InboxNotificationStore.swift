@@ -106,8 +106,9 @@ final class InboxNotificationStore {
             } catch is CancellationError {
                 return
             } catch {
-                inboxNotificationStoreLogger.error("Inbox notification debounce failed: \(error)")
-                return
+                inboxNotificationStoreLogger.error(
+                    "Inbox notification debounce failed; saving immediately: \(error)"
+                )
             }
             guard !Task.isCancelled else { return }
             do {

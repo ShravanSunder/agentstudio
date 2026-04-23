@@ -400,13 +400,7 @@ struct InboxNotificationRouterTests {
                 kind: .bellRang,
                 title: "Bell",
                 body: nil,
-                paneId: paneId.uuid,
-                tabId: nil,
-                repoId: nil,
-                repoName: nil,
-                worktreeId: nil,
-                worktreeName: nil,
-                branchName: nil,
+                source: .pane(.init(paneId: paneId.uuid)),
                 isRead: false,
                 isDismissedFromDrawer: false
             )

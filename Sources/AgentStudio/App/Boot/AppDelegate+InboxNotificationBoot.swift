@@ -51,8 +51,11 @@ extension AppDelegate {
     }
 
     func openDrawerInboxForActiveDrawer() {
-        guard let drawerPaneIds = store.visiblePaneIdsForActiveExpandedDrawer() else { return }
-
+        let selection = store.activeDrawerInboxSelection()
+        guard case .available(let drawerPaneIds) = selection else {
+            appLogger.debug("Cannot open drawer inbox: \(String(describing: selection), privacy: .public)")
+            return
+        }
         inboxNotificationDrawerPresenter.open(forDrawerPaneIds: drawerPaneIds)
     }
 }

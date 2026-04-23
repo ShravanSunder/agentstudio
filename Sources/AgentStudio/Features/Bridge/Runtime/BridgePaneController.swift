@@ -422,8 +422,7 @@ final class BridgePaneController {
             state: paneState.review,
             transport: self,
             revisions: revisionClock,
-            // Review epoch tracks diff epoch for now (Phase 2 stub — ReviewState has no
-            // independent epoch). Phase 3+ should add review.epoch if review data has its own
+            // Review epoch tracks diff epoch until review data has its own
             // version timeline separate from diffs.
             epoch: { [paneState] in paneState.diff.epoch },
             slices: {
@@ -576,7 +575,7 @@ extension BridgePaneController: PushTransport {
             )
             return
         }
-        // Phase 2: transport the envelope to React (transport failures ARE connection errors).
+        // Transport the envelope to React; transport failures are connection errors.
         do {
             try await page.callJavaScript(
                 "window.__bridgeInternal.applyEnvelope(JSON.parse(json))",

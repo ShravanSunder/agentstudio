@@ -64,6 +64,57 @@ enum InboxFocus: Hashable {
     case groupingMenu
 }
 
+private struct InboxNotificationListModelKey: Equatable {
+    let notifications: [InboxNotification]
+    let grouping: InboxNotificationGrouping
+    let sort: InboxNotificationSort
+    let searchText: String
+}
+
+enum InboxSidebarRootKeyAction: Equatable {
+    case focusSearch
+    case toggleGroupingMenu
+    case toggleSort
+    case moveGroupBoundary(InboxNotificationListNavigationDirection)
+    case moveEnd(InboxNotificationListEndpoint)
+    case ignored
+}
+
+enum InboxSidebarRowKeyAction: Equatable {
+    case activate
+    case toggleRead
+    case ignored
+}
+
+enum InboxSidebarKeyboardRouter {
+    static func rootAction(
+        characters: String,
+        key: KeyEquivalent,
+        modifiers: EventModifiers
+    ) -> InboxSidebarRootKeyAction {
+        if modifiers == .option {
+            if characters == "f" { return .focusSearch }
+            if characters == "g" { return .toggleGroupingMenu }
+            if characters == "s" { return .toggleSort }
+            if key == .downArrow { return .moveGroupBoundary(.next) }
+            if key == .upArrow { return .moveGroupBoundary(.previous) }
+        }
+
+        if modifiers == .command {
+            if key == .downArrow { return .moveEnd(.last) }
+            if key == .upArrow { return .moveEnd(.first) }
+        }
+
+        return .ignored
+    }
+
+    static func rowAction(key: KeyEquivalent) -> InboxSidebarRowKeyAction {
+        if key == .return { return .activate }
+        if key == .space { return .toggleRead }
+        return .ignored
+    }
+}
+
 @MainActor
 struct InboxNotificationSidebarView: View {
     static let focusTargetIdentifier = NSUserInterfaceItemIdentifier(
@@ -78,11 +129,44 @@ struct InboxNotificationSidebarView: View {
     let onRefocusActivePane: @MainActor @Sendable () -> Void
 
     @State private var searchText = ""
+    @State private var cachedListModel: InboxNotificationListModel
+    @State private var cachedListModelKey: InboxNotificationListModelKey
     @State private var groupingMenuOpen = false
     @State private var flashingRowIds: Set<UUID> = []
     @FocusState private var focusedField: InboxFocus?
 
     private let flashClock = ContinuousClock()
+
+    init(
+        inboxAtom: InboxNotificationAtom,
+        prefsAtom: InboxNotificationPrefsAtom,
+        uiState: UIStateAtom,
+        workspacePaneAtom: WorkspacePaneAtom,
+        dispatcher: CommandDispatcher,
+        onRefocusActivePane: @escaping @MainActor @Sendable () -> Void
+    ) {
+        self.inboxAtom = inboxAtom
+        self.prefsAtom = prefsAtom
+        self.uiState = uiState
+        self.workspacePaneAtom = workspacePaneAtom
+        self.dispatcher = dispatcher
+        self.onRefocusActivePane = onRefocusActivePane
+        let initialKey = InboxNotificationListModelKey(
+            notifications: inboxAtom.notifications,
+            grouping: prefsAtom.grouping,
+            sort: prefsAtom.sort,
+            searchText: ""
+        )
+        self._cachedListModelKey = State(initialValue: initialKey)
+        self._cachedListModel = State(
+            initialValue: InboxNotificationListModel(
+                notifications: inboxAtom.notifications,
+                grouping: prefsAtom.grouping,
+                sort: prefsAtom.sort,
+                searchText: ""
+            )
+        )
+    }
 
     var body: some View {
         InboxSidebarRootContainer(
@@ -102,14 +186,30 @@ struct InboxNotificationSidebarView: View {
             onActivate: activate,
             onToggleRead: { inboxAtom.toggleReadState(id: $0) }
         )
+        .onChange(of: inboxAtom.notifications) { _, _ in refreshListModel() }
+        .onChange(of: prefsAtom.grouping) { _, _ in refreshListModel() }
+        .onChange(of: prefsAtom.sort) { _, _ in refreshListModel() }
+        .onChange(of: searchText) { _, _ in refreshListModel() }
     }
 
     private var listModel: InboxNotificationListModel {
-        InboxNotificationListModel(
+        cachedListModel
+    }
+
+    private func refreshListModel() {
+        let key = InboxNotificationListModelKey(
             notifications: inboxAtom.notifications,
             grouping: prefsAtom.grouping,
             sort: prefsAtom.sort,
             searchText: searchText
+        )
+        guard key != cachedListModelKey else { return }
+        cachedListModelKey = key
+        cachedListModel = InboxNotificationListModel(
+            notifications: key.notifications,
+            grouping: key.grouping,
+            sort: key.sort,
+            searchText: key.searchText
         )
     }
 
@@ -213,37 +313,27 @@ private struct InboxSidebarRootContainer: View {
     }
 
     private func handleKeyPress(_ event: KeyPress) -> KeyPress.Result {
-        if event.modifiers == .option {
-            if event.characters == "f" {
-                focusedField.wrappedValue = .search
-                return .handled
-            }
-            if event.characters == "g" {
-                groupingMenuOpen.toggle()
-                return .handled
-            }
-            if event.characters == "s" {
-                onToggleSort()
-                return .handled
-            }
-            if event.key == .downArrow {
-                return onMoveGroupBoundary(.next) ? .handled : .ignored
-            }
-            if event.key == .upArrow {
-                return onMoveGroupBoundary(.previous) ? .handled : .ignored
-            }
+        switch InboxSidebarKeyboardRouter.rootAction(
+            characters: event.characters,
+            key: event.key,
+            modifiers: event.modifiers
+        ) {
+        case .focusSearch:
+            focusedField.wrappedValue = .search
+            return .handled
+        case .toggleGroupingMenu:
+            groupingMenuOpen.toggle()
+            return .handled
+        case .toggleSort:
+            onToggleSort()
+            return .handled
+        case .moveGroupBoundary(let direction):
+            return onMoveGroupBoundary(direction) ? .handled : .ignored
+        case .moveEnd(let endpoint):
+            return onMoveEnd(endpoint) ? .handled : .ignored
+        case .ignored:
+            return .ignored
         }
-
-        if event.modifiers == .command {
-            if event.key == .downArrow {
-                return onMoveEnd(.last) ? .handled : .ignored
-            }
-            if event.key == .upArrow {
-                return onMoveEnd(.first) ? .handled : .ignored
-            }
-        }
-
-        return .ignored
     }
 
     private var baseChrome: some View {
@@ -407,13 +497,24 @@ private struct InboxSidebarNotificationRow: View {
             }
             .onKeyPress(.return) {
                 guard focusedField.wrappedValue == .row(notification.id) else { return .ignored }
-                onActivate(notification)
-                return .handled
+                return handleRowKey(.return)
             }
             .onKeyPress(.space) {
                 guard focusedField.wrappedValue == .row(notification.id) else { return .ignored }
-                onToggleRead(notification.id)
-                return .handled
+                return handleRowKey(.space)
             }
+    }
+
+    private func handleRowKey(_ key: KeyEquivalent) -> KeyPress.Result {
+        switch InboxSidebarKeyboardRouter.rowAction(key: key) {
+        case .activate:
+            onActivate(notification)
+            return .handled
+        case .toggleRead:
+            onToggleRead(notification.id)
+            return .handled
+        case .ignored:
+            return .ignored
+        }
     }
 }

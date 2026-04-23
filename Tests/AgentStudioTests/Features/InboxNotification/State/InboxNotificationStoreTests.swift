@@ -35,13 +35,7 @@ struct InboxNotificationStoreTests {
             kind: .agentDesktopNotification,
             title: "Test",
             body: nil,
-            paneId: UUID(),
-            tabId: nil,
-            repoId: nil,
-            repoName: nil,
-            worktreeId: nil,
-            worktreeName: nil,
-            branchName: nil,
+            source: .pane(.init(paneId: UUID())),
             isRead: false,
             isDismissedFromDrawer: false
         )
@@ -115,5 +109,57 @@ struct InboxNotificationStoreTests {
             $0.lastPathComponent.hasPrefix("notification-inbox.corrupt-")
         }
         #expect(quarantinedFiles.count == 1)
+    }
+
+    @Test("debounce clock failure still saves immediately")
+    func debounceClockFailureStillSavesImmediately() async throws {
+        let url = makeTempURL()
+        let atom = InboxNotificationAtom()
+        let prefs = InboxNotificationPrefsAtom()
+        let store = InboxNotificationStore(
+            inboxAtom: atom,
+            prefsAtom: prefs,
+            fileURL: url,
+            clock: FailingClock()
+        )
+
+        atom.append(
+            InboxNotification(
+                id: UUID(),
+                timestamp: Date(),
+                kind: .agentDesktopNotification,
+                title: "Saved",
+                body: nil,
+                source: .global,
+                isRead: false,
+                isDismissedFromDrawer: false
+            )
+        )
+        store.scheduleDebouncedSave()
+
+        await assertEventuallyMain("debounce failure should fall through to save") {
+            FileManager.default.fileExists(atPath: url.path)
+        }
+    }
+
+    private struct FailingClock: Clock {
+        struct Failure: Error {}
+
+        private let base = ContinuousClock()
+
+        var now: ContinuousClock.Instant {
+            base.now
+        }
+
+        var minimumResolution: Duration {
+            base.minimumResolution
+        }
+
+        func sleep(
+            until deadline: ContinuousClock.Instant,
+            tolerance: Duration? = nil
+        ) async throws {
+            throw Failure()
+        }
     }
 }

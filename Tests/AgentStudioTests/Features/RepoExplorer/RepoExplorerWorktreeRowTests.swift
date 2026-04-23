@@ -19,4 +19,20 @@ struct RepoExplorerWorktreeRowTests {
 
         _ = view.body
     }
+
+    @Test("unread pill only renders for positive counts")
+    func unreadPillVisibility() {
+        #expect(RepoExplorerWorktreeRowContent.shouldShowUnreadPill(unreadCount: 0) == false)
+        #expect(RepoExplorerWorktreeRowContent.shouldShowUnreadPill(unreadCount: 4) == true)
+    }
+
+    @Test("repo explorer remains inbox-feature agnostic")
+    func repoExplorerDoesNotReferenceInboxFeatureTypes() throws {
+        let source = try String(
+            contentsOfFile: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift",
+            encoding: .utf8
+        )
+
+        #expect(!source.contains("InboxNotification"))
+    }
 }

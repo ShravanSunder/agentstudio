@@ -36,13 +36,7 @@ struct InboxNotificationDrawerPopoverTests {
             kind: .agentRpc,
             title: title,
             body: nil,
-            paneId: paneId,
-            tabId: nil,
-            repoId: nil,
-            repoName: nil,
-            worktreeId: nil,
-            worktreeName: nil,
-            branchName: nil,
+            source: paneId.map { .pane(.init(paneId: $0)) } ?? .global,
             isRead: false,
             isDismissedFromDrawer: isDismissedFromDrawer
         )

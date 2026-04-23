@@ -21,15 +21,29 @@ struct InboxNotificationAtomTests {
             kind: .agentDesktopNotification,
             title: "Test",
             body: nil,
-            paneId: paneId,
-            tabId: tabId,
-            repoId: nil,
-            repoName: nil,
-            worktreeId: worktreeId,
-            worktreeName: nil,
-            branchName: nil,
+            source: makeSource(
+                paneId: paneId,
+                tabId: tabId,
+                worktreeId: worktreeId
+            ),
             isRead: isRead,
             isDismissedFromDrawer: isDismissedFromDrawer
+        )
+    }
+
+    private func makeSource(
+        paneId: UUID?,
+        tabId: UUID?,
+        worktreeId: UUID?
+    ) -> InboxNotification.Source {
+        guard paneId != nil || tabId != nil || worktreeId != nil else { return .global }
+        return .pane(
+            .init(
+                paneId: paneId ?? UUID(),
+                tabId: tabId,
+                worktreeId: worktreeId,
+                worktreeName: worktreeId == nil ? nil : "main"
+            )
         )
     }
 

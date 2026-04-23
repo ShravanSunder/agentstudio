@@ -21,8 +21,7 @@ struct DrawerInboxPresentationTests {
         let presentation = DrawerInboxPresentation(
             unreadCount: { paneIds in paneIds == [drawerPaneId] ? 1 : 0 },
             open: { openedPaneIds = $0 },
-            requestId: { nil },
-            requestDrawerPaneIds: { nil },
+            pendingRequest: { nil },
             clearRequest: { _ in },
             popoverContent: { _, _ in AnyView(EmptyView()) }
         )

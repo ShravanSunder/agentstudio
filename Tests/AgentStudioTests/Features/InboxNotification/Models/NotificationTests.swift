@@ -15,13 +15,17 @@ struct NotificationTests {
             kind: .agentDesktopNotification,
             title: "Codex done",
             body: "exit 0 · 4m 12s",
-            paneId: UUID(),
-            tabId: UUID(),
-            repoId: UUID(),
-            repoName: "agent-studio",
-            worktreeId: UUID(),
-            worktreeName: "drawer-improvements",
-            branchName: "drawer-improvements",
+            source: .pane(
+                .init(
+                    paneId: UUID(),
+                    tabId: UUID(),
+                    repoId: UUID(),
+                    repoName: "agent-studio",
+                    worktreeId: UUID(),
+                    worktreeName: "drawer-improvements",
+                    branchName: "drawer-improvements"
+                )
+            ),
             isRead: false,
             isDismissedFromDrawer: false
         )
@@ -37,7 +41,7 @@ struct NotificationTests {
         #expect(decoded.id == original.id)
         #expect(decoded.title == original.title)
         #expect(decoded.kind == original.kind)
-        #expect(decoded.repoName == original.repoName)
+        #expect(decoded.source == original.source)
         #expect(decoded.isRead == original.isRead)
         #expect(decoded.isDismissedFromDrawer == original.isDismissedFromDrawer)
     }

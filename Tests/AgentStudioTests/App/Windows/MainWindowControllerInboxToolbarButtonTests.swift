@@ -70,13 +70,7 @@ struct MainWindowControllerInboxToolbarButtonTests {
             kind: .agentRpc,
             title: "Agent finished",
             body: nil,
-            paneId: nil,
-            tabId: nil,
-            repoId: nil,
-            repoName: nil,
-            worktreeId: nil,
-            worktreeName: nil,
-            branchName: nil,
+            source: .global,
             isRead: false,
             isDismissedFromDrawer: false
         )
@@ -96,6 +90,8 @@ private struct MainWindowControllerHarness {
 @MainActor
 private func withMainWindowControllerHarness<T>(
     inboxAtom: InboxNotificationAtom = InboxNotificationAtom(),
+    inboxPrefsAtom: InboxNotificationPrefsAtom = InboxNotificationPrefsAtom(),
+    drawerInboxPresenter: InboxNotificationDrawerPresenter = InboxNotificationDrawerPresenter(),
     body: @MainActor (MainWindowControllerHarness) async throws -> T
 ) async rethrows -> T {
     let tempDir = FileManager.default.temporaryDirectory
@@ -139,7 +135,9 @@ private func withMainWindowControllerHarness<T>(
             appLifecycleStore: appLifecycleStore,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry,
-            inboxAtom: inboxAtom
+            inboxAtom: inboxAtom,
+            inboxPrefsAtom: inboxPrefsAtom,
+            drawerInboxPresenter: drawerInboxPresenter
         )
         controller = windowController
         windowController.showWindow(nil)

@@ -1,4 +1,10 @@
 import Foundation
+import os.log
+
+private let inboxNotificationRouterLogger = Logger(
+    subsystem: "com.agentstudio",
+    category: "InboxNotificationRouter"
+)
 
 @MainActor
 final class InboxNotificationRouter {
@@ -74,13 +80,17 @@ final class InboxNotificationRouter {
             kind: kind,
             title: title(for: paneEnvelope.event),
             body: body(for: paneEnvelope.event),
-            paneId: paneId,
-            tabId: resolvedContext?.tabId,
-            repoId: resolvedContext?.repoId,
-            repoName: resolvedContext?.repoName,
-            worktreeId: resolvedContext?.worktreeId,
-            worktreeName: resolvedContext?.worktreeName,
-            branchName: resolvedContext?.branchName,
+            source: .pane(
+                .init(
+                    paneId: paneId,
+                    tabId: resolvedContext?.tabId,
+                    repoId: resolvedContext?.repoId,
+                    repoName: resolvedContext?.repoName,
+                    worktreeId: resolvedContext?.worktreeId,
+                    worktreeName: resolvedContext?.worktreeName,
+                    branchName: resolvedContext?.branchName
+                )
+            ),
             isRead: false,
             isDismissedFromDrawer: false
         )
@@ -96,7 +106,7 @@ final class InboxNotificationRouter {
         case .terminal(.bellRang):
             return prefsAtom.bellEnabled ? .bellRang : nil
         case .terminal(.commandFinished(_, let duration)):
-            // The app must notify for the selected pane when the window is not actually attended.
+            // Skip the pane the user is actively attending; the inbox is for unattended work.
             guard envelope.paneId.uuid != attendedPane.attendedPaneId else { return nil }
             guard duration >= AppPolicies.InboxNotification.commandFinishedMinDurationSeconds else { return nil }
             return .commandFinished
@@ -115,6 +125,9 @@ final class InboxNotificationRouter {
             sandboxHealthWasHealthyByPaneId[paneId] = healthy
             return shouldNotify ? .securityEvent : nil
         default:
+            inboxNotificationRouterLogger.debug(
+                "Ignoring unclassified inbox event: \(String(describing: envelope.event), privacy: .public)"
+            )
             return nil
         }
     }

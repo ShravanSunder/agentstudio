@@ -168,11 +168,11 @@ struct PaneLeafContainer: View {
                     )
                 }
             }
-            .onChange(of: drawerInboxPresentation?.requestId()) { _, requestId in
-                guard let requestId else { return }
-                guard drawerInboxPresentation?.requestDrawerPaneIds() == drawerPaneIds else { return }
+            .onChange(of: drawerInboxPresentation?.pendingRequest()?.id) { _, _ in
+                guard let request = drawerInboxPresentation?.pendingRequest() else { return }
+                guard request.drawerPaneIds == drawerPaneIds else { return }
                 drawerInboxPopoverOpen = true
-                drawerInboxPresentation?.clearRequest(requestId)
+                drawerInboxPresentation?.clearRequest(request)
             }
     }
 

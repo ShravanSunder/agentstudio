@@ -25,17 +25,29 @@ struct CommandBarInboxCommandsTests {
     @Test("inbox scope exposes notification command callbacks")
     func inboxScopeExposesCallbacks() async {
         var didMarkAllRead = false
+        var didClearReadHistory = false
+        var didClearAll = false
+        var didToggleSort = false
+        var didToggleBell = false
+        var didReturnToWorktrees = false
+        var selectedGroupings: [InboxNotificationGrouping] = []
         let commands = InboxNotificationCommands(
-            markAllAsRead: { didMarkAllRead = true },
-            clearReadHistory: {},
-            clearAll: {},
-            setGrouping: { _ in },
-            toggleSort: {},
-            toggleBellEnabled: {},
-            returnToWorktreeSidebar: {},
-            bellEnabled: { false },
-            currentGrouping: { .none },
-            currentSort: { .newestFirst }
+            actions: .init(
+                markAllAsRead: { didMarkAllRead = true },
+                clearReadHistory: { didClearReadHistory = true },
+                clearAll: { didClearAll = true },
+                setGrouping: { selectedGroupings.append($0) },
+                toggleSort: { didToggleSort = true },
+                toggleBellEnabled: { didToggleBell = true },
+                returnToWorktreeSidebar: { didReturnToWorktrees = true }
+            ),
+            snapshot: {
+                .init(
+                    bellEnabled: false,
+                    currentGrouping: .none,
+                    currentSort: .newestFirst
+                )
+            }
         )
 
         let items = CommandBarDataSource.items(
@@ -46,18 +58,43 @@ struct CommandBarInboxCommandsTests {
             notificationInboxCommands: commands
         )
 
-        #expect(items.map(\.id).contains("inbox.markAllAsRead"))
-        #expect(items.map(\.id).contains("inbox.toggleBell"))
+        let ids = Set(items.map(\.id))
+        #expect(
+            ids
+                == Set([
+                    "inbox.markAllAsRead",
+                    "inbox.clearReadHistory",
+                    "inbox.clearAll",
+                    "inbox.grouping.none",
+                    "inbox.grouping.byRepo",
+                    "inbox.grouping.byPane",
+                    "inbox.grouping.byTab",
+                    "inbox.toggleSort",
+                    "inbox.toggleBell",
+                    "inbox.returnToWorktrees",
+                ]))
         #expect(items.contains { $0.title == "Enable bell notifications" })
 
-        let markAllRead = items.first { $0.id == "inbox.markAllAsRead" }
-        if case .custom(let action) = markAllRead?.action {
+        for item in items {
+            runCustomAction(item)
+        }
+
+        await eventually("all inbox command callbacks should run") {
+            didMarkAllRead
+                && didClearReadHistory
+                && didClearAll
+                && didToggleSort
+                && didToggleBell
+                && didReturnToWorktrees
+                && Set(selectedGroupings) == Set(InboxNotificationGrouping.allCases)
+        }
+    }
+
+    private func runCustomAction(_ item: CommandBarItem) {
+        if case .custom(let action) = item.action {
             action()
         } else {
-            Issue.record("Expected mark all as read to be a custom command")
-        }
-        await eventually("mark all as read callback should run") {
-            didMarkAllRead
+            Issue.record("Expected \(item.id) to be a custom command")
         }
     }
 }

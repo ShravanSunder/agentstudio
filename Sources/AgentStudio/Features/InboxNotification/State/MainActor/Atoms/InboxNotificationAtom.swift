@@ -9,6 +9,7 @@ import Observation
 @Observable
 final class InboxNotificationAtom {
     private(set) var notifications: [InboxNotification] = []
+    private(set) var globalUnreadCount = 0
 
     func unreadCount(forPaneId paneId: UUID) -> Int {
         unreadCount { $0.paneId == paneId }
@@ -35,34 +36,35 @@ final class InboxNotificationAtom {
         }
     }
 
-    var globalUnreadCount: Int {
-        unreadCount { _ in true }
-    }
-
     func append(_ notification: InboxNotification) {
         if let index = notifications.firstIndex(where: { $0.id == notification.id }) {
             notifications[index] = notification
             enforceRetentionCap()
+            recalculateGlobalUnreadCount()
             return
         }
         notifications.append(notification)
         enforceRetentionCap()
+        recalculateGlobalUnreadCount()
     }
 
     func markRead(id: UUID) {
         update(id: id) { $0.isRead = true }
+        recalculateGlobalUnreadCount()
     }
 
     func markRead(paneId: UUID) {
         for index in notifications.indices where notifications[index].paneId == paneId {
             notifications[index].isRead = true
         }
+        recalculateGlobalUnreadCount()
     }
 
     func markAllRead() {
         for index in notifications.indices {
             notifications[index].isRead = true
         }
+        recalculateGlobalUnreadCount()
     }
 
     func dismissFromDrawer(id: UUID) {
@@ -77,14 +79,17 @@ final class InboxNotificationAtom {
 
     func toggleReadState(id: UUID) {
         update(id: id) { $0.isRead.toggle() }
+        recalculateGlobalUnreadCount()
     }
 
     func clearReadHistory() {
         notifications.removeAll(where: \.isRead)
+        recalculateGlobalUnreadCount()
     }
 
     func clearAll() {
         notifications.removeAll()
+        recalculateGlobalUnreadCount()
     }
 
     private func update(id: UUID, mutate: (inout InboxNotification) -> Void) {
@@ -106,5 +111,9 @@ final class InboxNotificationAtom {
         notifications.sort { $0.timestamp < $1.timestamp }
         let overflow = notifications.count - retentionCap
         notifications.removeFirst(overflow)
+    }
+
+    private func recalculateGlobalUnreadCount() {
+        globalUnreadCount = unreadCount { _ in true }
     }
 }
