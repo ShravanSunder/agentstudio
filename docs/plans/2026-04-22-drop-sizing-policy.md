@@ -2,6 +2,11 @@
 
 > **Status: DECISION MADE (2026-04-22).** User selected **Option D (hybrid) with Shift modifier → Option C (proportional preservation) override.** See §"Decided policy" below. Implementation can proceed; task details in §"Implementation plan" section.
 
+## Prerequisites
+
+- [ ] Unified drop-target plan (`docs/plans/2026-04-22-unified-drop-target-algo.md`) Tasks 1–2 have landed: `DropTarget`, `RowID`, `DropZoneSide`, `NewRowPosition`, `DropTargetConfig` all ship in `Core/Models/`. This plan uses those types directly — no stubs, no duplicates.
+- [ ] The prereq from the unified plan are met (Phase B, main-pane fixture, two-row drawer fixture). Without them, the drag-commit code path this plan wires into is in mid-refactor.
+
 **Goal:** Decide and document how pane widths are redistributed when a pane is inserted into or removed from a row, then implement the decision as a shared `DropSizingPolicy`.
 
 **Scope boundary:** This plan does NOT change geometry, target resolution, or the drop-capture NSViews. It touches only `Layout.inserting` / `Layout.removing` and any drawer-specific insertion paths. Sibling plan `2026-04-22-unified-drop-target-algo.md` handles geometry unification and does not depend on this plan's outcome.
@@ -227,64 +232,28 @@ If you disagree, or want to preserve the current split-drop UX, pick D (hybrid) 
 
 Each option has its own concrete implementation. All share the same extraction + test structure.
 
-### Shared Task A — Codify current behavior as regression tests
+### Shared Task A — Confirm existing baseline coverage (no new tests)
 
-Before any change. Prevents accidental drift.
+`LayoutFlatStripTests` at `Tests/AgentStudioTests/Core/Models/LayoutFlatStripTests.swift` already covers halve-target insertion and adjacent-absorb removal (confirmed in Codex review 2026-04-23). Running `mise run test --filter LayoutFlatStripTests` produces 2373 passing tests at baseline.
 
-- [ ] **Step 1: Write regression tests for current `Layout.inserting`**
+- [ ] **Step 1: Run existing tests**
 
-  File: `Tests/AgentStudioTests/Core/Models/LayoutFlatStripTests.swift` (already exists — add if missing)
-
-  ```swift
-  @Test
-  func inserting_halvesTargetPaneRatio() {
-      let a = UUID(), b = UUID(), c = UUID()
-      let layout = Layout(
-          panes: [
-              .init(paneId: a, ratio: 0.5),
-              .init(paneId: b, ratio: 0.3),
-              .init(paneId: c, ratio: 0.2),
-          ],
-          dividerIds: [UUID(), UUID()]
-      )
-      let newPane = UUID()
-      let result = layout.inserting(paneId: newPane, at: b, direction: .horizontal, position: .before)
-
-      #expect(result.panes.map(\.paneId) == [a, newPane, b, c])
-      #expect(abs(result.panes[0].ratio - 0.5) < 0.001)   // A unchanged
-      #expect(abs(result.panes[1].ratio - 0.15) < 0.001)  // new pane = half of B's prior
-      #expect(abs(result.panes[2].ratio - 0.15) < 0.001)  // B halved
-      #expect(abs(result.panes[3].ratio - 0.2) < 0.001)   // C unchanged
-  }
-
-  @Test
-  func removing_givesRatioToRightNeighbor() {
-      let a = UUID(), b = UUID(), c = UUID()
-      let layout = Layout(
-          panes: [
-              .init(paneId: a, ratio: 0.5),
-              .init(paneId: b, ratio: 0.3),
-              .init(paneId: c, ratio: 0.2),
-          ],
-          dividerIds: [UUID(), UUID()]
-      )
-      guard let result = layout.removing(paneId: b) else {
-          Issue.record("expected removal to succeed")
-          return
-      }
-      #expect(result.panes.map(\.paneId) == [a, c])
-      #expect(abs(result.panes[0].ratio - 0.5) < 0.001)   // A unchanged
-      #expect(abs(result.panes[1].ratio - 0.5) < 0.001)   // C absorbed B's 0.3 (0.2 + 0.3)
-  }
+  ```bash
+  mise run test --filter LayoutFlatStripTests
   ```
 
-- [ ] **Step 2: Run tests — they should PASS against current code**
+  Expected: PASS. If it fails, stop — the baseline has drifted from documentation.
 
-  `mise run test --filter LayoutFlatStripTests`
+- [ ] **Step 2: Precision edge cases (only if gaps exist)**
 
-  If they fail, the current code does not match the behavior I documented above. Stop. Re-read the source. Do not proceed until the tests pass against HEAD.
+  Audit `LayoutFlatStripTests` for:
+  - Insertion into empty layout (new pane = 1.0) — add if missing
+  - Insertion after removal (sum preserved across operations) — add if missing
+  - Repeated insertion at same slot (geometric shrink documented) — add if missing
 
-- [ ] **Step 3: Commit**
+  Only add tests that describe missing coverage; don't duplicate.
+
+- [ ] **Step 3: Commit (if any tests added)**
 
   ```bash
   git add Tests/AgentStudioTests/Core/Models/LayoutFlatStripTests.swift
@@ -593,80 +562,311 @@ git add Sources/AgentStudio/Core/Views/DragAndDrop/DropSizingModeResolver.swift 
 git commit -m "feat: DropSizingModeResolver — Bool-in/DropSizingMode-out, no AppKit import"
 ```
 
-### Task C — Wire `DropSizingPolicy` into main-pane insert path
+### Task C — Extend command contracts with `sizingMode`
+
+Both `PaneActionCommand.insertPane` and `PaneActionCommand.moveDrawerPane` carry `sizingMode: DropSizingMode` explicitly. (Codex P1-3 + 2nd-review finding: rearrange needs command-level sizing too, not just `insertPane`.) No implicit defaults — every construction site declares intent.
 
 **Files:**
-- Modify: wherever `Layout.inserting` is called from drag-drop commit code paths (see grep step below)
-- Modify: `Sources/AgentStudio/Core/Models/Layout.swift` — add an `inserting(..., ratios:)` overload that accepts precomputed ratios and skips the halve-target baked-in logic; OR introduce a parallel `Layout.insertedApplyingRatios(_:)` helper
+- Modify: `Sources/AgentStudio/Core/Actions/PaneActionCommand.swift` — add `sizingMode` to both cases
+- Modify: `Sources/AgentStudio/Core/Actions/ActionValidator.swift` — propagate through validation
+- Modify: `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceTabArrangementAtom.swift` — `insertPane` accepts and uses the mode
+- Modify: `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` — `moveDrawerPane` accepts and uses the mode
+- Modify: every construction site of `insertPane` / `moveDrawerPane`:
+  - `SplitContainerDropCaptureOverlay.Coordinator.performDrop` — captures `NSEvent.modifierFlags.contains(.shift)`, resolves mode via `DropSizingModeResolver.mode(for:, isShiftHeld:)`, passes mode in
+  - `DrawerDropDispatch.handleDrop` — same pattern
+  - `PaneDropPlanner.splitDecision` — plumbs mode through `DropCommitPlan`
+  - `PaneTabViewController.handleSplitDrop` — consumes
+  - Drawer plus-button action handler — constructs with `.halveTarget` when active drawer pane exists, else `.proportional`
+  - Merge tab / reactivate paths — construct with `.halveTarget` (conservative)
 
-- [ ] **Step 1: Find the commit path**
+- [ ] **Step 1: Update command cases**
+
+```swift
+case insertPane(
+    source: PaneSource,
+    targetTabId: UUID,
+    targetPaneId: UUID,
+    direction: SplitNewDirection,
+    sizingMode: DropSizingMode
+)
+
+case moveDrawerPane(
+    parentPaneId: UUID,
+    drawerPaneId: UUID,
+    target: DrawerRearrangeTarget,
+    sizingMode: DropSizingMode
+)
+```
+
+- [ ] **Step 2: Update every construction site explicitly**
+
+No default values. Build the codebase with the new cases and let the compiler list every missing `sizingMode:` — then decide the right value for each.
+
+- [ ] **Step 3: Plumb through validation + dispatch**
+
+`ActionValidator`, `DropCommitPlan`, command-bar command builders — pass the mode through without inspecting.
+
+- [ ] **Step 4: Build + test**
+
+```bash
+mise run build && mise run test
+```
+
+Expected: build compiles cleanly (every call site gave explicit mode); all tests that used the old command shape either updated or re-express intent with explicit mode.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add -u
+git commit -m "feat: PaneActionCommand.insertPane + moveDrawerPane gain explicit sizingMode"
+```
+
+### Task C-index — `RearrangeIndexAdjustment` pure helper
+
+**Files:**
+- Create: `Sources/AgentStudio/Core/Models/RearrangeIndexAdjustment.swift`
+- Create: `Tests/AgentStudioTests/Core/Models/RearrangeIndexAdjustmentTests.swift`
+
+- [ ] **Step 1: Write failing tests**
+
+```swift
+import Foundation
+import Testing
+
+@testable import AgentStudio
+
+@Suite
+struct RearrangeIndexAdjustmentTests {
+    @Test
+    func sameRow_sourceBeforeTarget_shiftsByMinusOne() {
+        let adjusted = RearrangeIndexAdjustment.adjustedInsertionIndex(
+            sourceRow: .main, sourceIndex: 1,
+            targetRow: .main, originalInsertionIndex: 3
+        )
+        #expect(adjusted == 2)
+    }
+
+    @Test
+    func sameRow_sourceAfterTarget_unchanged() {
+        let adjusted = RearrangeIndexAdjustment.adjustedInsertionIndex(
+            sourceRow: .main, sourceIndex: 3,
+            targetRow: .main, originalInsertionIndex: 1
+        )
+        #expect(adjusted == 1)
+    }
+
+    @Test
+    func sameRow_sourceEqualsTargetSlot_becomesNoOp() {
+        let adjusted = RearrangeIndexAdjustment.adjustedInsertionIndex(
+            sourceRow: .main, sourceIndex: 2,
+            targetRow: .main, originalInsertionIndex: 3
+        )
+        #expect(adjusted == 2)  // after removing index 2, original 3 becomes 2 (same position)
+    }
+
+    @Test
+    func crossRow_unchanged() {
+        let adjusted = RearrangeIndexAdjustment.adjustedInsertionIndex(
+            sourceRow: .drawerTop, sourceIndex: 0,
+            targetRow: .drawerBottom, originalInsertionIndex: 2
+        )
+        #expect(adjusted == 2)
+    }
+}
+```
+
+- [ ] **Step 2: Run to verify fail**
+
+Run: `mise run test --filter RearrangeIndexAdjustmentTests`
+Expected: FAIL.
+
+- [ ] **Step 3: Implement**
+
+```swift
+// Sources/AgentStudio/Core/Models/RearrangeIndexAdjustment.swift
+import Foundation
+
+enum RearrangeIndexAdjustment {
+    static func adjustedInsertionIndex(
+        sourceRow: RowID,
+        sourceIndex: Int,
+        targetRow: RowID,
+        originalInsertionIndex: Int
+    ) -> Int {
+        guard sourceRow == targetRow else { return originalInsertionIndex }
+        return sourceIndex < originalInsertionIndex
+            ? originalInsertionIndex - 1
+            : originalInsertionIndex
+    }
+}
+```
+
+- [ ] **Step 4: Run to verify pass**
+
+Run: `mise run test --filter RearrangeIndexAdjustmentTests`
+Expected: PASS — 4 tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add Sources/AgentStudio/Core/Models/RearrangeIndexAdjustment.swift \
+        Tests/AgentStudioTests/Core/Models/RearrangeIndexAdjustmentTests.swift
+git commit -m "feat: RearrangeIndexAdjustment — pure rule for same-row slot shift"
+```
+
+### Task D — Wire `DropSizingRatioPolicy` into main-pane + drawer INSERTION paths
+
+(Codex P2-1: rearrange moved out of this task scope — rearrange is Task D2 below. Task D covers insertion only. Drawer rearrange composes remove + insert against the same policy.)
+
+**Files:**
+- Modify: `Sources/AgentStudio/Core/Models/Layout.swift` — add `inserting(paneId:, atIndex:, ratios:)` overload that takes precomputed ratios rather than halving-in-place.
+- Modify: `Sources/AgentStudio/Core/Models/DrawerGridLayout.swift` — equivalent helper for drawer rows.
+- Modify: `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceTabArrangementAtom.insertPane(...)` — accepts `sizingMode`; computes `ratiosAfterInsertion` via `DropSizingRatioPolicy`; applies via new Layout helper.
+- Modify: `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneAtom.addDrawerPane / insertDrawerPane / restoreDrawerPane` — same pattern.
+
+- [ ] **Step 1: Find all insertion call sites**
 
 ```bash
 grep -rn "Layout.*\.inserting\(" Sources/AgentStudio/ | grep -v Tests | grep -v "//"
+grep -rn "DrawerGridLayout\.inserting\|insertingPreservingRatios" Sources/AgentStudio/ | grep -v Tests
 ```
 
-Expected: 1–3 call sites in drag-commit / command-dispatch code.
-
-- [ ] **Step 2: For each call site, capture modifier state at drop commit**
-
-At the `performDragOperation` / `handleDrop` boundary in the NSView layer:
+- [ ] **Step 2: Add the new Layout helper**
 
 ```swift
-let modifiers = NSEvent.modifierFlags
-// pass modifiers into the dispatch layer (new field on the command or a
-// separate side-channel parameter — don't smuggle through Notification)
+// Sources/AgentStudio/Core/Models/Layout.swift (added)
+func inserting(paneId: UUID, atIndex insertionIndex: Int, ratios: [Double]) -> Self {
+    precondition(ratios.count == panes.count + 1, "ratios must include the new pane")
+    let clampedIndex = max(0, min(insertionIndex, panes.count))
+    var updatedPanes = panes.map { PaneEntry(paneId: $0.paneId, ratio: 0) }
+    updatedPanes.insert(PaneEntry(paneId: paneId, ratio: 0), at: clampedIndex)
+    for (i, r) in ratios.enumerated() { updatedPanes[i].ratio = r }
+    var updatedDividers = dividerIds
+    updatedDividers.insert(UUID(), at: max(clampedIndex - 1, 0))
+    return Self(panes: updatedPanes, dividerIds: updatedDividers)
+}
 ```
 
-- [ ] **Step 3: Before calling `Layout.inserting`, compute target ratios**
+(Note: `PaneEntry.ratio` currently `let`; may need a mutable init or a single-shot init that accepts ratios. Adjust signature accordingly.)
+
+- [ ] **Step 3: Update insertion atoms to compute ratios + call new helper**
 
 ```swift
-let mode = DropSizingPolicy.sizingMode(for: dropTarget, modifiers: modifiers)
-let newRatios = DropSizingPolicy.ratiosAfterInsertion(
-    existingRatios: currentRow.ratios,
+// In WorkspaceTabArrangementAtom.insertPane:
+let existingRatios = layout.ratios
+let newRatios = DropSizingRatioPolicy.ratiosAfterInsertion(
+    existingRatios: existingRatios,
     insertionIndex: insertionIndex,
-    targetPaneIndex: targetPaneIdx,
-    mode: mode
+    targetPaneIndex: targetPaneIndex,
+    mode: sizingMode
 )
-// Apply newRatios to the layout after insertion.
+let updatedLayout = layout.inserting(paneId: newPaneId, atIndex: insertionIndex, ratios: newRatios)
 ```
 
-- [ ] **Step 4: Update any tests that asserted old halve-only behavior**
+- [ ] **Step 4: Tests — audit every ratio-asserting test**
 
-Search:
+Every drag-drop test in `Tests/AgentStudioTests/App/` and `Tests/AgentStudioTests/Core/` that asserts specific post-insertion ratios needs explicit review:
+- Tests for drop-on-pane-zone: must pass `sizingMode: .halveTarget`, assert halve behavior
+- Tests for drop-on-slot: must pass `sizingMode: .proportional`, assert proportional behavior
+- Tests for plus-button insertion: `.halveTarget` (active pane) OR `.proportional` (no active pane)
+
+Explicit per-test audit. No batch update.
+
+- [ ] **Step 5: Full suite**
+
 ```bash
-grep -rn "halved\|splitRatio\|Layout.*inserting" Tests/
+mise run build && mise run test && mise run lint
 ```
-
-Each assertion needs review:
-- If test drops on pane-zone (default sizing): halve-target still holds
-- If test drops on slot-midpoint (new coverage from unified-algo plan): proportional applies
-
-Keep the LayoutFlatStripTests regression (Shared Task A above) as-is — it directly tests `Layout.inserting`, not the drag-drop commit path.
-
-- [ ] **Step 5: Full test suite**
-
-Run: `mise run test && mise run lint`
-Expected: PASS. Any drag-drop tests that asserted specific ratios must either keep asserting halve (pane-zone drops) or switch to proportional (slot drops). Explicit per-test audit — do not batch-update.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add -u
-git commit -m "refactor: main insert path uses DropSizingPolicy"
+git commit -m "refactor: insertion paths use DropSizingRatioPolicy via sizingMode"
 ```
 
-### Task D — Wire `DropSizingPolicy` into drawer insert / rearrange path
+### Task D2 — Wire drawer rearrange through remove+insert with `RearrangeIndexAdjustment`
 
-Mirror Task C for drawer paths. Files to hit:
-- `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` drawer mutations
-- `Sources/AgentStudio/Core/Models/DrawerGridLayout+Rearrange.swift`
+**Files:**
+- Modify: `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneAtom.moveDrawerPane(...)` — accepts `sizingMode`; uses remove+insert composition.
+- Modify: `Sources/AgentStudio/Core/Models/DrawerGridLayout+Rearrange.swift` — remove the halving-based `insertingPreservingRatios`; replace with a rearrange that composes `ratiosAfterRemoval` + `ratiosAfterInsertion` via policy.
 
-Use the same steps as Task C, with the specific nuance that drawer row-slot drops and drawer newRow drops are all proportional by default (no `.paneSplit` target in drawer context).
+- [ ] **Step 1: Reshape `moveDrawerPane`**
 
-- [ ] Commit:
-  ```bash
-  git commit -m "refactor: drawer insert/rearrange uses DropSizingPolicy"
-  ```
+Accepts the `sizingMode` from the command, executes atomic remove-then-insert:
+
+```swift
+func moveDrawerPane(parentPaneId: UUID, drawerPaneId: UUID, target: DrawerRearrangeTarget, sizingMode: DropSizingMode) {
+    // 1. Locate source: which row, what index.
+    // 2. Compute source-side ratios via ratiosAfterRemoval(..., mode: .proportional)
+    //    — rearrange source always proportional, matches "moving out" semantic.
+    // 3. Compute adjusted target index via RearrangeIndexAdjustment.adjustedInsertionIndex.
+    // 4. Compute target-side ratios via ratiosAfterInsertion(..., mode: sizingMode).
+    // 5. Apply both updates atomically.
+}
+```
+
+- [ ] **Step 2: Drop the misleading helper name**
+
+Delete `DrawerGridLayout+Rearrange.insertingPreservingRatios` — the name claims to preserve ratios but currently halves the anchor pane (confirmed in Codex 2nd review). Replace call sites with explicit remove+insert composition.
+
+- [ ] **Step 3: Tests**
+
+- Same-row forward move — assert adjusted index; assert both rows sum to 1.0
+- Same-row backward move — assert unchanged index
+- Cross-row move (drawer n×2) — assert source row sums to 1.0 post-remove, target row sums to 1.0 post-insert
+- Move with shift: assert target-side uses `.proportional` regardless of target kind
+
+- [ ] **Step 4: Commit**
+
+```bash
+git commit -m "refactor: drawer rearrange via RearrangeIndexAdjustment + remove+insert"
+```
+
+### Task D3 — Wire user-initiated removal paths through proportional policy
+
+(Codex P1-4: removal decided but not wired.)
+
+**In scope (user paths — use `.proportional`):**
+- `WorkspacePaneAtom.removeDrawerPane` — user closes a drawer pane
+- `WorkspacePaneAtom.detachDrawerPane` — user detaches a drawer pane
+- Main pane close / extract paths in `WorkspaceTabArrangementAtom.removing` call sites
+
+**Out of scope (repair paths — keep adjacent-absorb, i.e., `.halveTarget` mode on `ratiosAfterRemoval`):**
+- `TabArrangementRepairRules.removingPane` — orphan cleanup / crash recovery / stale-state pruning
+
+**Why the asymmetry:** user-path removal is a deliberate action; proportional keeps relative sizing intent. Repair paths are reactive to inconsistent state (crash recovery, restore with dangling references) — conservative adjacent-absorb preserves the closest-to-prior layout shape. User confirmed 2026-04-23.
+
+- [ ] **Step 1: Grep for removal call sites**
+
+```bash
+grep -rn "Layout.removing\|DrawerGridLayout.removing" Sources/AgentStudio/ | grep -v Tests
+```
+
+- [ ] **Step 2: For each user-path call site, compute ratios via policy**
+
+```swift
+let newRatios = DropSizingRatioPolicy.ratiosAfterRemoval(
+    existingRatios: layout.ratios,
+    removalIndex: idx,
+    mode: .proportional
+)
+```
+
+- [ ] **Step 3: Leave repair-path call sites calling `.halveTarget` on policy (adjacent-absorb)**
+
+Document the asymmetry with an inline comment referencing this plan.
+
+- [ ] **Step 4: Tests**
+
+- User close: assert removed pane's ratio is redistributed proportionally
+- Repair path: assert adjacent-absorb preserved (same as current behavior)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git commit -m "refactor: user-path removal proportional, repair-path adjacent-absorb"
+```
 
 ### Task E — Visual feedback when shift is held (polish)
 
@@ -690,18 +890,23 @@ Keep this as a follow-on after core behavior is validated. If modifier-during-dr
 ### Hard — gate for landing sizing policy
 
 - [x] User has signed off on one of A / B / C / D → **D with Shift→C override**
-- [ ] Shared Task A regression tests are green against current code
-- [ ] Task B `DropSizingPolicy` tests green (sizing-mode selection + halve + proportional + removal)
-- [ ] Task C main-pane drag-insert tests green with audited per-test expectations (halve on pane-zone, proportional on slot)
-- [ ] Task D drawer drag-rearrange tests green (all proportional)
+- [ ] Shared Task A: existing `LayoutFlatStripTests` confirmed green at baseline
+- [ ] Task B: `DropSizingRatioPolicy` + `DropSizingModeResolver` tests green
+- [ ] Task C: command contracts updated; every `insertPane` / `moveDrawerPane` construction site declares `sizingMode` explicitly
+- [ ] Task C-index: `RearrangeIndexAdjustment` pure helper tests green
+- [ ] Task D: main-pane + drawer insertion paths use `DropSizingRatioPolicy`; affected tests reviewed per-test
+- [ ] Task D2: drawer rearrange uses remove+insert via policy; `insertingPreservingRatios` helper deleted
+- [ ] Task D3: user-initiated removal paths proportional; repair paths keep adjacent-absorb (inline-commented)
 - [ ] Full `mise run test` suite passes
 - [ ] `mise run lint` passes (0 violations)
 - [ ] Manual verification:
   - 4-pane horizontal split, drop-on-pane-zone of pane index 1: only that pane shrinks 50%, other panes unchanged
-  - 4-pane horizontal split, drop-on-slot between panes 1 and 2: all four existing panes scale proportionally to 0.8x, new pane gets 0.2 share
+  - 4-pane horizontal split, drop-on-slot between panes 1 and 2: all four existing panes scale proportionally to 0.8×, new pane gets 0.2 share
   - 4-pane horizontal split, shift-held drop-on-pane-zone: proportional applies, not halve
-  - Drawer n×1, drop onto rowSlot: proportional (since drawer doesn't use .paneSplit targets)
-  - Drawer n×1, drag to top band: `newRow(.top)` created
+  - Drawer n×1, drop onto rowSlot: proportional
+  - Drawer n×1, drag to top band: `.paneNewRow(.top)` created
+  - User closes a main pane: remaining ratios proportional
+  - Crash-recovery drops a stale pane: remaining ratios via adjacent-absorb (unchanged from today)
 
 ### Soft — polish
 
@@ -762,21 +967,22 @@ Shift held at any origin → `.proportional` (runtime-read from `NSEvent.modifie
 
 **Rearrange is now a concrete task in Task D, not blocked.**
 
-## Rearrangement — test pyramid
+## Rearrangement — test pyramid (scaled by risk, Codex P2 2nd review)
 
-Per the test-layer discussion (unit → mock → hidden-window → invariant → fixture), every rearrange combination must be covered:
+Per the test-layer discussion (unit → mock → hidden-window → invariant → fixture), test coverage is scaled by risk — NOT every layer for every combination.
 
-| Layer | What it tests |
+| Layer | Scope for rearrange |
 |---|---|
-| A (pure unit) | `DropSizingRatioPolicy.ratiosAfterRemoval + ratiosAfterInsertion` composed. All (source-row-state × target-kind × shift) matrix. Property tests: sum-to-1.0 on both rows after any rearrange. Same-row rearrange edge cases (removal-then-insertion order correctness). |
-| B (mock `NSDraggingInfo`) | Drive a synthetic rearrange drag against real coordinators with `FakeDraggingInfo`; assert commit produces expected ratios in both source and target rows. |
-| C (hidden window) | Real SwiftUI view tree in off-screen NSWindow. Driven rearrange drag; verify end-state layout matches unit-test prediction. |
-| D (invariant) | Random-generated rearrange scenarios: assert `|sum_source - 1.0| < ε AND |sum_target - 1.0| < ε AND pane-count conservation`. |
-| E (fixture) | Golden-file from captured real-user rearrange drag sessions (captured similarly to pid=69705). Replayed against the resolver + policy. |
+| **A (pure unit) — FULL MATRIX** | Every (source-row-state × target-kind × shift) combination. Same-row forward/backward, cross-row, onto `.paneSplit`, into `.paneSlot`, with and without shift, source-empties-after-remove, target-empty-before-insert. Fast, cheap, comprehensive. Includes `RearrangeIndexAdjustment` edge cases. |
+| **B (mock `NSDraggingInfo`) — REPRESENTATIVE HIGH-RISK** | A small handful of paths chosen for their plumbing risk: same-row forward (index adjustment), cross-row shift-held, empty-source edge. Not the full matrix. |
+| **C (hidden window) — REPRESENTATIVE ONLY** | 1–2 end-to-end rearranges that verify SwiftUI preference propagation + real NSView drag routing land the expected ratios. Does not duplicate Layer A matrix. |
+| **D (invariant) — PROPERTY TEST** | Random-generated rearrange scenarios: `∀ source ∀ target ∀ shift: |sum_source - 1.0| < ε ∧ |sum_target - 1.0| < ε ∧ pane-count conserved`. Covers combinations Layer A doesn't enumerate. |
+| **E (fixture) — CAPTURED REAL-USER ONLY** | Golden-file from recorded rearrange drag sessions. Covers paths users actually exercise. NOT every theoretical combination. |
 
-Every rearrange edge case — same-row forward, same-row backward, cross-row (drawer n×2 only), onto `.paneSplit`, into `.paneSlot`, with and without shift, source row collapses to empty after remove, target row was empty before insert — must appear in at least Layers A + D. Real-world scenarios additionally go into Layer E.
-
-**No rearrange acceptance without all 5 layers green for the specific combination being shipped.**
+**Acceptance threshold for rearrange:**
+- Full matrix coverage in Layer A (pure unit) required
+- Property coverage in Layer D required
+- Layers B / C / E cover representative + real-world paths, not full matrix — gating on "every combination in every layer" makes the test surface brittle and expensive (Codex-flagged).
 
 ## Non-goals
 
