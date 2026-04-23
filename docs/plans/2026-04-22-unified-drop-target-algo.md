@@ -290,21 +290,309 @@ Implementation lives in the adapter/commit layer, NOT the resolver. One helper: 
 
 Flagged as a test-case for the main-drag fixture (Prereq 2) and for the drawer-two-row fixture (Prereq 3): at least one case per fixture with `showMinimizedBars=false`.
 
-## Cross-tab drag — preserve existing behavior
+## Cross-tab drag — existing + three enhancements
 
-**Existing behavior** (grounded — not a new feature):
-- When dragging a pane (`.agentStudioPaneDrop`), if the cursor hovers over a tab in the tab bar, that tab is auto-selected IMMEDIATELY
-- Implemented at `Sources/AgentStudio/App/Panes/TabBar/DraggableTabBarHostingView.swift:385–393` inside `draggingUpdated(_:)`
-- No dwell timer, no spring-load — single auto-select per tab (tracked by `lastAutoSelectedTabIdForPaneDrag`)
+### Existing behavior (grounded, preserved)
 
-**Constraint for this plan:** don't break this. The resolver runs against the currently-displayed tab's paneFrames. When the tab auto-switches mid-drag, the capture NSView's `coordinator.updateLayout` receives the new tab's state via SwiftUI preference re-propagation; resolver transparently operates on the new tab's layout.
+Confirmed at `Sources/AgentStudio/App/Panes/TabBar/DraggableTabBarHostingView.swift`:
+- `draggingEntered` / `draggingUpdated` reject pane drops when `allowsTabBarInsertion(for: payload)` returns false — requires `payload.drawerParentPaneId == nil`. Drawer-child drags: tab bar is inert. No auto-select, no drop indicator.
+- For main-pane drags, `draggingUpdated` computes `tabAtPoint(cursor)` and fires `onSelect?(hoveredTabId)` when a new tab is hovered. Immediate auto-select; re-selection of same tab suppressed via `lastAutoSelectedTabIdForPaneDrag`.
+- Cross-tab commit path: `PaneDropPlanner.splitDecision` produces `.extractPaneToTabThenMove(paneId, sourceTabId, toIndex)` for drops whose destination tab differs from the source tab.
 
-**What might break:**
-- If the new tab has different `splittablePanes` (different minimized state), the resolver behavior shifts mid-drag — expected.
-- If the new tab is a drawer-expanded tab, the drop target semantics shift (n×1 / n×2 vs main) — expected and desired.
-- Target-latch state (current resolved target) must reset on tab change to avoid stale IDs. Add to Task 8 resolveLatched contract: tab-change should clear `currentTarget` before the next `resolve` call. Caller's responsibility; fixture covers by driving a tab-change event and asserting no stale UUID.
+The resolver change in this plan is transparent to cross-tab flow: when the active tab auto-switches, SwiftUI re-publishes the new tab's `paneFrames` + related state, and the capture NSView's coordinator receives the update. Resolver runs against the new tab's inputs. No resolver code changes needed for cross-tab.
 
-**Deeper discussion of cross-tab semantics deferred to a separate follow-up (user's call to "talk about #4 after").** No plan changes beyond the constraint above.
+### Enhancement 1 — 100ms dwell timer on tab auto-switch
+
+**Problem:** immediate auto-select fires during drive-by traversal across the tab bar. Cursor passing over tab B on the way to tab C accidentally activates tab B.
+
+**Solution:** require the cursor to dwell on a tab for 100 ms before auto-selecting it. Pure state machine extracted as `DragDwellState` for unit testability.
+
+**Pure state machine contract:**
+
+```swift
+/// Tracks dwell progress for cross-tab drag auto-select.
+/// Pure value type. No side effects. Driven by `draggingUpdated` calls
+/// that poll the cursor at ~30 Hz during an active drag.
+struct DragDwellState: Equatable, Sendable {
+    /// Tab currently under cursor (if any).
+    var hoveredTabId: UUID?
+    /// Time when the cursor first entered `hoveredTabId`.
+    var dwellStartTime: TimeInterval?
+    /// Last tab auto-selected during this drag session. Used to suppress
+    /// immediate re-selection when cursor re-enters the same tab after
+    /// briefly leaving and returning.
+    var lastCommittedTabId: UUID?
+
+    static let idle = DragDwellState()
+
+    /// Single step of the state machine.
+    ///
+    /// - Parameters:
+    ///   - current: previous state
+    ///   - hoveredTabId: tab under cursor now (nil if cursor left tab bar)
+    ///   - now: current time (caller supplies for testability)
+    ///   - dwellDuration: how long the cursor must stay on a tab before
+    ///     triggering auto-select. Default: 0.1 seconds.
+    ///
+    /// - Returns: `(next, shouldCommit)` — caller fires onSelect when
+    ///   `shouldCommit` is non-nil.
+    static func step(
+        current: DragDwellState,
+        hoveredTabId: UUID?,
+        now: TimeInterval,
+        dwellDuration: TimeInterval = 0.1
+    ) -> (next: DragDwellState, shouldCommit: UUID?) {
+        // Cursor left the tab bar entirely
+        guard let hoveredTabId else {
+            return (DragDwellState(lastCommittedTabId: current.lastCommittedTabId), nil)
+        }
+
+        // Different tab than we were dwelling on — restart dwell
+        if hoveredTabId != current.hoveredTabId {
+            return (
+                DragDwellState(
+                    hoveredTabId: hoveredTabId,
+                    dwellStartTime: now,
+                    lastCommittedTabId: current.lastCommittedTabId
+                ),
+                nil
+            )
+        }
+
+        // Same tab; check if dwell expired
+        guard let startTime = current.dwellStartTime else {
+            // Defensive — shouldn't happen; reset
+            return (
+                DragDwellState(
+                    hoveredTabId: hoveredTabId,
+                    dwellStartTime: now,
+                    lastCommittedTabId: current.lastCommittedTabId
+                ),
+                nil
+            )
+        }
+
+        // Already committed this tab — don't re-fire
+        if current.lastCommittedTabId == hoveredTabId {
+            return (current, nil)
+        }
+
+        // Dwell expired — commit
+        if (now - startTime) >= dwellDuration {
+            return (
+                DragDwellState(
+                    hoveredTabId: hoveredTabId,
+                    dwellStartTime: startTime,
+                    lastCommittedTabId: hoveredTabId
+                ),
+                hoveredTabId
+            )
+        }
+
+        // Still dwelling
+        return (current, nil)
+    }
+
+    /// Reset on drag end / exit / commit. Caller calls this at
+    /// `draggingExited`, `draggingEnded`, `performDragOperation`.
+    static let reset = DragDwellState()
+}
+```
+
+**NSView wiring** in `DraggableTabBarHostingView`:
+
+```swift
+private var dwellState = DragDwellState.idle
+
+override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+    // ... existing filter checks ...
+
+    if types.contains(.agentStudioPaneDrop) {
+        let point = convert(sender.draggingLocation, from: nil)
+        let hoveredTabId = Self.tabId(at: point, tabFrames: tabFrames)
+        let (next, shouldCommit) = DragDwellState.step(
+            current: dwellState,
+            hoveredTabId: hoveredTabId,
+            now: CFAbsoluteTimeGetCurrent()
+        )
+        dwellState = next
+        publishDwellProgressToAdapter()       // for visual indicator (Enhancement 2)
+        if let tabIdToSelect = shouldCommit {
+            onSelect?(tabIdToSelect)
+            notifyAutoDismissIfNeeded(tabIdToSelect, payload: payload)  // Enhancement 3
+        }
+    }
+
+    // ... existing updateDropTarget and .move return ...
+}
+
+override func draggingExited(_ sender: NSDraggingInfo?) {
+    dwellState = DragDwellState.reset
+    publishDwellProgressToAdapter()
+    clearDropTargetIndicator()
+}
+```
+
+Note the `tabId(at:tabFrames:)` static helper — extracted for pure-function testability.
+
+### Enhancement 2 — Dwell visual indicator
+
+**Problem:** 100ms dwell is fast enough to feel snappy but slow enough that users notice the "not quite clicked yet" pause. Without feedback the delay feels unresponsive.
+
+**Solution:** subtle fill-in effect on the hovered tab during dwell, resolving to the selected state on commit.
+
+**Visual spec:**
+- While dwell is in progress (`dwellTabId == tabId && dwellProgress ∈ (0, 1)`): draw a fading-in background fill behind the tab contents — start at 0% opacity at dwell start, animate to a pre-select color (~30% of accent-color opacity) by dwell end
+- On commit: the existing selected-tab styling takes over (instant snap to selected)
+- On cancel (cursor moves off before 100ms): fill fades back to 0% over ~80ms
+
+**Implementation:**
+- New property on `TabBarAdapter` (observable): `@Published var dwellTabId: UUID?` and `@Published var dwellProgress: CGFloat`  (0.0 to 1.0)
+- NSView calls `publishDwellProgressToAdapter()` after each state-machine step. Adapter publishes; SwiftUI `CustomTabBar` reads and renders.
+- Progress is computed at step time: `progress = (now - dwellStartTime) / dwellDuration`, clamped to 0...1.
+- SwiftUI renders the fill via a `.background(progressFill)` modifier on the tab view; opacity scales with `dwellProgress`.
+
+The visual progress function is itself extractable as a pure function for unit tests:
+
+```swift
+enum DragDwellProgress {
+    /// Progress 0.0 ... 1.0 for a dwell in progress. Pure.
+    static func progress(
+        state: DragDwellState,
+        now: TimeInterval,
+        dwellDuration: TimeInterval = 0.1
+    ) -> CGFloat {
+        guard
+            let startTime = state.dwellStartTime,
+            state.hoveredTabId != nil,
+            state.hoveredTabId != state.lastCommittedTabId
+        else { return 0 }
+        let raw = (now - startTime) / dwellDuration
+        return CGFloat(max(0, min(1, raw)))
+    }
+}
+```
+
+### Enhancement 3 — Auto-dismiss destination tab's drawer when main-pane drags enter
+
+**Problem:** when a main-pane drag auto-switches to a tab whose drawer is expanded, that tab's main-pane capture is gated off (`mainSplitDragCaptureEnabled = false`). The cursor has no valid drop destination — the drag is effectively dead until the user cancels or finds a different tab.
+
+**Solution:** on auto-switch, if source is main-pane AND destination tab has an expanded drawer, dispatch `.toggleDrawer(paneId: expandedDrawerParentPaneId)` to collapse the drawer. This reveals the main-pane area of the destination tab, which accepts the drop.
+
+**CRITICAL constraint (user-flagged):** this trigger MUST be scoped surgically. Auto-dismiss is a core app behavior in other contexts (click-outside, dismiss monitor). The drag-driven auto-dismiss is a NEW trigger path and MUST NOT:
+- Fire on regular tab click / keyboard tab switch
+- Fire on drawer-child drag (tab bar is inert for those already, but defensively guard)
+- Fire on tab-reorder drag
+- Fire on drops that don't actually enter the destination tab's pane area
+
+**Pure decision function (extracted for testability):**
+
+```swift
+/// Decides whether auto-dismiss should fire on drag-driven tab switch.
+/// Pure. Takes all inputs explicitly; no environment reads.
+enum DragAutoDismissDecision: Equatable, Sendable {
+    /// Compute the decision.
+    /// - Parameters:
+    ///   - payload: the dragging payload
+    ///   - destinationTabId: the tab about to be auto-selected
+    ///   - destinationExpandedDrawerParentPaneId: the tab's currently-
+    ///     expanded drawer parent pane ID, if any
+    /// - Returns: the drawer parent pane ID to dismiss, or nil if no
+    ///   dismissal should occur.
+    static func shouldAutoDismiss(
+        payload: PaneDragPayload,
+        destinationTabId: UUID,
+        destinationExpandedDrawerParentPaneId: UUID?
+    ) -> UUID? {
+        // Only for main-pane drags. Drawer-child drags never trigger auto-dismiss
+        // (the tab bar is inert for them; defense-in-depth).
+        guard payload.drawerParentPaneId == nil else { return nil }
+        // Only when destination has an expanded drawer
+        guard let drawerParentId = destinationExpandedDrawerParentPaneId else { return nil }
+        // Only when switching to a DIFFERENT tab — don't dismiss the source tab's
+        // drawer just because the cursor is on the tab bar
+        guard destinationTabId != payload.tabId else { return nil }
+        return drawerParentId
+    }
+}
+```
+
+**NSView wiring:**
+
+```swift
+// Provider injected by PaneTabViewController at view construction time.
+var expandedDrawerParentIdForTab: ((_ tabId: UUID) -> UUID?)?
+var onAutoDismissDrawerForDrag: ((_ tabId: UUID, _ drawerParentPaneId: UUID) -> Void)?
+
+private func notifyAutoDismissIfNeeded(_ tabIdToSelect: UUID, payload: PaneDragPayload) {
+    let destExpandedDrawer = expandedDrawerParentIdForTab?(tabIdToSelect) ?? nil
+    if let drawerParentId = DragAutoDismissDecision.shouldAutoDismiss(
+        payload: payload,
+        destinationTabId: tabIdToSelect,
+        destinationExpandedDrawerParentPaneId: destExpandedDrawer
+    ) {
+        onAutoDismissDrawerForDrag?(tabIdToSelect, drawerParentId)
+    }
+}
+```
+
+`PaneTabViewController` implements the callback by dispatching `.toggleDrawer(paneId: drawerParentId)` through its normal action pipeline.
+
+**Edge cases that MUST be tested:**
+1. Main-pane drag → tab B (drawer expanded) → drawer dismissed → pane area accepts drop ✓
+2. Main-pane drag → tab B (drawer collapsed) → no dismissal ✓
+3. Drawer-child drag → tab bar is inert already, but if this code path somehow ran, `shouldAutoDismiss` returns nil ✓
+4. Regular tab click (no drag) → `shouldAutoDismiss` NEVER consulted; drawer stays expanded ✓
+5. Keyboard tab switch → same ✓
+6. Tab-reorder drag (`.agentStudioTabInternal` payload) → `shouldAutoDismiss` NEVER consulted (different payload path) ✓
+7. Main drag crosses multiple drawer-expanded tabs → each dwell triggers one dismissal ✓
+8. Main drag enters tab B, drawer dismissed, user then cancels drag → drawer STAYS DISMISSED (side effect retained; document this as known behavior) ✓
+9. Drag enters drag-source tab's OWN tab from tab bar → `destinationTabId == payload.tabId` guard rejects dismissal ✓
+10. Dwell cancelled mid-100ms (cursor moves off before commit) → `onSelect` never fires → `notifyAutoDismissIfNeeded` never called → drawer stays expanded ✓
+
+### Enhancement 4 — Latch reset on tab change (mid-drag)
+
+**Problem:** when the active tab auto-switches mid-drag, the drop-capture NSView's coordinator still holds a `currentTarget` with a UUID that belongs to the previous tab's panes. Under `resolveLatched`, `shouldAccept(currentTarget)` is called; if the stale UUID happens to match a pane in the new tab (unlikely but possible if the user has recently worked with the same pane in multiple tabs via restore), behavior is undefined.
+
+**Solution:** explicit `currentTarget = nil` reset when the active tab changes mid-drag. Pure decision function + NSView callback.
+
+```swift
+enum DragLatchResetDecision {
+    /// Whether the latched drop target should be cleared given a
+    /// pending tab switch. Pure.
+    static func shouldResetLatch(
+        currentLatchedPaneId: UUID?,
+        previousActiveTabId: UUID,
+        newActiveTabId: UUID
+    ) -> Bool {
+        guard currentLatchedPaneId != nil else { return false }
+        return previousActiveTabId != newActiveTabId
+    }
+}
+```
+
+Wiring: `PaneTabViewController.selectTab(_:)` (or the equivalent) calls into each tab's drop-capture coordinator with `finalizeDragSession()` when `shouldResetLatch` returns true.
+
+---
+
+## Pure-algorithm extraction principle
+
+**Every algorithmic step in this plan must be a pure function or pure value-type method, unit-tested in isolation.** No exceptions. NSView callbacks / SwiftUI views are glue; all decisions live in pure types.
+
+Pure helpers introduced by this plan:
+
+| Helper | File | Purpose |
+|---|---|---|
+| `DropTargetResolver.resolve/targetRects/resolveLatched` | `Core/Views/DragAndDrop/DropTargetResolver.swift` | Geometric target resolution |
+| `DropSizingPolicy.sizingMode/ratiosAfter{Insertion,Removal}` | `Core/Views/DragAndDrop/DropSizingPolicy.swift` | Sizing math |
+| `DragDwellState.step` | `Core/Views/DragAndDrop/DragDwellState.swift` | Dwell state machine |
+| `DragDwellProgress.progress` | `Core/Views/DragAndDrop/DragDwellState.swift` | Visual progress 0...1 |
+| `DragAutoDismissDecision.shouldAutoDismiss` | `Core/Views/DragAndDrop/DragAutoDismissDecision.swift` | Auto-dismiss trigger rule |
+| `DragLatchResetDecision.shouldResetLatch` | `Core/Views/DragAndDrop/DragLatchResetDecision.swift` | Latch reset rule |
+| `DraggableTabBarGeometry.tabId(at:tabFrames:)` | `Core/Views/Panes/DraggableTabBarGeometry.swift` (new) | Pure `tabAtPoint` — extracted from existing NSView method |
+| `VisibleRowIndexMapping.fullRowIndex(for:fullRow:minimized:)` | `Core/Views/DragAndDrop/VisibleRowIndexMapping.swift` | Invisible-minimized commit-time index translation |
+
+Every helper above has a sibling test file with @Suite + @Test per pure function per edge case.
 
 ## Tab bar drag = separate mechanism
 
@@ -355,9 +643,19 @@ struct DropSizingPolicy {
 - `Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetResolver.swift` — pure resolver
 - `Sources/AgentStudio/Core/Views/DragAndDrop/DropTargetOverlayRenderer.swift` — shared SwiftUI view modifier for zone/slot/newRow highlight rendering (replaces `DropZone.overlay(...)` / `.overlayRect(...)` / `.markerRect(...)`)
 - `Sources/AgentStudio/Core/Views/DragAndDrop/DropSizingPolicy.swift` — shared sizing rules (see `2026-04-22-drop-sizing-policy.md`)
-- `Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverTests.swift` — unit tests
-- `Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverFixtureTests.swift` — golden-fixture replay (pid=69705 drawer n×1, new two-row drawer fixture per Prereq 3, main fixtures per Prereq 2)
+- `Sources/AgentStudio/Core/Views/DragAndDrop/DragDwellState.swift` — pure dwell state machine + progress function (`DragDwellState.step`, `DragDwellProgress.progress`)
+- `Sources/AgentStudio/Core/Views/DragAndDrop/DragAutoDismissDecision.swift` — pure trigger rule for auto-dismissing a destination tab's drawer on main-pane drag
+- `Sources/AgentStudio/Core/Views/DragAndDrop/DragLatchResetDecision.swift` — pure rule for clearing latched drop target on tab change
+- `Sources/AgentStudio/Core/Views/DragAndDrop/VisibleRowIndexMapping.swift` — pure commit-time index translation for invisible-minimized mode
+- `Sources/AgentStudio/Core/Views/Panes/DraggableTabBarGeometry.swift` — pure `tabId(at:tabFrames:)` extracted from `DraggableTabBarHostingView.tabAtPoint`
+- `Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverTests.swift`
+- `Tests/AgentStudioTests/Core/Views/DragAndDrop/DropTargetResolverFixtureTests.swift` — golden-fixture replay (pid=69705 drawer n×1, two-row drawer fixture per Prereq 3, main fixtures per Prereq 2)
 - `Tests/AgentStudioTests/Core/Views/DragAndDrop/DropSizingPolicyTests.swift`
+- `Tests/AgentStudioTests/Core/Views/DragAndDrop/DragDwellStateTests.swift` — state machine timing edge cases
+- `Tests/AgentStudioTests/Core/Views/DragAndDrop/DragAutoDismissDecisionTests.swift` — trigger matrix (including all 10 edge cases from §"Enhancement 3")
+- `Tests/AgentStudioTests/Core/Views/DragAndDrop/DragLatchResetDecisionTests.swift`
+- `Tests/AgentStudioTests/Core/Views/DragAndDrop/VisibleRowIndexMappingTests.swift`
+- `Tests/AgentStudioTests/Core/Views/Panes/DraggableTabBarGeometryTests.swift`
 - `Tests/AgentStudioTests/Core/Models/DropTargetConfigTests.swift`
 - `Tests/AgentStudioTests/Core/Models/DropTargetTests.swift`
 
