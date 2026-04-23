@@ -2,13 +2,21 @@ import AppKit
 import Observation
 import SwiftUI
 
+final class SidebarToolbarButton: NSButton {
+    var currentSymbolName = ""
+}
+
 /// Main window controller for AgentStudio
 class MainWindowController: NSWindowController, NSWindowDelegate {
     private var splitViewController: MainSplitViewController?
     private var sidebarAccessory: NSTitlebarAccessoryViewController?
     private var inboxAtom = InboxNotificationAtom()
+    private var uiState: UIStateAtom?
+    private weak var worktreeToolbarButton: SidebarToolbarButton?
+    private weak var inboxToolbarButton: SidebarToolbarButton?
     private weak var inboxToolbarBellDot: NSView?
     private var isObservingInboxUnread = false
+    private var isObservingSidebarSurface = false
     private var awaitsLaunchRestoreResize = false
     private var awaitsLaunchMaximize = false
     private var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
@@ -50,6 +58,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         self.init(window: window)
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
         self.inboxAtom = inboxAtom
+        self.uiState = atom(\.uiState)
         window.delegate = self
         applicationLifecycleMonitor.handleWindowRegistered(windowId)
 
@@ -141,52 +150,33 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private func setupTitlebarAccessory() {
         let worktreeSidebarPresentation = CommandDispatcher.shared.definition(for: .showWorktreeSidebar)
         let inboxSidebarPresentation = CommandDispatcher.shared.definition(for: .showInboxNotifications)
-        let filterSidebarPresentation = CommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Worktree sidebar button
-        let worktreeButton = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
-        worktreeButton.image = NSImage(
-            systemSymbolName: "sidebar.left",
-            accessibilityDescription: worktreeSidebarPresentation.actionSpec.label
+        let worktreeButton = makeSidebarToolbarButton(
+            identifier: "worktreeToolbarButton",
+            accessibilityLabel: worktreeSidebarPresentation.actionSpec.label,
+            toolTip: worktreeSidebarPresentation.controlToolTip,
+            action: #selector(showWorktreeSidebarAction)
         )
-        worktreeButton.bezelStyle = .accessoryBarAction
-        worktreeButton.isBordered = false
-        worktreeButton.target = self
-        worktreeButton.action = #selector(showWorktreeSidebarAction)
-        worktreeButton.toolTip = worktreeSidebarPresentation.controlToolTip
+        self.worktreeToolbarButton = worktreeButton
 
         // Inbox sidebar button
-        let inboxButton = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
-        inboxButton.image = NSImage(
-            systemSymbolName: "bell",
-            accessibilityDescription: inboxSidebarPresentation.actionSpec.label
+        let inboxButton = makeSidebarToolbarButton(
+            identifier: "inboxToolbarBell",
+            accessibilityLabel: inboxSidebarPresentation.actionSpec.label,
+            toolTip: inboxSidebarPresentation.controlToolTip,
+            action: #selector(showInboxSidebarAction)
         )
-        inboxButton.bezelStyle = .accessoryBarAction
-        inboxButton.isBordered = false
-        inboxButton.identifier = NSUserInterfaceItemIdentifier("inboxToolbarBell")
-        inboxButton.target = self
-        inboxButton.action = #selector(showInboxSidebarAction)
-        inboxButton.toolTip = inboxSidebarPresentation.controlToolTip
+        self.inboxToolbarButton = inboxButton
         installInboxUnreadDot(on: inboxButton)
 
-        // Search button
-        let searchButton = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
-        searchButton.image = NSImage(
-            systemSymbolName: "magnifyingglass",
-            accessibilityDescription: filterSidebarPresentation.actionSpec.label
-        )
-        searchButton.bezelStyle = .accessoryBarAction
-        searchButton.isBordered = false
-        searchButton.target = self
-        searchButton.action = #selector(filterSidebarAction)
-        searchButton.toolTip = filterSidebarPresentation.controlToolTip
-
         // Stack buttons horizontally with standard titlebar spacing
-        let stack = NSStackView(views: [worktreeButton, inboxButton, searchButton])
+        let stack = NSStackView(views: [worktreeButton, inboxButton])
+        stack.identifier = NSUserInterfaceItemIdentifier("sidebarToolbarAccessory")
         stack.orientation = .horizontal
-        stack.spacing = 8
-        stack.edgeInsets = NSEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)
-        stack.frame = NSRect(x: 0, y: 0, width: 128, height: 28)
+        stack.spacing = 10
+        stack.edgeInsets = NSEdgeInsets(top: 0, left: 22, bottom: 0, right: 0)
+        stack.frame = NSRect(x: 0, y: 0, width: 104, height: 28)
 
         let accessoryVC = NSTitlebarAccessoryViewController()
         accessoryVC.view = stack
@@ -194,6 +184,91 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
         window?.addTitlebarAccessoryViewController(accessoryVC)
         self.sidebarAccessory = accessoryVC
+        updateSidebarToolbarIcons()
+        observeSidebarSurface()
+    }
+
+    private func makeSidebarToolbarButton(
+        identifier: String,
+        accessibilityLabel: String,
+        toolTip: String,
+        action: Selector
+    ) -> SidebarToolbarButton {
+        let button = SidebarToolbarButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
+        button.bezelStyle = .accessoryBarAction
+        button.isBordered = false
+        button.identifier = NSUserInterfaceItemIdentifier(identifier)
+        button.target = self
+        button.action = action
+        button.toolTip = toolTip
+        button.image = sidebarToolbarImage(
+            symbolName: "circle",
+            accessibilityDescription: accessibilityLabel
+        )
+        return button
+    }
+
+    private func updateSidebarToolbarIcons() {
+        guard let uiState else { return }
+        let worktreeSymbol =
+            uiState.sidebarSurface == .repos
+            ? "square.stack.3d.down.right.fill"
+            : "square.stack.3d.down.right"
+        let inboxSymbol =
+            uiState.sidebarSurface == .inbox
+            ? "bell.fill"
+            : "bell"
+
+        applySidebarToolbarImage(
+            symbolName: worktreeSymbol,
+            accessibilityDescription: CommandDispatcher.shared.definition(for: .showWorktreeSidebar).actionSpec.label,
+            to: worktreeToolbarButton
+        )
+        applySidebarToolbarImage(
+            symbolName: inboxSymbol,
+            accessibilityDescription: CommandDispatcher.shared.definition(for: .showInboxNotifications).actionSpec
+                .label,
+            to: inboxToolbarButton
+        )
+    }
+
+    private func sidebarToolbarImage(
+        symbolName: String,
+        accessibilityDescription: String
+    ) -> NSImage? {
+        let image = NSImage(
+            systemSymbolName: symbolName,
+            accessibilityDescription: accessibilityDescription
+        )
+        image?.setName(NSImage.Name(symbolName))
+        return image
+    }
+
+    private func applySidebarToolbarImage(
+        symbolName: String,
+        accessibilityDescription: String,
+        to button: SidebarToolbarButton?
+    ) {
+        button?.currentSymbolName = symbolName
+        button?.image = sidebarToolbarImage(
+            symbolName: symbolName,
+            accessibilityDescription: accessibilityDescription
+        )
+    }
+
+    private func observeSidebarSurface() {
+        guard !isObservingSidebarSurface, let uiState else { return }
+        isObservingSidebarSurface = true
+        withObservationTracking {
+            _ = uiState.sidebarSurface
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isObservingSidebarSurface = false
+                self.updateSidebarToolbarIcons()
+                self.observeSidebarSurface()
+            }
+        }
     }
 
     private func installInboxUnreadDot(on button: NSButton) {
@@ -311,14 +386,12 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     @objc private func showWorktreeSidebarAction() {
         showWorktreeSidebar()
+        updateSidebarToolbarIcons()
     }
 
     @objc private func showInboxSidebarAction() {
         showInboxNotifications(commandBarIsKey: false)
-    }
-
-    @objc private func filterSidebarAction() {
-        CommandDispatcher.shared.dispatch(.filterSidebar)
+        updateSidebarToolbarIcons()
     }
 }
 

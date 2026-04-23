@@ -15,14 +15,66 @@ struct MainWindowControllerInboxToolbarButtonTests {
     @Test("bell button is installed next to the sidebar controls")
     func bellButtonIsInstalled() async {
         await withMainWindowControllerHarness { harness in
+            let worktreeButton =
+                findDescendant(
+                    in: harness.window,
+                    identifier: "worktreeToolbarButton"
+                ) as? NSButton
             let bellButton =
                 findDescendant(
                     in: harness.window,
                     identifier: "inboxToolbarBell"
                 ) as? NSButton
 
+            #expect(worktreeButton != nil)
             #expect(bellButton != nil)
             #expect(bellButton?.image?.accessibilityDescription == "Toggle Inbox")
+        }
+    }
+
+    @Test("titlebar sidebar controls omit search and leave traffic-light padding")
+    func sidebarControlsOmitSearchAndPadFromTrafficLights() async {
+        await withMainWindowControllerHarness { harness in
+            let accessory =
+                findDescendant(
+                    in: harness.window,
+                    identifier: "sidebarToolbarAccessory"
+                ) as? NSStackView
+            let buttons = accessory?.arrangedSubviews.compactMap { $0 as? SidebarToolbarButton } ?? []
+
+            #expect(accessory != nil)
+            #expect(accessory?.edgeInsets.left == 22)
+            #expect(buttons.map { $0.identifier?.rawValue } == ["worktreeToolbarButton", "inboxToolbarBell"])
+            #expect(buttons.allSatisfy { $0.currentSymbolName != "magnifyingglass" })
+        }
+    }
+
+    @Test("sidebar toolbar icons track active surface")
+    func sidebarToolbarIconsTrackActiveSurface() async {
+        await withMainWindowControllerHarness { harness in
+            let worktreeButton =
+                findDescendant(
+                    in: harness.window,
+                    identifier: "worktreeToolbarButton"
+                ) as? NSButton
+            let bellButton =
+                findDescendant(
+                    in: harness.window,
+                    identifier: "inboxToolbarBell"
+                ) as? NSButton
+
+            let worktreeToolbarButton = worktreeButton as? SidebarToolbarButton
+            let inboxToolbarButton = bellButton as? SidebarToolbarButton
+
+            #expect(worktreeToolbarButton?.currentSymbolName == "square.stack.3d.down.right.fill")
+            #expect(inboxToolbarButton?.currentSymbolName == "bell")
+
+            harness.atoms.uiState.setSidebarSurface(.inbox)
+
+            await eventually("inbox toolbar icon should become active") {
+                worktreeToolbarButton?.currentSymbolName == "square.stack.3d.down.right"
+                    && inboxToolbarButton?.currentSymbolName == "bell.fill"
+            }
         }
     }
 
