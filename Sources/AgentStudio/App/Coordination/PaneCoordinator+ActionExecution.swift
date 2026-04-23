@@ -311,12 +311,13 @@ extension PaneCoordinator {
                 )
             }
 
-        case .insertPane(let source, let targetTabId, let targetPaneId, let direction):
+        case .insertPaneRequest(let request):
             executeInsertPane(
-                source: source,
-                targetTabId: targetTabId,
-                targetPaneId: targetPaneId,
-                direction: direction
+                source: request.source,
+                targetTabId: request.targetTabId,
+                targetPaneId: request.targetPaneId,
+                direction: request.direction,
+                sizingMode: request.sizingMode
             )
 
         case .resizePane(let tabId, let splitId, let ratio):
@@ -418,7 +419,8 @@ extension PaneCoordinator {
                 inTab: targetTabId,
                 at: targetPaneId,
                 direction: layoutDirection,
-                position: position
+                position: position,
+                sizingMode: .halveTarget
             )
             viewRegistry.ensureSlot(for: paneId)
             if viewRegistry.view(for: paneId) == nil, let pane = store.paneAtom.pane(paneId) {
@@ -535,18 +537,20 @@ extension PaneCoordinator {
                 reattachForViewSwitch(paneId: drawerPaneId)
             }
 
-        case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction):
+        case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction, let sizingMode):
             executeInsertDrawerPane(
                 parentPaneId: parentPaneId,
                 targetDrawerPaneId: targetDrawerPaneId,
-                direction: direction
+                direction: direction,
+                sizingMode: sizingMode
             )
 
-        case .moveDrawerPane(let parentPaneId, let drawerPaneId, let target):
+        case .moveDrawerPane(let parentPaneId, let drawerPaneId, let target, let sizingMode):
             store.paneAtom.moveDrawerPane(
                 drawerPaneId,
                 in: parentPaneId,
-                target: target
+                target: target,
+                sizingMode: sizingMode
             )
             focusVisiblePaneHost(drawerPaneId)
 
@@ -766,7 +770,8 @@ extension PaneCoordinator {
         source: PaneSource,
         targetTabId: UUID,
         targetPaneId: UUID,
-        direction: SplitNewDirection
+        direction: SplitNewDirection,
+        sizingMode: DropSizingMode
     ) {
         let layoutDirection = bridgeDirection(direction)
         let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
@@ -788,7 +793,7 @@ extension PaneCoordinator {
             store.tabLayoutAtom.removePaneFromLayout(paneId, inTab: sourceTabId)
             store.tabLayoutAtom.insertPane(
                 paneId, inTab: targetTabId, at: targetPaneId,
-                direction: layoutDirection, position: position
+                direction: layoutDirection, position: position, sizingMode: sizingMode
             )
 
         case .newTerminal:
@@ -808,7 +813,7 @@ extension PaneCoordinator {
 
                 store.tabLayoutAtom.insertPane(
                     pane.id, inTab: targetTabId, at: targetPaneId,
-                    direction: layoutDirection, position: position
+                    direction: layoutDirection, position: position, sizingMode: sizingMode
                 )
                 ensureTerminalPaneView(pane)
                 return
@@ -826,7 +831,7 @@ extension PaneCoordinator {
 
             store.tabLayoutAtom.insertPane(
                 pane.id, inTab: targetTabId, at: targetPaneId,
-                direction: layoutDirection, position: position
+                direction: layoutDirection, position: position, sizingMode: sizingMode
             )
             ensureTerminalPaneView(pane)
         }

@@ -11,14 +11,37 @@ enum DropCommitPlan: Equatable {
     case paneAction(PaneActionCommand)
 }
 
+struct PaneSplitDropDestination: Equatable {
+    let targetPaneId: UUID
+    let targetTabId: UUID
+    let direction: SplitNewDirection
+    let sizingMode: DropSizingMode
+    let targetDrawerParentPaneId: UUID?
+}
+
 enum PaneDropDestination: Equatable {
-    case split(
+    case splitTarget(PaneSplitDropDestination)
+    case tabBarInsertion(targetTabIndex: Int)
+}
+
+extension PaneDropDestination {
+    static func split(
         targetPaneId: UUID,
         targetTabId: UUID,
         direction: SplitNewDirection,
+        sizingMode: DropSizingMode,
         targetDrawerParentPaneId: UUID?
-    )
-    case tabBarInsertion(targetTabIndex: Int)
+    ) -> Self {
+        .splitTarget(
+            PaneSplitDropDestination(
+                targetPaneId: targetPaneId,
+                targetTabId: targetTabId,
+                direction: direction,
+                sizingMode: sizingMode,
+                targetDrawerParentPaneId: targetDrawerParentPaneId
+            )
+        )
+    }
 }
 
 enum PaneDropPlanner {
@@ -38,13 +61,10 @@ enum PaneDropPlanner {
                 targetTabIndex: targetTabIndex,
                 state: state
             )
-        case .split(let targetPaneId, let targetTabId, let direction, let targetDrawerParentPaneId):
+        case .splitTarget(let splitDestination):
             return splitDecision(
                 payload: payload,
-                targetPaneId: targetPaneId,
-                targetTabId: targetTabId,
-                direction: direction,
-                targetDrawerParentPaneId: targetDrawerParentPaneId,
+                destination: splitDestination,
                 state: state
             )
         }
@@ -89,13 +109,10 @@ enum PaneDropPlanner {
 
     private static func splitDecision(
         payload: SplitDropPayload,
-        targetPaneId: UUID,
-        targetTabId: UUID,
-        direction: SplitNewDirection,
-        targetDrawerParentPaneId: UUID?,
+        destination: PaneSplitDropDestination,
         state: ActionStateSnapshot
     ) -> PaneDropPreviewDecision {
-        if targetDrawerParentPaneId != nil {
+        if destination.targetDrawerParentPaneId != nil {
             return .ineligible
         }
 
@@ -108,9 +125,10 @@ enum PaneDropPlanner {
         guard
             let action = WorkspaceCommandResolver.resolveDrop(
                 payload: payload,
-                destinationPaneId: targetPaneId,
-                destinationTabId: targetTabId,
-                zone: dropZone(for: direction),
+                destinationPaneId: destination.targetPaneId,
+                destinationTabId: destination.targetTabId,
+                zone: dropZoneSide(for: destination.direction),
+                sizingMode: destination.sizingMode,
                 state: state
             )
         else {
@@ -140,7 +158,7 @@ enum PaneDropPlanner {
         return false
     }
 
-    private static func dropZone(for direction: SplitNewDirection) -> DropZone {
+    private static func dropZoneSide(for direction: SplitNewDirection) -> DropZoneSide {
         switch direction {
         case .left:
             return .left

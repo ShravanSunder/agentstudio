@@ -3,16 +3,25 @@ import Foundation
 extension DrawerGridLayout {
     func projectedMove(
         paneId: UUID,
-        target: DrawerRearrangeTarget
+        target: DrawerRearrangeTarget,
+        sizingMode: DropSizingMode = .halveTarget
     ) -> DrawerGridLayout? {
-        guard let layoutWithoutSource = removing(paneId: paneId) else { return nil }
+        guard let sourceLocation = location(of: paneId) else { return nil }
+        guard let layoutWithoutSource = removing(paneId: paneId, sizingMode: .proportional) else { return nil }
 
         switch target {
         case .rowSlot(let row, let insertionIndex):
+            let adjustedInsertionIndex = RearrangeIndexAdjustment.adjustedInsertionIndex(
+                sourceRow: sourceLocation.row,
+                sourceIndex: sourceLocation.index,
+                targetRow: row,
+                originalInsertionIndex: insertionIndex
+            )
             return layoutWithoutSource.insertingAtSlot(
                 paneId: paneId,
                 row: row,
-                insertionIndex: insertionIndex
+                insertionIndex: adjustedInsertionIndex,
+                sizingMode: sizingMode
             )
         case .createSecondRow(let position):
             guard layoutWithoutSource.bottomRow == nil else { return nil }
@@ -26,14 +35,16 @@ extension DrawerGridLayout {
     private func insertingAtSlot(
         paneId: UUID,
         row: DrawerRowPlacement,
-        insertionIndex: Int
+        insertionIndex: Int,
+        sizingMode: DropSizingMode
     ) -> DrawerGridLayout? {
         switch row {
         case .top:
             guard (0...topRow.paneIds.count).contains(insertionIndex) else { return nil }
-            let updated = topRow.insertingPreservingRatios(
+            let updated = topRow.insertingWithPolicy(
                 paneId: paneId,
-                insertionIndex: insertionIndex
+                insertionIndex: insertionIndex,
+                sizingMode: sizingMode
             )
             return DrawerGridLayout(
                 topRow: updated,
@@ -43,9 +54,10 @@ extension DrawerGridLayout {
         case .bottom:
             guard let bottomRow else { return nil }
             guard (0...bottomRow.paneIds.count).contains(insertionIndex) else { return nil }
-            let updated = bottomRow.insertingPreservingRatios(
+            let updated = bottomRow.insertingWithPolicy(
                 paneId: paneId,
-                insertionIndex: insertionIndex
+                insertionIndex: insertionIndex,
+                sizingMode: sizingMode
             )
             return DrawerGridLayout(
                 topRow: topRow,
@@ -122,37 +134,34 @@ extension DrawerGridLayout {
 
         return nil
     }
+
+    private func location(of paneId: UUID) -> (row: DrawerRowPlacement, index: Int)? {
+        if let index = topRow.paneIds.firstIndex(of: paneId) {
+            return (.top, index)
+        }
+        if let index = bottomRow?.paneIds.firstIndex(of: paneId) {
+            return (.bottom, index)
+        }
+        return nil
+    }
 }
 
 extension Layout {
-    fileprivate func insertingPreservingRatios(
+    fileprivate func insertingWithPolicy(
         paneId: UUID,
-        insertionIndex: Int
+        insertionIndex: Int,
+        sizingMode: DropSizingMode
     ) -> Layout {
         if paneIds.isEmpty {
             return Layout(paneId: paneId)
         }
-        if insertionIndex == 0 {
-            return inserting(
-                paneId: paneId,
-                at: paneIds[0],
-                direction: .horizontal,
-                position: .before
-            )
-        }
-        if insertionIndex >= paneIds.count {
-            return inserting(
-                paneId: paneId,
-                at: paneIds[paneIds.count - 1],
-                direction: .horizontal,
-                position: .after
-            )
-        }
-        return inserting(
-            paneId: paneId,
-            at: paneIds[insertionIndex - 1],
-            direction: .horizontal,
-            position: .after
+        let clampedIndex = max(0, min(insertionIndex, paneIds.count))
+        let updatedRatios = DropSizingRatioPolicy.ratiosAfterInsertion(
+            existingRatios: ratios,
+            insertionIndex: clampedIndex,
+            targetPaneIndex: nil,
+            mode: sizingMode
         )
+        return inserting(paneId: paneId, atIndex: clampedIndex, ratios: updatedRatios)
     }
 }

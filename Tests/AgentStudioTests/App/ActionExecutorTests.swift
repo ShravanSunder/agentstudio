@@ -374,7 +374,8 @@ final class ActionExecutorTests {
                 source: .existingPane(paneId: p2.id, sourceTabId: tab2.id),
                 targetTabId: tab1.id,
                 targetPaneId: p1.id,
-                direction: .right
+                direction: .right,
+                sizingMode: .halveTarget
             ))
 
         // Assert — tab2 was removed (last pane extracted), tab1 now has split

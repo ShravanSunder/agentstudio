@@ -147,6 +147,7 @@ final class PaneDropPlannerTests {
                 targetPaneId: destinationPaneId,
                 targetTabId: sourceTabId,
                 direction: .left,
+                sizingMode: .halveTarget,
                 targetDrawerParentPaneId: parentPaneId
             ),
             state: state
@@ -184,6 +185,7 @@ final class PaneDropPlannerTests {
                 targetPaneId: destinationPaneId,
                 targetTabId: sourceTabId,
                 direction: .right,
+                sizingMode: .halveTarget,
                 targetDrawerParentPaneId: destinationParent
             ),
             state: state
@@ -220,6 +222,7 @@ final class PaneDropPlannerTests {
                 targetPaneId: targetPaneId,
                 targetTabId: sourceTabId,
                 direction: .right,
+                sizingMode: .halveTarget,
                 targetDrawerParentPaneId: nil
             ),
             state: state
@@ -256,6 +259,7 @@ final class PaneDropPlannerTests {
                 targetPaneId: targetPaneId,
                 targetTabId: targetTabId,
                 direction: .right,
+                sizingMode: .halveTarget,
                 targetDrawerParentPaneId: nil
             ),
             state: state
@@ -269,7 +273,8 @@ final class PaneDropPlannerTests {
                             source: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
                             targetTabId: targetTabId,
                             targetPaneId: targetPaneId,
-                            direction: .right
+                            direction: .right,
+                            sizingMode: .halveTarget
                         )
                     )
                 )
@@ -297,6 +302,7 @@ final class PaneDropPlannerTests {
                 targetPaneId: targetPaneId,
                 targetTabId: targetTabId,
                 direction: .left,
+                sizingMode: .halveTarget,
                 targetDrawerParentPaneId: nil
             ),
             state: state
@@ -333,6 +339,7 @@ final class PaneDropPlannerTests {
                 targetPaneId: missingTargetPaneId,
                 targetTabId: targetTabId,
                 direction: .right,
+                sizingMode: .halveTarget,
                 targetDrawerParentPaneId: nil
             ),
             state: state
@@ -355,6 +362,7 @@ final class PaneDropPlannerTests {
                 targetPaneId: paneId,
                 targetTabId: tabId,
                 direction: .left,
+                sizingMode: .halveTarget,
                 targetDrawerParentPaneId: nil
             ),
             state: state
@@ -383,6 +391,7 @@ final class PaneDropPlannerTests {
                 targetPaneId: paneA,
                 targetTabId: tabId,
                 direction: .right,
+                sizingMode: .halveTarget,
                 targetDrawerParentPaneId: nil
             ),
             state: state
@@ -422,6 +431,7 @@ final class PaneDropPlannerTests {
                 targetPaneId: targetPaneId,
                 targetTabId: targetTabId,
                 direction: .right,
+                sizingMode: .halveTarget,
                 targetDrawerParentPaneId: nil
             ),
             state: state

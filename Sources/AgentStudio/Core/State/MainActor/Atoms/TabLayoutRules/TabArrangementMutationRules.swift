@@ -53,6 +53,20 @@ enum TabArrangementMutationRules {
         return updated
     }
 
+    static func removingUserPane(_ paneId: UUID, from arrangements: [PaneArrangement]) -> [PaneArrangement] {
+        arrangements.map { arrangement in
+            var updated = arrangement
+            if let newLayout = updated.layout.removing(paneId: paneId, sizingMode: .proportional) {
+                updated.layout = newLayout
+            } else {
+                updated.layout = Layout()
+            }
+            updated.visiblePaneIds.remove(paneId)
+            updated.minimizedPaneIds.remove(paneId)
+            return updated
+        }
+    }
+
     static func switchingArrangement(to arrangementId: UUID, in state: TabArrangementState) -> TabArrangementState {
         guard state.arrangements.contains(where: { $0.id == arrangementId }) else { return state }
         guard state.activeArrangementId != arrangementId else { return state }
@@ -125,7 +139,7 @@ enum TabArrangementMutationRules {
             updated.zoomedPaneId = nil
         }
 
-        updated.arrangements = TabArrangementRepairRules.removingPane(paneId, from: updated.arrangements)
+        updated.arrangements = removingUserPane(paneId, from: updated.arrangements)
         updated.allPaneIds.removeAll { $0 == paneId }
         if updated.activePaneId == paneId {
             updated.activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(

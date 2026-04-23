@@ -48,7 +48,8 @@ struct PaneTabViewControllerDropRoutingTests {
                 == .moveDrawerPane(
                     parentPaneId: parentPaneId,
                     drawerPaneId: sourcePaneId,
-                    target: .rowSlot(row: .top, insertionIndex: 1)
+                    target: .rowSlot(row: .top, insertionIndex: 1),
+                    sizingMode: .proportional
                 )
         )
     }
@@ -131,15 +132,19 @@ struct PaneTabViewControllerDropRoutingTests {
                 targetPaneId: targetPaneId,
                 targetTabId: targetTabId,
                 direction: .right,
+                sizingMode: .halveTarget,
                 targetDrawerParentPaneId: nil
             ),
             state: state
         )
         let commitPlan = PaneTabViewController.splitDropCommitPlan(
             payload: payload,
-            destinationPane: destinationPane,
-            destinationPaneId: targetPaneId,
+            destination: SplitDropCommitDestination(
+                paneId: targetPaneId,
+                drawerParentPaneId: destinationPane.parentPaneId
+            ),
             zone: .right,
+            sizingMode: .halveTarget,
             activeTabId: targetTabId,
             state: state
         )
@@ -186,9 +191,12 @@ struct PaneTabViewControllerDropRoutingTests {
 
         let commitPlan = PaneTabViewController.splitDropCommitPlan(
             payload: payload,
-            destinationPane: destinationPane,
-            destinationPaneId: destinationPaneId,
+            destination: SplitDropCommitDestination(
+                paneId: destinationPaneId,
+                drawerParentPaneId: destinationPane.parentPaneId
+            ),
             zone: .left,
+            sizingMode: .halveTarget,
             activeTabId: tabId,
             state: state
         )
@@ -229,9 +237,12 @@ struct PaneTabViewControllerDropRoutingTests {
 
         let commitPlan = PaneTabViewController.splitDropCommitPlan(
             payload: payload,
-            destinationPane: destinationPane,
-            destinationPaneId: destinationPaneId,
+            destination: SplitDropCommitDestination(
+                paneId: destinationPaneId,
+                drawerParentPaneId: destinationPane.parentPaneId
+            ),
             zone: .right,
+            sizingMode: .halveTarget,
             activeTabId: tabId,
             state: state
         )
@@ -269,9 +280,12 @@ struct PaneTabViewControllerDropRoutingTests {
 
         let commitPlan = PaneTabViewController.splitDropCommitPlan(
             payload: payload,
-            destinationPane: destinationPane,
-            destinationPaneId: destinationPaneId,
+            destination: SplitDropCommitDestination(
+                paneId: destinationPaneId,
+                drawerParentPaneId: destinationPane.parentPaneId
+            ),
             zone: .right,
+            sizingMode: .halveTarget,
             activeTabId: tabId,
             state: state
         )

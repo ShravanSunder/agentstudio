@@ -220,6 +220,7 @@ final class WorkspacePaneAtom {
         in parentPaneId: UUID,
         at targetDrawerPaneId: UUID,
         direction: SplitNewDirection,
+        sizingMode: DropSizingMode = .halveTarget,
         parentFallbackCWD: URL?
     ) -> Pane? {
         guard let metadata = inheritedDrawerMetadata(from: parentPaneId, parentFallbackCWD: parentFallbackCWD) else {
@@ -230,6 +231,7 @@ final class WorkspacePaneAtom {
             in: parentPaneId,
             at: targetDrawerPaneId,
             direction: direction,
+            sizingMode: sizingMode,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: metadata
         )
@@ -270,6 +272,7 @@ final class WorkspacePaneAtom {
         in parentPaneId: UUID,
         at targetDrawerPaneId: UUID,
         direction: SplitNewDirection,
+        sizingMode: DropSizingMode = .halveTarget,
         content: PaneContent,
         metadata: PaneMetadata
     ) -> Pane? {
@@ -292,7 +295,8 @@ final class WorkspacePaneAtom {
             let updatedLayout = parentPane.drawer?.layout.inserting(
                 paneId: drawerPane.id,
                 at: targetDrawerPaneId,
-                direction: direction
+                direction: direction,
+                sizingMode: sizingMode
             )
         else {
             workspacePaneLogger.warning(
@@ -314,7 +318,8 @@ final class WorkspacePaneAtom {
     func moveDrawerPane(
         _ drawerPaneId: UUID,
         in parentPaneId: UUID,
-        target: DrawerRearrangeTarget
+        target: DrawerRearrangeTarget,
+        sizingMode: DropSizingMode = .halveTarget
     ) {
         guard var parentPane = panes[parentPaneId], var drawer = parentPane.drawer else {
             workspacePaneLogger.warning("moveDrawerPane: parent pane \(parentPaneId) has no drawer")
@@ -327,7 +332,13 @@ final class WorkspacePaneAtom {
             return
         }
 
-        guard let movedLayout = drawer.layout.projectedMove(paneId: drawerPaneId, target: target) else {
+        guard
+            let movedLayout = drawer.layout.projectedMove(
+                paneId: drawerPaneId,
+                target: target,
+                sizingMode: sizingMode
+            )
+        else {
             return
         }
 
@@ -348,7 +359,8 @@ final class WorkspacePaneAtom {
             drawer.paneIds.removeAll { $0 == drawerPaneId }
             drawer.minimizedPaneIds.remove(drawerPaneId)
             if drawer.layout.contains(drawerPaneId) {
-                drawer.layout = drawer.layout.removing(paneId: drawerPaneId) ?? DrawerGridLayout()
+                drawer.layout =
+                    drawer.layout.removing(paneId: drawerPaneId, sizingMode: .proportional) ?? DrawerGridLayout()
             }
             if drawer.activePaneId == drawerPaneId {
                 drawer.activePaneId = drawer.paneIds.first
@@ -380,7 +392,8 @@ final class WorkspacePaneAtom {
         panes[parentPaneId]!.withDrawer { drawer in
             drawer.paneIds.removeAll { $0 == drawerPaneId }
             drawer.minimizedPaneIds.remove(drawerPaneId)
-            drawer.layout = drawer.layout.removing(paneId: drawerPaneId) ?? DrawerGridLayout()
+            drawer.layout =
+                drawer.layout.removing(paneId: drawerPaneId, sizingMode: .proportional) ?? DrawerGridLayout()
             if drawer.activePaneId == drawerPaneId {
                 drawer.activePaneId = drawer.paneIds.first
             }

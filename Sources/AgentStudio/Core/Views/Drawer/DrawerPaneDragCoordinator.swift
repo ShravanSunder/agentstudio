@@ -10,52 +10,20 @@ struct DrawerPaneDragCoordinator {
         layout: DrawerGridLayout,
         containerBounds: CGRect
     ) -> DrawerRearrangeTarget? {
-        guard !paneFrames.isEmpty else { return nil }
-
-        if layout.bottomRow == nil {
-            let topBand = CGRect(
-                x: containerBounds.minX,
-                y: containerBounds.minY,
-                width: containerBounds.width,
-                height: creationBandHeight
-            )
-            if topBand.contains(location) {
-                return .createSecondRow(position: .top)
-            }
-
-            let bottomBand = CGRect(
-                x: containerBounds.minX,
-                y: containerBounds.maxY - creationBandHeight,
-                width: containerBounds.width,
-                height: creationBandHeight
-            )
-            if bottomBand.contains(location) {
-                return .createSecondRow(position: .bottom)
-            }
-
-            return resolveRowSlot(
+        guard
+            let target = DropTargetResolver.resolve(
                 location: location,
-                paneIds: layout.topRow.paneIds,
-                row: .top,
-                paneFrames: paneFrames
+                rows: rowsDictionary(from: layout),
+                paneFrames: paneFrames,
+                containerBounds: containerBounds,
+                config: config(for: layout),
+                splittablePanes: []
             )
+        else {
+            return nil
         }
 
-        if let target = resolveRowSlot(
-            location: location,
-            paneIds: layout.topRow.paneIds,
-            row: .top,
-            paneFrames: paneFrames
-        ) {
-            return target
-        }
-
-        return resolveRowSlot(
-            location: location,
-            paneIds: layout.bottomRow?.paneIds ?? [],
-            row: .bottom,
-            paneFrames: paneFrames
-        )
+        return drawerTarget(from: target)
     }
 
     static func resolveLatchedTarget(
@@ -66,22 +34,29 @@ struct DrawerPaneDragCoordinator {
         currentTarget: DrawerRearrangeTarget?,
         shouldAcceptDrop: (DrawerRearrangeTarget) -> Bool
     ) -> DrawerRearrangeTarget? {
-        if let resolvedTarget = resolveTarget(
-            location: location,
-            paneFrames: paneFrames,
-            layout: layout,
-            containerBounds: containerBounds
-        ),
-            shouldAcceptDrop(resolvedTarget)
-        {
-            return resolvedTarget
+        let rows = rowsDictionary(from: layout)
+        let config = config(for: layout)
+        let currentDropTarget = currentTarget.map(dropTarget(from:))
+
+        guard
+            let target = DropTargetResolver.resolveLatched(
+                location: location,
+                rows: rows,
+                paneFrames: paneFrames,
+                containerBounds: containerBounds,
+                config: config,
+                splittablePanes: [],
+                currentTarget: currentDropTarget,
+                shouldAccept: { target in
+                    guard let drawerTarget = drawerTarget(from: target) else { return false }
+                    return shouldAcceptDrop(drawerTarget)
+                }
+            )
+        else {
+            return nil
         }
 
-        if let currentTarget, shouldAcceptDrop(currentTarget) {
-            return currentTarget
-        }
-
-        return nil
+        return drawerTarget(from: target)
     }
 
     static func targetRects(
@@ -89,117 +64,65 @@ struct DrawerPaneDragCoordinator {
         layout: DrawerGridLayout,
         containerBounds: CGRect
     ) -> [DrawerRearrangeTarget: CGRect] {
-        guard !paneFrames.isEmpty else { return [:] }
-
-        var rects: [DrawerRearrangeTarget: CGRect] = [:]
-
-        if layout.bottomRow == nil {
-            rects[.createSecondRow(position: .top)] = CGRect(
-                x: containerBounds.minX,
-                y: containerBounds.minY,
-                width: containerBounds.width,
-                height: creationBandHeight
-            )
-            rects[.createSecondRow(position: .bottom)] = CGRect(
-                x: containerBounds.minX,
-                y: containerBounds.maxY - creationBandHeight,
-                width: containerBounds.width,
-                height: creationBandHeight
-            )
-        }
-
-        mergeSlotRects(
-            into: &rects,
-            paneIds: layout.topRow.paneIds,
-            row: .top,
-            paneFrames: paneFrames
+        let rects = DropTargetResolver.targetRects(
+            rows: rowsDictionary(from: layout),
+            paneFrames: paneFrames,
+            containerBounds: containerBounds,
+            config: config(for: layout),
+            splittablePanes: []
         )
-        if let bottomPaneIds = layout.bottomRow?.paneIds {
-            mergeSlotRects(
-                into: &rects,
-                paneIds: bottomPaneIds,
-                row: .bottom,
-                paneFrames: paneFrames
-            )
-        }
 
-        return rects
-    }
-
-    private static func resolveRowSlot(
-        location: CGPoint,
-        paneIds: [UUID],
-        row: DrawerRowPlacement,
-        paneFrames: [UUID: CGRect]
-    ) -> DrawerRearrangeTarget? {
-        let sortedFrames = sortedRowFrames(paneIds: paneIds, paneFrames: paneFrames)
-        guard !sortedFrames.isEmpty else { return nil }
-
-        let rowMinY = sortedFrames.map(\.minY).min() ?? 0
-        let rowMaxY = sortedFrames.map(\.maxY).max() ?? 0
-        guard location.y >= rowMinY, location.y <= rowMaxY else { return nil }
-
-        if location.x <= sortedFrames[0].midX {
-            return .rowSlot(row: row, insertionIndex: 0)
-        }
-
-        for index in 1..<sortedFrames.count {
-            let previousMidX = sortedFrames[index - 1].midX
-            let currentMidX = sortedFrames[index].midX
-            if location.x > previousMidX, location.x <= currentMidX {
-                return .rowSlot(row: row, insertionIndex: index)
-            }
-        }
-
-        return .rowSlot(row: row, insertionIndex: sortedFrames.count)
-    }
-
-    private static func mergeSlotRects(
-        into rects: inout [DrawerRearrangeTarget: CGRect],
-        paneIds: [UUID],
-        row: DrawerRowPlacement,
-        paneFrames: [UUID: CGRect]
-    ) {
-        let sortedFrames = sortedRowFrames(paneIds: paneIds, paneFrames: paneFrames)
-        guard !sortedFrames.isEmpty else { return }
-
-        let rowMinY = sortedFrames.map(\.minY).min() ?? 0
-        let rowMaxY = sortedFrames.map(\.maxY).max() ?? 0
-        let boundaries = slotBoundaries(for: sortedFrames)
-
-        for insertionIndex in 0...sortedFrames.count {
-            let minX = boundaries[insertionIndex]
-            let maxX = boundaries[insertionIndex + 1]
-            rects[.rowSlot(row: row, insertionIndex: insertionIndex)] = CGRect(
-                x: minX,
-                y: rowMinY,
-                width: max(maxX - minX, 1),
-                height: rowMaxY - rowMinY
-            )
+        return rects.reduce(into: [:]) { translatedRects, entry in
+            guard let target = drawerTarget(from: entry.key) else { return }
+            translatedRects[target] = entry.value
         }
     }
 
-    private static func slotBoundaries(for sortedFrames: [CGRect]) -> [CGFloat] {
-        guard let firstFrame = sortedFrames.first, let lastFrame = sortedFrames.last else { return [] }
-
-        var boundaries: [CGFloat] = [firstFrame.minX]
-        boundaries.append(firstFrame.midX)
-
-        if sortedFrames.count > 1 {
-            for index in 1..<sortedFrames.count - 1 {
-                boundaries.append(sortedFrames[index].midX)
-            }
-            boundaries.append(lastFrame.midX)
-        }
-
-        boundaries.append(lastFrame.maxX)
-        return boundaries
+    private static func config(for layout: DrawerGridLayout) -> DropTargetConfig {
+        layout.bottomRow == nil ? .drawerSingleRow : .drawerTwoRow
     }
 
-    private static func sortedRowFrames(
-        paneIds: [UUID],
-        paneFrames: [UUID: CGRect]
-    ) -> [CGRect] {
-        paneIds.compactMap { paneFrames[$0] }.sorted { $0.minX < $1.minX }
+    private static func rowsDictionary(from layout: DrawerGridLayout) -> [RowID: [UUID]] {
+        var rows: [RowID: [UUID]] = [.drawerTop: layout.topRow.paneIds]
+        if let bottomRow = layout.bottomRow {
+            rows[.drawerBottom] = bottomRow.paneIds
+        }
+        return rows
+    }
+
+    private static func drawerTarget(from target: DropTarget) -> DrawerRearrangeTarget? {
+        switch target {
+        case .paneSlot(let row, let index):
+            .rowSlot(row: drawerRow(from: row), insertionIndex: index)
+        case .paneNewRow(let position):
+            .createSecondRow(position: drawerRow(from: position))
+        case .paneSplit:
+            nil
+        }
+    }
+
+    private static func dropTarget(from target: DrawerRearrangeTarget) -> DropTarget {
+        switch target {
+        case .rowSlot(let row, let insertionIndex):
+            .paneSlot(row: rowID(from: row), index: insertionIndex)
+        case .createSecondRow(let position):
+            .paneNewRow(position: newRowPosition(from: position))
+        }
+    }
+
+    private static func drawerRow(from row: RowID) -> DrawerRowPlacement {
+        row == .drawerBottom ? .bottom : .top
+    }
+
+    private static func drawerRow(from position: NewRowPosition) -> DrawerRowPlacement {
+        position == .bottom ? .bottom : .top
+    }
+
+    private static func rowID(from row: DrawerRowPlacement) -> RowID {
+        row == .bottom ? .drawerBottom : .drawerTop
+    }
+
+    private static func newRowPosition(from row: DrawerRowPlacement) -> NewRowPosition {
+        row == .bottom ? .bottom : .top
     }
 }

@@ -1,0 +1,38 @@
+import CoreGraphics
+import Foundation
+import Testing
+
+@testable import AgentStudio
+
+@Suite(.serialized)
+struct DropTargetConfigTests {
+    @Test
+    func mainConfig_allowsPaneSplit_withCorridor() {
+        let config = DropTargetConfig.main
+
+        #expect(config.rows == [.main])
+        #expect(config.newRowBand == nil)
+        #expect(config.edgeCorridorWidth == 24)
+        #expect(config.allowsPaneSplit)
+    }
+
+    @Test
+    func drawerSingleRow_rejectsPaneSplit_hasNewRowBand() {
+        let config = DropTargetConfig.drawerSingleRow
+
+        #expect(config.rows == [.drawerTop])
+        #expect(config.newRowBand?.bandHeight == 28)
+        #expect(config.edgeCorridorWidth == 0)
+        #expect(!config.allowsPaneSplit)
+    }
+
+    @Test
+    func drawerTwoRow_rejectsPaneSplit_noNewRowBand() {
+        let config = DropTargetConfig.drawerTwoRow
+
+        #expect(config.rows == [.drawerTop, .drawerBottom])
+        #expect(config.newRowBand == nil)
+        #expect(config.edgeCorridorWidth == 0)
+        #expect(!config.allowsPaneSplit)
+    }
+}

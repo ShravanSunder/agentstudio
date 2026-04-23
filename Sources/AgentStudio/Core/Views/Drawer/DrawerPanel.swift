@@ -118,12 +118,13 @@ struct DrawerPanel: View {
                         action(.expandDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
                     case .closePane(_, let paneId):
                         action(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
-                    case .insertPane(_, _, let targetPaneId, let direction):
+                    case .insertPaneRequest(let request):
                         action(
                             .insertDrawerPane(
                                 parentPaneId: parentPaneId,
-                                targetDrawerPaneId: targetPaneId,
-                                direction: direction
+                                targetDrawerPaneId: request.targetPaneId,
+                                direction: request.direction,
+                                sizingMode: request.sizingMode
                             )
                         )
                     default:
@@ -131,7 +132,7 @@ struct DrawerPanel: View {
                     }
                 },
                 shouldAcceptDrop: { _, _, _ in false },
-                handleDrop: { _, _, _ in }
+                handleDrop: { _, _, _, _ in }
             )
         )
     }
@@ -197,7 +198,8 @@ struct DrawerPanel: View {
         let moveAction = PaneActionCommand.moveDrawerPane(
             parentPaneId: parentPaneId,
             drawerPaneId: sourcePaneId,
-            target: target
+            target: target,
+            sizingMode: .proportional
         )
         if case .success = WorkspaceCommandValidator.validate(moveAction, state: snapshot) {
             return true
@@ -217,7 +219,8 @@ struct DrawerPanel: View {
             .moveDrawerPane(
                 parentPaneId: parentPaneId,
                 drawerPaneId: sourcePaneId,
-                target: target
+                target: target,
+                sizingMode: .proportional
             )
         )
     }

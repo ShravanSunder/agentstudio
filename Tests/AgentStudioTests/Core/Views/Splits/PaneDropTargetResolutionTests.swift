@@ -21,7 +21,7 @@ final class PaneDropTargetResolutionTests {
         let location = CGPoint(x: 660, y: 100)
 
         // Act
-        let target = PaneDragCoordinator.resolveTarget(location: location, paneFrames: paneFrames)
+        let target = PaneDragCoordinator.resolveTarget(location: location, paneFrames: paneFrames, minimizedPaneIds: [])
 
         // Assert
         #expect(target == PaneDropTarget(paneId: bridgePaneId, zone: .left))
@@ -41,7 +41,7 @@ final class PaneDropTargetResolutionTests {
         let location = CGPoint(x: 610, y: 100)
 
         // Act
-        let target = PaneDragCoordinator.resolveTarget(location: location, paneFrames: paneFrames)
+        let target = PaneDragCoordinator.resolveTarget(location: location, paneFrames: paneFrames, minimizedPaneIds: [])
 
         // Assert
         #expect(target == PaneDropTarget(paneId: webviewPaneId, zone: .right))
@@ -64,11 +64,13 @@ final class PaneDropTargetResolutionTests {
         // Act
         let leftTarget = PaneDragCoordinator.resolveTarget(
             location: leftCorridorPoint,
-            paneFrames: paneFrames
+            paneFrames: paneFrames,
+            minimizedPaneIds: []
         )
         let rightTarget = PaneDragCoordinator.resolveTarget(
             location: rightCorridorPoint,
-            paneFrames: paneFrames
+            paneFrames: paneFrames,
+            minimizedPaneIds: []
         )
 
         // Assert

@@ -220,10 +220,10 @@ Manages `NSTabViewItems` containing pane views. Handles focus, layout, tab switc
 
 **Deletion test:** passes for any single feature. **Change driver:** tab management behavior changes, not new pane types.
 
-### Split & Flat Tab Strip Components → `Core/Views/Splits/`
+### Pane Layout & Flat Tab Strip Components → `Core/Views/Panes/`
 
 `FlatTabStripContainer`, `FlatPaneStripContent`, `CollapsedPaneBar`, `PaneLeafContainer`, `PaneDragCoordinator`, `SplitContainerDropCaptureOverlay`, and `PaneDropTargetOverlay`
-belong in `Core/Views/Splits/` because they are pane-type-agnostic split-system primitives:
+belong in `Core/Views/Panes/` because they are pane-type-agnostic pane layout primitives:
 
 - They operate on pane IDs, tab metadata, and frame geometry — not terminal/webview/bridge-specific APIs.
 - They are reused by any pane feature rendered inside split trees or the flat tab strip.

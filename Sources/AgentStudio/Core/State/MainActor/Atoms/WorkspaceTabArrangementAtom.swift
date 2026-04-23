@@ -57,7 +57,8 @@ final class WorkspaceTabArrangementAtom {
         inTab tabId: UUID,
         at targetPaneId: UUID,
         direction: Layout.SplitDirection,
-        position: Layout.Position
+        position: Layout.Position,
+        sizingMode: DropSizingMode = .halveTarget
     ) -> Bool {
         guard let tabIndex = findTabIndex(tabId) else {
             workspaceTabArrangementLogger.warning("insertPane: tab \(tabId) not found")
@@ -73,7 +74,8 @@ final class WorkspaceTabArrangementAtom {
         arrangementStates[tabIndex].zoomedPaneId = nil
         arrangementStates[tabIndex].arrangements[arrIndex].layout = arrangementStates[tabIndex].arrangements[arrIndex]
             .layout
-            .inserting(paneId: paneId, at: targetPaneId, direction: direction, position: position)
+            .inserting(
+                paneId: paneId, at: targetPaneId, direction: direction, position: position, sizingMode: sizingMode)
         arrangementStates[tabIndex].arrangements[arrIndex].visiblePaneIds.insert(paneId)
 
         if !arrangementStates[tabIndex].arrangements[arrIndex].isDefault {
@@ -83,7 +85,8 @@ final class WorkspaceTabArrangementAtom {
                     defIdx
                 ]
                 .layout
-                .inserting(paneId: paneId, at: targetPaneId, direction: direction, position: position)
+                .inserting(
+                    paneId: paneId, at: targetPaneId, direction: direction, position: position, sizingMode: sizingMode)
                 arrangementStates[tabIndex].arrangements[defIdx].visiblePaneIds.insert(paneId)
             }
         }
@@ -104,7 +107,7 @@ final class WorkspaceTabArrangementAtom {
             arrangementStates[tabIndex].zoomedPaneId = nil
         }
 
-        arrangementStates[tabIndex].arrangements = TabArrangementRepairRules.removingPane(
+        arrangementStates[tabIndex].arrangements = TabArrangementMutationRules.removingUserPane(
             paneId,
             from: arrangementStates[tabIndex].arrangements
         )

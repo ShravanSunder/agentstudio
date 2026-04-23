@@ -346,7 +346,8 @@ struct PaneLeafContainer: View {
                                             source: .newTerminal,
                                             targetTabId: tabId,
                                             targetPaneId: paneHost.id,
-                                            direction: .right
+                                            direction: .right,
+                                            sizingMode: .halveTarget
                                         )
                                     )
                                 }
@@ -434,7 +435,8 @@ struct PaneLeafContainer: View {
                                         source: .existingPane(paneId: paneHost.id, sourceTabId: tabId),
                                         targetTabId: destination.tabId,
                                         targetPaneId: targetPaneId,
-                                        direction: .right
+                                        direction: .right,
+                                        sizingMode: .halveTarget
                                     )
                                 )
                             }

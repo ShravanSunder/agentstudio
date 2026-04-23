@@ -379,7 +379,8 @@ final class PaneCoordinator {
                     source: .newTerminal,
                     targetTabId: sourceTabId,
                     targetPaneId: sourcePaneUUID,
-                    direction: mapSplitDirection(direction)
+                    direction: mapSplitDirection(direction),
+                    sizingMode: .halveTarget
                 )
             )
         case .gotoSplit(let direction):

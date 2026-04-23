@@ -30,7 +30,8 @@ enum DrawerDropDispatch {
         let moveAction = PaneActionCommand.moveDrawerPane(
             parentPaneId: parentPaneId,
             drawerPaneId: sourcePaneId,
-            target: target
+            target: target,
+            sizingMode: .proportional
         )
         let validation = WorkspaceCommandValidator.validate(moveAction, state: snapshot)
         RestoreTrace.log(
@@ -57,7 +58,8 @@ enum DrawerDropDispatch {
             .moveDrawerPane(
                 parentPaneId: parentPaneId,
                 drawerPaneId: sourcePaneId,
-                target: target
+                target: target,
+                sizingMode: .proportional
             )
         )
     }

@@ -94,21 +94,21 @@ enum WorkspaceCommandValidator {
             }
             return .success(ValidatedAction(action))
 
-        case .insertPane(let source, let targetTabId, let targetPaneId, _):
-            guard state.tab(targetTabId) != nil else {
-                return .failure(.tabNotFound(tabId: targetTabId))
+        case .insertPaneRequest(let request):
+            guard state.tab(request.targetTabId) != nil else {
+                return .failure(.tabNotFound(tabId: request.targetTabId))
             }
-            guard state.tabShowsPane(targetTabId, paneId: targetPaneId) else {
-                return .failure(.paneNotFound(paneId: targetPaneId, tabId: targetTabId))
+            guard state.tabShowsPane(request.targetTabId, paneId: request.targetPaneId) else {
+                return .failure(.paneNotFound(paneId: request.targetPaneId, tabId: request.targetTabId))
             }
-            if case .existingPane(let sourcePaneId, let sourceTabId) = source {
+            if case .existingPane(let sourcePaneId, let sourceTabId) = request.source {
                 guard state.tabOwnsPane(sourceTabId, paneId: sourcePaneId) else {
                     return .failure(
                         .sourcePaneNotFound(
                             paneId: sourcePaneId, sourceTabId: sourceTabId))
                 }
                 // Self-insertion check: can't drop a pane onto itself
-                guard sourcePaneId != targetPaneId else {
+                guard sourcePaneId != request.targetPaneId else {
                     return .failure(.selfPaneInsertion(paneId: sourcePaneId))
                 }
             }
@@ -265,7 +265,7 @@ enum WorkspaceCommandValidator {
             }
             return .success(ValidatedAction(action))
 
-        case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction):
+        case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction, _):
             return DrawerCommandValidator.validateInsertion(
                 parentPaneId: parentPaneId,
                 targetDrawerPaneId: targetDrawerPaneId,
@@ -273,7 +273,7 @@ enum WorkspaceCommandValidator {
                 state: state
             ).map { ValidatedAction(action) }
 
-        case .moveDrawerPane(let parentPaneId, let drawerPaneId, let target):
+        case .moveDrawerPane(let parentPaneId, let drawerPaneId, let target, _):
             return DrawerCommandValidator.validateMove(
                 parentPaneId: parentPaneId,
                 drawerPaneId: drawerPaneId,

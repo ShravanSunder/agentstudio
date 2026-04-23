@@ -72,17 +72,25 @@ struct Layout: Codable, Hashable {
         direction _: SplitDirection,
         position: Position
     ) -> Self {
+        inserting(
+            paneId: paneId,
+            at: targetPaneId,
+            direction: .horizontal,
+            position: position,
+            sizingMode: .halveTarget
+        )
+    }
+
+    func inserting(
+        paneId: UUID,
+        at targetPaneId: UUID,
+        direction _: SplitDirection,
+        position: Position,
+        sizingMode: DropSizingMode
+    ) -> Self {
         guard let targetIndex = panes.firstIndex(where: { $0.paneId == targetPaneId }) else {
             return self
         }
-
-        let target = panes[targetIndex]
-        let splitRatio = target.ratio / 2.0
-        let newEntry = PaneEntry(paneId: paneId, ratio: splitRatio)
-        let resizedTarget = PaneEntry(paneId: target.paneId, ratio: splitRatio)
-
-        var updatedPanes = panes
-        updatedPanes[targetIndex] = resizedTarget
 
         let insertIndex: Int
         switch position {
@@ -91,35 +99,56 @@ struct Layout: Codable, Hashable {
         case .after:
             insertIndex = targetIndex + 1
         }
-        updatedPanes.insert(newEntry, at: insertIndex)
+
+        let updatedRatios = DropSizingRatioPolicy.ratiosAfterInsertion(
+            existingRatios: ratios,
+            insertionIndex: insertIndex,
+            targetPaneIndex: targetIndex,
+            mode: sizingMode
+        )
+        return inserting(paneId: paneId, atIndex: insertIndex, ratios: updatedRatios)
+    }
+
+    func inserting(paneId: UUID, atIndex insertionIndex: Int, ratios: [Double]) -> Self {
+        precondition(ratios.count == panes.count + 1, "ratios must include the new pane")
+
+        let clampedIndex = max(0, min(insertionIndex, panes.count))
+        var updatedPanes = panes.enumerated().map { index, pane in
+            PaneEntry(paneId: pane.paneId, ratio: ratios[index >= clampedIndex ? index + 1 : index])
+        }
+        updatedPanes.insert(PaneEntry(paneId: paneId, ratio: ratios[clampedIndex]), at: clampedIndex)
 
         var updatedDividerIds = dividerIds
-        updatedDividerIds.insert(UUID(), at: max(insertIndex - 1, 0))
+        updatedDividerIds.insert(UUID(), at: max(clampedIndex - 1, 0))
         return Self(panes: updatedPanes, dividerIds: updatedDividerIds)
     }
 
     func removing(paneId: UUID) -> Self? {
+        removing(paneId: paneId, sizingMode: .halveTarget)
+    }
+
+    func removing(paneId: UUID, sizingMode: DropSizingMode) -> Self? {
         guard let removedIndex = panes.firstIndex(where: { $0.paneId == paneId }) else {
             return self
         }
         guard panes.count > 1 else { return nil }
 
-        var updatedPanes = panes
-        let removedRatio = updatedPanes.remove(at: removedIndex).ratio
+        let updatedRatios = DropSizingRatioPolicy.ratiosAfterRemoval(
+            existingRatios: ratios,
+            removalIndex: removedIndex,
+            mode: sizingMode
+        )
+        return removing(paneId: paneId, atIndex: removedIndex, ratios: updatedRatios)
+    }
 
-        if removedIndex < updatedPanes.count {
-            let rightNeighbor = updatedPanes[removedIndex]
-            updatedPanes[removedIndex] = PaneEntry(
-                paneId: rightNeighbor.paneId,
-                ratio: rightNeighbor.ratio + removedRatio
-            )
-        } else {
-            let leftIndex = updatedPanes.index(before: updatedPanes.endIndex)
-            let leftNeighbor = updatedPanes[leftIndex]
-            updatedPanes[leftIndex] = PaneEntry(
-                paneId: leftNeighbor.paneId,
-                ratio: leftNeighbor.ratio + removedRatio
-            )
+    func removing(paneId _: UUID, atIndex removedIndex: Int, ratios: [Double]) -> Self? {
+        precondition(ratios.count == panes.count - 1, "ratios must exclude the removed pane")
+        guard panes.count > 1 else { return nil }
+
+        let updatedPanes = panes.enumerated().compactMap { index, pane -> PaneEntry? in
+            guard index != removedIndex else { return nil }
+            let ratioIndex = index > removedIndex ? index - 1 : index
+            return PaneEntry(paneId: pane.paneId, ratio: ratios[ratioIndex])
         }
 
         var updatedDividerIds = dividerIds

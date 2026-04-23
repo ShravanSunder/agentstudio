@@ -76,7 +76,7 @@ struct PaneCloseTransitionCoordinatorTests {
                 closeActionFired = true
             },
             shouldAcceptDrop: { _, _, _ in false },
-            handleDrop: { _, _, _ in }
+            handleDrop: { _, _, _, _ in }
         )
         let container = FlatTabStripContainer(
             layout: Layout(paneId: paneId),
@@ -157,7 +157,7 @@ struct PaneCloseTransitionCoordinatorTests {
                 }
             },
             shouldAcceptDrop: { _, _, _ in false },
-            handleDrop: { _, _, _ in }
+            handleDrop: { _, _, _, _ in }
         )
 
         let leaf = PaneLeafContainer(

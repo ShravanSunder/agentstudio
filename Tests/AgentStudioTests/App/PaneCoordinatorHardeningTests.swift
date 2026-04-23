@@ -195,7 +195,8 @@ struct PaneCoordinatorHardeningTests {
                 source: .newTerminal,
                 targetTabId: tab.id,
                 targetPaneId: targetPane.id,
-                direction: .right
+                direction: .right,
+                sizingMode: .halveTarget
             )
         )
 
@@ -226,7 +227,8 @@ struct PaneCoordinatorHardeningTests {
                 source: .newTerminal,
                 targetTabId: tab.id,
                 targetPaneId: targetPane.id,
-                direction: .right
+                direction: .right,
+                sizingMode: .halveTarget
             )
         )
 
@@ -262,7 +264,8 @@ struct PaneCoordinatorHardeningTests {
                 source: .newTerminal,
                 targetTabId: tab.id,
                 targetPaneId: targetPane.id,
-                direction: .right
+                direction: .right,
+                sizingMode: .halveTarget
             )
         )
 
@@ -368,7 +371,8 @@ struct PaneCoordinatorHardeningTests {
             .insertDrawerPane(
                 parentPaneId: parentPane.id,
                 targetDrawerPaneId: existingDrawerPane.id,
-                direction: .right
+                direction: .right,
+                sizingMode: .halveTarget
             )
         )
 

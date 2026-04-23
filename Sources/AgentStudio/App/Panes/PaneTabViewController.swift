@@ -43,6 +43,11 @@ private final class RestoreAwareTerminalContainerView: NSView {
     }
 }
 
+struct SplitDropCommitDestination: Equatable {
+    let paneId: UUID
+    let drawerParentPaneId: UUID?
+}
+
 /// Tab-based terminal controller with custom Ghostty-style tab bar.
 ///
 /// PaneTabViewController is a composition-oriented controller in `App/`. It reads
@@ -99,14 +104,14 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             }
             return self.evaluateDropAcceptance(payload: payload, destPaneId: destPaneId, zone: zone)
         },
-        handleDrop: { [weak self] payload, destPaneId, zone in
+        handleDrop: { [weak self] payload, destPaneId, zone, sizingMode in
             guard let self else {
                 RestoreTrace.log(
                     "PaneTabActionDispatcher.handleDrop dropped ownerReleased destPaneId=\(destPaneId) zone=\(zone)"
                 )
                 return
             }
-            self.handleSplitDrop(payload: payload, destPaneId: destPaneId, zone: zone)
+            self.handleSplitDrop(payload: payload, destPaneId: destPaneId, zone: zone, sizingMode: sizingMode)
         }
     )
 
@@ -240,6 +245,17 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         }
         tabBarHostingView.onSelect = { [weak self] tabId in
             self?.handlePaneFocusTrigger(.tabClick(PaneTabClickFocusTrigger(targetTabId: tabId)))
+        }
+        tabBarHostingView.expandedDrawerParentIdForTab = { [weak self] tabId in
+            guard let self else { return nil }
+            return DrawerDragOwnershipPolicy.expandedDrawerParentPaneId(
+                tabId: tabId,
+                tabLayoutAtom: self.store.tabLayoutAtom,
+                paneAtom: self.store.paneAtom
+            )
+        }
+        tabBarHostingView.onAutoDismissDrawerForDrag = { [weak self] _, drawerParentPaneId in
+            self?.dispatchAction(.toggleDrawer(paneId: drawerParentPaneId))
         }
         tabBarHostingView.translatesAutoresizingMaskIntoConstraints = false
         tabBarHostingView.wantsLayer = true
@@ -870,7 +886,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private func evaluateDropAcceptance(
         payload: SplitDropPayload,
         destPaneId: UUID,
-        zone: DropZone
+        zone: DropZoneSide
     ) -> Bool {
         guard shouldHandleSplitDragPayload(payload) else {
             return false
@@ -878,16 +894,24 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         let snapshot = dragDropSnapshot()
         return Self.splitDropCommitPlan(
             payload: payload,
-            destinationPane: store.paneAtom.pane(destPaneId),
-            destinationPaneId: destPaneId,
+            destination: SplitDropCommitDestination(
+                paneId: destPaneId,
+                drawerParentPaneId: store.paneAtom.pane(destPaneId)?.parentPaneId
+            ),
             zone: zone,
+            sizingMode: .halveTarget,
             activeTabId: store.tabLayoutAtom.activeTabId,
             state: snapshot
         ) != nil
     }
 
     /// Handle a completed drop on a split pane.
-    private func handleSplitDrop(payload: SplitDropPayload, destPaneId: UUID, zone: DropZone) {
+    private func handleSplitDrop(
+        payload: SplitDropPayload,
+        destPaneId: UUID,
+        zone: DropZoneSide,
+        sizingMode: DropSizingMode
+    ) {
         guard shouldHandleSplitDragPayload(payload) else {
             return
         }
@@ -895,9 +919,12 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         guard
             let plan = Self.splitDropCommitPlan(
                 payload: payload,
-                destinationPane: store.paneAtom.pane(destPaneId),
-                destinationPaneId: destPaneId,
+                destination: SplitDropCommitDestination(
+                    paneId: destPaneId,
+                    drawerParentPaneId: store.paneAtom.pane(destPaneId)?.parentPaneId
+                ),
                 zone: zone,
+                sizingMode: sizingMode,
                 activeTabId: store.tabLayoutAtom.activeTabId,
                 state: snapshot
             )
@@ -941,24 +968,25 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
     nonisolated static func splitDropCommitPlan(
         payload: SplitDropPayload,
-        destinationPane: Pane?,
-        destinationPaneId: UUID,
-        zone: DropZone,
+        destination: SplitDropCommitDestination,
+        zone: DropZoneSide,
+        sizingMode: DropSizingMode,
         activeTabId: UUID?,
         state: ActionStateSnapshot
     ) -> DropCommitPlan? {
         guard let activeTabId else {
             return nil
         }
-        let destination = PaneDropDestination.split(
-            targetPaneId: destinationPaneId,
+        let paneDropDestination = PaneDropDestination.split(
+            targetPaneId: destination.paneId,
             targetTabId: activeTabId,
             direction: splitDirection(for: zone),
-            targetDrawerParentPaneId: destinationPane?.parentPaneId
+            sizingMode: sizingMode,
+            targetDrawerParentPaneId: destination.drawerParentPaneId
         )
         let decision = PaneDropPlanner.previewDecision(
             payload: payload,
-            destination: destination,
+            destination: paneDropDestination,
             state: state
         )
         if case .eligible(let plan) = decision {
@@ -970,7 +998,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private func drawerMoveDropAction(
         payload: SplitDropPayload,
         destPaneId: UUID,
-        zone: DropZone
+        zone: DropZoneSide
     ) -> PaneActionCommand? {
         let destinationPane = store.paneAtom.pane(destPaneId)
         let sourcePane: Pane? =
@@ -1542,8 +1570,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             .removeDrawerPane(let parentPaneId, _),
             .toggleDrawer(let parentPaneId),
             .setActiveDrawerPane(let parentPaneId, _),
-            .insertDrawerPane(let parentPaneId, _, _),
-            .moveDrawerPane(let parentPaneId, _, _),
+            .insertDrawerPane(let parentPaneId, _, _, _),
+            .moveDrawerPane(let parentPaneId, _, _, _),
             .minimizeDrawerPane(let parentPaneId, _),
             .expandDrawerPane(let parentPaneId, _):
             syncFocusOwnerAfterDrawerMutation(parentPaneId: parentPaneId)
@@ -1589,7 +1617,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 source: .newTerminal,
                 targetTabId: tabId,
                 targetPaneId: paneId,
-                direction: direction
+                direction: direction,
+                sizingMode: .halveTarget
             )
         case .newFloatingTerminal:
             action = nil
@@ -1720,7 +1749,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             source: .existingPane(paneId: sourcePaneId, sourceTabId: resolvedSourceTabId),
             targetTabId: targetTabId,
             targetPaneId: targetPaneId,
-            direction: .right
+            direction: .right,
+            sizingMode: .halveTarget
         )
     }
 
@@ -1867,7 +1897,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                     source: .newTerminal,
                     targetTabId: activeTabId,
                     targetPaneId: targetPaneId,
-                    direction: .right
+                    direction: .right,
+                    sizingMode: .halveTarget
                 ))
         case .newFloatingTerminal:
             let activePaneCwd = store.tabLayoutAtom.activeTabId
@@ -2119,7 +2150,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 source: .newTerminal,
                 targetTabId: tab.id,
                 targetPaneId: targetPaneId,
-                direction: .right
+                direction: .right,
+                sizingMode: .halveTarget
             )
         case (.removeRepo, .repo):
             return .removeRepo(repoId: target)

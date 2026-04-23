@@ -126,13 +126,21 @@ struct FlatTabStripContainer: View {
                 )
 
                 if managementLayer.isActive {
-                    PaneDropTargetOverlay(target: dropTarget, paneFrames: paneFrames)
-                        .allowsHitTesting(false)
+                    PaneDropTargetOverlay(
+                        target: dropTarget,
+                        targetRects: PaneDragCoordinator.targetRects(
+                            paneFrames: paneFrames,
+                            containerBounds: containerBounds,
+                            minimizedPaneIds: minimizedPaneIds
+                        )
+                    )
+                    .allowsHitTesting(false)
                 }
 
                 SplitContainerDropCaptureOverlay(
                     paneFrames: paneFrames,
                     containerBounds: containerBounds,
+                    minimizedPaneIds: minimizedPaneIds,
                     target: $dropTarget,
                     isManagementLayerActive: managementLayer.isActive,
                     actionDispatcher: actionDispatcher

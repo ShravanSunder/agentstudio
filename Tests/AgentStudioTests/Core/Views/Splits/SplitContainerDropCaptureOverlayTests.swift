@@ -34,6 +34,7 @@ struct SplitContainerDropCaptureOverlayTests {
         coordinator.updateLayout(
             paneFrames: [paneId: CGRect(x: 0, y: 0, width: 200, height: 100)],
             containerBounds: CGRect(x: 0, y: 0, width: 200, height: 100),
+            minimizedPaneIds: [],
             isManagementLayerActive: true
         )
 
@@ -70,7 +71,7 @@ private final class TestPaneActionDispatcher: PaneActionDispatching {
     func shouldAcceptDrop(
         _ payload: SplitDropPayload,
         destinationPaneId: UUID,
-        zone: DropZone
+        zone: DropZoneSide
     ) -> Bool {
         shouldAcceptDropCallCount += 1
         return shouldAcceptDropResult
@@ -79,6 +80,7 @@ private final class TestPaneActionDispatcher: PaneActionDispatching {
     func handleDrop(
         _ payload: SplitDropPayload,
         destinationPaneId: UUID,
-        zone: DropZone
+        zone: DropZoneSide,
+        sizingMode: DropSizingMode
     ) {}
 }

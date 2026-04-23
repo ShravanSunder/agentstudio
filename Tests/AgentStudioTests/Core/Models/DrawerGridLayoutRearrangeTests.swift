@@ -23,7 +23,7 @@ struct DrawerGridLayoutRearrangeTests {
         let middle = try #require(
             layout.projectedMove(
                 paneId: a,
-                target: .rowSlot(row: .top, insertionIndex: 1)
+                target: .rowSlot(row: .top, insertionIndex: 2)
             )
         )
         #expect(middle.topRow.paneIds == [b, a, c])
@@ -31,7 +31,7 @@ struct DrawerGridLayoutRearrangeTests {
         let after = try #require(
             layout.projectedMove(
                 paneId: a,
-                target: .rowSlot(row: .top, insertionIndex: 2)
+                target: .rowSlot(row: .top, insertionIndex: 3)
             )
         )
         #expect(after.topRow.paneIds == [b, c, a])
@@ -86,6 +86,73 @@ struct DrawerGridLayoutRearrangeTests {
     }
 
     @Test
+    func sameRowForwardMove_usesProportionalRemovalAndAdjustedInsertionIndex() throws {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let layout = DrawerGridLayout(
+            topRow: Layout(
+                panes: [
+                    .init(paneId: a, ratio: 0.5),
+                    .init(paneId: b, ratio: 0.3),
+                    .init(paneId: c, ratio: 0.2),
+                ],
+                dividerIds: [UUID(), UUID()]
+            )
+        )
+
+        let moved = try #require(
+            layout.projectedMove(
+                paneId: a,
+                target: .rowSlot(row: .top, insertionIndex: 3),
+                sizingMode: .proportional
+            )
+        )
+
+        #expect(moved.topRow.paneIds == [b, c, a])
+        expectApprox(moved.topRow.ratios, [0.4, 0.266666666667, 0.333333333333])
+    }
+
+    @Test
+    func crossRowMove_usesProportionalRemovalOnSourceAndInsertionOnTarget() throws {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let d = UUID()
+        let e = UUID()
+        let layout = DrawerGridLayout(
+            topRow: Layout(
+                panes: [
+                    .init(paneId: a, ratio: 0.5),
+                    .init(paneId: b, ratio: 0.3),
+                    .init(paneId: c, ratio: 0.2),
+                ],
+                dividerIds: [UUID(), UUID()]
+            ),
+            bottomRow: Layout(
+                panes: [
+                    .init(paneId: d, ratio: 0.6),
+                    .init(paneId: e, ratio: 0.4),
+                ],
+                dividerIds: [UUID()]
+            )
+        )
+
+        let moved = try #require(
+            layout.projectedMove(
+                paneId: b,
+                target: .rowSlot(row: .bottom, insertionIndex: 1),
+                sizingMode: .proportional
+            )
+        )
+
+        #expect(moved.topRow.paneIds == [a, c])
+        #expect(moved.bottomRow?.paneIds == [d, b, e])
+        expectApprox(moved.topRow.ratios, [0.714285714286, 0.285714285714])
+        expectApprox(moved.bottomRow?.ratios ?? [], [0.4, 0.333333333333, 0.266666666667])
+    }
+
+    @Test
     func twoRows_createSecondRowTarget_isRejected() {
         let a = UUID()
         let b = UUID()
@@ -102,5 +169,18 @@ struct DrawerGridLayoutRearrangeTests {
                 target: .createSecondRow(position: .bottom)
             ) == nil
         )
+    }
+
+    private func expectApprox(
+        _ actual: [Double],
+        _ expected: [Double],
+        tolerance: Double = 0.000001,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        #expect(actual.count == expected.count, sourceLocation: sourceLocation)
+        for (actualRatio, expectedRatio) in zip(actual, expected) {
+            #expect(abs(actualRatio - expectedRatio) < tolerance, sourceLocation: sourceLocation)
+        }
+        #expect(abs(actual.reduce(0, +) - 1.0) < tolerance, sourceLocation: sourceLocation)
     }
 }

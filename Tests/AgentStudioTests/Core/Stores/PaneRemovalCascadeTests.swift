@@ -37,6 +37,35 @@ final class PaneRemovalCascadeTests {
     // MARK: - removePane cascades to ALL arrangements
 
     @Test
+    func test_removePaneFromLayout_redistributesRemainingRatiosProportionally() {
+        let paneA = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let paneB = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let paneC = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let layout = Layout(
+            panes: [
+                .init(paneId: paneA.id, ratio: 0.5),
+                .init(paneId: paneB.id, ratio: 0.3),
+                .init(paneId: paneC.id, ratio: 0.2),
+            ],
+            dividerIds: [UUID(), UUID()]
+        )
+        let arrangement = PaneArrangement(layout: layout)
+        let tab = Tab(
+            allPaneIds: [paneA.id, paneB.id, paneC.id],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id,
+            activePaneId: paneA.id
+        )
+        store.appendTab(tab)
+
+        store.removePaneFromLayout(paneB.id, inTab: tab.id)
+
+        let updatedLayout = store.tab(tab.id)!.defaultArrangement.layout
+        #expect(updatedLayout.paneIds == [paneA.id, paneC.id])
+        expectApprox(updatedLayout.ratios, [0.714285714286, 0.285714285714])
+    }
+
+    @Test
 
     func test_removePane_removesFromDefaultAndCustomArrangements() {
         let (tab, paneIds) = createTabWithPanes(3)
@@ -64,6 +93,19 @@ final class PaneRemovalCascadeTests {
         let customArr = updatedTab.arrangements.first { $0.id == arrId }!
         #expect(!(customArr.layout.contains(paneIds[1])))
         #expect(!(customArr.visiblePaneIds.contains(paneIds[1])))
+    }
+
+    private func expectApprox(
+        _ actual: [Double],
+        _ expected: [Double],
+        tolerance: Double = 0.000001,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        #expect(actual.count == expected.count, sourceLocation: sourceLocation)
+        for (actualRatio, expectedRatio) in zip(actual, expected) {
+            #expect(abs(actualRatio - expectedRatio) < tolerance, sourceLocation: sourceLocation)
+        }
+        #expect(abs(actual.reduce(0, +) - 1.0) < tolerance, sourceLocation: sourceLocation)
     }
 
     @Test

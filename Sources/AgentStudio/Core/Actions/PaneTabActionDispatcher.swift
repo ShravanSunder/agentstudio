@@ -4,14 +4,14 @@ import Foundation
 final class PaneTabActionDispatcher: PaneActionDispatching {
     private let dispatchClosure: (PaneActionCommand) -> Void
     private let shouldHandleSplitDragPayloadClosure: (SplitDropPayload) -> Bool
-    private let shouldAcceptDropClosure: (SplitDropPayload, UUID, DropZone) -> Bool
-    private let handleDropClosure: (SplitDropPayload, UUID, DropZone) -> Void
+    private let shouldAcceptDropClosure: (SplitDropPayload, UUID, DropZoneSide) -> Bool
+    private let handleDropClosure: (SplitDropPayload, UUID, DropZoneSide, DropSizingMode) -> Void
 
     init(
         dispatch: @escaping (PaneActionCommand) -> Void,
         shouldHandleSplitDragPayload: @escaping (SplitDropPayload) -> Bool = { _ in true },
-        shouldAcceptDrop: @escaping (SplitDropPayload, UUID, DropZone) -> Bool,
-        handleDrop: @escaping (SplitDropPayload, UUID, DropZone) -> Void
+        shouldAcceptDrop: @escaping (SplitDropPayload, UUID, DropZoneSide) -> Bool,
+        handleDrop: @escaping (SplitDropPayload, UUID, DropZoneSide, DropSizingMode) -> Void
     ) {
         self.dispatchClosure = dispatch
         self.shouldHandleSplitDragPayloadClosure = shouldHandleSplitDragPayload
@@ -33,7 +33,7 @@ final class PaneTabActionDispatcher: PaneActionDispatching {
     func shouldAcceptDrop(
         _ payload: SplitDropPayload,
         destinationPaneId: UUID,
-        zone: DropZone
+        zone: DropZoneSide
     ) -> Bool {
         let result = shouldAcceptDropClosure(payload, destinationPaneId, zone)
         return result
@@ -42,8 +42,9 @@ final class PaneTabActionDispatcher: PaneActionDispatching {
     func handleDrop(
         _ payload: SplitDropPayload,
         destinationPaneId: UUID,
-        zone: DropZone
+        zone: DropZoneSide,
+        sizingMode: DropSizingMode
     ) {
-        handleDropClosure(payload, destinationPaneId, zone)
+        handleDropClosure(payload, destinationPaneId, zone, sizingMode)
     }
 }

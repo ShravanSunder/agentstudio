@@ -564,7 +564,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
                 source: .newTerminal,
                 targetTabId: tab.id,
                 targetPaneId: existingPane.id,
-                direction: .right
+                direction: .right,
+                sizingMode: .halveTarget
             )
         )
 

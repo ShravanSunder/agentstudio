@@ -9,6 +9,7 @@ import SwiftUI
 struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
     let paneFrames: [UUID: CGRect]
     let containerBounds: CGRect
+    let minimizedPaneIds: Set<UUID>
     @Binding var target: PaneDropTarget?
     let isManagementLayerActive: Bool
     let actionDispatcher: PaneActionDispatching
@@ -37,6 +38,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
         context.coordinator.updateLayout(
             paneFrames: paneFrames,
             containerBounds: containerBounds,
+            minimizedPaneIds: minimizedPaneIds,
             isManagementLayerActive: isManagementLayerActive
         )
         view.updateDropRegistration(isManagementLayerActive: isManagementLayerActive)
@@ -52,6 +54,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
         context.coordinator.updateLayout(
             paneFrames: paneFrames,
             containerBounds: containerBounds,
+            minimizedPaneIds: minimizedPaneIds,
             isManagementLayerActive: isManagementLayerActive
         )
         nsView.updateDropRegistration(isManagementLayerActive: isManagementLayerActive)
@@ -67,6 +70,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
 
         private(set) var paneFrames: [UUID: CGRect] = [:]
         private(set) var containerBounds: CGRect = .zero
+        private(set) var minimizedPaneIds: Set<UUID> = []
         private(set) var isManagementLayerActive: Bool = false
         private(set) var dragSession: DragSessionState = .idle
 
@@ -89,10 +93,12 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
         func updateLayout(
             paneFrames: [UUID: CGRect],
             containerBounds: CGRect,
+            minimizedPaneIds: Set<UUID>,
             isManagementLayerActive: Bool
         ) {
             self.paneFrames = paneFrames
             self.containerBounds = containerBounds
+            self.minimizedPaneIds = minimizedPaneIds
             self.isManagementLayerActive = isManagementLayerActive
         }
 
@@ -120,6 +126,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
                 location: location,
                 paneFrames: paneFrames,
                 containerBounds: containerBounds,
+                minimizedPaneIds: minimizedPaneIds,
                 currentTarget: targetBinding.wrappedValue,
                 shouldAcceptDrop: { paneId, zone in
                     actionDispatcher.shouldAcceptDrop(payload, destinationPaneId: paneId, zone: zone)
@@ -183,10 +190,15 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
 
             let candidate = DragSessionCandidate(payload: payload, target: resolvedTarget)
             dragSession = .committing(candidate: candidate)
+            let sizingMode = DropSizingModeResolver.mode(
+                for: resolvedTarget.sizingTarget,
+                isShiftHeld: NSEvent.modifierFlags.contains(.shift)
+            )
             actionDispatcher.handleDrop(
                 payload,
                 destinationPaneId: resolvedTarget.paneId,
-                zone: resolvedTarget.zone
+                zone: resolvedTarget.zone,
+                sizingMode: sizingMode
             )
             dragSession = .teardown
             return true

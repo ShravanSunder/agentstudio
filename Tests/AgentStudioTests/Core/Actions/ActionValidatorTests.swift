@@ -346,7 +346,8 @@ final class WorkspaceCommandValidatorTests {
             .insertDrawerPane(
                 parentPaneId: parentPaneId,
                 targetDrawerPaneId: bottomPaneId,
-                direction: .down
+                direction: .down,
+                sizingMode: .halveTarget
             ),
             state: snapshot
         )
@@ -476,7 +477,8 @@ final class WorkspaceCommandValidatorTests {
             source: .existingPane(paneId: paneId, sourceTabId: tabId),
             targetTabId: tabId,
             targetPaneId: paneId,
-            direction: .right
+            direction: .right,
+            sizingMode: .halveTarget
         )
 
         // Act
@@ -515,7 +517,8 @@ final class WorkspaceCommandValidatorTests {
             source: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
             targetTabId: targetTabId,
             targetPaneId: targetPaneId,
-            direction: .right
+            direction: .right,
+            sizingMode: .halveTarget
         )
 
         // Act
@@ -535,7 +538,8 @@ final class WorkspaceCommandValidatorTests {
             source: .newTerminal,
             targetTabId: tabId,
             targetPaneId: paneId,
-            direction: .down
+            direction: .down,
+            sizingMode: .halveTarget
         )
 
         // Act
@@ -554,7 +558,8 @@ final class WorkspaceCommandValidatorTests {
             source: .newTerminal,
             targetTabId: UUID(),
             targetPaneId: UUID(),
-            direction: .right
+            direction: .right,
+            sizingMode: .halveTarget
         )
 
         // Act
@@ -575,7 +580,8 @@ final class WorkspaceCommandValidatorTests {
             source: .newTerminal,
             targetTabId: tabId,
             targetPaneId: UUID(),
-            direction: .right
+            direction: .right,
+            sizingMode: .halveTarget
         )
 
         // Act
@@ -596,7 +602,8 @@ final class WorkspaceCommandValidatorTests {
             source: .existingPane(paneId: UUID(), sourceTabId: UUID()),
             targetTabId: tabId,
             targetPaneId: paneId,
-            direction: .right
+            direction: .right,
+            sizingMode: .halveTarget
         )
 
         // Act

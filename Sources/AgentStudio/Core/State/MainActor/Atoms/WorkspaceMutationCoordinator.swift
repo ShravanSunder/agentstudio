@@ -83,7 +83,8 @@ final class WorkspaceMutationCoordinator {
         inTab tabId: UUID,
         at targetPaneId: UUID,
         direction: Layout.SplitDirection,
-        position: Layout.Position
+        position: Layout.Position,
+        sizingMode: DropSizingMode = .halveTarget
     ) -> Bool {
         guard
             let pane = workspacePaneAtom.pane(paneId),
@@ -100,7 +101,8 @@ final class WorkspaceMutationCoordinator {
                 inTab: tabId,
                 at: targetPaneId,
                 direction: direction,
-                position: position
+                position: position,
+                sizingMode: sizingMode
             )
         else {
             Logger(subsystem: "com.agentstudio", category: "WorkspaceMutationCoordinator")
@@ -211,7 +213,8 @@ final class WorkspaceMutationCoordinator {
                     inTab: snapshot.tabId,
                     at: anchor,
                     direction: snapshot.direction,
-                    position: .after
+                    position: .after,
+                    sizingMode: .halveTarget
                 )
             else {
                 _ = workspacePaneAtom.deletePaneAndOwnedDrawerChildren(snapshot.pane.id)

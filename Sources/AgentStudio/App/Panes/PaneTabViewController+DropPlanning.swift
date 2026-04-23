@@ -6,7 +6,7 @@ extension PaneTabViewController {
         payload: SplitDropPayload,
         destinationPane: Pane?,
         sourcePane: Pane?,
-        zone: DropZone,
+        zone: DropZoneSide,
         layout: DrawerGridLayout?
     ) -> PaneActionCommand? {
         guard case .existingPane(let sourcePaneId, _) = payload.kind else { return nil }
@@ -24,11 +24,12 @@ extension PaneTabViewController {
         return .moveDrawerPane(
             parentPaneId: destinationParentPaneId,
             drawerPaneId: sourcePaneId,
-            target: target
+            target: target,
+            sizingMode: .proportional
         )
     }
 
-    nonisolated static func splitDirection(for zone: DropZone) -> SplitNewDirection {
+    nonisolated static func splitDirection(for zone: DropZoneSide) -> SplitNewDirection {
         switch zone {
         case .left:
             return .left

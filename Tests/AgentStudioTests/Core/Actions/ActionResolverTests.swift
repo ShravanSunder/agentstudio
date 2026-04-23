@@ -99,7 +99,8 @@ final class WorkspaceCommandResolverTests {
                     source: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
                     targetTabId: targetTabId,
                     targetPaneId: targetPaneId,
-                    direction: .left
+                    direction: .left,
+                    sizingMode: .halveTarget
                 ))
     }
 
@@ -131,7 +132,8 @@ final class WorkspaceCommandResolverTests {
                     source: .newTerminal,
                     targetTabId: targetTabId,
                     targetPaneId: targetPaneId,
-                    direction: .right
+                    direction: .right,
+                    sizingMode: .halveTarget
                 ))
     }
 
@@ -477,7 +479,8 @@ final class WorkspaceCommandResolverTests {
                     source: .newTerminal,
                     targetTabId: tabId,
                     targetPaneId: paneId,
-                    direction: .right
+                    direction: .right,
+                    sizingMode: .halveTarget
                 ))
     }
 
@@ -589,7 +592,7 @@ final class WorkspaceCommandResolverTests {
         let snapshot = makeSnapshot(tabs: [tab])
         let payload = SplitDropPayload(kind: .newTerminal)
 
-        let zoneMappings: [(DropZone, SplitNewDirection)] = [
+        let zoneMappings: [(DropZoneSide, SplitNewDirection)] = [
             (.left, .left),
             (.right, .right),
         ]
@@ -611,7 +614,8 @@ final class WorkspaceCommandResolverTests {
                         source: .newTerminal,
                         targetTabId: tabId,
                         targetPaneId: paneId,
-                        direction: expectedDirection
+                        direction: expectedDirection,
+                        sizingMode: .halveTarget
                     ), "Zone \(zone) should map to direction \(expectedDirection)")
         }
     }

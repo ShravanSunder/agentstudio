@@ -104,7 +104,8 @@ struct WorkspaceCommandValidatorOwnershipTests {
             source: .existingPane(paneId: hiddenSourcePaneId, sourceTabId: sourceTabId),
             targetTabId: targetTabId,
             targetPaneId: targetPaneId,
-            direction: .right
+            direction: .right,
+            sizingMode: .halveTarget
         )
 
         let result = WorkspaceCommandValidator.validate(action, state: snapshot)

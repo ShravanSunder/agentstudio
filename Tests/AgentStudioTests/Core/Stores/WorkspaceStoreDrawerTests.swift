@@ -61,11 +61,38 @@ final class WorkspaceStoreDrawerTests {
     }
 
     @Test
+    func test_removeDrawerPane_redistributesRemainingRatiosProportionally() {
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let dp1 = store.addDrawerPane(to: pane.id)!
+        let dp2 = store.addDrawerPane(to: pane.id)!
+        let dp3 = store.addDrawerPane(to: pane.id)!
+
+        store.removeDrawerPane(dp2.id, from: pane.id)
+
+        let updatedLayout = store.pane(pane.id)!.drawer!.layout.topRow
+        #expect(updatedLayout.paneIds == [dp1.id, dp3.id])
+        expectApprox(updatedLayout.ratios, [0.666666666667, 0.333333333333])
+    }
+
+    @Test
 
     func test_addDrawerPane_invalidParent_returnsNil() {
         let dp = store.addDrawerPane(to: UUID())
 
         #expect((dp) == nil)
+    }
+
+    private func expectApprox(
+        _ actual: [Double],
+        _ expected: [Double],
+        tolerance: Double = 0.000001,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        #expect(actual.count == expected.count, sourceLocation: sourceLocation)
+        for (actualRatio, expectedRatio) in zip(actual, expected) {
+            #expect(abs(actualRatio - expectedRatio) < tolerance, sourceLocation: sourceLocation)
+        }
+        #expect(abs(actual.reduce(0, +) - 1.0) < tolerance, sourceLocation: sourceLocation)
     }
 
     @Test
@@ -326,7 +353,7 @@ final class WorkspaceStoreDrawerTests {
         store.moveDrawerPane(
             dp1.id,
             in: pane.id,
-            target: .rowSlot(row: .top, insertionIndex: 2)
+            target: .rowSlot(row: .top, insertionIndex: 3)
         )
 
         let drawer = store.pane(pane.id)!.drawer!

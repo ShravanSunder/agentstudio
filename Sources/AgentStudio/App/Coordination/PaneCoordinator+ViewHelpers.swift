@@ -86,7 +86,8 @@ extension PaneCoordinator {
     func executeInsertDrawerPane(
         parentPaneId: UUID,
         targetDrawerPaneId: UUID,
-        direction: SplitNewDirection
+        direction: SplitNewDirection,
+        sizingMode: DropSizingMode
     ) {
         let fallbackCWD =
             store.paneAtom.pane(parentPaneId)?.worktreeId.flatMap(store.repositoryTopologyAtom.worktree)?.path
@@ -96,6 +97,7 @@ extension PaneCoordinator {
                 in: parentPaneId,
                 at: targetDrawerPaneId,
                 direction: direction,
+                sizingMode: sizingMode,
                 parentFallbackCWD: fallbackCWD
             )
         else {

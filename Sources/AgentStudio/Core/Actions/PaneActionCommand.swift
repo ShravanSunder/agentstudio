@@ -36,6 +36,14 @@ enum PaneSource: Equatable, Hashable {
     case newTerminal
 }
 
+struct PaneInsertRequest: Equatable, Hashable {
+    let source: PaneSource
+    let targetTabId: UUID
+    let targetPaneId: UUID
+    let direction: SplitNewDirection
+    let sizingMode: DropSizingMode
+}
+
 /// Fully resolved action with all target IDs explicit.
 /// Every action that modifies tab/pane state flows through this type.
 ///
@@ -54,9 +62,7 @@ enum PaneActionCommand: Equatable, Hashable {
     case scrollToBottom(tabId: UUID, paneId: UUID)
 
     // Split operations
-    case insertPane(
-        source: PaneSource, targetTabId: UUID,
-        targetPaneId: UUID, direction: SplitNewDirection)
+    case insertPaneRequest(PaneInsertRequest)
     case resizePane(tabId: UUID, splitId: UUID, ratio: Double)
     case equalizePanes(tabId: UUID)
 
@@ -142,9 +148,19 @@ enum PaneActionCommand: Equatable, Hashable {
     /// Expand a minimized pane within a drawer.
     case expandDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
     /// Insert a new pane into a drawer's layout next to a target drawer pane.
-    case insertDrawerPane(parentPaneId: UUID, targetDrawerPaneId: UUID, direction: SplitNewDirection)
+    case insertDrawerPane(
+        parentPaneId: UUID,
+        targetDrawerPaneId: UUID,
+        direction: SplitNewDirection,
+        sizingMode: DropSizingMode
+    )
     /// Move an existing drawer pane within the same drawer layout.
-    case moveDrawerPane(parentPaneId: UUID, drawerPaneId: UUID, target: DrawerRearrangeTarget)
+    case moveDrawerPane(
+        parentPaneId: UUID,
+        drawerPaneId: UUID,
+        target: DrawerRearrangeTarget,
+        sizingMode: DropSizingMode
+    )
 
     // System actions — dispatched by Reconciler and undo timers, not by user input.
 
@@ -153,6 +169,26 @@ enum PaneActionCommand: Equatable, Hashable {
 
     /// Reconciler-generated repair action.
     case repair(RepairAction)
+}
+
+extension PaneActionCommand {
+    static func insertPane(
+        source: PaneSource,
+        targetTabId: UUID,
+        targetPaneId: UUID,
+        direction: SplitNewDirection,
+        sizingMode: DropSizingMode
+    ) -> Self {
+        .insertPaneRequest(
+            PaneInsertRequest(
+                source: source,
+                targetTabId: targetTabId,
+                targetPaneId: targetPaneId,
+                direction: direction,
+                sizingMode: sizingMode
+            )
+        )
+    }
 }
 
 /// System-generated repair actions from the Reconciler.
