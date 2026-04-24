@@ -11,6 +11,7 @@
 | OSC 133 command finished | `GhosttyEvent.commandFinished` | yes, gated by unattended pane and minimum duration |
 | OSC 9;4 progress error | `GhosttyEvent.progressReportUpdated(.error)` | yes, edge-triggered per pane as `.terminalProgressError` |
 | Renderer unhealthy | `GhosttyEvent.rendererHealthChanged(false)` | yes, unhealthy edge-triggered per pane as `.terminalRendererUnhealthy` |
+| Secure input requested | `GhosttyEvent.secureInputChanged(true)` | yes, edge-triggered per pane as `.terminalSecureInputRequested` when unattended |
 
 ## Runtime-state-only signals
 
@@ -18,15 +19,18 @@ These are intentionally not inbox notifications because they are high-churn cont
 
 | Ghostty signal | Agent Studio event | Reason |
 | --- | --- | --- |
-| OSC 9;4 progress set / paused / indeterminate / remove | `progressReportUpdated` | progress state updates frequently; only error edge notifies |
-| OSC 7 current working directory | `cwdChanged` | pane context, useful for labels/filesystem projection |
+| OSC 9;4 progress set / paused / indeterminate / remove | `progressReportUpdated` | captured in `TerminalActivityAtom`; only error edge notifies |
+| OSC 7 current working directory | `cwdChanged` | captured in `TerminalActivityAtom` and pane context; useful for labels/filesystem projection |
 | title / tab title | `titleChanged`, `tabTitleChanged` | display context |
-| scrollbar / scrollback totals | `scrollbarChanged` | viewport/runtime state |
-| read-only / secure input / mouse shape / mouse link | typed `GhosttyEvent` cases | terminal interaction state |
+| scrollbar / scrollback totals | `scrollbarChanged` | captured in `TerminalActivityAtom` as row-total/output-burst activity, not output text |
+| URL open requests | `openURLRequested` | captured in `TerminalActivityAtom` as recent host-open requests, not every printed URL |
+| secure input cleared | `secureInputChanged(false)` | captured in `TerminalActivityAtom`; only the true edge notifies |
+| read-only / mouse shape / mouse link | typed `GhosttyEvent` cases | terminal interaction state |
 
 ## Verification hooks added
 
-- `InboxNotificationRouterTests` now covers progress-error edge routing and renderer-unhealthy edge routing.
+- `InboxNotificationRouterTests` now covers progress-error, renderer-unhealthy, and secure-input edge routing.
+- `TerminalActivityAtomTests` and `TerminalActivityRouterTests` cover progress state, CWD, recent URL requests, secure-input state, and scrollbar-derived output bursts.
 - `GhosttyActionRouterTests` now covers observed terminal-intelligence payloads through the action-router path:
   desktop notification, progress report, renderer health, scrollbar, and pwd/CWD.
 - Existing `GhosttyAdapterTests` cover the action tag to typed `GhosttyEvent` translation table.

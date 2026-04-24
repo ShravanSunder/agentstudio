@@ -18,6 +18,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var inboxNotificationRouter: InboxNotificationRouter!
     var inboxPaneFocusTracker: PaneFocusTracker!
     var inboxNotificationDrawerPresenter: InboxNotificationDrawerPresenter!
+    var terminalActivityRouter: TerminalActivityRouter!
     var repoCacheStore: RepoCacheStore!
     var sidebarCacheStore: SidebarCacheStore!
     var uiStateStore: UIStateStore!
@@ -166,6 +167,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             notificationInboxCommands: makeInboxNotificationCommands()
         )
         bootStartInboxNotificationRouter(bus: paneRuntimeBus)
+        bootStartTerminalActivityRouter(bus: paneRuntimeBus)
         CommandDispatcher.shared.appCommandRouter = self
         oauthService = OAuthService()
     }
@@ -990,7 +992,6 @@ extension AppDelegate: ShellCommandHandling {
         default: return false
         }
     }
-
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
         switch (command, targetType) {
         default: return false

@@ -40,9 +40,67 @@ final class InboxNotificationStore {
         var prefs: Prefs
 
         struct Prefs: Codable {
-            var grouping: InboxNotificationGrouping
-            var sort: InboxNotificationSort
-            var bellEnabled: Bool
+            var grouping: InboxNotificationGrouping = .none
+            var sort: InboxNotificationSort = .newestFirst
+            var bellEnabled: Bool = false
+
+            private enum CodingKeys: String, CodingKey {
+                case grouping
+                case sort
+                case bellEnabled
+            }
+
+            init(
+                grouping: InboxNotificationGrouping = .none,
+                sort: InboxNotificationSort = .newestFirst,
+                bellEnabled: Bool = false
+            ) {
+                self.grouping = grouping
+                self.sort = sort
+                self.bellEnabled = bellEnabled
+            }
+
+            init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.grouping =
+                    (try? container.decodeIfPresent(InboxNotificationGrouping.self, forKey: .grouping))
+                    ?? .none
+                self.sort =
+                    (try? container.decodeIfPresent(InboxNotificationSort.self, forKey: .sort))
+                    ?? .newestFirst
+                self.bellEnabled =
+                    (try? container.decodeIfPresent(Bool.self, forKey: .bellEnabled))
+                    ?? false
+            }
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case schemaVersion
+            case notifications
+            case prefs
+        }
+
+        init(
+            schemaVersion: Int = 1,
+            notifications: [InboxNotification],
+            prefs: Prefs
+        ) {
+            self.schemaVersion = schemaVersion
+            self.notifications = notifications
+            self.prefs = prefs
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.schemaVersion =
+                (try? container.decodeIfPresent(Int.self, forKey: .schemaVersion))
+                ?? 1
+            self.notifications =
+                (try? container.decodeIfPresent([InboxNotification].self, forKey: .notifications))
+                ?? []
+            self.prefs =
+                (try? container.decodeIfPresent(Prefs.self, forKey: .prefs))
+                ?? .init()
         }
     }
 

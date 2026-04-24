@@ -111,6 +111,68 @@ struct InboxNotificationStoreTests {
         #expect(quarantinedFiles.count == 1)
     }
 
+    @Test("load defaults bad notification slice while preserving valid prefs")
+    func loadDefaultsBadNotificationSliceWhilePreservingPrefs() throws {
+        let url = makeTempURL()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "notifications": 42,
+                "prefs": {
+                    "grouping": "byRepo",
+                    "sort": "oldestFirst",
+                    "bellEnabled": true
+                }
+            }
+            """
+        try Data(json.utf8).write(to: url, options: .atomic)
+        let atom = InboxNotificationAtom()
+        let prefs = InboxNotificationPrefsAtom()
+        let store = InboxNotificationStore(
+            inboxAtom: atom,
+            prefsAtom: prefs,
+            fileURL: url
+        )
+
+        try store.load()
+
+        #expect(atom.notifications.isEmpty)
+        #expect(prefs.grouping == .byRepo)
+        #expect(prefs.sort == .oldestFirst)
+        #expect(prefs.bellEnabled)
+    }
+
+    @Test("load defaults bad preference fields independently")
+    func loadDefaultsBadPreferenceFieldsIndependently() throws {
+        let url = makeTempURL()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "notifications": [],
+                "prefs": {
+                    "grouping": "not-a-group",
+                    "sort": "oldestFirst",
+                    "bellEnabled": true
+                }
+            }
+            """
+        try Data(json.utf8).write(to: url, options: .atomic)
+        let atom = InboxNotificationAtom()
+        let prefs = InboxNotificationPrefsAtom()
+        let store = InboxNotificationStore(
+            inboxAtom: atom,
+            prefsAtom: prefs,
+            fileURL: url
+        )
+
+        try store.load()
+
+        #expect(atom.notifications.isEmpty)
+        #expect(prefs.grouping == .none)
+        #expect(prefs.sort == .oldestFirst)
+        #expect(prefs.bellEnabled)
+    }
+
     @Test("debounce clock failure still saves immediately")
     func debounceClockFailureStillSavesImmediately() async throws {
         let url = makeTempURL()

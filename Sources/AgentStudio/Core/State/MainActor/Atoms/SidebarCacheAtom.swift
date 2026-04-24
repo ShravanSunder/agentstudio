@@ -1,6 +1,11 @@
 import Foundation
 import Observation
 
+/// Durable sidebar memory that can safely default without changing workspace meaning.
+///
+/// App-shell composition stays on `UIStateAtom`; workspace geometry stays on
+/// `WorkspaceMetadataAtom`. Do not add focus, selected surface, collapsed state,
+/// or width here.
 @MainActor
 @Observable
 final class SidebarCacheAtom {

@@ -204,7 +204,7 @@ final class WorkspacePersistorTests {
     }
 
     @Test
-    func test_load_canonicalState_missingWatchedPaths_returnsCorrupt() throws {
+    func test_load_canonicalState_missingWatchedPaths_defaultsOnlyThatSlice() throws {
         // Arrange — valid JSON but without the watchedPaths field
         let workspaceId = UUID()
         let json: [String: Any] = [
@@ -229,8 +229,11 @@ final class WorkspacePersistorTests {
         // Act
         let result = persistor.load()
 
-        // Assert — strict decode means missing required field → corrupt
-        #expect(result.isCorrupt)
+        // Assert — missing recoverable fields default without wiping the workspace.
+        let loaded = result.value
+        #expect(loaded?.id == workspaceId)
+        #expect(loaded?.name == "Test Workspace")
+        #expect(loaded?.watchedPaths.isEmpty == true)
     }
 
     @Test
@@ -497,10 +500,10 @@ final class WorkspacePersistorTests {
         #expect(persistor.loadUI(for: workspaceId).isCorrupt)
     }
 
-    // MARK: - Strict Decoding (no legacy fallbacks)
+    // MARK: - Recoverable Decoding
 
     @Test
-    func test_load_canonicalState_missingWorktrees_returnsCorrupt() throws {
+    func test_load_canonicalState_missingWorktrees_defaultsOnlyThatSlice() throws {
         // Arrange — JSON with all required fields except `worktrees`
         let id = UUID()
         let json = """
@@ -520,12 +523,47 @@ final class WorkspacePersistorTests {
         let fileURL = tempDir.appending(path: "\(id.uuidString).workspace.state.json")
         try Data(json.utf8).write(to: fileURL, options: .atomic)
 
-        // Act & Assert — missing `worktrees` must be rejected, not silently defaulted
-        #expect(persistor.load().isCorrupt)
+        let loaded = persistor.load().value
+
+        #expect(loaded?.id == id)
+        #expect(loaded?.name == "Test")
+        #expect(loaded?.repos.isEmpty == true)
+        #expect(loaded?.worktrees.isEmpty == true)
     }
 
     @Test
-    func test_load_canonicalState_missingSchemaVersion_returnsCorrupt() throws {
+    func test_load_canonicalState_badSidebarWidth_defaultsOnlyThatSlice() throws {
+        let id = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "id": "\(id.uuidString)",
+                "name": "Test",
+                "repos": [],
+                "worktrees": [],
+                "unavailableRepoIds": [],
+                "panes": [],
+                "tabs": [],
+                "activeTabId": null,
+                "sidebarWidth": "wide",
+                "windowFrame": null,
+                "watchedPaths": [],
+                "createdAt": 0,
+                "updatedAt": 0
+            }
+            """
+        let fileURL = tempDir.appending(path: "\(id.uuidString).workspace.state.json")
+        try Data(json.utf8).write(to: fileURL, options: .atomic)
+
+        let loaded = persistor.load().value
+
+        #expect(loaded?.id == id)
+        #expect(loaded?.sidebarWidth == 250)
+        #expect(loaded?.tabs.isEmpty == true)
+    }
+
+    @Test
+    func test_load_canonicalState_missingSchemaVersion_defaultsToCurrent() throws {
         // Arrange — JSON with all required fields except `schemaVersion`
         let id = UUID()
         let json = """
@@ -545,12 +583,14 @@ final class WorkspacePersistorTests {
         let fileURL = tempDir.appending(path: "\(id.uuidString).workspace.state.json")
         try Data(json.utf8).write(to: fileURL, options: .atomic)
 
-        // Act & Assert — missing `schemaVersion` must be rejected, not defaulted to 0
-        #expect(persistor.load().isCorrupt)
+        let loaded = persistor.load().value
+
+        #expect(loaded?.schemaVersion == WorkspacePersistor.currentSchemaVersion)
+        #expect(loaded?.id == id)
     }
 
     @Test
-    func test_loadCache_missingRequiredField_returnsCorrupt() throws {
+    func test_loadCache_missingRequiredField_defaultsOnlyThatSlice() throws {
         // Arrange — cache JSON missing required `repoEnrichmentByRepoId`
         let workspaceId = UUID()
         let json = """
@@ -566,8 +606,37 @@ final class WorkspacePersistorTests {
         let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.cache.json")
         try Data(json.utf8).write(to: cacheURL, options: .atomic)
 
-        // Act & Assert — missing `repoEnrichmentByRepoId` must be rejected, not silently defaulted
-        #expect(persistor.loadCache(for: workspaceId).isCorrupt)
+        let loaded = persistor.loadCache(for: workspaceId).value
+
+        #expect(loaded?.workspaceId == workspaceId)
+        #expect(loaded?.repoEnrichmentByRepoId.isEmpty == true)
+        #expect(loaded?.worktreeEnrichmentByWorktreeId.isEmpty == true)
+        #expect(loaded?.sourceRevision == 0)
+    }
+
+    @Test
+    func test_loadCache_sliceTypeError_defaultsBadSlice() throws {
+        let workspaceId = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "workspaceId": "\(workspaceId.uuidString)",
+                "repoEnrichmentByRepoId": 42,
+                "worktreeEnrichmentByWorktreeId": {},
+                "pullRequestCountByWorktreeId": {},
+                "notificationCountByWorktreeId": {"\(UUID().uuidString)": 3},
+                "recentTargets": [],
+                "sourceRevision": 7
+            }
+            """
+        let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.cache.json")
+        try Data(json.utf8).write(to: cacheURL, options: .atomic)
+
+        let loaded = persistor.loadCache(for: workspaceId).value
+
+        #expect(loaded?.workspaceId == workspaceId)
+        #expect(loaded?.repoEnrichmentByRepoId.isEmpty == true)
+        #expect(loaded?.sourceRevision == 7)
     }
 
     @Test

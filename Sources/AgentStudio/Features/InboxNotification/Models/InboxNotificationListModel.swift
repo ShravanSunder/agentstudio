@@ -112,14 +112,7 @@ struct InboxNotificationListModel: Equatable {
         filter: InboxFilter?
     ) -> [InboxNotification] {
         guard let filter else { return notifications }
-        return notifications.filter { notification in
-            switch filter {
-            case .worktree(let id):
-                return notification.worktreeId == id
-            case .repo(let id):
-                return notification.repoId == id
-            }
-        }
+        return notifications.filter { filter.matches($0) }
     }
 
     private static func filterNotifications(
@@ -145,12 +138,13 @@ struct InboxNotificationListModel: Equatable {
     ) -> [InboxNotificationListSection] {
         switch grouping {
         case .none:
+            let ungroupedKey = "__ungrouped__"
             return [
                 InboxNotificationListSection(
-                    id: "all",
+                    id: ungroupedKey,
                     label: nil,
                     notifications: notifications,
-                    isCollapsed: collapsedGroups.contains(InboxNotificationGroupKey("all"))
+                    isCollapsed: collapsedGroups.contains(InboxNotificationGroupKey(ungroupedKey))
                 )
             ]
         case .byRepo:

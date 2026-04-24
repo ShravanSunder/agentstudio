@@ -7,21 +7,29 @@ import Testing
 @MainActor
 @Suite("InboxNotificationSidebarView")
 struct InboxNotificationSidebarViewTests {
-    @Test("instantiates with inbox atoms and pane store")
-    func instantiates() {
-        let view = InboxNotificationSidebarView(
-            inboxAtom: InboxNotificationAtom(),
-            prefsAtom: InboxNotificationPrefsAtom(),
-            uiState: UIStateAtom(),
-            sidebarCache: SidebarCacheAtom(),
-            inboxFilterDraft: InboxFilterDraftAtom(),
-            workspacePaneAtom: WorkspacePaneAtom(),
-            dispatcher: CommandDispatcher.shared,
-            onRefocusActivePane: {}
+    @Test("preseeded filter draft is consumed when the inbox mounts")
+    func preseededFilterDraftIsConsumedOnMount() async {
+        let inboxFilterDraft = InboxFilterDraftAtom()
+        inboxFilterDraft.set(.worktree(id: UUID()))
+        let hostingView = NSHostingView(
+            rootView: InboxNotificationSidebarView(
+                inboxAtom: InboxNotificationAtom(),
+                prefsAtom: InboxNotificationPrefsAtom(),
+                uiState: UIStateAtom(),
+                sidebarCache: SidebarCacheAtom(),
+                inboxFilterDraft: inboxFilterDraft,
+                workspacePaneAtom: WorkspacePaneAtom(),
+                dispatcher: CommandDispatcher.shared,
+                onRefocusActivePane: {}
+            )
+            .frame(width: 320, height: 420)
         )
 
-        _ = view.body
-        #expect(Bool(true))
+        hostingView.layoutSubtreeIfNeeded()
+
+        await assertEventuallyMain("mounted inbox should consume pending filter draft") {
+            inboxFilterDraft.peek() == nil
+        }
     }
 
     @Test("root key router maps documented option and command shortcuts")

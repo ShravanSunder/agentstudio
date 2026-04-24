@@ -57,4 +57,37 @@ struct SidebarCacheStoreTests {
         }
         #expect(quarantinedFiles.count == 1)
     }
+
+    @Test
+    func restore_missingSidebarCacheFile_keepsDefaults() {
+        let workspaceId = UUID()
+        let atom = SidebarCacheAtom()
+
+        SidebarCacheStore(atom: atom, persistor: persistor).restore(for: workspaceId)
+
+        #expect(atom.expandedGroups.isEmpty)
+        #expect(atom.checkoutColors.isEmpty)
+        #expect(atom.collapsedInboxGroups.isEmpty)
+    }
+
+    @Test
+    func restore_partialSidebarCachePayload_defaultsMissingSlices() throws {
+        let workspaceId = UUID()
+        let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
+        let json = """
+            {
+                "schemaVersion": 1,
+                "workspaceId": "\(workspaceId.uuidString)",
+                "checkoutColors": {"repo:agent-studio": "#ff6600"}
+            }
+            """
+        try Data(json.utf8).write(to: cacheURL, options: .atomic)
+
+        let atom = SidebarCacheAtom()
+        SidebarCacheStore(atom: atom, persistor: persistor).restore(for: workspaceId)
+
+        #expect(atom.expandedGroups.isEmpty)
+        #expect(atom.checkoutColors == [SidebarCheckoutColorKey("repo:agent-studio"): "#ff6600"])
+        #expect(atom.collapsedInboxGroups.isEmpty)
+    }
 }

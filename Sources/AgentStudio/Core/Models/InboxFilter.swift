@@ -4,12 +4,13 @@ enum InboxFilter: Equatable, Hashable, Sendable, Codable {
     case worktree(id: UUID)
     case repo(id: UUID)
 
-    var accessibilityDescription: String {
+    func matches(_ notification: InboxNotification) -> Bool {
         switch self {
-        case .worktree:
-            return "Worktree filter"
-        case .repo:
-            return "Repo filter"
+        case .worktree(let id):
+            notification.worktreeId == id
+        case .repo(let id):
+            notification.repoId == id
         }
     }
+
 }

@@ -16,7 +16,7 @@ enum RepoExplorerFocusPublisher {
     }
 }
 
-/// Redesigned sidebar content grouped by repository identity (worktree family / remote).
+/// Sidebar content grouped by repository identity (worktree family / remote).
 @MainActor
 struct RepoExplorerView: View {
     struct SidebarProjection {
@@ -42,12 +42,9 @@ struct RepoExplorerView: View {
         atom(\.sidebarCache)
     }
 
-    @State private var expandedGroups: Set<SidebarGroupKey> = []
     @State private var filterText: String = ""
     @State private var debouncedQuery: String = ""
     @FocusState private var focusedField: RepoExplorerFocus?
-
-    @State private var checkoutColorByRepoId: [String: String] = [:]
 
     @State private var debounceTask: Task<Void, Never>?
 
@@ -80,13 +77,21 @@ struct RepoExplorerView: View {
     private var resolvedListEntries: [RepoExplorerListEntry] {
         Self.buildListEntries(
             groups: groups,
-            expandedGroupIds: Set(expandedGroups.map(\.rawValue)),
+            expandedGroupIds: Set(sidebarCache.expandedGroups.map(\.rawValue)),
             isFiltering: isFiltering
         )
     }
 
     private var isFiltering: Bool {
         !debouncedQuery.isEmpty
+    }
+
+    private var checkoutColorOverrides: [String: String] {
+        Dictionary(
+            uniqueKeysWithValues: sidebarCache.checkoutColors.map { key, value in
+                (key.rawValue, value)
+            }
+        )
     }
 
     private var worktreeStatusById: [UUID: GitBranchStatus] {
@@ -113,14 +118,8 @@ struct RepoExplorerView: View {
         .shadow(color: .black.opacity(0.2), radius: 4, x: 2, y: 0)
         .animation(.easeOut(duration: 0.15), value: uiState.isFilterVisible)
         .task {
-            expandedGroups = sidebarCache.expandedGroups
             filterText = uiState.filterText
             debouncedQuery = uiState.filterText
-            checkoutColorByRepoId = Dictionary(
-                uniqueKeysWithValues: sidebarCache.checkoutColors.map { key, value in
-                    (key.rawValue, value)
-                }
-            )
         }
         .onDisappear {
             debounceTask?.cancel()
@@ -319,11 +318,6 @@ struct RepoExplorerView: View {
                             },
                             onSetIconColor: { colorHex in
                                 let key = resolvedWorktreeContext.repo.id.uuidString
-                                if let colorHex {
-                                    checkoutColorByRepoId[key] = colorHex
-                                } else {
-                                    checkoutColorByRepoId.removeValue(forKey: key)
-                                }
                                 sidebarCache.setCheckoutColor(colorHex, for: SidebarCheckoutColorKey(key))
                             }
                         )
@@ -368,25 +362,20 @@ struct RepoExplorerView: View {
 
     private func colorForCheckout(repo: RepoPresentationItem, in group: RepoPresentationGroup) -> Color {
         let colorHex = RepoPresentationColoring.checkoutColorHex(
-            for: repo, in: group, checkoutColorOverrides: checkoutColorByRepoId
+            for: repo, in: group, checkoutColorOverrides: checkoutColorOverrides
         )
         return Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
     }
 
     private func isGroupExpanded(_ groupId: String) -> Bool {
-        isFiltering || expandedGroups.contains(SidebarGroupKey(groupId))
+        isFiltering || sidebarCache.expandedGroups.contains(SidebarGroupKey(groupId))
     }
 
     private func toggleGroupExpansion(_ groupId: String) {
         guard !isFiltering else { return }
 
         let key = SidebarGroupKey(groupId)
-        if expandedGroups.contains(key) {
-            expandedGroups.remove(key)
-        } else {
-            expandedGroups.insert(key)
-        }
-        sidebarCache.setExpandedGroups(expandedGroups)
+        sidebarCache.setGroupExpanded(key, isExpanded: !sidebarCache.expandedGroups.contains(key))
     }
 
     private func resolvedWorktreeContext(

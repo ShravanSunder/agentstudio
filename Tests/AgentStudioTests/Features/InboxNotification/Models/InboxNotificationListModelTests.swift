@@ -91,7 +91,7 @@ struct InboxNotificationListModelTests {
         )
 
         #expect(model.sections.count == 1)
-        #expect(model.sections[0].id == "all")
+        #expect(model.sections[0].id == "__ungrouped__")
         #expect(model.sections[0].label == nil)
         #expect(model.sections[0].notifications.map(\.title) == ["Newer", "Older"])
     }

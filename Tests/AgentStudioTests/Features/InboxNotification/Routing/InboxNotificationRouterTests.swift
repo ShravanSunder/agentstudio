@@ -446,6 +446,62 @@ struct InboxNotificationRouterTests {
         fixture.attendedPane.stop()
     }
 
+    @Test("secure input true notifies once and rearms after false")
+    func secureInputTrueNotifiesOnceAndRearmsAfterFalse() async {
+        let fixture = await makeFixture()
+        let paneId = PaneId()
+        _ = addTerminalPane(paneId, to: fixture)
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.secureInputChanged(true))
+            )
+        )
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.secureInputChanged(true)),
+                seq: 2
+            )
+        )
+        await waitForNotificationCount(
+            1,
+            in: fixture,
+            description: "first secure input true edge should notify once"
+        )
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.secureInputChanged(false)),
+                seq: 3
+            )
+        )
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.secureInputChanged(true)),
+                seq: 4
+            )
+        )
+        await waitForNotificationCount(
+            2,
+            in: fixture,
+            description: "secure input false should rearm the next true edge"
+        )
+
+        #expect(
+            fixture.inboxAtom.notifications.map(\.kind) == [
+                .terminalSecureInputRequested,
+                .terminalSecureInputRequested,
+            ])
+        #expect(fixture.inboxAtom.notifications[0].title == "Secure input requested")
+        fixture.router.stop()
+        fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
+
     @Test("renderer unhealthy notifies on unhealthy edge per pane")
     func rendererUnhealthyNotifiesOnUnhealthyEdgePerPane() async {
         let fixture = await makeFixture()
@@ -494,6 +550,55 @@ struct InboxNotificationRouterTests {
         #expect(
             fixture.inboxAtom.notifications.map(\.kind) == [.terminalRendererUnhealthy, .terminalRendererUnhealthy])
         #expect(fixture.inboxAtom.notifications[0].title == "Terminal renderer unhealthy")
+        fixture.router.stop()
+        fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
+
+    @Test("pane closed prunes edge detector state for reused pane identifiers")
+    func paneClosedPrunesEdgeDetectorState() async {
+        let fixture = await makeFixture()
+        let paneId = PaneId()
+        _ = addTerminalPane(paneId, to: fixture)
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.rendererHealthChanged(healthy: false))
+            )
+        )
+        await waitForNotificationCount(
+            1,
+            in: fixture,
+            description: "first unhealthy edge should notify"
+        )
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .lifecycle(.paneClosed),
+                seq: 2
+            )
+        )
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.rendererHealthChanged(healthy: false)),
+                seq: 3
+            )
+        )
+
+        await waitForNotificationCount(
+            2,
+            in: fixture,
+            description: "closed pane should re-enter with fresh renderer edge state"
+        )
+
+        #expect(
+            fixture.inboxAtom.notifications.map(\.kind) == [
+                .terminalRendererUnhealthy,
+                .terminalRendererUnhealthy,
+            ])
         fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()

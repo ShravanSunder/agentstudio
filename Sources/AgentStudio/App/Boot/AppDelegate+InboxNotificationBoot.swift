@@ -35,6 +35,16 @@ extension AppDelegate {
         }
     }
 
+    func bootStartTerminalActivityRouter(bus: EventBus<RuntimeEnvelope>) {
+        terminalActivityRouter = TerminalActivityRouter(
+            bus: bus,
+            activityAtom: atomStore.terminalActivity
+        )
+        Task { @MainActor [weak self] in
+            await self?.terminalActivityRouter.start()
+        }
+    }
+
     private func observeInboxNotificationPersistence() {
         withObservationTracking {
             _ = inboxNotificationAtom.notifications

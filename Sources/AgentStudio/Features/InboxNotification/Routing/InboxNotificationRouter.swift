@@ -21,6 +21,7 @@ final class InboxNotificationRouter {
     private var sandboxHealthWasHealthyByPaneId: [UUID: Bool] = [:]
     private var progressErrorWasActiveByPaneId: [UUID: Bool] = [:]
     private var rendererWasHealthyByPaneId: [UUID: Bool] = [:]
+    private var secureInputWasActiveByPaneId: [UUID: Bool] = [:]
 
     init(
         bus: EventBus<RuntimeEnvelope>,
@@ -48,6 +49,7 @@ final class InboxNotificationRouter {
         sandboxHealthWasHealthyByPaneId.removeAll()
         progressErrorWasActiveByPaneId.removeAll()
         rendererWasHealthyByPaneId.removeAll()
+        secureInputWasActiveByPaneId.removeAll()
     }
 
     func start() async {
@@ -116,8 +118,13 @@ final class InboxNotificationRouter {
             return .commandFinished
         case .terminal(.progressReportUpdated(let progress)):
             return classifyProgressReport(progress, paneId: envelope.paneId.uuid)
+        case .terminal(.secureInputChanged(let isActive)):
+            return classifySecureInput(isActive, paneId: envelope.paneId.uuid)
         case .terminal(.rendererHealthChanged(let healthy)):
             return classifyRendererHealth(healthy, paneId: envelope.paneId.uuid)
+        case .lifecycle(.paneClosed):
+            pruneEdgeState(for: envelope.paneId.uuid)
+            return nil
         case .artifact(.approvalRequested):
             return .approvalRequested
         case .security(.networkEgressBlocked),
@@ -133,7 +140,7 @@ final class InboxNotificationRouter {
             sandboxHealthWasHealthyByPaneId[paneId] = healthy
             return shouldNotify ? .securityEvent : nil
         default:
-            inboxNotificationRouterLogger.debug(
+            inboxNotificationRouterLogger.info(
                 "Ignoring unclassified inbox event: \(String(describing: envelope.event), privacy: .public)"
             )
             return nil
@@ -147,11 +154,26 @@ final class InboxNotificationRouter {
         return isError && !wasError ? .terminalProgressError : nil
     }
 
+    private func classifySecureInput(_ isActive: Bool, paneId: UUID) -> InboxNotificationKind? {
+        let wasActive = secureInputWasActiveByPaneId[paneId, default: false]
+        secureInputWasActiveByPaneId[paneId] = isActive
+        guard isActive && !wasActive else { return nil }
+        guard paneId != attendedPane.attendedPaneId else { return nil }
+        return .terminalSecureInputRequested
+    }
+
     private func classifyRendererHealth(_ healthy: Bool, paneId: UUID) -> InboxNotificationKind? {
         let wasHealthy = rendererWasHealthyByPaneId[paneId, default: true]
         let shouldNotify = wasHealthy && !healthy
         rendererWasHealthyByPaneId[paneId] = healthy
         return shouldNotify ? .terminalRendererUnhealthy : nil
+    }
+
+    private func pruneEdgeState(for paneId: UUID) {
+        sandboxHealthWasHealthyByPaneId.removeValue(forKey: paneId)
+        progressErrorWasActiveByPaneId.removeValue(forKey: paneId)
+        rendererWasHealthyByPaneId.removeValue(forKey: paneId)
+        secureInputWasActiveByPaneId.removeValue(forKey: paneId)
     }
 
     private func title(for event: PaneRuntimeEvent) -> String {
@@ -164,6 +186,8 @@ final class InboxNotificationRouter {
             return "Bell"
         case .terminal(.commandFinished(let exitCode, _)):
             return exitCode == 0 ? "Command finished" : "Command failed (exit \(exitCode))"
+        case .terminal(.secureInputChanged):
+            return "Secure input requested"
         case .terminal(.progressReportUpdated):
             return "Terminal progress error"
         case .terminal(.rendererHealthChanged):
@@ -193,6 +217,8 @@ final class InboxNotificationRouter {
             return body?.isEmpty == true ? nil : body
         case .terminal(.commandFinished(let exitCode, let duration)):
             return "exit \(exitCode) · \(formattedDuration(duration))"
+        case .terminal(.secureInputChanged(let isActive)):
+            return isActive ? "terminal is waiting for hidden input" : nil
         case .terminal(.progressReportUpdated(let progress)):
             guard let progress else { return nil }
             guard let percent = progress.percent else { return "progress error" }

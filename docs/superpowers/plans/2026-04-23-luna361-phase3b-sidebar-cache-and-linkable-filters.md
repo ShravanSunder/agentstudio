@@ -29,6 +29,20 @@ This plan does not move `UIStateAtom.sidebarCollapsed`, `UIStateAtom.sidebarSurf
 5. Persisted corruption never crashes the app. A bad slice defaults; unrelated slices survive.
 6. Tests follow the pyramid: pure unit tests first, integration tests for cross-atom flows, minimal mounted SwiftUI tests only where wiring cannot be proven otherwise.
 
+## 2026-04-24 Review Closure Notes
+
+The following review findings were validated against code and folded back into this plan's implementation scope:
+
+- `PersistableState` and `PersistableCacheState` now use per-field recoverable decode so missing or mistyped slices default without wiping unrelated workspace/cache state.
+- `ChaosStoreSeeder` now exists and `PersistenceChaosTests` exercise the nine planned chaos flavors against workspace, repo cache, UI state, sidebar cache, and inbox notification persistence.
+- The worktree unread pill path is directly testable through `SidebarSurfaceHost.showNotifications(for:inboxFilterDraft:dispatcher:)`.
+- `InboxNotificationSidebarView.swift` is split into focus, keyboard, activation, component, and root-view files; the root file is back below the 400-line smell threshold.
+- `InboxFilter.matches(_:)` owns filter matching so future filter cases force an exhaustive switch.
+- `InboxFilterDraftAtom` documents its one-shot semantics and the inbox view now reacts to `pendingFilter` changes while already mounted.
+- `RepoExplorerView` reads expansion and checkout color state from `SidebarCacheAtom` instead of maintaining a local shadow cache.
+- `SidebarCacheStoreTests` cover missing-file and partial-payload restore.
+- `InboxNotificationRouter` prunes per-pane edge detector state on `.lifecycle(.paneClosed)`.
+
 ## Ownership Model
 
 ```

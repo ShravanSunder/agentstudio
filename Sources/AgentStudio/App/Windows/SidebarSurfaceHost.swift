@@ -22,8 +22,11 @@ struct SidebarSurfaceHost: View {
                 store: store,
                 onRefocusActivePane: onRefocusActivePane,
                 onShowNotificationsForWorktree: { worktree in
-                    inboxFilterDraft.set(.worktree(id: worktree.id))
-                    CommandDispatcher.shared.dispatch(.showInboxNotifications)
+                    Self.showNotifications(
+                        for: worktree,
+                        inboxFilterDraft: inboxFilterDraft,
+                        dispatcher: .shared
+                    )
                 },
                 unreadCount: { worktree in
                     Self.unreadCount(for: worktree, inboxAtom: inboxAtom)
@@ -57,5 +60,14 @@ struct SidebarSurfaceHost: View {
         inboxAtom: InboxNotificationAtom
     ) -> Int {
         inboxAtom.unreadCount(forWorktreeId: worktree.id)
+    }
+
+    static func showNotifications(
+        for worktree: Worktree,
+        inboxFilterDraft: InboxFilterDraftAtom,
+        dispatcher: CommandDispatcher
+    ) {
+        inboxFilterDraft.set(.worktree(id: worktree.id))
+        dispatcher.dispatch(.showInboxNotifications)
     }
 }

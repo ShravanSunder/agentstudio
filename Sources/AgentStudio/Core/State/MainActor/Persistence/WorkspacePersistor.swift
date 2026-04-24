@@ -3,6 +3,33 @@ import os.log
 
 private let persistorLogger = Logger(subsystem: "com.agentstudio", category: "WorkspacePersistor")
 
+private func decodeRecoverableField<Key: CodingKey, Value: Decodable>(
+    _ type: Value.Type,
+    from container: KeyedDecodingContainer<Key>,
+    forKey key: Key,
+    schemaVersion: Int,
+    payloadName: String,
+    default defaultValue: @autoclosure () -> Value
+) -> Value {
+    do {
+        if let value = try container.decodeIfPresent(type, forKey: key) {
+            return value
+        }
+    } catch {
+        persistorLogger.warning(
+            "\(payloadName, privacy: .public) schemaVersion=\(schemaVersion) invalid field \(key.stringValue, privacy: .public); using default"
+        )
+        return defaultValue()
+    }
+
+    if schemaVersion >= 1 {
+        persistorLogger.warning(
+            "\(payloadName, privacy: .public) schemaVersion=\(schemaVersion) missing field \(key.stringValue, privacy: .public); using default"
+        )
+    }
+    return defaultValue()
+}
+
 /// Pure persistence I/O for workspace state.
 /// Collaborator of the main-actor persistence wrappers — not a public peer.
 struct WorkspacePersistor {
@@ -73,6 +100,42 @@ struct WorkspacePersistor {
             self.updatedAt = updatedAt
         }
 
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let schemaVersion =
+                (try? container.decode(Int.self, forKey: .schemaVersion))
+                ?? WorkspacePersistor.currentSchemaVersion
+            func decodeField<Value: Decodable>(
+                _ type: Value.Type,
+                forKey key: CodingKeys,
+                default defaultValue: @autoclosure () -> Value
+            ) -> Value {
+                decodeRecoverableField(
+                    type,
+                    from: container,
+                    forKey: key,
+                    schemaVersion: schemaVersion,
+                    payloadName: "PersistableState",
+                    default: defaultValue()
+                )
+            }
+
+            self.schemaVersion = schemaVersion
+            self.id = decodeField(UUID.self, forKey: .id, default: UUID())
+            self.name = decodeField(String.self, forKey: .name, default: "Default Workspace")
+            self.repos = decodeField([CanonicalRepo].self, forKey: .repos, default: [])
+            self.worktrees = decodeField([CanonicalWorktree].self, forKey: .worktrees, default: [])
+            self.unavailableRepoIds = decodeField(Set<UUID>.self, forKey: .unavailableRepoIds, default: [])
+            self.panes = decodeField([Pane].self, forKey: .panes, default: [])
+            self.tabs = decodeField([Tab].self, forKey: .tabs, default: [])
+            self.activeTabId = decodeField(UUID?.self, forKey: .activeTabId, default: nil)
+            self.sidebarWidth = decodeField(CGFloat.self, forKey: .sidebarWidth, default: 250)
+            self.windowFrame = decodeField(CGRect?.self, forKey: .windowFrame, default: nil)
+            self.watchedPaths = decodeField([WatchedPath].self, forKey: .watchedPaths, default: [])
+            self.createdAt = decodeField(Date.self, forKey: .createdAt, default: Date())
+            self.updatedAt = decodeField(Date.self, forKey: .updatedAt, default: Date())
+        }
+
     }
 
     /// Rebuildable cache snapshot persisted separately from canonical state.
@@ -122,34 +185,74 @@ struct WorkspacePersistor {
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
-            self.workspaceId = try container.decode(UUID.self, forKey: .workspaceId)
-            self.repoEnrichmentByRepoId = try container.decode(
+            let schemaVersion =
+                (try? container.decode(Int.self, forKey: .schemaVersion))
+                ?? WorkspacePersistor.currentSchemaVersion
+
+            self.schemaVersion = schemaVersion
+            self.workspaceId = decodeRecoverableField(
+                UUID.self,
+                from: container,
+                forKey: .workspaceId,
+                schemaVersion: schemaVersion,
+                payloadName: "PersistableCacheState",
+                default: UUID()
+            )
+            self.repoEnrichmentByRepoId = decodeRecoverableField(
                 [UUID: RepoEnrichment].self,
-                forKey: .repoEnrichmentByRepoId
+                from: container,
+                forKey: .repoEnrichmentByRepoId,
+                schemaVersion: schemaVersion,
+                payloadName: "PersistableCacheState",
+                default: [:]
             )
-            self.worktreeEnrichmentByWorktreeId = try container.decode(
+            self.worktreeEnrichmentByWorktreeId = decodeRecoverableField(
                 [UUID: WorktreeEnrichment].self,
-                forKey: .worktreeEnrichmentByWorktreeId
+                from: container,
+                forKey: .worktreeEnrichmentByWorktreeId,
+                schemaVersion: schemaVersion,
+                payloadName: "PersistableCacheState",
+                default: [:]
             )
-            self.pullRequestCountByWorktreeId = try container.decode(
+            self.pullRequestCountByWorktreeId = decodeRecoverableField(
                 [UUID: Int].self,
-                forKey: .pullRequestCountByWorktreeId
+                from: container,
+                forKey: .pullRequestCountByWorktreeId,
+                schemaVersion: schemaVersion,
+                payloadName: "PersistableCacheState",
+                default: [:]
             )
-            self.notificationCountByWorktreeId = try container.decode(
+            self.notificationCountByWorktreeId = decodeRecoverableField(
                 [UUID: Int].self,
-                forKey: .notificationCountByWorktreeId
+                from: container,
+                forKey: .notificationCountByWorktreeId,
+                schemaVersion: schemaVersion,
+                payloadName: "PersistableCacheState",
+                default: [:]
             )
-            self.recentTargets =
-                try container.decodeIfPresent(
-                    [RecentWorkspaceTarget].self,
-                    forKey: .recentTargets
-                )
-                ?? []
-            self.sourceRevision = try container.decode(UInt64.self, forKey: .sourceRevision)
-            self.lastRebuiltAt = try container.decodeIfPresent(
-                Date.self,
-                forKey: .lastRebuiltAt
+            self.recentTargets = decodeRecoverableField(
+                [RecentWorkspaceTarget].self,
+                from: container,
+                forKey: .recentTargets,
+                schemaVersion: schemaVersion,
+                payloadName: "PersistableCacheState",
+                default: []
+            )
+            self.sourceRevision = decodeRecoverableField(
+                UInt64.self,
+                from: container,
+                forKey: .sourceRevision,
+                schemaVersion: schemaVersion,
+                payloadName: "PersistableCacheState",
+                default: 0
+            )
+            self.lastRebuiltAt = decodeRecoverableField(
+                Date?.self,
+                from: container,
+                forKey: .lastRebuiltAt,
+                schemaVersion: schemaVersion,
+                payloadName: "PersistableCacheState",
+                default: nil
             )
         }
 
@@ -202,68 +305,67 @@ struct WorkspacePersistor {
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            let schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
-
-            func decodeV1Field<Value: Decodable>(
-                _ type: Value.Type,
-                forKey key: CodingKeys,
-                default defaultValue: @autoclosure () -> Value
-            ) throws -> Value {
-                do {
-                    if let value = try container.decodeIfPresent(type, forKey: key) {
-                        return value
-                    }
-                } catch {
-                    persistorLogger.warning(
-                        "PersistableUIState schemaVersion=\(schemaVersion) invalid field \(key.rawValue, privacy: .public); using default"
-                    )
-                    return defaultValue()
-                }
-
-                if schemaVersion >= 1 {
-                    persistorLogger.warning(
-                        "PersistableUIState schemaVersion=\(schemaVersion) missing field \(key.rawValue, privacy: .public); using default"
-                    )
-                }
-                return defaultValue()
-            }
+            let schemaVersion =
+                (try? container.decode(Int.self, forKey: .schemaVersion))
+                ?? WorkspacePersistor.currentSchemaVersion
 
             self.schemaVersion = schemaVersion
-            self.workspaceId = try container.decode(UUID.self, forKey: .workspaceId)
-            self.filterText = try decodeV1Field(
+            self.workspaceId = decodeRecoverableField(
+                UUID.self,
+                from: container,
+                forKey: .workspaceId,
+                schemaVersion: schemaVersion,
+                payloadName: "PersistableUIState",
+                default: UUID()
+            )
+            self.filterText = decodeRecoverableField(
                 String.self,
+                from: container,
                 forKey: .filterText,
+                schemaVersion: schemaVersion,
+                payloadName: "PersistableUIState",
                 default: ""
             )
-            self.isFilterVisible = try decodeV1Field(
+            self.isFilterVisible = decodeRecoverableField(
                 Bool.self,
+                from: container,
                 forKey: .isFilterVisible,
+                schemaVersion: schemaVersion,
+                payloadName: "PersistableUIState",
                 default: false
             )
-            self.showMinimizedBars = try decodeV1Field(
+            self.showMinimizedBars = decodeRecoverableField(
                 Bool.self,
+                from: container,
                 forKey: .showMinimizedBars,
+                schemaVersion: schemaVersion,
+                payloadName: "PersistableUIState",
                 default: true
             )
-            self.sidebarCollapsed = try decodeV1Field(
+            self.sidebarCollapsed = decodeRecoverableField(
                 Bool.self,
+                from: container,
                 forKey: .sidebarCollapsed,
+                schemaVersion: schemaVersion,
+                payloadName: "PersistableUIState",
                 default: false
             )
-            self.sidebarSurface = try decodeV1Field(
+            self.sidebarSurface = decodeRecoverableField(
                 SidebarSurface.self,
+                from: container,
                 forKey: .sidebarSurface,
+                schemaVersion: schemaVersion,
+                payloadName: "PersistableUIState",
                 default: .repos
             )
-            do {
-                self.editorChooserState =
-                    try container.decodeIfPresent(
-                        PersistedEditorChooserState.self,
-                        forKey: .editorChooserState
-                    ) ?? .init()
-            } catch {
-                self.editorChooserState = .init()
-            }
+            self.editorChooserState = decodeRecoverableField(
+                PersistedEditorChooserState.self,
+                from: container,
+                forKey: .editorChooserState,
+                schemaVersion: schemaVersion,
+                payloadName: "PersistableUIState",
+                default: .init()
+            )
         }
 
     }
@@ -299,15 +401,43 @@ struct WorkspacePersistor {
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
-            self.workspaceId = try container.decode(UUID.self, forKey: .workspaceId)
+            let schemaVersion =
+                (try? container.decode(Int.self, forKey: .schemaVersion))
+                ?? WorkspacePersistor.currentSchemaVersion
 
-            self.expandedGroups =
-                (try? container.decodeIfPresent(Set<String>.self, forKey: .expandedGroups)) ?? []
-            self.checkoutColors =
-                (try? container.decodeIfPresent([String: String].self, forKey: .checkoutColors)) ?? [:]
-            self.collapsedInboxGroups =
-                (try? container.decodeIfPresent(Set<String>.self, forKey: .collapsedInboxGroups)) ?? []
+            self.schemaVersion = schemaVersion
+            self.workspaceId = decodeRecoverableField(
+                UUID.self,
+                from: container,
+                forKey: .workspaceId,
+                schemaVersion: schemaVersion,
+                payloadName: "PersistableSidebarCache",
+                default: UUID()
+            )
+            self.expandedGroups = decodeRecoverableField(
+                Set<String>.self,
+                from: container,
+                forKey: .expandedGroups,
+                schemaVersion: schemaVersion,
+                payloadName: "PersistableSidebarCache",
+                default: []
+            )
+            self.checkoutColors = decodeRecoverableField(
+                [String: String].self,
+                from: container,
+                forKey: .checkoutColors,
+                schemaVersion: schemaVersion,
+                payloadName: "PersistableSidebarCache",
+                default: [:]
+            )
+            self.collapsedInboxGroups = decodeRecoverableField(
+                Set<String>.self,
+                from: container,
+                forKey: .collapsedInboxGroups,
+                schemaVersion: schemaVersion,
+                payloadName: "PersistableSidebarCache",
+                default: []
+            )
         }
     }
 

@@ -78,6 +78,7 @@ Persistent inbox notifications
   bellRang, gated by prefs
   commandFinished, gated by unattended + duration
   progress error, gated and deduped
+  secureInputChanged(true), gated by unattended + edge-deduped
   renderer unhealthy edge, gated and deduped
 
 Runtime/activity state only
@@ -87,7 +88,7 @@ Runtime/activity state only
   cwdChanged
   titleChanged / tabTitleChanged
   readOnlyChanged
-  secureInputChanged
+  secureInputChanged(false)
   openURLRequested
 
 Existing filesystem/git pipeline
@@ -127,6 +128,31 @@ Tests/AgentStudioTests/Features/InboxNotification/Routing/
 docs/wip/
   luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-23.md
 ```
+
+## 2026-04-24 Scope Note
+
+The code path for terminal secure-input requests now routes `secureInputChanged(true)` to the inbox as an edge-triggered notification. Non-error progress, CWD, URL requests, and scrollbar/output totals are tracked as runtime/activity state. Raw terminal file-link extraction and richer semantic output parsing remain in the separate follow-up plan:
+
+`docs/superpowers/plans/2026-04-24-terminal-output-file-link-tracking-followup.md`
+
+The live OSC smoke remains a manual/native verification task until Peekaboo evidence is appended to the smoke WIP document.
+
+## Current PR Boundary
+
+Included in this PR:
+
+- Terminal secure-input request notification routing.
+- Terminal progress-error and renderer-unhealthy notification routing.
+- Terminal activity state for non-error progress, CWD, URL requests, secure-input state, and scrollbar-derived output bursts.
+- Headless router/activity tests proving those event paths.
+
+Not included in this PR:
+
+- Raw terminal output text parsing.
+- Claude/Codex file-link extraction from printed output.
+- Structured agent status/update pipelines beyond the Ghostty facts already exposed.
+- Approval/security product emitters; receive-side inbox routing remains ready, but those source systems are separate work.
+- Live OSC visual smoke evidence; the code path is covered headlessly, while native UI proof still needs the manual Peekaboo-backed smoke.
 
 ## Task A1: Audit Ghostty action vocabulary against Agent Studio
 
@@ -366,7 +392,8 @@ titleChanged/tabTitleChanged: context, not notification
 scrollbarChanged: useful for activity/line-count heuristics, not persistent inbox
 progress set/paused/indeterminate/remove: live state, not persistent inbox
 openURLRequested: user action, not notification
-readOnly/secureInput: state badges, not inbox
+readOnly and secureInputChanged(false): state badges, not inbox
+secureInputChanged(true): persistent inbox notification, gated and edge-deduped
 filesystem filesChanged/gitSnapshotChanged/branchChanged: existing filesystem pipeline
 ```
 
@@ -492,5 +519,5 @@ Co-authored-by: Codex <noreply@openai.com>"
 
 - Spec coverage: terminal notifications, progress, renderer health, scrollback/scrollbar state, CWD/title context, filesystem/git boundary, and live OSC smoke are all represented.
 - Placeholder scan: no `TBD` or fake emitter task remains.
-- Type consistency: existing `GhosttyEvent` cases are used first; new inbox kind is only allowed for progress/renderer failures if existing kinds cannot express them clearly.
+- Type consistency: existing `GhosttyEvent` cases are used first; new inbox kinds are reserved for terminal conditions that need durable attention, such as progress error, renderer unhealthy, and secure-input requested.
 - Scope honesty: approval/security product subsystems remain separate future work. This plan handles terminal-originated Ghostty intelligence and existing filesystem/git facts only.

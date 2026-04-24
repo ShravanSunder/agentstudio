@@ -51,6 +51,7 @@ struct NotificationTests {
         let _: InboxNotificationKind = .agentDesktopNotification
         let _: InboxNotificationKind = .bellRang
         let _: InboxNotificationKind = .commandFinished
+        let _: InboxNotificationKind = .terminalSecureInputRequested
         let _: InboxNotificationKind = .agentRpc
         let _: InboxNotificationKind = .approvalRequested
         let _: InboxNotificationKind = .securityEvent

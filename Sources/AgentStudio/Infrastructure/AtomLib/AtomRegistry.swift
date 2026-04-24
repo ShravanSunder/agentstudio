@@ -10,6 +10,7 @@ final class AtomRegistry {
     let windowLifecycle: WindowLifecycleAtom
     let repoCache: RepoCacheAtom
     let sidebarCache: SidebarCacheAtom
+    let terminalActivity: TerminalActivityAtom
     let uiState: UIStateAtom
     let inboxFilterDraft: InboxFilterDraftAtom
     let managementLayer: ManagementLayerAtom
@@ -26,6 +27,7 @@ final class AtomRegistry {
         windowLifecycle: WindowLifecycleAtom = .init(),
         repoCache: RepoCacheAtom = .init(),
         sidebarCache: SidebarCacheAtom = .init(),
+        terminalActivity: TerminalActivityAtom = .init(),
         uiState: UIStateAtom = .init(),
         inboxFilterDraft: InboxFilterDraftAtom = .init(),
         managementLayer: ManagementLayerAtom = .init(),
@@ -52,6 +54,7 @@ final class AtomRegistry {
         self.windowLifecycle = windowLifecycle
         self.repoCache = repoCache
         self.sidebarCache = sidebarCache
+        self.terminalActivity = terminalActivity
         self.uiState = uiState
         self.inboxFilterDraft = inboxFilterDraft
         self.managementLayer = managementLayer
