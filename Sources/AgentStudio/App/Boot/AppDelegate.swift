@@ -619,8 +619,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         fileMenu.addItem(NSMenuItem.separator())
         fileMenu.addItem(menuItem(command: .closeTab, action: #selector(closeTab)))
         fileMenu.addItem(menuItem(command: .closeWindow, action: #selector(closeWindow)))
-        fileMenu.addItem(NSMenuItem.separator())
-        fileMenu.addItem(menuItem(command: .addFolder, action: #selector(addFolder)))
 
         let fileMenuItem = NSMenuItem()
         fileMenuItem.submenu = fileMenu
@@ -767,13 +765,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         NSApp.keyWindow?.close()
     }
 
-    @objc private func addFolder() {
-        CommandDispatcher.shared.dispatch(.addFolder)
-    }
-
     // MARK: - Repo/Folder Intake
 
-    private func handleAddFolderRequested(startingAt initialURL: URL? = nil) async {
+    private func handleWatchFolderRequested(startingAt initialURL: URL? = nil) async {
         let welcome = atomStore.welcome
         welcome.beginChoosingFolder()
         defer { welcome.endChoosingFolder() }
@@ -907,7 +901,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 extension AppDelegate: ShellCommandHandling {
     func canExecute(_ command: AppCommand) -> Bool {
         switch command {
-        case .addFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle,
+        case .watchFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle,
             .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
             true
@@ -917,8 +911,8 @@ extension AppDelegate: ShellCommandHandling {
 
     func execute(_ command: AppCommand) -> Bool {
         switch command {
-        case .addFolder:
-            Task { await handleAddFolderRequested() }
+        case .watchFolder:
+            Task { await handleWatchFolderRequested() }
             return true
         case .toggleSidebar:
             mainWindowController?.toggleSidebar()

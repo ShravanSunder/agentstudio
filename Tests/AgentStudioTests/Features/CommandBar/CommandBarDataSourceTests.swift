@@ -158,7 +158,7 @@ struct CommandBarDataSourceTests {
         #expect(!ids.contains("cmd-renameArrangement"))
         #expect(!ids.contains("cmd-saveArrangement"))
         #expect(ids.contains("cmd-newTab"))
-        #expect(ids.contains("cmd-addFolder"))
+        #expect(ids.contains("cmd-watchFolder"))
         #expect(!ids.contains("cmd-addRepo"))
     }
 
@@ -857,7 +857,7 @@ struct CommandBarDataSourceTests {
         // Main worktree should rely on icon/subtitle rather than title decoration
         let mainItem = items.first { $0.title.contains("main") }
         #expect(mainItem?.title == "main")
-        #expect(mainItem?.icon == "star.fill")
+        #expect(mainItem?.icon == .system(.starFill))
         #expect(mainItem?.subtitle == "main worktree")
 
     }

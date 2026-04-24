@@ -118,4 +118,115 @@ struct UIStateStoreTests {
 
         #expect(atom.showMinimizedBars)
     }
+
+    @Test
+    func editorChooserState_roundTripsThroughUIStatePersistence() throws {
+        let workspaceId = UUID()
+        let atom = UIStateAtom()
+        let store = UIStateStore(atom: atom, persistor: persistor)
+
+        atom.setBookmarkedEditor("cursor")
+        atom.setOpenEditorPane(UUID())
+
+        try store.flush(for: workspaceId)
+
+        let restoredAtom = UIStateAtom()
+        UIStateStore(atom: restoredAtom, persistor: persistor).restore(for: workspaceId)
+
+        #expect(restoredAtom.editorChooserState.bookmarkedEditorId == "cursor")
+        #expect(restoredAtom.editorChooserState.openForPaneId == nil)
+    }
+
+    @Test
+    func restore_missingEditorChooserState_defaultsToEmptyState() throws {
+        let workspaceId = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "workspaceId": "\(workspaceId.uuidString)",
+                "expandedGroups": [],
+                "checkoutColors": {},
+                "filterText": "",
+                "isFilterVisible": false,
+                "showMinimizedBars": true
+            }
+            """
+        let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
+        try Data(json.utf8).write(to: uiURL, options: .atomic)
+
+        let atom = UIStateAtom()
+        UIStateStore(atom: atom, persistor: persistor).restore(for: workspaceId)
+
+        #expect(atom.editorChooserState.bookmarkedEditorId == nil)
+        #expect(atom.editorChooserState.openForPaneId == nil)
+    }
+
+    @Test
+    func restore_persistedOpenEditorPane_isResetToNil() throws {
+        let workspaceId = UUID()
+        let persistedPaneId = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "workspaceId": "\(workspaceId.uuidString)",
+                "expandedGroups": [],
+                "checkoutColors": {},
+                "filterText": "",
+                "isFilterVisible": false,
+                "showMinimizedBars": true,
+                "editorChooserState": {
+                    "openForPaneId": "\(persistedPaneId.uuidString)",
+                    "bookmarkedEditorId": "cursor"
+                }
+            }
+            """
+        let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
+        try Data(json.utf8).write(to: uiURL, options: .atomic)
+
+        let atom = UIStateAtom()
+        UIStateStore(atom: atom, persistor: persistor).restore(for: workspaceId)
+
+        #expect(atom.editorChooserState.bookmarkedEditorId == "cursor")
+        #expect(atom.editorChooserState.openForPaneId == nil)
+    }
+
+    @Test
+    func restore_corruptEditorChooserState_preservesOtherUIState() throws {
+        let workspaceId = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "workspaceId": "\(workspaceId.uuidString)",
+                "expandedGroups": ["repo:agent-studio"],
+                "checkoutColors": {"repo:agent-studio": "#ff6600"},
+                "filterText": "terminal",
+                "isFilterVisible": true,
+                "showMinimizedBars": false,
+                "editorChooserState": "bad-value"
+            }
+            """
+        let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
+        try Data(json.utf8).write(to: uiURL, options: .atomic)
+
+        let atom = UIStateAtom()
+        UIStateStore(atom: atom, persistor: persistor).restore(for: workspaceId)
+
+        #expect(atom.expandedGroups == ["repo:agent-studio"])
+        #expect(atom.checkoutColors == ["repo:agent-studio": "#ff6600"])
+        #expect(atom.filterText == "terminal")
+        #expect(atom.isFilterVisible)
+        #expect(atom.showMinimizedBars == false)
+        #expect(atom.editorChooserState.bookmarkedEditorId == nil)
+        #expect(atom.editorChooserState.openForPaneId == nil)
+    }
+
+    @Test
+    func setBookmarkedEditor_nilClearsStoredBookmark() {
+        let atom = UIStateAtom()
+
+        atom.setBookmarkedEditor("cursor")
+        atom.setBookmarkedEditor(nil)
+
+        #expect(atom.editorChooserState.bookmarkedEditorId == nil)
+    }
 }

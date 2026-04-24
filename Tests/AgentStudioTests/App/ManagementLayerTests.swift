@@ -260,7 +260,7 @@ struct ManagementLayerTests {
             let definition = CommandDispatcher.shared.definition(for: .toggleManagementLayer)
             #expect(definition.keyBinding?.key == "r")
             #expect(definition.keyBinding?.modifiers == [.command])
-            #expect(definition.icon == "rectangle.split.2x2")
+            #expect(definition.icon == .system(.rectangleSplit2x2))
         }
     }
 
@@ -268,7 +268,7 @@ struct ManagementLayerTests {
     func test_managementLayerExit_commandDefinition() async {
         withTestAtomRegistry { _ in
             let definition = CommandDispatcher.shared.definition(for: .managementLayerExit)
-            #expect(definition.icon == "rectangle.split.2x2.fill")
+            #expect(definition.icon == .system(.rectangleSplit2x2Fill))
         }
     }
 
@@ -296,18 +296,10 @@ struct ManagementLayerTests {
         }
     }
 
-    @Test("addFolder does not require management layer")
-    func test_addFolder_doesNotRequireManagementLayer() async {
+    @Test("watchFolder does not require management layer")
+    func test_watchFolder_doesNotRequireManagementLayer() async {
         withTestAtomRegistry { _ in
-            let definition = CommandDispatcher.shared.definition(for: .addFolder)
-            #expect(definition.requiresManagementLayer == false)
-        }
-    }
-
-    @Test("addRepo does not require management layer")
-    func test_addRepo_doesNotRequireManagementLayer() async {
-        withTestAtomRegistry { _ in
-            let definition = CommandDispatcher.shared.definition(for: .addRepo)
+            let definition = CommandDispatcher.shared.definition(for: .watchFolder)
             #expect(definition.requiresManagementLayer == false)
         }
     }

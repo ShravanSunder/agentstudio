@@ -49,8 +49,11 @@ enum AppCommand: String, CaseIterable {
     case toggleDrawer
     case navigateDrawerPane
     case closeDrawerPane
+    case openPaneLocationInBookmarkedEditor
+    case openPaneLocationInFinder
+    case openPaneLocationInEditorMenu
     // Repo commands
-    case addRepo, addFolder, removeRepo
+    case watchFolder, removeRepo
     case openWorktree
     case openWorktreeInPane
     // Management layer
@@ -152,7 +155,7 @@ struct CommandSpec {
     let shortcut: AppShortcut?
     let displayShortcutTrigger: ShortcutTrigger?
     let label: String
-    let icon: String?
+    let icon: CommandIcon
     let helpText: String
     let appliesTo: Set<SearchItemType>
     let requiresManagementLayer: Bool
@@ -166,7 +169,7 @@ struct CommandSpec {
         shortcut: AppShortcut? = nil,
         displayShortcutTrigger: ShortcutTrigger? = nil,
         label: String,
-        icon: String? = nil,
+        icon: CommandIcon,
         helpText: String,
         appliesTo: Set<SearchItemType> = [],
         requiresManagementLayer: Bool = false,

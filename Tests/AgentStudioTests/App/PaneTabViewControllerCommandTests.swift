@@ -161,6 +161,123 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.arrangementInlineRenameState.draftName == "Layout 1")
     }
 
+    @Test("openPaneLocationInBookmarkedEditor without bookmark uses the implicit default order")
+    func executeOpenPaneLocationInBookmarkedEditor_withoutBookmark_usesImplicitDefaultOrder() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let parentPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        guard let drawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
+            Issue.record("Expected drawer pane creation")
+            return
+        }
+
+        harness.store.setActiveDrawerPane(drawerPane.id, in: parentPane.id)
+
+        harness.controller.execute(.openPaneLocationInBookmarkedEditor)
+        #expect(harness.launchRecorder.openedEditors.count == 1)
+        #expect(harness.launchRecorder.openedEditors.first?.id == ExternalEditorTarget.cursor.id)
+        #expect(
+            harness.launchRecorder.openedEditors.first?.path.standardizedFileURL
+                == worktree.path.standardizedFileURL
+        )
+    }
+
+    @Test("openPaneLocationInBookmarkedEditor with stale bookmark clears bookmark and uses default order")
+    func executeOpenPaneLocationInBookmarkedEditor_staleBookmark_clearsBookmarkAndUsesDefaultOrder() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let parentPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        guard let drawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
+            Issue.record("Expected drawer pane creation")
+            return
+        }
+
+        harness.store.setActiveDrawerPane(drawerPane.id, in: parentPane.id)
+        atom(\.uiState).setBookmarkedEditor("missing-editor")
+
+        harness.controller.execute(.openPaneLocationInBookmarkedEditor)
+        #expect(atom(\.uiState).editorChooserState.bookmarkedEditorId == nil)
+        #expect(harness.launchRecorder.openedEditors.count == 1)
+        #expect(harness.launchRecorder.openedEditors.first?.id == ExternalEditorTarget.cursor.id)
+        #expect(
+            harness.launchRecorder.openedEditors.first?.path.standardizedFileURL
+                == worktree.path.standardizedFileURL
+        )
+    }
+
+    @Test("openPaneLocationInEditorMenu uses the selected drawer pane for ownership")
+    func executeOpenPaneLocationInEditorMenu_usesDrawerPaneForOwnership() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let parentPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        guard let drawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
+            Issue.record("Expected drawer pane creation")
+            return
+        }
+
+        harness.store.setActiveDrawerPane(drawerPane.id, in: parentPane.id)
+
+        harness.controller.execute(.openPaneLocationInEditorMenu)
+
+        #expect(atom(\.uiState).editorChooserState.openForPaneId == drawerPane.id)
+    }
+    @Test("openPaneLocationInFinder forwards the selected pane path to Finder")
+    func executeOpenPaneLocationInFinder_revealsSelectedPanePath() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let parentPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+
+        harness.controller.execute(.openPaneLocationInFinder)
+
+        #expect(harness.launchRecorder.revealedPaths == [worktree.path])
+    }
+
+    @Test("location commands are unavailable when no pane target exists")
+    func locationCommands_withoutTargetPath_areUnavailable() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        #expect(!harness.controller.canExecute(.openPaneLocationInBookmarkedEditor))
+        #expect(!harness.controller.canExecute(.openPaneLocationInFinder))
+        #expect(!harness.controller.canExecute(.openPaneLocationInEditorMenu))
+    }
+
     @Test("targeted renameArrangement ignores the default arrangement")
     func executeRenameArrangement_defaultArrangement_isIgnored() {
         let harness = makeHarness()

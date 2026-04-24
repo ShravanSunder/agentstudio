@@ -118,8 +118,9 @@ enum AppShortcut: String, CaseIterable {
     case addDrawerPane
     case toggleDrawer
     case scrollToBottom
-    case addRepo
-    case addFolder
+    case openPaneLocationInBookmarkedEditor
+    case openPaneLocationInFinder
+    case openPaneLocationInEditorMenu
     case toggleManagementLayer
     case toggleSidebar
     case filterSidebar
@@ -187,15 +188,20 @@ enum AppShortcut: String, CaseIterable {
                 trigger: .init(key: .character(.k), modifiers: [.command, .option]),
                 contexts: [.terminalAppOwned]
             )
-        case .addRepo:
+        case .openPaneLocationInBookmarkedEditor:
+            return .init(
+                trigger: .init(key: .character(.o), modifiers: [.command]),
+                contexts: [.global, .terminalAppOwned]
+            )
+        case .openPaneLocationInFinder:
             return .init(
                 trigger: .init(key: .character(.o), modifiers: [.command, .shift]),
-                contexts: [.global]
+                contexts: [.global, .terminalAppOwned]
             )
-        case .addFolder:
+        case .openPaneLocationInEditorMenu:
             return .init(
-                trigger: .init(key: .character(.o), modifiers: [.command, .shift, .option]),
-                contexts: [.global]
+                trigger: .init(key: .character(.o), modifiers: [.command, .option]),
+                contexts: [.global, .terminalAppOwned]
             )
         case .toggleManagementLayer:
             return .init(

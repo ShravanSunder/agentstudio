@@ -1,14 +1,9 @@
 import Foundation
 
-enum ActionIconDescriptor: Equatable, Sendable {
-    case system(String)
-    case octicon(String)
-}
-
 struct ActionSpec: Equatable, Sendable {
     let label: String
     let helpText: String
-    let icon: ActionIconDescriptor?
+    let icon: CommandIcon
 }
 
 extension KeyBinding {
@@ -32,15 +27,33 @@ extension CommandSpec {
         ActionSpec(
             label: label,
             helpText: helpText,
-            icon: icon.map(ActionIconDescriptor.system)
+            icon: icon
         )
     }
 
     var controlToolTip: String {
-        if let keyBinding {
-            return "\(actionSpec.label) (\(keyBinding.displayString))"
+        controlToolTip()
+    }
+
+    func controlToolTip(
+        textOverride: String? = nil,
+        includeShortcut: Bool = true
+    ) -> String {
+        let baseText: String
+
+        if let textOverride {
+            baseText = textOverride
+        } else if keyBinding != nil {
+            baseText = actionSpec.label
+        } else {
+            baseText = actionSpec.helpText
         }
-        return actionSpec.helpText
+
+        guard includeShortcut, let keyBinding else {
+            return baseText
+        }
+
+        return "\(baseText) (\(keyBinding.displayString))"
     }
 }
 
@@ -89,7 +102,8 @@ enum LocalActionSpec {
     case add
     case rename
     case openPaneLocationInFinder
-    case openPaneLocationInPreferredEditor
+    case openPaneLocationInBookmarkedEditor
+    case openPaneLocationInEditorMenu
     case toggleDrawer(isExpanded: Bool)
     case addDrawerPane
 
@@ -97,141 +111,151 @@ enum LocalActionSpec {
         switch self {
         case .quickOpen:
             return ActionSpec(
-                label: "Quick Open", helpText: "Show the quick-open palette", icon: .system("magnifyingglass"))
+                label: "Quick Open", helpText: "Show the quick-open palette", icon: .system(.magnifyingglass))
         case .commandPalette:
             return ActionSpec(
-                label: "Command Palette", helpText: "Show the command palette", icon: .system("command"))
+                label: "Command Palette", helpText: "Show the command palette", icon: .system(.command))
         case .goToPane:
-            return ActionSpec(label: "Go to Pane", helpText: "Show the pane picker", icon: .system("terminal"))
+            return ActionSpec(label: "Go to Pane", helpText: "Show the pane picker", icon: .system(.terminal))
         case .openInMenu:
             return ActionSpec(
-                label: "Open in...", helpText: "Choose an editor to open this worktree", icon: nil)
+                label: "Open in...", helpText: "Choose an editor to open this worktree", icon: .system(.ellipsisCircle))
         case .setIconColorMenu:
-            return ActionSpec(label: "Set Icon Color", helpText: "Choose a custom sidebar color", icon: nil)
+            return ActionSpec(
+                label: "Set Icon Color", helpText: "Choose a custom sidebar color", icon: .system(.paintpaletteFill))
         case .openInNewTab:
             return ActionSpec(
-                label: "Open in New Tab", helpText: "Open this worktree in a new tab", icon: .system("plus.rectangle"))
+                label: "Open in New Tab", helpText: "Open this worktree in a new tab", icon: .system(.plusRectangle))
         case .openInPaneSplit:
             return ActionSpec(
                 label: "Open in Pane (Split)", helpText: "Open this worktree in a split pane",
-                icon: .system("rectangle.split.2x1"))
+                icon: .system(.rectangleSplit2x1))
         case .goToTerminal:
             return ActionSpec(
                 label: "Go to Terminal", helpText: "Focus the existing terminal for this worktree",
-                icon: .system("terminal"))
+                icon: .system(.terminal))
         case .openInCursor:
             return ActionSpec(
-                label: "Cursor", helpText: "Open this worktree in Cursor", icon: .octicon("octicon-code-square"))
+                label: "Cursor", helpText: "Open this worktree in Cursor", icon: .octicon(.codeSquare))
         case .openInVSCode:
             return ActionSpec(
-                label: "VS Code", helpText: "Open this worktree in VS Code", icon: .octicon("octicon-vscode"))
+                label: "VS Code", helpText: "Open this worktree in VS Code", icon: .octicon(.vscode))
         case .revealInFinder:
             return ActionSpec(
-                label: "Reveal in Finder", helpText: "Reveal this path in Finder", icon: .system("folder"))
+                label: "Reveal in Finder", helpText: "Reveal this path in Finder", icon: .system(.folder))
         case .copyPath:
             return ActionSpec(
-                label: "Copy Path", helpText: "Copy this path to the clipboard", icon: .system("doc.on.clipboard"))
+                label: "Copy Path", helpText: "Copy this path to the clipboard", icon: .system(.docOnClipboard))
         case .revealDataLocationInFinder:
             return ActionSpec(
                 label: "Reveal in Finder", helpText: "Reveal the AgentStudio data folder in Finder",
-                icon: .system("folder"))
+                icon: .system(.folder))
         case .openZellijConfig:
             return ActionSpec(
-                label: "Open Zellij Config", helpText: "Open the Zellij configuration folder", icon: .system("folder"))
+                label: "Open Zellij Config", helpText: "Open the Zellij configuration folder", icon: .system(.folder))
         case .clearFilter:
             return ActionSpec(
-                label: "Clear Filter", helpText: "Clear filter", icon: .system("xmark.circle.fill"))
+                label: "Clear Filter", helpText: "Clear filter", icon: .system(.xmarkCircleFill))
         case .refreshWorktrees:
             return ActionSpec(
-                label: "Refresh Worktrees", helpText: "Refresh watched worktrees", icon: .system("arrow.clockwise"))
+                label: "Refresh Worktrees", helpText: "Refresh watched worktrees", icon: .system(.arrowClockwise))
         case .chooseFolderToScan:
             return ActionSpec(
                 label: "Choose a Folder to Scan…", helpText: "Choose a folder to scan",
-                icon: .system("folder.fill.badge.plus"))
+                icon: .system(.folderFillBadgePlus))
         case .openAllInTabs:
             return ActionSpec(
                 label: "Open All In Tabs", helpText: "Open all recent worktrees in tabs",
-                icon: .system("rectangle.stack"))
+                icon: .system(.rectangleStack))
         case .extractPaneToNewTab:
             return ActionSpec(
                 label: "Extract Pane to New Tab", helpText: "Move the active pane into a new tab",
-                icon: .system("arrow.up.right.square"))
+                icon: .system(.arrowUpRightSquare))
         case .movePaneToTabMenu:
             return ActionSpec(
-                label: "Move Pane to Tab", helpText: "Move the active pane into another tab", icon: nil)
+                label: "Move Pane to Tab", helpText: "Move the active pane into another tab",
+                icon: .system(.filemenuAndPointerArrow))
         case .openGitHubInNewTab:
             return ActionSpec(
-                label: "Open GitHub in New Tab", helpText: "Open GitHub in a new tab", icon: .system("globe"))
+                label: "Open GitHub in New Tab", helpText: "Open GitHub in a new tab", icon: .system(.globe))
         case .arrangements:
             return ActionSpec(
-                label: "Arrangements", helpText: "Manage tab arrangements", icon: .system("rectangle.3.group"))
+                label: "Arrangements", helpText: "Manage tab arrangements", icon: .system(.rectangle3Group))
         case .saveCurrentLayoutAsArrangement:
             return ActionSpec(
                 label: "Save Current Layout as Arrangement", helpText: "Save current layout as arrangement",
-                icon: .system("plus"))
+                icon: .system(.plus))
         case .showPane:
-            return ActionSpec(label: "Show Pane", helpText: "Show pane", icon: .system("eye"))
+            return ActionSpec(label: "Show Pane", helpText: "Show pane", icon: .system(.eye))
         case .hidePane:
-            return ActionSpec(label: "Hide Pane", helpText: "Hide pane", icon: .system("eye.slash"))
+            return ActionSpec(label: "Hide Pane", helpText: "Hide pane", icon: .system(.eyeSlash))
         case .addDrawerTerminal:
             return ActionSpec(
-                label: "Add Drawer Terminal", helpText: "Add a drawer terminal", icon: .system("plus"))
+                label: "Add Drawer Terminal", helpText: "Add a drawer terminal", icon: .system(.plus))
         case .resetIconColorDefault:
-            return ActionSpec(label: "Reset to Default", helpText: "Reset the sidebar icon color", icon: nil)
+            return ActionSpec(
+                label: "Reset to Default", helpText: "Reset the sidebar icon color", icon: .system(.paintpalette))
         case .browserBack:
-            return ActionSpec(label: "Back", helpText: "Back (⌘[)", icon: .system("chevron.left"))
+            return ActionSpec(label: "Back", helpText: "Back (⌘[)", icon: .system(.chevronLeft))
         case .browserForward:
-            return ActionSpec(label: "Forward", helpText: "Forward (⌘])", icon: .system("chevron.right"))
+            return ActionSpec(label: "Forward", helpText: "Forward (⌘])", icon: .system(.chevronRight))
         case .browserStop:
-            return ActionSpec(label: "Stop Loading", helpText: "Stop loading", icon: .system("xmark"))
+            return ActionSpec(label: "Stop Loading", helpText: "Stop loading", icon: .system(.xmark))
         case .browserReload:
-            return ActionSpec(label: "Reload", helpText: "Reload (⌘R)", icon: .system("arrow.clockwise"))
+            return ActionSpec(label: "Reload", helpText: "Reload (⌘R)", icon: .system(.arrowClockwise))
         case .browserHome:
-            return ActionSpec(label: "New Tab Page", helpText: "New tab page", icon: .system("house"))
+            return ActionSpec(label: "New Tab Page", helpText: "New tab page", icon: .system(.house))
         case .browserAddFavorite:
             return ActionSpec(
-                label: "Add to Favorites", helpText: "Add to favorites (⌘D)", icon: .system("star"))
+                label: "Add to Favorites", helpText: "Add to favorites (⌘D)", icon: .system(.star))
         case .browserRemoveFavorite:
             return ActionSpec(
-                label: "Remove from Favorites", helpText: "Remove from favorites (⌘D)", icon: .system("star.fill"))
+                label: "Remove from Favorites", helpText: "Remove from favorites (⌘D)", icon: .system(.starFill))
         case .emptyTerminal:
             return ActionSpec(
-                label: "Empty Terminal", helpText: "Open a new empty terminal tab", icon: .system("terminal"))
+                label: "Empty Terminal", helpText: "Open a new empty terminal tab", icon: .system(.terminal))
         case .openRepoWorktree:
             return ActionSpec(
-                label: "Open Worktree...", helpText: "Open a discovered worktree in a tab", icon: .system("folder"))
+                label: "Open Worktree...", helpText: "Open a discovered worktree in a tab", icon: .system(.folder))
         case .renameArrangement:
-            return ActionSpec(label: "Rename...", helpText: "Rename this arrangement", icon: .system("pencil"))
+            return ActionSpec(label: "Rename...", helpText: "Rename this arrangement", icon: .system(.pencil))
         case .deleteArrangement:
-            return ActionSpec(label: "Delete", helpText: "Delete this arrangement", icon: .system("trash"))
+            return ActionSpec(label: "Delete", helpText: "Delete this arrangement", icon: .system(.trash))
         case .addFavorite:
             return ActionSpec(
-                label: "Add Favorite", helpText: "Add a saved favorite URL", icon: .system("plus"))
+                label: "Add Favorite", helpText: "Add a saved favorite URL", icon: .system(.plus))
         case .clearAllHistory:
             return ActionSpec(
-                label: "Clear All History", helpText: "Clear all saved browser history", icon: .system("trash"))
+                label: "Clear All History", helpText: "Clear all saved browser history", icon: .system(.trash))
         case .cancel:
-            return ActionSpec(label: "Cancel", helpText: "Cancel this action", icon: nil)
+            return ActionSpec(label: "Cancel", helpText: "Cancel this action", icon: .system(.xmarkCircle))
         case .add:
-            return ActionSpec(label: "Add", helpText: "Add this item", icon: nil)
+            return ActionSpec(label: "Add", helpText: "Add this item", icon: .system(.plusCircle))
         case .rename:
-            return ActionSpec(label: "Rename", helpText: "Rename this item", icon: nil)
+            return ActionSpec(label: "Rename", helpText: "Rename this item", icon: .system(.pencil))
         case .openPaneLocationInFinder:
             return ActionSpec(
                 label: "Open pane location in Finder", helpText: "Open pane location in Finder",
-                icon: .system("finder"))
-        case .openPaneLocationInPreferredEditor:
+                icon: .system(.finder))
+        case .openPaneLocationInBookmarkedEditor:
             return ActionSpec(
-                label: "Open pane location in Cursor or VS Code", helpText: "Open pane location in Cursor or VS Code",
-                icon: .octicon("octicon-code-square"))
+                label: "Open pane location in bookmarked editor",
+                helpText: "Open pane location in the bookmarked editor",
+                icon: .octicon(.codeSquare))
+        case .openPaneLocationInEditorMenu:
+            return ActionSpec(
+                label: "Open pane location in app menu",
+                helpText: "Choose an app for this pane location",
+                icon: .system(.chevronUpChevronDown)
+            )
         case .toggleDrawer(let isExpanded):
             return ActionSpec(
                 label: isExpanded ? "Collapse Drawer" : "Expand Drawer",
                 helpText: isExpanded ? "Collapse drawer" : "Expand drawer",
-                icon: .system("rectangle.bottomhalf.filled")
+                icon: .system(.rectangleBottomhalfFilled)
             )
         case .addDrawerPane:
-            return ActionSpec(label: "Add Drawer Pane", helpText: "Add drawer pane", icon: .system("plus"))
+            return ActionSpec(label: "Add Drawer Pane", helpText: "Add drawer pane", icon: .system(.plus))
         }
     }
 }

@@ -1,6 +1,11 @@
 import Foundation
 import Observation
 
+struct EditorChooserState: Equatable {
+    var openForPaneId: UUID?
+    var bookmarkedEditorId: EditorTargetId?
+}
+
 @MainActor
 @Observable
 final class UIStateAtom {
@@ -9,6 +14,8 @@ final class UIStateAtom {
     private(set) var filterText: String = ""
     private(set) var isFilterVisible: Bool = false
     private(set) var showMinimizedBars: Bool = true
+    private(set) var editorChooserState: EditorChooserState = .init()
+    private(set) var availableEditorTargets: [ExternalEditorTarget] = []
 
     func setExpandedGroups(_ groups: Set<String>) {
         expandedGroups = groups
@@ -42,18 +49,35 @@ final class UIStateAtom {
         showMinimizedBars = show
     }
 
+    func setBookmarkedEditor(_ editorId: EditorTargetId?) {
+        editorChooserState.bookmarkedEditorId = editorId
+    }
+
+    func setOpenEditorPane(_ paneId: UUID?) {
+        editorChooserState.openForPaneId = paneId
+    }
+
+    func setAvailableEditorTargets(_ targets: [ExternalEditorTarget]) {
+        availableEditorTargets = targets
+    }
+
     func hydrate(
         expandedGroups: Set<String>,
         checkoutColors: [String: String],
         filterText: String,
         isFilterVisible: Bool,
-        showMinimizedBars: Bool = true
+        showMinimizedBars: Bool = true,
+        editorChooserState: EditorChooserState = .init()
     ) {
         self.expandedGroups = expandedGroups
         self.checkoutColors = checkoutColors
         self.filterText = filterText
         self.isFilterVisible = isFilterVisible
         self.showMinimizedBars = showMinimizedBars
+        self.editorChooserState = editorChooserState
+        self.availableEditorTargets = []
+        // The open chooser belongs to the current live pane tree only, not persisted state.
+        self.editorChooserState.openForPaneId = nil
     }
 
     func clear() {
@@ -62,5 +86,7 @@ final class UIStateAtom {
         filterText = ""
         isFilterVisible = false
         showMinimizedBars = true
+        editorChooserState = .init()
+        availableEditorTargets = []
     }
 }

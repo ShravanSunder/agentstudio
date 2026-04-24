@@ -8,6 +8,12 @@ import Testing
 typealias Harness = PaneTabViewControllerCommandHarness
 
 @MainActor
+final class PaneTabViewControllerCommandLaunchRecorder {
+    var openedEditors: [(id: EditorTargetId, path: URL)] = []
+    var revealedPaths: [URL] = []
+}
+
+@MainActor
 struct PaneTabViewControllerCommandHarness {
     let store: WorkspaceStore
     let coordinator: PaneCoordinator
@@ -20,6 +26,7 @@ struct PaneTabViewControllerCommandHarness {
     let tempDir: URL
     let tabRenamePopoverState: TabRenamePopoverState
     let arrangementInlineRenameState: ArrangementInlineRenameState
+    let launchRecorder: PaneTabViewControllerCommandLaunchRecorder
 }
 
 @MainActor
@@ -50,6 +57,7 @@ func makePaneTabViewControllerCommandHarness(
     let windowLifecycleStore = WindowLifecycleAtom()
     let tabRenamePopoverState = TabRenamePopoverState()
     let arrangementInlineRenameState = ArrangementInlineRenameState()
+    let launchRecorder = PaneTabViewControllerCommandLaunchRecorder()
     let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
         appLifecycleStore: appLifecycleStore,
         windowLifecycleStore: windowLifecycleStore
@@ -71,6 +79,15 @@ func makePaneTabViewControllerCommandHarness(
         executor: executor,
         tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
         viewRegistry: viewRegistry,
+        installedEditorTargetsProvider: { [.cursor, .vscode] },
+        openEditorHandler: { editorId, path, _ in
+            launchRecorder.openedEditors.append((id: editorId, path: path))
+            return true
+        },
+        openFinderHandler: { path in
+            launchRecorder.revealedPaths.append(path)
+            return true
+        },
         closeTransitionCoordinator: closeTransitionCoordinator,
         tabRenamePopoverState: tabRenamePopoverState,
         arrangementInlineRenameState: arrangementInlineRenameState
@@ -86,7 +103,8 @@ func makePaneTabViewControllerCommandHarness(
         windowLifecycleStore: windowLifecycleStore,
         tempDir: tempDir,
         tabRenamePopoverState: tabRenamePopoverState,
-        arrangementInlineRenameState: arrangementInlineRenameState
+        arrangementInlineRenameState: arrangementInlineRenameState,
+        launchRecorder: launchRecorder
     )
 }
 

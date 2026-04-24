@@ -75,7 +75,7 @@ struct CommandBarItem: Identifiable {
     let id: String
     let title: String
     let subtitle: String?
-    let icon: String?
+    let icon: CommandIcon?
     let iconColor: Color?
     let shortcutTrigger: ShortcutTrigger?
     let shortcutKeys: [ShortcutKey]?
@@ -91,7 +91,7 @@ struct CommandBarItem: Identifiable {
         id: String,
         title: String,
         subtitle: String? = nil,
-        icon: String? = nil,
+        icon: CommandIcon? = nil,
         iconColor: Color? = nil,
         shortcutTrigger: ShortcutTrigger? = nil,
         shortcutKeys: [ShortcutKey]? = nil,
