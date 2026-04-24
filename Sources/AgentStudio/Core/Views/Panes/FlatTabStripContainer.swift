@@ -20,6 +20,10 @@ struct FlatTabStripContainer: View {
     @State private var iconBarFrame: CGRect = .zero
     @State private var dropTarget: PaneDropTarget?
     @State private var dropTargetWatchdogTask: Task<Void, Never>?
+    @State private var drawerPaneFramesInDrawer: [UUID: CGRect] = [:]
+    @State private var drawerPanelFrameInTab: CGRect = .zero
+    @State private var drawerDropTarget: DrawerRearrangeTarget?
+    @State private var drawerDropTargetWatchdogTask: Task<Void, Never>?
     private var managementLayer: ManagementLayerAtom {
         atom(\.managementLayer)
     }
@@ -45,6 +49,15 @@ struct FlatTabStripContainer: View {
             let containerBounds = CGRect(origin: .zero, size: tabGeometry.size)
             let showMinimizedBars = managementLayer.isActive || atom(\.uiState).showMinimizedBars
             let effectiveCollapsedWidth: CGFloat = showMinimizedBars ? CollapsedPaneBar.barWidth : 0
+            let expandedDrawerParentPaneId = DrawerDragOwnershipPolicy.expandedDrawerParentPaneId(
+                tabId: tabId,
+                tabLayoutAtom: store.tabLayoutAtom,
+                paneAtom: store.paneAtom
+            )
+            let mainSplitDragCaptureEnabled = DrawerDragOwnershipPolicy.mainSplitDragEnabled(
+                managementLayerActive: managementLayer.isActive,
+                expandedDrawerParentPaneId: expandedDrawerParentPaneId
+            )
             let metrics = FlatTabStripMetrics.compute(
                 layout: layout,
                 in: containerBounds,
@@ -122,10 +135,11 @@ struct FlatTabStripContainer: View {
                     iconBarFrame: iconBarFrame,
                     actionDispatcher: actionDispatcher,
                     onPaneFocusTrigger: onPaneFocusTrigger,
-                    onOpenPaneGitHub: onOpenPaneGitHub
+                    onOpenPaneGitHub: onOpenPaneGitHub,
+                    drawerDropTarget: drawerDropTarget
                 )
 
-                if managementLayer.isActive {
+                if managementLayer.isActive && mainSplitDragCaptureEnabled {
                     PaneDropTargetOverlay(
                         target: dropTarget,
                         targetRects: PaneDragCoordinator.targetRects(
@@ -142,20 +156,26 @@ struct FlatTabStripContainer: View {
                     containerBounds: containerBounds,
                     minimizedPaneIds: minimizedPaneIds,
                     target: $dropTarget,
-                    isManagementLayerActive: managementLayer.isActive,
+                    isManagementLayerActive: managementLayer.isActive && mainSplitDragCaptureEnabled,
                     actionDispatcher: actionDispatcher
                 )
+
+                tabLevelDrawerCapture(expandedDrawerParentPaneId: expandedDrawerParentPaneId)
             }
             .onPreferenceChange(PaneFramePreferenceKey.self) { paneFrames = $0 }
             .onPreferenceChange(DrawerIconBarFrameKey.self) { iconBarFrame = $0 }
+            .onPreferenceChange(DrawerPaneFramePreferenceKey.self) { drawerPaneFramesInDrawer = $0 }
+            .onPreferenceChange(DrawerPanelFrameInTabKey.self) { drawerPanelFrameInTab = $0 }
             .onChange(of: managementLayer.isActive) { _, isActive in
                 if !isActive {
                     dropTarget = nil
+                    drawerDropTarget = nil
                 }
             }
             .onChange(of: appLifecycleStore.isActive) { _, isActive in
                 if !isActive {
                     dropTarget = nil
+                    drawerDropTarget = nil
                 }
             }
             .onChange(of: dropTarget) { _, target in
@@ -165,13 +185,64 @@ struct FlatTabStripContainer: View {
                     startDropTargetWatchdog()
                 }
             }
+            .onChange(of: drawerDropTarget) { _, target in
+                if target == nil {
+                    stopDrawerDropTargetWatchdog()
+                } else {
+                    startDrawerDropTargetWatchdog()
+                }
+            }
             .onDisappear {
                 stopDropTargetWatchdog()
+                stopDrawerDropTargetWatchdog()
             }
         }
         .animation(.easeOut(duration: AppStyles.General.Animation.standard), value: atom(\.uiState).showMinimizedBars)
         .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: managementLayer.isActive)
         .coordinateSpace(name: "tabContainer")
+    }
+
+    @ViewBuilder
+    private func tabLevelDrawerCapture(expandedDrawerParentPaneId: UUID?) -> some View {
+        if DrawerDragOwnershipPolicy.drawerCaptureEnabled(
+            managementLayerActive: managementLayer.isActive,
+            expandedDrawerParentPaneId: expandedDrawerParentPaneId,
+            drawerPanelFrameInTab: drawerPanelFrameInTab
+        ),
+            let expandedDrawerPaneId = expandedDrawerParentPaneId,
+            let expandedDrawer = store.paneAtom.pane(expandedDrawerPaneId)?.drawer
+        {
+            let drawerBounds = CGRect(origin: .zero, size: drawerPanelFrameInTab.size)
+            DrawerSplitContainerDropCaptureOverlay(
+                paneFrames: drawerPaneFramesInDrawer,
+                layout: expandedDrawer.layout,
+                minimizedPaneIds: expandedDrawer.minimizedPaneIds,
+                containerBounds: drawerBounds,
+                target: $drawerDropTarget,
+                isManagementLayerActive: true,
+                shouldAcceptDrop: { payload, target, sizingMode in
+                    DrawerDropDispatch.shouldAcceptDrop(
+                        payload: payload,
+                        target: target,
+                        sizingMode: sizingMode,
+                        parentPaneId: expandedDrawerPaneId,
+                        store: store
+                    )
+                },
+                handleDrop: { payload, target, sizingMode in
+                    DrawerDropDispatch.handleDrop(
+                        payload: payload,
+                        target: target,
+                        sizingMode: sizingMode,
+                        parentPaneId: expandedDrawerPaneId,
+                        actionDispatcher: actionDispatcher,
+                        store: store
+                    )
+                }
+            )
+            .frame(width: drawerPanelFrameInTab.width, height: drawerPanelFrameInTab.height)
+            .position(x: drawerPanelFrameInTab.midX, y: drawerPanelFrameInTab.midY)
+        }
     }
 
     func zoomedPaneLeafContainer() -> PaneLeafContainer? {
@@ -215,5 +286,28 @@ struct FlatTabStripContainer: View {
     private func stopDropTargetWatchdog() {
         dropTargetWatchdogTask?.cancel()
         dropTargetWatchdogTask = nil
+    }
+
+    private func startDrawerDropTargetWatchdog() {
+        stopDrawerDropTargetWatchdog()
+
+        drawerDropTargetWatchdogTask = Task { @MainActor in
+            while !Task.isCancelled {
+                if DropTargetLatchState.shouldClearTarget(
+                    appIsActive: appLifecycleStore.isActive,
+                    pressedMouseButtons: NSEvent.pressedMouseButtons
+                ) {
+                    drawerDropTarget = nil
+                    return
+                }
+
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+        }
+    }
+
+    private func stopDrawerDropTargetWatchdog() {
+        drawerDropTargetWatchdogTask?.cancel()
+        drawerDropTargetWatchdogTask = nil
     }
 }

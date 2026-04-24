@@ -4,11 +4,12 @@ import SwiftUI
 struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
     let paneFrames: [UUID: CGRect]
     let layout: DrawerGridLayout
+    let minimizedPaneIds: Set<UUID>
     let containerBounds: CGRect
     @Binding var target: DrawerRearrangeTarget?
     let isManagementLayerActive: Bool
-    let shouldAcceptDrop: (SplitDropPayload, DrawerRearrangeTarget) -> Bool
-    let handleDrop: (SplitDropPayload, DrawerRearrangeTarget) -> Void
+    let shouldAcceptDrop: (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Bool
+    let handleDrop: (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -29,6 +30,7 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
         context.coordinator.updateLayout(
             paneFrames: paneFrames,
             layout: layout,
+            minimizedPaneIds: minimizedPaneIds,
             containerBounds: containerBounds,
             isManagementLayerActive: isManagementLayerActive
         )
@@ -46,6 +48,7 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
         context.coordinator.updateLayout(
             paneFrames: paneFrames,
             layout: layout,
+            minimizedPaneIds: minimizedPaneIds,
             containerBounds: containerBounds,
             isManagementLayerActive: isManagementLayerActive
         )
@@ -58,18 +61,19 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
     @MainActor
     final class Coordinator {
         private var targetBinding: Binding<DrawerRearrangeTarget?>
-        private var shouldAcceptDropClosure: (SplitDropPayload, DrawerRearrangeTarget) -> Bool
-        private var handleDropClosure: (SplitDropPayload, DrawerRearrangeTarget) -> Void
+        private var shouldAcceptDropClosure: (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Bool
+        private var handleDropClosure: (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Void
 
         private(set) var paneFrames: [UUID: CGRect] = [:]
         private(set) var layout = DrawerGridLayout()
+        private(set) var minimizedPaneIds: Set<UUID> = []
         private(set) var containerBounds: CGRect = .zero
         private(set) var isManagementLayerActive: Bool = false
 
         init(
             targetBinding: Binding<DrawerRearrangeTarget?>,
-            shouldAcceptDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget) -> Bool,
-            handleDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget) -> Void
+            shouldAcceptDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Bool,
+            handleDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Void
         ) {
             self.targetBinding = targetBinding
             self.shouldAcceptDropClosure = shouldAcceptDrop
@@ -78,8 +82,8 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
 
         func updateHandlers(
             targetBinding: Binding<DrawerRearrangeTarget?>,
-            shouldAcceptDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget) -> Bool,
-            handleDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget) -> Void
+            shouldAcceptDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Bool,
+            handleDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Void
         ) {
             self.targetBinding = targetBinding
             self.shouldAcceptDropClosure = shouldAcceptDrop
@@ -89,11 +93,13 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
         func updateLayout(
             paneFrames: [UUID: CGRect],
             layout: DrawerGridLayout,
+            minimizedPaneIds: Set<UUID>,
             containerBounds: CGRect,
             isManagementLayerActive: Bool
         ) {
             self.paneFrames = paneFrames
             self.layout = layout
+            self.minimizedPaneIds = minimizedPaneIds
             self.containerBounds = containerBounds
             self.isManagementLayerActive = isManagementLayerActive
         }
@@ -124,12 +130,17 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
 
             let target = DrawerPaneDragCoordinator.resolveLatchedTarget(
                 location: location,
-                paneFrames: paneFrames,
-                layout: layout,
-                containerBounds: containerBounds,
+                geometry: drawerPaneDragGeometry,
                 currentTarget: targetBinding.wrappedValue,
                 shouldAcceptDrop: { target in
-                    shouldAcceptDropClosure(payload, target)
+                    shouldAcceptDropClosure(
+                        payload,
+                        target,
+                        DrawerPaneDragCoordinator.sizingMode(
+                            for: target,
+                            isShiftHeld: NSEvent.modifierFlags.contains(.shift)
+                        )
+                    )
                 }
             )
             RestoreTrace.log(
@@ -149,11 +160,16 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
             guard
                 let resolvedTarget = DrawerPaneDragCoordinator.resolveTarget(
                     location: location,
-                    paneFrames: paneFrames,
-                    layout: layout,
-                    containerBounds: containerBounds
+                    geometry: drawerPaneDragGeometry
                 ),
-                shouldAcceptDropClosure(payload, resolvedTarget)
+                shouldAcceptDropClosure(
+                    payload,
+                    resolvedTarget,
+                    DrawerPaneDragCoordinator.sizingMode(
+                        for: resolvedTarget,
+                        isShiftHeld: NSEvent.modifierFlags.contains(.shift)
+                    )
+                )
             else {
                 RestoreTrace.log(
                     "DrawerSplit.performDrop rejected location=\(NSStringFromPoint(location)) payload=\(String(describing: payload))"
@@ -164,8 +180,24 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
             RestoreTrace.log(
                 "DrawerSplit.performDrop target=\(String(describing: resolvedTarget)) location=\(NSStringFromPoint(location))"
             )
-            handleDropClosure(payload, resolvedTarget)
+            handleDropClosure(
+                payload,
+                resolvedTarget,
+                DrawerPaneDragCoordinator.sizingMode(
+                    for: resolvedTarget,
+                    isShiftHeld: NSEvent.modifierFlags.contains(.shift)
+                )
+            )
             return true
+        }
+
+        private var drawerPaneDragGeometry: DrawerPaneDragGeometry {
+            DrawerPaneDragGeometry(
+                paneFrames: paneFrames,
+                layout: layout,
+                containerBounds: containerBounds,
+                minimizedPaneIds: minimizedPaneIds
+            )
         }
     }
 }

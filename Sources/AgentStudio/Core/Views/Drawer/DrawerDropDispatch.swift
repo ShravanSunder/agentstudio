@@ -12,6 +12,7 @@ enum DrawerDropDispatch {
     static func shouldAcceptDrop(
         payload: SplitDropPayload,
         target: DrawerRearrangeTarget,
+        sizingMode: DropSizingMode,
         parentPaneId: UUID,
         store: WorkspaceStore
     ) -> Bool {
@@ -31,7 +32,7 @@ enum DrawerDropDispatch {
             parentPaneId: parentPaneId,
             drawerPaneId: sourcePaneId,
             target: target,
-            sizingMode: .proportional
+            sizingMode: sizingMode
         )
         let validation = WorkspaceCommandValidator.validate(moveAction, state: snapshot)
         RestoreTrace.log(
@@ -46,6 +47,7 @@ enum DrawerDropDispatch {
     static func handleDrop(
         payload: SplitDropPayload,
         target: DrawerRearrangeTarget,
+        sizingMode: DropSizingMode,
         parentPaneId: UUID,
         actionDispatcher: PaneActionDispatching,
         store: WorkspaceStore
@@ -59,7 +61,7 @@ enum DrawerDropDispatch {
                 parentPaneId: parentPaneId,
                 drawerPaneId: sourcePaneId,
                 target: target,
-                sizingMode: .proportional
+                sizingMode: sizingMode
             )
         )
     }

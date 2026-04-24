@@ -6,7 +6,7 @@ enum RowID: Hashable, Sendable {
     case drawerBottom
 }
 
-enum DropZoneSide: String, Hashable, Sendable, CaseIterable {
+enum DropZoneSide: String, Codable, Hashable, Sendable, CaseIterable {
     case left
     case right
 }

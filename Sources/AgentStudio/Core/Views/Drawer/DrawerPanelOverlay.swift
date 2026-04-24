@@ -14,11 +14,9 @@ final class DrawerDismissMonitor {
     /// Icon bar bounding rect in global (flipped window) coordinates.
     var iconBarRect: CGRect = .zero
 
-    private let onDismiss: () -> Void
+    var onDismiss: () -> Void = {}
 
-    init(onDismiss: @escaping () -> Void) {
-        self.onDismiss = onDismiss
-    }
+    init() {}
 
     func install() {
         guard monitor == nil else { return }
@@ -58,6 +56,29 @@ final class DrawerDismissMonitor {
     }
 }
 
+// MARK: - Preference Key for Drawer Panel Global Frame
+
+/// Reports the drawer panel's frame in the global coordinate space for outside-click dismissal.
+struct DrawerPanelGlobalFrameKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
+
+// MARK: - Preference Key for Drawer Panel Frame in Tab Space
+
+/// Reports the drawer panel frame in the `"tabContainer"` coordinate space.
+/// FlatTabStripContainer uses this to mount drawer drag capture at tab level.
+struct DrawerPanelFrameInTabKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero { value = next }
+    }
+}
+
 // MARK: - Preference Key for Icon Bar Frame
 
 /// Reports the icon bar's frame in the global coordinate space.
@@ -67,22 +88,6 @@ struct DrawerIconBarFrameKey: PreferenceKey {
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
         let next = nextValue()
         if next != .zero { value = next }
-    }
-}
-
-// MARK: - Outside Dismiss Shape
-
-/// Hit-testing shape that covers the full tab area EXCEPT a rectangular exclusion zone.
-/// Used with `eoFill: true` so the exclusion rect becomes a "hole" — clicks inside
-/// the hole never reach the scrim's tap gesture, preventing accidental dismiss.
-private struct OutsideDismissShape: Shape {
-    let exclusionRect: CGRect
-
-    func path(in rect: CGRect) -> Path {
-        var p = Path()
-        p.addRect(rect)  // full tab area
-        p.addRect(exclusionRect)  // hole: drawer + icon bar area
-        return p
     }
 }
 
@@ -107,8 +112,11 @@ struct DrawerPanelOverlay: View {
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let onOpenPaneGitHub: (UUID) -> Void
+    let drawerDropTarget: DrawerRearrangeTarget?
 
     @AppStorage("drawerHeightRatio") private var heightRatio: Double = DrawerLayout.heightRatioMax
+    @State private var dismissMonitor = DrawerDismissMonitor()
+    @State private var drawerPanelGlobalFrame: CGRect = .zero
 
     /// Find the pane whose drawer is currently expanded.
     /// Invariant: only one drawer can be expanded at a time (toggle behavior).
@@ -167,76 +175,82 @@ struct DrawerPanelOverlay: View {
             )
             let panelFraction = panelHeight / totalHeight
 
-            // Exclusion rect: bounding box covering panel + connector + icon bar.
-            // Union of panel rect and pane's icon bar strip so the entire drawer
-            // area is excluded from dismiss hit-testing.
-            let exclusionLeft = min(centerX - panelWidth / 2, info.frame.minX)
-            let exclusionRight = max(centerX + panelWidth / 2, info.frame.maxX)
-            let exclusionTop = centerY - totalHeight / 2
-            let exclusionBottom = info.frame.maxY
-            let exclusionRect = CGRect(
-                x: exclusionLeft,
-                y: exclusionTop,
-                width: exclusionRight - exclusionLeft,
-                height: exclusionBottom - exclusionTop
-            )
-
-            // Dismiss scrim with even-odd fill: the exclusion rect is a "hole"
-            // so clicks inside the drawer area never reach this tap gesture.
-            Color.black.opacity(0.001)
-                .contentShape(
-                    .interaction,
-                    OutsideDismissShape(exclusionRect: exclusionRect),
-                    eoFill: true
+            let paneId = info.paneId
+            VStack(spacing: 0) {
+                DrawerPanel(
+                    layout: info.drawer.layout,
+                    parentPaneId: paneId,
+                    tabId: tabId,
+                    activePaneId: info.drawer.activePaneId,
+                    minimizedPaneIds: info.drawer.minimizedPaneIds,
+                    closeTransitionCoordinator: closeTransitionCoordinator,
+                    height: panelHeight,
+                    store: store,
+                    repoCache: repoCache,
+                    viewRegistry: viewRegistry,
+                    action: actionDispatcher.dispatch,
+                    onResize: { delta in
+                        let newRatio = min(
+                            DrawerLayout.heightRatioMax,
+                            max(DrawerLayout.heightRatioMin, heightRatio + Double(delta / tabSize.height)))
+                        heightRatio = newRatio
+                    },
+                    onDismiss: {
+                        actionDispatcher.dispatch(.toggleDrawer(paneId: paneId))
+                        onPaneFocusTrigger(.drawer(.toggle(parentPaneId: paneId)))
+                    },
+                    onPaneFocusTrigger: onPaneFocusTrigger,
+                    appLifecycleStore: appLifecycleStore,
+                    onOpenPaneGitHub: onOpenPaneGitHub,
+                    dropTarget: drawerDropTarget
                 )
-                .onTapGesture {
-                    actionDispatcher.dispatch(.toggleDrawer(paneId: info.paneId))
-                    onPaneFocusTrigger(.drawer(.toggle(parentPaneId: info.paneId)))
-                }
-                .overlay {
-                    VStack(spacing: 0) {
-                        DrawerPanel(
-                            layout: info.drawer.layout,
-                            parentPaneId: info.paneId,
-                            tabId: tabId,
-                            activePaneId: info.drawer.activePaneId,
-                            minimizedPaneIds: info.drawer.minimizedPaneIds,
-                            closeTransitionCoordinator: closeTransitionCoordinator,
-                            height: panelHeight,
-                            store: store,
-                            repoCache: repoCache,
-                            viewRegistry: viewRegistry,
-                            action: actionDispatcher.dispatch,
-                            onResize: { delta in
-                                let newRatio = min(
-                                    DrawerLayout.heightRatioMax,
-                                    max(DrawerLayout.heightRatioMin, heightRatio + Double(delta / tabSize.height)))
-                                heightRatio = newRatio
-                            },
-                            onDismiss: {
-                                actionDispatcher.dispatch(.toggleDrawer(paneId: info.paneId))
-                                onPaneFocusTrigger(.drawer(.toggle(parentPaneId: info.paneId)))
-                            },
-                            onPaneFocusTrigger: onPaneFocusTrigger,
-                            appLifecycleStore: appLifecycleStore,
-                            onOpenPaneGitHub: onOpenPaneGitHub
-                        )
-                        .id(info.paneId)
-                        .frame(width: panelWidth)
+                .id(paneId)
+                .frame(width: panelWidth)
 
-                        // Connector space (visual bridge from panel to icon bar)
-                        Color.clear
-                            .frame(width: panelWidth, height: connectorHeight)
-                    }
-                    .clipShape(outlineShape)
-                    .modifier(DrawerMaterialModifier(shape: outlineShape, panelFraction: panelFraction))
-                    .contentShape(outlineShape)
-                    // Layered shadow — tight contact + soft ambient
-                    .shadow(color: .black.opacity(AppStyles.General.Stroke.muted), radius: 4, y: 2)
-                    .shadow(color: .black.opacity(AppStyles.General.Stroke.hover), radius: 16, y: 8)
-                    .allowsHitTesting(true)
-                    .position(x: centerX, y: centerY)
+                // Connector space (visual bridge from panel to icon bar)
+                Color.clear
+                    .frame(width: panelWidth, height: connectorHeight)
+            }
+            .clipShape(outlineShape)
+            .modifier(DrawerMaterialModifier(shape: outlineShape, panelFraction: panelFraction))
+            .contentShape(outlineShape)
+            .shadow(color: .black.opacity(AppStyles.General.Stroke.muted), radius: 4, y: 2)
+            .shadow(color: .black.opacity(AppStyles.General.Stroke.hover), radius: 16, y: 8)
+            .background(
+                GeometryReader { geometry in
+                    Color.clear
+                        .preference(
+                            key: DrawerPanelGlobalFrameKey.self,
+                            value: geometry.frame(in: .global)
+                        )
                 }
+            )
+            .position(x: centerX, y: centerY)
+            .onPreferenceChange(DrawerPanelGlobalFrameKey.self) { drawerPanelGlobalFrame = $0 }
+            .onAppear {
+                dismissMonitor.onDismiss = {
+                    actionDispatcher.dispatch(.toggleDrawer(paneId: paneId))
+                    onPaneFocusTrigger(.drawer(.toggle(parentPaneId: paneId)))
+                }
+                dismissMonitor.drawerRect = drawerPanelGlobalFrame
+                dismissMonitor.iconBarRect = iconBarFrame
+                dismissMonitor.install()
+            }
+            .onDisappear {
+                dismissMonitor.remove()
+            }
+            .task(id: paneId) {
+                dismissMonitor.onDismiss = {
+                    actionDispatcher.dispatch(.toggleDrawer(paneId: paneId))
+                    onPaneFocusTrigger(.drawer(.toggle(parentPaneId: paneId)))
+                }
+            }
+            .onChange(of: drawerPanelGlobalFrame) { _, frame in
+                dismissMonitor.drawerRect = frame
+            }
+            .onChange(of: iconBarFrame) { _, frame in
+                dismissMonitor.iconBarRect = frame
+            }
         }
     }
 

@@ -17,22 +17,22 @@ struct DropTargetConfigTests {
     }
 
     @Test
-    func drawerSingleRow_rejectsPaneSplit_hasNewRowBand() {
+    func drawerSingleRow_allowsPaneSplit_hasNewRowBand() {
         let config = DropTargetConfig.drawerSingleRow
 
         #expect(config.rows == [.drawerTop])
         #expect(config.newRowBand?.bandHeight == 28)
         #expect(config.edgeCorridorWidth == 0)
-        #expect(!config.allowsPaneSplit)
+        #expect(config.allowsPaneSplit)
     }
 
     @Test
-    func drawerTwoRow_rejectsPaneSplit_noNewRowBand() {
+    func drawerTwoRow_allowsPaneSplit_noNewRowBand() {
         let config = DropTargetConfig.drawerTwoRow
 
         #expect(config.rows == [.drawerTop, .drawerBottom])
         #expect(config.newRowBand == nil)
         #expect(config.edgeCorridorWidth == 0)
-        #expect(!config.allowsPaneSplit)
+        #expect(config.allowsPaneSplit)
     }
 }

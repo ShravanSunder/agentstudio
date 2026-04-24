@@ -34,13 +34,13 @@ struct DropTargetConfig: Hashable, Sendable {
         rows: [.drawerTop],
         newRowBand: .init(bandHeight: 28),
         edgeCorridorWidth: 0,
-        allowsPaneSplit: false
+        allowsPaneSplit: true
     )
 
     static let drawerTwoRow = Self(
         rows: [.drawerTop, .drawerBottom],
         newRowBand: nil,
         edgeCorridorWidth: 0,
-        allowsPaneSplit: false
+        allowsPaneSplit: true
     )
 }

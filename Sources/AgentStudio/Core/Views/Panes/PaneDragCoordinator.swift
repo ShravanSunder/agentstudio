@@ -99,41 +99,14 @@ struct PaneDragCoordinator {
             rows: [.main: sortedPaneIds],
             paneFrames: paneFrames,
             containerBounds: containerBounds,
-            config: .main
+            config: .main,
+            splittablePanes: splittablePaneIds
         )
 
-        var rects: [PaneDropTarget: CGRect] = sharedRects.reduce(into: [:]) { translatedRects, entry in
+        return sharedRects.reduce(into: [:]) { translatedRects, entry in
             guard let paneTarget = paneTarget(from: entry.key, sortedPaneIds: sortedPaneIds) else { return }
             translatedRects[paneTarget] = entry.value
         }
-
-        for paneId in splittablePaneIds {
-            guard let paneFrame = paneFrames[paneId] else { continue }
-            rects[
-                PaneDropTarget(
-                    paneId: paneId,
-                    zone: .left,
-                    sizingTarget: .paneSplit(paneId: paneId, side: .left)
-                )] = CGRect(
-                    x: paneFrame.minX,
-                    y: paneFrame.minY,
-                    width: paneFrame.width / 2,
-                    height: paneFrame.height
-                )
-            rects[
-                PaneDropTarget(
-                    paneId: paneId,
-                    zone: .right,
-                    sizingTarget: .paneSplit(paneId: paneId, side: .right)
-                )] = CGRect(
-                    x: paneFrame.midX,
-                    y: paneFrame.minY,
-                    width: paneFrame.width / 2,
-                    height: paneFrame.height
-                )
-        }
-
-        return rects
     }
 
     private static func sortedPaneIds(from paneFrames: [UUID: CGRect]) -> [UUID] {

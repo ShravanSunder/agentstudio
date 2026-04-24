@@ -18,13 +18,67 @@ struct DrawerPaneDragCoordinatorTests {
         ]
 
         let target = DrawerPaneDragCoordinator.resolveTarget(
-            location: CGPoint(x: 160, y: 80),
-            paneFrames: frames,
-            layout: DrawerGridLayout(topRow: Layout.autoTiled([a, b, c])),
-            containerBounds: CGRect(x: 0, y: 0, width: 320, height: 140)
+            location: CGPoint(x: 105, y: 80),
+            geometry: geometry(
+                paneFrames: frames,
+                layout: DrawerGridLayout(topRow: Layout.autoTiled([a, b, c])),
+                bounds: CGRect(x: 0, y: 0, width: 320, height: 140)
+            )
         )
 
         #expect(target == .rowSlot(row: .top, insertionIndex: 1))
+    }
+
+    @Test
+    func oneRow_locationInsidePaneHalf_resolvesPaneSplit() {
+        let a = UUID()
+        let b = UUID()
+        let frames: [UUID: CGRect] = [
+            a: CGRect(x: 0, y: 40, width: 100, height: 80),
+            b: CGRect(x: 110, y: 40, width: 100, height: 80),
+        ]
+
+        let leftTarget = DrawerPaneDragCoordinator.resolveTarget(
+            location: CGPoint(x: 25, y: 80),
+            geometry: geometry(
+                paneFrames: frames,
+                layout: DrawerGridLayout(topRow: Layout.autoTiled([a, b])),
+                bounds: CGRect(x: 0, y: 0, width: 220, height: 140)
+            )
+        )
+        let rightTarget = DrawerPaneDragCoordinator.resolveTarget(
+            location: CGPoint(x: 185, y: 80),
+            geometry: geometry(
+                paneFrames: frames,
+                layout: DrawerGridLayout(topRow: Layout.autoTiled([a, b])),
+                bounds: CGRect(x: 0, y: 0, width: 220, height: 140)
+            )
+        )
+
+        #expect(leftTarget == .paneSplit(paneId: a, side: .left))
+        #expect(rightTarget == .paneSplit(paneId: b, side: .right))
+    }
+
+    @Test
+    func oneRow_minimizedPaneIsNotSplittableAndFallsBackToSlot() {
+        let a = UUID()
+        let b = UUID()
+        let frames: [UUID: CGRect] = [
+            a: CGRect(x: 0, y: 40, width: 100, height: 80),
+            b: CGRect(x: 110, y: 40, width: 100, height: 80),
+        ]
+
+        let target = DrawerPaneDragCoordinator.resolveTarget(
+            location: CGPoint(x: 25, y: 80),
+            geometry: geometry(
+                paneFrames: frames,
+                layout: DrawerGridLayout(topRow: Layout.autoTiled([a, b])),
+                bounds: CGRect(x: 0, y: 0, width: 220, height: 140),
+                minimizedPaneIds: [a]
+            )
+        )
+
+        #expect(target == .rowSlot(row: .top, insertionIndex: 0))
     }
 
     @Test
@@ -34,9 +88,11 @@ struct DrawerPaneDragCoordinatorTests {
 
         let target = DrawerPaneDragCoordinator.resolveTarget(
             location: CGPoint(x: 70, y: 15),
-            paneFrames: frames,
-            layout: DrawerGridLayout(topRow: Layout.autoTiled([a])),
-            containerBounds: CGRect(x: 0, y: 0, width: 200, height: 140)
+            geometry: geometry(
+                paneFrames: frames,
+                layout: DrawerGridLayout(topRow: Layout.autoTiled([a])),
+                bounds: CGRect(x: 0, y: 0, width: 200, height: 140)
+            )
         )
 
         #expect(target == .createSecondRow(position: .top))
@@ -54,9 +110,11 @@ struct DrawerPaneDragCoordinatorTests {
         let midpointX = (frames[a]!.midX + frames[b]!.midX) / 2
         let target = DrawerPaneDragCoordinator.resolveTarget(
             location: CGPoint(x: midpointX, y: 80),
-            paneFrames: frames,
-            layout: DrawerGridLayout(topRow: Layout.autoTiled([a, b])),
-            containerBounds: CGRect(x: 0, y: 0, width: 220, height: 140)
+            geometry: geometry(
+                paneFrames: frames,
+                layout: DrawerGridLayout(topRow: Layout.autoTiled([a, b])),
+                bounds: CGRect(x: 0, y: 0, width: 220, height: 140)
+            )
         )
 
         #expect(target == .rowSlot(row: .top, insertionIndex: 1))
@@ -75,13 +133,15 @@ struct DrawerPaneDragCoordinatorTests {
 
         let target = DrawerPaneDragCoordinator.resolveTarget(
             location: CGPoint(x: 105, y: 110),
-            paneFrames: frames,
-            layout: DrawerGridLayout(
-                topRow: Layout.autoTiled([a, b]),
-                bottomRow: Layout.autoTiled([c]),
-                rowSplitRatio: 0.5
-            ),
-            containerBounds: CGRect(x: 0, y: 0, width: 220, height: 140)
+            geometry: geometry(
+                paneFrames: frames,
+                layout: DrawerGridLayout(
+                    topRow: Layout.autoTiled([a, b]),
+                    bottomRow: Layout.autoTiled([c]),
+                    rowSplitRatio: 0.5
+                ),
+                bounds: CGRect(x: 0, y: 0, width: 220, height: 140)
+            )
         )
 
         #expect(target == .rowSlot(row: .bottom, insertionIndex: 1))
@@ -100,13 +160,15 @@ struct DrawerPaneDragCoordinatorTests {
 
         let target = DrawerPaneDragCoordinator.resolveTarget(
             location: CGPoint(x: 50, y: 75),
-            paneFrames: frames,
-            layout: DrawerGridLayout(
-                topRow: Layout.autoTiled([a, b]),
-                bottomRow: Layout.autoTiled([c]),
-                rowSplitRatio: 0.5
-            ),
-            containerBounds: CGRect(x: 0, y: 0, width: 220, height: 160)
+            geometry: geometry(
+                paneFrames: frames,
+                layout: DrawerGridLayout(
+                    topRow: Layout.autoTiled([a, b]),
+                    bottomRow: Layout.autoTiled([c]),
+                    rowSplitRatio: 0.5
+                ),
+                bounds: CGRect(x: 0, y: 0, width: 220, height: 160)
+            )
         )
 
         #expect(target == nil)
@@ -125,13 +187,15 @@ struct DrawerPaneDragCoordinatorTests {
 
         let target = DrawerPaneDragCoordinator.resolveTarget(
             location: CGPoint(x: 60, y: 10),
-            paneFrames: frames,
-            layout: DrawerGridLayout(
-                topRow: Layout.autoTiled([a, b]),
-                bottomRow: Layout.autoTiled([c]),
-                rowSplitRatio: 0.5
-            ),
-            containerBounds: CGRect(x: 0, y: 0, width: 220, height: 140)
+            geometry: geometry(
+                paneFrames: frames,
+                layout: DrawerGridLayout(
+                    topRow: Layout.autoTiled([a, b]),
+                    bottomRow: Layout.autoTiled([c]),
+                    rowSplitRatio: 0.5
+                ),
+                bounds: CGRect(x: 0, y: 0, width: 220, height: 140)
+            )
         )
 
         #expect(target == nil)
@@ -141,9 +205,11 @@ struct DrawerPaneDragCoordinatorTests {
     func emptyPaneFrames_returnNil() {
         let target = DrawerPaneDragCoordinator.resolveTarget(
             location: CGPoint(x: 50, y: 50),
-            paneFrames: [:],
-            layout: DrawerGridLayout(),
-            containerBounds: CGRect(x: 0, y: 0, width: 220, height: 140)
+            geometry: geometry(
+                paneFrames: [:],
+                layout: DrawerGridLayout(),
+                bounds: CGRect(x: 0, y: 0, width: 220, height: 140)
+            )
         )
 
         #expect(target == nil)
@@ -157,13 +223,29 @@ struct DrawerPaneDragCoordinatorTests {
 
         let target = DrawerPaneDragCoordinator.resolveLatchedTarget(
             location: CGPoint(x: 500, y: 500),
-            paneFrames: frames,
-            layout: DrawerGridLayout(topRow: Layout.autoTiled([a])),
-            containerBounds: CGRect(x: 0, y: 0, width: 200, height: 140),
+            geometry: geometry(
+                paneFrames: frames,
+                layout: DrawerGridLayout(topRow: Layout.autoTiled([a])),
+                bounds: CGRect(x: 0, y: 0, width: 200, height: 140)
+            ),
             currentTarget: currentTarget,
             shouldAcceptDrop: { _ in true }
         )
 
         #expect(target == currentTarget)
+    }
+
+    private func geometry(
+        paneFrames: [UUID: CGRect],
+        layout: DrawerGridLayout,
+        bounds: CGRect,
+        minimizedPaneIds: Set<UUID> = []
+    ) -> DrawerPaneDragGeometry {
+        DrawerPaneDragGeometry(
+            paneFrames: paneFrames,
+            layout: layout,
+            containerBounds: bounds,
+            minimizedPaneIds: minimizedPaneIds
+        )
     }
 }

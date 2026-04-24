@@ -77,7 +77,7 @@ struct DropTargetResolverTests {
     }
 
     @Test
-    func resolve_configDisallowsPaneSplit_emitsSlotOnly() {
+    func resolve_emptySplittablePaneAllowedSet_emitsSlotOnly() {
         let context = threePaneSingleRow
 
         let target = DropTargetResolver.resolve(
@@ -86,7 +86,7 @@ struct DropTargetResolverTests {
             paneFrames: context.frames,
             containerBounds: context.bounds,
             config: .drawerTwoRow,
-            splittablePanes: [paneA, paneB, paneC]
+            splittablePanes: []
         )
 
         #expect(target == .paneSlot(row: .drawerTop, index: 0))
@@ -350,7 +350,8 @@ struct DropTargetResolverTests {
             rows: [.drawerTop: [paneA, paneB, paneC]],
             paneFrames: context.frames,
             containerBounds: context.bounds,
-            config: .drawerSingleRow
+            config: .drawerSingleRow,
+            splittablePanes: []
         )
 
         #expect(rects.count == 6)
@@ -368,7 +369,8 @@ struct DropTargetResolverTests {
             rows: context.rows,
             paneFrames: context.frames,
             containerBounds: context.bounds,
-            config: .main
+            config: .main,
+            splittablePanes: []
         )
 
         #expect(rects.count == 4)

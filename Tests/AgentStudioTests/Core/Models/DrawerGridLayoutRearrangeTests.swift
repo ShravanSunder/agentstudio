@@ -133,6 +133,62 @@ struct DrawerGridLayoutRearrangeTests {
     }
 
     @Test
+    func paneSplitTarget_halveTargetSplitsDestinationPaneRatio() throws {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let layout = DrawerGridLayout(
+            topRow: Layout(
+                panes: [
+                    .init(paneId: a, ratio: 0.5),
+                    .init(paneId: b, ratio: 0.3),
+                    .init(paneId: c, ratio: 0.2),
+                ],
+                dividerIds: [UUID(), UUID()]
+            )
+        )
+
+        let moved = try requireSuccess(
+            layout.projectedMove(
+                paneId: c,
+                target: .paneSplit(paneId: a, side: .left),
+                sizingMode: .halveTarget
+            )
+        )
+
+        #expect(moved.topRow.paneIds == [c, a, b])
+        expectApprox(moved.topRow.ratios, [0.3125, 0.3125, 0.375])
+    }
+
+    @Test
+    func paneSplitTarget_proportionalModePreservesSlotInsertionSemantics() throws {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let layout = DrawerGridLayout(
+            topRow: Layout(
+                panes: [
+                    .init(paneId: a, ratio: 0.5),
+                    .init(paneId: b, ratio: 0.3),
+                    .init(paneId: c, ratio: 0.2),
+                ],
+                dividerIds: [UUID(), UUID()]
+            )
+        )
+
+        let moved = try requireSuccess(
+            layout.projectedMove(
+                paneId: c,
+                target: .paneSplit(paneId: a, side: .left),
+                sizingMode: .proportional
+            )
+        )
+
+        #expect(moved.topRow.paneIds == [c, a, b])
+        expectApprox(moved.topRow.ratios, [0.333333333333, 0.416666666667, 0.25])
+    }
+
+    @Test
     func crossRowMove_usesProportionalRemovalOnSourceAndInsertionOnTarget() throws {
         let a = UUID()
         let b = UUID()
@@ -237,6 +293,22 @@ struct DrawerGridLayoutRearrangeTests {
                 target: .rowSlot(row: .top, insertionIndex: 0),
                 sizingMode: .proportional
             ) == .failure(.sourceRemovalRejected(onlyPane))
+        )
+    }
+
+    @Test
+    func missingPaneSplitTarget_returnsTypedFailure() {
+        let a = UUID()
+        let b = UUID()
+        let missingTarget = UUID()
+        let layout = DrawerGridLayout(topRow: Layout.autoTiled([a, b]))
+
+        #expect(
+            layout.projectedMove(
+                paneId: b,
+                target: .paneSplit(paneId: missingTarget, side: .left),
+                sizingMode: .halveTarget
+            ) == .failure(.missingTargetPane(missingTarget))
         )
     }
 

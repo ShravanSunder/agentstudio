@@ -6,6 +6,7 @@ enum DrawerRowPlacement: Equatable, Codable, Hashable {
 }
 
 enum DrawerRearrangeTarget: Equatable, Codable, Hashable {
+    case paneSplit(paneId: UUID, side: DropZoneSide)
     case rowSlot(row: DrawerRowPlacement, insertionIndex: Int)
     case createSecondRow(position: DrawerRowPlacement)
 }

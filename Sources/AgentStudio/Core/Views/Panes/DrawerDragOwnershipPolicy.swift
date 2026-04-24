@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 @MainActor
@@ -21,5 +22,13 @@ enum DrawerDragOwnershipPolicy {
         expandedDrawerParentPaneId: UUID?
     ) -> Bool {
         managementLayerActive && expandedDrawerParentPaneId == nil
+    }
+
+    static func drawerCaptureEnabled(
+        managementLayerActive: Bool,
+        expandedDrawerParentPaneId: UUID?,
+        drawerPanelFrameInTab: CGRect
+    ) -> Bool {
+        managementLayerActive && expandedDrawerParentPaneId != nil && !drawerPanelFrameInTab.isEmpty
     }
 }

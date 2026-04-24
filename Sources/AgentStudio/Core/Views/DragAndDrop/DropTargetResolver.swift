@@ -53,7 +53,8 @@ enum DropTargetResolver {
         rows: [RowID: [UUID]],
         paneFrames: [UUID: CGRect],
         containerBounds: CGRect,
-        config: DropTargetConfig
+        config: DropTargetConfig,
+        splittablePanes: Set<UUID>
     ) -> [DropTarget: CGRect] {
         var rects: [DropTarget: CGRect] = [:]
 
@@ -83,6 +84,24 @@ enum DropTargetResolver {
 
             for (index, rect) in rowFrames.slotRects().enumerated() {
                 rects[.paneSlot(row: rowID, index: index)] = rect
+            }
+        }
+
+        if config.allowsPaneSplit {
+            for paneId in splittablePanes {
+                guard let paneFrame = paneFrames[paneId] else { continue }
+                rects[.paneSplit(paneId: paneId, side: .left)] = CGRect(
+                    x: paneFrame.minX,
+                    y: paneFrame.minY,
+                    width: paneFrame.width / 2,
+                    height: paneFrame.height
+                )
+                rects[.paneSplit(paneId: paneId, side: .right)] = CGRect(
+                    x: paneFrame.midX,
+                    y: paneFrame.minY,
+                    width: paneFrame.width / 2,
+                    height: paneFrame.height
+                )
             }
         }
 

@@ -1,23 +1,32 @@
 import CoreGraphics
 import Foundation
 
+struct DrawerPaneDragGeometry {
+    let paneFrames: [UUID: CGRect]
+    let layout: DrawerGridLayout
+    let containerBounds: CGRect
+    let minimizedPaneIds: Set<UUID>
+
+    var splittablePaneIds: Set<UUID> {
+        Set(layout.paneIds).subtracting(minimizedPaneIds)
+    }
+}
+
 struct DrawerPaneDragCoordinator {
     static let creationBandHeight: CGFloat = 28
 
     static func resolveTarget(
         location: CGPoint,
-        paneFrames: [UUID: CGRect],
-        layout: DrawerGridLayout,
-        containerBounds: CGRect
+        geometry: DrawerPaneDragGeometry
     ) -> DrawerRearrangeTarget? {
         guard
             let target = DropTargetResolver.resolve(
                 location: location,
-                rows: rowsDictionary(from: layout),
-                paneFrames: paneFrames,
-                containerBounds: containerBounds,
-                config: config(for: layout),
-                splittablePanes: []
+                rows: rowsDictionary(from: geometry.layout),
+                paneFrames: geometry.paneFrames,
+                containerBounds: geometry.containerBounds,
+                config: config(for: geometry.layout),
+                splittablePanes: geometry.splittablePaneIds
             )
         else {
             return nil
@@ -28,24 +37,22 @@ struct DrawerPaneDragCoordinator {
 
     static func resolveLatchedTarget(
         location: CGPoint,
-        paneFrames: [UUID: CGRect],
-        layout: DrawerGridLayout,
-        containerBounds: CGRect,
+        geometry: DrawerPaneDragGeometry,
         currentTarget: DrawerRearrangeTarget?,
         shouldAcceptDrop: (DrawerRearrangeTarget) -> Bool
     ) -> DrawerRearrangeTarget? {
-        let rows = rowsDictionary(from: layout)
-        let config = config(for: layout)
+        let rows = rowsDictionary(from: geometry.layout)
+        let config = config(for: geometry.layout)
         let currentDropTarget = currentTarget.map(dropTarget(from:))
 
         guard
             let target = DropTargetResolver.resolveLatched(
                 location: location,
                 rows: rows,
-                paneFrames: paneFrames,
-                containerBounds: containerBounds,
+                paneFrames: geometry.paneFrames,
+                containerBounds: geometry.containerBounds,
                 config: config,
-                splittablePanes: [],
+                splittablePanes: geometry.splittablePaneIds,
                 currentTarget: currentDropTarget,
                 shouldAccept: { target in
                     guard let drawerTarget = drawerTarget(from: target) else { return false }
@@ -60,20 +67,30 @@ struct DrawerPaneDragCoordinator {
     }
 
     static func targetRects(
-        paneFrames: [UUID: CGRect],
-        layout: DrawerGridLayout,
-        containerBounds: CGRect
+        geometry: DrawerPaneDragGeometry
     ) -> [DrawerRearrangeTarget: CGRect] {
         let rects = DropTargetResolver.targetRects(
-            rows: rowsDictionary(from: layout),
-            paneFrames: paneFrames,
-            containerBounds: containerBounds,
-            config: config(for: layout)
+            rows: rowsDictionary(from: geometry.layout),
+            paneFrames: geometry.paneFrames,
+            containerBounds: geometry.containerBounds,
+            config: config(for: geometry.layout),
+            splittablePanes: geometry.splittablePaneIds
         )
 
         return rects.reduce(into: [:]) { translatedRects, entry in
             guard let target = drawerTarget(from: entry.key) else { return }
             translatedRects[target] = entry.value
+        }
+    }
+
+    static func sizingMode(for target: DrawerRearrangeTarget, isShiftHeld: Bool) -> DropSizingMode {
+        if isShiftHeld { return .proportional }
+
+        switch target {
+        case .paneSplit:
+            return .halveTarget
+        case .rowSlot, .createSecondRow:
+            return .proportional
         }
     }
 
@@ -91,18 +108,19 @@ struct DrawerPaneDragCoordinator {
 
     private static func drawerTarget(from target: DropTarget) -> DrawerRearrangeTarget? {
         switch target {
+        case .paneSplit(let paneId, let side):
+            return .paneSplit(paneId: paneId, side: side)
         case .paneSlot(let row, let index):
             return .rowSlot(row: drawerRow(from: row), insertionIndex: index)
         case .paneNewRow(let position):
             return .createSecondRow(position: drawerRow(from: position))
-        case .paneSplit:
-            assertionFailure("Drawer drop configs must not resolve pane split targets")
-            return nil
         }
     }
 
     private static func dropTarget(from target: DrawerRearrangeTarget) -> DropTarget {
         switch target {
+        case .paneSplit(let paneId, let side):
+            .paneSplit(paneId: paneId, side: side)
         case .rowSlot(let row, let insertionIndex):
             .paneSlot(row: rowID(from: row), index: insertionIndex)
         case .createSecondRow(let position):
