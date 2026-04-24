@@ -7,6 +7,9 @@ struct DrawerTabLevelCaptureArchitectureTests {
         let flatTabStripContainer: String
         let drawerPanel: String
         let drawerPanelOverlay: String
+        let paneTabViewController: String
+        let paneTabDropPlanning: String
+        let drawerGridLayoutRearrange: String
     }
 
     private func loadSources() throws -> Sources {
@@ -25,8 +28,24 @@ struct DrawerTabLevelCaptureArchitectureTests {
                 contentsOf: projectRoot.appending(
                     path: "Sources/AgentStudio/Core/Views/Drawer/DrawerPanelOverlay.swift"),
                 encoding: .utf8
+            ),
+            paneTabViewController: String(
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Panes/PaneTabViewController.swift"),
+                encoding: .utf8
+            ),
+            paneTabDropPlanning: optionalSource(
+                projectRoot.appending(path: "Sources/AgentStudio/App/Panes/PaneTabViewController+DropPlanning.swift")
+            ),
+            drawerGridLayoutRearrange: String(
+                contentsOf: projectRoot.appending(
+                    path: "Sources/AgentStudio/Core/Models/DrawerGridLayout+Rearrange.swift"),
+                encoding: .utf8
             )
         )
+    }
+
+    private func optionalSource(_ url: URL) -> String {
+        (try? String(contentsOf: url, encoding: .utf8)) ?? ""
     }
 
     @Test("drawer drag capture is mounted at tab level, not inside DrawerPanel")
@@ -67,5 +86,14 @@ struct DrawerTabLevelCaptureArchitectureTests {
         let sources = try loadSources()
 
         #expect(!sources.drawerPanelOverlay.contains(".clipShape(outlineShape)"))
+    }
+
+    @Test("drawer rearrange has no legacy pane-drop planning path")
+    func drawerRearrange_hasSingleTabLevelPlanningPath() throws {
+        let sources = try loadSources()
+
+        #expect(!sources.paneTabViewController.contains("drawerMoveDropAction("))
+        #expect(!sources.paneTabDropPlanning.contains("resolveDrawerMoveDropAction("))
+        #expect(!sources.drawerGridLayoutRearrange.contains("legacyMoveTarget("))
     }
 }

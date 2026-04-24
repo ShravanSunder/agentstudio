@@ -175,54 +175,6 @@ extension DrawerGridLayout {
         }
     }
 
-    func legacyMoveTarget(
-        targetPaneId: UUID,
-        direction: SplitNewDirection
-    ) -> DrawerRearrangeTarget? {
-        let topPaneIds = topRow.paneIds
-        let bottomPaneIds = bottomRow?.paneIds ?? []
-
-        if let topIndex = topPaneIds.firstIndex(of: targetPaneId) {
-            switch direction {
-            case .left:
-                return .rowSlot(row: .top, insertionIndex: topIndex)
-            case .right:
-                return .rowSlot(row: .top, insertionIndex: topIndex + 1)
-            case .up:
-                if bottomRow == nil {
-                    return .createSecondRow(position: .top)
-                }
-                return nil
-            case .down:
-                if let bottomRow {
-                    return .rowSlot(
-                        row: .bottom,
-                        insertionIndex: min(topIndex, bottomRow.paneIds.count)
-                    )
-                }
-                return .createSecondRow(position: .bottom)
-            }
-        }
-
-        if let bottomIndex = bottomPaneIds.firstIndex(of: targetPaneId) {
-            switch direction {
-            case .left:
-                return .rowSlot(row: .bottom, insertionIndex: bottomIndex)
-            case .right:
-                return .rowSlot(row: .bottom, insertionIndex: bottomIndex + 1)
-            case .up:
-                return .rowSlot(
-                    row: .top,
-                    insertionIndex: min(bottomIndex, topPaneIds.count)
-                )
-            case .down:
-                return nil
-            }
-        }
-
-        return nil
-    }
-
     private func location(of paneId: UUID) -> (row: DrawerRowPlacement, index: Int)? {
         if let index = topRow.paneIds.firstIndex(of: paneId) {
             return (.top, index)
