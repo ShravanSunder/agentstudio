@@ -18,6 +18,7 @@ final class InboxNotificationStore {
     private let fileURL: URL
     private let clock: any Clock<Duration>
     private let debounceDuration: Duration
+    private let recoveryReporter: PersistenceRecoveryReporter?
     private var debouncedSaveTask: Task<Void, Never>?
 
     init(
@@ -25,17 +26,21 @@ final class InboxNotificationStore {
         prefsAtom: InboxNotificationPrefsAtom,
         fileURL: URL,
         clock: any Clock<Duration> = ContinuousClock(),
-        debounceDuration: Duration = .milliseconds(500)
+        debounceDuration: Duration = .milliseconds(500),
+        recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.inboxAtom = inboxAtom
         self.prefsAtom = prefsAtom
         self.fileURL = fileURL
         self.clock = clock
         self.debounceDuration = debounceDuration
+        self.recoveryReporter = recoveryReporter
     }
 
     private struct Payload: Codable {
-        var schemaVersion: Int = 1
+        static let currentSchemaVersion = 1
+
+        var schemaVersion: Int = currentSchemaVersion
         var notifications: [InboxNotification]
         var prefs: Prefs
 
@@ -92,9 +97,15 @@ final class InboxNotificationStore {
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.schemaVersion =
-                (try? container.decodeIfPresent(Int.self, forKey: .schemaVersion))
-                ?? 1
+            let decodedSchemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+            guard decodedSchemaVersion == Self.currentSchemaVersion else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .schemaVersion,
+                    in: container,
+                    debugDescription: "Inbox notification schemaVersion \(decodedSchemaVersion) is unsupported"
+                )
+            }
+            self.schemaVersion = decodedSchemaVersion
             self.notifications =
                 (try? container.decodeIfPresent([InboxNotification].self, forKey: .notifications))
                 ?? []
@@ -114,8 +125,16 @@ final class InboxNotificationStore {
         do {
             payload = try decoder.decode(Payload.self, from: data)
         } catch {
-            _ = quarantineCorruptFile()
+            let quarantinedURL = quarantineCorruptFile()
             inboxNotificationStoreLogger.warning("Inbox notification file corrupt, using defaults: \(error)")
+            recoveryReporter?(
+                .init(
+                    store: .notificationInbox,
+                    workspaceId: nil,
+                    recovery: .quarantinedAndReset,
+                    quarantinedFilename: quarantinedURL?.lastPathComponent
+                )
+            )
             throw error
         }
 
@@ -134,7 +153,7 @@ final class InboxNotificationStore {
 
     func flush() throws {
         let payload = Payload(
-            schemaVersion: 1,
+            schemaVersion: Payload.currentSchemaVersion,
             notifications: inboxAtom.notifications,
             prefs: .init(
                 grouping: prefsAtom.grouping,

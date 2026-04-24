@@ -7,13 +7,16 @@ private let uiStateStoreLogger = Logger(subsystem: "com.agentstudio", category: 
 final class UIStateStore {
     private let atom: UIStateAtom
     private let persistor: WorkspacePersistor
+    private let recoveryReporter: PersistenceRecoveryReporter?
 
     init(
         atom: UIStateAtom,
-        persistor: WorkspacePersistor = WorkspacePersistor()
+        persistor: WorkspacePersistor = WorkspacePersistor(),
+        recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.atom = atom
         self.persistor = persistor
+        self.recoveryReporter = recoveryReporter
     }
 
     func restore(for workspaceId: UUID) {
@@ -33,8 +36,16 @@ final class UIStateStore {
         case .missing:
             break
         case .corrupt(let error):
-            _ = persistor.quarantineCorruptUIFile(for: workspaceId)
+            let quarantinedURL = persistor.quarantineCorruptUIFile(for: workspaceId)
             uiStateStoreLogger.warning("UI state file corrupt, using defaults: \(error)")
+            recoveryReporter?(
+                .init(
+                    store: .uiState,
+                    workspaceId: workspaceId,
+                    recovery: .quarantinedAndReset,
+                    quarantinedFilename: quarantinedURL?.lastPathComponent
+                )
+            )
         }
     }
 

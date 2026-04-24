@@ -24,8 +24,10 @@ enum ChaosStoreSeeder {
             switch self {
             case .empty, .truncatedJSON, .wrongShape, .garbage:
                 return true
-            case .missing, .sliceMissing, .sliceTypeError, .sliceUnknownEnum, .unknownSchemaVersion:
+            case .missing, .sliceMissing, .sliceTypeError, .sliceUnknownEnum:
                 return false
+            case .unknownSchemaVersion:
+                return true
             }
         }
     }

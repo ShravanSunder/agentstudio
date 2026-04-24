@@ -53,6 +53,8 @@ struct TerminalActivitySnapshot: Equatable, Sendable {
     }
 }
 
+/// Per-pane terminal intelligence that is useful context but too noisy to
+/// promote directly into the notification inbox.
 @Observable
 @MainActor
 final class TerminalActivityAtom {

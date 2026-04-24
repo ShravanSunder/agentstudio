@@ -77,6 +77,28 @@ final class WorkspaceStoreTests {
     }
 
     @Test
+    func test_restore_corruptWorkspace_reportsRecovery() throws {
+        let persistedDir = FileManager.default.temporaryDirectory
+            .appending(path: "workspace-store-corrupt-tests-\(UUID().uuidString)")
+        let persistor = WorkspacePersistor(workspacesDir: persistedDir)
+        #expect(persistor.ensureDirectory())
+        let workspaceId = UUID()
+        let stateURL = persistedDir.appending(path: "\(workspaceId.uuidString).workspace.state.json")
+        try Data("not-json".utf8).write(to: stateURL, options: .atomic)
+        var reportedRecovery: PersistenceRecoveryEvent?
+        let restoredStore = WorkspaceStore(
+            persistor: persistor,
+            recoveryReporter: { reportedRecovery = $0 }
+        )
+
+        restoredStore.restore()
+
+        #expect(reportedRecovery?.store == .workspace)
+        #expect(reportedRecovery?.recovery == .resetToDefaults)
+        #expect(restoredStore.panes.isEmpty)
+    }
+
+    @Test
     func test_workspaceStore_readsAndPersistsTheProvidedLiveAtomScope() throws {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let atoms = AtomRegistry()

@@ -1,6 +1,10 @@
 import Foundation
 
-struct SidebarGroupKey: Hashable, Codable, Sendable, ExpressibleByStringLiteral {
+/// Shared raw-string wrapper for durable sidebar cache keys.
+///
+/// Tags keep repo groups, checkout colors, and inbox groups from crossing at
+/// compile time while all three persist as plain strings.
+struct SidebarCacheKey<Tag>: Codable, Sendable, ExpressibleByStringLiteral {
     let rawValue: String
 
     init(_ rawValue: String) {
@@ -10,28 +14,34 @@ struct SidebarGroupKey: Hashable, Codable, Sendable, ExpressibleByStringLiteral 
     init(stringLiteral value: String) {
         self.rawValue = value
     }
-}
 
-struct SidebarCheckoutColorKey: Hashable, Codable, Sendable, ExpressibleByStringLiteral {
-    let rawValue: String
-
-    init(_ rawValue: String) {
-        self.rawValue = rawValue
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        self.rawValue = try container.decode(String.self)
     }
 
-    init(stringLiteral value: String) {
-        self.rawValue = value
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
     }
 }
 
-struct InboxNotificationGroupKey: Hashable, Codable, Sendable, ExpressibleByStringLiteral {
-    let rawValue: String
-
-    init(_ rawValue: String) {
-        self.rawValue = rawValue
-    }
-
-    init(stringLiteral value: String) {
-        self.rawValue = value
+extension SidebarCacheKey: Equatable {
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.rawValue == rhs.rawValue
     }
 }
+
+extension SidebarCacheKey: Hashable {
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(rawValue)
+    }
+}
+
+enum SidebarGroupKeyTag {}
+enum SidebarCheckoutColorKeyTag {}
+enum InboxNotificationGroupKeyTag {}
+
+typealias SidebarGroupKey = SidebarCacheKey<SidebarGroupKeyTag>
+typealias SidebarCheckoutColorKey = SidebarCacheKey<SidebarCheckoutColorKeyTag>
+typealias InboxNotificationGroupKey = SidebarCacheKey<InboxNotificationGroupKeyTag>

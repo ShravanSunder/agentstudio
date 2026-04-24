@@ -21,7 +21,7 @@ extension CommandBarDataSource {
             CommandBarItem(
                 id: "inbox.markAllAsRead",
                 title: "Mark all as read",
-                icon: "checkmark.circle",
+                icon: .system(.checkmarkCircle),
                 group: Group.inboxCommands,
                 groupPriority: Priority.commands,
                 keywords: ["inbox", "notification", "read"],
@@ -32,7 +32,7 @@ extension CommandBarDataSource {
             CommandBarItem(
                 id: "inbox.clearReadHistory",
                 title: "Clear read history",
-                icon: "trash",
+                icon: .system(.trash),
                 group: Group.inboxCommands,
                 groupPriority: Priority.commands,
                 keywords: ["inbox", "notification", "clear"],
@@ -43,7 +43,7 @@ extension CommandBarDataSource {
             CommandBarItem(
                 id: "inbox.clearAll",
                 title: "Clear all notifications",
-                icon: "trash.fill",
+                icon: .system(.trashFill),
                 group: Group.inboxCommands,
                 groupPriority: Priority.commands,
                 keywords: ["inbox", "notification", "clear", "delete"],
@@ -56,7 +56,7 @@ extension CommandBarDataSource {
                 CommandBarItem(
                     id: "inbox.grouping.\(grouping.rawValue)",
                     title: "Change grouping: \(inboxGroupingLabel(grouping))",
-                    icon: "line.3.horizontal",
+                    icon: .system(.line3Horizontal),
                     group: Group.inboxCommands,
                     groupPriority: Priority.commands,
                     keywords: ["inbox", "notification", "group", grouping.rawValue],
@@ -71,7 +71,7 @@ extension CommandBarDataSource {
             CommandBarItem(
                 id: "inbox.toggleSort",
                 title: "Toggle sort order",
-                icon: "arrow.up.arrow.down",
+                icon: .system(.arrowUpArrowDown),
                 group: Group.inboxCommands,
                 groupPriority: Priority.commands,
                 keywords: ["inbox", "notification", "sort"],
@@ -82,7 +82,7 @@ extension CommandBarDataSource {
             CommandBarItem(
                 id: "inbox.toggleBell",
                 title: snapshot.bellEnabled ? "Disable bell notifications" : "Enable bell notifications",
-                icon: "bell",
+                icon: .system(.bell),
                 group: Group.inboxCommands,
                 groupPriority: Priority.commands,
                 keywords: ["inbox", "notification", "bell"],
@@ -93,7 +93,7 @@ extension CommandBarDataSource {
             CommandBarItem(
                 id: "inbox.returnToWorktrees",
                 title: "Return to worktree sidebar",
-                icon: "sidebar.left",
+                icon: .system(.sidebarLeft),
                 group: Group.inboxCommands,
                 groupPriority: Priority.commands,
                 keywords: ["inbox", "worktree", "sidebar"],

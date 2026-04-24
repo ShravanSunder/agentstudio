@@ -76,7 +76,12 @@ struct UIStateStoreTests {
         try "not json".write(to: corruptURL, atomically: true, encoding: .utf8)
 
         let atom = UIStateAtom()
-        let store = UIStateStore(atom: atom, persistor: persistor)
+        var reportedRecovery: PersistenceRecoveryEvent?
+        let store = UIStateStore(
+            atom: atom,
+            persistor: persistor,
+            recoveryReporter: { reportedRecovery = $0 }
+        )
 
         store.restore(for: workspaceId)
 
@@ -86,6 +91,9 @@ struct UIStateStoreTests {
         #expect(atom.sidebarCollapsed == false)
         #expect(atom.sidebarSurface == .repos)
         #expect(atom.sidebarHasFocus == false)
+        #expect(reportedRecovery?.store == .uiState)
+        #expect(reportedRecovery?.workspaceId == workspaceId)
+        #expect(reportedRecovery?.recovery == .quarantinedAndReset)
         let quarantinedFiles = try FileManager.default.contentsOfDirectory(
             at: tempDir,
             includingPropertiesForKeys: nil

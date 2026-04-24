@@ -12,5 +12,4 @@ enum InboxFilter: Equatable, Hashable, Sendable, Codable {
             notification.repoId == id
         }
     }
-
 }

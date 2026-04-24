@@ -1,6 +1,8 @@
 import Foundation
 
 @MainActor
+/// Leaf runtime-bus subscriber that projects high-churn terminal facts into
+/// `TerminalActivityAtom`; inbox-worthy promotion stays in the notification router.
 final class TerminalActivityRouter {
     private let bus: EventBus<RuntimeEnvelope>
     private let activityAtom: TerminalActivityAtom

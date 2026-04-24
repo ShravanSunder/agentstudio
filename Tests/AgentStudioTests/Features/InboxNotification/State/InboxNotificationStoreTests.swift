@@ -88,10 +88,12 @@ struct InboxNotificationStoreTests {
         try "not json".write(to: url, atomically: true, encoding: .utf8)
         let atom = InboxNotificationAtom()
         let prefs = InboxNotificationPrefsAtom()
+        var reportedRecovery: PersistenceRecoveryEvent?
         let store = InboxNotificationStore(
             inboxAtom: atom,
             prefsAtom: prefs,
-            fileURL: url
+            fileURL: url,
+            recoveryReporter: { reportedRecovery = $0 }
         )
 
         try? store.load()
@@ -109,6 +111,44 @@ struct InboxNotificationStoreTests {
             $0.lastPathComponent.hasPrefix("notification-inbox.corrupt-")
         }
         #expect(quarantinedFiles.count == 1)
+        #expect(reportedRecovery?.store == .notificationInbox)
+        #expect(reportedRecovery?.recovery == .quarantinedAndReset)
+        #expect(reportedRecovery?.quarantinedFilename == quarantinedFiles.first?.lastPathComponent)
+    }
+
+    @Test("load from unknown schema quarantines instead of interpreting as v1")
+    func loadUnknownSchemaQuarantinesInsteadOfInterpretingAsV1() throws {
+        let url = makeTempURL()
+        let json = """
+            {
+                "schemaVersion": 99999,
+                "notifications": [],
+                "prefs": {
+                    "grouping": "byRepo",
+                    "sort": "newestFirst",
+                    "bellEnabled": true
+                }
+            }
+            """
+        try Data(json.utf8).write(to: url, options: .atomic)
+        let atom = InboxNotificationAtom()
+        let prefs = InboxNotificationPrefsAtom()
+        var reportedRecovery: PersistenceRecoveryEvent?
+        let store = InboxNotificationStore(
+            inboxAtom: atom,
+            prefsAtom: prefs,
+            fileURL: url,
+            recoveryReporter: { reportedRecovery = $0 }
+        )
+
+        #expect(throws: Error.self) {
+            try store.load()
+        }
+
+        #expect(prefs.grouping == .none)
+        #expect(prefs.bellEnabled == false)
+        #expect(reportedRecovery?.store == .notificationInbox)
+        #expect(reportedRecovery?.recovery == .quarantinedAndReset)
     }
 
     @Test("load defaults bad notification slice while preserving valid prefs")

@@ -7,13 +7,16 @@ private let sidebarCacheStoreLogger = Logger(subsystem: "com.agentstudio", categ
 final class SidebarCacheStore {
     private let atom: SidebarCacheAtom
     private let persistor: WorkspacePersistor
+    private let recoveryReporter: PersistenceRecoveryReporter?
 
     init(
         atom: SidebarCacheAtom,
-        persistor: WorkspacePersistor = WorkspacePersistor()
+        persistor: WorkspacePersistor = WorkspacePersistor(),
+        recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.atom = atom
         self.persistor = persistor
+        self.recoveryReporter = recoveryReporter
     }
 
     func restore(for workspaceId: UUID) {
@@ -38,8 +41,16 @@ final class SidebarCacheStore {
         case .missing:
             break
         case .corrupt(let error):
-            _ = persistor.quarantineCorruptSidebarCacheFile(for: workspaceId)
+            let quarantinedURL = persistor.quarantineCorruptSidebarCacheFile(for: workspaceId)
             sidebarCacheStoreLogger.warning("Sidebar cache file corrupt, using defaults: \(error)")
+            recoveryReporter?(
+                .init(
+                    store: .sidebarCache,
+                    workspaceId: workspaceId,
+                    recovery: .quarantinedAndReset,
+                    quarantinedFilename: quarantinedURL?.lastPathComponent
+                )
+            )
         }
     }
 

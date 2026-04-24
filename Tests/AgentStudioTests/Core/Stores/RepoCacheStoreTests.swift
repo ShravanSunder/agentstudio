@@ -90,7 +90,12 @@ struct RepoCacheStoreTests {
         try "not json".write(to: corruptURL, atomically: true, encoding: .utf8)
 
         let atom = RepoCacheAtom()
-        let repoStore = RepoCacheStore(atom: atom, persistor: persistor)
+        var reportedRecovery: PersistenceRecoveryEvent?
+        let repoStore = RepoCacheStore(
+            atom: atom,
+            persistor: persistor,
+            recoveryReporter: { reportedRecovery = $0 }
+        )
 
         repoStore.restore(for: workspaceId)
 
@@ -99,5 +104,8 @@ struct RepoCacheStoreTests {
         #expect(atom.pullRequestCountByWorktreeId.isEmpty)
         #expect(atom.notificationCountByWorktreeId.isEmpty)
         #expect(atom.recentTargets.isEmpty)
+        #expect(reportedRecovery?.store == .repoCache)
+        #expect(reportedRecovery?.workspaceId == workspaceId)
+        #expect(reportedRecovery?.recovery == .rebuiltFromEvents)
     }
 }

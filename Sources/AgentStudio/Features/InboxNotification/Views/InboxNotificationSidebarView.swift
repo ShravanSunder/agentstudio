@@ -85,15 +85,17 @@ struct InboxNotificationSidebarView: View {
             focusedField: $focusedField,
             sections: listModel.sections,
             flashingRowIds: flashingRowIds,
-            onEscape: handleEscape,
-            onToggleSort: toggleSort,
-            onClearFilter: clearFilter,
-            onSelectGrouping: { prefsAtom.setGrouping($0) },
-            onToggleGroupCollapse: toggleGroupCollapse,
-            onMoveGroupBoundary: moveFocusToGroupBoundary,
-            onMoveEnd: moveFocusToEnd,
-            onActivate: activate,
-            onToggleRead: { inboxAtom.toggleReadState(id: $0) }
+            actions: .init(
+                onEscape: handleEscape,
+                onToggleSort: toggleSort,
+                onClearFilter: clearFilter,
+                onSelectGrouping: { prefsAtom.setGrouping($0) },
+                onToggleGroupCollapse: toggleGroupCollapse,
+                onMoveGroupBoundary: moveFocusToGroupBoundary,
+                onMoveEnd: moveFocusToEnd,
+                onActivate: activate,
+                onToggleRead: { inboxAtom.toggleReadState(id: $0) }
+            )
         )
         .onChange(of: inboxAtom.notifications) { _, _ in refreshListModel() }
         .onChange(of: prefsAtom.grouping) { _, _ in refreshListModel() }

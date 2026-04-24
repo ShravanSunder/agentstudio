@@ -2,37 +2,36 @@
 
 **Date:** 2026-04-24
 
-**Status:** Follow-up plan. Do not treat these as Phase 3b/3c merge blockers unless the PR owner explicitly pulls them into the current branch.
+**Status:** Closed as a follow-up bucket. The review items that belonged in the current PR were pulled into the branch.
 
 ## Scope
 
-This plan owns remaining non-blocking hardening that needs a little more design or does not change the current Phase 3b/3c user-visible behavior.
+This file records hardening items that were considered separately and then resolved in the current PR, plus the one future-only migration concern.
 
 ## Items
 
-1. User-surfaced persistence recovery feedback
-   - Current state: corrupt persistence files are quarantined and logged.
-   - Gap: the user does not get a visible explanation that sidebar/inbox memory reset because a file was corrupt.
-   - Decision needed: whether this should be an `AppEventBus` fact, an inbox notification, a status strip message, or a settings/debug surface.
+1. Future schema migrations
+   - Current state: v1 persistence hard-fails unsupported schemas and quarantines/resets through the owning store where appropriate.
+   - Gap: no v2 migration exists because no v2 on-disk format exists yet.
+   - Decision needed later: when introducing v2, add explicit migration code and tests instead of relaxing v1 decode.
 
-2. Persistence schema-version policy
-   - Current state: `PersistableSidebarCache.schemaVersion` round-trips and unknown schema versions currently recover by defaulting fields.
-   - Gap: no explicit migration switch exists yet.
-   - Decision needed: first real schema migration policy before adding migration scaffolding.
+## Pulled Into Current PR
 
-3. Sidebar cache key consolidation
-   - Current state: `SidebarGroupKey`, `SidebarCheckoutColorKey`, and `InboxNotificationGroupKey` are separate stable wrappers.
-   - Gap: they are repetitive.
-   - Decision needed: whether a generic `StableKey<Tag>` improves readability enough to justify the refactor.
-
-4. Persistence implementation cleanup
-   - Current state: `WorkspacePersistor` has repeated encoder construction.
-   - Gap: small duplication.
-   - Follow-up: extract `makeEncoder()` if the file gets touched for another persistence change.
-
-5. Inbox filter draft API cleanup
-   - Current state: `set(nil)` and `clear()` both clear the draft; `clear()` reads better at UI call sites.
-   - Decision needed: keep semantic method or collapse to a single API.
+- Sidebar cache key consolidation: `SidebarGroupKey`, `SidebarCheckoutColorKey`, and
+  `InboxNotificationGroupKey` now share one typed sidebar-cache key wrapper while preserving
+  distinct compile-time aliases at call sites.
+- Persistence implementation cleanup: `WorkspacePersistor` now centralizes JSON encoder
+  construction for workspace, cache, UI, and sidebar-cache saves.
+- Inbox filter draft API cleanup: `InboxFilterDraftAtom.set(_:)` now only accepts a real
+  `InboxFilter`; clearing is expressed through `clear()` or consuming the one-shot draft.
+- Persistence schema-version v1 policy: required identity/schema
+  fields now fail the file, while recoverable fields default only their own slice.
+- User-surfaced persistence recovery feedback: stores emit `PersistenceRecoveryEvent`; AppDelegate
+  buffers boot-time events until the inbox store is loaded and then creates global inbox
+  notifications.
+- Workspace persistence file split: file I/O/quarantine remains in `WorkspacePersistor.swift`;
+  persisted payload contracts live in `WorkspacePersistor+Payloads.swift`.
+- Inbox sidebar callback cleanup: `InboxSidebarActions` replaced the loose callback prop drill.
 
 ## Explicitly Not Here
 

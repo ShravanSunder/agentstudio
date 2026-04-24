@@ -3,6 +3,8 @@ import Testing
 
 @testable import AgentStudio
 
+/// Exercises every persisted file with the same corruption vocabulary so
+/// store-level recovery stays consistent as new slices are added.
 @MainActor
 @Suite(.serialized)
 struct PersistenceChaosTests {

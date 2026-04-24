@@ -18,6 +18,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var inboxNotificationRouter: InboxNotificationRouter!
     var inboxPaneFocusTracker: PaneFocusTracker!
     var inboxNotificationDrawerPresenter: InboxNotificationDrawerPresenter!
+    var pendingPersistenceRecoveryEvents: [PersistenceRecoveryEvent] = []
+    var hasLoadedInboxNotificationStore = false
     var terminalActivityRouter: TerminalActivityRouter!
     var repoCacheStore: RepoCacheStore!
     var sidebarCacheStore: SidebarCacheStore!
@@ -86,11 +88,29 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             repositoryTopologyAtom: atomStore.workspaceRepositoryTopology,
             paneAtom: atomStore.workspacePane,
             tabLayoutAtom: atomStore.workspaceTabLayout,
-            mutationCoordinator: atomStore.workspaceMutationCoordinator
+            mutationCoordinator: atomStore.workspaceMutationCoordinator,
+            recoveryReporter: { [weak self] event in
+                self?.recordPersistenceRecovery(event)
+            }
         )
-        repoCacheStore = RepoCacheStore(atom: atomStore.repoCache)
-        sidebarCacheStore = SidebarCacheStore(atom: atomStore.sidebarCache)
-        uiStateStore = UIStateStore(atom: atomStore.uiState)
+        repoCacheStore = RepoCacheStore(
+            atom: atomStore.repoCache,
+            recoveryReporter: { [weak self] event in
+                self?.recordPersistenceRecovery(event)
+            }
+        )
+        sidebarCacheStore = SidebarCacheStore(
+            atom: atomStore.sidebarCache,
+            recoveryReporter: { [weak self] event in
+                self?.recordPersistenceRecovery(event)
+            }
+        )
+        uiStateStore = UIStateStore(
+            atom: atomStore.uiState,
+            recoveryReporter: { [weak self] event in
+                self?.recordPersistenceRecovery(event)
+            }
+        )
         inboxNotificationAtom = InboxNotificationAtom()
         inboxNotificationPrefsAtom = InboxNotificationPrefsAtom()
         inboxNotificationDrawerPresenter = InboxNotificationDrawerPresenter()
@@ -779,7 +799,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         window.makeKeyAndOrderFront(nil)
     }
 
-    @objc private func newWindow() {
+    @objc func newWindow() {
         showOrCreateMainWindow()
     }
 
@@ -795,13 +815,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         CommandDispatcher.shared.dispatch(.undoCloseTab)
     }
 
-    @objc private func closeWindow() {
+    @objc func closeWindow() {
         NSApp.keyWindow?.close()
     }
 
     // MARK: - Repo/Folder Intake
 
-    private func handleWatchFolderRequested(startingAt initialURL: URL? = nil) async {
+    func handleWatchFolderRequested(startingAt initialURL: URL? = nil) async {
         let welcome = atomStore.welcome
         welcome.beginChoosingFolder()
         defer { welcome.endChoosingFolder() }
@@ -895,7 +915,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         CommandDispatcher.shared.dispatch(.openWebview)
     }
 
-    private func handleSignInRequested(provider: OAuthProvider) {
+    func handleSignInRequested(provider: OAuthProvider) {
         guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
             appLogger.warning("No window available for OAuth")
             return
@@ -929,72 +949,4 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         CommandDispatcher.shared.dispatch(.showCommandBarPanes)
     }
 
-}
-
-// MARK: - ShellCommandHandling
-
-extension AppDelegate: ShellCommandHandling {
-    func canExecute(_ command: AppCommand) -> Bool {
-        switch command {
-        case .watchFolder, .toggleSidebar, .filterSidebar,
-            .showInboxNotifications, .showDrawerInboxNotifications, .showWorktreeSidebar,
-            .signInGitHub, .signInGoogle, .newWindow, .closeWindow,
-            .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
-            true
-        default: false
-        }
-    }
-
-    func execute(_ command: AppCommand) -> Bool {
-        switch command {
-        case .watchFolder:
-            Task { await handleWatchFolderRequested() }
-            return true
-        case .toggleSidebar:
-            mainWindowController?.toggleSidebar()
-            return true
-        case .filterSidebar:
-            mainWindowController?.showSidebarFilter()
-            return true
-        case .showInboxNotifications:
-            mainWindowController?.showInboxNotifications(commandBarIsKey: commandBarController.isKeyWindow)
-            return true
-        case .showDrawerInboxNotifications:
-            openDrawerInboxForActiveDrawer()
-            return true
-        case .showWorktreeSidebar:
-            mainWindowController?.showWorktreeSidebar()
-            return true
-        case .newWindow:
-            newWindow()
-            return true
-        case .closeWindow:
-            closeWindow()
-            return true
-        case .showCommandBarEverything:
-            showCommandBar(prefix: nil, context: "command bar")
-            return true
-        case .showCommandBarCommands:
-            showCommandBar(prefix: ">", context: "command bar (commands)")
-            return true
-        case .showCommandBarPanes:
-            showCommandBar(prefix: "$", context: "command bar (panes)")
-            return true
-        case .showCommandBarRepos:
-            showCommandBar(prefix: "#", context: "command bar (repos)")
-            return true
-        case .signInGitHub:
-            handleSignInRequested(provider: .github)
-            return true
-        case .signInGoogle:
-            handleSignInRequested(provider: .google)
-            return true
-        default: return false
-        }
-    }
-    func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
-        switch (command, targetType) {
-        default: return false
-        }
-    }
 }

@@ -9,7 +9,7 @@ final class InboxFilterDraftAtom {
     /// ownership still flows through `set`, `consume`, and `clear`.
     private(set) var pendingFilter: InboxFilter?
 
-    func set(_ filter: InboxFilter?) {
+    func set(_ filter: InboxFilter) {
         pendingFilter = filter
     }
 

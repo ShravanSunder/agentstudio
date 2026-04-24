@@ -121,6 +121,7 @@ enum InboxNotificationKind: String, Sendable, Codable, Equatable {
     case terminalSecureInputRequested
     case terminalProgressError
     case terminalRendererUnhealthy
+    case persistenceRecovery
     case agentRpc
     case approvalRequested
     case securityEvent

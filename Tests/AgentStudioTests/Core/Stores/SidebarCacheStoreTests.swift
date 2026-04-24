@@ -41,13 +41,21 @@ struct SidebarCacheStoreTests {
         let workspaceId = UUID()
         let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
         try Data("not-json".utf8).write(to: cacheURL, options: .atomic)
+        var reportedRecovery: PersistenceRecoveryEvent?
 
         let atom = SidebarCacheAtom()
-        SidebarCacheStore(atom: atom, persistor: persistor).restore(for: workspaceId)
+        SidebarCacheStore(
+            atom: atom,
+            persistor: persistor,
+            recoveryReporter: { reportedRecovery = $0 }
+        ).restore(for: workspaceId)
 
         #expect(atom.expandedGroups.isEmpty)
         #expect(atom.checkoutColors.isEmpty)
         #expect(atom.collapsedInboxGroups.isEmpty)
+        #expect(reportedRecovery?.store == .sidebarCache)
+        #expect(reportedRecovery?.workspaceId == workspaceId)
+        #expect(reportedRecovery?.recovery == .quarantinedAndReset)
 
         let quarantinedFiles = try FileManager.default.contentsOfDirectory(
             at: tempDir,

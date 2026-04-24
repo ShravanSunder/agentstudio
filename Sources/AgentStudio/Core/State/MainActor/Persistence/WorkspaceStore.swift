@@ -21,6 +21,7 @@ final class WorkspaceStore {
     private let persistor: WorkspacePersistor
     private let persistDebounceDuration: Duration
     private let clock: any Clock<Duration>
+    private let recoveryReporter: PersistenceRecoveryReporter?
     private var debouncedSaveTask: Task<Void, Never>?
     private var isObservingPersistedState = false
     private var isRestoringState = false
@@ -36,7 +37,8 @@ final class WorkspaceStore {
         mutationCoordinator: WorkspaceMutationCoordinator? = nil,
         persistor: WorkspacePersistor = WorkspacePersistor(),
         persistDebounceDuration: Duration = .milliseconds(500),
-        clock: any Clock<Duration> = ContinuousClock()
+        clock: any Clock<Duration> = ContinuousClock(),
+        recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         let resolvedTabShellAtom = tabLayoutAtom?.shellAtom ?? tabShellAtom
         let resolvedTabArrangementAtom = tabLayoutAtom?.arrangementAtom ?? tabArrangementAtom
@@ -62,6 +64,7 @@ final class WorkspaceStore {
         self.persistor = persistor
         self.persistDebounceDuration = persistDebounceDuration
         self.clock = clock
+        self.recoveryReporter = recoveryReporter
         observePersistedState()
     }
 
@@ -95,6 +98,13 @@ final class WorkspaceStore {
         case .corrupt(let error):
             workspaceStoreLogger.error(
                 "Workspace file exists but failed to decode — starting with empty state: \(error)"
+            )
+            recoveryReporter?(
+                .init(
+                    store: .workspace,
+                    workspaceId: nil,
+                    recovery: .resetToDefaults
+                )
             )
         case .missing:
             workspaceStoreLogger.info("No workspace files found — first launch")

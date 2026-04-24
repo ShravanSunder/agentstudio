@@ -346,6 +346,67 @@ final class WorkspacePersistorTests {
         #expect(loaded?.schemaVersion == WorkspacePersistor.currentSchemaVersion)
     }
 
+    @Test
+    func test_unknownSchemaVersion_returnsCorrupt() throws {
+        let workspaceId = UUID()
+        let json = """
+            {
+                "schemaVersion": 99999,
+                "workspaceId": "\(workspaceId.uuidString)",
+                "expandedGroups": ["repo:agent-studio"],
+                "checkoutColors": {},
+                "collapsedInboxGroups": []
+            }
+            """
+        let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
+        try Data(json.utf8).write(to: cacheURL, options: .atomic)
+
+        #expect(persistor.loadSidebarCache(for: workspaceId).isCorrupt)
+    }
+
+    @Test
+    func test_missingPersistedIdentity_returnsCorrupt() throws {
+        let workspaceId = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "expandedGroups": ["repo:agent-studio"],
+                "checkoutColors": {},
+                "collapsedInboxGroups": []
+            }
+            """
+        let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
+        try Data(json.utf8).write(to: cacheURL, options: .atomic)
+
+        #expect(persistor.loadSidebarCache(for: workspaceId).isCorrupt)
+    }
+
+    @Test
+    func test_canonicalStateMissingIdentity_returnsCorrupt() throws {
+        let workspaceId = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "name": "Missing Identity",
+                "repos": [],
+                "worktrees": [],
+                "unavailableRepoIds": [],
+                "panes": [],
+                "tabs": [],
+                "activeTabId": null,
+                "sidebarWidth": 250,
+                "windowFrame": null,
+                "watchedPaths": [],
+                "createdAt": 0,
+                "updatedAt": 0
+            }
+            """
+        let stateURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.state.json")
+        try Data(json.utf8).write(to: stateURL, options: .atomic)
+
+        #expect(persistor.load().isCorrupt)
+    }
+
     // MARK: - Cache State
 
     @Test
@@ -563,7 +624,7 @@ final class WorkspacePersistorTests {
     }
 
     @Test
-    func test_load_canonicalState_missingSchemaVersion_defaultsToCurrent() throws {
+    func test_load_canonicalState_missingSchemaVersion_returnsCorrupt() throws {
         // Arrange — JSON with all required fields except `schemaVersion`
         let id = UUID()
         let json = """
@@ -583,10 +644,7 @@ final class WorkspacePersistorTests {
         let fileURL = tempDir.appending(path: "\(id.uuidString).workspace.state.json")
         try Data(json.utf8).write(to: fileURL, options: .atomic)
 
-        let loaded = persistor.load().value
-
-        #expect(loaded?.schemaVersion == WorkspacePersistor.currentSchemaVersion)
-        #expect(loaded?.id == id)
+        #expect(persistor.load().isCorrupt)
     }
 
     @Test

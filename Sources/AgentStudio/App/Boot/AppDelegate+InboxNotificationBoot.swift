@@ -9,7 +9,10 @@ extension AppDelegate {
         inboxNotificationStore = InboxNotificationStore(
             inboxAtom: inboxNotificationAtom,
             prefsAtom: inboxNotificationPrefsAtom,
-            fileURL: fileURL
+            fileURL: fileURL,
+            recoveryReporter: { [weak self] event in
+                self?.recordPersistenceRecovery(event)
+            }
         )
         do {
             try inboxNotificationStore.load()
@@ -17,6 +20,8 @@ extension AppDelegate {
             appLogger.warning("Inbox notification store load failed: \(error.localizedDescription)")
         }
         observeInboxNotificationPersistence()
+        hasLoadedInboxNotificationStore = true
+        flushPersistenceRecoveryNotifications()
     }
 
     func bootStartInboxNotificationRouter(bus: EventBus<RuntimeEnvelope>) {
@@ -57,6 +62,23 @@ extension AppDelegate {
                 self.inboxNotificationStore.scheduleDebouncedSave()
                 self.observeInboxNotificationPersistence()
             }
+        }
+    }
+
+    func recordPersistenceRecovery(_ event: PersistenceRecoveryEvent) {
+        guard hasLoadedInboxNotificationStore else {
+            pendingPersistenceRecoveryEvents.append(event)
+            return
+        }
+        inboxNotificationAtom.append(.persistenceRecovery(event))
+    }
+
+    func flushPersistenceRecoveryNotifications() {
+        guard hasLoadedInboxNotificationStore else { return }
+        let pendingEvents = pendingPersistenceRecoveryEvents
+        pendingPersistenceRecoveryEvents.removeAll()
+        for event in pendingEvents {
+            inboxNotificationAtom.append(.persistenceRecovery(event))
         }
     }
 
