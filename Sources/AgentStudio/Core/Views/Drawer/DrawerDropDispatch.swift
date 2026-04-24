@@ -9,6 +9,25 @@ import Foundation
 /// sit at tab depth.
 @MainActor
 enum DrawerDropDispatch {
+    struct Context {
+        let parentPaneId: UUID
+        let state: ActionStateSnapshot
+    }
+
+    static func context(parentPaneId: UUID, store: WorkspaceStore) -> Context {
+        Context(
+            parentPaneId: parentPaneId,
+            state: WorkspaceCommandResolver.snapshot(
+                from: store.tabLayoutAtom.tabs,
+                activeTabId: store.tabLayoutAtom.activeTabId,
+                isManagementLayerActive: atom(\.managementLayer).isActive,
+                knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
+                drawerParentByPaneId: drawerParentByPaneId(store: store),
+                drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(store: store)
+            )
+        )
+    }
+
     static func shouldAcceptDrop(
         payload: SplitDropPayload,
         target: DrawerRearrangeTarget,
@@ -16,27 +35,42 @@ enum DrawerDropDispatch {
         parentPaneId: UUID,
         store: WorkspaceStore
     ) -> Bool {
-        guard case .existingPane(let sourcePaneId, _) = payload.kind else { return false }
-        guard let sourcePane = store.paneAtom.pane(sourcePaneId) else { return false }
-        guard sourcePane.parentPaneId == parentPaneId else { return false }
-
-        let snapshot = WorkspaceCommandResolver.snapshot(
-            from: store.tabLayoutAtom.tabs,
-            activeTabId: store.tabLayoutAtom.activeTabId,
-            isManagementLayerActive: atom(\.managementLayer).isActive,
-            knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
-            drawerParentByPaneId: drawerParentByPaneId(store: store),
-            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(store: store)
+        shouldAcceptDrop(
+            payload: payload,
+            target: target,
+            sizingMode: sizingMode,
+            context: context(parentPaneId: parentPaneId, store: store)
         )
+    }
+
+    static func shouldAcceptDrop(
+        payload: SplitDropPayload,
+        target: DrawerRearrangeTarget,
+        sizingMode: DropSizingMode,
+        context: Context
+    ) -> Bool {
+        guard case .existingPane(let sourcePaneId, _) = payload.kind else {
+            assertionFailure("Drawer drop dispatch received non-pane payload")
+            RestoreTrace.log(
+                "DrawerDropDispatch.shouldAcceptDrop rejected nonPanePayload=\(String(describing: payload))")
+            return false
+        }
+        guard context.state.drawerParentPaneId(of: sourcePaneId) == context.parentPaneId else {
+            RestoreTrace.log(
+                "DrawerDropDispatch.shouldAcceptDrop rejected parentMismatch source=\(sourcePaneId) sourceParent=\(String(describing: context.state.drawerParentPaneId(of: sourcePaneId))) destinationParent=\(context.parentPaneId)"
+            )
+            return false
+        }
+
         let moveAction = PaneActionCommand.moveDrawerPane(
-            parentPaneId: parentPaneId,
+            parentPaneId: context.parentPaneId,
             drawerPaneId: sourcePaneId,
             target: target,
             sizingMode: sizingMode
         )
-        let validation = WorkspaceCommandValidator.validate(moveAction, state: snapshot)
+        let validation = WorkspaceCommandValidator.validate(moveAction, state: context.state)
         RestoreTrace.log(
-            "DrawerDropDispatch.shouldAcceptDrop parent=\(parentPaneId) source=\(sourcePaneId) target=\(String(describing: target)) validation=\(String(describing: validation))"
+            "DrawerDropDispatch.shouldAcceptDrop parent=\(context.parentPaneId) source=\(sourcePaneId) target=\(String(describing: target)) validation=\(String(describing: validation))"
         )
         if case .success = validation {
             return true
@@ -52,13 +86,40 @@ enum DrawerDropDispatch {
         actionDispatcher: PaneActionDispatching,
         store: WorkspaceStore
     ) {
+        handleDrop(
+            payload: payload,
+            target: target,
+            sizingMode: sizingMode,
+            context: context(parentPaneId: parentPaneId, store: store),
+            actionDispatcher: actionDispatcher
+        )
+    }
+
+    static func handleDrop(
+        payload: SplitDropPayload,
+        target: DrawerRearrangeTarget,
+        sizingMode: DropSizingMode,
+        context: Context,
+        actionDispatcher: PaneActionDispatching
+    ) {
+        guard
+            shouldAcceptDrop(
+                payload: payload,
+                target: target,
+                sizingMode: sizingMode,
+                context: context
+            )
+        else {
+            RestoreTrace.log(
+                "DrawerDropDispatch.handleDrop rejectedDuringRevalidation parent=\(context.parentPaneId) payload=\(String(describing: payload)) target=\(String(describing: target))"
+            )
+            return
+        }
         guard case .existingPane(let sourcePaneId, _) = payload.kind else { return }
-        guard let sourcePane = store.paneAtom.pane(sourcePaneId) else { return }
-        guard sourcePane.parentPaneId == parentPaneId else { return }
 
         actionDispatcher.dispatch(
             .moveDrawerPane(
-                parentPaneId: parentPaneId,
+                parentPaneId: context.parentPaneId,
                 drawerPaneId: sourcePaneId,
                 target: target,
                 sizingMode: sizingMode

@@ -18,13 +18,31 @@ struct DrawerDragOwnershipPolicyTests {
     }
 
     @Test
-    func mainSplitDragEnabled_expandedDrawerDisablesMainCapture() {
+    func mainSplitDragEnabled_expandedDrawerKeepsMainCaptureArmed() {
         let isEnabled = DrawerDragOwnershipPolicy.mainSplitDragEnabled(
             managementLayerActive: true,
             expandedDrawerParentPaneId: UUID()
         )
 
-        #expect(!isEnabled)
+        #expect(isEnabled)
+    }
+
+    @Test
+    func retainedDrawerDropTarget_clearsWhenDrawerCloses() {
+        let target = DrawerRearrangeTarget.rowSlot(row: .top, insertionIndex: 1)
+
+        #expect(
+            DrawerDragOwnershipPolicy.retainedDrawerDropTarget(
+                target,
+                expandedDrawerParentPaneId: nil
+            ) == nil
+        )
+        #expect(
+            DrawerDragOwnershipPolicy.retainedDrawerDropTarget(
+                target,
+                expandedDrawerParentPaneId: UUID()
+            ) == target
+        )
     }
 
     @Test

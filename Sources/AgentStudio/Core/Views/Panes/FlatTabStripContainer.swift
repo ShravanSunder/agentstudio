@@ -19,11 +19,11 @@ struct FlatTabStripContainer: View {
     @State private var paneFrames: [UUID: CGRect] = [:]
     @State private var iconBarFrame: CGRect = .zero
     @State private var dropTarget: PaneDropTarget?
-    @State private var dropTargetWatchdogTask: Task<Void, Never>?
+    @State private var dropTargetMouseUpMonitor: Any?
     @State private var drawerPaneFramesInDrawer: [UUID: CGRect] = [:]
     @State private var drawerPanelFrameInTab: CGRect = .zero
     @State private var drawerDropTarget: DrawerRearrangeTarget?
-    @State private var drawerDropTargetWatchdogTask: Task<Void, Never>?
+    @State private var drawerDropTargetMouseUpMonitor: Any?
     private var managementLayer: ManagementLayerAtom {
         atom(\.managementLayer)
     }
@@ -178,23 +178,29 @@ struct FlatTabStripContainer: View {
                     drawerDropTarget = nil
                 }
             }
+            .onChange(of: expandedDrawerParentPaneId) { _, parentPaneId in
+                drawerDropTarget = DrawerDragOwnershipPolicy.retainedDrawerDropTarget(
+                    drawerDropTarget,
+                    expandedDrawerParentPaneId: parentPaneId
+                )
+            }
             .onChange(of: dropTarget) { _, target in
                 if target == nil {
-                    stopDropTargetWatchdog()
+                    stopDropTargetMouseUpMonitor()
                 } else {
-                    startDropTargetWatchdog()
+                    startDropTargetMouseUpMonitor()
                 }
             }
             .onChange(of: drawerDropTarget) { _, target in
                 if target == nil {
-                    stopDrawerDropTargetWatchdog()
+                    stopDrawerDropTargetMouseUpMonitor()
                 } else {
-                    startDrawerDropTargetWatchdog()
+                    startDrawerDropTargetMouseUpMonitor()
                 }
             }
             .onDisappear {
-                stopDropTargetWatchdog()
-                stopDrawerDropTargetWatchdog()
+                stopDropTargetMouseUpMonitor()
+                stopDrawerDropTargetMouseUpMonitor()
             }
         }
         .animation(.easeOut(duration: AppStyles.General.Animation.standard), value: atom(\.uiState).showMinimizedBars)
@@ -213,6 +219,10 @@ struct FlatTabStripContainer: View {
             let expandedDrawer = store.paneAtom.pane(expandedDrawerPaneId)?.drawer
         {
             let drawerBounds = CGRect(origin: .zero, size: drawerPanelFrameInTab.size)
+            let drawerDispatchContext = DrawerDropDispatch.context(
+                parentPaneId: expandedDrawerPaneId,
+                store: store
+            )
             DrawerSplitContainerDropCaptureOverlay(
                 paneFrames: drawerPaneFramesInDrawer,
                 layout: expandedDrawer.layout,
@@ -225,8 +235,7 @@ struct FlatTabStripContainer: View {
                         payload: payload,
                         target: target,
                         sizingMode: sizingMode,
-                        parentPaneId: expandedDrawerPaneId,
-                        store: store
+                        context: drawerDispatchContext
                     )
                 },
                 handleDrop: { payload, target, sizingMode in
@@ -234,9 +243,8 @@ struct FlatTabStripContainer: View {
                         payload: payload,
                         target: target,
                         sizingMode: sizingMode,
-                        parentPaneId: expandedDrawerPaneId,
-                        actionDispatcher: actionDispatcher,
-                        store: store
+                        context: drawerDispatchContext,
+                        actionDispatcher: actionDispatcher
                     )
                 }
             )
@@ -265,49 +273,35 @@ struct FlatTabStripContainer: View {
         )
     }
 
-    private func startDropTargetWatchdog() {
-        stopDropTargetWatchdog()
+    private func startDropTargetMouseUpMonitor() {
+        stopDropTargetMouseUpMonitor()
 
-        dropTargetWatchdogTask = Task { @MainActor in
-            while !Task.isCancelled {
-                if DropTargetLatchState.shouldClearTarget(
-                    appIsActive: appLifecycleStore.isActive,
-                    pressedMouseButtons: NSEvent.pressedMouseButtons
-                ) {
-                    dropTarget = nil
-                    return
-                }
-
-                try? await Task.sleep(for: .milliseconds(16))
-            }
+        dropTargetMouseUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { event in
+            dropTarget = nil
+            return event
         }
     }
 
-    private func stopDropTargetWatchdog() {
-        dropTargetWatchdogTask?.cancel()
-        dropTargetWatchdogTask = nil
-    }
-
-    private func startDrawerDropTargetWatchdog() {
-        stopDrawerDropTargetWatchdog()
-
-        drawerDropTargetWatchdogTask = Task { @MainActor in
-            while !Task.isCancelled {
-                if DropTargetLatchState.shouldClearTarget(
-                    appIsActive: appLifecycleStore.isActive,
-                    pressedMouseButtons: NSEvent.pressedMouseButtons
-                ) {
-                    drawerDropTarget = nil
-                    return
-                }
-
-                try? await Task.sleep(for: .milliseconds(16))
-            }
+    private func stopDropTargetMouseUpMonitor() {
+        if let dropTargetMouseUpMonitor {
+            NSEvent.removeMonitor(dropTargetMouseUpMonitor)
+            self.dropTargetMouseUpMonitor = nil
         }
     }
 
-    private func stopDrawerDropTargetWatchdog() {
-        drawerDropTargetWatchdogTask?.cancel()
-        drawerDropTargetWatchdogTask = nil
+    private func startDrawerDropTargetMouseUpMonitor() {
+        stopDrawerDropTargetMouseUpMonitor()
+
+        drawerDropTargetMouseUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp) { event in
+            drawerDropTarget = nil
+            return event
+        }
+    }
+
+    private func stopDrawerDropTargetMouseUpMonitor() {
+        if let drawerDropTargetMouseUpMonitor {
+            NSEvent.removeMonitor(drawerDropTargetMouseUpMonitor)
+            self.drawerDropTargetMouseUpMonitor = nil
+        }
     }
 }

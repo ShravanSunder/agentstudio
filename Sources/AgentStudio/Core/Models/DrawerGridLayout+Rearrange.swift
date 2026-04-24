@@ -7,6 +7,7 @@ enum DrawerProjectedMoveFailure: Error, Equatable, Hashable, Sendable, CustomStr
     case secondRowAlreadyExists
     case missingBottomRow
     case invalidInsertionIndex(row: DrawerRowPlacement, insertionIndex: Int, paneCount: Int)
+    case invalidSizingTarget(paneIndex: Int, paneCount: Int)
 
     var description: String {
         switch self {
@@ -22,6 +23,8 @@ enum DrawerProjectedMoveFailure: Error, Equatable, Hashable, Sendable, CustomStr
             return "missingBottomRow"
         case .invalidInsertionIndex(let row, let insertionIndex, let paneCount):
             return "invalidInsertionIndex(row: \(row), insertionIndex: \(insertionIndex), paneCount: \(paneCount))"
+        case .invalidSizingTarget(let paneIndex, let paneCount):
+            return "invalidSizingTarget(paneIndex: \(paneIndex), paneCount: \(paneCount))"
         }
     }
 }
@@ -96,12 +99,21 @@ extension DrawerGridLayout {
                     )
                 )
             }
-            let updated = topRow.insertingWithPolicy(
-                paneId: paneId,
-                insertionIndex: insertionIndex,
-                sizingMode: sizingMode,
-                preferredTargetPaneIndex: preferredTargetPaneIndex
-            )
+            guard
+                let updated = topRow.insertingWithPolicy(
+                    paneId: paneId,
+                    insertionIndex: insertionIndex,
+                    sizingMode: sizingMode,
+                    preferredTargetPaneIndex: preferredTargetPaneIndex
+                )
+            else {
+                return .failure(
+                    .invalidSizingTarget(
+                        paneIndex: preferredTargetPaneIndex ?? insertionIndex,
+                        paneCount: topRow.paneIds.count
+                    )
+                )
+            }
             return .success(
                 DrawerGridLayout(
                     topRow: updated,
@@ -119,12 +131,21 @@ extension DrawerGridLayout {
                     )
                 )
             }
-            let updated = bottomRow.insertingWithPolicy(
-                paneId: paneId,
-                insertionIndex: insertionIndex,
-                sizingMode: sizingMode,
-                preferredTargetPaneIndex: preferredTargetPaneIndex
-            )
+            guard
+                let updated = bottomRow.insertingWithPolicy(
+                    paneId: paneId,
+                    insertionIndex: insertionIndex,
+                    sizingMode: sizingMode,
+                    preferredTargetPaneIndex: preferredTargetPaneIndex
+                )
+            else {
+                return .failure(
+                    .invalidSizingTarget(
+                        paneIndex: preferredTargetPaneIndex ?? insertionIndex,
+                        paneCount: bottomRow.paneIds.count
+                    )
+                )
+            }
             return .success(
                 DrawerGridLayout(
                     topRow: topRow,
@@ -219,20 +240,26 @@ extension Layout {
         insertionIndex: Int,
         sizingMode: DropSizingMode,
         preferredTargetPaneIndex: Int?
-    ) -> Layout {
+    ) -> Layout? {
         if paneIds.isEmpty {
             return Layout(paneId: paneId)
         }
         let clampedIndex = max(0, min(insertionIndex, paneIds.count))
-        let updatedRatios = DropSizingRatioPolicy.ratiosAfterInsertion(
-            existingRatios: ratios,
-            insertionIndex: clampedIndex,
-            mode: insertionSizingMode(
+        guard
+            let insertionSizingMode = insertionSizingMode(
                 for: sizingMode,
                 insertionIndex: clampedIndex,
                 paneCount: paneIds.count,
                 preferredTargetPaneIndex: preferredTargetPaneIndex
             )
+        else {
+            return nil
+        }
+
+        let updatedRatios = DropSizingRatioPolicy.ratiosAfterInsertion(
+            existingRatios: ratios,
+            insertionIndex: clampedIndex,
+            mode: insertionSizingMode
         )
         return inserting(paneId: paneId, atIndex: clampedIndex, ratios: updatedRatios)
     }

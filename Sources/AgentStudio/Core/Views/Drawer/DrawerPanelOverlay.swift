@@ -31,15 +31,16 @@ final class DrawerDismissMonitor {
             guard let screenMaxY = (window.screen ?? NSScreen.main)?.frame.maxY else { return event }
             let globalPoint = CGPoint(x: screenPoint.x, y: screenMaxY - screenPoint.y)
 
-            // Check if click is inside any exclusion zone
-            if self.drawerRect.contains(globalPoint) || self.iconBarRect.contains(globalPoint) {
-                return event
+            if self.shouldDismiss(globalPoint: globalPoint) {
+                self.onDismiss()
             }
-
-            // Click is outside — dismiss the drawer
-            self.onDismiss()
             return event
         }
+    }
+
+    func shouldDismiss(globalPoint: CGPoint) -> Bool {
+        guard !drawerRect.isEmpty else { return false }
+        return !drawerRect.contains(globalPoint) && !iconBarRect.contains(globalPoint)
     }
 
     func remove() {
@@ -62,8 +63,7 @@ final class DrawerDismissMonitor {
 struct DrawerPanelGlobalFrameKey: PreferenceKey {
     static let defaultValue: CGRect = .zero
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        let next = nextValue()
-        if next != .zero { value = next }
+        value = nextValue()
     }
 }
 
@@ -74,8 +74,7 @@ struct DrawerPanelGlobalFrameKey: PreferenceKey {
 struct DrawerPanelFrameInTabKey: PreferenceKey {
     static let defaultValue: CGRect = .zero
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        let next = nextValue()
-        if next != .zero { value = next }
+        value = nextValue()
     }
 }
 
@@ -86,8 +85,7 @@ struct DrawerPanelFrameInTabKey: PreferenceKey {
 struct DrawerIconBarFrameKey: PreferenceKey {
     static let defaultValue: CGRect = .zero
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        let next = nextValue()
-        if next != .zero { value = next }
+        value = nextValue()
     }
 }
 

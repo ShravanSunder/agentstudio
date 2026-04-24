@@ -85,15 +85,21 @@ struct Layout: Codable, Hashable {
             insertIndex = targetIndex + 1
         }
 
-        let updatedRatios = DropSizingRatioPolicy.ratiosAfterInsertion(
-            existingRatios: ratios,
-            insertionIndex: insertIndex,
-            mode: insertionSizingMode(
+        guard
+            let sizingMode = insertionSizingMode(
                 for: sizingMode,
                 insertionIndex: insertIndex,
                 paneCount: panes.count,
                 preferredTargetPaneIndex: targetIndex
             )
+        else {
+            return nil
+        }
+
+        let updatedRatios = DropSizingRatioPolicy.ratiosAfterInsertion(
+            existingRatios: ratios,
+            insertionIndex: insertIndex,
+            mode: sizingMode
         )
         return inserting(paneId: paneId, atIndex: insertIndex, ratios: updatedRatios)
     }
@@ -224,15 +230,31 @@ struct Layout: Codable, Hashable {
         insertionIndex: Int,
         paneCount: Int,
         preferredTargetPaneIndex: Int?
-    ) -> DropInsertionSizingMode {
+    ) -> DropInsertionSizingMode? {
         switch sizingMode {
         case .proportional:
             return .proportional
         case .halveTarget:
             if let preferredTargetPaneIndex {
-                return .halveTarget(paneIndex: preferredTargetPaneIndex)
+                guard
+                    let targetPaneIndex = DropTargetPaneIndex(
+                        validating: preferredTargetPaneIndex,
+                        paneCount: paneCount
+                    )
+                else {
+                    return nil
+                }
+                return .halveTarget(paneIndex: targetPaneIndex)
             }
             let targetPaneIndex = max(0, min(max(insertionIndex - 1, 0), paneCount - 1))
+            guard
+                let targetPaneIndex = DropTargetPaneIndex(
+                    validating: targetPaneIndex,
+                    paneCount: paneCount
+                )
+            else {
+                return nil
+            }
             return .halveTarget(paneIndex: targetPaneIndex)
         }
     }

@@ -348,6 +348,52 @@ struct DrawerGridLayoutRearrangeTests {
         )
     }
 
+    @Test
+    func legacyMoveTarget_topRowHorizontalDirectionsReturnAdjacentSlots() {
+        let a = UUID()
+        let b = UUID()
+        let layout = DrawerGridLayout(topRow: Layout.autoTiled([a, b]))
+
+        #expect(layout.legacyMoveTarget(targetPaneId: b, direction: .left) == .rowSlot(row: .top, insertionIndex: 1))
+        #expect(layout.legacyMoveTarget(targetPaneId: b, direction: .right) == .rowSlot(row: .top, insertionIndex: 2))
+    }
+
+    @Test
+    func legacyMoveTarget_topRowVerticalDirectionsCreateOrAddressBottomRow() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let singleRow = DrawerGridLayout(topRow: Layout.autoTiled([a, b]))
+        let twoRows = DrawerGridLayout(
+            topRow: Layout.autoTiled([a, b]),
+            bottomRow: Layout.autoTiled([c])
+        )
+
+        #expect(singleRow.legacyMoveTarget(targetPaneId: b, direction: .up) == .createSecondRow(position: .top))
+        #expect(singleRow.legacyMoveTarget(targetPaneId: b, direction: .down) == .createSecondRow(position: .bottom))
+        #expect(twoRows.legacyMoveTarget(targetPaneId: b, direction: .up) == nil)
+        #expect(
+            twoRows.legacyMoveTarget(targetPaneId: b, direction: .down) == .rowSlot(row: .bottom, insertionIndex: 1))
+    }
+
+    @Test
+    func legacyMoveTarget_bottomRowDirectionsReturnSlotsOrTopRowAddress() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let d = UUID()
+        let layout = DrawerGridLayout(
+            topRow: Layout.autoTiled([a]),
+            bottomRow: Layout.autoTiled([b, c, d])
+        )
+
+        #expect(layout.legacyMoveTarget(targetPaneId: c, direction: .left) == .rowSlot(row: .bottom, insertionIndex: 1))
+        #expect(
+            layout.legacyMoveTarget(targetPaneId: c, direction: .right) == .rowSlot(row: .bottom, insertionIndex: 2))
+        #expect(layout.legacyMoveTarget(targetPaneId: c, direction: .up) == .rowSlot(row: .top, insertionIndex: 1))
+        #expect(layout.legacyMoveTarget(targetPaneId: c, direction: .down) == nil)
+    }
+
     private func expectApprox(
         _ actual: [Double],
         _ expected: [Double],

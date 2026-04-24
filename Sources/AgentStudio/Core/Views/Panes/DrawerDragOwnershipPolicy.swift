@@ -21,7 +21,7 @@ enum DrawerDragOwnershipPolicy {
         managementLayerActive: Bool,
         expandedDrawerParentPaneId: UUID?
     ) -> Bool {
-        managementLayerActive && expandedDrawerParentPaneId == nil
+        managementLayerActive
     }
 
     static func drawerCaptureEnabled(
@@ -30,5 +30,12 @@ enum DrawerDragOwnershipPolicy {
         drawerPanelFrameInTab: CGRect
     ) -> Bool {
         managementLayerActive && expandedDrawerParentPaneId != nil && !drawerPanelFrameInTab.isEmpty
+    }
+
+    static func retainedDrawerDropTarget(
+        _ target: DrawerRearrangeTarget?,
+        expandedDrawerParentPaneId: UUID?
+    ) -> DrawerRearrangeTarget? {
+        expandedDrawerParentPaneId == nil ? nil : target
     }
 }

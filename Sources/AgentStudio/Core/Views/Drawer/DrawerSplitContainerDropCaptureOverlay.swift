@@ -130,7 +130,7 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
 
             let target = DrawerPaneDragCoordinator.resolveLatchedTarget(
                 location: location,
-                geometry: drawerPaneDragGeometry,
+                geometry: drawerPaneDragGeometry(excluding: excludedPaneIds(from: payload)),
                 currentTarget: targetBinding.wrappedValue,
                 shouldAcceptDrop: { target in
                     shouldAcceptDropClosure(
@@ -157,22 +157,26 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
                 )
                 return false
             }
+            let geometry = drawerPaneDragGeometry(excluding: excludedPaneIds(from: payload))
             guard
-                let resolvedTarget = DrawerPaneDragCoordinator.resolveTarget(
-                    location: location,
-                    geometry: drawerPaneDragGeometry
-                ),
-                shouldAcceptDropClosure(
-                    payload,
-                    resolvedTarget,
-                    DrawerPaneDragCoordinator.sizingMode(
-                        for: resolvedTarget,
-                        isShiftHeld: NSEvent.modifierFlags.contains(.shift)
+                let resolvedTarget = targetBinding.wrappedValue
+                    ?? DrawerPaneDragCoordinator.resolveTarget(
+                        location: location,
+                        geometry: geometry
                     )
-                )
             else {
                 RestoreTrace.log(
                     "DrawerSplit.performDrop rejected location=\(NSStringFromPoint(location)) payload=\(String(describing: payload))"
+                )
+                return false
+            }
+            let sizingMode = DrawerPaneDragCoordinator.sizingMode(
+                for: resolvedTarget,
+                isShiftHeld: NSEvent.modifierFlags.contains(.shift)
+            )
+            guard shouldAcceptDropClosure(payload, resolvedTarget, sizingMode) else {
+                RestoreTrace.log(
+                    "DrawerSplit.performDrop validationRejected target=\(String(describing: resolvedTarget)) location=\(NSStringFromPoint(location)) payload=\(String(describing: payload))"
                 )
                 return false
             }
@@ -183,21 +187,24 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
             handleDropClosure(
                 payload,
                 resolvedTarget,
-                DrawerPaneDragCoordinator.sizingMode(
-                    for: resolvedTarget,
-                    isShiftHeld: NSEvent.modifierFlags.contains(.shift)
-                )
+                sizingMode
             )
             return true
         }
 
-        private var drawerPaneDragGeometry: DrawerPaneDragGeometry {
+        private func drawerPaneDragGeometry(excluding excludedPaneIds: Set<UUID>) -> DrawerPaneDragGeometry {
             DrawerPaneDragGeometry(
                 paneFrames: paneFrames,
                 layout: layout,
                 containerBounds: containerBounds,
-                minimizedPaneIds: minimizedPaneIds
+                minimizedPaneIds: minimizedPaneIds,
+                excludedPaneIds: excludedPaneIds
             )
+        }
+
+        private func excludedPaneIds(from payload: SplitDropPayload) -> Set<UUID> {
+            guard case .existingPane(let sourcePaneId, _) = payload.kind else { return [] }
+            return [sourcePaneId]
         }
     }
 }

@@ -102,6 +102,24 @@ final class DrawerDropDispatchTests {
         #expect(dispatcher.dispatchedActions.isEmpty)
     }
 
+    @Test
+    func handleDrop_invalidTarget_doesNotDispatchAfterRevalidation() throws {
+        let fixture = try makeDrawerFixture()
+        let dispatcher = RecordingPaneActionDispatcher()
+        let missingTargetPaneId = UUID()
+
+        DrawerDropDispatch.handleDrop(
+            payload: .init(kind: .existingPane(paneId: fixture.firstDrawerPaneId, sourceTabId: fixture.tabId)),
+            target: .paneSplit(paneId: missingTargetPaneId, side: .left),
+            sizingMode: .halveTarget,
+            parentPaneId: fixture.parentPaneId,
+            actionDispatcher: dispatcher,
+            store: fixture.store
+        )
+
+        #expect(dispatcher.dispatchedActions.isEmpty)
+    }
+
     private func addDrawerParent(to store: WorkspaceStore) throws -> DrawerParentFixture {
         let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: parentPane.id)

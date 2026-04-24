@@ -5,8 +5,17 @@ enum DropSizingMode: Hashable, Sendable {
     case proportional
 }
 
+struct DropTargetPaneIndex: Hashable, Sendable {
+    let value: Int
+
+    init?(validating index: Int, paneCount: Int) {
+        guard index >= 0, index < paneCount else { return nil }
+        self.value = index
+    }
+}
+
 enum DropInsertionSizingMode: Hashable, Sendable {
-    case halveTarget(paneIndex: Int)
+    case halveTarget(paneIndex: DropTargetPaneIndex)
     case proportional
 }
 
@@ -22,13 +31,9 @@ enum DropSizingRatioPolicy {
 
         switch mode {
         case .halveTarget(let targetPaneIndex):
-            precondition(
-                targetPaneIndex >= 0 && targetPaneIndex < existingRatios.count,
-                "halveTarget insertion requires a valid target pane index"
-            )
             var updatedRatios = existingRatios
-            let halvedTargetRatio = updatedRatios[targetPaneIndex] / 2.0
-            updatedRatios[targetPaneIndex] = halvedTargetRatio
+            let halvedTargetRatio = updatedRatios[targetPaneIndex.value] / 2.0
+            updatedRatios[targetPaneIndex.value] = halvedTargetRatio
             updatedRatios.insert(halvedTargetRatio, at: clampedInsertionIndex)
             return updatedRatios
 

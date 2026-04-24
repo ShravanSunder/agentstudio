@@ -10,7 +10,7 @@ struct DropSizingRatioPolicyTests {
         let result = DropSizingRatioPolicy.ratiosAfterInsertion(
             existingRatios: [0.5, 0.3, 0.2],
             insertionIndex: 2,
-            mode: .halveTarget(paneIndex: 1)
+            mode: .halveTarget(paneIndex: DropTargetPaneIndex(validating: 1, paneCount: 3)!)
         )
 
         #expect(result.count == 4)
@@ -26,7 +26,7 @@ struct DropSizingRatioPolicyTests {
         let result = DropSizingRatioPolicy.ratiosAfterInsertion(
             existingRatios: [0.6, 0.4],
             insertionIndex: 1,
-            mode: .halveTarget(paneIndex: 0)
+            mode: .halveTarget(paneIndex: DropTargetPaneIndex(validating: 0, paneCount: 2)!)
         )
 
         #expect(result.count == 3)
@@ -34,6 +34,12 @@ struct DropSizingRatioPolicyTests {
         #expect(abs(result[1] - 0.3) < 0.001)
         #expect(abs(result[2] - 0.4) < 0.001)
         #expect(abs(result.reduce(0, +) - 1.0) < 0.001)
+    }
+
+    @Test
+    func dropTargetPaneIndex_rejectsOutOfBoundsIndexBeforeRatioPolicy() {
+        #expect(DropTargetPaneIndex(validating: -1, paneCount: 2) == nil)
+        #expect(DropTargetPaneIndex(validating: 2, paneCount: 2) == nil)
     }
 
     @Test

@@ -6,9 +6,12 @@ struct DrawerPaneDragGeometry {
     let layout: DrawerGridLayout
     let containerBounds: CGRect
     let minimizedPaneIds: Set<UUID>
+    let excludedPaneIds: Set<UUID>
 
     var splittablePaneIds: Set<UUID> {
-        Set(layout.paneIds).subtracting(minimizedPaneIds)
+        Set(layout.paneIds)
+            .subtracting(minimizedPaneIds)
+            .subtracting(excludedPaneIds)
     }
 }
 
@@ -111,7 +114,8 @@ struct DrawerPaneDragCoordinator {
         case .paneSplit(let paneId, let side):
             return .paneSplit(paneId: paneId, side: side)
         case .paneSlot(let row, let index):
-            return .rowSlot(row: drawerRow(from: row), insertionIndex: index)
+            guard let row = drawerRow(from: row) else { return nil }
+            return .rowSlot(row: row, insertionIndex: index)
         case .paneNewRow(let position):
             return .createSecondRow(position: drawerRow(from: position))
         }
@@ -128,7 +132,7 @@ struct DrawerPaneDragCoordinator {
         }
     }
 
-    private static func drawerRow(from row: RowID) -> DrawerRowPlacement {
+    private static func drawerRow(from row: RowID) -> DrawerRowPlacement? {
         switch row {
         case .drawerTop:
             return .top
@@ -136,7 +140,7 @@ struct DrawerPaneDragCoordinator {
             return .bottom
         case .main:
             assertionFailure("Drawer target mapping received non-drawer row")
-            return .top
+            return nil
         }
     }
 

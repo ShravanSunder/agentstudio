@@ -82,6 +82,28 @@ struct DrawerPaneDragCoordinatorTests {
     }
 
     @Test
+    func oneRow_sourcePaneIsNotSplittableAndFallsBackToSlot() {
+        let a = UUID()
+        let b = UUID()
+        let frames: [UUID: CGRect] = [
+            a: CGRect(x: 0, y: 40, width: 100, height: 80),
+            b: CGRect(x: 110, y: 40, width: 100, height: 80),
+        ]
+
+        let target = DrawerPaneDragCoordinator.resolveTarget(
+            location: CGPoint(x: 25, y: 80),
+            geometry: geometry(
+                paneFrames: frames,
+                layout: DrawerGridLayout(topRow: Layout.autoTiled([a, b])),
+                bounds: CGRect(x: 0, y: 0, width: 220, height: 140),
+                excludedPaneIds: [a]
+            )
+        )
+
+        #expect(target == .rowSlot(row: .top, insertionIndex: 0))
+    }
+
+    @Test
     func oneRow_resolvesTopBandToCreateSecondRow() {
         let a = UUID()
         let frames: [UUID: CGRect] = [a: CGRect(x: 20, y: 40, width: 100, height: 80)]
@@ -239,13 +261,15 @@ struct DrawerPaneDragCoordinatorTests {
         paneFrames: [UUID: CGRect],
         layout: DrawerGridLayout,
         bounds: CGRect,
-        minimizedPaneIds: Set<UUID> = []
+        minimizedPaneIds: Set<UUID> = [],
+        excludedPaneIds: Set<UUID> = []
     ) -> DrawerPaneDragGeometry {
         DrawerPaneDragGeometry(
             paneFrames: paneFrames,
             layout: layout,
             containerBounds: bounds,
-            minimizedPaneIds: minimizedPaneIds
+            minimizedPaneIds: minimizedPaneIds,
+            excludedPaneIds: excludedPaneIds
         )
     }
 }

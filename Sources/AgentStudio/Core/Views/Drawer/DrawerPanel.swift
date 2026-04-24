@@ -223,7 +223,8 @@ struct DrawerPanel: View {
                                 paneFrames: drawerPaneFrames,
                                 layout: layout,
                                 containerBounds: containerBounds,
-                                minimizedPaneIds: minimizedPaneIds
+                                minimizedPaneIds: minimizedPaneIds,
+                                excludedPaneIds: []
                             )
                         )
                     )
