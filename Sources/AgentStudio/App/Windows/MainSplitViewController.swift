@@ -4,6 +4,8 @@ import SwiftUI
 struct SidebarRootViewDependencies {
     let store: WorkspaceStore
     let uiState: UIStateAtom
+    let sidebarCache: SidebarCacheAtom
+    let inboxFilterDraft: InboxFilterDraftAtom
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
     let onRefocusActivePane: () -> Void
@@ -23,6 +25,8 @@ class MainSplitViewController: NSSplitViewController {
             SidebarSurfaceHost(
                 store: dependencies.store,
                 uiState: dependencies.uiState,
+                sidebarCache: dependencies.sidebarCache,
+                inboxFilterDraft: dependencies.inboxFilterDraft,
                 inboxAtom: dependencies.inboxAtom,
                 prefsAtom: dependencies.prefsAtom,
                 onRefocusActivePane: dependencies.onRefocusActivePane,
@@ -110,6 +114,8 @@ class MainSplitViewController: NSSplitViewController {
             SidebarRootViewDependencies(
                 store: store,
                 uiState: uiState,
+                sidebarCache: atom(\.sidebarCache),
+                inboxFilterDraft: atom(\.inboxFilterDraft),
                 inboxAtom: inboxAtom,
                 prefsAtom: inboxPrefsAtom,
                 onRefocusActivePane: { [weak paneTabVC] in

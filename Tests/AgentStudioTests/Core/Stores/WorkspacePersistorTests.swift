@@ -446,8 +446,6 @@ final class WorkspacePersistorTests {
         let workspaceId = UUID()
         let uiState = WorkspacePersistor.PersistableUIState(
             workspaceId: workspaceId,
-            expandedGroups: ["askluna", "personal"],
-            checkoutColors: ["repoA": "#22cc88"],
             filterText: "forge",
             isFilterVisible: true
         )
@@ -456,10 +454,27 @@ final class WorkspacePersistorTests {
         let loaded = persistor.loadUI(for: workspaceId).value
 
         #expect(loaded?.workspaceId == workspaceId)
-        #expect(loaded?.expandedGroups == ["askluna", "personal"])
-        #expect(loaded?.checkoutColors["repoA"] == "#22cc88")
         #expect(loaded?.filterText == "forge")
         #expect(loaded?.isFilterVisible == true)
+    }
+
+    @Test
+    func test_saveAndLoad_sidebarCache() throws {
+        let workspaceId = UUID()
+        let sidebarCache = WorkspacePersistor.PersistableSidebarCache(
+            workspaceId: workspaceId,
+            expandedGroups: ["askluna", "personal"],
+            checkoutColors: ["repoA": "#22cc88"],
+            collapsedInboxGroups: ["kind:terminal"]
+        )
+
+        try persistor.saveSidebarCache(sidebarCache)
+        let loaded = persistor.loadSidebarCache(for: workspaceId).value
+
+        #expect(loaded?.workspaceId == workspaceId)
+        #expect(loaded?.expandedGroups == ["askluna", "personal"])
+        #expect(loaded?.checkoutColors["repoA"] == "#22cc88")
+        #expect(loaded?.collapsedInboxGroups == ["kind:terminal"])
     }
 
     @Test
@@ -556,14 +571,13 @@ final class WorkspacePersistorTests {
     }
 
     @Test
-    func test_loadUI_missingRequiredField_returnsCorrupt() throws {
-        // Arrange — UI JSON missing required `expandedGroups`
+    func test_loadUI_missingOptionalCompositionFields_defaults() throws {
+        // Arrange — UI JSON missing optional composition fields.
         let workspaceId = UUID()
         let json = """
             {
                 "schemaVersion": 1,
                 "workspaceId": "\(workspaceId.uuidString)",
-                "checkoutColors": {},
                 "filterText": "",
                 "isFilterVisible": false
             }
@@ -571,8 +585,56 @@ final class WorkspacePersistorTests {
         let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
-        // Act & Assert — missing `expandedGroups` must be rejected, not silently defaulted
-        #expect(persistor.loadUI(for: workspaceId).isCorrupt)
+        // Act & Assert — UI composition fields default without corrupting the whole file.
+        #expect(persistor.loadUI(for: workspaceId).value?.showMinimizedBars == true)
+    }
+
+    @Test
+    func test_loadUI_sliceTypeError_defaultsBadSlice() throws {
+        let workspaceId = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "workspaceId": "\(workspaceId.uuidString)",
+                "filterText": 42,
+                "isFilterVisible": "bad-value",
+                "showMinimizedBars": false,
+                "sidebarCollapsed": true,
+                "sidebarSurface": "inbox"
+            }
+            """
+        let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
+        try Data(json.utf8).write(to: uiURL, options: .atomic)
+
+        let loaded = persistor.loadUI(for: workspaceId).value
+
+        #expect(loaded?.filterText.isEmpty == true)
+        #expect(loaded?.isFilterVisible == false)
+        #expect(loaded?.showMinimizedBars == false)
+        #expect(loaded?.sidebarCollapsed == true)
+        #expect(loaded?.sidebarSurface == .inbox)
+    }
+
+    @Test
+    func test_loadSidebarCache_sliceTypeError_defaultsBadSlice() throws {
+        let workspaceId = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "workspaceId": "\(workspaceId.uuidString)",
+                "expandedGroups": 42,
+                "checkoutColors": {"repoA": "#22cc88"},
+                "collapsedInboxGroups": ["kind:terminal"]
+            }
+            """
+        let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
+        try Data(json.utf8).write(to: cacheURL, options: .atomic)
+
+        let loaded = persistor.loadSidebarCache(for: workspaceId).value
+
+        #expect(loaded?.expandedGroups.isEmpty == true)
+        #expect(loaded?.checkoutColors == ["repoA": "#22cc88"])
+        #expect(loaded?.collapsedInboxGroups == ["kind:terminal"])
     }
 
 }

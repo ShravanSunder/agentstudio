@@ -19,6 +19,8 @@ final class InboxNotificationRouter {
     private var busTask: Task<Void, Never>?
     private var focusTask: Task<Void, Never>?
     private var sandboxHealthWasHealthyByPaneId: [UUID: Bool] = [:]
+    private var progressErrorWasActiveByPaneId: [UUID: Bool] = [:]
+    private var rendererWasHealthyByPaneId: [UUID: Bool] = [:]
 
     init(
         bus: EventBus<RuntimeEnvelope>,
@@ -44,6 +46,8 @@ final class InboxNotificationRouter {
         focusTask?.cancel()
         focusTask = nil
         sandboxHealthWasHealthyByPaneId.removeAll()
+        progressErrorWasActiveByPaneId.removeAll()
+        rendererWasHealthyByPaneId.removeAll()
     }
 
     func start() async {
@@ -110,6 +114,10 @@ final class InboxNotificationRouter {
             guard envelope.paneId.uuid != attendedPane.attendedPaneId else { return nil }
             guard duration >= AppPolicies.InboxNotification.commandFinishedMinDurationSeconds else { return nil }
             return .commandFinished
+        case .terminal(.progressReportUpdated(let progress)):
+            return classifyProgressReport(progress, paneId: envelope.paneId.uuid)
+        case .terminal(.rendererHealthChanged(let healthy)):
+            return classifyRendererHealth(healthy, paneId: envelope.paneId.uuid)
         case .artifact(.approvalRequested):
             return .approvalRequested
         case .security(.networkEgressBlocked),
@@ -132,6 +140,20 @@ final class InboxNotificationRouter {
         }
     }
 
+    private func classifyProgressReport(_ progress: ProgressState?, paneId: UUID) -> InboxNotificationKind? {
+        let isError = progress?.kind == .error
+        let wasError = progressErrorWasActiveByPaneId[paneId, default: false]
+        progressErrorWasActiveByPaneId[paneId] = isError
+        return isError && !wasError ? .terminalProgressError : nil
+    }
+
+    private func classifyRendererHealth(_ healthy: Bool, paneId: UUID) -> InboxNotificationKind? {
+        let wasHealthy = rendererWasHealthyByPaneId[paneId, default: true]
+        let shouldNotify = wasHealthy && !healthy
+        rendererWasHealthyByPaneId[paneId] = healthy
+        return shouldNotify ? .terminalRendererUnhealthy : nil
+    }
+
     private func title(for event: PaneRuntimeEvent) -> String {
         switch event {
         case .terminal(.desktopNotificationRequested(let title, _)):
@@ -142,6 +164,10 @@ final class InboxNotificationRouter {
             return "Bell"
         case .terminal(.commandFinished(let exitCode, _)):
             return exitCode == 0 ? "Command finished" : "Command failed (exit \(exitCode))"
+        case .terminal(.progressReportUpdated):
+            return "Terminal progress error"
+        case .terminal(.rendererHealthChanged):
+            return "Terminal renderer unhealthy"
         case .artifact(.approvalRequested):
             return "Approval requested"
         case .security(.networkEgressBlocked):
@@ -167,6 +193,12 @@ final class InboxNotificationRouter {
             return body?.isEmpty == true ? nil : body
         case .terminal(.commandFinished(let exitCode, let duration)):
             return "exit \(exitCode) · \(formattedDuration(duration))"
+        case .terminal(.progressReportUpdated(let progress)):
+            guard let progress else { return nil }
+            guard let percent = progress.percent else { return "progress error" }
+            return "progress \(percent)%"
+        case .terminal(.rendererHealthChanged(let healthy)):
+            return healthy ? nil : "renderer health transitioned to unhealthy"
         case .artifact(.approvalRequested(let request)):
             return request.summary
         case .security(.networkEgressBlocked(let destination, let rule)):

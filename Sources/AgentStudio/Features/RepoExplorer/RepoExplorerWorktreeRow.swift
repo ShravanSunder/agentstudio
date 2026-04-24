@@ -13,6 +13,7 @@ struct RepoExplorerWorktreeRowContent: View {
     let iconColor: Color
     let branchStatus: GitBranchStatus
     let unreadCount: Int
+    var onUnreadPillTap: () -> Void = {}
 
     private var syncCounts: (ahead: String, behind: String) {
         switch branchStatus.syncState {
@@ -108,11 +109,14 @@ struct RepoExplorerWorktreeRowContent: View {
                 )
 
                 if Self.shouldShowUnreadPill(unreadCount: unreadCount) {
-                    SidebarChip(
-                        iconAsset: "octicon-bell",
-                        text: "\(unreadCount)",
-                        style: .accent(iconColor)
-                    )
+                    Button(action: onUnreadPillTap) {
+                        SidebarChip(
+                            iconAsset: "octicon-bell",
+                            text: "\(unreadCount)",
+                            style: .accent(iconColor)
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.leading, AppStyles.Shell.Sidebar.statusRowLeadingIndent)
@@ -143,6 +147,7 @@ struct RepoExplorerWorktreeRow: View {
     let iconColor: Color
     let branchStatus: GitBranchStatus
     let unreadCount: Int
+    var onUnreadPillTap: () -> Void = {}
     let onOpen: () -> Void
     let onOpenNew: () -> Void
     let onOpenInPane: () -> Void
@@ -157,7 +162,8 @@ struct RepoExplorerWorktreeRow: View {
             checkoutIconKind: checkoutIconKind,
             iconColor: iconColor,
             branchStatus: branchStatus,
-            unreadCount: unreadCount
+            unreadCount: unreadCount,
+            onUnreadPillTap: onUnreadPillTap
         )
         .padding(.vertical, AppStyles.Shell.Sidebar.rowVerticalInset)
         .padding(.horizontal, AppStyles.General.Spacing.tight / 2)

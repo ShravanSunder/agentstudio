@@ -387,6 +387,118 @@ struct InboxNotificationRouterTests {
         fixture.attendedPane.stop()
     }
 
+    @Test("progress error notifies on error edge and rearms after non-error progress")
+    func progressErrorNotifiesOnErrorEdgeAndRearms() async {
+        let fixture = await makeFixture()
+        let paneId = PaneId()
+        _ = addTerminalPane(paneId, to: fixture)
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.progressReportUpdated(ProgressState(kind: .set, percent: 40)))
+            )
+        )
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.progressReportUpdated(ProgressState(kind: .error, percent: 80))),
+                seq: 2
+            )
+        )
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.progressReportUpdated(ProgressState(kind: .error, percent: 90))),
+                seq: 3
+            )
+        )
+        await waitForNotificationCount(
+            1,
+            in: fixture,
+            description: "first progress error edge should notify once"
+        )
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.progressReportUpdated(nil)),
+                seq: 4
+            )
+        )
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.progressReportUpdated(ProgressState(kind: .error, percent: nil))),
+                seq: 5
+            )
+        )
+        await waitForNotificationCount(
+            2,
+            in: fixture,
+            description: "progress remove should rearm next progress error edge"
+        )
+
+        #expect(fixture.inboxAtom.notifications.map(\.kind) == [.terminalProgressError, .terminalProgressError])
+        #expect(fixture.inboxAtom.notifications[0].body == "progress 80%")
+        fixture.router.stop()
+        fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
+
+    @Test("renderer unhealthy notifies on unhealthy edge per pane")
+    func rendererUnhealthyNotifiesOnUnhealthyEdgePerPane() async {
+        let fixture = await makeFixture()
+        let paneId = PaneId()
+        _ = addTerminalPane(paneId, to: fixture)
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.rendererHealthChanged(healthy: false))
+            )
+        )
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.rendererHealthChanged(healthy: false)),
+                seq: 2
+            )
+        )
+        await waitForNotificationCount(
+            1,
+            in: fixture,
+            description: "first renderer unhealthy edge should notify once"
+        )
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.rendererHealthChanged(healthy: true)),
+                seq: 3
+            )
+        )
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.rendererHealthChanged(healthy: false)),
+                seq: 4
+            )
+        )
+        await waitForNotificationCount(
+            2,
+            in: fixture,
+            description: "healthy renderer transition should rearm next unhealthy edge"
+        )
+
+        #expect(
+            fixture.inboxAtom.notifications.map(\.kind) == [.terminalRendererUnhealthy, .terminalRendererUnhealthy])
+        #expect(fixture.inboxAtom.notifications[0].title == "Terminal renderer unhealthy")
+        fixture.router.stop()
+        fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
+
     @Test("focus-gained marks pane notifications read and dismissed from drawer")
     func focusGainedClearsUnread() async {
         let fixture = await makeFixture()

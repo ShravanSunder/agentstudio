@@ -14,11 +14,16 @@ struct InboxNotificationListSection: Identifiable, Equatable {
     let id: String
     let label: String?
     let notifications: [InboxNotification]
+    let isCollapsed: Bool
 
     var unreadCount: Int {
         notifications.reduce(0) { count, notification in
             notification.isRead ? count : count + 1
         }
+    }
+
+    var visibleNotifications: [InboxNotification] {
+        isCollapsed ? [] : notifications
     }
 }
 
@@ -29,16 +34,23 @@ struct InboxNotificationListModel: Equatable {
         notifications: [InboxNotification],
         grouping: InboxNotificationGrouping,
         sort: InboxNotificationSort,
-        searchText: String
+        searchText: String,
+        filter: InboxFilter? = nil,
+        collapsedGroups: Set<InboxNotificationGroupKey> = []
     ) {
         let sortedNotifications = Self.sortNotifications(notifications, sort: sort)
-        let filteredNotifications = Self.filterNotifications(
+        let sourceFilteredNotifications = Self.filterNotifications(
             sortedNotifications,
+            filter: filter
+        )
+        let textFilteredNotifications = Self.filterNotifications(
+            sourceFilteredNotifications,
             searchText: searchText
         )
         self.sections = Self.buildSections(
-            notifications: filteredNotifications,
-            grouping: grouping
+            notifications: textFilteredNotifications,
+            grouping: grouping,
+            collapsedGroups: collapsedGroups
         )
     }
 
@@ -49,26 +61,32 @@ struct InboxNotificationListModel: Equatable {
         guard let focusedNotificationId else { return nil }
         guard
             let currentSectionIndex = sections.firstIndex(where: { section in
-                section.notifications.contains { $0.id == focusedNotificationId }
+                section.visibleNotifications.contains { $0.id == focusedNotificationId }
             })
         else {
             return nil
         }
 
-        let targetSectionIndex: Int
+        let step: Int
         switch direction {
         case .next:
-            targetSectionIndex = currentSectionIndex + 1
+            step = 1
         case .previous:
-            targetSectionIndex = currentSectionIndex - 1
+            step = -1
         }
 
-        guard sections.indices.contains(targetSectionIndex) else { return nil }
-        return sections[targetSectionIndex].notifications.first?.id
+        var targetSectionIndex = currentSectionIndex + step
+        while sections.indices.contains(targetSectionIndex) {
+            if let firstVisibleNotificationId = sections[targetSectionIndex].visibleNotifications.first?.id {
+                return firstVisibleNotificationId
+            }
+            targetSectionIndex += step
+        }
+        return nil
     }
 
     func endpointTarget(_ endpoint: InboxNotificationListEndpoint) -> UUID? {
-        let notifications = sections.flatMap(\.notifications)
+        let notifications = sections.flatMap(\.visibleNotifications)
         switch endpoint {
         case .first:
             return notifications.first?.id
@@ -91,6 +109,21 @@ struct InboxNotificationListModel: Equatable {
 
     private static func filterNotifications(
         _ notifications: [InboxNotification],
+        filter: InboxFilter?
+    ) -> [InboxNotification] {
+        guard let filter else { return notifications }
+        return notifications.filter { notification in
+            switch filter {
+            case .worktree(let id):
+                return notification.worktreeId == id
+            case .repo(let id):
+                return notification.repoId == id
+            }
+        }
+    }
+
+    private static func filterNotifications(
+        _ notifications: [InboxNotification],
         searchText: String
     ) -> [InboxNotification] {
         let trimmedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -107,7 +140,8 @@ struct InboxNotificationListModel: Equatable {
 
     private static func buildSections(
         notifications: [InboxNotification],
-        grouping: InboxNotificationGrouping
+        grouping: InboxNotificationGrouping,
+        collapsedGroups: Set<InboxNotificationGroupKey>
     ) -> [InboxNotificationListSection] {
         switch grouping {
         case .none:
@@ -115,20 +149,23 @@ struct InboxNotificationListModel: Equatable {
                 InboxNotificationListSection(
                     id: "all",
                     label: nil,
-                    notifications: notifications
+                    notifications: notifications,
+                    isCollapsed: collapsedGroups.contains(InboxNotificationGroupKey("all"))
                 )
             ]
         case .byRepo:
             return buildGroupedSections(
                 notifications: notifications,
                 key: { $0.repoName ?? "(no repo)" },
-                label: { $0.repoName ?? "Unknown Repo" }
+                label: { $0.repoName ?? "Unknown Repo" },
+                collapsedGroups: collapsedGroups
             )
         case .byPane:
             return buildGroupedSections(
                 notifications: notifications,
                 key: { $0.paneId?.uuidString ?? "(no pane)" },
-                label: { $0.worktreeName ?? $0.branchName ?? "Unknown Pane" }
+                label: { $0.worktreeName ?? $0.branchName ?? "Unknown Pane" },
+                collapsedGroups: collapsedGroups
             )
         case .byTab:
             return buildGroupedSections(
@@ -137,7 +174,8 @@ struct InboxNotificationListModel: Equatable {
                 label: { notification in
                     guard let tabId = notification.tabId else { return "Unknown Tab" }
                     return "Tab \(tabId.uuidString.prefix(8))"
-                }
+                },
+                collapsedGroups: collapsedGroups
             )
         }
     }
@@ -145,7 +183,8 @@ struct InboxNotificationListModel: Equatable {
     private static func buildGroupedSections(
         notifications: [InboxNotification],
         key: (InboxNotification) -> String,
-        label: (InboxNotification) -> String
+        label: (InboxNotification) -> String,
+        collapsedGroups: Set<InboxNotificationGroupKey>
     ) -> [InboxNotificationListSection] {
         let buckets = Dictionary(grouping: notifications, by: key)
         return buckets.map { groupKey, notifications in
@@ -153,7 +192,8 @@ struct InboxNotificationListModel: Equatable {
             return InboxNotificationListSection(
                 id: groupKey,
                 label: label(firstNotification),
-                notifications: notifications
+                notifications: notifications,
+                isCollapsed: collapsedGroups.contains(InboxNotificationGroupKey(groupKey))
             )
         }.sorted { left, right in
             let leftLabel = left.label ?? ""

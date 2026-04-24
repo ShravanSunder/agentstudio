@@ -163,8 +163,6 @@ struct WorkspacePersistor {
 
         var schemaVersion: Int
         var workspaceId: UUID
-        var expandedGroups: Set<String>
-        var checkoutColors: [String: String]
         var filterText: String
         var isFilterVisible: Bool
         var showMinimizedBars: Bool
@@ -174,8 +172,6 @@ struct WorkspacePersistor {
 
         init(
             workspaceId: UUID,
-            expandedGroups: Set<String> = [],
-            checkoutColors: [String: String] = [:],
             filterText: String = "",
             isFilterVisible: Bool = false,
             showMinimizedBars: Bool = true,
@@ -185,8 +181,6 @@ struct WorkspacePersistor {
         ) {
             self.schemaVersion = WorkspacePersistor.currentSchemaVersion
             self.workspaceId = workspaceId
-            self.expandedGroups = expandedGroups
-            self.checkoutColors = checkoutColors
             self.filterText = filterText
             self.isFilterVisible = isFilterVisible
             self.showMinimizedBars = showMinimizedBars
@@ -198,8 +192,6 @@ struct WorkspacePersistor {
         private enum CodingKeys: String, CodingKey {
             case schemaVersion
             case workspaceId
-            case expandedGroups
-            case checkoutColors
             case filterText
             case isFilterVisible
             case showMinimizedBars
@@ -217,8 +209,15 @@ struct WorkspacePersistor {
                 forKey key: CodingKeys,
                 default defaultValue: @autoclosure () -> Value
             ) throws -> Value {
-                if let value = try container.decodeIfPresent(type, forKey: key) {
-                    return value
+                do {
+                    if let value = try container.decodeIfPresent(type, forKey: key) {
+                        return value
+                    }
+                } catch {
+                    persistorLogger.warning(
+                        "PersistableUIState schemaVersion=\(schemaVersion) invalid field \(key.rawValue, privacy: .public); using default"
+                    )
+                    return defaultValue()
                 }
 
                 if schemaVersion >= 1 {
@@ -231,10 +230,16 @@ struct WorkspacePersistor {
 
             self.schemaVersion = schemaVersion
             self.workspaceId = try container.decode(UUID.self, forKey: .workspaceId)
-            self.expandedGroups = try container.decode(Set<String>.self, forKey: .expandedGroups)
-            self.checkoutColors = try container.decode([String: String].self, forKey: .checkoutColors)
-            self.filterText = try container.decode(String.self, forKey: .filterText)
-            self.isFilterVisible = try container.decode(Bool.self, forKey: .isFilterVisible)
+            self.filterText = try decodeV1Field(
+                String.self,
+                forKey: .filterText,
+                default: ""
+            )
+            self.isFilterVisible = try decodeV1Field(
+                Bool.self,
+                forKey: .isFilterVisible,
+                default: false
+            )
             self.showMinimizedBars = try decodeV1Field(
                 Bool.self,
                 forKey: .showMinimizedBars,
@@ -261,6 +266,49 @@ struct WorkspacePersistor {
             }
         }
 
+    }
+
+    /// Durable sidebar memory persisted separately from shell composition state.
+    struct PersistableSidebarCache: Codable {
+        var schemaVersion: Int
+        var workspaceId: UUID
+        var expandedGroups: Set<String>
+        var checkoutColors: [String: String]
+        var collapsedInboxGroups: Set<String>
+
+        init(
+            workspaceId: UUID,
+            expandedGroups: Set<String> = [],
+            checkoutColors: [String: String] = [:],
+            collapsedInboxGroups: Set<String> = []
+        ) {
+            self.schemaVersion = WorkspacePersistor.currentSchemaVersion
+            self.workspaceId = workspaceId
+            self.expandedGroups = expandedGroups
+            self.checkoutColors = checkoutColors
+            self.collapsedInboxGroups = collapsedInboxGroups
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case schemaVersion
+            case workspaceId
+            case expandedGroups
+            case checkoutColors
+            case collapsedInboxGroups
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+            self.workspaceId = try container.decode(UUID.self, forKey: .workspaceId)
+
+            self.expandedGroups =
+                (try? container.decodeIfPresent(Set<String>.self, forKey: .expandedGroups)) ?? []
+            self.checkoutColors =
+                (try? container.decodeIfPresent([String: String].self, forKey: .checkoutColors)) ?? [:]
+            self.collapsedInboxGroups =
+                (try? container.decodeIfPresent(Set<String>.self, forKey: .collapsedInboxGroups)) ?? []
+        }
     }
 
     // MARK: - Properties
@@ -321,6 +369,14 @@ struct WorkspacePersistor {
         try data.write(to: url, options: .atomic)
     }
 
+    func saveSidebarCache(_ state: PersistableSidebarCache) throws {
+        let url = sidebarCacheFileURL(for: state.workspaceId)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(state)
+        try data.write(to: url, options: .atomic)
+    }
+
     // MARK: - Load
 
     /// Load canonical workspace state from disk.
@@ -357,6 +413,10 @@ struct WorkspacePersistor {
         decodeFromFile(uiFileURL(for: workspaceId), as: PersistableUIState.self)
     }
 
+    func loadSidebarCache(for workspaceId: UUID) -> LoadResult<PersistableSidebarCache> {
+        decodeFromFile(sidebarCacheFileURL(for: workspaceId), as: PersistableSidebarCache.self)
+    }
+
     @discardableResult
     func quarantineCorruptUIFile(for workspaceId: UUID) -> URL? {
         let sourceURL = uiFileURL(for: workspaceId)
@@ -381,6 +441,30 @@ struct WorkspacePersistor {
         }
     }
 
+    @discardableResult
+    func quarantineCorruptSidebarCacheFile(for workspaceId: UUID) -> URL? {
+        let sourceURL = sidebarCacheFileURL(for: workspaceId)
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            return nil
+        }
+
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let quarantinedURL = workspacesDir.appending(
+            path: "\(workspaceId.uuidString).workspace.sidebar-cache.corrupt-\(timestamp).json"
+        )
+
+        do {
+            try FileManager.default.moveItem(at: sourceURL, to: quarantinedURL)
+            return quarantinedURL
+        } catch {
+            persistorLogger.error(
+                "Failed to quarantine corrupt sidebar cache file \(sourceURL.lastPathComponent): \(error)"
+            )
+            return nil
+        }
+    }
+
     // MARK: - Delete
 
     /// Delete all workspace files for the given workspace ID.
@@ -389,6 +473,7 @@ struct WorkspacePersistor {
             canonicalFileURL(for: id),
             cacheFileURL(for: id),
             uiFileURL(for: id),
+            sidebarCacheFileURL(for: id),
         ]
         for url in urls {
             do {
@@ -436,5 +521,9 @@ struct WorkspacePersistor {
 
     private func uiFileURL(for id: UUID) -> URL {
         workspacesDir.appending(path: "\(id.uuidString).workspace.ui.json")
+    }
+
+    private func sidebarCacheFileURL(for id: UUID) -> URL {
+        workspacesDir.appending(path: "\(id.uuidString).workspace.sidebar-cache.json")
     }
 }

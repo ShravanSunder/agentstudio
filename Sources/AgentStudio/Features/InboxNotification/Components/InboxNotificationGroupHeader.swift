@@ -3,21 +3,31 @@ import SwiftUI
 struct InboxNotificationGroupHeader: View {
     let label: String
     let unreadCount: Int
+    let isCollapsed: Bool
+    let onToggle: () -> Void
 
     var body: some View {
-        HStack {
-            Text(label)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
+        Button(action: onToggle) {
+            HStack {
+                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 10)
 
-            Spacer()
+                Text(label)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
 
-            if unreadCount > 0 {
-                Text("\(unreadCount)")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.red)
+                Spacer()
+
+                if unreadCount > 0 {
+                    Text("\(unreadCount)")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.red)
+                }
             }
         }
+        .buttonStyle(.plain)
         .padding(.horizontal, 8)
         .padding(.vertical, 2)
     }

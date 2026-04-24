@@ -27,6 +27,7 @@ struct RepoExplorerView: View {
 
     let store: WorkspaceStore
     let onRefocusActivePane: () -> Void
+    let onShowNotificationsForWorktree: (Worktree) -> Void
     let unreadCount: (Worktree) -> Int
 
     private var repoCache: RepoCacheAtom {
@@ -37,7 +38,11 @@ struct RepoExplorerView: View {
         atom(\.uiState)
     }
 
-    @State private var expandedGroups: Set<String> = []
+    private var sidebarCache: SidebarCacheAtom {
+        atom(\.sidebarCache)
+    }
+
+    @State private var expandedGroups: Set<SidebarGroupKey> = []
     @State private var filterText: String = ""
     @State private var debouncedQuery: String = ""
     @FocusState private var focusedField: RepoExplorerFocus?
@@ -75,7 +80,7 @@ struct RepoExplorerView: View {
     private var resolvedListEntries: [RepoExplorerListEntry] {
         Self.buildListEntries(
             groups: groups,
-            expandedGroupIds: expandedGroups,
+            expandedGroupIds: Set(expandedGroups.map(\.rawValue)),
             isFiltering: isFiltering
         )
     }
@@ -108,10 +113,14 @@ struct RepoExplorerView: View {
         .shadow(color: .black.opacity(0.2), radius: 4, x: 2, y: 0)
         .animation(.easeOut(duration: 0.15), value: uiState.isFilterVisible)
         .task {
-            expandedGroups = uiState.expandedGroups
+            expandedGroups = sidebarCache.expandedGroups
             filterText = uiState.filterText
             debouncedQuery = uiState.filterText
-            checkoutColorByRepoId = uiState.checkoutColors
+            checkoutColorByRepoId = Dictionary(
+                uniqueKeysWithValues: sidebarCache.checkoutColors.map { key, value in
+                    (key.rawValue, value)
+                }
+            )
         }
         .onDisappear {
             debounceTask?.cancel()
@@ -284,6 +293,9 @@ struct RepoExplorerView: View {
                             ),
                             branchStatus: worktreeStatusById[resolvedWorktreeContext.worktree.id] ?? .unknown,
                             unreadCount: unreadCount(resolvedWorktreeContext.worktree),
+                            onUnreadPillTap: {
+                                onShowNotificationsForWorktree(resolvedWorktreeContext.worktree)
+                            },
                             onOpen: {
                                 CommandDispatcher.shared.dispatch(
                                     .openWorktree,
@@ -312,7 +324,7 @@ struct RepoExplorerView: View {
                                 } else {
                                     checkoutColorByRepoId.removeValue(forKey: key)
                                 }
-                                uiState.setCheckoutColor(colorHex, for: key)
+                                sidebarCache.setCheckoutColor(colorHex, for: SidebarCheckoutColorKey(key))
                             }
                         )
                         .listRowInsets(
@@ -362,18 +374,19 @@ struct RepoExplorerView: View {
     }
 
     private func isGroupExpanded(_ groupId: String) -> Bool {
-        isFiltering || expandedGroups.contains(groupId)
+        isFiltering || expandedGroups.contains(SidebarGroupKey(groupId))
     }
 
     private func toggleGroupExpansion(_ groupId: String) {
         guard !isFiltering else { return }
 
-        if expandedGroups.contains(groupId) {
-            expandedGroups.remove(groupId)
+        let key = SidebarGroupKey(groupId)
+        if expandedGroups.contains(key) {
+            expandedGroups.remove(key)
         } else {
-            expandedGroups.insert(groupId)
+            expandedGroups.insert(key)
         }
-        uiState.setExpandedGroups(expandedGroups)
+        sidebarCache.setExpandedGroups(expandedGroups)
     }
 
     private func resolvedWorktreeContext(

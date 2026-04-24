@@ -9,7 +9,9 @@ final class AtomRegistry {
     let workspaceMutationCoordinator: WorkspaceMutationCoordinator
     let windowLifecycle: WindowLifecycleAtom
     let repoCache: RepoCacheAtom
+    let sidebarCache: SidebarCacheAtom
     let uiState: UIStateAtom
+    let inboxFilterDraft: InboxFilterDraftAtom
     let managementLayer: ManagementLayerAtom
     let sessionRuntime: SessionRuntimeAtom
     let welcome: WelcomeAtom
@@ -23,7 +25,9 @@ final class AtomRegistry {
         workspaceMutationCoordinator: WorkspaceMutationCoordinator? = nil,
         windowLifecycle: WindowLifecycleAtom = .init(),
         repoCache: RepoCacheAtom = .init(),
+        sidebarCache: SidebarCacheAtom = .init(),
         uiState: UIStateAtom = .init(),
+        inboxFilterDraft: InboxFilterDraftAtom = .init(),
         managementLayer: ManagementLayerAtom = .init(),
         sessionRuntime: SessionRuntimeAtom = .init(),
         welcome: WelcomeAtom = .init()
@@ -47,7 +51,9 @@ final class AtomRegistry {
             )
         self.windowLifecycle = windowLifecycle
         self.repoCache = repoCache
+        self.sidebarCache = sidebarCache
         self.uiState = uiState
+        self.inboxFilterDraft = inboxFilterDraft
         self.managementLayer = managementLayer
         self.sessionRuntime = sessionRuntime
         self.welcome = welcome

@@ -16,6 +16,8 @@ final class PaneFocusTracker {
 
     init(attendedPane: AttendedPaneAtom) {
         self.attendedPane = attendedPane
+        // `AttendedPaneAtom.transitions` is the single-consumer coordinator feed.
+        // If another feature needs the same stream, add fan-out at the atom boundary.
         let (stream, continuation) = AsyncStream.makeStream(of: UUID.self)
         self.focusGainedStream = stream
         self.continuation = continuation

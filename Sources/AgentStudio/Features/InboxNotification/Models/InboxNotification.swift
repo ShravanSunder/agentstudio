@@ -118,6 +118,8 @@ enum InboxNotificationKind: String, Sendable, Codable, Equatable {
     case agentDesktopNotification
     case bellRang
     case commandFinished
+    case terminalProgressError
+    case terminalRendererUnhealthy
     case agentRpc
     case approvalRequested
     case securityEvent

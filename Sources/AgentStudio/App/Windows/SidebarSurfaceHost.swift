@@ -8,6 +8,8 @@ struct SidebarSurfaceHost: View {
 
     let store: WorkspaceStore
     let uiState: UIStateAtom
+    let sidebarCache: SidebarCacheAtom
+    let inboxFilterDraft: InboxFilterDraftAtom
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
     let onRefocusActivePane: () -> Void
@@ -19,6 +21,10 @@ struct SidebarSurfaceHost: View {
             RepoExplorerView(
                 store: store,
                 onRefocusActivePane: onRefocusActivePane,
+                onShowNotificationsForWorktree: { worktree in
+                    inboxFilterDraft.set(.worktree(id: worktree.id))
+                    CommandDispatcher.shared.dispatch(.showInboxNotifications)
+                },
                 unreadCount: { worktree in
                     Self.unreadCount(for: worktree, inboxAtom: inboxAtom)
                 }
@@ -28,6 +34,8 @@ struct SidebarSurfaceHost: View {
                 inboxAtom: inboxAtom,
                 prefsAtom: prefsAtom,
                 uiState: uiState,
+                sidebarCache: sidebarCache,
+                inboxFilterDraft: inboxFilterDraft,
                 workspacePaneAtom: store.paneAtom,
                 dispatcher: .shared,
                 onRefocusActivePane: onDismissInbox

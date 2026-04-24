@@ -1,8 +1,8 @@
 # LUNA-361 Phase 3 — Current Checklist & Follow-up Inventory
 
-**Date:** 2026-04-23
+**Date:** 2026-04-24
 **Branch:** `notification-system-1-attended-pane`
-**Current HEAD checked:** `67c446d`
+**Current HEAD checked:** `67c446d` plus uncommitted Phase 3b/3c work on 2026-04-24
 **Companion doc:** [luna361-phase3-system-overview-2026-23-04.md](./luna361-phase3-system-overview-2026-23-04.md)
 
 This file replaces the earlier stale `b65f195` gap list. The old list was useful at the time, but several items it marked open were fixed in follow-up commits:
@@ -11,12 +11,14 @@ This file replaces the earlier stale `b65f195` gap list. The old list was useful
 - `668feca test(notification-inbox): cover approval and security receive paths`
 - `67c446d fix(window): simplify sidebar titlebar controls`
 
-Current verification run:
+Last completed full verification run:
 
 - `mise run lint && mise run test` exited `0` on 2026-04-23.
 - `swift-format` passed.
 - `swiftlint` passed across 662 Swift files.
 - Full test gate passed, including the serialized WebKit suites. E2E and Zmx E2E remain skipped by project defaults unless explicitly enabled.
+
+Current Phase 3b/3c work in this branch is newer than that full gate. Focused Swift tests have passed for the sidebar cache, UI persistence recovery, linkable inbox filters, and Ghostty terminal-intelligence routing. A fresh `mise run lint` + `mise run test` is still required before calling the branch complete.
 
 ## Phase 3 Plan Checklist
 
@@ -99,18 +101,29 @@ The source plan is `docs/superpowers/plans/2026-04-20-00c-luna361-phase3-notific
   - Peekaboo visual evidence exists for the titlebar icon/padding cleanup.
   - A stricter manual smoke would be: launch app, emit OSC from a terminal pane, verify sidebar row + toolbar dot + drawer bell + worktree pill.
 
-### Still worth tracking as UI/state follow-up
+### Phase 3b sidebar/filter work now addressed in this branch
 
-- Collapsible inbox groups are not implemented.
-  - Current behavior is always-expanded groups.
-  - If added, collapsed state should be temporary UI state unless we explicitly decide it belongs in persisted prefs.
+- Repo explorer expanded/collapsed group memory moved out of `UIStateAtom` and into `SidebarCacheAtom`.
+  - The refactor is a hard cutover: repo expansion and checkout colors read/write the sidebar cache, not the composition atom.
+  - Cache key domains use typed wrappers (`SidebarGroupKey`, `SidebarCheckoutColorKey`, `InboxNotificationGroupKey`) instead of mixing raw strings in memory.
 
-- Repo explorer expanded/collapsed group state and sidebar width persistence are not part of this Phase 3 inbox slice.
-  - These belong in UI shell state, likely `UIStateAtom` / UI persistence, not in the inbox feature atom.
+- Sidebar width stays on `WorkspaceMetadataAtom`.
+  - This is intentional: width is workspace/window geometry, not sidebar cache.
+  - It already persists through workspace metadata.
 
-- Worktree pill click-to-filter is not implemented.
-  - Today the pill is an unread indicator.
-  - A future version could click the pill to open the inbox with a worktree-scoped filter, but that needs a design decision because it changes sidebar inbox state and routing.
+- Inbox group collapse is implemented.
+  - `SidebarCacheAtom.collapsedInboxGroups` tracks only collapsed group keys.
+  - Empty set means all groups expanded by default.
+  - `InboxNotificationListModel` keeps section counts but hides collapsed rows from display/navigation.
+
+- Worktree pill click-to-filter is implemented.
+  - The unread pill is now clickable.
+  - It sets a short-lived `InboxFilterDraftAtom` value and dispatches the existing `.showInboxNotifications` command.
+  - The inbox sidebar consumes the draft on mount and applies the typed `InboxFilter.worktree(id:)` filter.
+
+- UI/sidebar persistence recovery is broadened.
+  - `PersistableUIState` now defaults bad optional composition/filter fields without corrupting sibling fields.
+  - `PersistableSidebarCache` defaults bad cache slices independently.
 
 - Fuzzy search is not implemented and is not needed for this ticket.
   - Current target is case-insensitive substring matching / partial search.
@@ -120,6 +133,30 @@ The source plan is `docs/superpowers/plans/2026-04-20-00c-luna361-phase3-notific
 
 - Unified keyboard dispatcher remains a broader input-system refactor.
   - The inbox has local key routing/tests; the app-wide unified dispatcher is separate scope.
+
+### Phase 3c Ghostty terminal-intelligence work now addressed in this branch
+
+- Additional Ghostty-originated terminal signals are routed or documented by purpose:
+  - progress error edges route to inbox as `.terminalProgressError`
+  - renderer healthy→unhealthy edges route to inbox as `.terminalRendererUnhealthy`
+  - progress non-error states, cwd, title/tab title, scrollbar, and interaction state remain runtime state instead of inbox noise
+
+- The branch has headless coverage for the Ghostty adapter/action-router/runtime/router paths.
+
+- The live OSC visual smoke across every surface is still not claimed complete.
+  - That remains the manual/native proof: launch the app, emit real OSC/BEL/progress/error sequences from an embedded terminal pane, and visually confirm inbox rows plus toolbar/drawer/worktree indicators.
+
+## Review-list items that were still open before the latest sidebar test pass
+
+These are now addressed on top of the earlier refresh:
+
+- Mounted sidebar focus-bridge coverage now exists.
+  - `InboxNotificationSidebarViewTests` mounts the real SwiftUI view in an `NSHostingView` and asserts that first-responder changes publish `sidebarHasFocus`, plus that the focus bridge's escape path calls `onRefocusActivePane`.
+
+- Dead-pane fallback coverage now exists.
+  - `InboxSidebarActivationResolver` is tested for both stale-pane flash behavior and live-pane focus behavior.
+
+- `PaneFocusTracker` now carries the single-consumer note inline, so future fan-out work is less likely to accidentally tap the wrong stream boundary.
 
 ## Testing Pyramid Status
 

@@ -20,8 +20,6 @@ final class UIStateStore {
         switch persistor.loadUI(for: workspaceId) {
         case .loaded(let state):
             atom.hydrate(
-                expandedGroups: state.expandedGroups,
-                checkoutColors: state.checkoutColors,
                 filterText: state.filterText,
                 isFilterVisible: state.isFilterVisible,
                 showMinimizedBars: state.showMinimizedBars,
@@ -47,8 +45,6 @@ final class UIStateStore {
         try persistor.saveUI(
             .init(
                 workspaceId: workspaceId,
-                expandedGroups: atom.expandedGroups,
-                checkoutColors: atom.checkoutColors,
                 filterText: atom.filterText,
                 isFilterVisible: atom.isFilterVisible,
                 showMinimizedBars: atom.showMinimizedBars,

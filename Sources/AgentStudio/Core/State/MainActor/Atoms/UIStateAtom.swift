@@ -9,8 +9,6 @@ struct EditorChooserState: Equatable {
 @MainActor
 @Observable
 final class UIStateAtom {
-    private(set) var expandedGroups: Set<String> = []
-    private(set) var checkoutColors: [String: String] = [:]
     private(set) var filterText: String = ""
     private(set) var isFilterVisible: Bool = false
     private(set) var showMinimizedBars: Bool = true
@@ -19,26 +17,6 @@ final class UIStateAtom {
     private(set) var sidebarHasFocus: Bool = false
     private(set) var editorChooserState: EditorChooserState = .init()
     private(set) var availableEditorTargets: [ExternalEditorTarget] = []
-
-    func setExpandedGroups(_ groups: Set<String>) {
-        expandedGroups = groups
-    }
-
-    func setGroupExpanded(_ groupKey: String, isExpanded: Bool) {
-        if isExpanded {
-            expandedGroups.insert(groupKey)
-        } else {
-            expandedGroups.remove(groupKey)
-        }
-    }
-
-    func setCheckoutColor(_ colorHex: String?, for stableKey: String) {
-        if let colorHex {
-            checkoutColors[stableKey] = colorHex
-        } else {
-            checkoutColors.removeValue(forKey: stableKey)
-        }
-    }
 
     func setFilterText(_ text: String) {
         filterText = text
@@ -77,8 +55,6 @@ final class UIStateAtom {
     }
 
     func hydrate(
-        expandedGroups: Set<String>,
-        checkoutColors: [String: String],
         filterText: String,
         isFilterVisible: Bool,
         showMinimizedBars: Bool = true,
@@ -86,8 +62,6 @@ final class UIStateAtom {
         sidebarSurface: SidebarSurface = .repos,
         editorChooserState: EditorChooserState = .init()
     ) {
-        self.expandedGroups = expandedGroups
-        self.checkoutColors = checkoutColors
         self.filterText = filterText
         self.isFilterVisible = isFilterVisible
         self.showMinimizedBars = showMinimizedBars
@@ -101,8 +75,6 @@ final class UIStateAtom {
     }
 
     func clear() {
-        expandedGroups.removeAll(keepingCapacity: false)
-        checkoutColors.removeAll(keepingCapacity: false)
         filterText = ""
         isFilterVisible = false
         showMinimizedBars = true

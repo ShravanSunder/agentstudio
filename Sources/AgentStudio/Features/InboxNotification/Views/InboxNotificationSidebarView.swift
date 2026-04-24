@@ -69,6 +69,8 @@ private struct InboxNotificationListModelKey: Equatable {
     let grouping: InboxNotificationGrouping
     let sort: InboxNotificationSort
     let searchText: String
+    let filter: InboxFilter?
+    let collapsedGroups: Set<InboxNotificationGroupKey>
 }
 
 enum InboxSidebarRootKeyAction: Equatable {
@@ -84,6 +86,11 @@ enum InboxSidebarRowKeyAction: Equatable {
     case activate
     case toggleRead
     case ignored
+}
+
+enum InboxSidebarActivationOutcome: Equatable {
+    case focusPane(UUID)
+    case flashRow(UUID)
 }
 
 enum InboxSidebarKeyboardRouter {
@@ -115,6 +122,23 @@ enum InboxSidebarKeyboardRouter {
     }
 }
 
+enum InboxSidebarActivationResolver {
+    @MainActor
+    static func resolve(
+        notification: InboxNotification,
+        workspacePaneAtom: WorkspacePaneAtom
+    ) -> InboxSidebarActivationOutcome {
+        guard
+            let paneId = notification.paneId,
+            workspacePaneAtom.pane(paneId) != nil
+        else {
+            return .flashRow(notification.id)
+        }
+
+        return .focusPane(paneId)
+    }
+}
+
 @MainActor
 struct InboxNotificationSidebarView: View {
     static let focusTargetIdentifier = NSUserInterfaceItemIdentifier(
@@ -124,6 +148,8 @@ struct InboxNotificationSidebarView: View {
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
     let uiState: UIStateAtom
+    let sidebarCache: SidebarCacheAtom
+    let inboxFilterDraft: InboxFilterDraftAtom
     let workspacePaneAtom: WorkspacePaneAtom
     let dispatcher: CommandDispatcher
     let onRefocusActivePane: @MainActor @Sendable () -> Void
@@ -133,6 +159,7 @@ struct InboxNotificationSidebarView: View {
     @State private var cachedListModelKey: InboxNotificationListModelKey
     @State private var groupingMenuOpen = false
     @State private var flashingRowIds: Set<UUID> = []
+    @State private var activeFilter: InboxFilter?
     @FocusState private var focusedField: InboxFocus?
 
     private let flashClock = ContinuousClock()
@@ -141,6 +168,8 @@ struct InboxNotificationSidebarView: View {
         inboxAtom: InboxNotificationAtom,
         prefsAtom: InboxNotificationPrefsAtom,
         uiState: UIStateAtom,
+        sidebarCache: SidebarCacheAtom,
+        inboxFilterDraft: InboxFilterDraftAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         dispatcher: CommandDispatcher,
         onRefocusActivePane: @escaping @MainActor @Sendable () -> Void
@@ -148,6 +177,8 @@ struct InboxNotificationSidebarView: View {
         self.inboxAtom = inboxAtom
         self.prefsAtom = prefsAtom
         self.uiState = uiState
+        self.sidebarCache = sidebarCache
+        self.inboxFilterDraft = inboxFilterDraft
         self.workspacePaneAtom = workspacePaneAtom
         self.dispatcher = dispatcher
         self.onRefocusActivePane = onRefocusActivePane
@@ -155,7 +186,9 @@ struct InboxNotificationSidebarView: View {
             notifications: inboxAtom.notifications,
             grouping: prefsAtom.grouping,
             sort: prefsAtom.sort,
-            searchText: ""
+            searchText: "",
+            filter: nil,
+            collapsedGroups: sidebarCache.collapsedInboxGroups
         )
         self._cachedListModelKey = State(initialValue: initialKey)
         self._cachedListModel = State(
@@ -163,7 +196,9 @@ struct InboxNotificationSidebarView: View {
                 notifications: inboxAtom.notifications,
                 grouping: prefsAtom.grouping,
                 sort: prefsAtom.sort,
-                searchText: ""
+                searchText: "",
+                filter: nil,
+                collapsedGroups: sidebarCache.collapsedInboxGroups
             )
         )
     }
@@ -172,6 +207,7 @@ struct InboxNotificationSidebarView: View {
         InboxSidebarRootContainer(
             uiState: uiState,
             searchText: $searchText,
+            activeFilter: activeFilter,
             sort: prefsAtom.sort,
             groupingMenuOpen: $groupingMenuOpen,
             grouping: prefsAtom.grouping,
@@ -180,7 +216,9 @@ struct InboxNotificationSidebarView: View {
             flashingRowIds: flashingRowIds,
             onEscape: handleEscape,
             onToggleSort: toggleSort,
+            onClearFilter: clearFilter,
             onSelectGrouping: { prefsAtom.setGrouping($0) },
+            onToggleGroupCollapse: toggleGroupCollapse,
             onMoveGroupBoundary: moveFocusToGroupBoundary,
             onMoveEnd: moveFocusToEnd,
             onActivate: activate,
@@ -190,6 +228,12 @@ struct InboxNotificationSidebarView: View {
         .onChange(of: prefsAtom.grouping) { _, _ in refreshListModel() }
         .onChange(of: prefsAtom.sort) { _, _ in refreshListModel() }
         .onChange(of: searchText) { _, _ in refreshListModel() }
+        .onChange(of: activeFilter) { _, _ in refreshListModel() }
+        .onChange(of: sidebarCache.collapsedInboxGroups) { _, _ in refreshListModel() }
+        .task {
+            guard let filter = inboxFilterDraft.consume() else { return }
+            activeFilter = filter
+        }
     }
 
     private var listModel: InboxNotificationListModel {
@@ -201,7 +245,9 @@ struct InboxNotificationSidebarView: View {
             notifications: inboxAtom.notifications,
             grouping: prefsAtom.grouping,
             sort: prefsAtom.sort,
-            searchText: searchText
+            searchText: searchText,
+            filter: activeFilter,
+            collapsedGroups: sidebarCache.collapsedInboxGroups
         )
         guard key != cachedListModelKey else { return }
         cachedListModelKey = key
@@ -209,7 +255,9 @@ struct InboxNotificationSidebarView: View {
             notifications: key.notifications,
             grouping: key.grouping,
             sort: key.sort,
-            searchText: key.searchText
+            searchText: key.searchText,
+            filter: key.filter,
+            collapsedGroups: key.collapsedGroups
         )
     }
 
@@ -247,6 +295,14 @@ struct InboxNotificationSidebarView: View {
         prefsAtom.setSort(nextSort)
     }
 
+    private func clearFilter() {
+        activeFilter = nil
+    }
+
+    private func toggleGroupCollapse(_ sectionId: String) {
+        sidebarCache.toggleInboxGroupCollapse(InboxNotificationGroupKey(sectionId))
+    }
+
     private func handleEscape() {
         if focusedField == .search {
             if searchText.isEmpty {
@@ -266,26 +322,27 @@ struct InboxNotificationSidebarView: View {
         inboxAtom.markRead(id: notification.id)
         inboxAtom.dismissFromDrawer(id: notification.id)
 
-        guard
-            let paneId = notification.paneId,
-            workspacePaneAtom.pane(paneId) != nil
-        else {
+        switch InboxSidebarActivationResolver.resolve(
+            notification: notification,
+            workspacePaneAtom: workspacePaneAtom
+        ) {
+        case .flashRow(let rowId):
             // History is denormalized, so stale rows can outlive their pane; flash instead of dispatching a dead target.
-            flashingRowIds.insert(notification.id)
+            flashingRowIds.insert(rowId)
             Task { @MainActor [flashClock] in
                 try? await flashClock.sleep(for: .milliseconds(600))
-                flashingRowIds.remove(notification.id)
+                flashingRowIds.remove(rowId)
             }
-            return
+        case .focusPane(let paneId):
+            dispatcher.dispatch(.focusPane, target: paneId, targetType: .pane)
         }
-
-        dispatcher.dispatch(.focusPane, target: paneId, targetType: .pane)
     }
 }
 
 private struct InboxSidebarRootContainer: View {
     let uiState: UIStateAtom
     @Binding var searchText: String
+    let activeFilter: InboxFilter?
     let sort: InboxNotificationSort
     @Binding var groupingMenuOpen: Bool
     let grouping: InboxNotificationGrouping
@@ -294,7 +351,9 @@ private struct InboxSidebarRootContainer: View {
     let flashingRowIds: Set<UUID>
     let onEscape: @MainActor @Sendable () -> Void
     let onToggleSort: () -> Void
+    let onClearFilter: () -> Void
     let onSelectGrouping: (InboxNotificationGrouping) -> Void
+    let onToggleGroupCollapse: (String) -> Void
     let onMoveGroupBoundary: (InboxNotificationListNavigationDirection) -> Bool
     let onMoveEnd: (InboxNotificationListEndpoint) -> Bool
     let onActivate: (InboxNotification) -> Void
@@ -347,12 +406,14 @@ private struct InboxSidebarRootContainer: View {
 
             InboxSidebarHeader(
                 searchText: $searchText,
+                activeFilter: activeFilter,
                 sort: sort,
                 groupingMenuOpen: $groupingMenuOpen,
                 grouping: grouping,
                 focusedField: focusedField,
                 onEscape: onEscape,
                 onToggleSort: onToggleSort,
+                onClearFilter: onClearFilter,
                 onSelectGrouping: onSelectGrouping
             )
 
@@ -362,6 +423,7 @@ private struct InboxSidebarRootContainer: View {
                 sections: sections,
                 focusedField: focusedField,
                 flashingRowIds: flashingRowIds,
+                onToggleGroupCollapse: onToggleGroupCollapse,
                 onActivate: onActivate,
                 onToggleRead: onToggleRead
             )
@@ -371,54 +433,72 @@ private struct InboxSidebarRootContainer: View {
 
 private struct InboxSidebarHeader: View {
     @Binding var searchText: String
+    let activeFilter: InboxFilter?
     let sort: InboxNotificationSort
     @Binding var groupingMenuOpen: Bool
     let grouping: InboxNotificationGrouping
     let focusedField: FocusState<InboxFocus?>.Binding
     let onEscape: () -> Void
     let onToggleSort: () -> Void
+    let onClearFilter: () -> Void
     let onSelectGrouping: (InboxNotificationGrouping) -> Void
 
     var body: some View {
-        HStack(spacing: 8) {
-            TextField("Search inbox...", text: $searchText)
-                .textFieldStyle(.roundedBorder)
-                .focused(focusedField, equals: .search)
-                .onSubmit {
-                    focusedField.wrappedValue = .list
-                }
-                .onExitCommand {
-                    onEscape()
-                }
-
-            Button(action: onToggleSort) {
-                Image(systemName: sort == .newestFirst ? "arrow.down.to.line" : "arrow.up.to.line")
-            }
-            .buttonStyle(.borderless)
-
-            Button {
-                groupingMenuOpen.toggle()
-            } label: {
-                Image(systemName: "line.3.horizontal.decrease.circle")
-            }
-            .buttonStyle(.borderless)
-            .popover(isPresented: $groupingMenuOpen) {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(InboxNotificationGrouping.allCases, id: \.self) { candidate in
-                        Button {
-                            onSelectGrouping(candidate)
-                            groupingMenuOpen = false
-                        } label: {
-                            HStack {
-                                Image(systemName: grouping == candidate ? "checkmark" : "")
-                                    .frame(width: 12)
-                                Text(groupingLabel(candidate))
-                            }
-                        }
-                        .buttonStyle(.borderless)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                TextField("Search inbox...", text: $searchText)
+                    .textFieldStyle(.roundedBorder)
+                    .focused(focusedField, equals: .search)
+                    .onSubmit {
+                        focusedField.wrappedValue = .list
                     }
+                    .onExitCommand {
+                        onEscape()
+                    }
+
+                Button(action: onToggleSort) {
+                    Image(systemName: sort == .newestFirst ? "arrow.down.to.line" : "arrow.up.to.line")
                 }
-                .padding(8)
+                .buttonStyle(.borderless)
+
+                Button {
+                    groupingMenuOpen.toggle()
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                }
+                .buttonStyle(.borderless)
+                .popover(isPresented: $groupingMenuOpen) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(InboxNotificationGrouping.allCases, id: \.self) { candidate in
+                            Button {
+                                onSelectGrouping(candidate)
+                                groupingMenuOpen = false
+                            } label: {
+                                HStack {
+                                    Image(systemName: grouping == candidate ? "checkmark" : "")
+                                        .frame(width: 12)
+                                    Text(groupingLabel(candidate))
+                                }
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                    .padding(8)
+                }
+            }
+
+            if let activeFilter {
+                HStack(spacing: 6) {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                    Text(filterLabel(activeFilter))
+                        .lineLimit(1)
+                    Button(action: onClearFilter) {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
             }
         }
         .padding(8)
@@ -436,17 +516,27 @@ private struct InboxSidebarHeader: View {
             return "By Tab"
         }
     }
+
+    private func filterLabel(_ filter: InboxFilter) -> String {
+        switch filter {
+        case .worktree(let id):
+            return "Worktree \(id.uuidString.prefix(8))"
+        case .repo(let id):
+            return "Repo \(id.uuidString.prefix(8))"
+        }
+    }
 }
 
 private struct InboxSidebarContent: View {
     let sections: [InboxNotificationListSection]
     let focusedField: FocusState<InboxFocus?>.Binding
     let flashingRowIds: Set<UUID>
+    let onToggleGroupCollapse: (String) -> Void
     let onActivate: (InboxNotification) -> Void
     let onToggleRead: (UUID) -> Void
 
     var body: some View {
-        if sections.flatMap(\.notifications).isEmpty {
+        if sections.allSatisfy(\.notifications.isEmpty) {
             InboxNotificationEmptyState()
         } else {
             TimelineView(.periodic(from: .now, by: 60)) { context in
@@ -456,10 +546,12 @@ private struct InboxSidebarContent: View {
                             if let label = section.label {
                                 InboxNotificationGroupHeader(
                                     label: label,
-                                    unreadCount: section.unreadCount
+                                    unreadCount: section.unreadCount,
+                                    isCollapsed: section.isCollapsed,
+                                    onToggle: { onToggleGroupCollapse(section.id) }
                                 )
                             }
-                            ForEach(section.notifications) { notification in
+                            ForEach(section.visibleNotifications) { notification in
                                 InboxSidebarNotificationRow(
                                     notification: notification,
                                     now: context.date,

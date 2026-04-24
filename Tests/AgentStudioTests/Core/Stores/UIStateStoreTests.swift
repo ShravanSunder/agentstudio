@@ -22,8 +22,6 @@ struct UIStateStoreTests {
         let atom = UIStateAtom()
         let uiStateStore = UIStateStore(atom: atom, persistor: persistor)
 
-        atom.setExpandedGroups(["repo:agent-studio", "repo:askluna"])
-        atom.setCheckoutColor("#ff6600", for: "repo:agent-studio")
         atom.setFilterText("terminal")
         atom.setFilterVisible(true)
         atom.setShowMinimizedBars(false)
@@ -37,8 +35,6 @@ struct UIStateStoreTests {
         let restoredStore = UIStateStore(atom: restoredAtom, persistor: persistor)
         restoredStore.restore(for: workspaceId)
 
-        #expect(restoredAtom.expandedGroups == ["repo:agent-studio", "repo:askluna"])
-        #expect(restoredAtom.checkoutColors == ["repo:agent-studio": "#ff6600"])
         #expect(restoredAtom.filterText == "terminal")
         #expect(restoredAtom.isFilterVisible)
         #expect(restoredAtom.showMinimizedBars == false)
@@ -84,8 +80,6 @@ struct UIStateStoreTests {
 
         store.restore(for: workspaceId)
 
-        #expect(atom.expandedGroups.isEmpty)
-        #expect(atom.checkoutColors.isEmpty)
         #expect(atom.filterText.isEmpty)
         #expect(!atom.isFilterVisible)
         #expect(atom.showMinimizedBars)
@@ -124,8 +118,6 @@ struct UIStateStoreTests {
             {
                 "schemaVersion": 1,
                 "workspaceId": "\(workspaceId.uuidString)",
-                "expandedGroups": [],
-                "checkoutColors": {},
                 "filterText": "",
                 "isFilterVisible": false
             }
@@ -148,8 +140,6 @@ struct UIStateStoreTests {
             {
                 "schemaVersion": 1,
                 "workspaceId": "\(workspaceId.uuidString)",
-                "expandedGroups": [],
-                "checkoutColors": {},
                 "filterText": "",
                 "isFilterVisible": false,
                 "showMinimizedBars": true
@@ -164,6 +154,33 @@ struct UIStateStoreTests {
         #expect(atom.sidebarCollapsed == false)
         #expect(atom.sidebarSurface == .repos)
         #expect(atom.sidebarHasFocus == false)
+    }
+
+    @Test
+    func restore_corruptFilterFields_preservesOtherUIState() throws {
+        let workspaceId = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "workspaceId": "\(workspaceId.uuidString)",
+                "filterText": 42,
+                "isFilterVisible": "bad-value",
+                "showMinimizedBars": false,
+                "sidebarCollapsed": true,
+                "sidebarSurface": "inbox"
+            }
+            """
+        let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
+        try Data(json.utf8).write(to: uiURL, options: .atomic)
+
+        let atom = UIStateAtom()
+        UIStateStore(atom: atom, persistor: persistor).restore(for: workspaceId)
+
+        #expect(atom.filterText.isEmpty)
+        #expect(atom.isFilterVisible == false)
+        #expect(atom.showMinimizedBars == false)
+        #expect(atom.sidebarCollapsed)
+        #expect(atom.sidebarSurface == .inbox)
     }
 
     @Test
@@ -191,8 +208,6 @@ struct UIStateStoreTests {
             {
                 "schemaVersion": 1,
                 "workspaceId": "\(workspaceId.uuidString)",
-                "expandedGroups": [],
-                "checkoutColors": {},
                 "filterText": "",
                 "isFilterVisible": false,
                 "showMinimizedBars": true
@@ -216,8 +231,6 @@ struct UIStateStoreTests {
             {
                 "schemaVersion": 1,
                 "workspaceId": "\(workspaceId.uuidString)",
-                "expandedGroups": [],
-                "checkoutColors": {},
                 "filterText": "",
                 "isFilterVisible": false,
                 "showMinimizedBars": true,
@@ -244,8 +257,6 @@ struct UIStateStoreTests {
             {
                 "schemaVersion": 1,
                 "workspaceId": "\(workspaceId.uuidString)",
-                "expandedGroups": ["repo:agent-studio"],
-                "checkoutColors": {"repo:agent-studio": "#ff6600"},
                 "filterText": "terminal",
                 "isFilterVisible": true,
                 "showMinimizedBars": false,
@@ -258,8 +269,6 @@ struct UIStateStoreTests {
         let atom = UIStateAtom()
         UIStateStore(atom: atom, persistor: persistor).restore(for: workspaceId)
 
-        #expect(atom.expandedGroups == ["repo:agent-studio"])
-        #expect(atom.checkoutColors == ["repo:agent-studio": "#ff6600"])
         #expect(atom.filterText == "terminal")
         #expect(atom.isFilterVisible)
         #expect(atom.showMinimizedBars == false)

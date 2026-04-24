@@ -19,6 +19,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var inboxPaneFocusTracker: PaneFocusTracker!
     var inboxNotificationDrawerPresenter: InboxNotificationDrawerPresenter!
     var repoCacheStore: RepoCacheStore!
+    var sidebarCacheStore: SidebarCacheStore!
     var uiStateStore: UIStateStore!
     var workspaceCacheCoordinator: WorkspaceCacheCoordinator!
     var watchedFolderCommands: (any WatchedFolderCommandHandling)!
@@ -87,6 +88,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             mutationCoordinator: atomStore.workspaceMutationCoordinator
         )
         repoCacheStore = RepoCacheStore(atom: atomStore.repoCache)
+        sidebarCacheStore = SidebarCacheStore(atom: atomStore.sidebarCache)
         uiStateStore = UIStateStore(atom: atomStore.uiState)
         inboxNotificationAtom = InboxNotificationAtom()
         inboxNotificationPrefsAtom = InboxNotificationPrefsAtom()
@@ -107,6 +109,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func bootLoadCacheStore(persistor: WorkspacePersistor) {
         _ = persistor
         repoCacheStore.restore(for: store.metadataAtom.workspaceId)
+        sidebarCacheStore.restore(for: store.metadataAtom.workspaceId)
         pruneStaleCache(store: store, repoCache: repoCache)
     }
 
@@ -534,6 +537,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         do {
+            try sidebarCacheStore.flush(for: store.metadataAtom.workspaceId)
+        } catch {
+            appLogger.warning("Sidebar cache flush failed at termination: \(error.localizedDescription)")
+        }
+
+        do {
             try uiStateStore.flush(for: store.metadataAtom.workspaceId)
         } catch {
             appLogger.warning("Workspace UI flush failed at termination: \(error.localizedDescription)")
@@ -919,6 +928,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
 }
+
 // MARK: - ShellCommandHandling
 
 extension AppDelegate: ShellCommandHandling {
@@ -926,8 +936,7 @@ extension AppDelegate: ShellCommandHandling {
         switch command {
         case .watchFolder, .toggleSidebar, .filterSidebar,
             .showInboxNotifications, .showDrawerInboxNotifications, .showWorktreeSidebar,
-            .signInGitHub, .signInGoogle,
-            .newWindow, .closeWindow,
+            .signInGitHub, .signInGoogle, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
             true
         default: false
@@ -946,9 +955,7 @@ extension AppDelegate: ShellCommandHandling {
             mainWindowController?.showSidebarFilter()
             return true
         case .showInboxNotifications:
-            mainWindowController?.showInboxNotifications(
-                commandBarIsKey: commandBarController.isKeyWindow
-            )
+            mainWindowController?.showInboxNotifications(commandBarIsKey: commandBarController.isKeyWindow)
             return true
         case .showDrawerInboxNotifications:
             openDrawerInboxForActiveDrawer()
@@ -989,5 +996,4 @@ extension AppDelegate: ShellCommandHandling {
         default: return false
         }
     }
-
 }

@@ -5,6 +5,16 @@ import Testing
 
 @Suite("InboxNotificationListModel")
 struct InboxNotificationListModelTests {
+    private struct SourceContext {
+        var paneId: UUID?
+        var tabId: UUID?
+        var repoId: UUID?
+        var repoName: String?
+        var worktreeId: UUID?
+        var worktreeName: String?
+        var branchName: String?
+    }
+
     private func makeInboxNotification(
         id: UUID = UUID(),
         timestamp: Date,
@@ -12,7 +22,9 @@ struct InboxNotificationListModelTests {
         body: String? = nil,
         paneId: UUID? = nil,
         tabId: UUID? = nil,
+        repoId: UUID? = nil,
         repoName: String? = nil,
+        worktreeId: UUID? = nil,
         worktreeName: String? = nil,
         branchName: String? = nil,
         isRead: Bool = false
@@ -24,34 +36,38 @@ struct InboxNotificationListModelTests {
             title: title,
             body: body,
             source: makeSource(
-                paneId: paneId,
-                tabId: tabId,
-                repoName: repoName,
-                worktreeName: worktreeName,
-                branchName: branchName
+                SourceContext(
+                    paneId: paneId,
+                    tabId: tabId,
+                    repoId: repoId,
+                    repoName: repoName,
+                    worktreeId: worktreeId,
+                    worktreeName: worktreeName,
+                    branchName: branchName
+                )
             ),
             isRead: isRead,
             isDismissedFromDrawer: false
         )
     }
 
-    private func makeSource(
-        paneId: UUID?,
-        tabId: UUID?,
-        repoName: String?,
-        worktreeName: String?,
-        branchName: String?
-    ) -> InboxNotification.Source {
-        guard paneId != nil || tabId != nil || repoName != nil || worktreeName != nil || branchName != nil else {
+    private func makeSource(_ context: SourceContext) -> InboxNotification.Source {
+        guard
+            context.paneId != nil || context.tabId != nil || context.repoId != nil
+                || context.repoName != nil || context.worktreeId != nil
+                || context.worktreeName != nil || context.branchName != nil
+        else {
             return .global
         }
         return .pane(
             .init(
-                paneId: paneId ?? UUID(),
-                tabId: tabId,
-                repoName: repoName,
-                worktreeName: worktreeName,
-                branchName: branchName
+                paneId: context.paneId ?? UUID(),
+                tabId: context.tabId,
+                repoId: context.repoId,
+                repoName: context.repoName,
+                worktreeId: context.worktreeId,
+                worktreeName: context.worktreeName,
+                branchName: context.branchName
             )
         )
     }
@@ -109,6 +125,57 @@ struct InboxNotificationListModelTests {
                 matchingBody.id,
                 matchingRepo.id,
             ])
+    }
+
+    @Test("filters by typed worktree filter")
+    func filtersByTypedWorktreeFilter() {
+        let matchingWorktreeId = UUID()
+        let otherWorktreeId = UUID()
+        let matching = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Matching",
+            worktreeId: matchingWorktreeId,
+            worktreeName: "main"
+        )
+        let nonmatching = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 200),
+            title: "Other",
+            worktreeId: otherWorktreeId,
+            worktreeName: "feature"
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [matching, nonmatching],
+            grouping: .none,
+            sort: .oldestFirst,
+            searchText: "",
+            filter: .worktree(id: matchingWorktreeId)
+        )
+
+        #expect(model.sections.flatMap(\.notifications).map(\.id) == [matching.id])
+    }
+
+    @Test("collapsed grouped sections keep unread counts but hide rows")
+    func collapsedGroupedSectionsKeepUnreadCountsButHideRows() {
+        let notification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Hidden row",
+            repoName: "agent-studio",
+            isRead: false
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [notification],
+            grouping: .byRepo,
+            sort: .oldestFirst,
+            searchText: "",
+            collapsedGroups: [InboxNotificationGroupKey("agent-studio")]
+        )
+
+        #expect(model.sections.count == 1)
+        #expect(model.sections[0].isCollapsed)
+        #expect(model.sections[0].unreadCount == 1)
+        #expect(model.sections[0].visibleNotifications.isEmpty)
     }
 
     @Test("groups by repo with unread counts")
@@ -188,6 +255,51 @@ struct InboxNotificationListModelTests {
                 from: second.id,
                 direction: InboxNotificationListNavigationDirection.next
             ) == nil
+        )
+    }
+
+    @Test("group boundary navigation skips collapsed groups")
+    func groupBoundaryNavigationSkipsCollapsedGroups() {
+        let firstPane = UUID()
+        let collapsedPane = UUID()
+        let thirdPane = UUID()
+        let first = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "First",
+            paneId: firstPane,
+            worktreeName: "A"
+        )
+        let collapsed = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 200),
+            title: "Collapsed",
+            paneId: collapsedPane,
+            worktreeName: "B"
+        )
+        let third = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 300),
+            title: "Third",
+            paneId: thirdPane,
+            worktreeName: "C"
+        )
+        let model = InboxNotificationListModel(
+            notifications: [first, collapsed, third],
+            grouping: .byPane,
+            sort: .oldestFirst,
+            searchText: "",
+            collapsedGroups: [InboxNotificationGroupKey(collapsedPane.uuidString)]
+        )
+
+        #expect(
+            model.groupBoundaryTarget(
+                from: first.id,
+                direction: InboxNotificationListNavigationDirection.next
+            ) == third.id
+        )
+        #expect(
+            model.groupBoundaryTarget(
+                from: third.id,
+                direction: InboxNotificationListNavigationDirection.previous
+            ) == first.id
         )
     }
 
