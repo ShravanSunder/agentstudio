@@ -194,7 +194,7 @@ struct DrawerIconBar: View {
                                     .padding(.horizontal, AppStyles.Components.EditorChooser.dividerHorizontalPadding)
 
                                 trailingActionButton(
-                                    icon: trailingActionIcon(for: finderPresentation.icon) ?? .system(name: "finder"),
+                                    icon: trailingActionIcon(for: finderPresentation.icon),
                                     helpText: finderToolTip,
                                     isHovered: isFinderHovered,
                                     action: trailingActions.onOpenFinder
@@ -293,14 +293,12 @@ struct DrawerIconBar: View {
         }
     }
 
-    private func trailingActionIcon(for descriptor: ActionIconDescriptor?) -> TrailingActionIcon? {
+    private func trailingActionIcon(for descriptor: CommandIcon) -> TrailingActionIcon {
         switch descriptor {
         case .system(let name):
-            return .system(name: name)
+            return .system(name: name.rawValue)
         case .octicon(let name):
-            return .octicon(name: name)
-        case nil:
-            return nil
+            return .octicon(name: name.rawValue)
         }
     }
 

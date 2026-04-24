@@ -16,6 +16,7 @@ struct UIActionPresentationTests {
         let definition = CommandSpec(
             command: .renameArrangement,
             label: "Rename Arrangement",
+            icon: .system(.pencil),
             helpText: "Rename the current arrangement"
         )
 
@@ -36,6 +37,7 @@ struct UIActionPresentationTests {
         let definition = CommandSpec(
             command: .renameArrangement,
             label: "Rename Arrangement",
+            icon: .system(.pencil),
             helpText: "Rename the current arrangement"
         )
 
@@ -70,5 +72,17 @@ struct UIActionPresentationTests {
         )
 
         #expect(toolTip == "Open in Finder (⌘⇧O)")
+    }
+
+    @Test
+    func actionSpec_preservesTypedCommandIcons() {
+        #expect(AppCommand.watchFolder.definition.icon == .system(.folderFillBadgePlus))
+        #expect(AppCommand.watchFolder.definition.actionSpec.icon == .system(.folderFillBadgePlus))
+    }
+
+    @Test
+    func refreshAndReloadUseClockwiseArrow() {
+        #expect(LocalActionSpec.refreshWorktrees.actionSpec.icon == .system(.arrowClockwise))
+        #expect(LocalActionSpec.browserReload.actionSpec.icon == .system(.arrowClockwise))
     }
 }

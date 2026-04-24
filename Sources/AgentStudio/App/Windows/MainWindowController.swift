@@ -393,6 +393,45 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         showInboxNotifications(commandBarIsKey: false)
         updateSidebarToolbarIcons()
     }
+
+    @objc private func watchFolderAction() {
+        CommandDispatcher.shared.dispatch(.watchFolder)
+    }
+
+    private func commandToolbarButtonItem(
+        for command: AppCommand,
+        action: Selector
+    ) -> NSToolbarItem {
+        let definition = CommandDispatcher.shared.definition(for: command)
+        let item = NSToolbarItem(itemIdentifier: .watchFolder)
+        item.label = definition.actionSpec.label
+        item.paletteLabel = definition.actionSpec.label
+        item.toolTip = definition.controlToolTip
+
+        let button = NSButton(
+            title: definition.actionSpec.label,
+            target: self,
+            action: action
+        )
+        button.bezelStyle = .rounded
+        button.bezelColor = .systemTeal
+        button.controlSize = .regular
+
+        if case .system(let systemName) = definition.actionSpec.icon {
+            button.image = NSImage(
+                systemSymbolName: systemName.rawValue,
+                accessibilityDescription: definition.actionSpec.label
+            )
+        }
+
+        button.imagePosition = .imageLeading
+        button.attributedTitle = NSAttributedString(
+            string: "  " + definition.actionSpec.label,
+            attributes: [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)]
+        )
+        item.view = button
+        return item
+    }
 }
 
 // MARK: - NSToolbarDelegate
@@ -403,6 +442,7 @@ extension MainWindowController: NSToolbarDelegate {
             .flexibleSpace,
             .managementLayer,
             .space,
+            .watchFolder,
         ]
     }
 
@@ -425,6 +465,8 @@ extension MainWindowController: NSToolbarDelegate {
             hostingView.sizingOptions = .intrinsicContentSize
             item.view = hostingView
             return item
+        case .watchFolder:
+            return commandToolbarButtonItem(for: .watchFolder, action: #selector(watchFolderAction))
 
         default:
             return nil

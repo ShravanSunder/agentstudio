@@ -28,10 +28,16 @@ struct CommandBarAppModeTests {
 struct CommandContextTests {
     @Test
     func visibilityIgnoresMissingRequirementsOnlyWhenDefinitionHasNoRequirements() {
-        let alwaysVisible = CommandSpec(command: .newTab, label: "New Tab", helpText: "Create a new tab")
+        let alwaysVisible = CommandSpec(
+            command: .newTab,
+            label: "New Tab",
+            icon: .system(.plusSquare),
+            helpText: "Create a new tab"
+        )
         let tabOnly = CommandSpec(
             command: .closeTab,
             label: "Close Tab",
+            icon: .system(.xmark),
             helpText: "Close the active tab",
             visibleWhen: [.hasActiveTab]
         )
@@ -46,6 +52,7 @@ struct CommandContextTests {
         let definition = CommandSpec(
             command: .navigateDrawerPane,
             label: "Switch Drawer Pane",
+            icon: .system(.arrowDownToLine),
             helpText: "Switch to a pane inside the active drawer",
             visibleWhen: [.hasActivePane, .hasDrawerPanes]
         )

@@ -9,7 +9,7 @@ func makeCommandBarItem(
     id: String = "test-item",
     title: String = "Test Item",
     subtitle: String? = nil,
-    icon: String? = "terminal",
+    icon: CommandIcon? = .system(.terminal),
     iconColor: Color? = nil,
     shortcutTrigger: ShortcutTrigger? = nil,
     shortcutKeys: [ShortcutKey]? = nil,

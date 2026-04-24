@@ -140,7 +140,7 @@ struct CommandSpec {
     let command: AppCommand
     let shortcut: AppShortcut?
     let label: String
-    let icon: String?
+    let icon: CommandIcon
     let helpText: String
     let appliesTo: Set<SearchItemType>
     let requiresManagementLayer: Bool
@@ -153,7 +153,7 @@ struct CommandSpec {
         command: AppCommand,
         shortcut: AppShortcut? = nil,
         label: String,
-        icon: String? = nil,
+        icon: CommandIcon,
         helpText: String,
         appliesTo: Set<SearchItemType> = [],
         requiresManagementLayer: Bool = false,
@@ -353,7 +353,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .closeTab,
                 label: "Close Tab",
-                icon: "xmark",
+                icon: .system(.xmark),
                 helpText: "Close the active tab",
                 appliesTo: [.tab],
                 visibleWhen: [.hasActiveTab],
@@ -364,7 +364,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Split Tab Into Individuals",
-                icon: "rectangle.split.3x1",
+                icon: .system(.rectangleSplit3x1),
                 helpText: "Split each visible pane in the active tab into its own tab",
                 appliesTo: [.tab],
                 visibleWhen: [.hasActiveTab, .hasMultiplePanes],
@@ -375,7 +375,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Rename Tab...",
-                icon: "pencil",
+                icon: .system(.pencil),
                 helpText: "Rename the current tab",
                 appliesTo: [.tab],
                 visibleWhen: [.hasActiveTab],
@@ -386,7 +386,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Add Terminal to Tab",
-                icon: "terminal",
+                icon: .system(.terminal),
                 helpText: "Add a new terminal to the active tab",
                 appliesTo: [.tab],
                 visibleWhen: [.hasActiveTab],
@@ -397,7 +397,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "New Tab",
-                icon: "plus.square",
+                icon: .system(.plusSquare),
                 helpText: "Create a new terminal tab",
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window
@@ -407,7 +407,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .undoCloseTab,
                 label: "Undo Close Tab",
-                icon: "arrow.uturn.backward",
+                icon: .system(.arrowUturnBackward),
                 helpText: "Restore the most recently closed tab",
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window
@@ -416,7 +416,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Select Tab",
-                icon: "rectangle.stack",
+                icon: .system(.rectangleStack),
                 helpText: "Select a specific tab",
                 appliesTo: [.tab],
                 visibleWhen: [.hasActiveTab],
@@ -429,7 +429,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .nextTab,
                 label: "Next Tab",
-                icon: "chevron.right",
+                icon: .system(.chevronRight),
                 helpText: "Move to the next tab",
                 visibleWhen: [.hasActiveTab],
                 commandBarGroupName: "Tab",
@@ -440,7 +440,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .prevTab,
                 label: "Previous Tab",
-                icon: "chevron.left",
+                icon: .system(.chevronLeft),
                 helpText: "Move to the previous tab",
                 visibleWhen: [.hasActiveTab],
                 commandBarGroupName: "Tab",
@@ -468,7 +468,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Close Pane",
-                icon: "xmark.square",
+                icon: .system(.xmarkSquare),
                 helpText: "Close the active pane",
                 appliesTo: [.pane, .floatingTerminal],
                 requiresManagementLayer: true,
@@ -480,7 +480,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Move Pane to New Tab",
-                icon: "arrow.up.right.square",
+                icon: .system(.arrowUpRightSquare),
                 helpText: "Move the active pane into a new tab",
                 appliesTo: [.pane, .floatingTerminal],
                 visibleWhen: [.hasActivePane],
@@ -491,7 +491,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Move Pane to Existing Tab",
-                icon: "arrow.left.and.right.square",
+                icon: .system(.arrowLeftAndRightSquare),
                 helpText: "Move the active pane into another existing tab",
                 appliesTo: [.pane],
                 requiresManagementLayer: true,
@@ -503,7 +503,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Focus Pane",
-                icon: "scope",
+                icon: .system(.scope),
                 helpText: "Focus a specific pane",
                 appliesTo: [.pane, .floatingTerminal],
                 visibleWhen: [.hasActivePane],
@@ -516,7 +516,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .scrollToBottom,
                 label: "Scroll to Bottom",
-                icon: "arrow.down.to.line",
+                icon: .system(.arrowDownToLine),
                 helpText: "Scroll the active terminal pane to the bottom of its scrollback",
                 appliesTo: [.pane, .floatingTerminal],
                 visibleWhen: [.hasActivePane],
@@ -527,7 +527,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Split Right",
-                icon: "rectangle.split.1x2",
+                icon: .system(.rectangleSplit1x2),
                 helpText: "Split the active pane to the right",
                 appliesTo: [.pane, .tab],
                 visibleWhen: [.hasActivePane],
@@ -538,7 +538,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Split Left",
-                icon: "rectangle.split.1x2",
+                icon: .system(.rectangleSplit1x2),
                 helpText: "Split the active pane to the left",
                 appliesTo: [.pane, .tab],
                 visibleWhen: [.hasActivePane],
@@ -549,7 +549,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Equalize Panes",
-                icon: "equal.square",
+                icon: .system(.equalSquare),
                 helpText: "Reset all pane sizes in the active tab to equal widths",
                 appliesTo: [.tab],
                 visibleWhen: [.hasActiveTab, .hasMultiplePanes],
@@ -559,44 +559,44 @@ extension AppCommand {
         case .focusPaneLeft:
             return focusDefinition(
                 label: "Focus Pane Left",
-                icon: "arrow.left",
+                icon: .arrowLeft,
                 helpText: "Move focus to the pane on the left"
             )
         case .focusPaneRight:
             return focusDefinition(
                 label: "Focus Pane Right",
-                icon: "arrow.right",
+                icon: .arrowRight,
                 helpText: "Move focus to the pane on the right"
             )
         case .focusPaneUp:
             return focusDefinition(
                 label: "Focus Pane Up",
-                icon: "arrow.up",
+                icon: .arrowUp,
                 helpText: "Move focus to the pane above"
             )
         case .focusPaneDown:
             return focusDefinition(
                 label: "Focus Pane Down",
-                icon: "arrow.down",
+                icon: .arrowDown,
                 helpText: "Move focus to the pane below"
             )
         case .focusNextPane:
             return focusDefinition(
                 label: "Focus Next Pane",
-                icon: "arrow.right.circle",
+                icon: .arrowRightCircle,
                 helpText: "Move focus to the next pane"
             )
         case .focusPrevPane:
             return focusDefinition(
                 label: "Focus Previous Pane",
-                icon: "arrow.left.circle",
+                icon: .arrowLeftCircle,
                 helpText: "Move focus to the previous pane"
             )
         case .toggleSplitZoom:
             return CommandSpec(
                 command: self,
                 label: "Toggle Split Zoom",
-                icon: "arrow.up.left.and.arrow.down.right.magnifyingglass",
+                icon: .system(.plusMagnifyingglass),
                 helpText: "Toggle zoom for the active pane",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane, .hasMultiplePanes],
@@ -607,7 +607,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Minimize Pane",
-                icon: "minus.circle",
+                icon: .system(.minusCircle),
                 helpText: "Minimize the active pane",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane],
@@ -618,7 +618,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Expand Pane",
-                icon: "arrow.up.left.and.arrow.down.right",
+                icon: .system(.arrowUpLeftAndArrowDownRight),
                 helpText: "Expand a minimized pane back into the layout",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane],
@@ -628,7 +628,7 @@ extension AppCommand {
         case .switchArrangement:
             return arrangementDefinition(
                 label: "Switch Arrangement",
-                icon: "rectangle.3.group",
+                icon: .rectangle3Group,
                 helpText: "Switch the active tab to a saved arrangement"
             )
         case .saveArrangement:
@@ -636,7 +636,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Save Arrangement As...",
-                icon: "rectangle.3.group.fill",
+                icon: .system(.rectangle3GroupFill),
                 helpText: "Save the current tab layout as a named arrangement",
                 appliesTo: [.tab],
                 visibleWhen: [.hasActiveTab],
@@ -646,13 +646,13 @@ extension AppCommand {
         case .deleteArrangement:
             return arrangementDefinition(
                 label: "Delete Arrangement",
-                icon: "rectangle.3.group.bubble",
+                icon: .rectangle3GroupBubble,
                 helpText: "Delete a saved arrangement from the active tab"
             )
         case .renameArrangement:
             return arrangementDefinition(
                 label: "Rename Arrangement",
-                icon: "pencil",
+                icon: .pencil,
                 helpText: "Rename a saved arrangement in the active tab"
             )
         case .addDrawerPane:
@@ -660,7 +660,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .addDrawerPane,
                 label: "Add Drawer Pane",
-                icon: "rectangle.bottomhalf.inset.filled",
+                icon: .system(.rectangleBottomhalfInsetFilled),
                 helpText: "Add a drawer pane to the active pane",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane],
@@ -672,7 +672,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .toggleDrawer,
                 label: "Toggle Drawer",
-                icon: "rectangle.expand.vertical",
+                icon: .system(.rectangleExpandVertical),
                 helpText: "Expand or collapse the active pane drawer",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane],
@@ -683,7 +683,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Switch Drawer Pane",
-                icon: "arrow.down.to.line",
+                icon: .system(.arrowDownToLine),
                 helpText: "Switch to a pane inside the active drawer",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane, .hasDrawerPanes],
@@ -694,7 +694,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Close Drawer Pane",
-                icon: "xmark.rectangle.portrait",
+                icon: .system(.xmarkRectanglePortrait),
                 helpText: "Close a pane inside the active drawer",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane, .hasDrawerPanes],
@@ -706,7 +706,7 @@ extension AppCommand {
                 command: self,
                 shortcut: nil,
                 label: "Watch Folder",
-                icon: "folder.fill.badge.plus",
+                icon: .system(.folderFillBadgePlus),
                 helpText: "Watch a folder and scan it for repositories",
                 commandBarGroupName: "Repo",
                 commandBarGroupPriority: CommandBarGroupPriority.repo
@@ -715,7 +715,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Remove Repo",
-                icon: "folder.badge.minus",
+                icon: .system(.folderBadgeMinus),
                 helpText: "Remove a repository from the workspace",
                 appliesTo: [.repo],
                 commandBarGroupName: "Repo",
@@ -724,13 +724,13 @@ extension AppCommand {
         case .openWorktree:
             return worktreeDefinition(
                 label: "Open Worktree",
-                icon: "terminal",
+                icon: .terminal,
                 helpText: "Open a worktree in a tab"
             )
         case .openWorktreeInPane:
             return worktreeDefinition(
                 label: "Open Worktree in Pane",
-                icon: "rectangle.split.2x1",
+                icon: .rectangleSplit2x1,
                 helpText: "Open a worktree in a split pane"
             )
         case .openPaneLocationInBookmarkedEditor:
@@ -738,7 +738,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .openPaneLocationInBookmarkedEditor,
                 label: "Open Pane Location in Bookmarked Editor",
-                icon: "chevron.left.forwardslash.chevron.right",
+                icon: .system(.chevronLeftForwardslashChevronRight),
                 helpText: "Open the selected pane location in the bookmarked editor",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane],
@@ -750,7 +750,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .openPaneLocationInFinder,
                 label: "Open Pane Location in Finder",
-                icon: "finder",
+                icon: .system(.finder),
                 helpText: "Open the selected pane location in Finder",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane],
@@ -762,7 +762,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .openPaneLocationInEditorMenu,
                 label: "Open In Menu",
-                icon: "chevron.up.chevron.down",
+                icon: .system(.chevronUpChevronDown),
                 helpText: "Open the editor chooser for the selected pane",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane],
@@ -774,7 +774,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .toggleManagementLayer,
                 label: "Manage Workspace",
-                icon: "rectangle.split.2x2",
+                icon: .system(.rectangleSplit2x2),
                 helpText: "Toggle workspace management mode",
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window
@@ -782,46 +782,46 @@ extension AppCommand {
         case .managementLayerFocusLeft:
             return managementDefinition(
                 shortcut: .managementLayerFocusLeft,
-                label: "Management Focus Left", icon: "arrow.left", helpText: "Move focus left in management mode")
+                label: "Management Focus Left", icon: .arrowLeft, helpText: "Move focus left in management mode")
         case .managementLayerFocusRight:
             return managementDefinition(
                 shortcut: .managementLayerFocusRight,
-                label: "Management Focus Right", icon: "arrow.right", helpText: "Move focus right in management mode")
+                label: "Management Focus Right", icon: .arrowRight, helpText: "Move focus right in management mode")
         case .managementLayerEnterDrawer:
             return managementDefinition(
                 shortcut: .managementLayerEnterDrawer,
-                label: "Management Enter Drawer", icon: "arrow.down",
+                label: "Management Enter Drawer", icon: .arrowDown,
                 helpText: "Enter or expand the current drawer in management mode")
         case .managementLayerExitDrawer:
             return managementDefinition(
                 shortcut: .managementLayerExitDrawer,
-                label: "Management Exit Drawer", icon: "arrow.up",
+                label: "Management Exit Drawer", icon: .arrowUp,
                 helpText: "Collapse the current drawer in management mode")
         case .managementLayerOpenDrawer:
             return managementDefinition(
                 shortcut: .managementLayerOpenDrawer,
-                label: "Management Open Drawer", icon: "rectangle.expand.vertical",
+                label: "Management Open Drawer", icon: .rectangleExpandVertical,
                 helpText: "Open the current drawer in management mode")
         case .managementLayerCreateTerminal:
             return managementDefinition(
                 shortcut: .managementLayerCreateTerminal,
-                label: "Management Create Terminal", icon: "plus.square",
+                label: "Management Create Terminal", icon: .plusSquare,
                 helpText: "Create a terminal in the current management-mode context")
         case .managementLayerCreateBrowser:
             return managementDefinition(
                 shortcut: .managementLayerCreateBrowser,
-                label: "Management Create Browser", icon: "globe",
+                label: "Management Create Browser", icon: .globe,
                 helpText: "Create a browser in the current management-mode context")
         case .managementLayerExit:
             return managementDefinition(
                 shortcut: .managementLayerExit,
-                label: "Management Exit Mode", icon: "rectangle.split.2x2.fill",
+                label: "Management Exit Mode", icon: .rectangleSplit2x2Fill,
                 helpText: "Exit management mode")
         case .toggleSidebar:
             return CommandSpec(
                 command: self,
                 label: "Toggle Sidebar",
-                icon: "sidebar.left",
+                icon: .system(.sidebarLeft),
                 helpText: "Show or hide the sidebar",
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window,
@@ -864,7 +864,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "New Floating Terminal",
-                icon: "terminal.fill",
+                icon: .system(.terminalFill),
                 helpText: "Open a new floating terminal",
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window
@@ -874,7 +874,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .newWindow,
                 label: "New Window",
-                icon: "macwindow.badge.plus",
+                icon: .system(.macwindowBadgePlus),
                 helpText: "Open a new application window",
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window,
@@ -885,7 +885,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .closeWindow,
                 label: "Close Window",
-                icon: "xmark.rectangle",
+                icon: .system(.xmarkRectangle),
                 helpText: "Close the current application window",
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window,
@@ -896,7 +896,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .showCommandBarEverything,
                 label: "Quick Find",
-                icon: "magnifyingglass",
+                icon: .system(.magnifyingglass),
                 helpText: "Open quick find",
                 commandBarGroupName: "Commands",
                 commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
@@ -907,7 +907,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .showCommandBarCommands,
                 label: "Command Palette",
-                icon: "command",
+                icon: .system(.command),
                 helpText: "Open the command palette",
                 commandBarGroupName: "Commands",
                 commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
@@ -918,7 +918,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .showCommandBarPanes,
                 label: "Go to Pane",
-                icon: "terminal",
+                icon: .system(.terminal),
                 helpText: "Open the pane picker",
                 commandBarGroupName: "Commands",
                 commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
@@ -929,7 +929,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .newTab,
                 label: "New Tab or Worktree",
-                icon: "folder",
+                icon: .system(.folder),
                 helpText: "Open the repo and worktree picker",
                 commandBarGroupName: "Commands",
                 commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
@@ -939,7 +939,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Open New Webview Tab",
-                icon: "globe",
+                icon: .system(.globe),
                 helpText: "Open a new webview tab",
                 commandBarGroupName: "Webview",
                 commandBarGroupPriority: CommandBarGroupPriority.webview
@@ -948,7 +948,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Sign in to GitHub",
-                icon: "person.badge.key",
+                icon: .system(.personBadgeKey),
                 helpText: "Start GitHub sign-in",
                 commandBarGroupName: "Auth",
                 commandBarGroupPriority: CommandBarGroupPriority.auth,
@@ -958,7 +958,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Sign in to Google",
-                icon: "person.badge.key",
+                icon: .system(.personBadgeKey),
                 helpText: "Start Google sign-in",
                 commandBarGroupName: "Auth",
                 commandBarGroupPriority: CommandBarGroupPriority.auth,
@@ -969,7 +969,7 @@ extension AppCommand {
                 command: self,
                 shortcut: .filterSidebar,
                 label: "Filter Sidebar",
-                icon: "magnifyingglass",
+                icon: .system(.magnifyingglass),
                 helpText: "Filter items in the sidebar",
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window
@@ -977,7 +977,7 @@ extension AppCommand {
         case .openNewTerminalInTab:
             return worktreeDefinition(
                 label: "Open Terminal in New Tab",
-                icon: "terminal.fill",
+                icon: .terminalFill,
                 helpText: "Open a worktree in a fresh terminal tab"
             )
         }

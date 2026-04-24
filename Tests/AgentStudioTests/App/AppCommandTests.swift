@@ -156,14 +156,19 @@ final class AppCommandTests {
     @Test
     func test_commandDefinition_init_defaults() {
         // Act
-        let def = CommandSpec(command: .closeTab, label: "Close Tab", helpText: "Close the active tab")
+        let def = CommandSpec(
+            command: .closeTab,
+            label: "Close Tab",
+            icon: .system(.xmark),
+            helpText: "Close the active tab"
+        )
 
         // Assert
         #expect(def.command == AppCommand.closeTab)
         #expect(def.label == "Close Tab")
         #expect(def.helpText == "Close the active tab")
         #expect(def.keyBinding == nil)
-        #expect(def.icon == nil)
+        #expect(def.icon == .system(.xmark))
         #expect(def.appliesTo.isEmpty)
         #expect(!(def.requiresManagementLayer))
         #expect(def.visibleWhen.isEmpty)
@@ -179,7 +184,7 @@ final class AppCommandTests {
             command: .closeWindow,
             shortcut: .closeWindow,
             label: "Close Window",
-            icon: "xmark",
+            icon: .system(.xmark),
             helpText: "Close the active window",
             appliesTo: [.tab],
             requiresManagementLayer: false
@@ -188,10 +193,20 @@ final class AppCommandTests {
         // Assert
         #expect(def.command == AppCommand.closeWindow)
         #expect(def.keyBinding != nil)
-        #expect(def.icon == "xmark")
+        #expect(def.icon == .system(.xmark))
         #expect(def.helpText == "Close the active window")
         #expect(def.appliesTo.contains(SearchItemType.tab))
         #expect(!def.requiresManagementLayer)
+    }
+
+    @Test
+    func test_toggleSplitZoom_hasDistinctZoomIcon() {
+        let splitZoom = CommandDispatcher.shared.definition(for: .toggleSplitZoom)
+        let expandPane = CommandDispatcher.shared.definition(for: .expandPane)
+
+        #expect(splitZoom.icon == .system(.plusMagnifyingglass))
+        #expect(expandPane.icon == .system(.arrowUpLeftAndArrowDownRight))
+        #expect(splitZoom.icon != expandPane.icon)
     }
 
     // MARK: - CommandDispatcher
@@ -577,7 +592,7 @@ final class AppCommandTests {
 
         // Assert
         #expect(def.label == "Filter Sidebar")
-        #expect(def.icon == "magnifyingglass")
+        #expect(def.icon == .system(.magnifyingglass))
     }
 
     @MainActor
@@ -602,7 +617,7 @@ final class AppCommandTests {
 
         // Assert
         #expect(def.label == "Open Terminal in New Tab")
-        #expect(def.icon == "terminal.fill")
+        #expect(def.icon == .system(.terminalFill))
         #expect(def.helpText == "Open a worktree in a fresh terminal tab")
     }
 
@@ -659,7 +674,7 @@ final class AppCommandTests {
     func test_dispatcher_openWebview_registered() {
         let def = CommandDispatcher.shared.definition(for: .openWebview)
         #expect(def.label == "Open New Webview Tab")
-        #expect(def.icon == "globe")
+        #expect(def.icon == .system(.globe))
     }
 
     @MainActor
@@ -676,7 +691,7 @@ final class AppCommandTests {
     func test_dispatcher_signInGitHub_registered() {
         let def = CommandDispatcher.shared.definition(for: .signInGitHub)
         #expect(def.label == "Sign in to GitHub")
-        #expect(def.icon == "person.badge.key")
+        #expect(def.icon == .system(.personBadgeKey))
     }
 
     @MainActor
@@ -685,7 +700,7 @@ final class AppCommandTests {
     func test_dispatcher_signInGoogle_registered() {
         let def = CommandDispatcher.shared.definition(for: .signInGoogle)
         #expect(def.label == "Sign in to Google")
-        #expect(def.icon == "person.badge.key")
+        #expect(def.icon == .system(.personBadgeKey))
     }
 
     @MainActor
