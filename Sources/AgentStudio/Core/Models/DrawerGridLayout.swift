@@ -55,62 +55,18 @@ struct DrawerGridLayout: Codable, Hashable {
     ) -> Self? {
         switch direction {
         case .left:
-            guard topRow.contains(targetPaneId) || bottomRow?.contains(targetPaneId) == true else { return nil }
-
-            if topRow.contains(targetPaneId) {
-                return Self(
-                    topRow: topRow.inserting(
-                        paneId: paneId,
-                        at: targetPaneId,
-                        direction: .horizontal,
-                        position: .before,
-                        sizingMode: sizingMode
-                    ),
-                    bottomRow: bottomRow,
-                    rowSplitRatio: rowSplitRatio
-                )
-            }
-
-            guard let bottomRow else { return nil }
-            return Self(
-                topRow: topRow,
-                bottomRow: bottomRow.inserting(
-                    paneId: paneId,
-                    at: targetPaneId,
-                    direction: .horizontal,
-                    position: .before,
-                    sizingMode: sizingMode
-                ),
-                rowSplitRatio: rowSplitRatio
+            return insertingHorizontally(
+                paneId: paneId,
+                at: targetPaneId,
+                position: .before,
+                sizingMode: sizingMode
             )
         case .right:
-            guard topRow.contains(targetPaneId) || bottomRow?.contains(targetPaneId) == true else { return nil }
-
-            if topRow.contains(targetPaneId) {
-                return Self(
-                    topRow: topRow.inserting(
-                        paneId: paneId,
-                        at: targetPaneId,
-                        direction: .horizontal,
-                        position: .after,
-                        sizingMode: sizingMode
-                    ),
-                    bottomRow: bottomRow,
-                    rowSplitRatio: rowSplitRatio
-                )
-            }
-
-            guard let bottomRow else { return nil }
-            return Self(
-                topRow: topRow,
-                bottomRow: bottomRow.inserting(
-                    paneId: paneId,
-                    at: targetPaneId,
-                    direction: .horizontal,
-                    position: .after,
-                    sizingMode: sizingMode
-                ),
-                rowSplitRatio: rowSplitRatio
+            return insertingHorizontally(
+                paneId: paneId,
+                at: targetPaneId,
+                position: .after,
+                sizingMode: sizingMode
             )
         case .up:
             if topRow.contains(targetPaneId) {
@@ -159,6 +115,38 @@ struct DrawerGridLayout: Codable, Hashable {
                 rowSplitRatio: rowSplitRatio
             )
         }
+    }
+
+    private func insertingHorizontally(
+        paneId: UUID,
+        at targetPaneId: UUID,
+        position: Layout.Position,
+        sizingMode: DropSizingMode
+    ) -> Self? {
+        if topRow.contains(targetPaneId) {
+            guard
+                let updatedTopRow = topRow.inserting(
+                    paneId: paneId,
+                    at: targetPaneId,
+                    direction: .horizontal,
+                    position: position,
+                    sizingMode: sizingMode
+                )
+            else { return nil }
+            return Self(topRow: updatedTopRow, bottomRow: bottomRow, rowSplitRatio: rowSplitRatio)
+        }
+
+        guard let bottomRow, bottomRow.contains(targetPaneId) else { return nil }
+        guard
+            let updatedBottomRow = bottomRow.inserting(
+                paneId: paneId,
+                at: targetPaneId,
+                direction: .horizontal,
+                position: position,
+                sizingMode: sizingMode
+            )
+        else { return nil }
+        return Self(topRow: topRow, bottomRow: updatedBottomRow, rowSplitRatio: rowSplitRatio)
     }
 
     func removing(paneId: UUID, sizingMode: DropSizingMode) -> Self? {
@@ -259,7 +247,7 @@ struct DrawerGridLayout: Codable, Hashable {
                 direction: .horizontal,
                 position: .before,
                 sizingMode: sizingMode
-            )
+            ) ?? row
         }
 
         let anchorIndex = min(targetIndex - 1, row.paneIds.count - 1)
@@ -269,6 +257,6 @@ struct DrawerGridLayout: Codable, Hashable {
             direction: .horizontal,
             position: .after,
             sizingMode: sizingMode
-        )
+        ) ?? row
     }
 }

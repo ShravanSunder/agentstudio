@@ -95,14 +95,19 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             }
             return self.shouldHandleSplitDragPayload(payload)
         },
-        shouldAcceptDrop: { [weak self] payload, destPaneId, zone in
+        shouldAcceptDrop: { [weak self] payload, destPaneId, zone, sizingMode in
             guard let self else {
                 RestoreTrace.log(
                     "PaneTabActionDispatcher.shouldAcceptDrop dropped ownerReleased destPaneId=\(destPaneId) zone=\(zone)"
                 )
                 return false
             }
-            return self.evaluateDropAcceptance(payload: payload, destPaneId: destPaneId, zone: zone)
+            return self.evaluateDropAcceptance(
+                payload: payload,
+                destPaneId: destPaneId,
+                zone: zone,
+                sizingMode: sizingMode
+            )
         },
         handleDrop: { [weak self] payload, destPaneId, zone, sizingMode in
             guard let self else {
@@ -886,7 +891,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private func evaluateDropAcceptance(
         payload: SplitDropPayload,
         destPaneId: UUID,
-        zone: DropZoneSide
+        zone: DropZoneSide,
+        sizingMode: DropSizingMode
     ) -> Bool {
         guard shouldHandleSplitDragPayload(payload) else {
             return false
@@ -899,7 +905,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 drawerParentPaneId: store.paneAtom.pane(destPaneId)?.parentPaneId
             ),
             zone: zone,
-            sizingMode: .halveTarget,
+            sizingMode: sizingMode,
             activeTabId: store.tabLayoutAtom.activeTabId,
             state: snapshot
         ) != nil
@@ -1907,12 +1913,18 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             dispatchAction(.openFloatingTerminal(launchDirectory: activePaneCwd, title: nil))
         case .openWebview:
             executor.openWebview()
+        case .detachDrawerPane:
+            guard case .drawerPane(let parentPaneId, let drawerPaneId) = normalizedWorkspaceNavigationScopeState()
+            else {
+                break
+            }
+            dispatchAction(.detachDrawerPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId))
         case .showCommandBarEverything, .showCommandBarCommands,
             .showCommandBarPanes, .showCommandBarRepos,
             .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
             .switchArrangement, .deleteArrangement, .renameArrangement,
             .navigateDrawerPane, .movePaneToTab,
-            .selectTab, .focusPane, .detachDrawerPane:
+            .selectTab, .focusPane:
             return  // Handled via drill-in (target selection in command bar)
         default:
             Self.logger.warning(

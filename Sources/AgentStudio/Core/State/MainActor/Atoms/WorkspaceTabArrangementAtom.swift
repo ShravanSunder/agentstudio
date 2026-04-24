@@ -71,23 +71,27 @@ final class WorkspaceTabArrangementAtom {
             return false
         }
 
-        arrangementStates[tabIndex].zoomedPaneId = nil
-        arrangementStates[tabIndex].arrangements[arrIndex].layout = arrangementStates[tabIndex].arrangements[arrIndex]
-            .layout
-            .inserting(
+        guard
+            let updatedActiveLayout = arrangementStates[tabIndex].arrangements[arrIndex].layout.inserting(
                 paneId: paneId, at: targetPaneId, direction: direction, position: position, sizingMode: sizingMode)
+        else {
+            workspaceTabArrangementLogger.warning("insertPane: targetPaneId \(targetPaneId) rejected during insertion")
+            return false
+        }
+
+        arrangementStates[tabIndex].zoomedPaneId = nil
+        arrangementStates[tabIndex].arrangements[arrIndex].layout = updatedActiveLayout
         arrangementStates[tabIndex].arrangements[arrIndex].visiblePaneIds.insert(paneId)
 
         if !arrangementStates[tabIndex].arrangements[arrIndex].isDefault {
             let defIdx = defaultArrangementIndex(for: tabIndex)
             if arrangementStates[tabIndex].arrangements[defIdx].layout.contains(targetPaneId) {
-                arrangementStates[tabIndex].arrangements[defIdx].layout = arrangementStates[tabIndex].arrangements[
-                    defIdx
-                ]
-                .layout
-                .inserting(
+                if let updatedDefaultLayout = arrangementStates[tabIndex].arrangements[defIdx].layout.inserting(
                     paneId: paneId, at: targetPaneId, direction: direction, position: position, sizingMode: sizingMode)
-                arrangementStates[tabIndex].arrangements[defIdx].visiblePaneIds.insert(paneId)
+                {
+                    arrangementStates[tabIndex].arrangements[defIdx].layout = updatedDefaultLayout
+                    arrangementStates[tabIndex].arrangements[defIdx].visiblePaneIds.insert(paneId)
+                }
             }
         }
 

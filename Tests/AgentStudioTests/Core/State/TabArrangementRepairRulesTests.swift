@@ -15,7 +15,7 @@ struct TabArrangementRepairRulesTests {
                 isDefault: true,
                 layout: Layout(paneId: paneA)
                     .inserting(
-                        paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget),
+                        paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!,
                 visiblePaneIds: [paneA, paneB],
                 minimizedPaneIds: [paneB]
             )
@@ -39,7 +39,7 @@ struct TabArrangementRepairRulesTests {
                 layout: Layout(paneId: paneA)
                     .inserting(
                         paneId: stalePane, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget
-                    ),
+                    )!,
                 visiblePaneIds: [paneA, stalePane],
                 minimizedPaneIds: [stalePane]
             )

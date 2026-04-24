@@ -72,9 +72,9 @@ struct Layout: Codable, Hashable {
         direction _: SplitDirection,
         position: Position,
         sizingMode: DropSizingMode
-    ) -> Self {
+    ) -> Self? {
         guard let targetIndex = panes.firstIndex(where: { $0.paneId == targetPaneId }) else {
-            return self
+            return nil
         }
 
         let insertIndex: Int

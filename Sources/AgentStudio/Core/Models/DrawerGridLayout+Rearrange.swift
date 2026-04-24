@@ -1,6 +1,6 @@
 import Foundation
 
-enum DrawerProjectedMoveFailure: Error, Equatable, Sendable, CustomStringConvertible {
+enum DrawerProjectedMoveFailure: Error, Equatable, Hashable, Sendable, CustomStringConvertible {
     case missingSourcePane(UUID)
     case sourceRemovalRejected(UUID)
     case secondRowAlreadyExists
@@ -51,7 +51,7 @@ extension DrawerGridLayout {
                 sizingMode: sizingMode
             )
         case .createSecondRow(let position):
-            guard layoutWithoutSource.bottomRow == nil else {
+            guard bottomRow == nil else {
                 return .failure(.secondRowAlreadyExists)
             }
             return .success(

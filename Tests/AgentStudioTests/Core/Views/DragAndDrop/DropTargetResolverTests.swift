@@ -247,6 +247,29 @@ struct DropTargetResolverTests {
     }
 
     @Test
+    func resolve_singleRowConfig_ignoresBottomRowEvenWhenRowsMapContainsOne() {
+        let bottomPane = UUID()
+        let frames: [UUID: CGRect] = [
+            paneA: CGRect(x: 0, y: 0, width: 100, height: 100),
+            bottomPane: CGRect(x: 0, y: 200, width: 100, height: 100),
+        ]
+
+        let target = DropTargetResolver.resolve(
+            location: CGPoint(x: 50, y: 250),
+            rows: [
+                .drawerTop: [paneA],
+                .drawerBottom: [bottomPane],
+            ],
+            paneFrames: frames,
+            containerBounds: CGRect(x: 0, y: 0, width: 100, height: 300),
+            config: .drawerSingleRow,
+            splittablePanes: []
+        )
+
+        #expect(target == nil)
+    }
+
+    @Test
     func resolve_leftCorridor_main_returnsSlotZero() {
         let context = threePaneSingleRow
         let corridorBounds = CGRect(x: -24, y: 0, width: 324, height: 200)
@@ -327,8 +350,7 @@ struct DropTargetResolverTests {
             rows: [.drawerTop: [paneA, paneB, paneC]],
             paneFrames: context.frames,
             containerBounds: context.bounds,
-            config: .drawerSingleRow,
-            splittablePanes: []
+            config: .drawerSingleRow
         )
 
         #expect(rects.count == 6)
@@ -346,8 +368,7 @@ struct DropTargetResolverTests {
             rows: context.rows,
             paneFrames: context.frames,
             containerBounds: context.bounds,
-            config: .main,
-            splittablePanes: Set(context.frames.keys)
+            config: .main
         )
 
         #expect(rects.count == 4)

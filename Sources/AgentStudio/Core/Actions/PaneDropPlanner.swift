@@ -2,7 +2,18 @@ import Foundation
 
 enum PaneDropPreviewDecision: Equatable {
     case eligible(DropCommitPlan)
-    case ineligible
+    case ineligible(PaneDropIneligibilityReason)
+}
+
+enum PaneDropIneligibilityReason: Equatable {
+    case managementLayerInactive
+    case unsupportedPayload
+    case drawerPanePayload
+    case missingSourceTab(UUID)
+    case drawerDestination
+    case unsupportedSplitDirection(SplitNewDirection)
+    case unresolvedDrop
+    case validationFailed(ActionValidationError)
 }
 
 enum DropCommitPlan: Equatable {
@@ -51,7 +62,7 @@ enum PaneDropPlanner {
         state: ActionStateSnapshot
     ) -> PaneDropPreviewDecision {
         guard state.isManagementLayerActive else {
-            return .ineligible
+            return .ineligible(.managementLayerInactive)
         }
 
         switch destination {
@@ -76,26 +87,26 @@ enum PaneDropPlanner {
         state: ActionStateSnapshot
     ) -> PaneDropPreviewDecision {
         guard case .existingPane(let paneId, let sourceTabId) = payload.kind else {
-            return .ineligible
+            return .ineligible(.unsupportedPayload)
         }
         guard state.drawerParentPaneId(of: paneId) == nil else {
-            return .ineligible
+            return .ineligible(.drawerPanePayload)
         }
         guard let sourceTab = state.tab(sourceTabId) else {
-            return .ineligible
+            return .ineligible(.missingSourceTab(sourceTabId))
         }
 
         if sourceTab.visiblePaneCount == 1 {
             let action = PaneActionCommand.moveTab(tabId: sourceTabId, delta: 0)
-            guard isActionValid(action, state: state) else {
-                return .ineligible
+            if let failure = actionValidationFailure(action, state: state) {
+                return .ineligible(.validationFailed(failure))
             }
             return .eligible(.moveTab(tabId: sourceTabId, toIndex: targetTabIndex))
         }
 
         let extractAction = PaneActionCommand.extractPaneToTab(tabId: sourceTabId, paneId: paneId)
-        guard isActionValid(extractAction, state: state) else {
-            return .ineligible
+        if let failure = actionValidationFailure(extractAction, state: state) {
+            return .ineligible(.validationFailed(failure))
         }
 
         return .eligible(
@@ -113,18 +124,18 @@ enum PaneDropPlanner {
         state: ActionStateSnapshot
     ) -> PaneDropPreviewDecision {
         if destination.targetDrawerParentPaneId != nil {
-            return .ineligible
+            return .ineligible(.drawerDestination)
         }
 
         if case .existingPane(let sourcePaneId, _) = payload.kind,
             state.drawerParentPaneId(of: sourcePaneId) != nil
         {
-            return .ineligible
+            return .ineligible(.drawerPanePayload)
         }
         guard let zone = dropZoneSide(for: destination.direction) else {
             RestoreTrace.log(
                 "PaneDropPlanner received unsupported split direction \(String(describing: destination.direction))")
-            return .ineligible
+            return .ineligible(.unsupportedSplitDirection(destination.direction))
         }
 
         guard
@@ -137,7 +148,7 @@ enum PaneDropPlanner {
                 state: state
             )
         else {
-            return .ineligible
+            return .ineligible(.unresolvedDrop)
         }
 
         return eligiblePaneAction(action, state: state)
@@ -147,24 +158,27 @@ enum PaneDropPlanner {
         _ action: PaneActionCommand,
         state: ActionStateSnapshot
     ) -> PaneDropPreviewDecision {
-        guard isActionValid(action, state: state) else {
-            return .ineligible
+        if let failure = actionValidationFailure(action, state: state) {
+            return .ineligible(.validationFailed(failure))
         }
         return .eligible(.paneAction(action))
     }
 
-    private static func isActionValid(
+    private static func actionValidationFailure(
         _ action: PaneActionCommand,
         state: ActionStateSnapshot
-    ) -> Bool {
+    ) -> ActionValidationError? {
         let validation = WorkspaceCommandValidator.validate(action, state: state)
         if case .success = validation {
-            return true
+            return nil
         }
         RestoreTrace.log(
             "PaneDropPlanner rejected action \(String(describing: action)) validation=\(String(describing: validation))"
         )
-        return false
+        if case .failure(let failure) = validation {
+            return failure
+        }
+        return nil
     }
 
     private static func dropZoneSide(for direction: SplitNewDirection) -> DropZoneSide? {

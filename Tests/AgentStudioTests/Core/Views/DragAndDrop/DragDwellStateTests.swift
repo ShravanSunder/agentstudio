@@ -115,6 +115,21 @@ struct DragDwellStateTests {
     }
 
     @Test
+    func step_hoveringLastCommittedTab_doesNotReCommit() {
+        let state = DragDwellState.hovering(tabId: tabA, startTime: 10.0, lastCommittedTabId: tabA)
+
+        let (next, commit) = DragDwellState.step(
+            current: state,
+            hoveredTabId: tabA,
+            now: 11.0,
+            dwellDuration: 0.1
+        )
+
+        #expect(next == state)
+        #expect(commit == nil)
+    }
+
+    @Test
     func step_afterCommit_differentTab_startsNewDwell() {
         let state = DragDwellState.committed(tabId: tabA, startTime: 10.0)
 
@@ -190,6 +205,14 @@ struct DragDwellStateTests {
     func progress_zeroWhenCommitted() {
         let state = DragDwellState.committed(tabId: tabA, startTime: 10.0)
         let progress = DragDwellProgress.progress(state: state, now: 10.05, dwellDuration: 0.1)
+
+        #expect(progress == 0)
+    }
+
+    @Test
+    func progress_zeroWhenHoveringLastCommittedTab() {
+        let state = DragDwellState.hovering(tabId: tabA, startTime: 10.0, lastCommittedTabId: tabA)
+        let progress = DragDwellProgress.progress(state: state, now: 10.5, dwellDuration: 0.1)
 
         #expect(progress == 0)
     }

@@ -192,6 +192,70 @@ struct DrawerGridLayoutRearrangeTests {
     }
 
     @Test
+    func twoRows_createSecondRowFromOnlyBottomSource_isRejected() {
+        let a = UUID()
+        let b = UUID()
+        let c = UUID()
+        let layout = DrawerGridLayout(
+            topRow: Layout.autoTiled([a, b]),
+            bottomRow: Layout.autoTiled([c]),
+            rowSplitRatio: 0.5
+        )
+
+        #expect(
+            layout.projectedMove(
+                paneId: c,
+                target: .createSecondRow(position: .bottom),
+                sizingMode: .proportional
+            ) == .failure(.secondRowAlreadyExists)
+        )
+    }
+
+    @Test
+    func missingSourcePane_returnsTypedFailure() {
+        let a = UUID()
+        let missing = UUID()
+        let layout = DrawerGridLayout(topRow: Layout.autoTiled([a]))
+
+        #expect(
+            layout.projectedMove(
+                paneId: missing,
+                target: .rowSlot(row: .top, insertionIndex: 0),
+                sizingMode: .proportional
+            ) == .failure(.missingSourcePane(missing))
+        )
+    }
+
+    @Test
+    func sourceRemovalRejected_returnsTypedFailure() {
+        let onlyPane = UUID()
+        let layout = DrawerGridLayout(topRow: Layout.autoTiled([onlyPane]))
+
+        #expect(
+            layout.projectedMove(
+                paneId: onlyPane,
+                target: .rowSlot(row: .top, insertionIndex: 0),
+                sizingMode: .proportional
+            ) == .failure(.sourceRemovalRejected(onlyPane))
+        )
+    }
+
+    @Test
+    func missingBottomRowSlot_returnsTypedFailure() {
+        let a = UUID()
+        let b = UUID()
+        let layout = DrawerGridLayout(topRow: Layout.autoTiled([a, b]))
+
+        #expect(
+            layout.projectedMove(
+                paneId: a,
+                target: .rowSlot(row: .bottom, insertionIndex: 0),
+                sizingMode: .proportional
+            ) == .failure(.missingBottomRow)
+        )
+    }
+
+    @Test
     func invalidBottomRowInsertionIndex_returnsTypedFailure() {
         let a = UUID()
         let d = UUID()

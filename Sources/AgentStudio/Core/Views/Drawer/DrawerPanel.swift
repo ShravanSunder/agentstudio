@@ -132,7 +132,7 @@ struct DrawerPanel: View {
                     }
                 },
                 shouldHandleSplitDragPayload: { _ in true },
-                shouldAcceptDrop: { _, _, _ in false },
+                shouldAcceptDrop: { _, _, _, _ in false },
                 handleDrop: { _, _, _, _ in }
             )
         )

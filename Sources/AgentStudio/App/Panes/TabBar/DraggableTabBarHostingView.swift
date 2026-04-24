@@ -258,8 +258,13 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
         // SwiftUI-compatible format for terminal split drops
         if let payload = dragPayloadProvider?(tabId) {
-            if let payloadData = try? JSONEncoder().encode(payload) {
+            do {
+                let payloadData = try JSONEncoder().encode(payload)
                 pasteboardItem.setData(payloadData, forType: .agentStudioTabDrop)
+            } catch {
+                RestoreTrace.log(
+                    "DraggableTabBarHostingView failed to encode tab drag payload tabId=\(tabId) error=\(error)"
+                )
             }
         }
 

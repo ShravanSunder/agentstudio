@@ -48,13 +48,16 @@ struct PaneDragCoordinator {
         return paneTarget(from: target, sortedPaneIds: sortedPaneIds)
     }
 
+    // The pure adapter keeps each geometry and sizing input explicit at the drag boundary.
+    // swiftlint:disable:next function_parameter_count
     static func resolveLatchedTarget(
         location: CGPoint,
         paneFrames: [UUID: CGRect],
         containerBounds: CGRect?,
         minimizedPaneIds: Set<UUID>,
         currentTarget: PaneDropTarget?,
-        shouldAcceptDrop: (UUID, DropZoneSide) -> Bool
+        isShiftHeld: Bool,
+        shouldAcceptDrop: (UUID, DropZoneSide, DropSizingMode) -> Bool
     ) -> PaneDropTarget? {
         let sortedPaneIds = sortedPaneIds(from: paneFrames)
         let effectiveBounds = containerBounds ?? derivedBounds(from: paneFrames)
@@ -74,7 +77,8 @@ struct PaneDragCoordinator {
                 currentTarget: currentDropTarget,
                 shouldAccept: { target in
                     guard let paneTarget = paneTarget(from: target, sortedPaneIds: sortedPaneIds) else { return false }
-                    return shouldAcceptDrop(paneTarget.paneId, paneTarget.zone)
+                    let sizingMode = DropSizingModeResolver.mode(for: paneTarget.sizingTarget, isShiftHeld: isShiftHeld)
+                    return shouldAcceptDrop(paneTarget.paneId, paneTarget.zone, sizingMode)
                 }
             )
         else {
@@ -95,8 +99,7 @@ struct PaneDragCoordinator {
             rows: [.main: sortedPaneIds],
             paneFrames: paneFrames,
             containerBounds: containerBounds,
-            config: .main,
-            splittablePanes: splittablePaneIds
+            config: .main
         )
 
         var rects: [PaneDropTarget: CGRect] = sharedRects.reduce(into: [:]) { translatedRects, entry in

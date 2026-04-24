@@ -73,7 +73,7 @@ func makeTab(paneIds: [UUID], activePaneId: UUID? = nil, name: String = "Tab") -
             at: paneIds[i - 1],
             direction: .horizontal,
             position: .after, sizingMode: .halveTarget
-        )
+        )!
     }
     let arrangement = PaneArrangement(
         name: "Default",

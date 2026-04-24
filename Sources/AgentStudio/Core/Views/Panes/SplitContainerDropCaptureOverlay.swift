@@ -128,8 +128,14 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
                 containerBounds: containerBounds,
                 minimizedPaneIds: minimizedPaneIds,
                 currentTarget: targetBinding.wrappedValue,
-                shouldAcceptDrop: { paneId, zone in
-                    actionDispatcher.shouldAcceptDrop(payload, destinationPaneId: paneId, zone: zone)
+                isShiftHeld: NSEvent.modifierFlags.contains(.shift),
+                shouldAcceptDrop: { paneId, zone, sizingMode in
+                    actionDispatcher.shouldAcceptDrop(
+                        payload,
+                        destinationPaneId: paneId,
+                        zone: zone,
+                        sizingMode: sizingMode
+                    )
                 }
             )
         }

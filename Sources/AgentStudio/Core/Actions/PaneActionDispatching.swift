@@ -7,7 +7,8 @@ protocol PaneActionDispatching: AnyObject {
     func shouldAcceptDrop(
         _ payload: SplitDropPayload,
         destinationPaneId: UUID,
-        zone: DropZoneSide
+        zone: DropZoneSide,
+        sizingMode: DropSizingMode
     ) -> Bool
     func handleDrop(
         _ payload: SplitDropPayload,

@@ -53,8 +53,7 @@ enum DropTargetResolver {
         rows: [RowID: [UUID]],
         paneFrames: [UUID: CGRect],
         containerBounds: CGRect,
-        config: DropTargetConfig,
-        splittablePanes _: Set<UUID>
+        config: DropTargetConfig
     ) -> [DropTarget: CGRect] {
         var rects: [DropTarget: CGRect] = [:]
 

@@ -352,7 +352,11 @@ final class WorkspaceCommandValidatorTests {
             state: snapshot
         )
 
-        if case .failure(.invalidDrawerLayout) = result { return }
+        if case .failure(
+            .invalidDrawerLayout(parentPaneId: parentPaneId, reason: .insertionTargetRejected(bottomPaneId))
+        ) = result {
+            return
+        }
         Issue.record("Expected invalidDrawerLayout when insert would create a third row")
     }
 

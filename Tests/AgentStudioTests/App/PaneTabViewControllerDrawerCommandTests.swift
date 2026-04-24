@@ -547,6 +547,30 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(harness.store.pane(parent.id)?.drawer?.paneIds.contains(drawerPane.id) == false)
     }
 
+    @Test("direct detachDrawerPane promotes the focused drawer pane")
+    func directDetachDrawerPane_promotesFocusedDrawerPane() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: left.id)
+        harness.store.appendTab(tab)
+        harness.store.insertPane(
+            parent.id, inTab: tab.id, at: left.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(parent.id, inTab: tab.id)
+
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parent.id))
+        atom(\.workspaceFocusOwner).focusDrawerPane(parentPaneId: parent.id, paneId: drawerPane.id)
+
+        harness.controller.execute(.detachDrawerPane)
+
+        #expect(harness.store.pane(drawerPane.id)?.parentPaneId == nil)
+        #expect(harness.store.tab(tab.id)?.paneIds.contains(drawerPane.id) == true)
+        #expect(harness.store.pane(parent.id)?.drawer?.paneIds.contains(drawerPane.id) == false)
+    }
+
     @Test("dispatcher targeted detachDrawerPane works even when drawer pane is not the global focus owner")
     func dispatcherTargetedDetachDrawerPane_detachesClickedDrawerPaneWithoutDrawerPaneFocus() throws {
         let harness = makeHarness()

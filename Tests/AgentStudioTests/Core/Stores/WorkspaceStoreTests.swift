@@ -1207,7 +1207,7 @@ final class WorkspaceStoreTests {
         let p1 = makePane()
         let p2 = makePane()
         let layout = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: layout)
         let tab = Tab(
             panes: [p1.id],  // missing p2 — drifted
@@ -1238,7 +1238,7 @@ final class WorkspaceStoreTests {
         let p1 = makePane()
         let p2 = makePane()
         let layout1 = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let layout2 = Layout(paneId: p2.id)  // p2 duplicated across tabs
         let arr1 = PaneArrangement(name: "Default", isDefault: true, layout: layout1)
         let arr2 = PaneArrangement(name: "Default", isDefault: true, layout: layout2)
@@ -1273,7 +1273,7 @@ final class WorkspaceStoreTests {
         let p1 = makePane()
         let p2 = makePane()
         let layout1 = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let layout2 = Layout(paneId: p2.id)
         let arr1 = PaneArrangement(name: "Default", isDefault: true, layout: layout1)
         let arr2 = PaneArrangement(name: "Default", isDefault: true, layout: layout2)

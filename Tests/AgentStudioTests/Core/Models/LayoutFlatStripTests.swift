@@ -19,14 +19,15 @@ final class LayoutFlatStripTests {
     }
 
     @Test
-    func inserting_afterTarget_splitsTargetRatioAndInsertsAdjacentPane() {
+    func inserting_afterTarget_splitsTargetRatioAndInsertsAdjacentPane() throws {
         let paneA = UUID()
         let paneB = UUID()
 
         let layout = Layout(paneId: paneA)
 
-        let updated = layout.inserting(
-            paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+        let updated = try #require(
+            layout.inserting(
+                paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget))
 
         #expect(updated.paneIds == [paneA, paneB])
         #expect(updated.ratios.count == 2)
@@ -36,14 +37,15 @@ final class LayoutFlatStripTests {
     }
 
     @Test
-    func inserting_beforeTarget_splitsTargetRatioAndInsertsAdjacentPane() {
+    func inserting_beforeTarget_splitsTargetRatioAndInsertsAdjacentPane() throws {
         let paneA = UUID()
         let paneB = UUID()
 
         let layout = Layout(paneId: paneA)
 
-        let updated = layout.inserting(
-            paneId: paneB, at: paneA, direction: .horizontal, position: .before, sizingMode: .halveTarget)
+        let updated = try #require(
+            layout.inserting(
+                paneId: paneB, at: paneA, direction: .horizontal, position: .before, sizingMode: .halveTarget))
 
         #expect(updated.paneIds == [paneB, paneA])
         #expect(updated.ratios == [0.5, 0.5])
@@ -51,7 +53,7 @@ final class LayoutFlatStripTests {
     }
 
     @Test
-    func inserting_intoExistingStrip_onlySplitsTargetRatio() {
+    func inserting_intoExistingStrip_onlySplitsTargetRatio() throws {
         let paneA = UUID()
         let paneB = UUID()
         let paneC = UUID()
@@ -61,8 +63,9 @@ final class LayoutFlatStripTests {
             dividerIds: [UUID()]
         )
 
-        let updated = layout.inserting(
-            paneId: paneC, at: paneB, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+        let updated = try #require(
+            layout.inserting(
+                paneId: paneC, at: paneB, direction: .horizontal, position: .after, sizingMode: .halveTarget))
 
         #expect(updated.paneIds == [paneA, paneB, paneC])
         #expect(updated.dividerIds.count == 2)
@@ -70,6 +73,24 @@ final class LayoutFlatStripTests {
         #expect(updated.ratios[0] == 0.6)
         #expect(updated.ratios[1] == 0.2)
         #expect(updated.ratios[2] == 0.2)
+    }
+
+    @Test
+    func inserting_missingTarget_returnsNil() {
+        let paneA = UUID()
+        let paneB = UUID()
+        let missingTarget = UUID()
+        let layout = Layout(paneId: paneA)
+
+        let updated = layout.inserting(
+            paneId: paneB,
+            at: missingTarget,
+            direction: .horizontal,
+            position: .after,
+            sizingMode: .halveTarget
+        )
+
+        #expect(updated == nil)
     }
 
     @Test

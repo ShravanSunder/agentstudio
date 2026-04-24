@@ -164,7 +164,7 @@ final class ActionExecutorTests {
         let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let layout = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
@@ -193,7 +193,7 @@ final class ActionExecutorTests {
         let p1 = store.createPane(source: .floating(launchDirectory: nil, title: "Left"), title: "Left")
         let p2 = store.createPane(source: .floating(launchDirectory: nil, title: "Right"), title: "Right")
         let layout = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
@@ -223,7 +223,7 @@ final class ActionExecutorTests {
         let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let layout = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
@@ -250,7 +250,7 @@ final class ActionExecutorTests {
         let p1 = store.createPane(source: .floating(launchDirectory: nil, title: "First"), title: "First")
         let p2 = store.createPane(source: .floating(launchDirectory: nil, title: "Second"), title: "Second")
         let layout = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
@@ -333,7 +333,7 @@ final class ActionExecutorTests {
         let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let layout = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,

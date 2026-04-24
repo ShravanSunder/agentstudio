@@ -278,7 +278,8 @@ final class PaneDragCoordinatorTests {
             containerBounds: nil,
             minimizedPaneIds: [],
             currentTarget: currentTarget,
-            shouldAcceptDrop: { _, _ in true }
+            isShiftHeld: false,
+            shouldAcceptDrop: { _, _, _ in true }
         )
 
         // Assert
@@ -305,7 +306,8 @@ final class PaneDragCoordinatorTests {
             containerBounds: nil,
             minimizedPaneIds: [],
             currentTarget: currentTarget,
-            shouldAcceptDrop: { _, _ in true }
+            isShiftHeld: false,
+            shouldAcceptDrop: { _, _, _ in true }
         )
 
         // Assert
@@ -333,7 +335,8 @@ final class PaneDragCoordinatorTests {
             containerBounds: nil,
             minimizedPaneIds: [],
             currentTarget: currentTarget,
-            shouldAcceptDrop: { _, _ in false }
+            isShiftHeld: false,
+            shouldAcceptDrop: { _, _, _ in false }
         )
 
         // Assert

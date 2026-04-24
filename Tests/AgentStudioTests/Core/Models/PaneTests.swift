@@ -467,7 +467,7 @@ final class PaneTests {
                 at: id1,
                 direction: .horizontal,
                 position: .after, sizingMode: .halveTarget
-            )
+            )!
         )
         let drawer = Drawer(paneIds: [id1, id2], layout: layout, activePaneId: id2, isExpanded: false)
 

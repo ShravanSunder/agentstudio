@@ -78,16 +78,18 @@ enum DragDwellProgress {
         now: TimeInterval,
         dwellDuration: TimeInterval
     ) -> CGFloat {
-        guard case .hovering(_, let startTime, let lastCommittedTabId) = state else {
+        switch state {
+        case .idle, .committed:
             return 0
-        }
-        guard state.hoveredTabId != lastCommittedTabId else { return 0 }
+        case .hovering(let tabId, let startTime, let lastCommittedTabId):
+            guard tabId != lastCommittedTabId else { return 0 }
 
-        let rawProgress = (now - startTime) / dwellDuration
-        let clampedProgress = max(0, min(1, rawProgress))
-        if 1 - clampedProgress <= progressComparisonTolerance {
-            return 1
+            let rawProgress = (now - startTime) / dwellDuration
+            let clampedProgress = max(0, min(1, rawProgress))
+            if 1 - clampedProgress <= progressComparisonTolerance {
+                return 1
+            }
+            return CGFloat(clampedProgress)
         }
-        return CGFloat(clampedProgress)
     }
 }

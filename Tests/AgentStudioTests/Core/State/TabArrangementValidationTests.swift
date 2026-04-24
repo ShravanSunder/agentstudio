@@ -29,7 +29,7 @@ struct TabArrangementValidationTests {
             layout: Layout(paneId: sharedPane)
                 .inserting(
                     paneId: uniquePane, at: sharedPane, direction: .horizontal, position: .after,
-                    sizingMode: .halveTarget),
+                    sizingMode: .halveTarget)!,
             visiblePaneIds: [sharedPane, uniquePane],
             minimizedPaneIds: [sharedPane]
         )

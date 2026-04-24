@@ -99,7 +99,11 @@ struct DrawerCommandValidatorTests {
             state: state
         )
 
-        if case .failure(.invalidDrawerLayout) = result { return }
-        Issue.record("Expected invalidDrawerLayout")
+        if case .failure(.invalidDrawerLayout(parentPaneId: parent, reason: .projectedMove(.secondRowAlreadyExists))) =
+            result
+        {
+            return
+        }
+        Issue.record("Expected invalidDrawerLayout with secondRowAlreadyExists reason")
     }
 }

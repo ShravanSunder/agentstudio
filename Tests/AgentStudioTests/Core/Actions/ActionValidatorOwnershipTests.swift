@@ -190,7 +190,11 @@ struct WorkspaceCommandValidatorOwnershipTests {
             wouldCreateThirdRow: true
         )
 
-        if case .failure(.invalidDrawerLayout) = result { return }
+        if case .failure(
+            .invalidDrawerLayout(parentPaneId: parentPaneId, reason: .resultingLayoutWouldCreateThirdRow)
+        ) = result {
+            return
+        }
         Issue.record("Expected invalidDrawerLayout when a drawer edit would create a third row")
     }
 

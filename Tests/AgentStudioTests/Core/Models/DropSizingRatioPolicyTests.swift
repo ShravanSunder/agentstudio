@@ -77,6 +77,17 @@ struct DropSizingRatioPolicyTests {
     }
 
     @Test
+    func ratiosAfterRemoval_proportional_allZeroRatiosPreservesRemainingZeros() {
+        let result = DropSizingRatioPolicy.ratiosAfterRemoval(
+            existingRatios: [0, 0, 0],
+            removalIndex: 1,
+            mode: .proportional
+        )
+
+        #expect(result == [0, 0])
+    }
+
+    @Test
     func ratiosAfterRemoval_halveTarget_usesAdjacentAbsorbFallback() {
         let result = DropSizingRatioPolicy.ratiosAfterRemoval(
             existingRatios: [0.5, 0.3, 0.2],

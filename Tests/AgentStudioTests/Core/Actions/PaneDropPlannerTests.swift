@@ -45,7 +45,7 @@ final class PaneDropPlannerTests {
             state: state
         )
 
-        #expect(result == .ineligible)
+        #expect(result == .ineligible(.drawerPanePayload))
     }
 
     @Test
@@ -153,7 +153,7 @@ final class PaneDropPlannerTests {
             state: state
         )
 
-        #expect(result == .ineligible)
+        #expect(result == .ineligible(.drawerDestination))
     }
 
     @Test
@@ -191,7 +191,7 @@ final class PaneDropPlannerTests {
             state: state
         )
 
-        #expect(result == .ineligible)
+        #expect(result == .ineligible(.drawerDestination))
     }
 
     @Test
@@ -228,7 +228,7 @@ final class PaneDropPlannerTests {
             state: state
         )
 
-        #expect(result == .ineligible)
+        #expect(result == .ineligible(.drawerPanePayload))
     }
 
     @Test
@@ -308,7 +308,14 @@ final class PaneDropPlannerTests {
             state: state
         )
 
-        #expect(result == .ineligible)
+        #expect(
+            result
+                == .ineligible(
+                    .validationFailed(
+                        .sourcePaneNotFound(paneId: sourcePaneId, sourceTabId: missingSourceTabId)
+                    )
+                )
+        )
     }
 
     @Test
@@ -345,7 +352,7 @@ final class PaneDropPlannerTests {
             state: state
         )
 
-        #expect(result == .ineligible)
+        #expect(result.isIneligible)
     }
 
     @Test
@@ -368,7 +375,7 @@ final class PaneDropPlannerTests {
             state: state
         )
 
-        #expect(result == .ineligible)
+        #expect(result.isIneligible)
     }
 
     @Test
@@ -397,7 +404,7 @@ final class PaneDropPlannerTests {
             state: state
         )
 
-        #expect(result == .ineligible)
+        #expect(result.isIneligible)
     }
 
     @Test
@@ -442,7 +449,16 @@ final class PaneDropPlannerTests {
             state: state
         )
 
-        #expect(splitResult == .ineligible)
-        #expect(tabResult == .ineligible)
+        #expect(splitResult.isIneligible)
+        #expect(tabResult.isIneligible)
+    }
+}
+
+extension PaneDropPreviewDecision {
+    fileprivate var isIneligible: Bool {
+        if case .ineligible = self {
+            return true
+        }
+        return false
     }
 }

@@ -68,8 +68,7 @@ struct DrawerPaneDragCoordinator {
             rows: rowsDictionary(from: layout),
             paneFrames: paneFrames,
             containerBounds: containerBounds,
-            config: config(for: layout),
-            splittablePanes: []
+            config: config(for: layout)
         )
 
         return rects.reduce(into: [:]) { translatedRects, entry in
@@ -93,11 +92,12 @@ struct DrawerPaneDragCoordinator {
     private static func drawerTarget(from target: DropTarget) -> DrawerRearrangeTarget? {
         switch target {
         case .paneSlot(let row, let index):
-            .rowSlot(row: drawerRow(from: row), insertionIndex: index)
+            return .rowSlot(row: drawerRow(from: row), insertionIndex: index)
         case .paneNewRow(let position):
-            .createSecondRow(position: drawerRow(from: position))
+            return .createSecondRow(position: drawerRow(from: position))
         case .paneSplit:
-            nil
+            assertionFailure("Drawer drop configs must not resolve pane split targets")
+            return nil
         }
     }
 
@@ -111,18 +111,41 @@ struct DrawerPaneDragCoordinator {
     }
 
     private static func drawerRow(from row: RowID) -> DrawerRowPlacement {
-        row == .drawerBottom ? .bottom : .top
+        switch row {
+        case .drawerTop:
+            return .top
+        case .drawerBottom:
+            return .bottom
+        case .main:
+            assertionFailure("Drawer target mapping received non-drawer row")
+            return .top
+        }
     }
 
     private static func drawerRow(from position: NewRowPosition) -> DrawerRowPlacement {
-        position == .bottom ? .bottom : .top
+        switch position {
+        case .top:
+            return .top
+        case .bottom:
+            return .bottom
+        }
     }
 
     private static func rowID(from row: DrawerRowPlacement) -> RowID {
-        row == .bottom ? .drawerBottom : .drawerTop
+        switch row {
+        case .top:
+            return .drawerTop
+        case .bottom:
+            return .drawerBottom
+        }
     }
 
     private static func newRowPosition(from row: DrawerRowPlacement) -> NewRowPosition {
-        row == .bottom ? .bottom : .top
+        switch row {
+        case .top:
+            return .top
+        case .bottom:
+            return .bottom
+        }
     }
 }

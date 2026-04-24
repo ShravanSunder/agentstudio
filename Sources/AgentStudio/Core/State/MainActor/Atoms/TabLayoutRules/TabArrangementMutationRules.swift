@@ -181,26 +181,28 @@ enum TabArrangementMutationRules {
         let sourcePaneIds = defaultArrangement(in: source).layout.paneIds
         var currentTarget = targetPaneId
         for paneId in sourcePaneIds {
-            updated.arrangements[targetArrangementIndex].layout = updated.arrangements[targetArrangementIndex].layout
-                .inserting(
+            guard
+                let updatedActiveLayout = updated.arrangements[targetArrangementIndex].layout.inserting(
                     paneId: paneId,
                     at: currentTarget,
                     direction: direction,
                     position: position,
                     sizingMode: .halveTarget
                 )
+            else { return nil }
+            updated.arrangements[targetArrangementIndex].layout = updatedActiveLayout
             updated.arrangements[targetArrangementIndex].visiblePaneIds.insert(paneId)
             if targetArrangementIndex != defaultArrangementIndex {
-                updated.arrangements[defaultArrangementIndex].layout = updated.arrangements[defaultArrangementIndex]
-                    .layout
-                    .inserting(
-                        paneId: paneId,
-                        at: currentTarget,
-                        direction: direction,
-                        position: position,
-                        sizingMode: .halveTarget
-                    )
-                updated.arrangements[defaultArrangementIndex].visiblePaneIds.insert(paneId)
+                if let updatedDefaultLayout = updated.arrangements[defaultArrangementIndex].layout.inserting(
+                    paneId: paneId,
+                    at: currentTarget,
+                    direction: direction,
+                    position: position,
+                    sizingMode: .halveTarget
+                ) {
+                    updated.arrangements[defaultArrangementIndex].layout = updatedDefaultLayout
+                    updated.arrangements[defaultArrangementIndex].visiblePaneIds.insert(paneId)
+                }
             }
             if !updated.allPaneIds.contains(paneId) {
                 updated.allPaneIds.append(paneId)

@@ -25,7 +25,27 @@ enum ActionValidationError: Error, Equatable {
     case sourcePaneNotFound(paneId: UUID, sourceTabId: UUID)
     case invalidRatio(ratio: Double)
     case paneAlreadyInLayout(paneId: UUID)
-    case invalidDrawerLayout(parentPaneId: UUID)
+    case invalidDrawerLayout(parentPaneId: UUID, reason: DrawerLayoutValidationFailure)
+}
+
+enum DrawerLayoutValidationFailure: Error, Equatable, Sendable, CustomStringConvertible {
+    case missingLayout
+    case insertionTargetRejected(UUID)
+    case resultingLayoutWouldCreateThirdRow
+    case projectedMove(DrawerProjectedMoveFailure)
+
+    var description: String {
+        switch self {
+        case .missingLayout:
+            return "missingLayout"
+        case .insertionTargetRejected(let targetPaneId):
+            return "insertionTargetRejected(\(targetPaneId))"
+        case .resultingLayoutWouldCreateThirdRow:
+            return "resultingLayoutWouldCreateThirdRow"
+        case .projectedMove(let failure):
+            return "projectedMove(\(failure))"
+        }
+    }
 }
 
 /// Pure-function validation engine.

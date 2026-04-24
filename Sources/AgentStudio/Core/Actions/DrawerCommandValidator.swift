@@ -24,7 +24,9 @@ enum DrawerCommandValidator {
     ) -> Result<Void, ActionValidationError> {
         let rowCount = resultingLayout.bottomRow == nil ? 1 : 2
         guard rowCount <= 2, wouldCreateThirdRow == false else {
-            return .failure(.invalidDrawerLayout(parentPaneId: parentPaneId))
+            return .failure(
+                .invalidDrawerLayout(parentPaneId: parentPaneId, reason: .resultingLayoutWouldCreateThirdRow)
+            )
         }
 
         return .success(())
@@ -44,7 +46,7 @@ enum DrawerCommandValidator {
             return .failure(.paneNotFound(paneId: targetDrawerPaneId, tabId: state.activeTabId ?? UUID()))
         }
         guard let currentLayout = state.drawerLayout(for: parentPaneId) else {
-            return .failure(.invalidDrawerLayout(parentPaneId: parentPaneId))
+            return .failure(.invalidDrawerLayout(parentPaneId: parentPaneId, reason: .missingLayout))
         }
 
         let projectedPaneId = UUID()
@@ -56,7 +58,9 @@ enum DrawerCommandValidator {
                 sizingMode: sizingMode
             )
         else {
-            return .failure(.invalidDrawerLayout(parentPaneId: parentPaneId))
+            return .failure(
+                .invalidDrawerLayout(parentPaneId: parentPaneId, reason: .insertionTargetRejected(targetDrawerPaneId))
+            )
         }
 
         return validateResultingLayout(
@@ -83,7 +87,7 @@ enum DrawerCommandValidator {
             return .failure(membershipError)
         }
         guard let currentLayout = state.drawerLayout(for: parentPaneId) else {
-            return .failure(.invalidDrawerLayout(parentPaneId: parentPaneId))
+            return .failure(.invalidDrawerLayout(parentPaneId: parentPaneId, reason: .missingLayout))
         }
         switch currentLayout.projectedMove(
             paneId: drawerPaneId,
@@ -96,7 +100,7 @@ enum DrawerCommandValidator {
             RestoreTrace.log(
                 "DrawerCommandValidator.validateMove rejected parent=\(parentPaneId) drawerPane=\(drawerPaneId) target=\(String(describing: target)) failure=\(failure)"
             )
-            return .failure(.invalidDrawerLayout(parentPaneId: parentPaneId))
+            return .failure(.invalidDrawerLayout(parentPaneId: parentPaneId, reason: .projectedMove(failure)))
         }
     }
 }
