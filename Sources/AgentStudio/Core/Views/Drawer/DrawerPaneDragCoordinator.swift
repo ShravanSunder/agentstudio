@@ -72,7 +72,13 @@ struct DrawerPaneDragCoordinator {
     static func targetRects(
         geometry: DrawerPaneDragGeometry
     ) -> [DrawerRearrangeTarget: CGRect] {
-        let rects = DropTargetResolver.targetRects(
+        targetVisuals(geometry: geometry).mapValues(\.rect)
+    }
+
+    static func targetVisuals(
+        geometry: DrawerPaneDragGeometry
+    ) -> [DrawerRearrangeTarget: DrawerDropTargetVisual] {
+        let sharedRects = DropTargetResolver.targetRects(
             rows: rowsDictionary(from: geometry.layout),
             paneFrames: geometry.paneFrames,
             containerBounds: geometry.containerBounds,
@@ -80,10 +86,27 @@ struct DrawerPaneDragCoordinator {
             splittablePanes: geometry.splittablePaneIds
         )
 
-        return rects.reduce(into: [:]) { translatedRects, entry in
+        var visuals = sharedRects.reduce(
+            into: [DrawerRearrangeTarget: DrawerDropTargetVisual]()
+        ) { translatedVisuals, entry in
             guard let target = drawerTarget(from: entry.key) else { return }
-            translatedRects[target] = entry.value
+            translatedVisuals[target] = DrawerDropTargetVisual.region(entry.value)
         }
+        mergeRowSlotMarkers(
+            into: &visuals,
+            paneIds: geometry.layout.topRow.paneIds,
+            row: .top,
+            paneFrames: geometry.paneFrames
+        )
+        if let bottomRow = geometry.layout.bottomRow {
+            mergeRowSlotMarkers(
+                into: &visuals,
+                paneIds: bottomRow.paneIds,
+                row: .bottom,
+                paneFrames: geometry.paneFrames
+            )
+        }
+        return visuals
     }
 
     static func sizingMode(for target: DrawerRearrangeTarget, isShiftHeld: Bool) -> DropSizingMode {
@@ -169,5 +192,47 @@ struct DrawerPaneDragCoordinator {
         case .bottom:
             return .bottom
         }
+    }
+
+    private static func mergeRowSlotMarkers(
+        into visuals: inout [DrawerRearrangeTarget: DrawerDropTargetVisual],
+        paneIds: [UUID],
+        row: DrawerRowPlacement,
+        paneFrames: [UUID: CGRect]
+    ) {
+        let rowFrames = sortedRowFrames(paneIds: paneIds, paneFrames: paneFrames)
+        guard !rowFrames.isEmpty else { return }
+
+        let markerWidth = AppStyles.General.Layout.dropTargetMarkerWidth
+        let markerHalfWidth = markerWidth / 2
+        let rowMinY = rowFrames.map(\.minY).min() ?? 0
+        let rowMaxY = rowFrames.map(\.maxY).max() ?? 0
+
+        for insertionIndex in 0...rowFrames.count {
+            let boundaryX: CGFloat
+            if insertionIndex == 0 {
+                boundaryX = rowFrames[0].minX
+            } else if insertionIndex == rowFrames.count {
+                boundaryX = rowFrames[rowFrames.count - 1].maxX
+            } else {
+                boundaryX = (rowFrames[insertionIndex - 1].maxX + rowFrames[insertionIndex].minX) / 2
+            }
+
+            visuals[.rowSlot(row: row, insertionIndex: insertionIndex)] = .insertionMarker(
+                CGRect(
+                    x: boundaryX - markerHalfWidth,
+                    y: rowMinY,
+                    width: markerWidth,
+                    height: rowMaxY - rowMinY
+                )
+            )
+        }
+    }
+
+    private static func sortedRowFrames(
+        paneIds: [UUID],
+        paneFrames: [UUID: CGRect]
+    ) -> [CGRect] {
+        paneIds.compactMap { paneFrames[$0] }.sorted { $0.minX < $1.minX }
     }
 }

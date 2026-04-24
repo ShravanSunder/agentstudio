@@ -104,6 +104,92 @@ struct DrawerPaneDragCoordinatorTests {
     }
 
     @Test
+    func oneRow_rowSlotVisualBetweenPanes_isCenteredInsertionMarker() throws {
+        let a = UUID()
+        let b = UUID()
+        let frames: [UUID: CGRect] = [
+            a: CGRect(x: 0, y: 40, width: 100, height: 80),
+            b: CGRect(x: 120, y: 40, width: 100, height: 80),
+        ]
+
+        let visuals = DrawerPaneDragCoordinator.targetVisuals(
+            geometry: geometry(
+                paneFrames: frames,
+                layout: DrawerGridLayout(topRow: Layout.autoTiled([a, b])),
+                bounds: CGRect(x: 0, y: 0, width: 220, height: 140)
+            )
+        )
+
+        let visual = try #require(visuals[.rowSlot(row: .top, insertionIndex: 1)])
+        let markerRect = try #require(visual.insertionMarkerRect)
+        let expectedMarkerWidth = AppStyles.General.Layout.dropTargetMarkerWidth
+
+        #expect(markerRect.width == expectedMarkerWidth)
+        #expect(markerRect.midX == 110)
+        #expect(markerRect.minY == 40)
+        #expect(markerRect.height == 80)
+    }
+
+    @Test
+    func oneRow_rowSlotVisualWithSourceFramePresent_matchesResolvedTarget() throws {
+        let source = UUID()
+        let middle = UUID()
+        let right = UUID()
+        let frames: [UUID: CGRect] = [
+            source: CGRect(x: 0, y: 40, width: 100, height: 80),
+            middle: CGRect(x: 120, y: 40, width: 100, height: 80),
+            right: CGRect(x: 240, y: 40, width: 100, height: 80),
+        ]
+        let layout = DrawerGridLayout(topRow: Layout.autoTiled([source, middle, right]))
+        let bounds = CGRect(x: 0, y: 0, width: 340, height: 140)
+        let location = CGPoint(x: 230, y: 80)
+
+        let target = DrawerPaneDragCoordinator.resolveTarget(
+            location: location,
+            geometry: geometry(
+                paneFrames: frames,
+                layout: layout,
+                bounds: bounds,
+                excludedPaneIds: [source]
+            )
+        )
+        let visuals = DrawerPaneDragCoordinator.targetVisuals(
+            geometry: geometry(
+                paneFrames: frames,
+                layout: layout,
+                bounds: bounds
+            )
+        )
+
+        #expect(target == .rowSlot(row: .top, insertionIndex: 2))
+        let resolvedTarget = try #require(target)
+        let visual = try #require(visuals[resolvedTarget])
+        let markerRect = try #require(visual.insertionMarkerRect)
+        #expect(markerRect.midX == 230)
+    }
+
+    @Test
+    func oneRow_paneSplitVisual_isRegionNotInsertionMarker() throws {
+        let a = UUID()
+        let frames: [UUID: CGRect] = [
+            a: CGRect(x: 20, y: 40, width: 100, height: 80)
+        ]
+
+        let visuals = DrawerPaneDragCoordinator.targetVisuals(
+            geometry: geometry(
+                paneFrames: frames,
+                layout: DrawerGridLayout(topRow: Layout.autoTiled([a])),
+                bounds: CGRect(x: 0, y: 0, width: 180, height: 140)
+            )
+        )
+
+        let visual = try #require(visuals[.paneSplit(paneId: a, side: .left)])
+
+        #expect(visual.insertionMarkerRect == nil)
+        #expect(visual.rect == CGRect(x: 20, y: 40, width: 50, height: 80))
+    }
+
+    @Test
     func oneRow_resolvesTopBandToCreateSecondRow() {
         let a = UUID()
         let frames: [UUID: CGRect] = [a: CGRect(x: 20, y: 40, width: 100, height: 80)]
@@ -118,6 +204,26 @@ struct DrawerPaneDragCoordinatorTests {
         )
 
         #expect(target == .createSecondRow(position: .top))
+    }
+
+    @Test
+    func oneRow_createSecondRowVisual_isFullWidthBand() throws {
+        let a = UUID()
+        let frames: [UUID: CGRect] = [a: CGRect(x: 20, y: 40, width: 100, height: 80)]
+        let bounds = CGRect(x: 0, y: 0, width: 200, height: 140)
+
+        let visuals = DrawerPaneDragCoordinator.targetVisuals(
+            geometry: geometry(
+                paneFrames: frames,
+                layout: DrawerGridLayout(topRow: Layout.autoTiled([a])),
+                bounds: bounds
+            )
+        )
+
+        let visual = try #require(visuals[.createSecondRow(position: .bottom)])
+
+        #expect(visual.insertionMarkerRect == nil)
+        #expect(visual.rect == CGRect(x: 0, y: 112, width: 200, height: 28))
     }
 
     @Test

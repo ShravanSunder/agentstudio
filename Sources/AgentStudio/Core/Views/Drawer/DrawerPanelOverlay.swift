@@ -209,7 +209,6 @@ struct DrawerPanelOverlay: View {
                 Color.clear
                     .frame(width: panelWidth, height: connectorHeight)
             }
-            .clipShape(outlineShape)
             .modifier(DrawerMaterialModifier(shape: outlineShape, panelFraction: panelFraction))
             .contentShape(outlineShape)
             .shadow(color: .black.opacity(AppStyles.General.Stroke.muted), radius: 4, y: 2)

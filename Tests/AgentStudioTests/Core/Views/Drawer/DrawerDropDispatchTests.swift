@@ -103,6 +103,23 @@ final class DrawerDropDispatchTests {
     }
 
     @Test
+    func handleDrop_mainPanePayload_doesNotDispatch() throws {
+        let fixture = try makeDrawerFixture()
+        let dispatcher = RecordingPaneActionDispatcher()
+
+        DrawerDropDispatch.handleDrop(
+            payload: .init(kind: .existingPane(paneId: fixture.parentPaneId, sourceTabId: fixture.tabId)),
+            target: .rowSlot(row: .top, insertionIndex: 1),
+            sizingMode: .proportional,
+            parentPaneId: fixture.parentPaneId,
+            actionDispatcher: dispatcher,
+            store: fixture.store
+        )
+
+        #expect(dispatcher.dispatchedActions.isEmpty)
+    }
+
+    @Test
     func handleDrop_invalidTarget_doesNotDispatchAfterRevalidation() throws {
         let fixture = try makeDrawerFixture()
         let dispatcher = RecordingPaneActionDispatcher()

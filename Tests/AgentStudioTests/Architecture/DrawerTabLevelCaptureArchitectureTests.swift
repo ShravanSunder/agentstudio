@@ -61,4 +61,11 @@ struct DrawerTabLevelCaptureArchitectureTests {
         #expect(!sources.drawerPanelOverlay.contains("OutsideDismissShape"))
         #expect(!sources.drawerPanelOverlay.contains("Color.black.opacity(0.001)"))
     }
+
+    @Test("drawer overlay does not apply a clip mask above AppKit drag capture")
+    func drawerPanelOverlay_doesNotClipCaptureAncestorPath() throws {
+        let sources = try loadSources()
+
+        #expect(!sources.drawerPanelOverlay.contains(".clipShape(outlineShape)"))
+    }
 }

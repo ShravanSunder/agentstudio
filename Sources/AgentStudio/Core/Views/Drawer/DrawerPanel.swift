@@ -218,7 +218,7 @@ struct DrawerPanel: View {
                 if managementLayer.isActive {
                     DrawerDropTargetOverlay(
                         target: dropTarget,
-                        targetRects: DrawerPaneDragCoordinator.targetRects(
+                        targetVisuals: DrawerPaneDragCoordinator.targetVisuals(
                             geometry: DrawerPaneDragGeometry(
                                 paneFrames: drawerPaneFrames,
                                 layout: layout,

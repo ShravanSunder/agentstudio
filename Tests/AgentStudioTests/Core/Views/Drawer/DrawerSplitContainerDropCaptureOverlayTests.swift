@@ -87,6 +87,51 @@ struct DrawerSplitContainerDropCaptureOverlayTests {
         #expect(handledSizingModes == validatedSizingModes)
     }
 
+    @Test
+    func handleDragUpdate_betweenDrawerPanesLatchesRowSlot_andPerformDropCommitsIt() throws {
+        let sourcePaneId = UUID()
+        let leftPaneId = UUID()
+        let rightPaneId = UUID()
+        var latchedTarget: DrawerRearrangeTarget?
+        var handledDrops: [HandledDrawerDrop] = []
+
+        let coordinator = DrawerSplitContainerDropCaptureOverlay.Coordinator(
+            targetBinding: Binding(
+                get: { latchedTarget },
+                set: { latchedTarget = $0 }
+            ),
+            shouldAcceptDrop: { _, _, _ in true },
+            handleDrop: { payload, target, sizingMode in
+                handledDrops.append(HandledDrawerDrop(payload: payload, target: target, sizingMode: sizingMode))
+            }
+        )
+        coordinator.updateLayout(
+            paneFrames: [
+                leftPaneId: CGRect(x: 0, y: 40, width: 100, height: 80),
+                rightPaneId: CGRect(x: 120, y: 40, width: 100, height: 80),
+            ],
+            layout: DrawerGridLayout(topRow: Layout.autoTiled([sourcePaneId, leftPaneId, rightPaneId])),
+            minimizedPaneIds: [],
+            containerBounds: CGRect(x: 0, y: 0, width: 220, height: 140),
+            isManagementLayerActive: true
+        )
+        let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: UUID()))
+        let pasteboard = try pasteboard(containing: payload)
+
+        let hoverTarget = coordinator.handleDragUpdate(from: pasteboard, location: CGPoint(x: 110, y: 80))
+        coordinator.setTarget(hoverTarget)
+        let didDrop = coordinator.performDrop(from: pasteboard, location: CGPoint(x: 110, y: 80))
+
+        #expect(hoverTarget == .rowSlot(row: .top, insertionIndex: 1))
+        #expect(didDrop)
+        #expect(
+            handledDrops == [
+                HandledDrawerDrop(
+                    payload: payload, target: .rowSlot(row: .top, insertionIndex: 1), sizingMode: .proportional)
+            ]
+        )
+    }
+
     private func pasteboard(containing payload: SplitDropPayload) throws -> NSPasteboard {
         let pasteboard = NSPasteboard(name: NSPasteboard.Name(UUID().uuidString))
         pasteboard.clearContents()
