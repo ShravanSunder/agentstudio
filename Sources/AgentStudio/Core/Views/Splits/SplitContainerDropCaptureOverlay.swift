@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import os.log
 
 /// AppKit-owned drag destination overlay for split drop targeting.
 ///
@@ -12,6 +13,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
     @Binding var target: PaneDropTarget?
     let isManagementLayerActive: Bool
     let actionDispatcher: PaneActionDispatching
+    var traceRuntime: AgentStudioTraceRuntime? = .shared
 
     static let supportedPasteboardTypes: [NSPasteboard.PasteboardType] = [
         .agentStudioTabDrop,
@@ -23,7 +25,8 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(
             targetBinding: $target,
-            actionDispatcher: actionDispatcher
+            actionDispatcher: actionDispatcher,
+            traceRuntime: traceRuntime
         )
     }
 
@@ -32,7 +35,8 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
         view.coordinator = context.coordinator
         context.coordinator.updateHandlers(
             targetBinding: $target,
-            actionDispatcher: actionDispatcher
+            actionDispatcher: actionDispatcher,
+            traceRuntime: traceRuntime
         )
         context.coordinator.updateLayout(
             paneFrames: paneFrames,
@@ -47,7 +51,8 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
         nsView.coordinator = context.coordinator
         context.coordinator.updateHandlers(
             targetBinding: $target,
-            actionDispatcher: actionDispatcher
+            actionDispatcher: actionDispatcher,
+            traceRuntime: traceRuntime
         )
         context.coordinator.updateLayout(
             paneFrames: paneFrames,
@@ -64,6 +69,8 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
     final class Coordinator {
         private var targetBinding: Binding<PaneDropTarget?>
         private var actionDispatcher: PaneActionDispatching
+        private var traceRuntime: AgentStudioTraceRuntime?
+        private var dragCorrelationID: String?
 
         private(set) var paneFrames: [UUID: CGRect] = [:]
         private(set) var containerBounds: CGRect = .zero
@@ -72,18 +79,22 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
 
         init(
             targetBinding: Binding<PaneDropTarget?>,
-            actionDispatcher: PaneActionDispatching
+            actionDispatcher: PaneActionDispatching,
+            traceRuntime: AgentStudioTraceRuntime? = nil
         ) {
             self.targetBinding = targetBinding
             self.actionDispatcher = actionDispatcher
+            self.traceRuntime = traceRuntime
         }
 
         func updateHandlers(
             targetBinding: Binding<PaneDropTarget?>,
-            actionDispatcher: PaneActionDispatching
+            actionDispatcher: PaneActionDispatching,
+            traceRuntime: AgentStudioTraceRuntime?
         ) {
             self.targetBinding = targetBinding
             self.actionDispatcher = actionDispatcher
+            self.traceRuntime = traceRuntime
         }
 
         func updateLayout(
@@ -103,8 +114,12 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
         }
 
         func finalizeDragSession() {
+            if dragSession != .idle {
+                traceDragEvent(body: "drag.end", attributes: dragSessionTraceAttributes())
+            }
             setTarget(nil)
             dragSession = .idle
+            dragCorrelationID = nil
         }
 
         func hasSupportedTypes(in pasteboard: NSPasteboard) -> Bool {
@@ -129,6 +144,10 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
 
         func handleDragUpdate(from pasteboard: NSPasteboard, location: CGPoint) -> PaneDropTarget? {
             guard let payload = decodeSplitDropPayload(from: pasteboard) else {
+                traceDragEvent(
+                    body: "drag.decode_failed",
+                    attributes: pasteboardTraceAttributes(pasteboard)
+                )
                 dragSession = .idle
                 return nil
             }
@@ -136,16 +155,37 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
             if let resolvedTarget = resolveTarget(at: location, payload: payload) {
                 let candidate = DragSessionCandidate(payload: payload, target: resolvedTarget)
                 dragSession = .armed(candidate: candidate)
+                traceDragEvent(
+                    body: "drag.update",
+                    attributes: dragTraceAttributes(
+                        payload: payload,
+                        location: location,
+                        target: resolvedTarget,
+                        accepted: true
+                    )
+                )
                 return resolvedTarget
             }
 
             dragSession = .previewing(payload: payload)
+            traceDragEvent(
+                body: "drag.update",
+                attributes: dragTraceAttributes(
+                    payload: payload,
+                    location: location,
+                    target: nil,
+                    accepted: false
+                )
+            )
             return nil
         }
 
         func performDrop(from pasteboard: NSPasteboard, location: CGPoint) -> Bool {
             guard isManagementLayerActive else {
                 dragSession = .teardown
+                traceDragEvent(
+                    body: "drag.drop_rejected", attributes: ["drag.reject_reason": .string("management-layer-inactive")]
+                )
                 return false
             }
 
@@ -153,6 +193,10 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
                 let resolvedTarget = resolveTarget(at: location, payload: payload)
             else {
                 dragSession = .teardown
+                traceDragEvent(
+                    body: "drag.drop_rejected",
+                    attributes: pasteboardTraceAttributes(pasteboard)
+                )
                 return false
             }
 
@@ -163,13 +207,114 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
                 destinationPaneId: resolvedTarget.paneId,
                 zone: resolvedTarget.zone
             )
+            traceDragEvent(
+                body: "drag.drop_committed",
+                attributes: dragTraceAttributes(
+                    payload: payload,
+                    location: location,
+                    target: resolvedTarget,
+                    accepted: true
+                )
+            )
             dragSession = .teardown
             return true
+        }
+
+        private func traceDragEvent(body: String, attributes: [String: AgentStudioTraceValue]) {
+            guard let traceRuntime, traceRuntime.isEnabled(.drag) else { return }
+            let correlationID = dragCorrelationID ?? UUID().uuidString
+            dragCorrelationID = correlationID
+
+            Task {
+                do {
+                    try await traceRuntime.record(
+                        tag: .drag,
+                        body: body,
+                        correlationID: correlationID,
+                        attributes: attributes
+                    )
+                    try await traceRuntime.flush()
+                } catch {
+                    splitContainerDragTraceLogger.warning(
+                        "Failed to write drag trace event \(body, privacy: .public): \(error.localizedDescription)"
+                    )
+                }
+            }
+        }
+
+        private func dragSessionTraceAttributes() -> [String: AgentStudioTraceValue] {
+            switch dragSession {
+            case .idle:
+                return ["drag.state": .string("idle")]
+            case .previewing(let payload):
+                return [
+                    "drag.payload.kind": .string(payload.traceKind),
+                    "drag.state": .string("previewing"),
+                ]
+            case .armed(let candidate):
+                return dragTraceAttributes(
+                    payload: candidate.payload,
+                    location: nil,
+                    target: candidate.target,
+                    accepted: true
+                ).merging(["drag.state": .string("armed")]) { current, _ in current }
+            case .committing(let candidate):
+                return dragTraceAttributes(
+                    payload: candidate.payload,
+                    location: nil,
+                    target: candidate.target,
+                    accepted: true
+                ).merging(["drag.state": .string("committing")]) { current, _ in current }
+            case .teardown:
+                return ["drag.state": .string("teardown")]
+            }
+        }
+
+        private func dragTraceAttributes(
+            payload: SplitDropPayload,
+            location: CGPoint?,
+            target: PaneDropTarget?,
+            accepted: Bool
+        ) -> [String: AgentStudioTraceValue] {
+            var attributes: [String: AgentStudioTraceValue] = [
+                "drag.accepted": .bool(accepted),
+                "drag.payload.kind": .string(payload.traceKind),
+            ]
+            if let location {
+                attributes["drag.location.x"] = .double(location.x)
+                attributes["drag.location.y"] = .double(location.y)
+            }
+            if let target {
+                attributes["drag.target.pane_id"] = .string(target.paneId.uuidString)
+                attributes["drag.target.zone"] = .string(target.zone.rawValue)
+            }
+            return attributes
+        }
+
+        private func pasteboardTraceAttributes(_ pasteboard: NSPasteboard) -> [String: AgentStudioTraceValue] {
+            [
+                "drag.pasteboard.types": .stringArray((pasteboard.types ?? []).map(\.rawValue))
+            ]
         }
 
         private static let supportedTypeSet: Set<NSPasteboard.PasteboardType> = Set(
             SplitContainerDropCaptureOverlay.supportedPasteboardTypes
         )
+    }
+}
+
+private let splitContainerDragTraceLogger = Logger(subsystem: "com.agentstudio", category: "SplitContainerDragTrace")
+
+extension SplitDropPayload {
+    fileprivate var traceKind: String {
+        switch kind {
+        case .existingTab:
+            return "existing_tab"
+        case .existingPane:
+            return "existing_pane"
+        case .newTerminal:
+            return "new_terminal"
+        }
     }
 }
 

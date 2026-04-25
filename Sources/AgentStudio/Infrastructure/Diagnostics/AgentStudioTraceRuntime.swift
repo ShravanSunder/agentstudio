@@ -3,6 +3,8 @@ import OTel
 import Tracing
 
 struct AgentStudioTraceRuntime: Sendable {
+    static let shared = Self.fromEnvironment()
+
     private let configuration: AgentStudioTraceConfiguration
     private let writer: AgentStudioJSONLTraceWriter?
     private let resource: [String: String]
@@ -90,6 +92,30 @@ struct AgentStudioTraceRuntime: Sendable {
             attributes: mergedAttributes
         )
         try await writer.append(record)
+    }
+
+    func record(
+        tag: AgentStudioTraceTag,
+        body: String,
+        severityText: String = "INFO",
+        correlationID: String,
+        traceID: String? = nil,
+        spanID: String? = nil,
+        parentSpanID: String? = nil,
+        attributes: @autoclosure @Sendable () -> [String: AgentStudioTraceValue] = [:]
+    ) async throws {
+        var context = ServiceContext.current ?? .topLevel
+        context.agentStudioCorrelationID = correlationID
+        try await record(
+            tag: tag,
+            body: body,
+            severityText: severityText,
+            context: context,
+            traceID: traceID,
+            spanID: spanID,
+            parentSpanID: parentSpanID,
+            attributes: attributes()
+        )
     }
 
     func flush() async throws {
