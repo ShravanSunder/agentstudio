@@ -94,8 +94,19 @@ enum DrawerCommandValidator {
             target: target,
             sizingMode: sizingMode
         ) {
-        case .success:
-            return .success(())
+        case .success(let projectedLayout):
+            // Move success isn't enough — the resulting layout must
+            // also satisfy the row-count policy. validateInsertion
+            // already chains through this gate; validateMove was
+            // returning success directly, leaving drawerMaxRows
+            // unenforced for moves.
+            return validateResultingLayout(
+                projectedLayout,
+                parentPaneId: parentPaneId,
+                state: state,
+                requestedDirection: .right,
+                wouldCreateThirdRow: false
+            )
         case .failure(let failure):
             RestoreTrace.log(
                 "DrawerCommandValidator.validateMove rejected parent=\(parentPaneId) drawerPane=\(drawerPaneId) target=\(String(describing: target)) failure=\(failure)"
