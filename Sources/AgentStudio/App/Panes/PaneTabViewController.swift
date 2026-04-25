@@ -1246,7 +1246,27 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         else {
             return false
         }
+        // requiresNeutralFocus gates the local-monitor path: a raw `d`
+        // keystroke must NOT be intercepted while a text-input responder
+        // owns focus, otherwise typing `d` into any text field creates
+        // a drawer pane. The performKeyEquivalent path opts out of this
+        // gate because cmd-equivalent shortcuts can fire even with a
+        // text field focused.
+        if requiresNeutralFocus,
+            !Self.isNeutralResponderForRawCharacter(NSApp.keyWindow?.firstResponder)
+        {
+            return false
+        }
         return true
+    }
+
+    /// A responder is "neutral" for raw character keystrokes when it
+    /// will NOT consume the keystroke as text input. NSText (and its
+    /// subclasses NSTextView / NSTextField field editor) absorb typed
+    /// characters; everything else is considered neutral.
+    static func isNeutralResponderForRawCharacter(_ responder: NSResponder?) -> Bool {
+        guard let responder else { return true }
+        return !(responder is NSText)
     }
 
     private func managementLayerParentPaneId() -> UUID? {
