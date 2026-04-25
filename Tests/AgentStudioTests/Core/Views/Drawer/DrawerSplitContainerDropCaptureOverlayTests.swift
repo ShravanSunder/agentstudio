@@ -20,6 +20,7 @@ struct DrawerSplitContainerDropCaptureOverlayTests {
                 get: { latchedTarget },
                 set: { latchedTarget = $0 }
             ),
+            sourcePaneIdBinding: .constant(nil),
             shouldAcceptDrop: { _, _, _ in true },
             handleDrop: { payload, target, sizingMode in
                 handledDrops.append(HandledDrawerDrop(payload: payload, target: target, sizingMode: sizingMode))
@@ -62,6 +63,7 @@ struct DrawerSplitContainerDropCaptureOverlayTests {
                 get: { latchedTarget },
                 set: { latchedTarget = $0 }
             ),
+            sourcePaneIdBinding: .constant(nil),
             shouldAcceptDrop: { _, _, sizingMode in
                 validatedSizingModes.append(sizingMode)
                 return true
@@ -100,6 +102,7 @@ struct DrawerSplitContainerDropCaptureOverlayTests {
                 get: { latchedTarget },
                 set: { latchedTarget = $0 }
             ),
+            sourcePaneIdBinding: .constant(nil),
             shouldAcceptDrop: { _, _, _ in true },
             handleDrop: { payload, target, sizingMode in
                 handledDrops.append(HandledDrawerDrop(payload: payload, target: target, sizingMode: sizingMode))

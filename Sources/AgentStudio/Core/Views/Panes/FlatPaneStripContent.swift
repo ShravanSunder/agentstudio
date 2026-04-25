@@ -160,7 +160,7 @@ struct FlatPaneDivider: View {
     let actionDispatcher: PaneActionDispatching
 
     private let splitterHitSize: CGFloat = 6
-    private let minSize: CGFloat = AppStyles.General.Layout.splitMinimumPaneSize
+    private let minSize: CGFloat = AppPolicies.DragAndDrop.splitMinimumPaneSize
 
     @State private var hasStartedResize = false
     @State private var initialLeftWidth: CGFloat = 0

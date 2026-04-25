@@ -62,6 +62,9 @@ struct DrawerPanel: View {
     let appLifecycleStore: AppLifecycleAtom
     let onOpenPaneGitHub: (UUID) -> Void
     let dropTarget: DrawerRearrangeTarget?
+    /// Active drag's source pane id, used to omit self/adjacent
+    /// targets from the visuals dict the overlay paints (R1, R2, R8).
+    let dragSourcePaneId: UUID?
 
     @State private var drawerPaneFrames: [UUID: CGRect] = [:]
     @State private var drawerActionDispatcher: PaneTabActionDispatcher
@@ -86,7 +89,8 @@ struct DrawerPanel: View {
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         appLifecycleStore: AppLifecycleAtom,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
-        dropTarget: DrawerRearrangeTarget?
+        dropTarget: DrawerRearrangeTarget?,
+        dragSourcePaneId: UUID?
     ) {
         self.layout = layout
         self.parentPaneId = parentPaneId
@@ -105,6 +109,7 @@ struct DrawerPanel: View {
         self.appLifecycleStore = appLifecycleStore
         self.onOpenPaneGitHub = onOpenPaneGitHub
         self.dropTarget = dropTarget
+        self.dragSourcePaneId = dragSourcePaneId
         self._drawerActionDispatcher = State(
             initialValue: PaneTabActionDispatcher(
                 dispatch: { paneAction in
@@ -224,7 +229,7 @@ struct DrawerPanel: View {
                                 layout: layout,
                                 containerBounds: containerBounds,
                                 minimizedPaneIds: minimizedPaneIds,
-                                excludedPaneIds: []
+                                excludedPaneIds: dragSourcePaneId.map { [$0] } ?? []
                             )
                         )
                     )
@@ -277,7 +282,8 @@ struct DrawerPanel: View {
                     onPaneFocusTrigger: { _ in },
                     appLifecycleStore: AppLifecycleAtom(),
                     onOpenPaneGitHub: { _ in },
-                    dropTarget: nil
+                    dropTarget: nil,
+                    dragSourcePaneId: nil
                 )
                 Spacer()
             }

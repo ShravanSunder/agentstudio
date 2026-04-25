@@ -11,6 +11,9 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
     let containerBounds: CGRect
     let minimizedPaneIds: Set<UUID>
     @Binding var target: PaneDropTarget?
+    /// Active drag's source pane id, published so peer overlays can
+    /// filter their visuals against the source-aware rule.
+    @Binding var sourcePaneId: UUID?
     let isManagementLayerActive: Bool
     let actionDispatcher: PaneActionDispatching
 
@@ -24,6 +27,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(
             targetBinding: $target,
+            sourcePaneIdBinding: $sourcePaneId,
             actionDispatcher: actionDispatcher
         )
     }
@@ -33,6 +37,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
         view.coordinator = context.coordinator
         context.coordinator.updateHandlers(
             targetBinding: $target,
+            sourcePaneIdBinding: $sourcePaneId,
             actionDispatcher: actionDispatcher
         )
         context.coordinator.updateLayout(
@@ -49,6 +54,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
         nsView.coordinator = context.coordinator
         context.coordinator.updateHandlers(
             targetBinding: $target,
+            sourcePaneIdBinding: $sourcePaneId,
             actionDispatcher: actionDispatcher
         )
         context.coordinator.updateLayout(
@@ -66,6 +72,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
     @MainActor
     final class Coordinator {
         private var targetBinding: Binding<PaneDropTarget?>
+        private var sourcePaneIdBinding: Binding<UUID?>
         private var actionDispatcher: PaneActionDispatching
 
         private(set) var paneFrames: [UUID: CGRect] = [:]
@@ -76,17 +83,21 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
 
         init(
             targetBinding: Binding<PaneDropTarget?>,
+            sourcePaneIdBinding: Binding<UUID?>,
             actionDispatcher: PaneActionDispatching
         ) {
             self.targetBinding = targetBinding
+            self.sourcePaneIdBinding = sourcePaneIdBinding
             self.actionDispatcher = actionDispatcher
         }
 
         func updateHandlers(
             targetBinding: Binding<PaneDropTarget?>,
+            sourcePaneIdBinding: Binding<UUID?>,
             actionDispatcher: PaneActionDispatching
         ) {
             self.targetBinding = targetBinding
+            self.sourcePaneIdBinding = sourcePaneIdBinding
             self.actionDispatcher = actionDispatcher
         }
 
@@ -108,8 +119,15 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
             }
         }
 
+        private func setSourcePaneId(_ sourcePaneId: UUID?) {
+            if sourcePaneIdBinding.wrappedValue != sourcePaneId {
+                sourcePaneIdBinding.wrappedValue = sourcePaneId
+            }
+        }
+
         func finalizeDragSession() {
             setTarget(nil)
+            setSourcePaneId(nil)
             dragSession = .idle
         }
 
@@ -129,6 +147,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
                 minimizedPaneIds: minimizedPaneIds,
                 currentTarget: targetBinding.wrappedValue,
                 isShiftHeld: NSEvent.modifierFlags.contains(.shift),
+                sourcePaneId: sourcePaneId(from: payload),
                 shouldAcceptDrop: { paneId, zone, sizingMode in
                     actionDispatcher.shouldAcceptDrop(
                         payload,
@@ -140,6 +159,13 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
             )
         }
 
+        private func sourcePaneId(from payload: SplitDropPayload) -> UUID? {
+            if case .existingPane(let paneId, _) = payload.kind {
+                return paneId
+            }
+            return nil
+        }
+
         func handleDragUpdate(from pasteboard: NSPasteboard, location: CGPoint) -> PaneDropTarget? {
             guard let payload = decodeSplitDropPayload(from: pasteboard) else {
                 let pasteboardTypes = pasteboard.types?.map(\.rawValue).joined(separator: ",") ?? "nil"
@@ -147,8 +173,10 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
                     "SplitContainer.handleDragUpdate decode=nil location=\(NSStringFromPoint(location)) types=\(pasteboardTypes)"
                 )
                 dragSession = .idle
+                setSourcePaneId(nil)
                 return nil
             }
+            setSourcePaneId(sourcePaneId(from: payload))
             guard actionDispatcher.shouldHandleSplitDragPayload(payload) else {
                 RestoreTrace.log(
                     "SplitContainer.handleDragUpdate rejectedByDispatcher location=\(NSStringFromPoint(location)) payload=\(String(describing: payload))"

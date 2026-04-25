@@ -48,8 +48,8 @@ struct DropTargetConfig: Hashable, Sendable {
     static let drawerSingleRow = Self(
         rows: [.drawerTop],
         newRowBand: NewRowBandConfig(
-            heightRatio: AppStyles.General.Layout.drawerNewRowBandRatio,
-            minHeight: AppStyles.General.Layout.drawerNewRowBandMinHeight
+            heightRatio: AppPolicies.DragAndDrop.drawerNewRowBandRatio,
+            minHeight: AppPolicies.DragAndDrop.drawerNewRowBandMinHeight
         ),
         edgeCorridorWidth: 0,
         allowsPaneSplit: true

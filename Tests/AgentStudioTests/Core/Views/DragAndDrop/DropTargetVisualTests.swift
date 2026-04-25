@@ -18,7 +18,7 @@ struct DropTargetVisualTests {
     private static let paneAFrame = CGRect(x: 0, y: 0, width: 200, height: 100)
 
     @Test
-    func paneDragCoordinator_visualForLeftSplit_isHalfRegionOnLeft() {
+    func paneDragCoordinator_visualForLeftSplit_isHalfRegionWithoutMarker() throws {
         let paneA = UUID()
         let paneFrames: [UUID: CGRect] = [paneA: Self.paneAFrame]
 
@@ -28,18 +28,21 @@ struct DropTargetVisualTests {
             sizingTarget: .paneSplit(paneId: paneA, side: .left)
         )
 
-        let visual = PaneDragCoordinator.visual(
-            for: target,
-            paneFrames: paneFrames,
-            containerBounds: Self.paneAFrame,
-            minimizedPaneIds: []
+        let visual = try #require(
+            PaneDragCoordinator.visual(
+                for: target,
+                paneFrames: paneFrames,
+                containerBounds: Self.paneAFrame,
+                minimizedPaneIds: []
+            )
         )
 
-        #expect(visual == .region(CGRect(x: 0, y: 0, width: 100, height: 100)))
+        #expect(visual.region == CGRect(x: 0, y: 0, width: 100, height: 100))
+        #expect(visual.insertionMarker == nil)
     }
 
     @Test
-    func paneDragCoordinator_visualForRightSplit_isHalfRegionOnRight() {
+    func paneDragCoordinator_visualForRightSplit_isHalfRegionOnRightWithoutMarker() throws {
         let paneA = UUID()
         let paneFrames: [UUID: CGRect] = [paneA: Self.paneAFrame]
 
@@ -49,18 +52,21 @@ struct DropTargetVisualTests {
             sizingTarget: .paneSplit(paneId: paneA, side: .right)
         )
 
-        let visual = PaneDragCoordinator.visual(
-            for: target,
-            paneFrames: paneFrames,
-            containerBounds: Self.paneAFrame,
-            minimizedPaneIds: []
+        let visual = try #require(
+            PaneDragCoordinator.visual(
+                for: target,
+                paneFrames: paneFrames,
+                containerBounds: Self.paneAFrame,
+                minimizedPaneIds: []
+            )
         )
 
-        #expect(visual == .region(CGRect(x: 100, y: 0, width: 100, height: 100)))
+        #expect(visual.region == CGRect(x: 100, y: 0, width: 100, height: 100))
+        #expect(visual.insertionMarker == nil)
     }
 
     @Test
-    func paneDragCoordinator_visualForSlotInsert_isInsertionMarker() {
+    func paneDragCoordinator_visualForSlotInsert_hasZoneRegionAndMarker() throws {
         let paneA = UUID()
         let paneB = UUID()
         let paneFrames: [UUID: CGRect] = [
@@ -76,18 +82,20 @@ struct DropTargetVisualTests {
             sizingTarget: .paneSlot(row: .main, index: 1)
         )
 
-        let visual = PaneDragCoordinator.visual(
-            for: betweenTarget,
-            paneFrames: paneFrames,
-            containerBounds: containerBounds,
-            minimizedPaneIds: []
+        let visual = try #require(
+            PaneDragCoordinator.visual(
+                for: betweenTarget,
+                paneFrames: paneFrames,
+                containerBounds: containerBounds,
+                minimizedPaneIds: []
+            )
         )
+        let markerRect = try #require(visual.insertionMarker)
 
-        guard case .insertionMarker(let markerRect) = visual else {
-            Issue.record("expected insertion marker, got \(String(describing: visual))")
-            return
-        }
-        // Marker should be a thin vertical bar centered on the boundary at x=200.
+        // Region: right 1/4 of paneA (x=150..200) + left 1/4 of paneB
+        // (x=200..250) = combined zone x=150..250.
+        #expect(visual.region == CGRect(x: 150, y: 0, width: 100, height: 100))
+        // Marker: thin vertical bar centered on the boundary at x=200.
         #expect(markerRect.midX == 200)
         #expect(markerRect.height == 100)
     }

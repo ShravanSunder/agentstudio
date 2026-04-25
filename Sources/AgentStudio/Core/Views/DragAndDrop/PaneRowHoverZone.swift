@@ -28,7 +28,7 @@ extension CGRect {
     /// Resolves which hover zone the cursor's `x` coordinate falls
     /// into within this pane frame.
     func hoverZone(forX x: CGFloat, sideZoneFloor: CGFloat) -> PaneRowHoverZone {
-        let naturalSideWidth = width / 4
+        let naturalSideWidth = width * AppPolicies.DragAndDrop.paneRowSideZoneFraction
         let sideWidth = max(naturalSideWidth, sideZoneFloor)
 
         // If two side zones can't both fit at the floor, split the

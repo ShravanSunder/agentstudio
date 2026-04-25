@@ -19,6 +19,28 @@ struct PaneDropTarget: Equatable, Hashable {
     }
 }
 
+/// Source-aware adapter over the pure `DropTargetResolver`.
+///
+/// The resolver is geometry-only — it does not know which pane is the
+/// drag source. This adapter wraps the resolver with the universal
+/// source-filter rule:
+///
+///   For source S at index i in the row:
+///     reject  split(S)              ──► dropping on self
+///     reject  slot i                ──► position immediately before S
+///     reject  slot i+1              ──► position immediately after S
+///
+/// Foreign targets stay valid. The visuals dict mirrors these decisions
+/// so the overlay never paints a target the commit path would reject.
+///
+/// When `sourcePaneId` is `nil`, the adapter passes through raw
+/// resolver output unfiltered.
+///
+/// When `sourcePaneId` is set but not present in `paneFrames` (e.g. a
+/// cross-tab drag where source's frame isn't published in this row),
+/// R1 + R2 simply don't apply — there's no adjacency to enforce.
+/// Cross-CONTAINER rejection (main ↔ drawer) is enforced upstream by
+/// the dispatcher's `shouldHandleSplitDragPayload`, never here.
 struct PaneDragCoordinator {
     static let edgeCorridorWidth: CGFloat = 24
 
@@ -26,7 +48,8 @@ struct PaneDragCoordinator {
         location: CGPoint,
         paneFrames: [UUID: CGRect],
         containerBounds: CGRect?,
-        minimizedPaneIds: Set<UUID>
+        minimizedPaneIds: Set<UUID>,
+        sourcePaneId: UUID? = nil
     ) -> PaneDropTarget? {
         let sortedPaneIds = sortedPaneIds(from: paneFrames)
         let effectiveBounds = containerBounds ?? derivedBounds(from: paneFrames)
@@ -45,6 +68,10 @@ struct PaneDragCoordinator {
             return nil
         }
 
+        guard isSourceAcceptable(target: target, sourcePaneId: sourcePaneId, sortedPaneIds: sortedPaneIds) else {
+            return nil
+        }
+
         return paneTarget(from: target, sortedPaneIds: sortedPaneIds)
     }
 
@@ -57,45 +84,82 @@ struct PaneDragCoordinator {
         minimizedPaneIds: Set<UUID>,
         currentTarget: PaneDropTarget?,
         isShiftHeld: Bool,
+        sourcePaneId: UUID? = nil,
         shouldAcceptDrop: (UUID, DropZoneSide, DropSizingMode) -> Bool
     ) -> PaneDropTarget? {
         let sortedPaneIds = sortedPaneIds(from: paneFrames)
         let effectiveBounds = containerBounds ?? derivedBounds(from: paneFrames)
         let splittablePaneIds = Set(paneFrames.keys).subtracting(minimizedPaneIds)
-        let currentDropTarget = currentTarget.flatMap {
-            dropTarget(from: $0, sortedPaneIds: sortedPaneIds)
+
+        let geometricCandidate = DropTargetResolver.resolve(
+            location: location,
+            rows: [.main: sortedPaneIds],
+            paneFrames: paneFrames,
+            containerBounds: effectiveBounds,
+            config: .main,
+            splittablePanes: splittablePaneIds
+        )
+
+        if let geometricCandidate {
+            // R5: source filter rejects → drop the latch (do NOT fall
+            // through to currentTarget retention). Cursor over a
+            // self/adjacent zone is an explicit signal the user is in
+            // invalid territory; sticking the latch would lie to them.
+            guard
+                isSourceAcceptable(
+                    target: geometricCandidate,
+                    sourcePaneId: sourcePaneId,
+                    sortedPaneIds: sortedPaneIds
+                )
+            else {
+                return nil
+            }
+            guard let paneTarget = paneTarget(from: geometricCandidate, sortedPaneIds: sortedPaneIds) else {
+                return nil
+            }
+            let sizingMode = DropSizingModeResolver.mode(for: paneTarget.sizingTarget, isShiftHeld: isShiftHeld)
+            guard shouldAcceptDrop(paneTarget.paneId, paneTarget.zone, sizingMode) else {
+                return nil
+            }
+            return paneTarget
         }
 
-        guard
-            let target = DropTargetResolver.resolveLatched(
-                location: location,
-                rows: [.main: sortedPaneIds],
-                paneFrames: paneFrames,
-                containerBounds: effectiveBounds,
-                config: .main,
-                splittablePanes: splittablePaneIds,
-                currentTarget: currentDropTarget,
-                shouldAccept: { target in
-                    guard let paneTarget = paneTarget(from: target, sortedPaneIds: sortedPaneIds) else { return false }
-                    let sizingMode = DropSizingModeResolver.mode(for: paneTarget.sizingTarget, isShiftHeld: isShiftHeld)
-                    return shouldAcceptDrop(paneTarget.paneId, paneTarget.zone, sizingMode)
-                }
+        // R5: no geometric candidate at all (cursor over empty space) →
+        // RETAIN the latch if the held target is still source-acceptable
+        // and the policy still accepts it. This preserves "ride through
+        // layout jitter" behavior.
+        guard let currentTarget else { return nil }
+        let currentDropTarget = dropTarget(from: currentTarget, sortedPaneIds: sortedPaneIds)
+        if let currentDropTarget,
+            !isSourceAcceptable(
+                target: currentDropTarget,
+                sourcePaneId: sourcePaneId,
+                sortedPaneIds: sortedPaneIds
             )
-        else {
+        {
             return nil
         }
-
-        return paneTarget(from: target, sortedPaneIds: sortedPaneIds)
+        let sizingMode = DropSizingModeResolver.mode(for: currentTarget.sizingTarget, isShiftHeld: isShiftHeld)
+        if shouldAcceptDrop(currentTarget.paneId, currentTarget.zone, sizingMode) {
+            return currentTarget
+        }
+        return nil
     }
 
-    static func targetRects(
+    /// Visuals dict for every accepted drop target, keyed by sizing
+    /// target. Self/adjacent entries are omitted when `sourcePaneId`
+    /// is set; the overlay can render the entire dict without gating
+    /// (R4 — visuals mirror resolver decisions).
+    static func targetVisuals(
         paneFrames: [UUID: CGRect],
         containerBounds: CGRect,
-        minimizedPaneIds: Set<UUID>
-    ) -> [PaneDropTarget: CGRect] {
+        minimizedPaneIds: Set<UUID>,
+        sourcePaneId: UUID? = nil
+    ) -> [DropTarget: DropTargetVisual] {
         let sortedPaneIds = sortedPaneIds(from: paneFrames)
         let splittablePaneIds = Set(paneFrames.keys).subtracting(minimizedPaneIds)
-        let sharedRects = DropTargetResolver.targetRects(
+
+        var visuals = DropTargetResolver.targetVisuals(
             rows: [.main: sortedPaneIds],
             paneFrames: paneFrames,
             containerBounds: containerBounds,
@@ -103,61 +167,60 @@ struct PaneDragCoordinator {
             splittablePanes: splittablePaneIds
         )
 
-        return sharedRects.reduce(into: [:]) { translatedRects, entry in
-            guard let paneTarget = paneTarget(from: entry.key, sortedPaneIds: sortedPaneIds) else { return }
-            translatedRects[paneTarget] = entry.value
+        if let sourcePaneId, let sourceIndex = sortedPaneIds.firstIndex(of: sourcePaneId) {
+            visuals[.paneSplit(paneId: sourcePaneId, side: .left)] = nil
+            visuals[.paneSplit(paneId: sourcePaneId, side: .right)] = nil
+            visuals[.paneSlot(row: .main, index: sourceIndex)] = nil
+            visuals[.paneSlot(row: .main, index: sourceIndex + 1)] = nil
         }
+
+        return visuals
     }
 
     /// Resolve the visual for a single active drop target.
     ///
     /// `PaneDropTarget`'s equality intentionally collapses across
     /// distinct `sizingTarget` values (a split and a slot can share
-    /// the same `paneId + zone` key for dedup). That makes a
-    /// dictionary keyed by `PaneDropTarget` ambiguous — query through
-    /// this function instead so the visual is selected from the
-    /// active target's `sizingTarget` discriminator directly.
+    /// the same `paneId + zone` key for dedup). Query the visuals
+    /// dictionary by the active target's `sizingTarget` discriminator
+    /// instead, which is fully discriminated.
     static func visual(
         for target: PaneDropTarget,
         paneFrames: [UUID: CGRect],
         containerBounds: CGRect,
-        minimizedPaneIds: Set<UUID>
+        minimizedPaneIds: Set<UUID>,
+        sourcePaneId: UUID? = nil
     ) -> DropTargetVisual? {
-        let sortedPaneIds = sortedPaneIds(from: paneFrames)
-        let splittablePaneIds = Set(paneFrames.keys).subtracting(minimizedPaneIds)
-        let sharedRects = DropTargetResolver.targetRects(
-            rows: [.main: sortedPaneIds],
+        let visuals = targetVisuals(
             paneFrames: paneFrames,
             containerBounds: containerBounds,
-            config: .main,
-            splittablePanes: splittablePaneIds
+            minimizedPaneIds: minimizedPaneIds,
+            sourcePaneId: sourcePaneId
         )
-
-        guard let rect = sharedRects[target.sizingTarget] else { return nil }
-        return visual(for: target.sizingTarget, rect: rect)
+        return visuals[target.sizingTarget]
     }
 
-    static func visual(for target: DropTarget, rect: CGRect) -> DropTargetVisual {
+    /// Universal source-filter rule (R1, R2). Returns `true` when the
+    /// resolved geometric target is a valid drop for the given source.
+    /// When the source isn't part of `sortedPaneIds` (e.g. cross-tab
+    /// drag), there's no adjacency to enforce — return true.
+    private static func isSourceAcceptable(
+        target: DropTarget,
+        sourcePaneId: UUID?,
+        sortedPaneIds: [UUID]
+    ) -> Bool {
+        guard let sourcePaneId else { return true }
         switch target {
-        case .paneSplit:
-            // Per Option B the split visual is the half of the pane
-            // the new pane lands in. The shared resolver already
-            // returns that half rect for `.paneSplit(side:)`.
-            return .region(rect)
-        case .paneSlot, .paneNewRow:
-            return .insertionMarker(insertionMarkerRect(for: rect))
+        case .paneSplit(let paneId, _):
+            return paneId != sourcePaneId
+        case .paneSlot(_, let index):
+            guard let sourceIndex = sortedPaneIds.firstIndex(of: sourcePaneId) else {
+                return true
+            }
+            return index != sourceIndex && index != sourceIndex + 1
+        case .paneNewRow:
+            return true
         }
-    }
-
-    private static func insertionMarkerRect(for slotRect: CGRect) -> CGRect {
-        let markerWidth = min(AppStyles.General.Layout.dropTargetMarkerWidth, slotRect.width)
-        let centerX = slotRect.midX
-        return CGRect(
-            x: centerX - markerWidth / 2,
-            y: slotRect.minY,
-            width: markerWidth,
-            height: slotRect.height
-        )
     }
 
     private static func sortedPaneIds(from paneFrames: [UUID: CGRect]) -> [UUID] {

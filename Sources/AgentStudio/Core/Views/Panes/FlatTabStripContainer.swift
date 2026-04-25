@@ -24,6 +24,11 @@ struct FlatTabStripContainer: View {
     @State private var drawerPanelFrameInTab: CGRect = .zero
     @State private var drawerDropTarget: DrawerRearrangeTarget?
     @State private var drawerDropTargetMouseUpMonitor: Any?
+    /// Active drag's source pane id, published by either capture
+    /// overlay so the visuals layer can apply the source-aware
+    /// filter (R1-R18). Only one drag is active at a time across
+    /// main + drawer.
+    @State private var activeDragSourcePaneId: UUID?
     private var managementLayer: ManagementLayerAtom {
         atom(\.managementLayer)
     }
@@ -136,7 +141,8 @@ struct FlatTabStripContainer: View {
                     actionDispatcher: actionDispatcher,
                     onPaneFocusTrigger: onPaneFocusTrigger,
                     onOpenPaneGitHub: onOpenPaneGitHub,
-                    drawerDropTarget: drawerDropTarget
+                    drawerDropTarget: drawerDropTarget,
+                    dragSourcePaneId: activeDragSourcePaneId
                 )
 
                 if managementLayer.isActive && mainSplitDragCaptureEnabled {
@@ -146,7 +152,8 @@ struct FlatTabStripContainer: View {
                                 for: activeTarget,
                                 paneFrames: paneFrames,
                                 containerBounds: containerBounds,
-                                minimizedPaneIds: minimizedPaneIds
+                                minimizedPaneIds: minimizedPaneIds,
+                                sourcePaneId: activeDragSourcePaneId
                             )
                         }
                     PaneDropTargetOverlay(visual: activeVisual)
@@ -157,6 +164,7 @@ struct FlatTabStripContainer: View {
                         containerBounds: containerBounds,
                         minimizedPaneIds: minimizedPaneIds,
                         target: $dropTarget,
+                        sourcePaneId: $activeDragSourcePaneId,
                         isManagementLayerActive: true,
                         actionDispatcher: actionDispatcher
                     )
@@ -235,6 +243,7 @@ struct FlatTabStripContainer: View {
                 minimizedPaneIds: expandedDrawer.minimizedPaneIds,
                 containerBounds: drawerBounds,
                 target: $drawerDropTarget,
+                sourcePaneId: $activeDragSourcePaneId,
                 isManagementLayerActive: true,
                 shouldAcceptDrop: { payload, target, sizingMode in
                     DrawerDropDispatch.shouldAcceptDrop(

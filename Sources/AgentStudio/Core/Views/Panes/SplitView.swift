@@ -25,7 +25,7 @@ struct SplitView<L: View, R: View>: View {
     let onResizeEnd: (() -> Void)?
 
     /// The minimum size (in points) of a split
-    let minSize: CGFloat = AppStyles.General.Layout.splitMinimumPaneSize
+    let minSize: CGFloat = AppPolicies.DragAndDrop.splitMinimumPaneSize
 
     /// The current fractional width of the split view. 0.5 means L/R are equally sized.
     @Binding var split: CGFloat

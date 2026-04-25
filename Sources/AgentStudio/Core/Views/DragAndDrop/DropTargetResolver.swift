@@ -33,7 +33,7 @@ enum DropTargetResolver {
                 location: location,
                 config: config,
                 splittablePanes: splittablePanes,
-                sideZoneFloor: AppStyles.General.Layout.paneRowSideZoneFloor
+                sideZoneFloor: AppPolicies.DragAndDrop.paneRowSideZoneFloor
             ) {
                 return inPaneTarget
             }
@@ -59,21 +59,41 @@ enum DropTargetResolver {
         config: DropTargetConfig,
         splittablePanes: Set<UUID>
     ) -> [DropTarget: CGRect] {
-        var rects: [DropTarget: CGRect] = [:]
+        targetVisuals(
+            rows: rows,
+            paneFrames: paneFrames,
+            containerBounds: containerBounds,
+            config: config,
+            splittablePanes: splittablePanes
+        ).mapValues(\.region)
+    }
+
+    static func targetVisuals(
+        rows: [RowID: [UUID]],
+        paneFrames: [UUID: CGRect],
+        containerBounds: CGRect,
+        config: DropTargetConfig,
+        splittablePanes: Set<UUID>
+    ) -> [DropTarget: DropTargetVisual] {
+        var visuals: [DropTarget: DropTargetVisual] = [:]
 
         if let band = config.newRowBand {
             let bandHeight = band.bandHeight(in: containerBounds)
-            rects[.paneNewRow(position: .top)] = CGRect(
-                x: containerBounds.minX,
-                y: containerBounds.minY,
-                width: containerBounds.width,
-                height: bandHeight
+            visuals[.paneNewRow(position: .top)] = .region(
+                CGRect(
+                    x: containerBounds.minX,
+                    y: containerBounds.minY,
+                    width: containerBounds.width,
+                    height: bandHeight
+                )
             )
-            rects[.paneNewRow(position: .bottom)] = CGRect(
-                x: containerBounds.minX,
-                y: containerBounds.maxY - bandHeight,
-                width: containerBounds.width,
-                height: bandHeight
+            visuals[.paneNewRow(position: .bottom)] = .region(
+                CGRect(
+                    x: containerBounds.minX,
+                    y: containerBounds.maxY - bandHeight,
+                    width: containerBounds.width,
+                    height: bandHeight
+                )
             )
         }
 
@@ -86,30 +106,38 @@ enum DropTargetResolver {
                 )
             else { continue }
 
-            for (index, rect) in rowFrames.slotRects().enumerated() {
-                rects[.paneSlot(row: rowID, index: index)] = rect
+            let slotVisuals = rowFrames.slotVisuals(
+                sideZoneFloor: AppPolicies.DragAndDrop.paneRowSideZoneFloor,
+                markerWidth: AppStyles.General.Layout.dropTargetMarkerWidth
+            )
+            for (index, visual) in slotVisuals.enumerated() {
+                visuals[.paneSlot(row: rowID, index: index)] = visual
             }
         }
 
         if config.allowsPaneSplit {
             for paneId in splittablePanes {
                 guard let paneFrame = paneFrames[paneId] else { continue }
-                rects[.paneSplit(paneId: paneId, side: .left)] = CGRect(
-                    x: paneFrame.minX,
-                    y: paneFrame.minY,
-                    width: paneFrame.width / 2,
-                    height: paneFrame.height
+                visuals[.paneSplit(paneId: paneId, side: .left)] = .region(
+                    CGRect(
+                        x: paneFrame.minX,
+                        y: paneFrame.minY,
+                        width: paneFrame.width / 2,
+                        height: paneFrame.height
+                    )
                 )
-                rects[.paneSplit(paneId: paneId, side: .right)] = CGRect(
-                    x: paneFrame.midX,
-                    y: paneFrame.minY,
-                    width: paneFrame.width / 2,
-                    height: paneFrame.height
+                visuals[.paneSplit(paneId: paneId, side: .right)] = .region(
+                    CGRect(
+                        x: paneFrame.midX,
+                        y: paneFrame.minY,
+                        width: paneFrame.width / 2,
+                        height: paneFrame.height
+                    )
                 )
             }
         }
 
-        return rects
+        return visuals
     }
 
     // The pure resolver keeps these inputs explicit because each is an independent geometry constraint.
@@ -331,24 +359,99 @@ private struct RowFrames {
         return values.count
     }
 
-    func slotRects() -> [CGRect] {
-        var boundaries: [CGFloat] = [first.frame.minX, first.frame.midX]
+    /// Slot hover-zone visuals, matching the resolver's 1/4 + 1/2 +
+    /// 1/4 per-pane zone model.
+    ///
+    ///   ▸ slot 0       region = outer 1/4 of the leftmost pane
+    ///                  marker = thin bar at the row left edge
+    ///   ▸ slot 1..n-1  region = right 1/4 of pane[i-1] +
+    ///                           left 1/4 of pane[i]
+    ///                  marker = thin bar at the inter-pane boundary
+    ///                           (midpoint of any gap between them)
+    ///   ▸ slot n       region = outer 1/4 of the rightmost pane
+    ///                  marker = thin bar at the row right edge
+    ///
+    /// Side-zone widths grow to `sideZoneFloor` on narrow panes (and
+    /// cap at half the pane width) so the visible region stays tight
+    /// to the user's actual hover zone instead of the old midX-based
+    /// half+half rect, which over-shaded pane interiors.
+    func slotVisuals(sideZoneFloor: CGFloat, markerWidth: CGFloat) -> [DropTargetVisual] {
+        let topY = minY
+        let height = maxY - minY
 
-        if values.count > 1 {
-            for index in 1..<(values.count - 1) {
-                boundaries.append(values[index].frame.midX)
-            }
-            boundaries.append(last.frame.midX)
-        }
-        boundaries.append(last.frame.maxX)
-
-        return (0...values.count).map { index in
-            CGRect(
-                x: boundaries[index],
-                y: minY,
-                width: max(boundaries[index + 1] - boundaries[index], 1),
-                height: maxY - minY
+        return (0...values.count).map { slotIndex in
+            let zone = slotZoneRect(
+                slotIndex: slotIndex,
+                topY: topY,
+                height: height,
+                sideZoneFloor: sideZoneFloor
             )
+            let marker = slotMarkerRect(
+                slotIndex: slotIndex,
+                topY: topY,
+                height: height,
+                markerWidth: markerWidth
+            )
+            return .zoneWithMarker(zone: zone, marker: marker)
         }
+    }
+
+    private func slotZoneRect(
+        slotIndex: Int,
+        topY: CGFloat,
+        height: CGFloat,
+        sideZoneFloor: CGFloat
+    ) -> CGRect {
+        if slotIndex == 0 {
+            let frame = first.frame
+            let width = sideWidth(for: frame, floor: sideZoneFloor)
+            return CGRect(x: frame.minX, y: topY, width: width, height: height)
+        }
+        if slotIndex == values.count {
+            let frame = last.frame
+            let width = sideWidth(for: frame, floor: sideZoneFloor)
+            return CGRect(x: frame.maxX - width, y: topY, width: width, height: height)
+        }
+        let leftFrame = values[slotIndex - 1].frame
+        let rightFrame = values[slotIndex].frame
+        let leftWidth = sideWidth(for: leftFrame, floor: sideZoneFloor)
+        let rightWidth = sideWidth(for: rightFrame, floor: sideZoneFloor)
+        let startX = leftFrame.maxX - leftWidth
+        let endX = rightFrame.minX + rightWidth
+        return CGRect(
+            x: startX,
+            y: topY,
+            width: endX - startX,
+            height: height
+        )
+    }
+
+    private func slotMarkerRect(
+        slotIndex: Int,
+        topY: CGFloat,
+        height: CGFloat,
+        markerWidth: CGFloat
+    ) -> CGRect {
+        let boundaryX = slotBoundaryX(slotIndex: slotIndex)
+        let halfMarker = markerWidth / 2
+        return CGRect(
+            x: boundaryX - halfMarker,
+            y: topY,
+            width: markerWidth,
+            height: height
+        )
+    }
+
+    private func slotBoundaryX(slotIndex: Int) -> CGFloat {
+        if slotIndex == 0 { return first.frame.minX }
+        if slotIndex == values.count { return last.frame.maxX }
+        let leftFrame = values[slotIndex - 1].frame
+        let rightFrame = values[slotIndex].frame
+        return (leftFrame.maxX + rightFrame.minX) / 2
+    }
+
+    private func sideWidth(for frame: CGRect, floor: CGFloat) -> CGFloat {
+        let natural = frame.width / 4
+        return min(max(natural, floor), frame.width / 2)
     }
 }

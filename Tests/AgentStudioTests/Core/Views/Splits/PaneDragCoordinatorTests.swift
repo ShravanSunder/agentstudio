@@ -379,7 +379,7 @@ final class PaneDragCoordinatorTests {
     }
 
     @Test
-    func test_targetRects_includePaneHalvesAndSharedSlotRects() {
+    func test_visual_paneSplitLeft_isLeftHalfRegion() throws {
         // Arrange
         let leftPaneId = UUID()
         let rightPaneId = UUID()
@@ -387,24 +387,54 @@ final class PaneDragCoordinatorTests {
             leftPaneId: CGRect(x: 0, y: 0, width: 100, height: 100),
             rightPaneId: CGRect(x: 100, y: 0, width: 100, height: 100),
         ]
-
-        // Act
-        let rects = PaneDragCoordinator.targetRects(
-            paneFrames: paneFrames,
-            containerBounds: CGRect(x: 0, y: 0, width: 200, height: 100),
-            minimizedPaneIds: []
+        let target = PaneDropTarget(
+            paneId: leftPaneId,
+            zone: .left,
+            sizingTarget: .paneSplit(paneId: leftPaneId, side: .left)
         )
 
-        // Assert
-        #expect(
-            rects[
-                PaneDropTarget(
-                    paneId: leftPaneId, zone: .left, sizingTarget: .paneSplit(paneId: leftPaneId, side: .left))]
-                == CGRect(x: 0, y: 0, width: 50, height: 100))
-        #expect(
-            rects[
-                PaneDropTarget(
-                    paneId: rightPaneId, zone: .right, sizingTarget: .paneSplit(paneId: rightPaneId, side: .right))]
-                == CGRect(x: 150, y: 0, width: 50, height: 100))
+        // Act
+        let visual = try #require(
+            PaneDragCoordinator.visual(
+                for: target,
+                paneFrames: paneFrames,
+                containerBounds: CGRect(x: 0, y: 0, width: 200, height: 100),
+                minimizedPaneIds: []
+            )
+        )
+
+        // Assert: split visual is the left half of paneA, no marker.
+        #expect(visual.region == CGRect(x: 0, y: 0, width: 50, height: 100))
+        #expect(visual.insertionMarker == nil)
+    }
+
+    @Test
+    func test_visual_paneSplitRight_isRightHalfRegion() throws {
+        // Arrange
+        let leftPaneId = UUID()
+        let rightPaneId = UUID()
+        let paneFrames: [UUID: CGRect] = [
+            leftPaneId: CGRect(x: 0, y: 0, width: 100, height: 100),
+            rightPaneId: CGRect(x: 100, y: 0, width: 100, height: 100),
+        ]
+        let target = PaneDropTarget(
+            paneId: rightPaneId,
+            zone: .right,
+            sizingTarget: .paneSplit(paneId: rightPaneId, side: .right)
+        )
+
+        // Act
+        let visual = try #require(
+            PaneDragCoordinator.visual(
+                for: target,
+                paneFrames: paneFrames,
+                containerBounds: CGRect(x: 0, y: 0, width: 200, height: 100),
+                minimizedPaneIds: []
+            )
+        )
+
+        // Assert: split visual is the right half of paneB, no marker.
+        #expect(visual.region == CGRect(x: 150, y: 0, width: 50, height: 100))
+        #expect(visual.insertionMarker == nil)
     }
 }

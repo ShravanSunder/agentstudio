@@ -49,7 +49,7 @@ struct DrawerCompositionGateTests {
         #expect(target == .rowSlot(row: .top, insertionIndex: 1))
         let resolvedTarget = try #require(target)
         let visual = try #require(visuals[resolvedTarget])
-        let markerRect = try #require(visual.insertionMarkerRect)
+        let markerRect = try #require(visual.insertionMarker)
         #expect(markerRect.midX == 250)
         #expect(markerRect.minY == 40)
         #expect(markerRect.height == 100)

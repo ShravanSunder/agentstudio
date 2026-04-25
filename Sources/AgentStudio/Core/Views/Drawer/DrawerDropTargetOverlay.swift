@@ -12,17 +12,16 @@ struct DrawerDropTargetOverlay: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             if let target, let visual = targetVisuals[target] {
-                switch visual {
-                case .region(let rect):
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.accentColor.opacity(0.16))
-                        .frame(width: rect.width, height: rect.height)
-                        .offset(x: rect.minX, y: rect.minY)
-                case .insertionMarker(let rect):
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.accentColor.opacity(0.16))
+                    .frame(width: visual.region.width, height: visual.region.height)
+                    .offset(x: visual.region.minX, y: visual.region.minY)
+
+                if let marker = visual.insertionMarker {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(Color.accentColor.opacity(0.85))
-                        .frame(width: rect.width, height: rect.height)
-                        .offset(x: rect.minX, y: rect.minY)
+                        .frame(width: marker.width, height: marker.height)
+                        .offset(x: marker.minX, y: marker.minY)
                 }
             }
         }

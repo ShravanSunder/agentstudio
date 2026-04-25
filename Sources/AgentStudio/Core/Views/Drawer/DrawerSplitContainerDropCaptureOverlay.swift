@@ -7,6 +7,9 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
     let minimizedPaneIds: Set<UUID>
     let containerBounds: CGRect
     @Binding var target: DrawerRearrangeTarget?
+    /// Active drag's source pane id, published so peer overlays
+    /// (DrawerPanel's visuals) can apply the source-aware filter.
+    @Binding var sourcePaneId: UUID?
     let isManagementLayerActive: Bool
     let shouldAcceptDrop: (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Bool
     let handleDrop: (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Void
@@ -14,6 +17,7 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
     func makeCoordinator() -> Coordinator {
         Coordinator(
             targetBinding: $target,
+            sourcePaneIdBinding: $sourcePaneId,
             shouldAcceptDrop: shouldAcceptDrop,
             handleDrop: handleDrop
         )
@@ -24,6 +28,7 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
         view.coordinator = context.coordinator
         context.coordinator.updateHandlers(
             targetBinding: $target,
+            sourcePaneIdBinding: $sourcePaneId,
             shouldAcceptDrop: shouldAcceptDrop,
             handleDrop: handleDrop
         )
@@ -42,6 +47,7 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
         nsView.coordinator = context.coordinator
         context.coordinator.updateHandlers(
             targetBinding: $target,
+            sourcePaneIdBinding: $sourcePaneId,
             shouldAcceptDrop: shouldAcceptDrop,
             handleDrop: handleDrop
         )
@@ -61,6 +67,7 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
     @MainActor
     final class Coordinator {
         private var targetBinding: Binding<DrawerRearrangeTarget?>
+        private var sourcePaneIdBinding: Binding<UUID?>
         private var shouldAcceptDropClosure: (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Bool
         private var handleDropClosure: (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Void
 
@@ -72,20 +79,24 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
 
         init(
             targetBinding: Binding<DrawerRearrangeTarget?>,
+            sourcePaneIdBinding: Binding<UUID?>,
             shouldAcceptDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Bool,
             handleDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Void
         ) {
             self.targetBinding = targetBinding
+            self.sourcePaneIdBinding = sourcePaneIdBinding
             self.shouldAcceptDropClosure = shouldAcceptDrop
             self.handleDropClosure = handleDrop
         }
 
         func updateHandlers(
             targetBinding: Binding<DrawerRearrangeTarget?>,
+            sourcePaneIdBinding: Binding<UUID?>,
             shouldAcceptDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Bool,
             handleDrop: @escaping (SplitDropPayload, DrawerRearrangeTarget, DropSizingMode) -> Void
         ) {
             self.targetBinding = targetBinding
+            self.sourcePaneIdBinding = sourcePaneIdBinding
             self.shouldAcceptDropClosure = shouldAcceptDrop
             self.handleDropClosure = handleDrop
         }
@@ -110,8 +121,15 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
             }
         }
 
+        private func setSourcePaneId(_ sourcePaneId: UUID?) {
+            if sourcePaneIdBinding.wrappedValue != sourcePaneId {
+                sourcePaneIdBinding.wrappedValue = sourcePaneId
+            }
+        }
+
         func finalizeDragSession() {
             setTarget(nil)
+            setSourcePaneId(nil)
         }
 
         func hasSupportedTypes(in pasteboard: NSPasteboard) -> Bool {
@@ -125,8 +143,10 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
                 RestoreTrace.log(
                     "DrawerSplit.handleDragUpdate decode=nil location=\(NSStringFromPoint(location)) types=\(pasteboardTypes)"
                 )
+                setSourcePaneId(nil)
                 return nil
             }
+            setSourcePaneId(excludedPaneIds(from: payload).first)
 
             let target = DrawerPaneDragCoordinator.resolveLatchedTarget(
                 location: location,

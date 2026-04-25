@@ -6,6 +6,10 @@ struct DrawerPaneDragGeometry {
     let layout: DrawerGridLayout
     let containerBounds: CGRect
     let minimizedPaneIds: Set<UUID>
+    /// Source pane(s) of the active drag. These are excluded from
+    /// being splittable AND from being valid drop targets that would
+    /// land them at a position equivalent to where they already are
+    /// (the universal source-filter rule, R1+R2).
     let excludedPaneIds: Set<UUID>
 
     var splittablePaneIds: Set<UUID> {
@@ -15,8 +19,29 @@ struct DrawerPaneDragGeometry {
     }
 }
 
+/// Source-aware adapter over `DropTargetResolver` for drawer drags.
+///
+/// In-row source filtering matches the main-pane rule (R1+R2):
+///   reject  split(S)
+///   reject  slot at S's index
+///   reject  slot at S's index + 1
+///
+/// Drawer-specific rules:
+///
+///   ▸ R8/R13a — solo row band drop: reject when removing S from its
+///     row would leave the row empty (no-op move; drawer collapses
+///     back to its current shape).
+///
+///   ▸ R14 — at-max-rows band drop: when the drawer is at the row
+///     hard cap (`AppPolicies.DragAndDrop.drawerMaxRows`), bands are
+///     never offered. This is enforced structurally by the config
+///     (`drawerTwoRow.newRowBand == nil`).
+///
+///   ▸ R15/R16 — cross-row drops: foreign targets in the OTHER row
+///     remain valid even when S is alone in its own row; the apply
+///     path handles row collapse.
 struct DrawerPaneDragCoordinator {
-    static let creationBandHeight: CGFloat = 28
+    static let creationBandHeight: CGFloat = AppPolicies.DragAndDrop.drawerNewRowBandMinHeight
 
     static func resolveTarget(
         location: CGPoint,
@@ -35,6 +60,10 @@ struct DrawerPaneDragCoordinator {
             return nil
         }
 
+        guard isSourceAcceptable(target: target, geometry: geometry) else {
+            return nil
+        }
+
         return drawerTarget(from: target)
     }
 
@@ -45,40 +74,47 @@ struct DrawerPaneDragCoordinator {
         shouldAcceptDrop: (DrawerRearrangeTarget) -> Bool
     ) -> DrawerRearrangeTarget? {
         let rows = rowsDictionary(from: geometry.layout)
-        let config = config(for: geometry.layout)
-        let currentDropTarget = currentTarget.map(dropTarget(from:))
+        let dropConfig = config(for: geometry.layout)
 
-        guard
-            let target = DropTargetResolver.resolveLatched(
-                location: location,
-                rows: rows,
-                paneFrames: geometry.paneFrames,
-                containerBounds: geometry.containerBounds,
-                config: config,
-                splittablePanes: geometry.splittablePaneIds,
-                currentTarget: currentDropTarget,
-                shouldAccept: { target in
-                    guard let drawerTarget = drawerTarget(from: target) else { return false }
-                    return shouldAcceptDrop(drawerTarget)
-                }
-            )
-        else {
-            return nil
+        let geometricCandidate = DropTargetResolver.resolve(
+            location: location,
+            rows: rows,
+            paneFrames: geometry.paneFrames,
+            containerBounds: geometry.containerBounds,
+            config: dropConfig,
+            splittablePanes: geometry.splittablePaneIds
+        )
+
+        if let geometricCandidate {
+            // Cursor over a self/adjacent zone → drop the latch.
+            guard isSourceAcceptable(target: geometricCandidate, geometry: geometry) else {
+                return nil
+            }
+            guard let drawerTarget = drawerTarget(from: geometricCandidate) else {
+                return nil
+            }
+            return shouldAcceptDrop(drawerTarget) ? drawerTarget : nil
         }
 
-        return drawerTarget(from: target)
+        // No geometric candidate → retain currentTarget if still acceptable.
+        guard let currentTarget else { return nil }
+        let currentDropTarget = dropTarget(from: currentTarget)
+        guard isSourceAcceptable(target: currentDropTarget, geometry: geometry) else {
+            return nil
+        }
+        return shouldAcceptDrop(currentTarget) ? currentTarget : nil
     }
 
     static func targetRects(
         geometry: DrawerPaneDragGeometry
     ) -> [DrawerRearrangeTarget: CGRect] {
-        targetVisuals(geometry: geometry).mapValues(\.rect)
+        targetVisuals(geometry: geometry).mapValues(\.region)
     }
 
     static func targetVisuals(
         geometry: DrawerPaneDragGeometry
     ) -> [DrawerRearrangeTarget: DrawerDropTargetVisual] {
-        let sharedRects = DropTargetResolver.targetRects(
+        let resolverVisuals = DropTargetResolver.targetVisuals(
             rows: rowsDictionary(from: geometry.layout),
             paneFrames: geometry.paneFrames,
             containerBounds: geometry.containerBounds,
@@ -86,27 +122,13 @@ struct DrawerPaneDragCoordinator {
             splittablePanes: geometry.splittablePaneIds
         )
 
-        var visuals = sharedRects.reduce(
+        return resolverVisuals.reduce(
             into: [DrawerRearrangeTarget: DrawerDropTargetVisual]()
-        ) { translatedVisuals, entry in
+        ) { accumulator, entry in
+            guard isSourceAcceptable(target: entry.key, geometry: geometry) else { return }
             guard let target = drawerTarget(from: entry.key) else { return }
-            translatedVisuals[target] = DrawerDropTargetVisual.region(entry.value)
+            accumulator[target] = entry.value
         }
-        mergeRowSlotMarkers(
-            into: &visuals,
-            paneIds: geometry.layout.topRow.paneIds,
-            row: .top,
-            paneFrames: geometry.paneFrames
-        )
-        if let bottomRow = geometry.layout.bottomRow {
-            mergeRowSlotMarkers(
-                into: &visuals,
-                paneIds: bottomRow.paneIds,
-                row: .bottom,
-                paneFrames: geometry.paneFrames
-            )
-        }
-        return visuals
     }
 
     static func sizingMode(for target: DrawerRearrangeTarget, isShiftHeld: Bool) -> DropSizingMode {
@@ -118,6 +140,77 @@ struct DrawerPaneDragCoordinator {
         case .rowSlot, .createSecondRow:
             return .proportional
         }
+    }
+
+    /// Universal source-filter rule for drawer targets. Same as the
+    /// main-pane rule, plus the "solo-row band" exclusion.
+    private static func isSourceAcceptable(
+        target: DropTarget,
+        geometry: DrawerPaneDragGeometry
+    ) -> Bool {
+        guard !geometry.excludedPaneIds.isEmpty else { return true }
+        switch target {
+        case .paneSplit(let paneId, _):
+            return !geometry.excludedPaneIds.contains(paneId)
+        case .paneSlot(let row, let index):
+            return isSlotAcceptable(rowID: row, index: index, geometry: geometry)
+        case .paneNewRow:
+            return isNewRowBandAcceptable(geometry: geometry)
+        }
+    }
+
+    /// Slot rejection (R2) operates in the resolver's GEOMETRIC index
+    /// space — i.e. the row reduced to the panes that actually have a
+    /// frame in `paneFrames` and sorted by `minX`. The resolver's
+    /// returned `paneSlot.index` references positions in this list.
+    ///
+    /// When source has a frame in `paneFrames`: source has a geometric
+    /// index, and slot i / slot i+1 around it are no-op moves → reject.
+    ///
+    /// When source has NO frame in `paneFrames` (e.g. its frame was
+    /// suppressed during the drag): the resolver's row already excludes
+    /// source, so slot indices are in post-delete space and R2 does
+    /// not apply — every slot is a real position change.
+    private static func isSlotAcceptable(
+        rowID: RowID,
+        index: Int,
+        geometry: DrawerPaneDragGeometry
+    ) -> Bool {
+        let geometricRow = geometricRow(rowID: rowID, geometry: geometry)
+        for excluded in geometry.excludedPaneIds {
+            guard let excludedIndex = geometricRow.firstIndex(of: excluded) else { continue }
+            if index == excludedIndex || index == excludedIndex + 1 {
+                return false
+            }
+        }
+        return true
+    }
+
+    private static func geometricRow(rowID: RowID, geometry: DrawerPaneDragGeometry) -> [UUID] {
+        guard let layoutPaneIds = rowsDictionary(from: geometry.layout)[rowID] else { return [] }
+        return
+            layoutPaneIds
+            .compactMap { paneId -> (UUID, CGRect)? in
+                guard let frame = geometry.paneFrames[paneId] else { return nil }
+                return (paneId, frame)
+            }
+            .sorted { $0.1.minX < $1.1.minX }
+            .map(\.0)
+    }
+
+    /// New-row band reject when removing every excluded pane from its
+    /// row would leave the row empty. That collapses the band drop to
+    /// "the same drawer shape, just relabeled" — a no-op (R8 / R13a).
+    private static func isNewRowBandAcceptable(geometry: DrawerPaneDragGeometry) -> Bool {
+        let rows = rowsDictionary(from: geometry.layout)
+        for excluded in geometry.excludedPaneIds {
+            guard let containingRow = rows.first(where: { $0.value.contains(excluded) }) else { continue }
+            let siblingsInRow = containingRow.value.filter { $0 != excluded }
+            if siblingsInRow.isEmpty {
+                return false
+            }
+        }
+        return true
     }
 
     private static func config(for layout: DrawerGridLayout) -> DropTargetConfig {
@@ -194,45 +287,4 @@ struct DrawerPaneDragCoordinator {
         }
     }
 
-    private static func mergeRowSlotMarkers(
-        into visuals: inout [DrawerRearrangeTarget: DrawerDropTargetVisual],
-        paneIds: [UUID],
-        row: DrawerRowPlacement,
-        paneFrames: [UUID: CGRect]
-    ) {
-        let rowFrames = sortedRowFrames(paneIds: paneIds, paneFrames: paneFrames)
-        guard !rowFrames.isEmpty else { return }
-
-        let markerWidth = AppStyles.General.Layout.dropTargetMarkerWidth
-        let markerHalfWidth = markerWidth / 2
-        let rowMinY = rowFrames.map(\.minY).min() ?? 0
-        let rowMaxY = rowFrames.map(\.maxY).max() ?? 0
-
-        for insertionIndex in 0...rowFrames.count {
-            let boundaryX: CGFloat
-            if insertionIndex == 0 {
-                boundaryX = rowFrames[0].minX
-            } else if insertionIndex == rowFrames.count {
-                boundaryX = rowFrames[rowFrames.count - 1].maxX
-            } else {
-                boundaryX = (rowFrames[insertionIndex - 1].maxX + rowFrames[insertionIndex].minX) / 2
-            }
-
-            visuals[.rowSlot(row: row, insertionIndex: insertionIndex)] = .insertionMarker(
-                CGRect(
-                    x: boundaryX - markerHalfWidth,
-                    y: rowMinY,
-                    width: markerWidth,
-                    height: rowMaxY - rowMinY
-                )
-            )
-        }
-    }
-
-    private static func sortedRowFrames(
-        paneIds: [UUID],
-        paneFrames: [UUID: CGRect]
-    ) -> [CGRect] {
-        paneIds.compactMap { paneFrames[$0] }.sorted { $0.minX < $1.minX }
-    }
 }

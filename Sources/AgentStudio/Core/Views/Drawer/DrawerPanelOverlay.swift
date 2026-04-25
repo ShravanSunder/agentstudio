@@ -140,6 +140,10 @@ struct DrawerPanelOverlay: View {
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let onOpenPaneGitHub: (UUID) -> Void
     let drawerDropTarget: DrawerRearrangeTarget?
+    /// Active drag's source pane id, threaded through to DrawerPanel
+    /// so its visuals dict applies the source-aware filter (R1, R2,
+    /// R8/R13a).
+    let dragSourcePaneId: UUID?
 
     @AppStorage("drawerHeightRatio") private var heightRatio: Double = DrawerLayout.heightRatioMax
     @State private var dismissMonitor = DrawerDismissMonitor()
@@ -229,7 +233,8 @@ struct DrawerPanelOverlay: View {
                     onPaneFocusTrigger: onPaneFocusTrigger,
                     appLifecycleStore: appLifecycleStore,
                     onOpenPaneGitHub: onOpenPaneGitHub,
-                    dropTarget: drawerDropTarget
+                    dropTarget: drawerDropTarget,
+                    dragSourcePaneId: dragSourcePaneId
                 )
                 .id(paneId)
                 .frame(width: panelWidth)

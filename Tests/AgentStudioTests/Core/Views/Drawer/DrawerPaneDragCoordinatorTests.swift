@@ -86,7 +86,11 @@ struct DrawerPaneDragCoordinatorTests {
     }
 
     @Test
-    func oneRow_sourcePaneIsNotSplittableAndFallsBackToSlot() {
+    func oneRow_cursorOverSourceWithFrame_rejectsSelfAndAdjacentSlots() {
+        // Source (a) has a frame and is at geometric index 0 → R1 rejects
+        // split(a) and R2 rejects slot 0 (= source's position). Cursor in
+        // pane a's left half resolves to slot 0 (since a is excluded from
+        // splittable), which is then source-rejected → nil.
         let a = UUID()
         let b = UUID()
         let frames: [UUID: CGRect] = [
@@ -104,7 +108,7 @@ struct DrawerPaneDragCoordinatorTests {
             )
         )
 
-        #expect(target == .rowSlot(row: .top, insertionIndex: 0))
+        #expect(target == nil)
     }
 
     @Test
@@ -125,7 +129,7 @@ struct DrawerPaneDragCoordinatorTests {
         )
 
         let visual = try #require(visuals[.rowSlot(row: .top, insertionIndex: 1)])
-        let markerRect = try #require(visual.insertionMarkerRect)
+        let markerRect = try #require(visual.insertionMarker)
         let expectedMarkerWidth = AppStyles.General.Layout.dropTargetMarkerWidth
 
         #expect(markerRect.width == expectedMarkerWidth)
@@ -168,7 +172,7 @@ struct DrawerPaneDragCoordinatorTests {
         #expect(target == .rowSlot(row: .top, insertionIndex: 2))
         let resolvedTarget = try #require(target)
         let visual = try #require(visuals[resolvedTarget])
-        let markerRect = try #require(visual.insertionMarkerRect)
+        let markerRect = try #require(visual.insertionMarker)
         #expect(markerRect.midX == 230)
     }
 
@@ -189,8 +193,8 @@ struct DrawerPaneDragCoordinatorTests {
 
         let visual = try #require(visuals[.paneSplit(paneId: a, side: .left)])
 
-        #expect(visual.insertionMarkerRect == nil)
-        #expect(visual.rect == CGRect(x: 20, y: 40, width: 50, height: 80))
+        #expect(visual.insertionMarker == nil)
+        #expect(visual.region == CGRect(x: 20, y: 40, width: 50, height: 80))
     }
 
     @Test
@@ -226,8 +230,8 @@ struct DrawerPaneDragCoordinatorTests {
 
         let visual = try #require(visuals[.createSecondRow(position: .bottom)])
 
-        #expect(visual.insertionMarkerRect == nil)
-        #expect(visual.rect == CGRect(x: 0, y: 112, width: 200, height: 28))
+        #expect(visual.insertionMarker == nil)
+        #expect(visual.region == CGRect(x: 0, y: 112, width: 200, height: 28))
     }
 
     @Test

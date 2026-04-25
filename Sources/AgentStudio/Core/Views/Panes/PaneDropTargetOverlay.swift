@@ -2,31 +2,25 @@ import SwiftUI
 
 /// Renders the active main-pane drop target.
 ///
-/// The visual model is shared with the drawer overlay
-/// (see `DropTargetVisual`):
-///
-///   ▸ `.region(rect)` — soft fill, no border line. Used for splits;
-///     the rect is the half of the pane the new pane will land in
-///     (Option B), so the user sees which side wins.
-///   ▸ `.insertionMarker(rect)` — bright vertical bar. Used for
-///     between-pane inserts and edge inserts.
+/// Every visual has a soft-fill `region`. Slot/edge targets also
+/// have an `insertionMarker` bar painted on top of the region —
+/// see `DropTargetVisual` for the per-target-type breakdown.
 struct PaneDropTargetOverlay: View {
     let visual: DropTargetVisual?
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             if let visual {
-                switch visual {
-                case .region(let rect):
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(Color.accentColor.opacity(0.16))
-                        .frame(width: rect.width, height: rect.height)
-                        .offset(x: rect.minX, y: rect.minY)
-                case .insertionMarker(let rect):
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(Color.accentColor.opacity(0.16))
+                    .frame(width: visual.region.width, height: visual.region.height)
+                    .offset(x: visual.region.minX, y: visual.region.minY)
+
+                if let marker = visual.insertionMarker {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(Color.accentColor.opacity(0.85))
-                        .frame(width: rect.width, height: rect.height)
-                        .offset(x: rect.minX, y: rect.minY)
+                        .frame(width: marker.width, height: marker.height)
+                        .offset(x: marker.minX, y: marker.minY)
                 }
             }
         }
