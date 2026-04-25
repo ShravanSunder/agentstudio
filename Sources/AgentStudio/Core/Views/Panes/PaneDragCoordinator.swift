@@ -6,17 +6,11 @@ struct PaneDropTarget: Equatable, Hashable {
     let zone: DropZoneSide
     let sizingTarget: DropTarget
 
-    // Overlay rects are keyed by the visible pane edge, not by the underlying
-    // sizing intent. Different sizing targets can legitimately map to the same
-    // rendered edge marker.
-    static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.paneId == rhs.paneId && lhs.zone == rhs.zone
-    }
-
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(paneId)
-        hasher.combine(zone)
-    }
+    // Equality includes sizingTarget so that transitioning between
+    // zones that share paneId + zone (e.g. slot 1 between P_a and P_b →
+    // split right of P_a) is observed as a state change. SwiftUI
+    // bindings dedup on equality; collapsing across sizingTarget froze
+    // the overlay visual on the previous zone's render.
 }
 
 /// Source-aware adapter over the pure `DropTargetResolver`.

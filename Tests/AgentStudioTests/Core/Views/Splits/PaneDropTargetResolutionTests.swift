@@ -90,14 +90,15 @@ final class PaneDropTargetResolutionTests {
             minimizedPaneIds: []
         )
 
-        // Assert
+        // Assert — corridor drops produce slot targets at the row edges,
+        // regardless of the inner pane's kind (mixed terminal + bridge).
         #expect(
             leftTarget
                 == PaneDropTarget(
-                    paneId: terminalPaneId, zone: .left, sizingTarget: .paneSplit(paneId: terminalPaneId, side: .left)))
+                    paneId: terminalPaneId, zone: .left, sizingTarget: .paneSlot(row: .main, index: 0)))
         #expect(
             rightTarget
                 == PaneDropTarget(
-                    paneId: bridgePaneId, zone: .right, sizingTarget: .paneSplit(paneId: bridgePaneId, side: .right)))
+                    paneId: bridgePaneId, zone: .right, sizingTarget: .paneSlot(row: .main, index: 3)))
     }
 }
