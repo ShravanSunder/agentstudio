@@ -1,29 +1,13 @@
 import SwiftUI
 
-enum DrawerDropTargetVisual: Equatable {
-    case region(CGRect)
-    case insertionMarker(CGRect)
-
-    var rect: CGRect {
-        switch self {
-        case .region(let rect), .insertionMarker(let rect):
-            return rect
-        }
-    }
-
-    var insertionMarkerRect: CGRect? {
-        switch self {
-        case .insertionMarker(let rect):
-            return rect
-        case .region:
-            return nil
-        }
-    }
-}
+/// Drawer-specific alias for the shared `DropTargetVisual`. Drawer
+/// callers use this name to make the type's role at the call site
+/// obvious; new code can use `DropTargetVisual` directly.
+typealias DrawerDropTargetVisual = DropTargetVisual
 
 struct DrawerDropTargetOverlay: View {
     let target: DrawerRearrangeTarget?
-    let targetVisuals: [DrawerRearrangeTarget: DrawerDropTargetVisual]
+    let targetVisuals: [DrawerRearrangeTarget: DropTargetVisual]
 
     var body: some View {
         ZStack(alignment: .topLeading) {

@@ -1,37 +1,35 @@
 import SwiftUI
 
-/// Renders a single split drop target overlay in tab-container coordinates.
+/// Renders the active main-pane drop target.
+///
+/// The visual model is shared with the drawer overlay
+/// (see `DropTargetVisual`):
+///
+///   ▸ `.region(rect)` — soft fill, no border line. Used for splits;
+///     the rect is the half of the pane the new pane will land in
+///     (Option B), so the user sees which side wins.
+///   ▸ `.insertionMarker(rect)` — bright vertical bar. Used for
+///     between-pane inserts and edge inserts.
 struct PaneDropTargetOverlay: View {
-    let target: PaneDropTarget?
-    let targetRects: [PaneDropTarget: CGRect]
+    let visual: DropTargetVisual?
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            if let target,
-                let targetRect = targetRects[target]
-            {
-                let markerRect = markerRect(for: target.zone, in: targetRect)
-
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.accentColor.opacity(0.16))
-                    .frame(width: targetRect.width, height: targetRect.height)
-                    .offset(x: targetRect.minX, y: targetRect.minY)
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.accentColor.opacity(0.85))
-                    .frame(width: markerRect.width, height: markerRect.height)
-                    .offset(x: markerRect.minX, y: markerRect.minY)
+            if let visual {
+                switch visual {
+                case .region(let rect):
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.accentColor.opacity(0.16))
+                        .frame(width: rect.width, height: rect.height)
+                        .offset(x: rect.minX, y: rect.minY)
+                case .insertionMarker(let rect):
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.accentColor.opacity(0.85))
+                        .frame(width: rect.width, height: rect.height)
+                        .offset(x: rect.minX, y: rect.minY)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private func markerRect(for zone: DropZoneSide, in targetRect: CGRect) -> CGRect {
-        let markerWidth = min(AppStyles.General.Layout.dropTargetMarkerWidth, targetRect.width)
-        let x =
-            switch zone {
-            case .left: targetRect.minX
-            case .right: targetRect.maxX - markerWidth
-            }
-        return CGRect(x: x, y: targetRect.minY, width: markerWidth, height: targetRect.height)
     }
 }

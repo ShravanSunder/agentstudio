@@ -74,7 +74,11 @@ struct DrawerTabLevelCaptureArchitectureTests {
         let sources = try loadSources()
         let captureRange = try #require(sources.flatTabStripContainer.range(of: "SplitContainerDropCaptureOverlay("))
         let prefix = sources.flatTabStripContainer[..<captureRange.lowerBound]
-        let recentContext = prefix.suffix(600)
+        // Window is widened (1200 chars) to tolerate intervening helper
+        // declarations between the policy gate and the capture mount —
+        // e.g., let-bindings that resolve drop visuals from the active
+        // target before constructing the overlay views.
+        let recentContext = prefix.suffix(1200)
 
         #expect(recentContext.contains("if managementLayer.isActive && mainSplitDragCaptureEnabled"))
     }

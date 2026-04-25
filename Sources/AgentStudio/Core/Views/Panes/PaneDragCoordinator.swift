@@ -109,6 +109,57 @@ struct PaneDragCoordinator {
         }
     }
 
+    /// Resolve the visual for a single active drop target.
+    ///
+    /// `PaneDropTarget`'s equality intentionally collapses across
+    /// distinct `sizingTarget` values (a split and a slot can share
+    /// the same `paneId + zone` key for dedup). That makes a
+    /// dictionary keyed by `PaneDropTarget` ambiguous — query through
+    /// this function instead so the visual is selected from the
+    /// active target's `sizingTarget` discriminator directly.
+    static func visual(
+        for target: PaneDropTarget,
+        paneFrames: [UUID: CGRect],
+        containerBounds: CGRect,
+        minimizedPaneIds: Set<UUID>
+    ) -> DropTargetVisual? {
+        let sortedPaneIds = sortedPaneIds(from: paneFrames)
+        let splittablePaneIds = Set(paneFrames.keys).subtracting(minimizedPaneIds)
+        let sharedRects = DropTargetResolver.targetRects(
+            rows: [.main: sortedPaneIds],
+            paneFrames: paneFrames,
+            containerBounds: containerBounds,
+            config: .main,
+            splittablePanes: splittablePaneIds
+        )
+
+        guard let rect = sharedRects[target.sizingTarget] else { return nil }
+        return visual(for: target.sizingTarget, rect: rect)
+    }
+
+    static func visual(for target: DropTarget, rect: CGRect) -> DropTargetVisual {
+        switch target {
+        case .paneSplit:
+            // Per Option B the split visual is the half of the pane
+            // the new pane lands in. The shared resolver already
+            // returns that half rect for `.paneSplit(side:)`.
+            return .region(rect)
+        case .paneSlot, .paneNewRow:
+            return .insertionMarker(insertionMarkerRect(for: rect))
+        }
+    }
+
+    private static func insertionMarkerRect(for slotRect: CGRect) -> CGRect {
+        let markerWidth = min(AppStyles.General.Layout.dropTargetMarkerWidth, slotRect.width)
+        let centerX = slotRect.midX
+        return CGRect(
+            x: centerX - markerWidth / 2,
+            y: slotRect.minY,
+            width: markerWidth,
+            height: slotRect.height
+        )
+    }
+
     private static func sortedPaneIds(from paneFrames: [UUID: CGRect]) -> [UUID] {
         paneFrames.keys.sorted { lhs, rhs in
             guard let lhsFrame = paneFrames[lhs], let rhsFrame = paneFrames[rhs] else {
