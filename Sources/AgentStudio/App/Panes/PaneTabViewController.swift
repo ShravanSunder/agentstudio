@@ -1239,19 +1239,20 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     ) -> Bool {
         guard
             atom(\.managementLayer).isActive == false,
-            event.charactersIgnoringModifiers?.lowercased() == "d",
+            event.charactersIgnoringModifiers?.lowercased() == EmptyDrawerKeyShortcut.createFirstPane.rawValue,
             event.modifierFlags.isDisjoint(with: .deviceIndependentFlagsMask),
             case .emptyDrawer(let parentPaneId) = normalizedWorkspaceNavigationScopeState(),
             store.paneAtom.pane(parentPaneId)?.drawer?.paneIds.isEmpty == true
         else {
             return false
         }
-        // requiresNeutralFocus gates the local-monitor path: a raw `d`
-        // keystroke must NOT be intercepted while a text-input responder
-        // owns focus, otherwise typing `d` into any text field creates
-        // a drawer pane. The performKeyEquivalent path opts out of this
-        // gate because cmd-equivalent shortcuts can fire even with a
-        // text field focused.
+        // requiresNeutralFocus gates the local-monitor path: the raw
+        // keystroke (see EmptyDrawerKeyShortcut.createFirstPane) must
+        // NOT be intercepted while a text-input responder owns focus,
+        // otherwise typing that character into any text field would
+        // create a drawer pane. The performKeyEquivalent path opts out
+        // of this gate because cmd-equivalent shortcuts can fire even
+        // with a text field focused.
         if requiresNeutralFocus,
             !Self.isNeutralResponderForRawCharacter(NSApp.keyWindow?.firstResponder)
         {

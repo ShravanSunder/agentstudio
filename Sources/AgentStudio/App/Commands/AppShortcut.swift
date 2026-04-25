@@ -1,6 +1,20 @@
 import AppKit
 import Foundation
 
+/// Raw-character shortcuts that fire on a single keystroke (no
+/// modifiers) within a specific drawer context. Distinct from the
+/// modifier-keyed `AppShortcut` cases — these only fire when a
+/// neutral responder owns focus, so text-input fields still receive
+/// the keystroke as text.
+///
+/// Single source of truth: changing the case here updates BOTH the
+/// key-event gate (`PaneTabViewController.shouldCreateFirstDrawerPane`)
+/// and the on-screen hint (`DrawerPanel`'s empty-state label).
+enum EmptyDrawerKeyShortcut {
+    /// Create the first pane in an empty, focused drawer.
+    static let createFirstPane: ShortcutCharacterKey = .p
+}
+
 // swiftlint:disable identifier_name
 enum ShortcutCharacterKey: String, CaseIterable {
     case a

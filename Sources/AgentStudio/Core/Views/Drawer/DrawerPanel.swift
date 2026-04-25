@@ -210,10 +210,11 @@ struct DrawerPanel: View {
                         VStack(spacing: 12) {
                             Spacer()
                             addDrawerButton
+                            // Hint text is driven by EmptyDrawerKeyShortcut so
+                            // changing the bound key updates the UI in lock-step
+                            // with the gate in PaneTabViewController.
                             Text(
-                                managementLayer.isActive
-                                    ? "Press P to add the first drawer pane"
-                                    : "Press D to add the first drawer pane"
+                                "Press \(EmptyDrawerKeyShortcut.createFirstPane.displayString) to add the first drawer pane"
                             )
                             .font(.system(size: AppStyles.General.Typography.textXs))
                             .foregroundStyle(.tertiary)

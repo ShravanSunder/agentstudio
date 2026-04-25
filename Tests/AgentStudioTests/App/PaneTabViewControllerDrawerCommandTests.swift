@@ -190,8 +190,8 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(window.firstResponder === window.contentView)
     }
 
-    @Test("d creates first drawer pane while empty drawer has focus")
-    func rawD_openEmptyDrawerWithEmptyDrawerFocus_createsFirstDrawerPane() throws {
+    @Test("p creates first drawer pane while empty drawer has focus")
+    func rawP_openEmptyDrawerWithEmptyDrawerFocus_createsFirstDrawerPane() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -211,10 +211,10 @@ struct PaneTabViewControllerDrawerCommandTests {
                 timestamp: 0,
                 windowNumber: 0,
                 context: nil,
-                characters: "d",
-                charactersIgnoringModifiers: "d",
+                characters: "p",
+                charactersIgnoringModifiers: "p",
                 isARepeat: false,
-                keyCode: 2
+                keyCode: 35
             )
         )
 
@@ -222,8 +222,8 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(harness.store.pane(parent.id)?.drawer?.paneIds.count == 1)
     }
 
-    @Test("d creating the first drawer pane upgrades canonical focus owner to that drawer pane")
-    func rawD_openEmptyDrawerWithEmptyDrawerFocus_updatesFocusOwnerToDrawerPane() throws {
+    @Test("p creating the first drawer pane upgrades canonical focus owner to that drawer pane")
+    func rawP_openEmptyDrawerWithEmptyDrawerFocus_updatesFocusOwnerToDrawerPane() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -243,10 +243,10 @@ struct PaneTabViewControllerDrawerCommandTests {
                 timestamp: 0,
                 windowNumber: 0,
                 context: nil,
-                characters: "d",
-                charactersIgnoringModifiers: "d",
+                characters: "p",
+                charactersIgnoringModifiers: "p",
                 isARepeat: false,
-                keyCode: 2
+                keyCode: 35
             )
         )
 
