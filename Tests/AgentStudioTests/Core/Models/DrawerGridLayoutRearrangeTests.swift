@@ -348,6 +348,85 @@ struct DrawerGridLayoutRearrangeTests {
         )
     }
 
+    /// P2 — solo-row drag-out to a row-slot in the OTHER row.
+    /// Removing the source from a solo top row collapses the layout to
+    /// single-row (bottom panes promoted to top). The resolver
+    /// legitimately returns `.rowSlot(row: .bottom, ...)` referring
+    /// to the user's intent of "drop into the other row." The apply
+    /// path must normalize the target row to the post-collapse layout
+    /// shape so the insertion lands in what was the bottom row (now
+    /// the only row).
+    @Test
+    func soloTopRow_dragToBottomRowSlot_collapsesAndInsertsAtIndex() throws {
+        let s = UUID()
+        let b1 = UUID()
+        let b2 = UUID()
+        let layout = DrawerGridLayout(
+            topRow: Layout.autoTiled([s]),
+            bottomRow: Layout.autoTiled([b1, b2]),
+            rowSplitRatio: 0.5
+        )
+
+        // User intent: drop S between B1 and B2 (slot 1 of bottom row).
+        let result = try requireSuccess(
+            layout.projectedMove(
+                paneId: s,
+                target: .rowSlot(row: .bottom, insertionIndex: 1),
+                sizingMode: .proportional
+            )
+        )
+
+        // Top row collapsed to bottom contents, S inserted at index 1.
+        #expect(result.topRow.paneIds == [b1, s, b2])
+        #expect(result.bottomRow == nil)
+    }
+
+    @Test
+    func soloTopRow_dragToBottomRowSlot_atStart_insertsAtZero() throws {
+        let s = UUID()
+        let b1 = UUID()
+        let b2 = UUID()
+        let layout = DrawerGridLayout(
+            topRow: Layout.autoTiled([s]),
+            bottomRow: Layout.autoTiled([b1, b2]),
+            rowSplitRatio: 0.5
+        )
+
+        let result = try requireSuccess(
+            layout.projectedMove(
+                paneId: s,
+                target: .rowSlot(row: .bottom, insertionIndex: 0),
+                sizingMode: .proportional
+            )
+        )
+
+        #expect(result.topRow.paneIds == [s, b1, b2])
+        #expect(result.bottomRow == nil)
+    }
+
+    @Test
+    func soloTopRow_dragToBottomRowSlot_atEnd_insertsAtCount() throws {
+        let s = UUID()
+        let b1 = UUID()
+        let b2 = UUID()
+        let layout = DrawerGridLayout(
+            topRow: Layout.autoTiled([s]),
+            bottomRow: Layout.autoTiled([b1, b2]),
+            rowSplitRatio: 0.5
+        )
+
+        let result = try requireSuccess(
+            layout.projectedMove(
+                paneId: s,
+                target: .rowSlot(row: .bottom, insertionIndex: 2),
+                sizingMode: .proportional
+            )
+        )
+
+        #expect(result.topRow.paneIds == [b1, b2, s])
+        #expect(result.bottomRow == nil)
+    }
+
     private func expectApprox(
         _ actual: [Double],
         _ expected: [Double],

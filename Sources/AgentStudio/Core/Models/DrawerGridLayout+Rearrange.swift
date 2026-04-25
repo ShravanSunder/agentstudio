@@ -56,15 +56,30 @@ extension DrawerGridLayout {
                 preferredTargetPaneIndex: targetLocation.index
             )
         case .rowSlot(let row, let insertionIndex):
+            // The same-row index-shift correction must use the ORIGINAL
+            // target row (pre-collapse) so a cross-row drop with no
+            // adjustment stays uncorrected.
             let adjustedInsertionIndex = RearrangeIndexAdjustment.adjustedInsertionIndex(
                 sourceRow: sourceLocation.row,
                 sourceIndex: sourceLocation.index,
                 targetRow: row,
                 originalInsertionIndex: insertionIndex
             )
+            // When source's removal collapses its solo row (bottom
+            // existed before, now doesn't), the user's intent of "drop
+            // into the OTHER row" maps to "drop into the now-only row".
+            // We only redirect when the collapse actually happened —
+            // a target of .bottom on a layout that never had a bottom
+            // row stays as-is so the caller still gets .missingBottomRow.
+            let normalizedRow: DrawerRowPlacement
+            if row == .bottom, bottomRow != nil, layoutWithoutSource.bottomRow == nil {
+                normalizedRow = .top
+            } else {
+                normalizedRow = row
+            }
             return layoutWithoutSource.insertingAtSlot(
                 paneId: paneId,
-                row: row,
+                row: normalizedRow,
                 insertionIndex: adjustedInsertionIndex,
                 sizingMode: sizingMode,
                 preferredTargetPaneIndex: nil
