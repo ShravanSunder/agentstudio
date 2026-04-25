@@ -194,4 +194,44 @@ struct WorkspacePaneFocusDerivedTests {
             #expect(focus.satisfiedRequirements.contains(.hasFocusedDrawerPane))
         }
     }
+
+    /// Codex P2 — when focus normalizes to .drawerPane(parent, child),
+    /// the derived focus must report the CHILD pane's identity and
+    /// metadata. Previously activePaneId / activeRepoId / activeWorktreeId
+    /// / paneContentType all came from the PARENT pane, so command-bar
+    /// filtering, status strip, and menu visibility described the parent
+    /// while the user was focused inside the drawer.
+    @Test
+    func focusedDrawerPane_reportsDrawerPaneIdentityNotParent() {
+        withTestAtomRegistry { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+            let tab = Tab(paneId: parentPane.id)
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            store.setActivePane(parentPane.id, inTab: tab.id)
+
+            guard let drawerPane = store.addDrawerPane(to: parentPane.id) else {
+                Issue.record("Expected drawer pane")
+                return
+            }
+
+            atoms.workspaceFocusOwner.focusDrawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id)
+
+            let focus = atom(\.workspacePaneFocus).currentFocus(
+                workspaceTab: atom(\.workspaceTab),
+                workspacePane: atom(\.workspacePane),
+                workspaceFocusOwner: atom(\.workspaceFocusOwner)
+            )
+
+            // Focus state correctly identifies the drawer child.
+            #expect(focus.drawerFocusState == .drawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id))
+            // BUT activePaneId must also point at the drawer child, not parent.
+            #expect(focus.activePaneId == drawerPane.id)
+        }
+    }
 }

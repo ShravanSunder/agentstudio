@@ -68,19 +68,28 @@ struct WorkspacePaneFocusDerived {
         )
 
         let drawerFocusState: WorkspacePaneFocus.DrawerFocusState
+        // Identity (activePaneId / repoId / worktreeId / contentType)
+        // must follow the FOCUSED pane — when focus is inside a drawer
+        // child, command-bar filtering, status strip, and menu visibility
+        // need to describe THAT pane, not the parent that hosts it.
+        let focusedPane: Pane
         switch normalizedFocusOwner {
         case .mainPane:
             drawerFocusState = .inactive
+            focusedPane = pane
         case .emptyDrawer(let parentPaneId):
             satisfiedRequirements.insert(.hasEmptyDrawerFocus)
             drawerFocusState = .emptyDrawer(parentPaneId: parentPaneId)
+            // Empty drawer has no child to derive from; fall back to parent.
+            focusedPane = pane
         case .drawerPane(let parentPaneId, let paneId):
             satisfiedRequirements.insert(.hasFocusedDrawerPane)
             drawerFocusState = .drawerPane(parentPaneId: parentPaneId, paneId: paneId)
+            focusedPane = workspacePane.pane(paneId) ?? pane
         }
 
         let paneContentType: WorkspacePaneFocus.ContentType
-        switch pane.content {
+        switch focusedPane.content {
         case .terminal:
             paneContentType = .terminal
         case .webview:
@@ -95,9 +104,9 @@ struct WorkspacePaneFocusDerived {
 
         return WorkspacePaneFocus(
             activeTabId: activeTabId,
-            activePaneId: activePaneId,
-            activeRepoId: pane.repoId,
-            activeWorktreeId: pane.worktreeId,
+            activePaneId: focusedPane.id,
+            activeRepoId: focusedPane.repoId,
+            activeWorktreeId: focusedPane.worktreeId,
             paneContentType: paneContentType,
             drawerFocusState: drawerFocusState,
             satisfiedRequirements: satisfiedRequirements
