@@ -45,7 +45,11 @@ struct AgentStudioJSONLTraceWriterTests {
     @Test
     func retainedLineLimitDropsOldestBufferedRecords() async throws {
         let fileURL = temporaryTraceFileURL()
-        let writer = AgentStudioJSONLTraceWriter(fileURL: fileURL, retainedLineLimit: 2)
+        let writer = AgentStudioJSONLTraceWriter(
+            fileURL: fileURL,
+            retainedLineLimit: 2,
+            timeUnixNano: { 9999 }
+        )
 
         try await writer.append(traceRecord(body: "runtime.one", sequence: 1))
         try await writer.append(traceRecord(body: "runtime.two", sequence: 2))
@@ -61,6 +65,7 @@ struct AgentStudioJSONLTraceWriterTests {
         #expect(!lines.contains { $0.contains("\"body\":\"runtime.one\"") })
         #expect(!lines.contains { $0.contains("\"body\":\"runtime.two\"") })
         #expect(lines[0].contains("\"body\":\"trace.buffer_overflow\""))
+        #expect(lines[0].contains("\"time_unix_nano\":9999"))
         #expect(lines[0].contains("\"agentstudio.trace.dropped_count\":2"))
         #expect(lines[1].contains("\"body\":\"runtime.three\""))
     }

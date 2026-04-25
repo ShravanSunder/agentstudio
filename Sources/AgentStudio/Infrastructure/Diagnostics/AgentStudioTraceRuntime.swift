@@ -53,7 +53,8 @@ struct AgentStudioTraceRuntime: Sendable {
             self.outputFileURL = outputFileURL
             self.writer = AgentStudioJSONLTraceWriter(
                 fileURL: outputFileURL,
-                retainedLineLimit: writerRetainedLineLimit
+                retainedLineLimit: writerRetainedLineLimit,
+                timeUnixNano: timeUnixNano
             )
             Self.writeStartupDiagnostic("AgentStudio tracing enabled: \(outputFileURL.path)")
         } else {

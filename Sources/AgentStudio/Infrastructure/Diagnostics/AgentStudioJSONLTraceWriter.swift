@@ -13,6 +13,7 @@ actor AgentStudioJSONLTraceWriter {
     private let maximumFileSizeBytes: UInt64?
     private let encoder: AgentStudioJSONLTraceEncoder
     private let fileManager: FileManager
+    private let timeUnixNano: @Sendable () -> UInt64
 
     private var bufferedLines: [String] = []
     private(set) var droppedLineCount = 0
@@ -22,7 +23,8 @@ actor AgentStudioJSONLTraceWriter {
         retainedLineLimit: Int = 2048,
         maximumFileSizeBytes: UInt64? = 20 * 1024 * 1024,
         encoder: AgentStudioJSONLTraceEncoder = AgentStudioJSONLTraceEncoder(),
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        timeUnixNano: @escaping @Sendable () -> UInt64 = AgentStudioJSONLTraceWriter.currentTimeUnixNano
     ) {
         precondition(retainedLineLimit > 0, "retainedLineLimit must be positive")
         self.fileURL = fileURL
@@ -31,6 +33,7 @@ actor AgentStudioJSONLTraceWriter {
         self.maximumFileSizeBytes = maximumFileSizeBytes
         self.encoder = encoder
         self.fileManager = fileManager
+        self.timeUnixNano = timeUnixNano
     }
 
     func append(_ record: AgentStudioTraceRecord) throws {
@@ -99,7 +102,7 @@ actor AgentStudioJSONLTraceWriter {
 
     private func overflowMarkerLine(droppedCount: Int) -> String? {
         let record = AgentStudioTraceRecord(
-            timeUnixNano: AgentStudioJSONLTraceWriter.currentTimeUnixNano(),
+            timeUnixNano: timeUnixNano(),
             severityText: .warn,
             body: "trace.buffer_overflow",
             traceID: nil,

@@ -57,6 +57,7 @@ final class TerminalActivityRouter {
     private func traceTerminalActivity(_ envelope: PaneEnvelope) {
         guard case .terminal(let event) = envelope.event else { return }
         let attributes = terminalTraceAttributes(for: envelope, event: event)
+        // Trace writes are best-effort; use envelope.seq to reconstruct source order.
         Task {
             await traceRuntime?.record(
                 tag: .runtime,
