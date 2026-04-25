@@ -68,11 +68,19 @@ extension DrawerGridLayout {
             // When source's removal collapses its solo row (bottom
             // existed before, now doesn't), the user's intent of "drop
             // into the OTHER row" maps to "drop into the now-only row".
-            // We only redirect when the collapse actually happened —
-            // a target of .bottom on a layout that never had a bottom
-            // row stays as-is so the caller still gets .missingBottomRow.
+            // We only redirect when the collapse actually happened AND
+            // source was NOT in the bottom row originally — otherwise
+            // a self-row no-op (source alone in bottom + target bottom)
+            // would silently rewrite to a real top-row insertion. The
+            // resolver's R1+R2 should have caught the self-target, but
+            // we defend in depth so a stale or direct command path
+            // still gets a clean .missingBottomRow rejection.
             let normalizedRow: DrawerRowPlacement
-            if row == .bottom, bottomRow != nil, layoutWithoutSource.bottomRow == nil {
+            if row == .bottom,
+                sourceLocation.row != .bottom,
+                bottomRow != nil,
+                layoutWithoutSource.bottomRow == nil
+            {
                 normalizedRow = .top
             } else {
                 normalizedRow = row

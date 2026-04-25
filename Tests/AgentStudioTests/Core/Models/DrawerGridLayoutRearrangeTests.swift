@@ -427,6 +427,37 @@ struct DrawerGridLayoutRearrangeTests {
         #expect(result.bottomRow == nil)
     }
 
+    /// Codex P2 — when source is the SOLO pane in the bottom row and
+    /// the target is `.rowSlot(.bottom, ...)`, the previous P2 fix
+    /// silently normalized to `.top` because removing source from solo
+    /// bottom collapsed that row. That turned a self-row no-op into a
+    /// real top-row insertion.
+    ///
+    /// The resolver's R1+R2 should reject in-source-row targets, but a
+    /// stale or direct command can bypass to the apply path. Defensive
+    /// rejection here keeps the model honest.
+    @Test
+    func soloBottomRow_dragToOwnBottomRowSlot_returnsMissingBottomRow() {
+        let s = UUID()
+        let t1 = UUID()
+        let layout = DrawerGridLayout(
+            topRow: Layout.autoTiled([t1]),
+            bottomRow: Layout.autoTiled([s]),
+            rowSplitRatio: 0.5
+        )
+
+        // Source is alone in bottom; target is bottom slot 0 (its own row).
+        // Removing source collapses bottom; normalization MUST NOT silently
+        // rewrite this to top — the user's intent was bottom-row slot.
+        let result = layout.projectedMove(
+            paneId: s,
+            target: .rowSlot(row: .bottom, insertionIndex: 0),
+            sizingMode: .proportional
+        )
+
+        #expect(result == .failure(.missingBottomRow))
+    }
+
     private func expectApprox(
         _ actual: [Double],
         _ expected: [Double],
