@@ -31,6 +31,54 @@ struct TerminalActivityRouterTests {
         router.stop()
     }
 
+    @Test("records terminal activity trace records when runtime tracing is enabled")
+    func recordsTerminalActivityTraceRecordsWhenRuntimeTracingIsEnabled() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
+                "AGENTSTUDIO_TRACE_NAME": "terminal-activity",
+                "AGENTSTUDIO_TRACE_TAGS": "runtime",
+            ]),
+            processIdentifier: 246,
+            sessionID: "terminal-session",
+            timeUnixNano: { 404 }
+        )
+        let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
+        let paneId = PaneId()
+        let correlationId = UUID()
+
+        await router.start()
+        _ = await bus.post(
+            .pane(
+                .test(
+                    event: .terminal(.bellRang),
+                    paneId: paneId,
+                    paneKind: .terminal,
+                    seq: 7,
+                    correlationId: correlationId
+                )
+            )
+        )
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        await assertEventuallyMain("terminal activity router should write a trace record") {
+            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+                .contains("\"body\":\"terminal.activity.observed\"") == true
+        }
+
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"agentstudio.runtime.event\":\"bellRang\""))
+        #expect(contents.contains("\"agentstudio.envelope.seq\":7"))
+        #expect(contents.contains("\"agentstudio.pane.id\":\"\(paneId.uuidString)\""))
+        #expect(contents.contains("\"agentstudio.envelope.correlation_id\":\"\(correlationId.uuidString)\""))
+        #expect(contents.contains("\"agentstudio.session.id\":\"terminal-session\""))
+        router.stop()
+    }
+
     @Test("start is idempotent and does not double-consume events")
     func startIsIdempotentAndDoesNotDoubleConsumeEvents() async {
         let bus = EventBus<RuntimeEnvelope>()
@@ -101,5 +149,11 @@ struct TerminalActivityRouterTests {
 
         #expect(atom.snapshot(for: paneId.uuid) == nil)
         router.stop()
+    }
+
+    private func temporaryTraceDirectoryURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-terminal-activity-router-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
     }
 }

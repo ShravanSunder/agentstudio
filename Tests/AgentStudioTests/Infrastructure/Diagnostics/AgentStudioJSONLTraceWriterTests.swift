@@ -10,8 +10,8 @@ struct AgentStudioJSONLTraceWriterTests {
         let fileURL = temporaryTraceFileURL()
         let writer = AgentStudioJSONLTraceWriter(fileURL: fileURL)
 
-        try await writer.append(traceRecord(body: "drag.begin", sequence: 1))
-        try await writer.append(traceRecord(body: "drag.end", sequence: 2))
+        try await writer.append(traceRecord(body: "runtime.begin", sequence: 1))
+        try await writer.append(traceRecord(body: "runtime.end", sequence: 2))
         try await writer.flush()
 
         let lines = try String(contentsOf: fileURL, encoding: .utf8)
@@ -19,8 +19,8 @@ struct AgentStudioJSONLTraceWriterTests {
             .map(String.init)
 
         #expect(lines.count == 2)
-        #expect(lines[0].contains("\"body\":\"drag.begin\""))
-        #expect(lines[1].contains("\"body\":\"drag.end\""))
+        #expect(lines[0].contains("\"body\":\"runtime.begin\""))
+        #expect(lines[1].contains("\"body\":\"runtime.end\""))
     }
 
     @Test
@@ -28,9 +28,9 @@ struct AgentStudioJSONLTraceWriterTests {
         let fileURL = temporaryTraceFileURL()
         let writer = AgentStudioJSONLTraceWriter(fileURL: fileURL)
 
-        try await writer.append(traceRecord(body: "drag.begin", sequence: 1))
+        try await writer.append(traceRecord(body: "runtime.begin", sequence: 1))
         try await writer.flush()
-        try await writer.append(traceRecord(body: "drag.end", sequence: 2))
+        try await writer.append(traceRecord(body: "runtime.end", sequence: 2))
         try await writer.flush()
 
         let lines = try String(contentsOf: fileURL, encoding: .utf8)
@@ -38,8 +38,8 @@ struct AgentStudioJSONLTraceWriterTests {
             .map(String.init)
 
         #expect(lines.count == 2)
-        #expect(lines[0].contains("\"body\":\"drag.begin\""))
-        #expect(lines[1].contains("\"body\":\"drag.end\""))
+        #expect(lines[0].contains("\"body\":\"runtime.begin\""))
+        #expect(lines[1].contains("\"body\":\"runtime.end\""))
     }
 
     @Test
@@ -47,20 +47,22 @@ struct AgentStudioJSONLTraceWriterTests {
         let fileURL = temporaryTraceFileURL()
         let writer = AgentStudioJSONLTraceWriter(fileURL: fileURL, retainedLineLimit: 2)
 
-        try await writer.append(traceRecord(body: "drag.one", sequence: 1))
-        try await writer.append(traceRecord(body: "drag.two", sequence: 2))
-        try await writer.append(traceRecord(body: "drag.three", sequence: 3))
+        try await writer.append(traceRecord(body: "runtime.one", sequence: 1))
+        try await writer.append(traceRecord(body: "runtime.two", sequence: 2))
+        try await writer.append(traceRecord(body: "runtime.three", sequence: 3))
         try await writer.flush()
 
         let lines = try String(contentsOf: fileURL, encoding: .utf8)
             .split(separator: "\n")
             .map(String.init)
 
-        #expect(await writer.droppedLineCount == 1)
+        #expect(await writer.droppedLineCount == 2)
         #expect(lines.count == 2)
-        #expect(!lines.contains { $0.contains("\"body\":\"drag.one\"") })
-        #expect(lines[0].contains("\"body\":\"drag.two\""))
-        #expect(lines[1].contains("\"body\":\"drag.three\""))
+        #expect(!lines.contains { $0.contains("\"body\":\"runtime.one\"") })
+        #expect(!lines.contains { $0.contains("\"body\":\"runtime.two\"") })
+        #expect(lines[0].contains("\"body\":\"trace.buffer_overflow\""))
+        #expect(lines[0].contains("\"agentstudio.trace.dropped_count\":2"))
+        #expect(lines[1].contains("\"body\":\"runtime.three\""))
     }
 
     @Test
@@ -73,7 +75,7 @@ struct AgentStudioJSONLTraceWriterTests {
         try "previous-line\n".write(to: fileURL, atomically: true, encoding: .utf8)
 
         let writer = AgentStudioJSONLTraceWriter(fileURL: fileURL, maximumFileSizeBytes: 12)
-        try await writer.append(traceRecord(body: "drag.after-rotate", sequence: 1))
+        try await writer.append(traceRecord(body: "runtime.after-rotate", sequence: 1))
         try await writer.flush()
 
         let rotatedFileURL = fileURL.appendingPathExtension("1")
@@ -81,7 +83,7 @@ struct AgentStudioJSONLTraceWriterTests {
         let currentContents = try String(contentsOf: fileURL, encoding: .utf8)
 
         #expect(rotatedContents == "previous-line\n")
-        #expect(currentContents.contains("\"body\":\"drag.after-rotate\""))
+        #expect(currentContents.contains("\"body\":\"runtime.after-rotate\""))
     }
 
     private func temporaryTraceFileURL() -> URL {
@@ -93,7 +95,7 @@ struct AgentStudioJSONLTraceWriterTests {
     private func traceRecord(body: String, sequence: Int) -> AgentStudioTraceRecord {
         AgentStudioTraceRecord(
             timeUnixNano: UInt64(sequence),
-            severityText: "INFO",
+            severityText: .info,
             body: body,
             traceID: "trace-1",
             spanID: "span-\(sequence)",
@@ -101,10 +103,10 @@ struct AgentStudioJSONLTraceWriterTests {
             resource: [
                 "service.name": "AgentStudio"
             ],
-            scope: .init(name: "agentstudio.drag", version: "0.1.0"),
+            scope: .init(name: "agentstudio.runtime", version: "0.1.0"),
             attributes: [
-                "agentstudio.trace.tag": .string("drag"),
-                "drag.sequence": .int(sequence),
+                "agentstudio.trace.tag": .string("runtime"),
+                "agentstudio.runtime.sequence": .int(sequence),
             ]
         )
     }

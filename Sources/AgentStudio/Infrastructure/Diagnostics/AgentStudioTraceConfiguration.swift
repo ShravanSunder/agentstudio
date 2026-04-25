@@ -1,21 +1,43 @@
 import Foundation
 
+enum AgentStudioTraceFlushMode: String, Equatable, Sendable {
+    case buffered
+    case immediate
+
+    static func parse(_ rawValue: String?) -> Self {
+        guard
+            let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+            rawValue == Self.immediate.rawValue
+        else { return .buffered }
+        return .immediate
+    }
+}
+
 struct AgentStudioTraceConfiguration: Equatable, Sendable {
     static let defaultDirectory = URL(fileURLWithPath: "/tmp", isDirectory: true)
 
     let enabledTags: Set<AgentStudioTraceTag>
     let traceName: String
     let directory: URL
+    let flushMode: AgentStudioTraceFlushMode
+    let unknownTagSelectors: [String]
 
     var isEnabled: Bool {
         !enabledTags.isEmpty
     }
 
     static func from(environment: [String: String]) -> Self {
-        let tags = AgentStudioTraceTag.parseList(environment["AGENTSTUDIO_TRACE_TAGS"])
+        let selection = AgentStudioTraceTag.parseSelection(environment["AGENTSTUDIO_TRACE_TAGS"])
         let traceName = sanitizedTraceName(environment["AGENTSTUDIO_TRACE_NAME"])
         let directory = traceDirectory(environment["AGENTSTUDIO_TRACE_DIR"])
-        return Self(enabledTags: tags, traceName: traceName, directory: directory)
+        let flushMode = AgentStudioTraceFlushMode.parse(environment["AGENTSTUDIO_TRACE_FLUSH"])
+        return Self(
+            enabledTags: selection.tags,
+            traceName: traceName,
+            directory: directory,
+            flushMode: flushMode,
+            unknownTagSelectors: selection.unknownSelectors
+        )
     }
 
     func isEnabled(_ tag: AgentStudioTraceTag) -> Bool {
@@ -24,6 +46,20 @@ struct AgentStudioTraceConfiguration: Equatable, Sendable {
 
     func outputFileURL(processIdentifier: Int32) -> URL {
         directory.appendingPathComponent("agentstudio-\(traceName)-\(processIdentifier).jsonl")
+    }
+
+    private init(
+        enabledTags: Set<AgentStudioTraceTag>,
+        traceName: String,
+        directory: URL,
+        flushMode: AgentStudioTraceFlushMode,
+        unknownTagSelectors: [String]
+    ) {
+        self.enabledTags = enabledTags
+        self.traceName = traceName
+        self.directory = directory
+        self.flushMode = flushMode
+        self.unknownTagSelectors = unknownTagSelectors
     }
 
     private static func sanitizedTraceName(_ rawValue: String?) -> String {

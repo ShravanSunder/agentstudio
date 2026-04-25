@@ -1,5 +1,10 @@
 import Foundation
 
+struct AgentStudioTraceTagSelection: Equatable, Sendable {
+    let tags: Set<AgentStudioTraceTag>
+    let unknownSelectors: [String]
+}
+
 enum AgentStudioTraceTag: String, CaseIterable, Codable, Sendable {
     case actions
     case atoms
@@ -10,9 +15,17 @@ enum AgentStudioTraceTag: String, CaseIterable, Codable, Sendable {
     case surface
 
     static func parseList(_ rawValue: String?) -> Set<Self> {
-        guard let rawValue else { return [] }
+        parseSelection(rawValue).tags
+    }
+
+    static func parseSelection(_ rawValue: String?) -> AgentStudioTraceTagSelection {
+        guard let rawValue else {
+            return AgentStudioTraceTagSelection(tags: [], unknownSelectors: [])
+        }
         let normalizedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !normalizedValue.isEmpty, normalizedValue != "off" else { return [] }
+        guard !normalizedValue.isEmpty, normalizedValue != "off" else {
+            return AgentStudioTraceTagSelection(tags: [], unknownSelectors: [])
+        }
 
         let selectors =
             normalizedValue
@@ -21,10 +34,20 @@ enum AgentStudioTraceTag: String, CaseIterable, Codable, Sendable {
             .filter { !$0.isEmpty }
 
         if selectors.contains("*") {
-            return Set(Self.allCases)
+            return AgentStudioTraceTagSelection(tags: Set(Self.allCases), unknownSelectors: [])
         }
 
-        return Set(selectors.flatMap(Self.tags(matching:)))
+        var tags = Set<Self>()
+        var unknownSelectors: [String] = []
+        for selector in selectors {
+            let matches = Self.tags(matching: selector)
+            if matches.isEmpty {
+                unknownSelectors.append(String(selector))
+            } else {
+                tags.formUnion(matches)
+            }
+        }
+        return AgentStudioTraceTagSelection(tags: tags, unknownSelectors: unknownSelectors)
     }
 
     private static func tags(matching selector: String) -> [Self] {

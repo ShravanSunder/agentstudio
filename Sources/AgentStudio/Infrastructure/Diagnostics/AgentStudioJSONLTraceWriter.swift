@@ -1,5 +1,11 @@
 import Foundation
 
+#if canImport(Darwin)
+    import Darwin
+#elseif canImport(Glibc)
+    import Glibc
+#endif
+
 actor AgentStudioJSONLTraceWriter {
     private let fileURL: URL
     private let rotatedFileURL: URL
@@ -33,6 +39,8 @@ actor AgentStudioJSONLTraceWriter {
         trimBufferIfNeeded()
     }
 
+    /// Flushes buffered records to disk. If a write fails after partially appending data,
+    /// records remain buffered and may be duplicated by a later successful flush.
     func flush() throws {
         guard !bufferedLines.isEmpty else { return }
 
@@ -48,9 +56,14 @@ actor AgentStudioJSONLTraceWriter {
 
     private func trimBufferIfNeeded() {
         guard bufferedLines.count > retainedLineLimit else { return }
-        let overflowCount = bufferedLines.count - retainedLineLimit
-        bufferedLines.removeFirst(overflowCount)
-        droppedLineCount += overflowCount
+        let originalLineCount = bufferedLines.count
+        let retainedOriginalLineCount = max(0, retainedLineLimit - 1)
+        let retainedOriginalLines = Array(bufferedLines.suffix(retainedOriginalLineCount))
+        let droppedCount = originalLineCount - retainedOriginalLines.count
+        droppedLineCount += droppedCount
+
+        bufferedLines = [overflowMarkerLine(droppedCount: droppedCount)].compactMap { $0 }
+        bufferedLines.append(contentsOf: retainedOriginalLines)
     }
 
     private func append(_ data: Data, to fileURL: URL) throws {
@@ -82,5 +95,37 @@ actor AgentStudioJSONLTraceWriter {
     private func existingFileSize() throws -> UInt64 {
         let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
         return (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+    }
+
+    private func overflowMarkerLine(droppedCount: Int) -> String? {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: AgentStudioJSONLTraceWriter.currentTimeUnixNano(),
+            severityText: .warn,
+            body: "trace.buffer_overflow",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [:],
+            scope: .init(name: "agentstudio.trace", version: "0.1.0"),
+            attributes: [
+                "agentstudio.trace.dropped_count": .int(droppedCount),
+                "agentstudio.trace.total_dropped_count": .int(droppedLineCount),
+            ]
+        )
+        return try? encoder.encodeLine(record)
+    }
+
+    private static func currentTimeUnixNano() -> UInt64 {
+        let nanosecondsPerSecond: UInt64 = 1_000_000_000
+        #if canImport(Darwin) || canImport(Glibc)
+            var currentTime = timespec()
+            clock_gettime(CLOCK_REALTIME, &currentTime)
+            return UInt64(currentTime.tv_sec) * nanosecondsPerSecond + UInt64(currentTime.tv_nsec)
+        #else
+            let seconds = UInt64(Date().timeIntervalSince1970)
+            let nanoseconds = UInt64(
+                Date().timeIntervalSince1970.truncatingRemainder(dividingBy: 1) * Double(nanosecondsPerSecond))
+            return seconds * nanosecondsPerSecond + nanoseconds
+        #endif
     }
 }

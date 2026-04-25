@@ -1,5 +1,13 @@
 import Foundation
 
+enum AgentStudioTraceSeverity: String, Encodable, Equatable, Sendable {
+    case trace = "TRACE"
+    case debug = "DEBUG"
+    case info = "INFO"
+    case warn = "WARN"
+    case error = "ERROR"
+}
+
 struct AgentStudioTraceRecord: Encodable, Equatable, Sendable {
     struct Scope: Encodable, Equatable, Sendable {
         let name: String
@@ -7,7 +15,7 @@ struct AgentStudioTraceRecord: Encodable, Equatable, Sendable {
     }
 
     let timeUnixNano: UInt64
-    let severityText: String
+    let severityText: AgentStudioTraceSeverity
     let body: String
     let traceID: String?
     let spanID: String?

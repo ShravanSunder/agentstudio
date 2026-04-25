@@ -25,12 +25,12 @@ struct AgentStudioTraceConfigurationTests {
     @Test
     func commaSeparatedTagsEnableSelectedTags() {
         let configuration = AgentStudioTraceConfiguration.from(environment: [
-            "AGENTSTUDIO_TRACE_TAGS": "drag, runtime"
+            "AGENTSTUDIO_TRACE_TAGS": "eventbus, runtime"
         ])
 
-        #expect(configuration.isEnabled(.drag))
+        #expect(configuration.isEnabled(.eventbus))
         #expect(configuration.isEnabled(.runtime))
-        #expect(!configuration.isEnabled(.eventbus))
+        #expect(!configuration.isEnabled(.atoms))
     }
 
     @Test
@@ -45,7 +45,7 @@ struct AgentStudioTraceConfigurationTests {
     @Test
     func traceNameAndDirectoryAreSanitizedForFileOutput() {
         let configuration = AgentStudioTraceConfiguration.from(environment: [
-            "AGENTSTUDIO_TRACE_TAGS": "drag",
+            "AGENTSTUDIO_TRACE_TAGS": "runtime",
             "AGENTSTUDIO_TRACE_NAME": "Drawer Target Smoke!",
             "AGENTSTUDIO_TRACE_DIR": "/tmp/agent studio traces",
         ])
@@ -54,5 +54,25 @@ struct AgentStudioTraceConfigurationTests {
         #expect(
             configuration.outputFileURL(processIdentifier: 42).path
                 == "/tmp/agent studio traces/agentstudio-Drawer-Target-Smoke-42.jsonl")
+    }
+
+    @Test
+    func immediateFlushModeIsOptIn() {
+        let configuration = AgentStudioTraceConfiguration.from(environment: [
+            "AGENTSTUDIO_TRACE_FLUSH": "immediate",
+            "AGENTSTUDIO_TRACE_TAGS": "runtime",
+        ])
+
+        #expect(configuration.flushMode == .immediate)
+    }
+
+    @Test
+    func unknownTagSelectorsAreReportedWithoutEnablingTracing() {
+        let configuration = AgentStudioTraceConfiguration.from(environment: [
+            "AGENTSTUDIO_TRACE_TAGS": "runtmie"
+        ])
+
+        #expect(!configuration.isEnabled)
+        #expect(configuration.unknownTagSelectors == ["runtmie"])
     }
 }
