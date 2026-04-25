@@ -62,13 +62,14 @@ swift-distributed-tracing
   Tracing API, span lifecycle, and ServiceContext propagation contract.
 
 swift-otel
-  Standard OTLP backend path for collector export.
+  Exporter protocols, processor pipeline, and standard OTLP network backend path.
 
 AgentStudioJSONLTraceSink
-  App-local exporter for per-run JSONL files, ring buffer, fixtures, and agent-readable traces.
+  App-local exporter for per-run JSONL files, fixtures, and agent-readable traces.
+  Conforms to swift-otel exporter protocols where the package surface allows it.
 ```
 
-JSONL is an exporter/sink, not a separate tracing model. Instrumentation creates spans and span events through the tracing API; the app-local JSONL sink serializes those records for local diagnostics. The later OTLP path uses `swift-otel` for network export, or an OTLP JSON file exporter if we want collector-readable files.
+JSONL is an exporter, not a separate tracing model. Instrumentation creates spans and span events through the tracing API; the app-local JSONL exporter serializes those records for local diagnostics. The later OTLP network path uses `swift-otel`; an OTLP JSON file exporter is custom work if we want collector-readable files on disk.
 
 SP1a should include a compile/export proof for `swift-otel`: one span can be emitted through the Swift tracing stack and sent through the backend path in a controlled local/dev configuration. The production debugging flow still writes Agent Studio JSONL locally so drag sessions, shell tools, and fixtures do not depend on a running collector or OTLP file reader.
 
@@ -239,11 +240,12 @@ Do not move per-event domain IDs into `resource` or `scope`. Do not duplicate st
 Swift actor hops make implicit propagation risky. SP1a uses `swift-distributed-tracing` as the propagation contract, but does not assume implicit propagation works everywhere. The first implementation passes context explicitly across risky boundaries and proves one drag flow across AppKit ingress, `@MainActor`, `Task`, actor hops, and `@concurrent nonisolated`.
 
 ```
-TraceContext
-  traceId
-  spanId
-  parentSpanId
-  sessionId
+ServiceContext
+  Generic propagated context carrier.
+  Trace/span identifiers are accessed through backend-provided keys/extensions.
+
+Span / Tracer
+  Native tracing operation and creation APIs.
 ```
 
 Rules:
@@ -252,6 +254,7 @@ Rules:
 - Runtime/eventbus paths pass context explicitly where available, especially across AppKit callbacks, detached tasks, and nonisolated work.
 - If no context exists, the tracer may create an orphan span with `agentstudio.trace.orphan=true`.
 - Do not rely only on TaskLocal propagation in SP1a.
+- Do not create an app-owned `TraceContext` unless the library API leaves a concrete gap. Prefer `ServiceContext` plus domain IDs in span attributes.
 - Document the drag propagation path as the pattern future scopes follow.
 
 ## Ownership And Concurrency
@@ -264,8 +267,14 @@ Design:
 Tracer
   Static facade with cheap disabled checks.
 
-TraceSink
-  Protocol for JSONL, ring buffer, later OTLP file/network, and multiplex sinks.
+AgentStudioJSONLSpanExporter
+  Conforms to swift-otel's span exporter protocol and writes local JSONL.
+
+AgentStudioJSONLLogRecordExporter
+  Only if this spec chooses log records for some diagnostics.
+
+Processor chain
+  Uses swift-otel batch/multiplex processor concepts where possible.
 
 TraceWriter
   Actor owning mutable buffers and file I/O.
@@ -279,7 +288,7 @@ Disabled behavior must avoid allocation-heavy payload construction. Prefer autoc
 
 ```
 SP1a
-  AgentStudioJSONLTraceSink + RingBufferTraceSink.
+  AgentStudioJSONL exporter in the swift-otel processor/exporter shape.
   Persistent local debugging and fixture capture.
   ServiceContext-shaped context propagated through one drag flow.
   swift-otel compile/export proof for one span.
@@ -291,7 +300,9 @@ MultiplexTraceSink
   Later: Agent Studio JSONL + OTLP file and/or OTLP network simultaneously.
 ```
 
-Do not make a running collector or OTLP file reader mandatory in SP1a. The app-local Agent Studio JSONL exporter is the default debug path. Keep the internal trace record close enough to OTel concepts that adding an OTLP JSON file exporter or OTLP network exporter is a new sink, not a model rewrite.
+Do not make a running collector or OTLP file reader mandatory in SP1a. The app-local Agent Studio JSONL exporter is the default debug path. Keep the internal trace record close enough to OTel concepts that adding a custom OTLP JSON file exporter or swift-otel network exporter is a new exporter, not a model rewrite.
+
+Ring buffering should live in the processor/exporter pipeline, not as a parallel tracing abstraction. Prefer swift-otel batch processor behavior first. Add an app-owned in-memory exporter only for LUNA-368-specific manual flush or crash-debug behavior that the package does not provide.
 
 ## Sampling And Throttling
 
@@ -423,9 +434,9 @@ Acceptance:
 ### SP1a Task A: Tracer API, Schema, And Dependencies
 
 - [ ] Define `TraceTag`.
-- [ ] Define `TraceContext` around the `swift-distributed-tracing` propagation contract.
 - [ ] Define `TraceRecord`.
-- [ ] Define `TraceSink`.
+- [ ] Use `ServiceContext` as the propagation carrier; add app domain IDs as span attributes.
+- [ ] Implement Agent Studio JSONL exporter against swift-otel exporter protocols where viable.
 - [ ] Define disabled fast path.
 - [ ] Define env parsing and wildcard matching.
 - [ ] Add the `swift-distributed-tracing` dependency and prove one local trace record carries trace ID/span ID/context fields.
@@ -434,7 +445,7 @@ Acceptance:
 ### SP1a Task B: JSONL + Ring Buffer
 
 - [ ] Implement JSONL sink.
-- [ ] Implement ring buffer sink.
+- [ ] Implement ring buffer behavior inside the processor/exporter path.
 - [ ] Implement flush.
 - [ ] Add per-run file naming.
 - [ ] Add tests for disabled/enabled behavior.
