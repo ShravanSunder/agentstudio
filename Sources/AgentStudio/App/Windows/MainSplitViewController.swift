@@ -172,8 +172,8 @@ class MainSplitViewController: NSSplitViewController {
             unreadCount: { [inboxAtom] drawerPaneIds in
                 inboxAtom.unreadCount(forDrawerPaneIds: drawerPaneIds)
             },
-            open: { [drawerInboxPresenter] drawerPaneIds in
-                drawerInboxPresenter.open(forDrawerPaneIds: drawerPaneIds)
+            open: { [drawerInboxPresenter] parentPaneId, drawerPaneIds in
+                drawerInboxPresenter.open(parentPaneId: parentPaneId, drawerPaneIds: drawerPaneIds)
             },
             pendingRequest: { [drawerInboxPresenter] in
                 drawerInboxPresenter.request

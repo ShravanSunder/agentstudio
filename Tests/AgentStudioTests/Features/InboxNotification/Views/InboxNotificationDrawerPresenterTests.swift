@@ -9,10 +9,12 @@ struct InboxNotificationDrawerPresenterTests {
     @Test("open request stores drawer pane ids")
     func openRequestStoresDrawerPaneIds() {
         let presenter = InboxNotificationDrawerPresenter()
+        let parentPaneId = UUID()
         let paneIds = [UUID(), UUID()]
 
-        presenter.open(forDrawerPaneIds: paneIds)
+        presenter.open(parentPaneId: parentPaneId, drawerPaneIds: paneIds)
 
+        #expect(presenter.request?.parentPaneId == parentPaneId)
         #expect(presenter.request?.drawerPaneIds == paneIds)
     }
 
@@ -30,7 +32,34 @@ struct InboxNotificationDrawerPresenterTests {
         let paneIds = store.visiblePaneIdsForActiveExpandedDrawer()
 
         #expect(paneIds == [firstDrawerPane.id, secondDrawerPane.id])
-        #expect(store.activeDrawerInboxSelection() == .available([firstDrawerPane.id, secondDrawerPane.id]))
+        #expect(
+            store.activeDrawerInboxSelection()
+                == .available(
+                    ActiveDrawerInboxTarget(
+                        parentPaneId: parentPane.id,
+                        drawerPaneIds: [firstDrawerPane.id, secondDrawerPane.id]
+                    )
+                )
+        )
+    }
+
+    @Test("active drawer child resolves to parent drawer target")
+    func activeDrawerChildResolvesParentDrawerTarget() throws {
+        let store = WorkspaceStore()
+        store.restore()
+        let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let drawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+        let tab = makeTab(paneIds: [parentPane.id], activePaneId: drawerPane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let paneIds = store.visiblePaneIdsForActiveExpandedDrawer()
+
+        #expect(paneIds == [drawerPane.id])
+        #expect(
+            store.activeDrawerInboxSelection()
+                == .available(ActiveDrawerInboxTarget(parentPaneId: parentPane.id, drawerPaneIds: [drawerPane.id]))
+        )
     }
 
     @Test("active pane without drawer pane ids resolves nil")
@@ -48,7 +77,7 @@ struct InboxNotificationDrawerPresenterTests {
         #expect(store.activeDrawerInboxSelection() == .drawerCollapsed)
     }
 
-    @Test("drawer inbox command opens presenter for active drawer")
+    @Test("drawer inbox command opens presenter for active drawer through command execution")
     func drawerInboxCommandOpensPresenter() throws {
         let store = WorkspaceStore()
         store.restore()
@@ -62,8 +91,10 @@ struct InboxNotificationDrawerPresenterTests {
         delegate.store = store
         delegate.inboxNotificationDrawerPresenter = presenter
 
-        delegate.openDrawerInboxForActiveDrawer()
+        let didExecute = delegate.execute(.showDrawerInboxNotifications)
 
+        #expect(didExecute)
+        #expect(presenter.request?.parentPaneId == parentPane.id)
         #expect(presenter.request?.drawerPaneIds == [drawerPane.id])
     }
 

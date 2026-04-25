@@ -8,7 +8,9 @@ import Testing
 struct DrawerInboxPresentationTests {
     @Test("trailing actions inject drawer unread count and preserve existing actions")
     func trailingActionsInjectUnreadCount() {
+        let parentPaneId = UUID()
         let drawerPaneId = UUID()
+        var openedParentPaneId: UUID?
         var openedPaneIds: [UUID]?
         var didOpenFinder = false
         let baseActions = DrawerOverlay.TrailingActions(
@@ -20,7 +22,10 @@ struct DrawerInboxPresentationTests {
         )
         let presentation = DrawerInboxPresentation(
             unreadCount: { paneIds in paneIds == [drawerPaneId] ? 1 : 0 },
-            open: { openedPaneIds = $0 },
+            open: { parentPaneId, paneIds in
+                openedParentPaneId = parentPaneId
+                openedPaneIds = paneIds
+            },
             pendingRequest: { nil },
             clearRequest: { _ in },
             popoverContent: { _, _ in AnyView(EmptyView()) }
@@ -28,6 +33,7 @@ struct DrawerInboxPresentationTests {
         var isPopoverPresented = false
 
         let actions = presentation.trailingActions(
+            parentPaneId: parentPaneId,
             drawerPaneIds: [drawerPaneId],
             baseTrailingActions: baseActions,
             inboxPopoverPresented: Binding(
@@ -48,6 +54,7 @@ struct DrawerInboxPresentationTests {
         #expect(didOpenFinder)
 
         actions.onOpenInbox?()
+        #expect(openedParentPaneId == parentPaneId)
         #expect(openedPaneIds == [drawerPaneId])
     }
 }

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DrawerInboxRequest: Equatable, Identifiable {
     let id: UUID
+    let parentPaneId: UUID
     let drawerPaneIds: [UUID]
 }
 
@@ -10,12 +11,13 @@ struct DrawerInboxRequest: Equatable, Identifiable {
 @MainActor
 struct DrawerInboxPresentation {
     let unreadCount: @MainActor ([UUID]) -> Int
-    let open: @MainActor ([UUID]) -> Void
+    let open: @MainActor (UUID, [UUID]) -> Void
     let pendingRequest: @MainActor () -> DrawerInboxRequest?
     let clearRequest: @MainActor (DrawerInboxRequest) -> Void
     let popoverContent: @MainActor ([UUID], @escaping @MainActor @Sendable () -> Void) -> AnyView
 
     func trailingActions(
+        parentPaneId: UUID,
         drawerPaneIds: [UUID],
         baseTrailingActions: DrawerOverlay.TrailingActions,
         inboxPopoverPresented: Binding<Bool>
@@ -26,7 +28,7 @@ struct DrawerInboxPresentation {
             editorMenuPresented: baseTrailingActions.editorMenuPresented,
             buttonTitle: baseTrailingActions.buttonTitle,
             onOpenFinder: baseTrailingActions.onOpenFinder,
-            onOpenInbox: { open(drawerPaneIds) },
+            onOpenInbox: { open(parentPaneId, drawerPaneIds) },
             inboxPopoverPresented: inboxPopoverPresented,
             inboxPopoverContent: popoverContent(
                 drawerPaneIds,

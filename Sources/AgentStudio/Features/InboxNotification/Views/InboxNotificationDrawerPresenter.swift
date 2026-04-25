@@ -6,8 +6,8 @@ import Observation
 final class InboxNotificationDrawerPresenter {
     private(set) var request: DrawerInboxRequest?
 
-    func open(forDrawerPaneIds drawerPaneIds: [UUID]) {
-        request = DrawerInboxRequest(id: UUID(), drawerPaneIds: drawerPaneIds)
+    func open(parentPaneId: UUID, drawerPaneIds: [UUID]) {
+        request = DrawerInboxRequest(id: UUID(), parentPaneId: parentPaneId, drawerPaneIds: drawerPaneIds)
     }
 
     func clearRequest(_ request: DrawerInboxRequest) {

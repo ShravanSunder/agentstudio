@@ -43,6 +43,7 @@ struct ShortcutCatalogTests {
         let quickOpenDefinition = CommandDispatcher.shared.definition(for: .showCommandBarEverything)
         let startContextDefinition = CommandDispatcher.shared.definition(for: .showCommandBarRepos)
         let addDrawerPaneDefinition = CommandDispatcher.shared.definition(for: .addDrawerPane)
+        let drawerInboxDefinition = CommandDispatcher.shared.definition(for: .showDrawerInboxNotifications)
 
         #expect(managementLayerDefinition.keyBinding?.key == "r")
         #expect(managementLayerDefinition.keyBinding?.modifiers == [.command])
@@ -52,6 +53,9 @@ struct ShortcutCatalogTests {
         #expect(startContextDefinition.keyBinding?.modifiers == [.command])
         #expect(addDrawerPaneDefinition.keyBinding?.key == "d")
         #expect(addDrawerPaneDefinition.keyBinding?.modifiers == [.command, .shift])
+        #expect(drawerInboxDefinition.keyBinding?.key == "i")
+        #expect(drawerInboxDefinition.keyBinding?.modifiers == [.command, .shift])
+        #expect(drawerInboxDefinition.actionSpec.label == "Show Drawer Inbox")
     }
 
     @Test
