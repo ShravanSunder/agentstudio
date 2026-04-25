@@ -455,6 +455,62 @@ struct DrawerSourceFilterTests {
         #expect(target == nil)
     }
 
+    // MARK: - Codex P2 — promotion stays within the rejected slot's row
+
+    /// When source S is in the TOP row and a sibling in TOP would
+    /// trigger sibling-promotion, the cursor's containing pane MUST
+    /// be evaluated within the top row only. Transient layout overlap
+    /// can cause a bottom-row pane to also contain the cursor and
+    /// have a smaller area; without a row scope the global smallest-
+    /// area search would jump rows and promote to a bottom-row pane.
+    @Test
+    func twoRow_promotion_doesNotLeakAcrossRowsWhenBottomPaneOverlaps() {
+        let s = UUID()  // source in top row
+        let topB = UUID()  // top-row sibling — large
+        let bottomA = UUID()  // bottom-row pane that transiently overlaps top
+
+        // Top row vertical = 0..60. Bottom-row pane at (110..160, 20..50)
+        // (transiently overlapping top vertical range during a layout
+        // pass). Cursor at (115, 30) is inside BOTH topB and bottomA;
+        // bottomA has smaller area.
+        let frames: [UUID: CGRect] = [
+            s: CGRect(x: 0, y: 0, width: 100, height: 60),  // area 6000
+            topB: CGRect(x: 110, y: 0, width: 200, height: 60),  // area 12000
+            bottomA: CGRect(x: 110, y: 20, width: 50, height: 30),  // area 1500 — smallest
+        ]
+        let layout = DrawerGridLayout(
+            topRow: Layout.autoTiled([s, topB]),
+            bottomRow: Layout.autoTiled([bottomA]),
+            rowSplitRatio: 0.5
+        )
+
+        // Cursor in left 1/4 of topB → slot 1 in top row, adjacent to
+        // S (idx 0). Promotion fires. Without row scope, bottomA wins
+        // (smallest area + contains cursor). With row scope, only
+        // top-row panes are candidates → topB is the only foreign
+        // splittable sibling containing the cursor.
+        let cursor = CGPoint(x: 115, y: 30)
+        let target = DrawerPaneDragCoordinator.resolveTarget(
+            location: cursor,
+            geometry: geometry(
+                paneFrames: frames,
+                layout: layout,
+                bounds: CGRect(x: 0, y: 0, width: 320, height: 140),
+                excludedPaneIds: [s]
+            )
+        )
+
+        // Promotion stays in source's row → split(topB, side).
+        // Without row scope, bottomA would win (smallest area) →
+        // .paneSplit(paneId: bottomA, side: ...).
+        switch target {
+        case .paneSplit(let paneId, _):
+            #expect(paneId == topB, "promotion should pick topB (in row), not bottomA (cross-row)")
+        default:
+            Issue.record("expected paneSplit, got \(String(describing: target))")
+        }
+    }
+
     // MARK: - Helpers
 
     private func geometry(

@@ -522,6 +522,60 @@ struct PaneDragCoordinatorSourceFilterTests {
 
     // MARK: - Test helpers
 
+    /// Codex P2 — when two equal-area panes both contain the cursor,
+    /// the smallest-area `.min` had no tie-break. Dict iteration order
+    /// is not a UX contract, so the chosen pane could oscillate. The
+    /// promotion function must pick deterministically (lexicographic
+    /// UUID order).
+    @Test
+    func promotion_equalAreaPanesContainingCursor_picksDeterministicallyByUUID() throws {
+        // Two identical-frame foreign panes overlap the cursor; their
+        // UUIDs are deliberately ordered so the lexicographically lower
+        // one is the "winner."
+        let s = UUID()
+        let lowUUID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let highUUID = UUID(uuidString: "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF")!
+        let frames: [UUID: CGRect] = [
+            s: CGRect(x: 0, y: 0, width: 100, height: 100),
+            lowUUID: CGRect(x: 50, y: 0, width: 100, height: 100),
+            highUUID: CGRect(x: 50, y: 0, width: 100, height: 100),
+        ]
+        let bounds = CGRect(x: 0, y: 0, width: 250, height: 100)
+        // Cursor at right 1/4 of S → slot 1 adjacent to S → promote.
+        // Cursor at (95, 50) is inside both lowUUID and highUUID.
+        let cursor = CGPoint(x: 95, y: 50)
+
+        let target = try #require(
+            PaneDragCoordinator.resolveTarget(
+                location: cursor,
+                paneFrames: frames,
+                containerBounds: bounds,
+                minimizedPaneIds: [],
+                sourcePaneId: s
+            )
+        )
+
+        // Multiple runs must produce the same result.
+        for _ in 0..<5 {
+            let repeated = PaneDragCoordinator.resolveTarget(
+                location: cursor,
+                paneFrames: frames,
+                containerBounds: bounds,
+                minimizedPaneIds: [],
+                sourcePaneId: s
+            )
+            #expect(repeated == target, "promotion must be deterministic across calls")
+        }
+
+        // Lexicographic winner should be lowUUID.
+        switch target.sizingTarget {
+        case .paneSplit(let paneId, _):
+            #expect(paneId == lowUUID)
+        default:
+            Issue.record("expected paneSplit, got \(target.sizingTarget)")
+        }
+    }
+
     private struct ThreePaneRow {
         let p1: UUID
         let p2: UUID

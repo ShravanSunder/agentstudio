@@ -177,7 +177,11 @@ struct DrawerPaneDragCoordinator {
             if isSlotAcceptable(rowID: rowID, index: index, geometry: geometry) {
                 return rawTarget
             }
-            return promoteAdjacentSlotToSiblingSplit(geometry: geometry, cursorLocation: cursorLocation)
+            return promoteAdjacentSlotToSiblingSplit(
+                rowID: rowID,
+                geometry: geometry,
+                cursorLocation: cursorLocation
+            )
         case .paneNewRow:
             return isNewRowBandAcceptable(geometry: geometry) ? rawTarget : nil
         }
@@ -206,15 +210,29 @@ struct DrawerPaneDragCoordinator {
     /// then build a split target on the side closer to the cursor.
     /// Returns nil for cursor on the source pane, in a corridor with
     /// no containing pane, or over a non-splittable pane.
+    ///
+    /// Promotion is ROW-SCOPED — it only considers panes in the row
+    /// the rejected slot belongs to. Without this scope, transient
+    /// layout overlap (resize/animation jitter) where a different-row
+    /// pane is geometrically smaller and contains the cursor would let
+    /// the target jump rows.
     private static func promoteAdjacentSlotToSiblingSplit(
+        rowID: RowID,
         geometry: DrawerPaneDragGeometry,
         cursorLocation: CGPoint
     ) -> DropTarget? {
+        let rowPaneIds = Set(rowsDictionary(from: geometry.layout)[rowID] ?? [])
         let containing =
             geometry.paneFrames
+            .filter { rowPaneIds.contains($0.key) }
             .filter { $0.value.contains(cursorLocation) }
             .min { lhs, rhs in
-                lhs.value.width * lhs.value.height < rhs.value.width * rhs.value.height
+                let lhsArea = lhs.value.width * lhs.value.height
+                let rhsArea = rhs.value.width * rhs.value.height
+                if lhsArea != rhsArea { return lhsArea < rhsArea }
+                // Stable tie-break: lexicographic UUID ordering so two
+                // equal-area panes don't oscillate by dict iteration.
+                return lhs.key.uuidString < rhs.key.uuidString
             }
         guard let containing else { return nil }
         let paneId = containing.key

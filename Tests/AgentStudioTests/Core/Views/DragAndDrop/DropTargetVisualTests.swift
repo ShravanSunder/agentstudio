@@ -176,6 +176,42 @@ struct DropTargetVisualTests {
         #expect(visual.region == CGRect(x: 36, y: 0, width: 48, height: 100))
     }
 
+    /// Codex test gap — slot visual with a degenerate (0pt) neighbor.
+    /// The P1 fix caps half-width at the smaller neighbor's side width;
+    /// for a 0pt pane sideWidth = min(max(0, 24), 0) = 0. The other
+    /// side stays at its computed sideWidth. The visual collapses to
+    /// just one side's contribution. No crash, no overflow.
+    @Test
+    func paneDragCoordinator_visualForSlotInsert_zeroWidthNeighbor_collapsesToOtherSide() throws {
+        let paneA = UUID()  // normal width
+        let paneZero = UUID()  // degenerate 0pt
+        let paneFrames: [UUID: CGRect] = [
+            paneA: CGRect(x: 0, y: 0, width: 200, height: 100),  // sideWidth = max(50,24)=50, capped at 100 → 50
+            paneZero: CGRect(x: 200, y: 0, width: 0, height: 100),  // sideWidth = min(max(0,24), 0) = 0
+        ]
+        let containerBounds = CGRect(x: 0, y: 0, width: 200, height: 100)
+
+        let betweenTarget = PaneDropTarget(
+            paneId: paneA,
+            zone: .right,
+            sizingTarget: .paneSlot(row: .main, index: 1)
+        )
+
+        let visual = try #require(
+            PaneDragCoordinator.visual(
+                for: betweenTarget,
+                paneFrames: paneFrames,
+                containerBounds: containerBounds,
+                minimizedPaneIds: []
+            )
+        )
+
+        // halfWidth = min(50, 0) = 0 → region width = 0, centered on
+        // boundary x=200. No overpaint into either pane's hit zone.
+        #expect(visual.region.width == 0)
+        #expect(visual.region.midX == 200)
+    }
+
     @Test
     func paneDragCoordinator_visualForSlotInsert_hasZoneRegionAndMarker() throws {
         let paneA = UUID()

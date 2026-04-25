@@ -265,7 +265,12 @@ struct PaneDragCoordinator {
             paneFrames
             .filter { $0.value.contains(cursorLocation) }
             .min { lhs, rhs in
-                lhs.value.width * lhs.value.height < rhs.value.width * rhs.value.height
+                let lhsArea = lhs.value.width * lhs.value.height
+                let rhsArea = rhs.value.width * rhs.value.height
+                if lhsArea != rhsArea { return lhsArea < rhsArea }
+                // Stable tie-break: lexicographic UUID ordering so two
+                // equal-area panes don't oscillate by dict iteration.
+                return lhs.key.uuidString < rhs.key.uuidString
             }
         guard let containing else { return nil }
         let paneId = containing.key
