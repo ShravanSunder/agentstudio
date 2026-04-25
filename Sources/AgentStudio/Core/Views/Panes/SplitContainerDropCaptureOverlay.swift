@@ -249,8 +249,11 @@ final class SplitContainerDropCaptureView: NSView {
     /// re-applying on every frame change keeps registration in sync with layout.
     private func applyDropRegistration() {
         let shouldRegister = isManagementLayerActiveRequest && !bounds.isEmpty
-        guard isRegisteredForManagementLayer != shouldRegister else { return }
         if shouldRegister {
+            guard !hasRegisteredSupportedTypes else {
+                isRegisteredForManagementLayer = true
+                return
+            }
             registerForDraggedTypes(SplitContainerDropCaptureOverlay.supportedPasteboardTypes)
             let windowFrame = superview.map { $0.convert(frame, to: nil) } ?? .zero
             let hasWindow = window != nil
@@ -258,12 +261,18 @@ final class SplitContainerDropCaptureView: NSView {
                 "SplitContainer.updateDropRegistration registered flipped=\(isFlipped) local=\(NSStringFromRect(frame)) windowFrame=\(NSStringFromRect(windowFrame)) hasWindow=\(hasWindow)"
             )
         } else {
+            guard isRegisteredForManagementLayer || hasRegisteredSupportedTypes else { return }
             unregisterDraggedTypes()
             RestoreTrace.log(
                 "SplitContainer.updateDropRegistration unregistered managementActive=\(isManagementLayerActiveRequest) boundsEmpty=\(bounds.isEmpty)"
             )
         }
         isRegisteredForManagementLayer = shouldRegister
+    }
+
+    private var hasRegisteredSupportedTypes: Bool {
+        let supportedTypes = Set(SplitContainerDropCaptureOverlay.supportedPasteboardTypes)
+        return registeredDraggedTypes.contains { supportedTypes.contains($0) }
     }
 
     override func setFrameSize(_ newSize: NSSize) {
