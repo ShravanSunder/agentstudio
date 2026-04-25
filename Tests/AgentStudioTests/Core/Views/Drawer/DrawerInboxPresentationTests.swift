@@ -25,15 +25,24 @@ struct DrawerInboxPresentationTests {
             clearRequest: { _ in },
             popoverContent: { _, _ in AnyView(EmptyView()) }
         )
+        var isPopoverPresented = false
 
         let actions = presentation.trailingActions(
             drawerPaneIds: [drawerPaneId],
-            baseTrailingActions: baseActions
+            baseTrailingActions: baseActions,
+            inboxPopoverPresented: Binding(
+                get: { isPopoverPresented },
+                set: { isPopoverPresented = $0 }
+            )
         )
 
         #expect(actions.canOpenTarget == true)
         #expect(actions.buttonTitle == "Cursor")
         #expect(actions.inboxUnreadCount == 1)
+        #expect(actions.inboxPopoverContent != nil)
+
+        actions.inboxPopoverPresented.wrappedValue = true
+        #expect(isPopoverPresented)
 
         actions.onOpenFinder()
         #expect(didOpenFinder)

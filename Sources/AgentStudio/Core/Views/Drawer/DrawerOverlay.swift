@@ -11,6 +11,8 @@ struct DrawerOverlay: View {
         let buttonTitle: String?
         let onOpenFinder: () -> Void
         let onOpenInbox: (() -> Void)?
+        let inboxPopoverPresented: Binding<Bool>
+        let inboxPopoverContent: AnyView?
         let inboxUnreadCount: Int
 
         init(
@@ -20,6 +22,8 @@ struct DrawerOverlay: View {
             buttonTitle: String?,
             onOpenFinder: @escaping () -> Void,
             onOpenInbox: (() -> Void)? = nil,
+            inboxPopoverPresented: Binding<Bool> = .constant(false),
+            inboxPopoverContent: AnyView? = nil,
             inboxUnreadCount: Int = 0
         ) {
             self.canOpenTarget = canOpenTarget
@@ -28,6 +32,8 @@ struct DrawerOverlay: View {
             self.buttonTitle = buttonTitle
             self.onOpenFinder = onOpenFinder
             self.onOpenInbox = onOpenInbox
+            self.inboxPopoverPresented = inboxPopoverPresented
+            self.inboxPopoverContent = inboxPopoverContent
             self.inboxUnreadCount = inboxUnreadCount
         }
     }

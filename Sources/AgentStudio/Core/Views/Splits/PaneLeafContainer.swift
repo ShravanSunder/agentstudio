@@ -156,18 +156,11 @@ struct PaneLeafContainer: View {
         let hostedActions =
             drawerInboxPresentation?.trailingActions(
                 drawerPaneIds: drawerPaneIds,
-                baseTrailingActions: trailingActions
+                baseTrailingActions: trailingActions,
+                inboxPopoverPresented: $drawerInboxPopoverOpen
             ) ?? trailingActions
 
         baseDrawerOverlay(drawer: drawer, trailingActions: hostedActions)
-            .popover(isPresented: $drawerInboxPopoverOpen, arrowEdge: .top) {
-                if let drawerInboxPresentation {
-                    drawerInboxPresentation.popoverContent(
-                        drawerPaneIds,
-                        { drawerInboxPopoverOpen = false }
-                    )
-                }
-            }
             .onChange(of: drawerInboxPresentation?.pendingRequest()?.id) { _, _ in
                 guard let request = drawerInboxPresentation?.pendingRequest() else { return }
                 guard request.drawerPaneIds == drawerPaneIds else { return }

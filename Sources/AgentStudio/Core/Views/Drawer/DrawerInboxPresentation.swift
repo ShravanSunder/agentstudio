@@ -17,7 +17,8 @@ struct DrawerInboxPresentation {
 
     func trailingActions(
         drawerPaneIds: [UUID],
-        baseTrailingActions: DrawerOverlay.TrailingActions
+        baseTrailingActions: DrawerOverlay.TrailingActions,
+        inboxPopoverPresented: Binding<Bool>
     ) -> DrawerOverlay.TrailingActions {
         DrawerOverlay.TrailingActions(
             canOpenTarget: baseTrailingActions.canOpenTarget,
@@ -26,6 +27,11 @@ struct DrawerInboxPresentation {
             buttonTitle: baseTrailingActions.buttonTitle,
             onOpenFinder: baseTrailingActions.onOpenFinder,
             onOpenInbox: { open(drawerPaneIds) },
+            inboxPopoverPresented: inboxPopoverPresented,
+            inboxPopoverContent: popoverContent(
+                drawerPaneIds,
+                { inboxPopoverPresented.wrappedValue = false }
+            ),
             inboxUnreadCount: unreadCount(drawerPaneIds)
         )
     }

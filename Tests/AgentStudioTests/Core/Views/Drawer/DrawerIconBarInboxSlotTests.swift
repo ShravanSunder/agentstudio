@@ -17,6 +17,7 @@ struct DrawerIconBarInboxSlotTests {
         )
 
         #expect(actions.inboxUnreadCount == 3)
+        #expect(actions.inboxPopoverContent == nil)
         actions.onOpenInbox?()
         #expect(didOpenInbox)
     }
