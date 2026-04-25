@@ -69,6 +69,16 @@ struct DrawerTabLevelCaptureArchitectureTests {
         #expect(sources.flatTabStripContainer.contains("@State private var drawerDropTarget: DrawerRearrangeTarget?"))
     }
 
+    @Test("main split capture is not mounted while drawer capture owns drag routing")
+    func mainSplitCapture_isConditionallyMountedOnlyWhenEnabled() throws {
+        let sources = try loadSources()
+        let captureRange = try #require(sources.flatTabStripContainer.range(of: "SplitContainerDropCaptureOverlay("))
+        let prefix = sources.flatTabStripContainer[..<captureRange.lowerBound]
+        let recentContext = prefix.suffix(600)
+
+        #expect(recentContext.contains("if managementLayer.isActive && mainSplitDragCaptureEnabled"))
+    }
+
     @Test("drawer panel reports panel-only tab frame and overlay has no SwiftUI dismiss scrim")
     func drawerPanel_reportsPanelOnlyTabFrameWithoutOverlayScrim() throws {
         let sources = try loadSources()

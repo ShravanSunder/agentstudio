@@ -18,13 +18,13 @@ struct DrawerDragOwnershipPolicyTests {
     }
 
     @Test
-    func mainSplitDragEnabled_expandedDrawerKeepsMainCaptureArmed() {
+    func mainSplitDragEnabled_expandedDrawerDisablesMainCapture() {
         let isEnabled = DrawerDragOwnershipPolicy.mainSplitDragEnabled(
             managementLayerActive: true,
             expandedDrawerParentPaneId: UUID()
         )
 
-        #expect(isEnabled)
+        #expect(!isEnabled)
     }
 
     @Test

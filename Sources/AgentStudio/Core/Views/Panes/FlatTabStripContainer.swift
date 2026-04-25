@@ -149,16 +149,16 @@ struct FlatTabStripContainer: View {
                         )
                     )
                     .allowsHitTesting(false)
-                }
 
-                SplitContainerDropCaptureOverlay(
-                    paneFrames: paneFrames,
-                    containerBounds: containerBounds,
-                    minimizedPaneIds: minimizedPaneIds,
-                    target: $dropTarget,
-                    isManagementLayerActive: managementLayer.isActive && mainSplitDragCaptureEnabled,
-                    actionDispatcher: actionDispatcher
-                )
+                    SplitContainerDropCaptureOverlay(
+                        paneFrames: paneFrames,
+                        containerBounds: containerBounds,
+                        minimizedPaneIds: minimizedPaneIds,
+                        target: $dropTarget,
+                        isManagementLayerActive: true,
+                        actionDispatcher: actionDispatcher
+                    )
+                }
 
                 tabLevelDrawerCapture(expandedDrawerParentPaneId: expandedDrawerParentPaneId)
             }
@@ -216,15 +216,19 @@ struct FlatTabStripContainer: View {
             drawerPanelFrameInTab: drawerPanelFrameInTab
         ),
             let expandedDrawerPaneId = expandedDrawerParentPaneId,
-            let expandedDrawer = store.paneAtom.pane(expandedDrawerPaneId)?.drawer
+            let expandedDrawer = store.paneAtom.pane(expandedDrawerPaneId)?.drawer,
+            let captureGeometry = DrawerCaptureGeometry.make(
+                panelFrameInTab: drawerPanelFrameInTab,
+                paneFramesInDrawer: drawerPaneFramesInDrawer
+            )
         {
-            let drawerBounds = CGRect(origin: .zero, size: drawerPanelFrameInTab.size)
+            let drawerBounds = captureGeometry.containerBounds
             let drawerDispatchContext = DrawerDropDispatch.context(
                 parentPaneId: expandedDrawerPaneId,
                 store: store
             )
             DrawerSplitContainerDropCaptureOverlay(
-                paneFrames: drawerPaneFramesInDrawer,
+                paneFrames: captureGeometry.paneFramesInDrawer,
                 layout: expandedDrawer.layout,
                 minimizedPaneIds: expandedDrawer.minimizedPaneIds,
                 containerBounds: drawerBounds,
@@ -248,8 +252,8 @@ struct FlatTabStripContainer: View {
                     )
                 }
             )
-            .frame(width: drawerPanelFrameInTab.width, height: drawerPanelFrameInTab.height)
-            .position(x: drawerPanelFrameInTab.midX, y: drawerPanelFrameInTab.midY)
+            .frame(width: drawerBounds.width, height: drawerBounds.height)
+            .position(x: captureGeometry.panelFrameInTab.midX, y: captureGeometry.panelFrameInTab.midY)
         }
     }
 

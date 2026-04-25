@@ -21,7 +21,7 @@ enum DrawerDragOwnershipPolicy {
         managementLayerActive: Bool,
         expandedDrawerParentPaneId: UUID?
     ) -> Bool {
-        managementLayerActive
+        managementLayerActive && expandedDrawerParentPaneId == nil
     }
 
     static func drawerCaptureEnabled(
