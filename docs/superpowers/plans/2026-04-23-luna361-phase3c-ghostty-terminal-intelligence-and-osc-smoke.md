@@ -126,7 +126,7 @@ Tests/AgentStudioTests/Features/InboxNotification/Routing/
   InboxNotificationRouterTests.swift                    extend classification gates
 
 docs/wip/
-  luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-23.md
+  luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-24.md
 ```
 
 ## 2026-04-24 Scope Note
@@ -157,7 +157,7 @@ Not included in this PR:
 ## Task A1: Audit Ghostty action vocabulary against Agent Studio
 
 **Files:**
-- Create: `docs/wip/luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-23.md`
+- Create: `docs/wip/luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-24.md`
 
 - [ ] **Step 1: Write the audit table**
 
@@ -197,7 +197,7 @@ rg -n "case .*GhosttyActionTag|case \\.desktopNotification|case \\.progressRepor
 - [ ] **Step 3: Commit**
 
 ```bash
-git add docs/wip/luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-23.md
+git add docs/wip/luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-24.md
 git commit -m "docs(notification-inbox): audit Ghostty terminal intelligence signals
 
 Co-authored-by: Codex <noreply@openai.com>"
@@ -380,7 +380,7 @@ Co-authored-by: Codex <noreply@openai.com>"
 ## Task C1: Document runtime-only terminal intelligence
 
 **Files:**
-- Modify: `docs/wip/luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-23.md`
+- Modify: `docs/wip/luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-24.md`
 
 - [ ] **Step 1: Add runtime-only section**
 
@@ -400,7 +400,7 @@ filesystem filesChanged/gitSnapshotChanged/branchChanged: existing filesystem pi
 - [ ] **Step 2: Commit**
 
 ```bash
-git add docs/wip/luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-23.md
+git add docs/wip/luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-24.md
 git commit -m "docs(notification-inbox): classify runtime-only terminal signals
 
 Co-authored-by: Codex <noreply@openai.com>"
@@ -409,7 +409,7 @@ Co-authored-by: Codex <noreply@openai.com>"
 ## Task D1: Live OSC visual smoke
 
 **Files:**
-- Modify: `docs/wip/luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-23.md`
+- Modify: `docs/wip/luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-24.md`
 
 - [ ] **Step 1: Build and launch by PID**
 
@@ -477,12 +477,12 @@ pass/fail matrix
 known limitations
 ```
 
-to `docs/wip/luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-23.md`.
+to `docs/wip/luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-24.md`.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add docs/wip/luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-23.md
+git add docs/wip/luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-24.md
 git commit -m "test(notification-inbox): record live Ghostty OSC smoke evidence
 
 Co-authored-by: Codex <noreply@openai.com>"
@@ -509,7 +509,7 @@ Expected: exit `0`.
 - [ ] **Step 3: Commit final status**
 
 ```bash
-git add docs/wip/luna361-phase3-gaps-and-followup-2026-23-04.md docs/wip/luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-23.md
+git add docs/wip/luna361-phase3-gaps-and-followup-2026-23-04.md docs/wip/luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-24.md
 git commit -m "docs(notification-inbox): close phase 3c verification status
 
 Co-authored-by: Codex <noreply@openai.com>"

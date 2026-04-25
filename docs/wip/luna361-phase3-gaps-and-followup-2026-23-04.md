@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-24
 **Branch:** `notification-system-1-attended-pane`
-**Current HEAD checked:** `67c446d` plus uncommitted Phase 3b/3c work on 2026-04-24
+**Current branch checked:** through `014f1c9` hardening restore plus `5ed91ee` plan cleanup
 **Companion doc:** [luna361-phase3-system-overview-2026-23-04.md](./luna361-phase3-system-overview-2026-23-04.md)
 
 This file replaces the earlier stale `b65f195` gap list. The old list was useful at the time, but several items it marked open were fixed in follow-up commits:
@@ -13,12 +13,11 @@ This file replaces the earlier stale `b65f195` gap list. The old list was useful
 
 Last completed full verification run:
 
-- `mise run lint && mise run test` exited `0` on 2026-04-23.
-- `swift-format` passed.
-- `swiftlint` passed across 662 Swift files.
-- Full test gate passed, including the serialized WebKit suites. E2E and Zmx E2E remain skipped by project defaults unless explicitly enabled.
+- After the `origin/main` merge and restored hardening commit `014f1c9`, `mise run build`, `mise run format && mise run lint`, `mise run test`, and `git diff --check` all exited `0`.
+- The later `5ed91ee` commit removed superseded plan documents only; it did not change product code.
+- E2E and Zmx E2E remain skipped by project defaults unless explicitly enabled.
 
-Current Phase 3b/3c work in this branch is newer than that full gate. Focused Swift tests have passed for the sidebar cache, UI persistence recovery, linkable inbox filters, and Ghostty terminal-intelligence routing. A fresh `mise run lint` + `mise run test` is still required before calling the branch complete.
+The remaining completion gap is not headless code verification; it is the live native OSC visual smoke across every notification surface.
 
 ## Phase 3 Plan Checklist
 
@@ -42,7 +41,7 @@ The source plan is `docs/superpowers/plans/2026-04-20-00c-luna361-phase3-notific
 | 13. CommandBar inbox scope | Done | `InboxNotificationCommands` uses `Actions` + `Snapshot`; CommandBar consumes seam, no feature atom imports. |
 | 14. `⌘⇧I` drawer inbox command | Done | Dispatch path is wired and tested, including no-op logging paths. |
 | 15. Sidebar surface swap/boot wiring | Done | Inbox sidebar is live through `SidebarSurfaceHost`; placeholder was removed. |
-| 16. Integration verification | Mostly done | Headless tests cover bus→atom→model, Bridge RPC→router→atom, and approval/security receive-side routing. Full live OSC visual smoke remains optional manual evidence, see below. |
+| 16. Integration verification | Mostly done | Headless tests cover bus→atom→model, Bridge RPC→router→atom, and approval/security receive-side routing. Full live OSC visual smoke remains manual/native evidence still needed for this PR. |
 
 ## Current Done / Not Done
 
@@ -100,6 +99,36 @@ The source plan is `docs/superpowers/plans/2026-04-20-00c-luna361-phase3-notific
   - Headless tests cover the receive paths and UI seams.
   - Peekaboo visual evidence exists for the titlebar icon/padding cleanup.
   - A stricter manual smoke would be: launch app, emit OSC from a terminal pane, verify sidebar row + toolbar dot + drawer bell + worktree pill.
+  - This is the only current-PR work item still not claimed complete.
+
+## Plan / Spec Reconciliation
+
+This section reconciles the surviving LUNA-361 docs so old plan language does not create a second task list.
+
+| Source doc | Current disposition |
+| --- | --- |
+| Phase 1 sidebar composition foundation | Covered in the tree. `SidebarSurfaceHost`, `UIStateAtom` shell state, repo/inbox surface switching, and sidebar focus plumbing exist with tests. |
+| Phase 2 keyboard owner | Covered in the tree. `KeyboardOwner` and `KeyboardOwnerDerived` exist; CommandBar defaults to `.inbox` when the inbox owns keyboard focus. The broader unified keyboard dispatcher remains explicitly out of scope. |
+| Phase 3 notification inbox feature | Covered for implemented product systems. Inbox model/atom/store/router, bridge `inbox.post`, sidebar, drawer, toolbar bell, worktree pill, CommandBar actions, persistence, and headless integration coverage exist. The live all-surface OSC smoke remains current-PR verification. |
+| Phase 3b sidebar cache and linkable filters | Covered in the tree. This supersedes the older Phase 3 non-goal that said collapsible groups were out; collapsible inbox groups are now implemented through `SidebarCacheAtom.collapsedInboxGroups`. |
+| Phase 3c Ghostty terminal intelligence and OSC smoke | Code and headless tests are covered. The plan's remaining live-smoke task points at `docs/wip/luna361-phase3c-ghostty-terminal-intelligence-smoke-2026-04-24.md`. |
+| Notification inbox design spec | Covered where source systems exist. Terminal and bridge sources are live; approval and security rows are receive-side ready but upstream emitters do not exist and are not silently counted as done. |
+| Interaction model WIP | Covered for LUNA-361's needed slice: keyboard ownership and inbox shortcuts. Future unified dispatch remains an explicitly deferred input-system refactor, not a hidden Phase 3 gap. |
+
+Two follow-up buckets remain:
+
+1. `docs/superpowers/plans/2026-04-24-luna361-sidebar-notification-hardening-followup.md`
+   - Closed for current-PR hardening.
+   - Only future schema migrations remain, and they should be designed when a v2 on-disk format exists.
+
+2. `docs/superpowers/plans/2026-04-24-terminal-output-file-link-tracking-followup.md`
+   - Owns raw terminal output, printed file links, diagnostics, structured agent status, and semantic artifact projection.
+   - It must start with source research; scrollbar growth and `openURLRequested` are not substitutes for terminal text extraction.
+
+Explicitly refuted as current-PR scope:
+
+- Approval/security upstream emitters: receive-side inbox handling is ready and tested, but the product subsystems that would emit real events are separate future work.
+- macOS `UNUserNotificationCenter`, cross-workspace aggregation, rich notification content, fuzzy search, email/Slack/remote fan-out, and user-configurable routing beyond bell on/off: all remain non-goals from the Phase 3 plan/spec.
 
 ### Phase 3b sidebar/filter work now addressed in this branch
 

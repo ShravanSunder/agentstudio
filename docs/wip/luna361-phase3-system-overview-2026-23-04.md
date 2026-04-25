@@ -2,10 +2,10 @@
 
 **Date:** 2026-04-23
 **Branch:** `notification-system-1-attended-pane`
-**Current HEAD checked:** `67c446d`
-**Status:** Dev loop green. All plan tasks (1–16 + 9a) landed. `docs/wip/` is intentionally untracked working documentation.
+**Current branch checked:** through `014f1c9` hardening restore plus `5ed91ee` plan cleanup
+**Status:** Main code loop was green after the main merge and hardening restore. All code tasks from Phase 3/3b/3c that belong in this PR have landed, but the live OSC visual smoke remains unclaimed. `docs/wip/` is tracked working documentation in this branch.
 
-**Note:** This overview was first written at `b65f195`; the companion checklist has been refreshed through `67c446d` and is the source of truth for current done/not-done status.
+**Note:** This overview was first written at `b65f195`; the companion checklist has been refreshed through the Phase 3b/3c hardening work and is the source of truth for current done/not-done status.
 
 **Purpose:** Grounded snapshot of the Phase 3 inbox as actually implemented — what atoms exist, where files live, what's wired, what a user can do, and what notification sources are live vs dormant.
 
@@ -328,10 +328,12 @@
 │    Approval requests (system doesn't emit them yet)                  │
 │    Security events (system doesn't emit them yet)                    │
 │    macOS UNUserNotificationCenter (explicitly deferred)              │
+│    Full live OSC visual proof across sidebar, toolbar, drawer,       │
+│    and worktree pill surfaces                                        │
 │                                                                      │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-**Summary**: notifications ARE wired for the sources that exist — terminal + bridge — and the full UI + persistence + keymap are live. The approval/security kinds in spec §7 are pre-wired on the inbox side but dormant because those upstream systems haven't been built. Phase 3 ships a working inbox with two live sources and a ready slot for two future sources. Real feature, not notifications-free plumbing.
+**Summary**: notifications ARE wired for the sources that exist — terminal + bridge — and the full UI + persistence + keymap are live. The approval/security kinds in spec §7 are pre-wired on the inbox side but dormant because those upstream systems haven't been built. Phase 3 ships a working inbox with two live sources and a ready slot for two future sources. Real feature, not notifications-free plumbing. The remaining current-PR evidence gap is native visual OSC smoke across every visible notification surface.
