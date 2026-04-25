@@ -75,9 +75,13 @@ struct SplitContainerDropCaptureOverlayTests {
             isManagementLayerActive: true
         )
 
+        // x=100 lands in the center zone of the 200-wide pane → split
+        // → halveTarget sizing. (Was x=150 under the old whole-pane-
+        // split model; that lands in the right 1/4 zone now → between
+        // slot → proportional sizing.)
         _ = coordinator.handleDragUpdate(
             from: pasteboard,
-            location: CGPoint(x: 150, y: 50)
+            location: CGPoint(x: 100, y: 50)
         )
 
         #expect(actionDispatcher.shouldAcceptDropSizingModes == [.halveTarget])

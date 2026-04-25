@@ -98,10 +98,13 @@ final class PaneDragCoordinatorTests {
 
     @Test
     func test_resolveTarget_insidePanePreservesPaneSplitSizingTarget() throws {
-        // Arrange
+        // Arrange. Pane at x=100..500. Center zone [200, 400). Cursor
+        // at x=250 is in the center, left of midX (300) → split-left.
+        // (Was x=150 under the old whole-pane-split model; that lands
+        // in the left 1/4 zone now → between-slot sizing instead.)
         let paneId = UUID()
         let paneFrames = [paneId: CGRect(x: 100, y: 200, width: 400, height: 300)]
-        let location = CGPoint(x: 150, y: 300)
+        let location = CGPoint(x: 250, y: 300)
 
         // Act
         let result = try #require(

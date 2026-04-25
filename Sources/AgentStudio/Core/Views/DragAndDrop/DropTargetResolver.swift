@@ -28,11 +28,14 @@ enum DropTargetResolver {
             else { continue }
             guard rowFrames.containsVertically(location) else { continue }
 
-            if config.allowsPaneSplit,
-                let (paneId, frame) = rowFrames.containingFrame(for: location, splittablePanes: splittablePanes)
-            {
-                let side: DropZoneSide = location.x < frame.midX ? .left : .right
-                return .paneSplit(paneId: paneId, side: side)
+            if let inPaneTarget = rowFrames.zoneTarget(
+                rowID: rowID,
+                location: location,
+                config: config,
+                splittablePanes: splittablePanes,
+                sideZoneFloor: AppStyles.General.Layout.paneRowSideZoneFloor
+            ) {
+                return inPaneTarget
             }
 
             if let slotIndex = rowFrames.slotIndex(for: location.x, horizontalMaxX: containerBounds.maxX) {
@@ -59,17 +62,18 @@ enum DropTargetResolver {
         var rects: [DropTarget: CGRect] = [:]
 
         if let band = config.newRowBand {
+            let bandHeight = band.bandHeight(in: containerBounds)
             rects[.paneNewRow(position: .top)] = CGRect(
                 x: containerBounds.minX,
                 y: containerBounds.minY,
                 width: containerBounds.width,
-                height: band.bandHeight
+                height: bandHeight
             )
             rects[.paneNewRow(position: .bottom)] = CGRect(
                 x: containerBounds.minX,
-                y: containerBounds.maxY - band.bandHeight,
+                y: containerBounds.maxY - bandHeight,
                 width: containerBounds.width,
-                height: band.bandHeight
+                height: bandHeight
             )
         }
 
@@ -142,12 +146,13 @@ enum DropTargetResolver {
         config: DropTargetConfig
     ) -> DropTarget? {
         guard let band = config.newRowBand else { return nil }
+        let bandHeight = band.bandHeight(in: containerBounds)
 
         let topBand = CGRect(
             x: containerBounds.minX,
             y: containerBounds.minY,
             width: containerBounds.width,
-            height: band.bandHeight
+            height: bandHeight
         )
         if topBand.contains(location) {
             return .paneNewRow(position: .top)
@@ -155,9 +160,9 @@ enum DropTargetResolver {
 
         let bottomBand = CGRect(
             x: containerBounds.minX,
-            y: containerBounds.maxY - band.bandHeight,
+            y: containerBounds.maxY - bandHeight,
             width: containerBounds.width,
-            height: band.bandHeight
+            height: bandHeight
         )
         if bottomBand.contains(location) {
             return .paneNewRow(position: .bottom)
@@ -248,28 +253,63 @@ private struct RowFrames {
         location.y >= minY && location.y <= maxY
     }
 
-    func containingFrame(
-        for location: CGPoint,
-        splittablePanes: Set<UUID>
-    ) -> (paneId: UUID, frame: CGRect)? {
-        let containingFrames = values.filter { paneId, frame in
-            splittablePanes.contains(paneId) && frame.contains(location)
-        }
-        guard !containingFrames.isEmpty else { return nil }
+    /// Resolve the drop target for a cursor inside one of the panes
+    /// in this row, using the 1/4 + 1/2 + 1/4 hover-zone model.
+    ///
+    /// Center 1/2 of a splittable pane → split (with side determined
+    /// by which half of the center the cursor is in).  Center 1/2 of
+    /// a non-splittable pane → slot (insert before or after the pane
+    /// based on which half).  Side 1/4 zones → slot (between with
+    /// neighbor, or edge-insert at row edge).
+    ///
+    /// When pane frames overlap (parent + child publishing distinct
+    /// frames during a layout pass), the smallest-area containing
+    /// frame wins so the cursor binds to the most specific pane.
+    ///
+    /// Returns nil when the cursor is not inside any pane in the row.
+    func zoneTarget(
+        rowID: RowID,
+        location: CGPoint,
+        config: DropTargetConfig,
+        splittablePanes: Set<UUID>,
+        sideZoneFloor: CGFloat
+    ) -> DropTarget? {
+        let candidates =
+            values
+            .enumerated()
+            .filter { $0.element.frame.contains(location) }
+        guard let containing = smallestArea(candidates) else { return nil }
 
-        return containingFrames.min { lhs, rhs in
-            let lhsArea = lhs.frame.width * lhs.frame.height
-            let rhsArea = rhs.frame.width * rhs.frame.height
+        let entry = containing.element
+        let zone = entry.frame.hoverZone(forX: location.x, sideZoneFloor: sideZoneFloor)
+        switch zone {
+        case .left:
+            return .paneSlot(row: rowID, index: containing.offset)
+        case .right:
+            return .paneSlot(row: rowID, index: containing.offset + 1)
+        case .center:
+            let side: DropZoneSide = location.x < entry.frame.midX ? .left : .right
+            if config.allowsPaneSplit && splittablePanes.contains(entry.paneId) {
+                return .paneSplit(paneId: entry.paneId, side: side)
+            }
+            let slotIndex = side == .left ? containing.offset : containing.offset + 1
+            return .paneSlot(row: rowID, index: slotIndex)
+        }
+    }
+
+    private func smallestArea(
+        _ candidates: [EnumeratedSequence<[(paneId: UUID, frame: CGRect)]>.Element]
+    ) -> EnumeratedSequence<[(paneId: UUID, frame: CGRect)]>.Element? {
+        candidates.min { lhs, rhs in
+            let lhsArea = lhs.element.frame.width * lhs.element.frame.height
+            let rhsArea = rhs.element.frame.width * rhs.element.frame.height
             if lhsArea != rhsArea {
                 return lhsArea < rhsArea
             }
-            if lhs.frame.minX != rhs.frame.minX {
-                return lhs.frame.minX < rhs.frame.minX
+            if lhs.element.frame.minX != rhs.element.frame.minX {
+                return lhs.element.frame.minX < rhs.element.frame.minX
             }
-            if lhs.frame.minY != rhs.frame.minY {
-                return lhs.frame.minY < rhs.frame.minY
-            }
-            return lhs.paneId.uuidString < rhs.paneId.uuidString
+            return lhs.element.paneId.uuidString < rhs.element.paneId.uuidString
         }
     }
 

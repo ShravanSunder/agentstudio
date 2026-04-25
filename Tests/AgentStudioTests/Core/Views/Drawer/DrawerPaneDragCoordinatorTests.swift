@@ -46,8 +46,12 @@ struct DrawerPaneDragCoordinatorTests {
                 bounds: CGRect(x: 0, y: 0, width: 220, height: 140)
             )
         )
+        // x=170 lands in paneB's center zone [135, 185), right of midX
+        // (160) → split-right. (Was x=185 under the old whole-pane-
+        // split model; 185 is now in paneB's right 1/4 zone, which
+        // produces a between-slot target instead.)
         let rightTarget = DrawerPaneDragCoordinator.resolveTarget(
-            location: CGPoint(x: 185, y: 80),
+            location: CGPoint(x: 170, y: 80),
             geometry: geometry(
                 paneFrames: frames,
                 layout: DrawerGridLayout(topRow: Layout.autoTiled([a, b])),

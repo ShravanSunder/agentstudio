@@ -9,7 +9,11 @@ final class PaneDropTargetResolutionTests {
 
     @Test
     func test_mixedPaneSet_leftTargetResolution_isIdenticalAcrossKinds() {
-        // Arrange
+        // Arrange. bridgePane is at x=640..940. Center zone is
+        // [715, 865). Cursor at x=760 is in the center, left of midX
+        // → split-left. (Was x=660 under the old whole-pane-split
+        // model; that lands in the left 1/4 zone now, which produces
+        // a between-slot target instead.)
         let terminalPaneId = UUID()
         let webviewPaneId = UUID()
         let bridgePaneId = UUID()
@@ -18,7 +22,7 @@ final class PaneDropTargetResolutionTests {
             webviewPaneId: CGRect(x: 320, y: 0, width: 300, height: 280),
             bridgePaneId: CGRect(x: 640, y: 0, width: 300, height: 280),
         ]
-        let location = CGPoint(x: 660, y: 100)
+        let location = CGPoint(x: 760, y: 100)
 
         // Act
         let target = PaneDragCoordinator.resolveTarget(
@@ -33,7 +37,10 @@ final class PaneDropTargetResolutionTests {
 
     @Test
     func test_mixedPaneSet_rightTargetResolution_isIdenticalAcrossKinds() {
-        // Arrange
+        // Arrange. webviewPane is at x=320..620. Center zone is
+        // [395, 545). Cursor at x=500 is in the center, right of
+        // midX (470) → split-right. (Was x=610 under the old whole-
+        // pane-split model; that lands in the right 1/4 zone now.)
         let terminalPaneId = UUID()
         let webviewPaneId = UUID()
         let bridgePaneId = UUID()
@@ -42,7 +49,7 @@ final class PaneDropTargetResolutionTests {
             webviewPaneId: CGRect(x: 320, y: 0, width: 300, height: 280),
             bridgePaneId: CGRect(x: 640, y: 0, width: 300, height: 280),
         ]
-        let location = CGPoint(x: 610, y: 100)
+        let location = CGPoint(x: 500, y: 100)
 
         // Act
         let target = PaneDragCoordinator.resolveTarget(

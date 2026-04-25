@@ -46,10 +46,15 @@ struct DropTargetResolverTests {
 
     @Test
     func resolve_onPane_allowsPaneSplit_returnsPaneSplit_rightHalf() {
+        // Per the 1/4 + 1/2 + 1/4 zone model, x=60 lands in pane A's
+        // center zone on the right of midX → split-right. (x=75 used
+        // to be split-right under the old whole-pane-split model;
+        // it now lands in the right 1/4 zone → between-slot. See
+        // DropTargetResolverHoverZoneTests for the boundary case.)
         let context = threePaneSingleRow
 
         let target = DropTargetResolver.resolve(
-            location: CGPoint(x: 75, y: 100),
+            location: CGPoint(x: 60, y: 100),
             rows: context.rows,
             paneFrames: context.frames,
             containerBounds: context.bounds,
@@ -204,6 +209,11 @@ struct DropTargetResolverTests {
 
     @Test
     func resolve_twoRowDrawer_cursorInTopRow_returnsTopSlot() {
+        // Cursor in the LEFT 1/4 of paneA in the top row → slot 0.
+        // (x=75, which is paneA's midX, used to map to slot 0 under
+        // the old midX-only logic; under the zone model midX is in
+        // the center zone, so we use a cursor clearly in the left
+        // zone instead.)
         let paneD = UUID()
         let frames: [UUID: CGRect] = [
             paneA: CGRect(x: 0, y: 0, width: 150, height: 100),
@@ -213,7 +223,7 @@ struct DropTargetResolverTests {
         ]
 
         let target = DropTargetResolver.resolve(
-            location: CGPoint(x: 75, y: 50),
+            location: CGPoint(x: 20, y: 50),
             rows: [.drawerTop: [paneA, paneB], .drawerBottom: [paneC, paneD]],
             paneFrames: frames,
             containerBounds: CGRect(x: 0, y: 0, width: 300, height: 200),
@@ -248,6 +258,11 @@ struct DropTargetResolverTests {
 
     @Test
     func resolve_singleRowConfig_ignoresBottomRowEvenWhenRowsMapContainsOne() {
+        // Cursor is positioned inside `bottomPane` vertically but
+        // outside the new-row bands (top 1/5 = [0,60), bottom 1/5 =
+        // [240,300]). Since `.drawerSingleRow` config only inspects
+        // `.drawerTop`, the bottom-row pane should not produce any
+        // target — proving the config gates which rows are visible.
         let bottomPane = UUID()
         let frames: [UUID: CGRect] = [
             paneA: CGRect(x: 0, y: 0, width: 100, height: 100),
@@ -255,7 +270,7 @@ struct DropTargetResolverTests {
         ]
 
         let target = DropTargetResolver.resolve(
-            location: CGPoint(x: 50, y: 250),
+            location: CGPoint(x: 50, y: 220),
             rows: [
                 .drawerTop: [paneA],
                 .drawerBottom: [bottomPane],

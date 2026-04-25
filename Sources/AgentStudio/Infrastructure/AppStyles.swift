@@ -76,6 +76,26 @@ enum AppStyles {
             static let dropTargetMarkerWidth: CGFloat = 8
             static let dropTargetPreviewMinimumWidth: CGFloat = 34
             static let dropTargetPreviewMaxFraction: CGFloat = 0.22
+
+            /// Per-pane horizontal hover-zone floor.
+            ///
+            /// The drag-target resolver splits a pane into 1/4 + 1/2 + 1/4
+            /// horizontal zones (left / center / right). On narrow panes
+            /// the natural 1/4 collapses below this floor; the resolver
+            /// then grows the side zones to keep them hittable, shrinking
+            /// (or eliminating) the center zone.
+            static let paneRowSideZoneFloor: CGFloat = 24
+
+            /// Drawer new-row creation band — fraction of drawer panel
+            /// height. Top 1/5 of the panel = "create row above";
+            /// bottom 1/5 = "create row below". Only applies to single-
+            /// row drawers (two-row drawer forbids a third row).
+            static let drawerNewRowBandRatio: CGFloat = 0.2
+
+            /// Floor for the drawer new-row creation band height. On
+            /// short drawers the 1/5 ratio drops below this; the band
+            /// stays at this minimum height instead.
+            static let drawerNewRowBandMinHeight: CGFloat = 28
         }
     }
 
