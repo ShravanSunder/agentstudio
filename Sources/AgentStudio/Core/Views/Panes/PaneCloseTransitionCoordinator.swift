@@ -55,6 +55,15 @@ final class PaneCloseTransitionCoordinator {
         pendingCloseTasks[paneId] = task
     }
 
+    /// Cancel any pending close transition for the given pane id.
+    /// Used by undo to prevent a scheduled performClose from firing after
+    /// the pane has already been restored.
+    func cancelCloseTransition(_ paneId: UUID) {
+        guard let task = pendingCloseTasks.removeValue(forKey: paneId) else { return }
+        task.cancel()
+        closingPaneIds.remove(paneId)
+    }
+
     private func finishClosingPane(_ paneId: UUID) {
         closingPaneIds.remove(paneId)
         pendingCloseTasks[paneId] = nil

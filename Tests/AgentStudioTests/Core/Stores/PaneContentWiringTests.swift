@@ -341,6 +341,101 @@ final class PaneContentWiringTests {
         #expect(originalSlot !== recreatedSlot)
     }
 
+    @Test("retireSlot keeps the same slot readable until finalized")
+    func viewRegistry_retireSlot_keepsSameSlotUntilFinalized() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+
+        let live = registry.ensureSlot(for: paneId)
+        registry.retireSlot(for: paneId)
+
+        let retired = registry.slot(for: paneId)
+        #expect(retired === live)
+        #expect(retired.host == nil)
+
+        registry.finalizeRetiredSlotRemoval(for: paneId)
+
+        let recreated = registry.ensureSlot(for: paneId)
+        #expect(recreated !== live)
+    }
+
+    @Test("removeSlot immediately deletes the slot (non-transition call sites)")
+    func viewRegistry_removeSlot_deletesImmediately() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+
+        let original = registry.ensureSlot(for: paneId)
+        registry.removeSlot(for: paneId)
+
+        let recreated = registry.ensureSlot(for: paneId)
+        #expect(recreated !== original)
+    }
+
+    @Test("ensureSlot on a retired slot promotes it in place (D6)")
+    func viewRegistry_ensureSlot_promotesRetiredInPlace() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+
+        let original = registry.ensureSlot(for: paneId)
+        registry.retireSlot(for: paneId)
+
+        let promoted = registry.ensureSlot(for: paneId)
+        #expect(promoted === original)
+    }
+
+    @Test("a retired slot is finalized only when no surface renders it")
+    func viewRegistry_retiredSlot_requiresUnionAbsence() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+        let originalSlot = registry.ensureSlot(for: paneId)
+
+        registry.surfaceRenderedIds("tab:tab1", ids: [paneId])
+        registry.surfaceRenderedIds("drawerShell:parent1", ids: [])
+        registry.retireSlot(for: paneId)
+
+        registry.surfaceRenderedIds("drawerShell:parent1", ids: [])
+        #expect(registry.isRetiredForTesting(paneId) == true)
+        #expect(registry.peekSlotForTesting(paneId) === originalSlot)
+
+        registry.surfaceRenderedIds("tab:tab1", ids: [])
+        #expect(registry.isRetiredForTesting(paneId) == false)
+        #expect(registry.peekSlotForTesting(paneId) == nil)
+    }
+
+    @Test("unregisterSurface re-runs finalization for ids no longer rendered anywhere")
+    func viewRegistry_unregisterSurface_finalizesOrphanedRetired() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+        let originalSlot = registry.ensureSlot(for: paneId)
+
+        registry.surfaceRenderedIds("tab:tab1", ids: [paneId])
+        registry.retireSlot(for: paneId)
+
+        #expect(registry.isRetiredForTesting(paneId) == true)
+        #expect(registry.peekSlotForTesting(paneId) === originalSlot)
+
+        registry.unregisterSurface("tab:tab1")
+        #expect(registry.isRetiredForTesting(paneId) == false)
+        #expect(registry.peekSlotForTesting(paneId) == nil)
+    }
+
+    @Test("container-level surface survives render-mode switches without finalizing tombstones")
+    func viewRegistry_containerSurface_modeSwitch_doesNotFinalize() {
+        let registry = ViewRegistry()
+        let zoomedPaneId = UUID()
+        let otherPaneId = UUID()
+        let zoomedSlot = registry.ensureSlot(for: zoomedPaneId)
+        _ = registry.ensureSlot(for: otherPaneId)
+
+        registry.surfaceRenderedIds("tab:tab1", ids: [zoomedPaneId, otherPaneId])
+        registry.retireSlot(for: otherPaneId)
+
+        registry.surfaceRenderedIds("tab:tab1", ids: [zoomedPaneId])
+        #expect(registry.peekSlotForTesting(zoomedPaneId) === zoomedSlot)
+        #expect(registry.isRetiredForTesting(otherPaneId) == false)
+        #expect(registry.peekSlotForTesting(otherPaneId) == nil)
+    }
+
     @Test
     func test_viewRegistry_slotLazyFallback_createsObservableSlot() {
         let registry = ViewRegistry()

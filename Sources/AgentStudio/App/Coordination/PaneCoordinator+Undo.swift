@@ -7,6 +7,9 @@ extension PaneCoordinator {
         while let entry = popLastUndoEntry() {
             switch entry {
             case .tab(let snapshot):
+                for pane in snapshot.panes {
+                    closeTransitionCoordinator.cancelCloseTransition(pane.id)
+                }
                 undoTabClose(snapshot)
                 return
 
@@ -21,6 +24,10 @@ extension PaneCoordinator {
                 {
                     Self.logger.info("undoClose: parent pane \(parentId) gone — skipping drawer child entry")
                     continue
+                }
+                closeTransitionCoordinator.cancelCloseTransition(snapshot.pane.id)
+                for child in snapshot.drawerChildPanes {
+                    closeTransitionCoordinator.cancelCloseTransition(child.id)
                 }
                 undoPaneClose(snapshot)
                 return

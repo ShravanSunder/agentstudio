@@ -457,6 +457,62 @@ struct PaneCoordinatorHardeningTests {
         #expect(window.firstResponder === contentView)
     }
 
+    @Test(
+        "closing a main pane with drawer children retires child slots so drawer panel renders safely during transition"
+    )
+    func closeMainPane_withDrawerChildren_retiresChildSlots() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parent.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let child = try #require(harness.store.addDrawerPane(to: parent.id))
+        _ = harness.viewRegistry.ensureSlot(for: parent.id)
+        _ = harness.viewRegistry.ensureSlot(for: child.id)
+
+        // Phase 1 still goes through the current close path, including the
+        // validator's canonicalization of single-pane tabs to .closeTab. To
+        // isolate the retire behavior, drive the main-pane close via the
+        // coordinator directly with a non-canonicalized closePane call for a
+        // multi-pane test state.
+        let sibling = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Sibling"))
+        harness.store.insertPane(
+            sibling.id,
+            inTab: tab.id,
+            at: parent.id,
+            direction: .horizontal,
+            position: .after,
+            sizingMode: .halveTarget
+        )
+
+        harness.coordinator.execute(.closePane(tabId: tab.id, paneId: parent.id))
+
+        #expect(harness.viewRegistry.isRetiredForTesting(parent.id))
+        #expect(harness.viewRegistry.isRetiredForTesting(child.id))
+        #expect(harness.viewRegistry.peekSlotForTesting(parent.id) != nil)
+        #expect(harness.viewRegistry.peekSlotForTesting(child.id) != nil)
+    }
+
+    @Test(".removeDrawerPane retires the slot rather than deleting it immediately")
+    func removeDrawerPane_retiresSlot() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parent.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let child = try #require(harness.store.addDrawerPane(to: parent.id))
+        _ = harness.viewRegistry.ensureSlot(for: child.id)
+
+        harness.coordinator.execute(.removeDrawerPane(parentPaneId: parent.id, drawerPaneId: child.id))
+
+        #expect(harness.viewRegistry.isRetiredForTesting(child.id))
+        #expect(harness.viewRegistry.peekSlotForTesting(child.id) != nil)
+    }
+
     @Test("repair recreateSurface registers preparing placeholder when geometry is unavailable")
     func repairRecreateSurface_registersPreparingPlaceholderWhenGeometryUnavailable() {
         let harness = makeHarness()

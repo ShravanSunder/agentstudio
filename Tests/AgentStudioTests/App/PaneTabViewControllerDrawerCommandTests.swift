@@ -275,6 +275,29 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(atom(\.workspaceFocusOwner).owner == .drawerPane(parentPaneId: parent.id, paneId: firstDrawerPaneId))
     }
 
+    @Test("closeDrawerPane command routes through closePane and creates pane undo")
+    func executeCloseDrawerPane_routesThroughClosePaneUndo() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parent.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(parent.id, inTab: tab.id)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parent.id))
+        harness.store.setActiveDrawerPane(drawerPane.id, in: parent.id)
+
+        harness.controller.execute(.closeDrawerPane)
+
+        #expect(harness.store.pane(parent.id)?.drawer?.paneIds.contains(drawerPane.id) == false)
+        guard case .pane(let snapshot)? = harness.coordinator.undoStack.last else {
+            Issue.record("Expected drawer close to produce pane undo snapshot")
+            return
+        }
+        #expect(snapshot.pane.id == drawerPane.id)
+    }
+
     @Test("option-j from empty drawer focus falls through instead of being consumed")
     func optionJ_emptyDrawerFocus_fallsThrough() throws {
         let harness = makeHarness()

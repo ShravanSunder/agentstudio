@@ -19,7 +19,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         appLifecycleStore: AppLifecycleAtom,
         tabBarAdapter: TabBarAdapter,
-        viewRegistry: ViewRegistry
+        viewRegistry: ViewRegistry,
+        closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
     ) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
@@ -52,7 +53,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
             tabBarAdapter: tabBarAdapter,
-            viewRegistry: viewRegistry
+            viewRegistry: viewRegistry,
+            closeTransitionCoordinator: closeTransitionCoordinator
         )
         self.splitViewController = splitVC
         window.contentViewController = splitVC

@@ -1237,22 +1237,27 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         from event: NSEvent,
         requiresNeutralFocus: Bool = true
     ) -> Bool {
+        // Routing goes through the command-spec system: decode the
+        // event, then ask whether it dispatches `.addDrawerPane` in
+        // the `.emptyDrawer` context. The raw-character "P" alternate
+        // on AppShortcut.addDrawerPane is what matches here; the
+        // primary cmd-shift-D goes through the global path elsewhere.
         guard
             atom(\.managementLayer).isActive == false,
-            event.charactersIgnoringModifiers?.lowercased() == EmptyDrawerKeyShortcut.createFirstPane.rawValue,
-            event.modifierFlags.isDisjoint(with: .deviceIndependentFlagsMask),
             case .emptyDrawer(let parentPaneId) = normalizedWorkspaceNavigationScopeState(),
-            store.paneAtom.pane(parentPaneId)?.drawer?.paneIds.isEmpty == true
+            store.paneAtom.pane(parentPaneId)?.drawer?.paneIds.isEmpty == true,
+            let trigger = ShortcutDecoder.decode(event: event),
+            ShortcutDecoder.shortcut(for: trigger, in: .emptyDrawer) == .addDrawerPane
         else {
             return false
         }
-        // requiresNeutralFocus gates the local-monitor path: the raw
-        // keystroke (see EmptyDrawerKeyShortcut.createFirstPane) must
-        // NOT be intercepted while a text-input responder owns focus,
-        // otherwise typing that character into any text field would
-        // create a drawer pane. The performKeyEquivalent path opts out
-        // of this gate because cmd-equivalent shortcuts can fire even
-        // with a text field focused.
+        // requiresNeutralFocus gates the local-monitor path: the raw-
+        // character alternate must NOT be intercepted while a text-
+        // input responder owns focus, otherwise typing the character
+        // into any text field would create a drawer pane. The
+        // performKeyEquivalent path opts out of this gate because
+        // modifier-keyed shortcuts can fire even with a text field
+        // focused.
         if requiresNeutralFocus,
             !Self.isNeutralResponderForRawCharacter(NSApp.keyWindow?.firstResponder)
         {
@@ -1543,18 +1548,12 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             })
         else { return }
 
-        // Single-pane tab: close the whole tab (WorkspaceCommandValidator rejects .closePane
-        // for single-pane tabs). Multi-pane: close just the pane.
-        if tab.allPaneIds.count > 1 {
-            guard
-                let matchedPaneId = tab.allPaneIds.first(where: { id in
-                    store.paneAtom.pane(id)?.worktreeId == worktreeId
-                })
-            else { return }
-            dispatchAction(.closePane(tabId: tab.id, paneId: matchedPaneId))
-        } else {
-            dispatchAction(.closeTab(tabId: tab.id))
-        }
+        guard
+            let matchedPaneId = tab.allPaneIds.first(where: { id in
+                store.paneAtom.pane(id)?.worktreeId == worktreeId
+            })
+        else { return }
+        dispatchAction(.closePane(tabId: tab.id, paneId: matchedPaneId))
     }
 
     func closeActiveTab() {
@@ -1690,18 +1689,14 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         }
         if let pane = store.paneAtom.pane(paneId) {
             if let parentPaneId = pane.parentPaneId,
-                store.tabLayoutAtom.tabContaining(paneId: parentPaneId) != nil
+                let parentTab = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)
             {
-                dispatchAction(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
+                dispatchAction(.closePane(tabId: parentTab.id, paneId: paneId))
                 return
             }
 
             if let tab = store.tabLayoutAtom.tabContaining(paneId: paneId) {
-                if tab.allPaneIds.count > 1 {
-                    dispatchAction(.closePane(tabId: tab.id, paneId: paneId))
-                } else {
-                    dispatchAction(.closeTab(tabId: tab.id))
-                }
+                dispatchAction(.closePane(tabId: tab.id, paneId: paneId))
                 return
             }
 
@@ -1906,7 +1901,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 let drawer = pane.drawer,
                 let activeDrawerPaneId = drawer.activePaneId
             else { break }
-            dispatchAction(.removeDrawerPane(parentPaneId: paneId, drawerPaneId: activeDrawerPaneId))
+            dispatchAction(.closePane(tabId: tabId, paneId: activeDrawerPaneId))
 
         case .saveArrangement:
             guard let tabId = store.tabLayoutAtom.activeTabId,

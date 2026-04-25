@@ -18,6 +18,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var watchedFolderCommands: (any WatchedFolderCommandHandling)!
     var viewRegistry: ViewRegistry!
     var paneCoordinator: PaneCoordinator!
+    var closeTransitionCoordinator: PaneCloseTransitionCoordinator!
     private var executor: ActionExecutor!
     private var tabBarAdapter: TabBarAdapter!
     private var runtime: SessionRuntime!
@@ -113,6 +114,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         runtime = SessionRuntime(atom: atomStore.sessionRuntime, store: store)
         cleanupOrphanZmxSessions()
         viewRegistry = ViewRegistry()
+        closeTransitionCoordinator = PaneCloseTransitionCoordinator()
         seedSlotsForRestoredPanes()
         let pipeline = FilesystemGitPipeline(
             bus: paneRuntimeBus,
@@ -127,6 +129,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             surfaceManager: SurfaceManager.shared,
             runtimeRegistry: .shared,
             paneEventBus: paneRuntimeBus,
+            closeTransitionCoordinator: closeTransitionCoordinator,
             filesystemSource: pipeline,
             windowLifecycleStore: windowLifecycleStore
         )
@@ -322,7 +325,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
             tabBarAdapter: tabBarAdapter,
-            viewRegistry: viewRegistry
+            viewRegistry: viewRegistry,
+            closeTransitionCoordinator: closeTransitionCoordinator
         )
         mainWindowController?.prepareLaunchMaximizeAndRestore()
         mainWindowController?.showWindow(nil)
@@ -500,7 +504,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 applicationLifecycleMonitor: applicationLifecycleMonitor,
                 appLifecycleStore: appLifecycleStore,
                 tabBarAdapter: tabBarAdapter,
-                viewRegistry: viewRegistry
+                viewRegistry: viewRegistry,
+                closeTransitionCoordinator: closeTransitionCoordinator
             )
             mainWindowController?.showWindow(nil)
             wireLifecycleConsumers()

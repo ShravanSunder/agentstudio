@@ -19,7 +19,9 @@ private let viewRegistryLogger = Logger(subsystem: "com.agentstudio", category: 
 /// - `ensureSlot(for:)`: creates a slot proactively when a pane enters workspace structure
 /// - `register(_, for:)`: sets `slot.host` — auto-invalidates SwiftUI observers
 /// - `unregister(_)`: clears `slot.host = nil` — slot object survives with stable identity
-/// - `removeSlot(for:)`: deletes the slot when the pane is permanently removed
+/// - `retireSlot(for:)`: tombstones the slot during close transitions so readers can finish
+/// - `finalizeRetiredSlotRemoval(for:)`: deletes a tombstoned slot once no surface renders it
+/// - `removeSlot(for:)`: deletes the slot immediately for non-transition removal
 ///
 /// Slots have pane-lifetime identity, not host-lifetime identity. This ensures
 /// SwiftUI observers survive across unregister/re-register cycles (repair, undo).
@@ -41,6 +43,8 @@ final class ViewRegistry {
     #endif
 
     private var slots: [UUID: PaneViewSlot] = [:]
+    private var retiredPaneIds: Set<UUID> = []
+    private var renderedIdsBySurface: [String: Set<UUID>] = [:]
 
     /// Create the slot proactively when a pane enters workspace structure.
     /// Called by PaneCoordinator before any SwiftUI body can read the slot.
@@ -48,6 +52,7 @@ final class ViewRegistry {
     @discardableResult
     func ensureSlot(for paneId: UUID) -> PaneViewSlot {
         if let existing = slots[paneId] {
+            retiredPaneIds.remove(paneId)
             return existing
         }
 
@@ -95,9 +100,37 @@ final class ViewRegistry {
         slots[paneId]?.host = nil
     }
 
-    /// Remove the slot entirely when a pane is permanently removed from workspace structure.
-    func removeSlot(for paneId: UUID) {
+    /// Tombstone a slot for close transitions. The slot remains readable until all
+    /// registered render surfaces stop reporting the pane ID.
+    func retireSlot(for paneId: UUID) {
+        guard let slot = slots[paneId] else { return }
+
+        slot.host = nil
+        retiredPaneIds.insert(paneId)
+    }
+
+    /// Delete a tombstoned slot once its close transition is fully absent from rendered surfaces.
+    func finalizeRetiredSlotRemoval(for paneId: UUID) {
+        guard retiredPaneIds.remove(paneId) != nil else { return }
         slots.removeValue(forKey: paneId)
+    }
+
+    /// Remove the slot entirely for non-transition removal paths.
+    func removeSlot(for paneId: UUID) {
+        retiredPaneIds.remove(paneId)
+        slots.removeValue(forKey: paneId)
+    }
+
+    /// Report the complete set of pane IDs currently rendered by a stable surface.
+    func surfaceRenderedIds(_ surfaceId: String, ids: Set<UUID>) {
+        renderedIdsBySurface[surfaceId] = ids
+        finalizeRetiredSlotsNotRenderedByAnySurface()
+    }
+
+    /// Remove a surface from the rendered-union projection.
+    func unregisterSurface(_ surfaceId: String) {
+        renderedIdsBySurface.removeValue(forKey: surfaceId)
+        finalizeRetiredSlotsNotRenderedByAnySurface()
     }
 
     /// Get the view for a pane, if registered.
@@ -141,5 +174,27 @@ final class ViewRegistry {
     /// All currently registered pane IDs.
     var registeredPaneIds: Set<UUID> {
         Set(slots.compactMap { $0.value.host != nil ? $0.key : nil })
+    }
+
+    #if DEBUG
+        func peekSlotForTesting(_ paneId: UUID) -> PaneViewSlot? {
+            slots[paneId]
+        }
+
+        func isRetiredForTesting(_ paneId: UUID) -> Bool {
+            retiredPaneIds.contains(paneId)
+        }
+    #endif
+
+    private func finalizeRetiredSlotsNotRenderedByAnySurface() {
+        guard !retiredPaneIds.isEmpty else { return }
+
+        let renderedPaneIds = renderedIdsBySurface.values.reduce(into: Set<UUID>()) { union, ids in
+            union.formUnion(ids)
+        }
+        let removablePaneIds = retiredPaneIds.subtracting(renderedPaneIds)
+        for paneId in removablePaneIds {
+            finalizeRetiredSlotRemoval(for: paneId)
+        }
     }
 }

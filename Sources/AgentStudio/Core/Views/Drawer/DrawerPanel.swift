@@ -72,6 +72,14 @@ struct DrawerPanel: View {
         atom(\.managementLayer)
     }
 
+    private var drawerSurfaceId: String {
+        "drawerShell:\(parentPaneId)"
+    }
+
+    private var renderedDrawerPaneIds: Set<UUID> {
+        Set(layout.paneIds)
+    }
+
     init(
         layout: DrawerGridLayout,
         parentPaneId: UUID,
@@ -122,8 +130,8 @@ struct DrawerPanel: View {
                         action(.minimizeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
                     case .expandPane(_, let paneId):
                         action(.expandDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
-                    case .closePane(_, let paneId):
-                        action(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
+                    case .closePane(let tabId, let paneId):
+                        action(.closePane(tabId: tabId, paneId: paneId))
                     case .insertPaneRequest(let request):
                         action(
                             .insertDrawerPane(
@@ -168,6 +176,21 @@ struct DrawerPanel: View {
         )
     }
 
+    /// Empty-drawer keystroke hint. Both halves come from the existing
+    /// command-spec system so the on-screen text stays in lockstep with
+    /// the keystroke gate and the command's action label.
+    ///   key   ──► AppShortcut.addDrawerPane displayed in `.emptyDrawer`
+    ///             context (returns the raw-character alternate "P").
+    ///   text  ──► LocalActionSpec.addDrawerPane.actionSpec.helpText
+    @ViewBuilder
+    private var emptyDrawerHint: some View {
+        let keyDisplay = AppShortcut.addDrawerPane.displayKeyBinding(in: .emptyDrawer)?.displayString ?? ""
+        let actionText = LocalActionSpec.addDrawerPane.actionSpec.helpText.lowercased()
+        Text("Press \(keyDisplay) to \(actionText)")
+            .font(.system(size: AppStyles.General.Typography.textXs))
+            .foregroundStyle(.tertiary)
+    }
+
     @ViewBuilder
     private var addDrawerButton: some View {
         Button {
@@ -210,14 +233,7 @@ struct DrawerPanel: View {
                         VStack(spacing: 12) {
                             Spacer()
                             addDrawerButton
-                            // Hint text is driven by EmptyDrawerKeyShortcut so
-                            // changing the bound key updates the UI in lock-step
-                            // with the gate in PaneTabViewController.
-                            Text(
-                                "Press \(EmptyDrawerKeyShortcut.createFirstPane.displayString) to add the first drawer pane"
-                            )
-                            .font(.system(size: AppStyles.General.Typography.textXs))
-                            .foregroundStyle(.tertiary)
+                            emptyDrawerHint
                             Spacer()
                         }
                         .frame(maxWidth: .infinity)
@@ -253,9 +269,35 @@ struct DrawerPanel: View {
         )
         .coordinateSpace(name: Self.drawerDropCoordinateSpace)
         .contentShape(RoundedRectangle(cornerRadius: DrawerLayout.panelCornerRadius, style: .continuous))
+        .modifier(
+            DrawerSurfaceRegistrationModifier(
+                viewRegistry: viewRegistry,
+                surfaceId: drawerSurfaceId,
+                renderedPaneIds: renderedDrawerPaneIds
+            )
+        )
     }
 
     private static let drawerDropCoordinateSpace = "drawerContainer"
+}
+
+private struct DrawerSurfaceRegistrationModifier: ViewModifier {
+    let viewRegistry: ViewRegistry
+    let surfaceId: String
+    let renderedPaneIds: Set<UUID>
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                viewRegistry.surfaceRenderedIds(surfaceId, ids: renderedPaneIds)
+            }
+            .onChange(of: renderedPaneIds) { _, paneIds in
+                viewRegistry.surfaceRenderedIds(surfaceId, ids: paneIds)
+            }
+            .onDisappear {
+                viewRegistry.unregisterSurface(surfaceId)
+            }
+    }
 }
 
 // Panel material is now applied at the DrawerPanelOverlay level

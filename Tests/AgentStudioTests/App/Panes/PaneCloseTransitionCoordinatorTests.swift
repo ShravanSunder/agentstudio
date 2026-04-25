@@ -34,6 +34,28 @@ struct PaneCloseTransitionCoordinatorTests {
         #expect(coordinator.closingPaneIds.contains(paneId) == false)
     }
 
+    @Test("cancelCloseTransition stops the pending performClose")
+    func paneCloseTransitionCoordinator_cancel_stopsPerformClose() async {
+        let clock = TestPushClock()
+        let coordinator = PaneCloseTransitionCoordinator(clock: clock)
+        let paneId = UUID()
+        var performCloseRan = false
+
+        coordinator.beginClosingPane(paneId, delay: .milliseconds(120)) {
+            performCloseRan = true
+        }
+
+        await clock.waitForPendingSleepCount()
+        coordinator.cancelCloseTransition(paneId)
+        clock.advance(by: .milliseconds(120))
+        for _ in 0..<5 {
+            await Task.yield()
+        }
+
+        #expect(performCloseRan == false)
+        #expect(coordinator.closingPaneIds.contains(paneId) == false)
+    }
+
     @Test("coordinator deinitialization cancels pending close tasks")
     func deinit_cancelsPendingCloseTask() async {
         let clock = TestPushClock()

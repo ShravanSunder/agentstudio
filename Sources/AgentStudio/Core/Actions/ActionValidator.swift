@@ -96,10 +96,6 @@ enum WorkspaceCommandValidator {
             guard tab.ownsPane(paneId) else {
                 return .failure(.paneNotFound(paneId: paneId, tabId: tabId))
             }
-            // Canonicalize single-pane close requests into closeTab before execution.
-            if tab.ownedPaneCount <= 1 {
-                return .success(ValidatedAction(.closeTab(tabId: tabId)))
-            }
             return .success(ValidatedAction(action))
 
         case .extractPaneToTab(let tabId, let paneId):

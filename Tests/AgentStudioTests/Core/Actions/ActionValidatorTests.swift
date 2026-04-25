@@ -245,8 +245,8 @@ final class WorkspaceCommandValidatorTests {
 
     @Test
 
-    func test_closePane_singlePaneTab_canonicalizesToCloseTab() {
-        // Arrange — single-pane close is canonicalized to closeTab during validation
+    func test_closePane_singlePaneTab_staysClosePane() {
+        // Arrange
         let (tab, tabId, paneId) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
 
@@ -261,7 +261,7 @@ final class WorkspaceCommandValidatorTests {
             Issue.record("Expected success")
             return
         }
-        #expect(validated.action == .closeTab(tabId: tabId))
+        #expect(validated.action == .closePane(tabId: tabId, paneId: paneId))
     }
 
     @Test

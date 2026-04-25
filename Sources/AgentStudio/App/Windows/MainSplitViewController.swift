@@ -16,6 +16,7 @@ class MainSplitViewController: NSSplitViewController {
     private let appLifecycleStore: AppLifecycleAtom
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
+    private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
 
     func syncVisibleTerminalGeometry(reason: StaticString) {
         paneTabViewController?.syncVisibleTerminalGeometry(reason: reason)
@@ -27,7 +28,8 @@ class MainSplitViewController: NSSplitViewController {
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         appLifecycleStore: AppLifecycleAtom,
         tabBarAdapter: TabBarAdapter,
-        viewRegistry: ViewRegistry
+        viewRegistry: ViewRegistry,
+        closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
     ) {
         self.store = store
         self.actionExecutor = actionExecutor
@@ -35,6 +37,7 @@ class MainSplitViewController: NSSplitViewController {
         self.appLifecycleStore = appLifecycleStore
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
+        self.closeTransitionCoordinator = closeTransitionCoordinator
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -54,7 +57,8 @@ class MainSplitViewController: NSSplitViewController {
             appLifecycleStore: appLifecycleStore,
             executor: actionExecutor,
             tabBarAdapter: tabBarAdapter,
-            viewRegistry: viewRegistry
+            viewRegistry: viewRegistry,
+            closeTransitionCoordinator: closeTransitionCoordinator
         )
         self.paneTabViewController = paneTabVC
 

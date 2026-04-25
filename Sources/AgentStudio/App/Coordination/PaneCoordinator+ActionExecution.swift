@@ -496,7 +496,7 @@ extension PaneCoordinator {
             }
             teardownView(for: drawerPaneId)
             store.paneAtom.removeDrawerPane(drawerPaneId, from: parentPaneId)
-            viewRegistry.removeSlot(for: drawerPaneId)
+            viewRegistry.retireSlot(for: drawerPaneId)
             if let activeDrawerPaneId = store.paneAtom.pane(parentPaneId)?.drawer?.activePaneId {
                 focusVisiblePaneHost(activeDrawerPaneId)
             } else if willBecomeEmptyDrawer {
@@ -757,13 +757,13 @@ extension PaneCoordinator {
 
         for drawerPaneId in drawerChildIds {
             store.paneAtom.removeDrawerPane(drawerPaneId, from: paneId)
-            viewRegistry.removeSlot(for: drawerPaneId)
+            viewRegistry.retireSlot(for: drawerPaneId)
         }
 
         let allOwnedPaneIds = currentOwnedPaneIds()
         if !allOwnedPaneIds.contains(paneId) {
             store.mutationCoordinator.removePane(paneId)
-            viewRegistry.removeSlot(for: paneId)
+            viewRegistry.retireSlot(for: paneId)
         }
 
         expireOldUndoEntries()

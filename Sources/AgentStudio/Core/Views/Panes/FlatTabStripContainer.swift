@@ -70,6 +70,16 @@ struct FlatTabStripContainer: View {
                 minimizedPaneIds: minimizedPaneIds,
                 collapsedPaneWidth: effectiveCollapsedWidth
             )
+            let surfaceId = "tab:\(tabId)"
+            let renderedPaneIds: Set<UUID> = {
+                if let zoomedPaneId {
+                    return [zoomedPaneId]
+                }
+                if metrics.allMinimized {
+                    return showMinimizedBars ? Set(layout.paneIds) : []
+                }
+                return Set(metrics.paneSegments.map(\.paneId))
+            }()
             let closingPaneIds = closeTransitionCoordinator.closingPaneIds
 
             ZStack(alignment: .topLeading) {
@@ -208,7 +218,14 @@ struct FlatTabStripContainer: View {
                     startDrawerDropTargetMouseUpMonitor()
                 }
             }
+            .onAppear {
+                viewRegistry.surfaceRenderedIds(surfaceId, ids: renderedPaneIds)
+            }
+            .onChange(of: renderedPaneIds) { _, paneIds in
+                viewRegistry.surfaceRenderedIds(surfaceId, ids: paneIds)
+            }
             .onDisappear {
+                viewRegistry.unregisterSurface(surfaceId)
                 stopDropTargetMouseUpMonitor()
                 stopDrawerDropTargetMouseUpMonitor()
             }
