@@ -71,6 +71,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
         private var actionDispatcher: PaneActionDispatching
         private var traceRuntime: AgentStudioTraceRuntime?
         private var dragCorrelationID: String?
+        private var traceWriteTask: Task<Void, Never>?
 
         private(set) var paneFrames: [UUID: CGRect] = [:]
         private(set) var containerBounds: CGRect = .zero
@@ -120,6 +121,10 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
             setTarget(nil)
             dragSession = .idle
             dragCorrelationID = nil
+        }
+
+        func drainTraceEvents() async {
+            await traceWriteTask?.value
         }
 
         func hasSupportedTypes(in pasteboard: NSPasteboard) -> Bool {
@@ -227,8 +232,10 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
             var mergedAttributes = attributes
             mergedAttributes["drag.session_id"] = .string(correlationID)
             let eventAttributes = mergedAttributes
+            let previousTraceWriteTask = traceWriteTask
 
-            Task {
+            traceWriteTask = Task {
+                await previousTraceWriteTask?.value
                 do {
                     try await traceRuntime.record(
                         tag: .drag,

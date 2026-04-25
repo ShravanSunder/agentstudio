@@ -41,19 +41,16 @@ struct SplitContainerDropCaptureOverlayTraceTests {
         let target = coordinator.handleDragUpdate(from: pasteboard, location: CGPoint(x: 25, y: 50))
 
         #expect(target == PaneDropTarget(paneId: paneId, zone: .left))
+        await coordinator.drainTraceEvents()
         let outputFileURL = try #require(runtime.outputFileURL)
-        await assertEventuallyAsync("drag trace should flush to JSONL") {
-            guard let contents = try? String(contentsOf: outputFileURL, encoding: .utf8) else {
-                return false
-            }
-            return contents.contains("\"body\":\"drag.update\"")
-                && contents.contains("\"drag.accepted\":true")
-                && contents.contains("\"drag.payload.kind\":\"existing_pane\"")
-                && contents.contains("\"drag.session_id\":")
-                && contents.contains("\"drag.target.pane_id\":\"\(paneId.uuidString)\"")
-                && contents.contains("\"drag.target.zone\":\"left\"")
-                && contents.contains("\"agentstudio.correlation_id\":")
-        }
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"drag.update\""))
+        #expect(contents.contains("\"drag.accepted\":true"))
+        #expect(contents.contains("\"drag.payload.kind\":\"existing_pane\""))
+        #expect(contents.contains("\"drag.session_id\":"))
+        #expect(contents.contains("\"drag.target.pane_id\":\"\(paneId.uuidString)\""))
+        #expect(contents.contains("\"drag.target.zone\":\"left\""))
+        #expect(contents.contains("\"agentstudio.correlation_id\":"))
     }
 
     private func temporaryTraceDirectoryURL() -> URL {
