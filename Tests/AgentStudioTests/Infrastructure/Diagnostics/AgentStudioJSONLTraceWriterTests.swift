@@ -63,6 +63,27 @@ struct AgentStudioJSONLTraceWriterTests {
         #expect(lines[1].contains("\"body\":\"drag.three\""))
     }
 
+    @Test
+    func flushRotatesExistingFileWhenSizeLimitWouldBeExceeded() async throws {
+        let fileURL = temporaryTraceFileURL()
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "previous-line\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let writer = AgentStudioJSONLTraceWriter(fileURL: fileURL, maximumFileSizeBytes: 12)
+        try await writer.append(traceRecord(body: "drag.after-rotate", sequence: 1))
+        try await writer.flush()
+
+        let rotatedFileURL = fileURL.appendingPathExtension("1")
+        let rotatedContents = try String(contentsOf: rotatedFileURL, encoding: .utf8)
+        let currentContents = try String(contentsOf: fileURL, encoding: .utf8)
+
+        #expect(rotatedContents == "previous-line\n")
+        #expect(currentContents.contains("\"body\":\"drag.after-rotate\""))
+    }
+
     private func temporaryTraceFileURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-trace-writer-tests", isDirectory: true)
