@@ -4,7 +4,7 @@
 
 **Linear:** [LUNA-368](https://linear.app/askluna/issue/LUNA-368/debugging-harness-tagged-jsonl-tracer-debug-overlays-headless)
 
-**Sibling:** [LUNA-370](https://linear.app/askluna/issue/LUNA-370/drag-testing-harness-headless-layers-ad-pure-mock-hidden) owns headless drag test layers. This spec owns in-app diagnostics and local trace capture.
+**Sibling:** [LUNA-370](https://linear.app/askluna/issue/LUNA-370/drag-testing-harness-headless-layers-ad-pure-mock-hidden) and the separate drag-debug branch own drag overlays and drag-specific shell tools. This spec owns the generic in-app observability substrate and local trace capture.
 
 ## Purpose
 
@@ -17,8 +17,8 @@ Build one opt-in diagnostic harness for app investigations:
 - Ring buffer with explicit flush.
 - Sampling/throttling for high-volume streams.
 - Payload-by-correlation for heavy debug data.
-- Drag destination overlay and record-experiment ergonomics.
-- Shell tooling for triage.
+- Record-experiment ergonomics.
+- Generic shell tooling for trace triage.
 
 This spec intentionally does not implement LUNA-361 notification behavior. LUNA-361 consumes this tracer in a separate spec.
 
@@ -26,19 +26,17 @@ This spec intentionally does not implement LUNA-361 notification behavior. LUNA-
 
 ### SP1a: No-Regret Foundation
 
-LUNA-368 reaches its first useful stopping point when a developer can launch the app with drag tracing enabled, reproduce a drag issue, see the destination overlay, flush a bounded JSONL trace, and run one shell triage command against the trace.
+LUNA-368 reaches its first useful stopping point when a developer can launch the app with selected trace tags enabled, reproduce an app investigation, flush a bounded JSONL trace, and run one generic shell triage command against the trace.
 
 SP1a includes:
 
 - `swift-distributed-tracing` adopted for tracing/span/context APIs.
 - `swift-otel` adopted as the standard OTLP backend path, with local collector export allowed to stay disabled by default.
 - Stable Agent Studio JSONL exporter schema: top-level keys, `agentstudio.*` namespace, resource fields, `time_unix_nano`, and trace/span/log-like event vocabulary.
-- Propagation pattern established through one end-to-end drag flow.
+- Propagation pattern established through one non-UI diagnostic flow that crosses at least one async boundary.
 - Local JSONL file exporter, ring buffer, explicit flush, rotation, env-var control, and per-run files.
 - One span/record proof on disk with trace ID, span ID, resource, scope, and attributes.
-- Drag scope live with end-to-end trace evidence.
-- Drag destination overlay.
-- `scripts/drag-session` as the first shell triage tool.
+- One generic trace triage script that can list recent traces or inspect a trace by correlation ID/tag.
 
 SP1a does not require direct OpenTelemetry Collector ingestion and does not write OTLP JSON. It preserves the OTel-shaped internal vocabulary so an OTLP file exporter or OTLP network exporter can be added later as another sink without redesigning the tracing model.
 
@@ -47,11 +45,12 @@ SP1a does not require direct OpenTelemetry Collector ingestion and does not writ
 These slide after SP1a without architectural regret:
 
 - `eventbus`, `atoms`, `actions`, `surface`, and `restore` scopes.
-- Throttling and payload references beyond what drag immediately needs.
+- Throttling and payload references beyond the first high-volume stream that needs them.
 - `Record Experiment`.
-- `drag-diff` and `drag-repro`.
+- Domain-specific shell tools.
 - Additional OTLP rollout beyond the SP1a compile/export proof.
 - LUNA-361 notification observability consumers.
+- Drag overlay and drag-specific tooling on the separate drag branch.
 
 ## Dependency Strategy
 
@@ -71,7 +70,7 @@ AgentStudioJSONLTraceSink
 
 JSONL is an exporter, not a separate tracing model. Instrumentation creates spans and span events through the tracing API; the app-local JSONL exporter serializes those records for local diagnostics. The later OTLP network path uses `swift-otel`; an OTLP JSON file exporter is custom work if we want collector-readable files on disk.
 
-SP1a should include a compile/export proof for `swift-otel`: one span can be emitted through the Swift tracing stack and sent through the backend path in a controlled local/dev configuration. The production debugging flow still writes Agent Studio JSONL locally so drag sessions, shell tools, and fixtures do not depend on a running collector or OTLP file reader.
+SP1a should include a compile/export proof for `swift-otel`: one span can be emitted through the Swift tracing stack and sent through the backend path in a controlled local/dev configuration. The production debugging flow still writes Agent Studio JSONL locally so trace review, shell tools, and fixtures do not depend on a running collector or OTLP file reader.
 
 ## Terminology
 
@@ -106,17 +105,13 @@ window.id
 command.id
 envelope.seq
 surface.id
-drag.session_id
 ```
 
 ## Trace Tags
 
-Start with the LUNA-368 ticket tags. Add more only when a real investigation needs them.
+Start with generic observability tags. Add consumer tags only when a real investigation needs them.
 
 ```
-drag
-  Destination register/enter/update/exit/performDrop plus source init/onAppear.
-
 atoms
   State mutations with before/after summaries. Requires payload-by-correlation first.
 
@@ -139,6 +134,7 @@ restore
 Reserved later tags:
 
 ```
+drag
 app.focus
 inbox
 ui.surface
@@ -147,20 +143,19 @@ drawer
 style
 ```
 
-These are consumer tags. They should not block the LUNA-368 tracer foundation.
+These are consumer tags. They should not block the LUNA-368 tracer foundation. `drag` is explicitly owned by the separate drag-debug branch in this repo, not this notification-observability branch.
 
 ## Environment
 
 ```
-AGENTSTUDIO_TRACE_TAGS=drag,eventbus,runtime
-AGENTSTUDIO_TRACE_NAME=drawer-target-smoke
+AGENTSTUDIO_TRACE_TAGS=eventbus,runtime
+AGENTSTUDIO_TRACE_NAME=runtime-envelope-smoke
 AGENTSTUDIO_TRACE_DIR=/tmp
 ```
 
 Selectors:
 
 ```
-AGENTSTUDIO_TRACE_TAGS=drag
 AGENTSTUDIO_TRACE_TAGS=runtime,eventbus
 AGENTSTUDIO_TRACE_TAGS=surface.*
 AGENTSTUDIO_TRACE_TAGS=*
@@ -194,7 +189,7 @@ This is the app-local Agent Studio JSONL exporter shape. It serializes tracing r
     "version": "0.1.0"
   },
   "attributes": {
-    "agentstudio.trace.name": "drawer-target-smoke",
+    "agentstudio.trace.name": "runtime-envelope-smoke",
     "agentstudio.trace.tag": "eventbus",
     "agentstudio.session.id": "01JSP7V3Q6SESSION",
     "event.name": "eventbus.post",
@@ -213,7 +208,7 @@ Rules:
 - `time_unix_nano` is canonical. Shell tools can format ISO time on read.
 - `scope.name` is the instrumentation library identifier for the emitting code path.
 - `scope.version` is the instrumentation scope release/schema version. Bump it when the emitted record shape for that scope changes.
-- Shell tools must not group by `trace_id` alone. Use domain IDs such as `drag.session_id`, `command.id`, or `envelope.seq` when an orphan span lacks a parent trace.
+- Shell tools must not group by `trace_id` alone. Use domain IDs such as `command.id`, `runtime.session_id`, or `envelope.seq` when an orphan span lacks a parent trace.
 
 ## Attribute Discipline
 
@@ -226,18 +221,18 @@ resource
 
 scope
   Instrumentation scope facts.
-  Examples: agentstudio.eventbus, agentstudio.drag, agentstudio.runtime.
+  Examples: agentstudio.eventbus, agentstudio.actions, agentstudio.runtime.
 
 attributes
   Per-record domain facts.
-  Examples: envelope.seq, pane.id, command.id, drag.session_id.
+  Examples: envelope.seq, pane.id, command.id, runtime.session_id.
 ```
 
 Do not move per-event domain IDs into `resource` or `scope`. Do not duplicate stable app identity into every event attribute.
 
 ## Propagation Model
 
-Swift actor hops make implicit propagation risky. SP1a uses `swift-distributed-tracing` as the propagation contract, but does not assume implicit propagation works everywhere. The first implementation passes context explicitly across risky boundaries and proves one drag flow across AppKit ingress, `@MainActor`, `Task`, actor hops, and `@concurrent nonisolated`.
+Swift actor hops make implicit propagation risky. SP1a uses `swift-distributed-tracing` as the propagation contract, but does not assume implicit propagation works everywhere. The first implementation passes context explicitly across risky boundaries and proves one non-UI diagnostic flow across `Task`, actor hops, and file-writer actor boundaries.
 
 ```
 ServiceContext
@@ -255,7 +250,7 @@ Rules:
 - If no context exists, the tracer may create an orphan span with `agentstudio.trace.orphan=true`.
 - Do not rely only on TaskLocal propagation in SP1a.
 - Do not create an app-owned `TraceContext` unless the library API leaves a concrete gap. Prefer `ServiceContext` plus domain IDs in span attributes.
-- Document the drag propagation path as the pattern future scopes follow.
+- Document the proven propagation path as the pattern future scopes follow.
 
 ## Ownership And Concurrency
 
@@ -290,7 +285,7 @@ Disabled behavior must avoid allocation-heavy payload construction. Prefer autoc
 SP1a
   AgentStudioJSONL exporter in the swift-otel processor/exporter shape.
   Persistent local debugging and fixture capture.
-  ServiceContext-shaped context propagated through one drag flow.
+  ServiceContext-shaped context propagated through one non-UI diagnostic flow.
   swift-otel compile/export proof for one span.
 
 SP1b+
@@ -306,14 +301,14 @@ Ring buffering should live in the processor/exporter pipeline, not as a parallel
 
 ## Sampling And Throttling
 
-Required for `drag`.
+Required for high-volume tags such as `eventbus`, `atoms`, terminal activity, or future drag instrumentation.
 
 API shape:
 
 ```swift
 Tracer.throttled(
-    .drag,
-    key: dragSessionId,
+    .eventbus,
+    key: envelopeStreamId,
     every: 25
 ) {
     TraceEvent(...)
@@ -329,7 +324,7 @@ Behavior:
 
 Acceptance:
 
-- A drag session with 200+ updates produces a compact but useful trace.
+- A high-volume stream with 200+ updates produces a compact but useful trace.
 - Dropped counts are visible.
 
 ## Payload-By-Correlation
@@ -338,10 +333,10 @@ Heavy data should be dumped once and referenced later.
 
 Examples:
 
-- Pasteboard type lists.
 - View ancestry.
 - Atom before/after payloads.
-- Drag target rect collections.
+- Event envelope summaries.
+- Runtime state snapshots.
 
 Record shape:
 
@@ -349,9 +344,9 @@ Record shape:
 {
   "body": "payload.dump",
   "attributes": {
-    "payload.ref": "drag-session-abc:view-tree",
+    "payload.ref": "runtime-session-abc:view-tree",
     "payload.kind": "view-tree",
-    "drag.session_id": "abc"
+    "runtime.session_id": "abc"
   }
 }
 ```
@@ -360,37 +355,22 @@ Later records use:
 
 ```json
 {
-  "body": "drag.resolveTarget",
+  "body": "runtime.emitEnvelope",
   "attributes": {
-    "payload.ref": "drag-session-abc:view-tree"
+    "payload.ref": "runtime-session-abc:view-tree"
   }
 }
 ```
 
 Payload retention follows the trace file lifecycle.
 
-## Drag Overlay
+## Debug Overlays
 
-The drag overlay is part of LUNA-368, not a follow-up.
+Debug overlays are intentionally outside this notification-observability branch.
 
-UI:
-
-```
-Debug -> Show Drag Destinations
-Shortcut: Option-Command-D
-```
-
-Behavior:
-
-- Draw every `NSView` registered for drag types.
-- Label owner tag, bounds, and accepted pasteboard types.
-- Highlight the active destination during a drag.
-- Include session ID in overlay labels when recording.
-
-Acceptance:
-
-- During a drawer drag, the overlay makes it obvious which view owns the active destination.
-- The overlay can be toggled without restarting the app.
+- Drag destination overlays belong to the separate drag-debug branch and LUNA-370-adjacent work.
+- LUNA-368 may still define the generic trace/export substrate those overlays consume.
+- Do not add split-view or drag-specific UI changes to this branch as part of SP1a.
 
 ## Record Experiment
 
@@ -413,20 +393,18 @@ Acceptance:
 
 ## Shell Tools
 
-Minimum scripts:
+Minimum generic scripts:
 
 ```
-scripts/drag-session <sessionID>
-scripts/drag-diff <traceA> <traceB>
-scripts/drag-repro <sessionID>
+scripts/trace-recent
+scripts/trace-flow <correlationID>
 ```
 
 Acceptance:
 
-- `drag-session` prints destination timeline, target distribution, pasteboard types, and drop result.
-- `drag-diff` compares two traces side by side.
-- `drag-repro` emits a test stub or fixture seed from captured positions.
-- Scripts group by domain IDs first for domain-specific workflows. `drag-session` uses `drag.session_id`; command tools use `command.id`; runtime tools use `runtime.session_id` or `envelope.seq`. `trace_id` is a flow correlation aid, not the only grouping key.
+- `trace-recent` lists recent trace files and their tags/counts.
+- `trace-flow` prints all records matching `trace_id`, `agentstudio.correlation_id`, or a supplied domain ID.
+- Scripts group by domain IDs first for domain-specific workflows. Command tools use `command.id`; runtime tools use `runtime.session_id` or `envelope.seq`; notification tools use `notification.id` or `pane.id`. `trace_id` is a flow correlation aid, not the only grouping key.
 - Scripts format `time_unix_nano` into human-readable time on output.
 
 ## Implementation Tasks
@@ -453,13 +431,12 @@ Acceptance:
 - [ ] Add file-rotation tests for long sessions.
 - [ ] Add unflushed-buffer/crash-safety policy tests. Default expectation: best effort, with the last buffered records allowed to be lost on SIGKILL unless `AGENTSTUDIO_TRACE_FLUSH=immediate` is set.
 
-### SP1a Task C: Drag Propagation And Overlay
+### SP1a Task C: Propagation Proof And Generic Triage
 
-- [ ] Add `drag` destination/source trace events.
-- [ ] Prove context propagation through one full drag flow.
-- [ ] Add drag destination overlay.
-- [ ] Add `scripts/drag-session`.
-- [ ] Capture end-to-end trace evidence for a drawer drag.
+- [ ] Prove context/correlation propagation through one non-UI diagnostic flow.
+- [ ] Add `scripts/trace-recent`.
+- [ ] Add `scripts/trace-flow`.
+- [ ] Capture one JSONL evidence file proving records can be inspected by tag and correlation ID.
 
 ### SP1b Task D: Sampling And Payload References
 
@@ -478,8 +455,7 @@ Acceptance:
 ### SP1b Task F: Experiment Ergonomics And Extra Shell Tools
 
 - [ ] Add record-experiment menu path.
-- [ ] Add `drag-diff`.
-- [ ] Add `drag-repro`.
+- [ ] Add domain-specific trace tools only after a consumer spec needs them.
 - [ ] Decide whether always-available collector export belongs in the next implementation plan.
 
 ## Non-Goals
@@ -488,11 +464,13 @@ Acceptance:
 - Metrics.
 - Always-on production tracing.
 - LUNA-361 notification behavior.
+- Drag destination overlays or split-view UI changes.
+- Drag-specific shell tools.
 - LUNA-370 headless test layers.
 
 ## Open Questions
 
-1. Which flows get explicit `trace_id` creation first: drag sessions, command dispatch, runtime envelopes, or focus changes?
+1. Which generic flow gets explicit `trace_id` creation first: command dispatch, runtime envelopes, eventbus delivery, or focus changes?
 2. Should `eventbus.deliver` default to one summary record, with per-subscriber delivery under `eventbus.verbose`?
 3. What are the first allowed heavy payload kinds?
 4. Should `Record Experiment` write into `/tmp` only, or under an app diagnostics folder?

@@ -352,7 +352,7 @@ For each command:
 ## Non-Goals
 
 - Generic tracer implementation details owned by LUNA-368.
-- Drag overlay and drag shell tooling owned by LUNA-368.
+- Drag overlay and drag shell tooling owned by the separate drag-debug branch.
 - Headless drag tests owned by LUNA-370.
 - Raw terminal file-link parsing owned by `2026-04-24-terminal-output-file-link-tracking-followup.md`.
 - Full OTel collector export.
