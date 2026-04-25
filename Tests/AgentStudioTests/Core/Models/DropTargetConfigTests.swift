@@ -21,7 +21,8 @@ struct DropTargetConfigTests {
         let config = DropTargetConfig.drawerSingleRow
 
         #expect(config.rows == [.drawerTop])
-        #expect(config.newRowBand?.bandHeight == 28)
+        #expect(config.newRowBand?.heightRatio == 0.2)
+        #expect(config.newRowBand?.minHeight == 28)
         #expect(config.edgeCorridorWidth == 0)
         #expect(config.allowsPaneSplit)
     }
