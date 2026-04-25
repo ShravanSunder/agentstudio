@@ -31,16 +31,32 @@ final class DrawerDismissMonitor {
             guard let screenMaxY = (window.screen ?? NSScreen.main)?.frame.maxY else { return event }
             let globalPoint = CGPoint(x: screenPoint.x, y: screenMaxY - screenPoint.y)
 
-            if self.shouldDismiss(globalPoint: globalPoint) {
-                self.onDismiss()
-            }
-            return event
+            // Returning nil consumes the event so the same click cannot also
+            // make the underlying main pane firstResponder. Returning event
+            // would dismiss the drawer AND focus whatever NSView is below —
+            // a regression where outside clicks toggle drawer visibility but
+            // also activate the main pane content underneath.
+            return self.handleMouseDown(globalPoint: globalPoint) ? nil : event
         }
     }
 
+    /// Outside-click dismissal test.
+    ///
+    /// Returns true when the click is outside both the drawer panel + connector
+    /// region and the icon bar. Empty rects contain no points, so a click
+    /// during a transient frame reset is treated as "outside both" and
+    /// dismisses — this matches the working debug-branch behavior. The
+    /// non-zero-only preference reducers keep `drawerRect` and `iconBarRect`
+    /// stable across SwiftUI re-publish cycles.
     func shouldDismiss(globalPoint: CGPoint) -> Bool {
-        guard !drawerRect.isEmpty else { return false }
-        return !drawerRect.contains(globalPoint) && !iconBarRect.contains(globalPoint)
+        !drawerRect.contains(globalPoint) && !iconBarRect.contains(globalPoint)
+    }
+
+    @discardableResult
+    func handleMouseDown(globalPoint: CGPoint) -> Bool {
+        guard shouldDismiss(globalPoint: globalPoint) else { return false }
+        onDismiss()
+        return true
     }
 
     func remove() {
@@ -60,10 +76,15 @@ final class DrawerDismissMonitor {
 // MARK: - Preference Key for Drawer Panel Global Frame
 
 /// Reports the drawer panel's frame in the global coordinate space for outside-click dismissal.
+///
+/// The reducer keeps the last non-zero value. SwiftUI publishes `.zero` during
+/// transitions and teardown; accepting those would erase the real frame and
+/// silently break the dismiss monitor's outside-click test.
 struct DrawerPanelGlobalFrameKey: PreferenceKey {
     static let defaultValue: CGRect = .zero
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        value = nextValue()
+        let next = nextValue()
+        if next != .zero { value = next }
     }
 }
 
@@ -71,10 +92,14 @@ struct DrawerPanelGlobalFrameKey: PreferenceKey {
 
 /// Reports the drawer panel frame in the `"tabContainer"` coordinate space.
 /// FlatTabStripContainer uses this to mount drawer drag capture at tab level.
+///
+/// Same non-zero-only reducer as `DrawerPanelGlobalFrameKey`: a transient
+/// zero update during a transition must not unmount the drawer capture.
 struct DrawerPanelFrameInTabKey: PreferenceKey {
     static let defaultValue: CGRect = .zero
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        value = nextValue()
+        let next = nextValue()
+        if next != .zero { value = next }
     }
 }
 
@@ -82,10 +107,14 @@ struct DrawerPanelFrameInTabKey: PreferenceKey {
 
 /// Reports the icon bar's frame in the global coordinate space.
 /// DrawerPanelOverlay reads this to exclude the icon bar from dismiss hit testing.
+///
+/// Same non-zero-only reducer: stale-but-real frame is preferred over a
+/// transient zero so the dismiss monitor never loses its exclusion zone.
 struct DrawerIconBarFrameKey: PreferenceKey {
     static let defaultValue: CGRect = .zero
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        value = nextValue()
+        let next = nextValue()
+        if next != .zero { value = next }
     }
 }
 
