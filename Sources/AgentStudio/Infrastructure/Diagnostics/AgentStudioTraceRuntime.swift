@@ -1,4 +1,6 @@
 import Foundation
+import OTel
+import Tracing
 
 struct AgentStudioTraceRuntime: Sendable {
     private let configuration: AgentStudioTraceConfiguration
@@ -62,6 +64,7 @@ struct AgentStudioTraceRuntime: Sendable {
         tag: AgentStudioTraceTag,
         body: String,
         severityText: String = "INFO",
+        context: ServiceContext? = ServiceContext.current,
         traceID: String? = nil,
         spanID: String? = nil,
         parentSpanID: String? = nil,
@@ -71,12 +74,15 @@ struct AgentStudioTraceRuntime: Sendable {
 
         var mergedAttributes = attributes()
         mergedAttributes["agentstudio.trace.tag"] = .string(tag.rawValue)
+        if let correlationID = context?.agentStudioCorrelationID {
+            mergedAttributes["agentstudio.correlation_id"] = .string(correlationID)
+        }
 
         let record = AgentStudioTraceRecord(
             timeUnixNano: timeUnixNano(),
             severityText: severityText,
             body: body,
-            traceID: traceID,
+            traceID: traceID ?? context?.otelTraceID,
             spanID: spanID,
             parentSpanID: parentSpanID,
             resource: resource,

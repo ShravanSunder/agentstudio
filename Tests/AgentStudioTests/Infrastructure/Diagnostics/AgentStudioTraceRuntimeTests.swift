@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Tracing
 
 @testable import AgentStudio
 
@@ -94,6 +95,30 @@ struct AgentStudioTraceRuntimeTests {
         let outputFileURL = try #require(runtime.outputFileURL)
         #expect(!FileManager.default.fileExists(atPath: outputFileURL.path))
         #expect(!evaluationFlag.didEvaluate)
+    }
+
+    @Test
+    func recordCopiesServiceContextCorrelationIDIntoAttributes() async throws {
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_TAGS": "drag",
+            ]),
+            processIdentifier: 321,
+            timeUnixNano: { 99 }
+        )
+        var context = ServiceContext.topLevel
+        context.agentStudioCorrelationID = "drag-session-1"
+
+        try await ServiceContext.withValue(context) {
+            try await runtime.record(tag: .drag, body: "drag.update")
+        }
+        try await runtime.flush()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"agentstudio.correlation_id\":\"drag-session-1\""))
     }
 
     private func temporaryTraceDirectoryURL() -> URL {
