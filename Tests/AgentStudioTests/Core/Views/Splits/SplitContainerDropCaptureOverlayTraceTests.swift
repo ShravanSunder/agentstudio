@@ -49,6 +49,7 @@ struct SplitContainerDropCaptureOverlayTraceTests {
             return contents.contains("\"body\":\"drag.update\"")
                 && contents.contains("\"drag.accepted\":true")
                 && contents.contains("\"drag.payload.kind\":\"existing_pane\"")
+                && contents.contains("\"drag.session_id\":")
                 && contents.contains("\"drag.target.pane_id\":\"\(paneId.uuidString)\"")
                 && contents.contains("\"drag.target.zone\":\"left\"")
                 && contents.contains("\"agentstudio.correlation_id\":")

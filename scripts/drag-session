@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  scripts/drag-session <session-id> [trace-file]
+  scripts/drag-session --list [trace-file]
+
+Defaults to the newest /tmp/agentstudio-*.jsonl trace file when trace-file is omitted.
+USAGE
+}
+
+if [[ $# -lt 1 || "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  usage
+  exit 0
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "drag-session requires jq" >&2
+  exit 1
+fi
+
+mode="$1"
+trace_file="${2:-}"
+
+if [[ -z "$trace_file" ]]; then
+  trace_file="$(ls -t /tmp/agentstudio-*.jsonl 2>/dev/null | head -n 1 || true)"
+fi
+
+if [[ -z "$trace_file" || ! -f "$trace_file" ]]; then
+  echo "No trace file found. Pass a trace file or set AGENTSTUDIO_TRACE_DIR/NAME before launching." >&2
+  exit 1
+fi
+
+if [[ "$mode" == "--list" ]]; then
+  jq -r '
+    select(.attributes["agentstudio.trace.tag"] == "drag")
+    | .attributes["drag.session_id"] // .attributes["agentstudio.correlation_id"] // empty
+  ' "$trace_file" | sort -u
+  exit 0
+fi
+
+session_id="$mode"
+
+jq -r --arg session "$session_id" '
+  select(.attributes["agentstudio.trace.tag"] == "drag")
+  | select((.attributes["drag.session_id"] // .attributes["agentstudio.correlation_id"]) == $session)
+  | [
+      (.time_unix_nano | tostring),
+      .body,
+      (.attributes["drag.state"] // "-"),
+      (.attributes["drag.payload.kind"] // "-"),
+      (.attributes["drag.accepted"] // "-" | tostring),
+      (.attributes["drag.target.zone"] // "-"),
+      (.attributes["drag.target.pane_id"] // "-"),
+      ((.attributes["drag.pasteboard.types"] // []) | join(","))
+    ]
+  | @tsv
+' "$trace_file" | awk '
+  BEGIN {
+    printf "%-20s  %-22s  %-11s  %-14s  %-8s  %-5s  %-36s  %s\n", "time_unix_nano", "event", "state", "payload", "accepted", "zone", "target_pane", "pasteboard_types"
+    printf "%-20s  %-22s  %-11s  %-14s  %-8s  %-5s  %-36s  %s\n", "--------------", "-----", "-----", "-------", "--------", "----", "-----------", "----------------"
+  }
+  {
+    printf "%-20s  %-22s  %-11s  %-14s  %-8s  %-5s  %-36s  %s\n", $1, $2, $3, $4, $5, $6, $7, $8
+  }
+'

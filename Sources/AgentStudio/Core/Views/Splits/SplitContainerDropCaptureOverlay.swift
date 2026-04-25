@@ -224,6 +224,9 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
             guard let traceRuntime, traceRuntime.isEnabled(.drag) else { return }
             let correlationID = dragCorrelationID ?? UUID().uuidString
             dragCorrelationID = correlationID
+            var mergedAttributes = attributes
+            mergedAttributes["drag.session_id"] = .string(correlationID)
+            let eventAttributes = mergedAttributes
 
             Task {
                 do {
@@ -231,7 +234,7 @@ struct SplitContainerDropCaptureOverlay: NSViewRepresentable {
                         tag: .drag,
                         body: body,
                         correlationID: correlationID,
-                        attributes: attributes
+                        attributes: eventAttributes
                     )
                     try await traceRuntime.flush()
                 } catch {
