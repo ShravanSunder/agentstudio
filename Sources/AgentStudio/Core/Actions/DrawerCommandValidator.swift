@@ -23,7 +23,7 @@ enum DrawerCommandValidator {
         wouldCreateThirdRow: Bool
     ) -> Result<Void, ActionValidationError> {
         let rowCount = resultingLayout.bottomRow == nil ? 1 : 2
-        guard rowCount <= 2, wouldCreateThirdRow == false else {
+        guard rowCount <= AppPolicies.DragAndDrop.drawerMaxRows, wouldCreateThirdRow == false else {
             return .failure(
                 .invalidDrawerLayout(parentPaneId: parentPaneId, reason: .resultingLayoutWouldCreateThirdRow)
             )
