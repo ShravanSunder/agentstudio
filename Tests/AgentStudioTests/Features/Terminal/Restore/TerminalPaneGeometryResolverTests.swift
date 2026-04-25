@@ -52,6 +52,44 @@ struct TerminalPaneGeometryResolverTests {
         #expect(resolved[pane] != CGRect(x: 0, y: 0, width: 800, height: 600))
     }
 
+    /// Issue #11 — in a 2-row drawer layout, the "top" row must paint
+    /// at the SMALLER y (visually higher) and the "bottom" row at the
+    /// LARGER y (visually lower) under SwiftUI's flipped coordinate
+    /// system (origin top-left, y grows down).
+    ///
+    /// The original geometry resolver had the labels inverted: the
+    /// rect named `bottomRect` was placed at `availableRect.minY`
+    /// (visually the top) and `topRect` was anchored below it. Top-row
+    /// panes therefore rendered at the bottom of the panel and vice
+    /// versa.
+    @Test
+    func geometryResolver_twoRowDrawer_topRowPaintsAtSmallerY_bottomRowAtLargerY() {
+        let topPane = UUID()
+        let bottomPane = UUID()
+        let layout = DrawerGridLayout(
+            topRow: Layout(paneId: topPane),
+            bottomRow: Layout(paneId: bottomPane),
+            rowSplitRatio: 0.5
+        )
+
+        let resolved = TerminalPaneGeometryResolver.resolveFrames(
+            for: layout,
+            in: CGRect(x: 0, y: 0, width: 400, height: 200),
+            dividerThickness: 1,
+            collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
+        )
+
+        let topFrame = resolved[topPane]!
+        let bottomFrame = resolved[bottomPane]!
+
+        // Top pane is visually higher → smaller minY (origin top-left).
+        #expect(topFrame.minY < bottomFrame.minY)
+        // Top pane occupies the upper half (around minY=0).
+        #expect(topFrame.minY < 100)
+        // Bottom pane occupies the lower half (around minY=100+).
+        #expect(bottomFrame.minY > 100)
+    }
+
     @Test
     func geometryResolver_usesProvidedCollapsedPaneWidth_forMinimizedPanes() {
         let paneA = UUID()
