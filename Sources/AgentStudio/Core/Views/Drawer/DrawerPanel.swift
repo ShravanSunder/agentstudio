@@ -195,7 +195,10 @@ struct DrawerPanel: View {
                     DrawerResizeHandle(onDrag: onResize)
 
                     if !layout.isEmpty {
-                        VStack(spacing: DrawerLayout.panelContentPadding) {
+                        // Row-to-row spacing matches horizontal pane gap so the
+                        // grid reads as a uniform 2x2 arrangement instead of
+                        // two visually separate strips.
+                        VStack(spacing: AppStyles.General.Layout.paneGap) {
                             rowContent(layout.topRow)
                             if let bottomRow = layout.bottomRow {
                                 rowContent(bottomRow)
