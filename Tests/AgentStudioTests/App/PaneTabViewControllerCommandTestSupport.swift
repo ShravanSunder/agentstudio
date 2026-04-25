@@ -68,6 +68,7 @@ func makePaneTabViewControllerCommandHarness(
         runtime: runtime,
         surfaceManager: surfaceManager,
         runtimeRegistry: runtimeRegistry,
+        closeTransitionCoordinator: closeTransitionCoordinator,
         windowLifecycleStore: windowLifecycleStore
     )
     let executor = ActionExecutor(coordinator: coordinator, store: store)

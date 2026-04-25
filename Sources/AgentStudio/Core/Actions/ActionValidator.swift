@@ -90,7 +90,7 @@ enum WorkspaceCommandValidator {
             return .success(ValidatedAction(.renameTab(tabId: tabId, name: trimmedName)))
 
         case .closePane(let tabId, let paneId):
-            guard let tab = state.tab(tabId) else {
+            guard state.tab(tabId) != nil else {
                 return .failure(.tabNotFound(tabId: tabId))
             }
             guard state.tabOwnsPane(tabId, paneId: paneId) else {

@@ -222,6 +222,44 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(harness.store.pane(parent.id)?.drawer?.paneIds.count == 1)
     }
 
+    @Test("p does not create first drawer pane while text input owns focus")
+    func rawP_openEmptyDrawerWithTextInputFocus_fallsThrough() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parent.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(parent.id, inTab: tab.id)
+        harness.store.toggleDrawer(for: parent.id)
+        atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parent.id)
+
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        let textView = NSTextView()
+        window.contentView?.addSubview(textView)
+        #expect(window.makeFirstResponder(textView))
+        #expect(window.firstResponder === textView)
+
+        let event = try #require(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "p",
+                charactersIgnoringModifiers: "p",
+                isARepeat: false,
+                keyCode: 35
+            )
+        )
+
+        #expect(!harness.controller.handleAppOwnedKeyEvent(event, requiresNeutralDrawerFocus: true))
+        #expect(harness.store.pane(parent.id)?.drawer?.paneIds.isEmpty == true)
+    }
+
     @Test("p creating the first drawer pane upgrades canonical focus owner to that drawer pane")
     func rawP_openEmptyDrawerWithEmptyDrawerFocus_updatesFocusOwnerToDrawerPane() throws {
         let harness = makeHarness()

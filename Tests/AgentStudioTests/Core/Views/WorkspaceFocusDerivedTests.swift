@@ -195,27 +195,45 @@ struct WorkspacePaneFocusDerivedTests {
         }
     }
 
-    /// Codex P2 — when focus normalizes to .drawerPane(parent, child),
-    /// the derived focus must report the CHILD pane's identity and
-    /// metadata. Previously activePaneId / activeRepoId / activeWorktreeId
-    /// / paneContentType all came from the PARENT pane, so command-bar
-    /// filtering, status strip, and menu visibility described the parent
-    /// while the user was focused inside the drawer.
     @Test
-    func focusedDrawerPane_reportsDrawerPaneIdentityNotParent() {
+    func focusedDrawerPane_reportsDrawerPaneIdentityAndMetadataNotParent() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
                 catalogAtom: atoms.workspaceRepositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
-            let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+            let parentRepoId = UUID()
+            let parentWorktreeId = UUID()
+            let drawerRepoId = UUID()
+            let drawerWorktreeId = UUID()
+            let parentPane = store.createPane(
+                source: .worktree(
+                    worktreeId: parentWorktreeId,
+                    repoId: parentRepoId,
+                    launchDirectory: URL(filePath: "/tmp/parent-worktree")
+                ),
+                title: "Parent"
+            )
             let tab = Tab(paneId: parentPane.id)
             store.appendTab(tab)
             store.setActiveTab(tab.id)
             store.setActivePane(parentPane.id, inTab: tab.id)
 
-            guard let drawerPane = store.addDrawerPane(to: parentPane.id) else {
+            guard
+                let drawerPane = atoms.workspacePane.addDrawerPane(
+                    to: parentPane.id,
+                    content: .webview(WebviewState(url: URL(string: "https://drawer.example")!)),
+                    metadata: PaneMetadata(
+                        source: .worktree(
+                            worktreeId: drawerWorktreeId,
+                            repoId: drawerRepoId,
+                            launchDirectory: URL(filePath: "/tmp/drawer-worktree")
+                        ),
+                        title: "Drawer Web"
+                    )
+                )
+            else {
                 Issue.record("Expected drawer pane")
                 return
             }
@@ -230,8 +248,10 @@ struct WorkspacePaneFocusDerivedTests {
 
             // Focus state correctly identifies the drawer child.
             #expect(focus.drawerFocusState == .drawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id))
-            // BUT activePaneId must also point at the drawer child, not parent.
             #expect(focus.activePaneId == drawerPane.id)
+            #expect(focus.activeRepoId == drawerRepoId)
+            #expect(focus.activeWorktreeId == drawerWorktreeId)
+            #expect(focus.paneContentType == .webview)
         }
     }
 }

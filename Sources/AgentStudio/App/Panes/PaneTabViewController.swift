@@ -1154,6 +1154,14 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         _ event: NSEvent,
         requiresNeutralDrawerFocus: Bool = true
     ) -> Bool {
+        if requiresNeutralDrawerFocus,
+            let trigger = ShortcutDecoder.decode(event: event),
+            ShortcutDecoder.shortcut(for: trigger, in: .emptyDrawer) == .addDrawerPane,
+            rawCharacterHasTextResponder(for: event)
+        {
+            return false
+        }
+
         if shouldCreateFirstDrawerPane(
             from: event,
             requiresNeutralFocus: requiresNeutralDrawerFocus
@@ -1244,8 +1252,6 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         // primary cmd-shift-D goes through the global path elsewhere.
         guard
             atom(\.managementLayer).isActive == false,
-            case .emptyDrawer(let parentPaneId) = normalizedWorkspaceNavigationScopeState(),
-            store.paneAtom.pane(parentPaneId)?.drawer?.paneIds.isEmpty == true,
             let trigger = ShortcutDecoder.decode(event: event),
             ShortcutDecoder.shortcut(for: trigger, in: .emptyDrawer) == .addDrawerPane
         else {
@@ -1258,12 +1264,27 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         // performKeyEquivalent path opts out of this gate because
         // modifier-keyed shortcuts can fire even with a text field
         // focused.
-        if requiresNeutralFocus,
-            !Self.isNeutralResponderForRawCharacter(NSApp.keyWindow?.firstResponder)
-        {
+        if requiresNeutralFocus, rawCharacterHasTextResponder(for: event) {
+            return false
+        }
+
+        guard
+            case .emptyDrawer(let parentPaneId) = normalizedWorkspaceNavigationScopeState(),
+            store.paneAtom.pane(parentPaneId)?.drawer?.paneIds.isEmpty == true
+        else {
             return false
         }
         return true
+    }
+
+    private func rawCharacterHasTextResponder(for event: NSEvent) -> Bool {
+        let responders = [
+            event.window?.firstResponder,
+            NSApp.window(withWindowNumber: event.windowNumber)?.firstResponder,
+            view.window?.firstResponder,
+            NSApp.keyWindow?.firstResponder,
+        ]
+        return responders.contains { !Self.isNeutralResponderForRawCharacter($0) }
     }
 
     /// A responder is "neutral" for raw character keystrokes when it

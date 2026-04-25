@@ -116,6 +116,19 @@ struct AppShortcutSpec: Equatable {
     /// for context-specific bindings (e.g. raw-character P fires
     /// `addDrawerPane` in `.emptyDrawer` while the modifier-keyed
     /// cmd-shift-D primary fires it globally).
+    ///
+    /// TODO — long-term shape needs more thought:
+    ///   ▸ Today only `.emptyDrawer` prefers an alternate (via
+    ///     `displayTrigger(in:)`). Once a second context wants its
+    ///     own alternate the heuristic ("first no-modifier alternate")
+    ///     stops being expressive enough — likely needs a per-context
+    ///     map (`[ShortcutContext: ShortcutTrigger]`).
+    ///   ▸ Multi-modifier alternates aren't covered yet (the picker
+    ///     filter assumes raw character).
+    ///   ▸ Open question whether alternates should also surface in
+    ///     menus / tooltips that span multiple contexts.
+    /// Pattern works for the single case it's used in (addDrawerPane);
+    /// revisit when the second consumer lands.
     let alternateTriggers: [ShortcutTrigger]
 
     let contexts: Set<ShortcutContext>
