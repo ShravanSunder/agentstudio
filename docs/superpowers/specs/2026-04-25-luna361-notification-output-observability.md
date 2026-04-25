@@ -34,6 +34,8 @@ notification appended but UI did not update
 notification appended then focus marked it read/dismissed
 ```
 
+This stopping point is observability-only. It does not decide whether "unseen activity" should become a product feature.
+
 ## Trace Tags Used
 
 Consumer tags:
@@ -87,6 +89,15 @@ unseen activity indicator
 ```
 
 Do not route all output directly to the notification inbox. The inbox remains for semantic/actionable events. Output bursts first become unseen activity.
+
+`unseen activity` is a product concept, not just instrumentation. Before implementing notification behavior changes, run a UX/product brainstorm and decide whether unseen activity is:
+
+- a separate lightweight indicator,
+- a replacement for some duration-threshold command-finished notifications,
+- a source that can promote into inbox notifications, or
+- out of scope for the current milestone.
+
+Until that decision is made, this spec should only collect evidence for raw output/activity gaps.
 
 ## Five Proof Cases
 
@@ -317,6 +328,7 @@ For each command:
 
 ### Task C: Instrument UI Surface Counts
 
+- [ ] Resolve whether scoped count calculations need view models before tracing. Counts must be headlessly testable before this task starts.
 - [ ] Toolbar bell count.
 - [ ] Drawer bell count.
 - [ ] Drawer popover open/row count.
