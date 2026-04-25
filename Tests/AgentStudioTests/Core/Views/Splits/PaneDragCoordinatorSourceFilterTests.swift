@@ -18,8 +18,17 @@ import Testing
 ///
 /// Single-pane row produces no valid targets (R6 — empty visuals).
 ///
-/// Source pane not in the coordinator's paneFrames → returns nil
-/// (R17 — defensive cross-container guard).
+/// SIBLING-PROMOTION exception: when an adjacent-slot rejection (R2)
+/// fires while the cursor is in a foreign sibling pane's 1/4 zone,
+/// the resolver promotes the target to `split(sibling, side)` so the
+/// 1/4 zone always gives commit feedback over a foreign pane.
+/// Cursor over the source pane's own 1/4 stays a dead zone.
+///
+/// Cross-tab drag (source not in this row's paneFrames) skips R1+R2
+/// because there's no adjacency to enforce — every geometric target
+/// in this row is foreign-valid (R17). Cross-CONTAINER rejection
+/// (main↔drawer) is enforced upstream by shouldHandleSplitDragPayload,
+/// not at the resolver.
 ///
 /// Minimized neighbor composes with source filtering (R10).
 ///

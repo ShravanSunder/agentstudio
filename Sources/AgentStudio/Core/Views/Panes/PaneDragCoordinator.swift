@@ -189,11 +189,12 @@ struct PaneDragCoordinator {
 
     /// Resolve the visual for a single active drop target.
     ///
-    /// `PaneDropTarget`'s equality intentionally collapses across
-    /// distinct `sizingTarget` values (a split and a slot can share
-    /// the same `paneId + zone` key for dedup). Query the visuals
-    /// dictionary by the active target's `sizingTarget` discriminator
-    /// instead, which is fully discriminated.
+    /// `PaneDropTarget`'s equality is fully-discriminated across
+    /// `paneId`, `zone`, AND `sizingTarget` (Issue A — collapsing
+    /// `sizingTarget` froze the overlay on cursor transitions
+    /// between zones with shared paneId+zone like slot↔split). The
+    /// visuals dict is keyed by the discriminated `sizingTarget` so
+    /// every distinct target maps to its own painted region.
     static func visual(
         for target: PaneDropTarget,
         paneFrames: [UUID: CGRect],
