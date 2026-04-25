@@ -6,15 +6,18 @@ private let uiStateStoreLogger = Logger(subsystem: "com.agentstudio", category: 
 @MainActor
 final class UIStateStore {
     private let atom: UIStateAtom
+    private let editorChooserAtom: EditorChooserAtom
     private let persistor: WorkspacePersistor
     private let recoveryReporter: PersistenceRecoveryReporter?
 
     init(
         atom: UIStateAtom,
+        editorChooserAtom: EditorChooserAtom,
         persistor: WorkspacePersistor = WorkspacePersistor(),
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.atom = atom
+        self.editorChooserAtom = editorChooserAtom
         self.persistor = persistor
         self.recoveryReporter = recoveryReporter
     }
@@ -27,12 +30,9 @@ final class UIStateStore {
                 isFilterVisible: state.isFilterVisible,
                 showMinimizedBars: state.showMinimizedBars,
                 sidebarCollapsed: state.sidebarCollapsed,
-                sidebarSurface: state.sidebarSurface,
-                editorChooserState: .init(
-                    openForPaneId: nil,
-                    bookmarkedEditorId: state.editorChooserState.bookmarkedEditorId
-                )
+                sidebarSurface: state.sidebarSurface
             )
+            editorChooserAtom.hydrate(bookmarkedEditorId: state.editorChooserState.bookmarkedEditorId)
         case .missing:
             break
         case .corrupt(let error):
@@ -61,7 +61,7 @@ final class UIStateStore {
                 showMinimizedBars: atom.showMinimizedBars,
                 sidebarCollapsed: atom.sidebarCollapsed,
                 sidebarSurface: atom.sidebarSurface,
-                editorChooserState: .init(bookmarkedEditorId: atom.editorChooserState.bookmarkedEditorId)
+                editorChooserState: .init(bookmarkedEditorId: editorChooserAtom.state.bookmarkedEditorId)
             )
         )
     }

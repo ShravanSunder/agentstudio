@@ -27,6 +27,38 @@ struct InboxNotificationListSection: Identifiable, Equatable {
     }
 }
 
+private enum InboxNotificationSectionKey: Hashable {
+    case ungrouped
+    case repo(id: UUID)
+    case repoName(String)
+    case noRepo
+    case pane(id: UUID)
+    case noPane
+    case tab(id: UUID)
+    case noTab
+
+    var id: String {
+        switch self {
+        case .ungrouped:
+            "__ungrouped__"
+        case .repo(let id):
+            "repo:\(id.uuidString)"
+        case .repoName(let name):
+            name
+        case .noRepo:
+            "__no_repo__"
+        case .pane(let id):
+            id.uuidString
+        case .noPane:
+            "__no_pane__"
+        case .tab(let id):
+            id.uuidString
+        case .noTab:
+            "__no_tab__"
+        }
+    }
+}
+
 struct InboxNotificationListModel: Equatable {
     let sections: [InboxNotificationListSection]
 
@@ -112,7 +144,9 @@ struct InboxNotificationListModel: Equatable {
         filter: InboxFilter?
     ) -> [InboxNotification] {
         guard let filter else { return notifications }
-        return notifications.filter { filter.matches($0) }
+        return notifications.filter {
+            filter.matches(worktreeId: $0.worktreeId, repoId: $0.repoId)
+        }
     }
 
     private static func filterNotifications(
@@ -138,7 +172,7 @@ struct InboxNotificationListModel: Equatable {
     ) -> [InboxNotificationListSection] {
         switch grouping {
         case .none:
-            let ungroupedKey = "__ungrouped__"
+            let ungroupedKey = InboxNotificationSectionKey.ungrouped.id
             return [
                 InboxNotificationListSection(
                     id: ungroupedKey,
@@ -150,21 +184,31 @@ struct InboxNotificationListModel: Equatable {
         case .byRepo:
             return buildGroupedSections(
                 notifications: notifications,
-                key: { $0.repoName ?? "(no repo)" },
+                key: { notification in
+                    if let repoId = notification.repoId { return .repo(id: repoId) }
+                    if let repoName = notification.repoName { return .repoName(repoName) }
+                    return .noRepo
+                },
                 label: { $0.repoName ?? "Unknown Repo" },
                 collapsedGroups: collapsedGroups
             )
         case .byPane:
             return buildGroupedSections(
                 notifications: notifications,
-                key: { $0.paneId?.uuidString ?? "(no pane)" },
+                key: { notification in
+                    guard let paneId = notification.paneId else { return .noPane }
+                    return .pane(id: paneId)
+                },
                 label: { $0.worktreeName ?? $0.branchName ?? "Unknown Pane" },
                 collapsedGroups: collapsedGroups
             )
         case .byTab:
             return buildGroupedSections(
                 notifications: notifications,
-                key: { $0.tabId?.uuidString ?? "(no tab)" },
+                key: { notification in
+                    guard let tabId = notification.tabId else { return .noTab }
+                    return .tab(id: tabId)
+                },
                 label: { notification in
                     guard let tabId = notification.tabId else { return "Unknown Tab" }
                     return "Tab \(tabId.uuidString.prefix(8))"
@@ -176,18 +220,19 @@ struct InboxNotificationListModel: Equatable {
 
     private static func buildGroupedSections(
         notifications: [InboxNotification],
-        key: (InboxNotification) -> String,
+        key: (InboxNotification) -> InboxNotificationSectionKey,
         label: (InboxNotification) -> String,
         collapsedGroups: Set<InboxNotificationGroupKey>
     ) -> [InboxNotificationListSection] {
         let buckets = Dictionary(grouping: notifications, by: key)
         return buckets.map { groupKey, notifications in
             let firstNotification = notifications[0]
+            let groupId = groupKey.id
             return InboxNotificationListSection(
-                id: groupKey,
+                id: groupId,
                 label: label(firstNotification),
                 notifications: notifications,
-                isCollapsed: collapsedGroups.contains(InboxNotificationGroupKey(groupKey))
+                isCollapsed: collapsedGroups.contains(InboxNotificationGroupKey(groupId))
             )
         }.sorted { left, right in
             let leftLabel = left.label ?? ""

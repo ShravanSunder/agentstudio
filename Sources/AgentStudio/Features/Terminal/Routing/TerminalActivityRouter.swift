@@ -1,4 +1,10 @@
 import Foundation
+import os.log
+
+private let terminalActivityRouterLogger = Logger(
+    subsystem: "com.agentstudio",
+    category: "TerminalActivityRouter"
+)
 
 @MainActor
 /// Leaf runtime-bus subscriber that projects high-churn terminal facts into
@@ -26,6 +32,10 @@ final class TerminalActivityRouter {
                 guard !Task.isCancelled else { return }
                 guard let self, !Task.isCancelled else { return }
                 self.consume(envelope)
+            }
+            if !Task.isCancelled {
+                terminalActivityRouterLogger.warning(
+                    "Runtime event stream ended while terminal activity router was active")
             }
         }
     }

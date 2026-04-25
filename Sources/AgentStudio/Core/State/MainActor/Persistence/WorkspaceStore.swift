@@ -96,14 +96,16 @@ final class WorkspaceStore {
                 "Restored workspace '\(state.name)' with \(hydratedPaneCount) pane(s), \(hydratedTabCount) tab(s), dropped \(droppedPaneCount) pane(s), dropped \(droppedTabCount) tab(s)"
             )
         case .corrupt(let error):
+            let quarantine = persistor.quarantineCorruptCanonicalWorkspaceFiles()
             workspaceStoreLogger.error(
-                "Workspace file exists but failed to decode — starting with empty state: \(error)"
+                "Workspace file exists but failed to decode; quarantined canonical workspace files before starting with empty state: \(error)"
             )
             recoveryReporter?(
                 .init(
                     store: .workspace,
-                    workspaceId: nil,
-                    recovery: .resetToDefaults
+                    workspaceId: quarantine?.workspaceId,
+                    recovery: .quarantinedAndReset,
+                    quarantinedFilename: quarantine?.recoveryFilename
                 )
             )
         case .missing:

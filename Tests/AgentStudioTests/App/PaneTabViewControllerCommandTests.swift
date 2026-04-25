@@ -312,10 +312,10 @@ struct PaneTabViewControllerCommandTests {
         }
 
         harness.store.setActiveDrawerPane(drawerPane.id, in: parentPane.id)
-        atom(\.uiState).setBookmarkedEditor("missing-editor")
+        atom(\.editorChooser).setBookmarkedEditor("missing-editor")
 
         harness.controller.execute(.openPaneLocationInBookmarkedEditor)
-        #expect(atom(\.uiState).editorChooserState.bookmarkedEditorId == nil)
+        #expect(atom(\.editorChooser).state.bookmarkedEditorId == nil)
         #expect(harness.launchRecorder.openedEditors.count == 1)
         #expect(harness.launchRecorder.openedEditors.first?.id == ExternalEditorTarget.cursor.id)
         #expect(
@@ -347,7 +347,7 @@ struct PaneTabViewControllerCommandTests {
 
         harness.controller.execute(.openPaneLocationInEditorMenu)
 
-        #expect(atom(\.uiState).editorChooserState.openForPaneId == drawerPane.id)
+        #expect(atom(\.editorChooser).state.openForPaneId == drawerPane.id)
     }
     @Test("openPaneLocationInFinder forwards the selected pane path to Finder")
     func executeOpenPaneLocationInFinder_revealsSelectedPanePath() {

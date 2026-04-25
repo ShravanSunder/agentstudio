@@ -107,6 +107,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         )
         uiStateStore = UIStateStore(
             atom: atomStore.uiState,
+            editorChooserAtom: atomStore.editorChooser,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }

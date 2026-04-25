@@ -19,26 +19,26 @@ final class UIStateAtomTests {
 
     @Test
     func editorChooserState_mutatorsUpdateFields() {
-        let store = UIStateAtom()
+        let store = EditorChooserAtom()
         let paneId = UUID()
 
         store.setBookmarkedEditor("cursor")
         store.setOpenEditorPane(paneId)
 
-        #expect(store.editorChooserState.bookmarkedEditorId == "cursor")
-        #expect(store.editorChooserState.openForPaneId == paneId)
+        #expect(store.state.bookmarkedEditorId == "cursor")
+        #expect(store.state.openForPaneId == paneId)
     }
 
     @Test
     func clear_resetsEditorChooserState() {
-        let store = UIStateAtom()
+        let store = EditorChooserAtom()
 
         store.setBookmarkedEditor("cursor")
         store.setOpenEditorPane(UUID())
 
         store.clear()
 
-        #expect(store.editorChooserState.bookmarkedEditorId == nil)
-        #expect(store.editorChooserState.openForPaneId == nil)
+        #expect(store.state.bookmarkedEditorId == nil)
+        #expect(store.state.openForPaneId == nil)
     }
 }

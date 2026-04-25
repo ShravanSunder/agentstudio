@@ -118,7 +118,22 @@ final class InboxNotificationStore {
     func load() throws {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return }
 
-        let data = try Data(contentsOf: fileURL)
+        let data: Data
+        do {
+            data = try Data(contentsOf: fileURL)
+        } catch {
+            let quarantinedURL = quarantineCorruptFile()
+            inboxNotificationStoreLogger.warning("Inbox notification file unreadable, using defaults: \(error)")
+            recoveryReporter?(
+                .init(
+                    store: .notificationInbox,
+                    workspaceId: nil,
+                    recovery: .quarantinedAndReset,
+                    quarantinedFilename: quarantinedURL?.lastPathComponent
+                )
+            )
+            throw error
+        }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let payload: Payload

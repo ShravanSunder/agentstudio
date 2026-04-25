@@ -68,10 +68,22 @@ struct PersistenceChaosTests {
             )
 
             let atom = RepoCacheAtom()
-            RepoCacheStore(atom: atom, persistor: persistor).restore(for: workspaceId)
+            var recoveryEvents: [PersistenceRecoveryEvent] = []
+            RepoCacheStore(
+                atom: atom,
+                persistor: persistor,
+                recoveryReporter: { recoveryEvents.append($0) }
+            ).restore(for: workspaceId)
 
             #expect(atom.repoEnrichmentByRepoId.isEmpty)
             #expect(atom.worktreeEnrichmentByWorktreeId.isEmpty)
+            assertRecoveryEvents(
+                recoveryEvents,
+                flavor: flavor,
+                store: .repoCache,
+                workspaceId: workspaceId,
+                recovery: .rebuiltFromEvents
+            )
         }
     }
 
@@ -107,9 +119,22 @@ struct PersistenceChaosTests {
             )
 
             let atom = UIStateAtom()
-            UIStateStore(atom: atom, persistor: persistor).restore(for: workspaceId)
+            var recoveryEvents: [PersistenceRecoveryEvent] = []
+            UIStateStore(
+                atom: atom,
+                editorChooserAtom: EditorChooserAtom(),
+                persistor: persistor,
+                recoveryReporter: { recoveryEvents.append($0) }
+            ).restore(for: workspaceId)
 
             #expect(atom.sidebarHasFocus == false)
+            assertRecoveryEvents(
+                recoveryEvents,
+                flavor: flavor,
+                store: .uiState,
+                workspaceId: workspaceId,
+                recovery: .quarantinedAndReset
+            )
         }
     }
 
@@ -137,10 +162,22 @@ struct PersistenceChaosTests {
             )
 
             let atom = SidebarCacheAtom()
-            SidebarCacheStore(atom: atom, persistor: persistor).restore(for: workspaceId)
+            var recoveryEvents: [PersistenceRecoveryEvent] = []
+            SidebarCacheStore(
+                atom: atom,
+                persistor: persistor,
+                recoveryReporter: { recoveryEvents.append($0) }
+            ).restore(for: workspaceId)
 
             #expect(atom.expandedGroups.count <= 1)
             #expect(atom.collapsedInboxGroups.count <= 1)
+            assertRecoveryEvents(
+                recoveryEvents,
+                flavor: flavor,
+                store: .sidebarCache,
+                workspaceId: workspaceId,
+                recovery: .quarantinedAndReset
+            )
         }
     }
 
@@ -167,15 +204,41 @@ struct PersistenceChaosTests {
 
             let inboxAtom = InboxNotificationAtom()
             let prefsAtom = InboxNotificationPrefsAtom()
+            var recoveryEvents: [PersistenceRecoveryEvent] = []
             let store = InboxNotificationStore(
                 inboxAtom: inboxAtom,
                 prefsAtom: prefsAtom,
-                fileURL: url
+                fileURL: url,
+                recoveryReporter: { recoveryEvents.append($0) }
             )
 
             try? store.load()
 
             #expect(inboxAtom.notifications.isEmpty)
+            assertRecoveryEvents(
+                recoveryEvents,
+                flavor: flavor,
+                store: .notificationInbox,
+                workspaceId: nil,
+                recovery: .quarantinedAndReset
+            )
+        }
+    }
+
+    private func assertRecoveryEvents(
+        _ events: [PersistenceRecoveryEvent],
+        flavor: ChaosStoreSeeder.Flavor,
+        store: PersistenceRecoveryEvent.Store,
+        workspaceId: UUID?,
+        recovery: PersistenceRecoveryEvent.Recovery
+    ) {
+        if flavor.corruptsWholeFile {
+            #expect(events.count == 1)
+            #expect(events.first?.store == store)
+            #expect(events.first?.workspaceId == workspaceId)
+            #expect(events.first?.recovery == recovery)
+        } else {
+            #expect(events.isEmpty)
         }
     }
 

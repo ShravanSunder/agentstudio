@@ -527,18 +527,18 @@ final class WorkspacePersistorTests {
         let workspaceId = UUID()
         let sidebarCache = WorkspacePersistor.PersistableSidebarCache(
             workspaceId: workspaceId,
-            expandedGroups: ["askluna", "personal"],
-            checkoutColors: ["repoA": "#22cc88"],
-            collapsedInboxGroups: ["kind:terminal"]
+            expandedGroups: [SidebarGroupKey("askluna"), SidebarGroupKey("personal")],
+            checkoutColors: [SidebarCheckoutColorKey("repoA"): "#22cc88"],
+            collapsedInboxGroups: [InboxNotificationGroupKey("kind:terminal")]
         )
 
         try persistor.saveSidebarCache(sidebarCache)
         let loaded = persistor.loadSidebarCache(for: workspaceId).value
 
         #expect(loaded?.workspaceId == workspaceId)
-        #expect(loaded?.expandedGroups == ["askluna", "personal"])
-        #expect(loaded?.checkoutColors["repoA"] == "#22cc88")
-        #expect(loaded?.collapsedInboxGroups == ["kind:terminal"])
+        #expect(loaded?.expandedGroups == [SidebarGroupKey("askluna"), SidebarGroupKey("personal")])
+        #expect(loaded?.checkoutColors[SidebarCheckoutColorKey("repoA")] == "#22cc88")
+        #expect(loaded?.collapsedInboxGroups == [InboxNotificationGroupKey("kind:terminal")])
     }
 
     @Test
@@ -760,8 +760,8 @@ final class WorkspacePersistorTests {
         let loaded = persistor.loadSidebarCache(for: workspaceId).value
 
         #expect(loaded?.expandedGroups.isEmpty == true)
-        #expect(loaded?.checkoutColors == ["repoA": "#22cc88"])
-        #expect(loaded?.collapsedInboxGroups == ["kind:terminal"])
+        #expect(loaded?.checkoutColors == [SidebarCheckoutColorKey("repoA"): "#22cc88"])
+        #expect(loaded?.collapsedInboxGroups == [InboxNotificationGroupKey("kind:terminal")])
     }
 
 }

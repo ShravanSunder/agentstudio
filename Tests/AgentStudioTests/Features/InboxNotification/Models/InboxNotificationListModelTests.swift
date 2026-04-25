@@ -155,6 +155,31 @@ struct InboxNotificationListModelTests {
         #expect(model.sections.flatMap(\.notifications).map(\.id) == [matching.id])
     }
 
+    @Test("missing source names are not synthesized from ids")
+    func missingSourceNamesAreNotSynthesizedFromIds() {
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let notification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "No names",
+            repoId: repoId,
+            worktreeId: worktreeId
+        )
+
+        #expect(notification.repoName == nil)
+        #expect(notification.worktreeName == nil)
+
+        let model = InboxNotificationListModel(
+            notifications: [notification],
+            grouping: .byRepo,
+            sort: .oldestFirst,
+            searchText: ""
+        )
+
+        #expect(model.sections.map(\.id) == ["repo:\(repoId.uuidString)"])
+        #expect(model.sections.map(\.label) == ["Unknown Repo"])
+    }
+
     @Test("collapsed grouped sections keep unread counts but hide rows")
     func collapsedGroupedSectionsKeepUnreadCountsButHideRows() {
         let notification = makeInboxNotification(

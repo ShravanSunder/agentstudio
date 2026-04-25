@@ -67,9 +67,9 @@ class MainSplitViewController: NSSplitViewController {
         appLifecycleStore: AppLifecycleAtom,
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
-        inboxAtom: InboxNotificationAtom = InboxNotificationAtom(),
-        inboxPrefsAtom: InboxNotificationPrefsAtom = InboxNotificationPrefsAtom(),
-        drawerInboxPresenter: InboxNotificationDrawerPresenter = InboxNotificationDrawerPresenter(),
+        inboxAtom: InboxNotificationAtom,
+        inboxPrefsAtom: InboxNotificationPrefsAtom,
+        drawerInboxPresenter: InboxNotificationDrawerPresenter,
         sidebarRootViewBuilder: @escaping SidebarRootViewBuilder = MainSplitViewController.defaultSidebarRootViewBuilder
     ) {
         self.store = store

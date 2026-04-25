@@ -69,6 +69,7 @@ final class BridgePaneController {
     private var managementScript: WKUserScript
     private(set) var isContentInteractionEnabled: Bool
     private var interactionApplyTask: Task<Void, Never>?
+    private var inboxPostTimestamps: [Date] = []
 
     /// Per store+op dedup cache. Bounded at O(StoreKey × PushOp) — currently 8 entries max.
     /// Each entry stores the epoch it was pushed in + the payload bytes. Dedup only matches
@@ -284,9 +285,11 @@ final class BridgePaneController {
 
         // inbox namespace
         router.register(method: InboxMethods.PostMethod.self) { @MainActor [weak self] params in
+            guard let self else { return nil }
+            let sanitizedParams = try self.sanitizeInboxPostParams(params)
             // Pane identity comes from this controller, not RPC params, so web content cannot spoof another pane.
-            self?.ingestRuntimeEvent(
-                .agentNotificationRequested(title: params.title, body: params.body)
+            self.ingestRuntimeEvent(
+                .agentNotificationRequested(title: sanitizedParams.title, body: sanitizedParams.body)
             )
             return nil
         }
@@ -304,6 +307,32 @@ final class BridgePaneController {
             bridgeControllerLogger.info("[BridgePaneController] stub: \(M.method) called (not yet wired)")
             throw BridgeMethodUnimplementedError(method: M.method)
         }
+    }
+
+    private func sanitizeInboxPostParams(
+        _ params: InboxMethods.PostMethod.Params
+    ) throws -> InboxMethods.PostMethod.Params {
+        let now = Date()
+        let windowStart = now.addingTimeInterval(-AppPolicies.InboxNotification.rpcPostRateLimitWindowSeconds)
+        inboxPostTimestamps.removeAll { $0 < windowStart }
+        guard inboxPostTimestamps.count < AppPolicies.InboxNotification.maxRPCPostsPerWindow else {
+            throw RPCMethodDispatchError.invalidParams("inbox.post rate limit exceeded")
+        }
+
+        let title = params.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else {
+            throw RPCMethodDispatchError.invalidParams("inbox.post title is required")
+        }
+        inboxPostTimestamps.append(now)
+
+        let body = params.body?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+
+        return .init(
+            title: title.limited(to: AppPolicies.InboxNotification.maxTitleCharacters),
+            body: body?.limited(to: AppPolicies.InboxNotification.maxBodyCharacters)
+        )
     }
 
     // MARK: - Lifecycle
@@ -611,5 +640,16 @@ struct BridgeMethodUnimplementedError: Error, LocalizedError, Sendable {
 
     var errorDescription: String? {
         "Unimplemented bridge method: \(method)"
+    }
+}
+
+extension String {
+    fileprivate var nilIfEmpty: String? {
+        isEmpty ? nil : self
+    }
+
+    fileprivate func limited(to maxCharacters: Int) -> String {
+        guard count > maxCharacters else { return self }
+        return String(prefix(maxCharacters))
     }
 }

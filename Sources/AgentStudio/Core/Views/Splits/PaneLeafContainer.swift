@@ -140,7 +140,7 @@ struct PaneLeafContainer: View {
         locationContext: PaneManagementContext
     ) -> some View {
         let trailingActions = DrawerEditorChooserFactory.makeTrailingActions(
-            uiState: atom(\.uiState),
+            editorChooser: atom(\.editorChooser),
             paneId: locationTargetPaneId,
             canOpenTarget: locationContext.targetPath != nil,
             refreshInstalledTargets: {

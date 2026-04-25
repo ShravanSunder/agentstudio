@@ -1996,13 +1996,13 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             guard let targetPath = selectedPaneManagementContext()?.targetPath else { return false }
             let installedTargets = installedEditorTargetsProvider()
             var resolution = ExternalEditorTarget.resolveBookmarkedOrDefault(
-                bookmarkedEditorId: atom(\.uiState).editorChooserState.bookmarkedEditorId,
+                bookmarkedEditorId: atom(\.editorChooser).state.bookmarkedEditorId,
                 installedTargets: installedTargets
             )
             if case .bookmarkedEditorNotInstalled = resolution {
                 // A saved bookmark that is no longer installed should heal back to
                 // the implicit default launch order on the same key press.
-                atom(\.uiState).setBookmarkedEditor(nil)
+                atom(\.editorChooser).setBookmarkedEditor(nil)
                 resolution = ExternalEditorTarget.resolveBookmarkedOrDefault(
                     bookmarkedEditorId: nil,
                     installedTargets: installedTargets
@@ -2015,12 +2015,12 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return openFinderHandler(targetPath)
         case .openPaneLocationInEditorMenu:
             guard let activePaneId = activePaneIdForChooserRequest() else { return false }
-            if atom(\.uiState).editorChooserState.openForPaneId == activePaneId {
-                atom(\.uiState).setOpenEditorPane(nil)
+            if atom(\.editorChooser).state.openForPaneId == activePaneId {
+                atom(\.editorChooser).setOpenEditorPane(nil)
                 return true
             }
-            atom(\.uiState).setAvailableEditorTargets(installedEditorTargetsProvider())
-            atom(\.uiState).setOpenEditorPane(activePaneId)
+            atom(\.editorChooser).setAvailableTargets(installedEditorTargetsProvider())
+            atom(\.editorChooser).setOpenEditorPane(activePaneId)
             return true
         default:
             return false

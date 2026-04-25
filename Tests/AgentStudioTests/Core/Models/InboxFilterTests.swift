@@ -18,25 +18,12 @@ struct InboxFilterTests {
     func matchesWorktreeAndRepoNotifications() {
         let repoId = UUID()
         let worktreeId = UUID()
-        let matchingNotification = notification(repoId: repoId, worktreeId: worktreeId)
-        let otherNotification = notification(repoId: UUID(), worktreeId: UUID())
 
-        #expect(InboxFilter.worktree(id: worktreeId).matches(matchingNotification))
-        #expect(!InboxFilter.worktree(id: worktreeId).matches(otherNotification))
-        #expect(InboxFilter.repo(id: repoId).matches(matchingNotification))
-        #expect(!InboxFilter.repo(id: repoId).matches(otherNotification))
-    }
-
-    private func notification(repoId: UUID, worktreeId: UUID) -> InboxNotification {
-        InboxNotification(
-            id: UUID(),
-            timestamp: Date(timeIntervalSince1970: 100),
-            kind: .agentRpc,
-            title: "Done",
-            body: nil,
-            source: .pane(.init(paneId: UUID(), repoId: repoId, worktreeId: worktreeId)),
-            isRead: false,
-            isDismissedFromDrawer: false
-        )
+        #expect(InboxFilter.worktree(id: worktreeId).matches(worktreeId: worktreeId, repoId: repoId))
+        #expect(!InboxFilter.worktree(id: worktreeId).matches(worktreeId: UUID(), repoId: repoId))
+        #expect(InboxFilter.repo(id: repoId).matches(worktreeId: worktreeId, repoId: repoId))
+        #expect(!InboxFilter.repo(id: repoId).matches(worktreeId: worktreeId, repoId: UUID()))
+        #expect(!InboxFilter.worktree(id: worktreeId).matches(worktreeId: nil, repoId: repoId))
+        #expect(!InboxFilter.repo(id: repoId).matches(worktreeId: worktreeId, repoId: nil))
     }
 }

@@ -6,6 +6,15 @@ private let persistorLogger = Logger(subsystem: "com.agentstudio", category: "Wo
 /// Pure persistence I/O for workspace state.
 /// Collaborator of the main-actor persistence wrappers — not a public peer.
 struct WorkspacePersistor {
+    struct CanonicalQuarantineResult: Sendable, Equatable {
+        let workspaceId: UUID?
+        let quarantinedFilenames: [String]
+
+        var recoveryFilename: String? {
+            guard !quarantinedFilenames.isEmpty else { return nil }
+            return quarantinedFilenames.joined(separator: ", ")
+        }
+    }
 
     /// Distinguishes "no file found" from "file exists but is corrupt" on load.
     enum LoadResult<T> {
@@ -16,6 +25,10 @@ struct WorkspacePersistor {
 
     static let currentSchemaVersion = 1
     private static let canonicalSuffix = ".workspace.state.json"
+    private static let cacheSuffix = ".workspace.cache.json"
+    private static let uiSuffix = ".workspace.ui.json"
+    private static let sidebarCacheSuffix = ".workspace.sidebar-cache.json"
+    private static let inboxSuffix = ".notification-inbox.json"
 
     // MARK: - Properties
 
@@ -125,6 +138,52 @@ struct WorkspacePersistor {
     }
 
     @discardableResult
+    func quarantineCorruptCanonicalWorkspaceFiles() -> CanonicalQuarantineResult? {
+        let contents: [URL]
+        do {
+            contents = try FileManager.default.contentsOfDirectory(
+                at: workspacesDir,
+                includingPropertiesForKeys: nil,
+                options: .skipsHiddenFiles
+            )
+        } catch {
+            return nil
+        }
+
+        guard let canonicalURL = contents.first(where: { $0.lastPathComponent.hasSuffix(Self.canonicalSuffix) })
+        else {
+            return nil
+        }
+
+        let workspaceId = workspaceIdFromCanonicalFile(canonicalURL)
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        var quarantinedFilenames: [String] = []
+
+        let candidates = canonicalRecoveryCandidates(
+            canonicalURL: canonicalURL,
+            workspaceId: workspaceId
+        )
+
+        for candidate in candidates where FileManager.default.fileExists(atPath: candidate.sourceURL.path) {
+            let quarantinedURL = workspacesDir.appending(path: candidate.quarantinedName(timestamp))
+            do {
+                try FileManager.default.moveItem(at: candidate.sourceURL, to: quarantinedURL)
+                quarantinedFilenames.append(quarantinedURL.lastPathComponent)
+            } catch {
+                persistorLogger.error(
+                    "Failed to quarantine corrupt workspace file \(candidate.sourceURL.lastPathComponent, privacy: .public): \(error)"
+                )
+            }
+        }
+
+        return CanonicalQuarantineResult(
+            workspaceId: workspaceId,
+            quarantinedFilenames: quarantinedFilenames
+        )
+    }
+
+    @discardableResult
     func quarantineCorruptUIFile(for workspaceId: UUID) -> URL? {
         quarantineCorruptFile(
             sourceURL: uiFileURL(for: workspaceId),
@@ -171,6 +230,47 @@ struct WorkspacePersistor {
         }
     }
 
+    private struct RecoveryCandidate {
+        let sourceURL: URL
+        let quarantinedName: (String) -> String
+    }
+
+    private func canonicalRecoveryCandidates(
+        canonicalURL: URL,
+        workspaceId: UUID?
+    ) -> [RecoveryCandidate] {
+        var candidates = [
+            RecoveryCandidate(sourceURL: canonicalURL) { timestamp in
+                "\(canonicalURL.deletingPathExtension().lastPathComponent).corrupt-\(timestamp).json"
+            }
+        ]
+        guard let workspaceId else { return candidates }
+        candidates.append(
+            contentsOf: [
+                RecoveryCandidate(sourceURL: cacheFileURL(for: workspaceId)) { timestamp in
+                    "\(workspaceId.uuidString).workspace.cache.corrupt-\(timestamp).json"
+                },
+                RecoveryCandidate(sourceURL: uiFileURL(for: workspaceId)) { timestamp in
+                    "\(workspaceId.uuidString).workspace.ui.corrupt-\(timestamp).json"
+                },
+                RecoveryCandidate(sourceURL: sidebarCacheFileURL(for: workspaceId)) { timestamp in
+                    "\(workspaceId.uuidString).workspace.sidebar-cache.corrupt-\(timestamp).json"
+                },
+                RecoveryCandidate(sourceURL: inboxFileURL(for: workspaceId)) { timestamp in
+                    "\(workspaceId.uuidString).notification-inbox.corrupt-\(timestamp).json"
+                },
+            ]
+        )
+        return candidates
+    }
+
+    private func workspaceIdFromCanonicalFile(_ url: URL) -> UUID? {
+        let fileName = url.lastPathComponent
+        guard fileName.hasSuffix(Self.canonicalSuffix) else { return nil }
+        let rawId = String(fileName.dropLast(Self.canonicalSuffix.count))
+        return UUID(uuidString: rawId)
+    }
+
     // MARK: - Delete
 
     /// Delete all workspace files for the given workspace ID.
@@ -202,8 +302,13 @@ struct WorkspacePersistor {
         do {
             data = try Data(contentsOf: url)
         } catch {
-            // File doesn't exist or can't be read — treat as missing.
-            return .missing
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                return .missing
+            }
+            persistorLogger.error(
+                "Failed to read workspace file \(url.lastPathComponent): \(error)"
+            )
+            return .corrupt(error)
         }
 
         do {
@@ -222,14 +327,18 @@ struct WorkspacePersistor {
     }
 
     private func cacheFileURL(for id: UUID) -> URL {
-        workspacesDir.appending(path: "\(id.uuidString).workspace.cache.json")
+        workspacesDir.appending(path: "\(id.uuidString)\(Self.cacheSuffix)")
     }
 
     private func uiFileURL(for id: UUID) -> URL {
-        workspacesDir.appending(path: "\(id.uuidString).workspace.ui.json")
+        workspacesDir.appending(path: "\(id.uuidString)\(Self.uiSuffix)")
     }
 
     private func sidebarCacheFileURL(for id: UUID) -> URL {
-        workspacesDir.appending(path: "\(id.uuidString).workspace.sidebar-cache.json")
+        workspacesDir.appending(path: "\(id.uuidString)\(Self.sidebarCacheSuffix)")
+    }
+
+    private func inboxFileURL(for id: UUID) -> URL {
+        workspacesDir.appending(path: "\(id.uuidString)\(Self.inboxSuffix)")
     }
 }

@@ -10,7 +10,7 @@ final class SidebarToolbarButton: NSButton {
 class MainWindowController: NSWindowController, NSWindowDelegate {
     private var splitViewController: MainSplitViewController?
     private var sidebarAccessory: NSTitlebarAccessoryViewController?
-    private var inboxAtom = InboxNotificationAtom()
+    private var inboxAtom: InboxNotificationAtom?
     private var uiState: UIStateAtom?
     private weak var worktreeToolbarButton: SidebarToolbarButton?
     private weak var inboxToolbarButton: SidebarToolbarButton?
@@ -285,14 +285,14 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func updateInboxUnreadDot() {
-        inboxToolbarBellDot?.isHidden = inboxAtom.globalUnreadCount == 0
+        inboxToolbarBellDot?.isHidden = (inboxAtom?.globalUnreadCount ?? 0) == 0
     }
 
     private func observeInboxUnreadCount() {
         guard !isObservingInboxUnread else { return }
         isObservingInboxUnread = true
         withObservationTracking {
-            _ = inboxAtom.globalUnreadCount
+            _ = inboxAtom?.globalUnreadCount
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }

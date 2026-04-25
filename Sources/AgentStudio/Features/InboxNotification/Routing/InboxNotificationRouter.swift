@@ -62,6 +62,9 @@ final class InboxNotificationRouter {
                 guard let self, !Task.isCancelled else { return }
                 self.handle(envelope)
             }
+            if !Task.isCancelled {
+                inboxNotificationRouterLogger.warning("Runtime event stream ended while inbox router was active")
+            }
         }
 
         focusTask = Task { @MainActor [weak self] in
@@ -70,6 +73,9 @@ final class InboxNotificationRouter {
                 guard !Task.isCancelled else { return }
                 self.inboxAtom.markRead(paneId: paneId)
                 self.inboxAtom.dismissFromDrawer(paneId: paneId)
+            }
+            if !Task.isCancelled {
+                inboxNotificationRouterLogger.warning("Focus stream ended while inbox router was active")
             }
         }
     }

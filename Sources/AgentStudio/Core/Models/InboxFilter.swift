@@ -4,12 +4,12 @@ enum InboxFilter: Equatable, Hashable, Sendable, Codable {
     case worktree(id: UUID)
     case repo(id: UUID)
 
-    func matches(_ notification: InboxNotification) -> Bool {
+    func matches(worktreeId: UUID?, repoId: UUID?) -> Bool {
         switch self {
         case .worktree(let id):
-            notification.worktreeId == id
+            worktreeId == id
         case .repo(let id):
-            notification.repoId == id
+            repoId == id
         }
     }
 }

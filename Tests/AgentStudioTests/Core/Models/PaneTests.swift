@@ -487,6 +487,18 @@ final class PaneTests {
         #expect(drawer.minimizedPaneIds.isEmpty)
     }
 
+    @Test
+    func test_drawer_rejectsLegacyActivePaneIdEncoding() throws {
+        let id = UUID()
+        let drawer = Drawer(paneIds: [id], layout: Layout(paneId: id), activeChildId: id, isExpanded: true)
+        let currentJSON = try #require(String(data: try encoder.encode(drawer), encoding: .utf8))
+        let legacyJSON = currentJSON.replacingOccurrences(of: "activeChildId", with: "activePaneId")
+
+        #expect(throws: DecodingError.self) {
+            try decoder.decode(Drawer.self, from: Data(legacyJSON.utf8))
+        }
+    }
+
     // MARK: - PaneKind
 
     @Test

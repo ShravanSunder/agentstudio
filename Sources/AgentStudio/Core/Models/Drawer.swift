@@ -23,13 +23,13 @@ struct Drawer: Codable, Hashable {
     ) {
         self.paneIds = paneIds
         self.layout = layout
-        self.activeChildId = activeChildId
+        self.activeChildId = Self.normalizedActiveChildId(activeChildId, paneIds: paneIds)
         self.isExpanded = isExpanded
         self.minimizedPaneIds = minimizedPaneIds
     }
 
     enum CodingKeys: CodingKey {
-        case paneIds, layout, activeChildId, isExpanded
+        case paneIds, layout, activeChildId, activePaneId, isExpanded
         // minimizedPaneIds excluded — transient, not persisted
     }
 
@@ -37,8 +37,32 @@ struct Drawer: Codable, Hashable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         paneIds = try container.decode([UUID].self, forKey: .paneIds)
         layout = try container.decode(Layout.self, forKey: .layout)
-        activeChildId = try container.decodeIfPresent(UUID.self, forKey: .activeChildId)
+        if container.contains(.activePaneId), !container.contains(.activeChildId) {
+            throw DecodingError.dataCorruptedError(
+                forKey: .activePaneId,
+                in: container,
+                debugDescription: "Drawer activePaneId is unsupported; expected activeChildId"
+            )
+        }
+        activeChildId = Self.normalizedActiveChildId(
+            try container.decodeIfPresent(UUID.self, forKey: .activeChildId),
+            paneIds: paneIds
+        )
         isExpanded = try container.decode(Bool.self, forKey: .isExpanded)
         minimizedPaneIds = []  // transient — always starts empty on decode
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(paneIds, forKey: .paneIds)
+        try container.encode(layout, forKey: .layout)
+        try container.encodeIfPresent(activeChildId, forKey: .activeChildId)
+        try container.encode(isExpanded, forKey: .isExpanded)
+    }
+
+    private static func normalizedActiveChildId(_ activeChildId: UUID?, paneIds: [UUID]) -> UUID? {
+        guard !paneIds.isEmpty else { return nil }
+        guard let activeChildId, paneIds.contains(activeChildId) else { return paneIds[0] }
+        return activeChildId
     }
 }

@@ -407,15 +407,15 @@ extension WorkspacePersistor {
     struct PersistableSidebarCache: Codable {
         var schemaVersion: Int
         var workspaceId: UUID
-        var expandedGroups: Set<String>
-        var checkoutColors: [String: String]
-        var collapsedInboxGroups: Set<String>
+        var expandedGroups: Set<SidebarGroupKey>
+        var checkoutColors: [SidebarCheckoutColorKey: String]
+        var collapsedInboxGroups: Set<InboxNotificationGroupKey>
 
         init(
             workspaceId: UUID,
-            expandedGroups: Set<String> = [],
-            checkoutColors: [String: String] = [:],
-            collapsedInboxGroups: Set<String> = []
+            expandedGroups: Set<SidebarGroupKey> = [],
+            checkoutColors: [SidebarCheckoutColorKey: String] = [:],
+            collapsedInboxGroups: Set<InboxNotificationGroupKey> = []
         ) {
             self.schemaVersion = WorkspacePersistor.currentSchemaVersion
             self.workspaceId = workspaceId
@@ -448,14 +448,14 @@ extension WorkspacePersistor {
                 payloadName: "PersistableSidebarCache"
             )
             self.expandedGroups = decodeRecoverableField(
-                Set<String>.self,
+                Set<SidebarGroupKey>.self,
                 from: container,
                 forKey: .expandedGroups,
                 schemaVersion: schemaVersion,
                 payloadName: "PersistableSidebarCache",
                 default: []
             )
-            self.checkoutColors = decodeRecoverableField(
+            let rawCheckoutColors = decodeRecoverableField(
                 [String: String].self,
                 from: container,
                 forKey: .checkoutColors,
@@ -463,14 +463,31 @@ extension WorkspacePersistor {
                 payloadName: "PersistableSidebarCache",
                 default: [:]
             )
+            self.checkoutColors = Dictionary(
+                uniqueKeysWithValues: rawCheckoutColors.map { key, value in
+                    (SidebarCheckoutColorKey(key), value)
+                }
+            )
             self.collapsedInboxGroups = decodeRecoverableField(
-                Set<String>.self,
+                Set<InboxNotificationGroupKey>.self,
                 from: container,
                 forKey: .collapsedInboxGroups,
                 schemaVersion: schemaVersion,
                 payloadName: "PersistableSidebarCache",
                 default: []
             )
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(schemaVersion, forKey: .schemaVersion)
+            try container.encode(workspaceId, forKey: .workspaceId)
+            try container.encode(expandedGroups, forKey: .expandedGroups)
+            try container.encode(
+                Dictionary(uniqueKeysWithValues: checkoutColors.map { key, value in (key.rawValue, value) }),
+                forKey: .checkoutColors
+            )
+            try container.encode(collapsedInboxGroups, forKey: .collapsedInboxGroups)
         }
     }
 }

@@ -22,21 +22,10 @@ final class SidebarCacheStore {
     func restore(for workspaceId: UUID) {
         switch persistor.loadSidebarCache(for: workspaceId) {
         case .loaded(let state):
-            let expandedGroups: Set<SidebarGroupKey> = Set(
-                state.expandedGroups.map { SidebarGroupKey($0) }
-            )
-            let checkoutColors: [SidebarCheckoutColorKey: String] = Dictionary(
-                uniqueKeysWithValues: state.checkoutColors.map { key, value in
-                    (SidebarCheckoutColorKey(key), value)
-                }
-            )
-            let collapsedInboxGroups: Set<InboxNotificationGroupKey> = Set(
-                state.collapsedInboxGroups.map { InboxNotificationGroupKey($0) }
-            )
             atom.hydrate(
-                expandedGroups: expandedGroups,
-                checkoutColors: checkoutColors,
-                collapsedInboxGroups: collapsedInboxGroups
+                expandedGroups: state.expandedGroups,
+                checkoutColors: state.checkoutColors,
+                collapsedInboxGroups: state.collapsedInboxGroups
             )
         case .missing:
             break
@@ -61,13 +50,9 @@ final class SidebarCacheStore {
         try persistor.saveSidebarCache(
             .init(
                 workspaceId: workspaceId,
-                expandedGroups: Set(atom.expandedGroups.map(\.rawValue)),
-                checkoutColors: Dictionary(
-                    uniqueKeysWithValues: atom.checkoutColors.map { key, value in
-                        (key.rawValue, value)
-                    }
-                ),
-                collapsedInboxGroups: Set(atom.collapsedInboxGroups.map(\.rawValue))
+                expandedGroups: atom.expandedGroups,
+                checkoutColors: atom.checkoutColors,
+                collapsedInboxGroups: atom.collapsedInboxGroups
             )
         )
     }

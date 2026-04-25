@@ -1,10 +1,4 @@
-import Foundation
 import Observation
-
-struct EditorChooserState: Equatable {
-    var openForPaneId: UUID?
-    var bookmarkedEditorId: EditorTargetId?
-}
 
 @MainActor
 @Observable
@@ -14,9 +8,8 @@ final class UIStateAtom {
     private(set) var showMinimizedBars: Bool = true
     private(set) var sidebarCollapsed: Bool = false
     private(set) var sidebarSurface: SidebarSurface = .repos
+    /// Runtime-only composition fact published by sidebar surfaces and read by keyboard owner derivation.
     private(set) var sidebarHasFocus: Bool = false
-    private(set) var editorChooserState: EditorChooserState = .init()
-    private(set) var availableEditorTargets: [ExternalEditorTarget] = []
 
     func setFilterText(_ text: String) {
         filterText = text
@@ -42,25 +35,12 @@ final class UIStateAtom {
         sidebarHasFocus = hasFocus
     }
 
-    func setBookmarkedEditor(_ editorId: EditorTargetId?) {
-        editorChooserState.bookmarkedEditorId = editorId
-    }
-
-    func setOpenEditorPane(_ paneId: UUID?) {
-        editorChooserState.openForPaneId = paneId
-    }
-
-    func setAvailableEditorTargets(_ targets: [ExternalEditorTarget]) {
-        availableEditorTargets = targets
-    }
-
     func hydrate(
         filterText: String,
         isFilterVisible: Bool,
         showMinimizedBars: Bool = true,
         sidebarCollapsed: Bool = false,
-        sidebarSurface: SidebarSurface = .repos,
-        editorChooserState: EditorChooserState = .init()
+        sidebarSurface: SidebarSurface = .repos
     ) {
         self.filterText = filterText
         self.isFilterVisible = isFilterVisible
@@ -68,10 +48,6 @@ final class UIStateAtom {
         self.sidebarCollapsed = sidebarCollapsed
         self.sidebarSurface = sidebarSurface
         self.sidebarHasFocus = false
-        self.editorChooserState = editorChooserState
-        self.availableEditorTargets = []
-        // The open chooser belongs to the current live pane tree only, not persisted state.
-        self.editorChooserState.openForPaneId = nil
     }
 
     func clear() {
@@ -81,7 +57,5 @@ final class UIStateAtom {
         sidebarCollapsed = false
         sidebarSurface = .repos
         sidebarHasFocus = false
-        editorChooserState = .init()
-        availableEditorTargets = []
     }
 }

@@ -30,13 +30,11 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
             self.tabId = tabId
             self.repo = NamedSource(
                 id: repoId,
-                name: repoName,
-                fallbackPrefix: "Repo"
+                name: repoName
             )
             self.worktree = NamedSource(
                 id: worktreeId,
-                name: worktreeName,
-                fallbackPrefix: "Worktree"
+                name: worktreeName
             )
             self.branchName = branchName
         }
@@ -44,22 +42,15 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
 
     struct NamedSource: Sendable, Codable, Equatable {
         let id: UUID?
-        let name: String
+        let name: String?
 
         init?(
             id: UUID?,
-            name: String?,
-            fallbackPrefix: String
+            name: String?
         ) {
             guard id != nil || name != nil else { return nil }
             self.id = id
-            if let name {
-                self.name = name
-            } else if let id {
-                self.name = "\(fallbackPrefix)-\(id.uuidString.prefix(4))"
-            } else {
-                return nil
-            }
+            self.name = name
         }
 
         init(id: UUID?, name: String) {

@@ -23,14 +23,14 @@ enum DrawerEditorChooserFactory {
     }
 
     static func makeTrailingActions(
-        uiState: UIStateAtom,
+        editorChooser: EditorChooserAtom,
         paneId: UUID,
         canOpenTarget: Bool,
         refreshInstalledTargets: @escaping @MainActor () -> [ExternalEditorTarget],
         onOpenFinder: @escaping () -> Void,
         onOpenEditor: @escaping (EditorTargetId) -> Void
     ) -> DrawerOverlay.TrailingActions {
-        let items = uiState.availableEditorTargets
+        let items = editorChooser.availableTargets
             .enumerated()
             .map { index, target in
                 EditorChoiceItem(
@@ -45,21 +45,21 @@ enum DrawerEditorChooserFactory {
             editorMenuContent: AnyView(
                 EditorChooserPopover(
                     items: items,
-                    bookmarkedEditorId: uiState.editorChooserState.bookmarkedEditorId,
+                    bookmarkedEditorId: editorChooser.state.bookmarkedEditorId,
                     directLaunchHintText: directLaunchHintText,
                     directLaunchShortcutText: directLaunchShortcutText,
                     style: .standard,
                     onSelect: { editorId in
                         onOpenEditor(editorId)
-                        uiState.setOpenEditorPane(nil)
+                        editorChooser.setOpenEditorPane(nil)
                     },
                     onToggleBookmark: { editorId in
-                        uiState.setBookmarkedEditor(
-                            uiState.editorChooserState.bookmarkedEditorId == editorId ? nil : editorId
+                        editorChooser.setBookmarkedEditor(
+                            editorChooser.state.bookmarkedEditorId == editorId ? nil : editorId
                         )
                     },
                     onDismiss: {
-                        uiState.setOpenEditorPane(nil)
+                        editorChooser.setOpenEditorPane(nil)
                     },
                     matchesAdditionalDismissShortcut: { event in
                         guard let trigger = ShortcutDecoder.decode(event: event) else { return false }
@@ -68,21 +68,21 @@ enum DrawerEditorChooserFactory {
                 )
             ),
             editorMenuPresented: Binding(
-                get: { uiState.editorChooserState.openForPaneId == paneId },
+                get: { editorChooser.state.openForPaneId == paneId },
                 set: { isPresented in
                     if isPresented {
-                        uiState.setAvailableEditorTargets(refreshInstalledTargets())
-                        uiState.setOpenEditorPane(paneId)
+                        editorChooser.setAvailableTargets(refreshInstalledTargets())
+                        editorChooser.setOpenEditorPane(paneId)
                     } else {
-                        uiState.setOpenEditorPane(nil)
+                        editorChooser.setOpenEditorPane(nil)
                     }
                 }
             ),
             buttonTitle: buttonTitle(
-                bookmarkedEditorId: uiState.editorChooserState.bookmarkedEditorId,
-                targets: uiState.availableEditorTargets.isEmpty
+                bookmarkedEditorId: editorChooser.state.bookmarkedEditorId,
+                targets: editorChooser.availableTargets.isEmpty
                     ? ExternalEditorTarget.curatedOrder
-                    : uiState.availableEditorTargets
+                    : editorChooser.availableTargets
             ),
             onOpenFinder: onOpenFinder
         )
