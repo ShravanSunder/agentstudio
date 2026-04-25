@@ -67,34 +67,59 @@ struct PaneDragCoordinatorSourceFilterTests {
     // MARK: - R2: slot i and slot i+1 are never valid targets
 
     @Test
-    func r2_resolve_overLeftAdjacentSlot_returnsNil() {
-        // S = P₂ (index 1). Slot i = slot 1 sits between P₁ and P₂.
-        // Cursor in right 1/4 of P₁ resolves to slot 1.
+    func r2_overLeftAdjacentSlotOfForeignSibling_promotesToSiblingSplit() throws {
+        // S = P₂ (index 1). Cursor in right 1/4 of P₁ would resolve to
+        // slot 1 (adjacent to S). With the sibling-promotion exception,
+        // it commits as split(P₁, .right) instead — the user gets
+        // commit feedback over the sibling's edge instead of a dead zone.
         let setup = ThreePaneRow.make()
         let p1Frame = setup.frames[setup.p1]!
         let cursor = CGPoint(x: p1Frame.maxX - 5, y: 50)
 
-        let target = PaneDragCoordinator.resolveTarget(
-            location: cursor,
-            paneFrames: setup.frames,
-            containerBounds: setup.bounds,
-            minimizedPaneIds: [],
-            sourcePaneId: setup.p2
+        let target = try #require(
+            PaneDragCoordinator.resolveTarget(
+                location: cursor,
+                paneFrames: setup.frames,
+                containerBounds: setup.bounds,
+                minimizedPaneIds: [],
+                sourcePaneId: setup.p2
+            )
         )
 
-        #expect(target == nil)
+        #expect(target.sizingTarget == .paneSplit(paneId: setup.p1, side: .right))
     }
 
     @Test
-    func r2_resolve_overRightAdjacentSlot_returnsNil() {
-        // S = P₂. Slot i+1 = slot 2 sits between P₂ and P₃.
-        // Cursor in left 1/4 of P₃ resolves to slot 2.
+    func r2_overRightAdjacentSlotOfForeignSibling_promotesToSiblingSplit() throws {
+        // S = P₂. Cursor in left 1/4 of P₃ would resolve to slot 2.
+        // Promotes to split(P₃, .left).
         let setup = ThreePaneRow.make()
         let p3Frame = setup.frames[setup.p3]!
         let cursor = CGPoint(x: p3Frame.minX + 5, y: 50)
 
+        let target = try #require(
+            PaneDragCoordinator.resolveTarget(
+                location: cursor,
+                paneFrames: setup.frames,
+                containerBounds: setup.bounds,
+                minimizedPaneIds: [],
+                sourcePaneId: setup.p2
+            )
+        )
+
+        #expect(target.sizingTarget == .paneSplit(paneId: setup.p3, side: .left))
+    }
+
+    @Test
+    func r2_overSourcePaneOwnQuarterZone_returnsNil() {
+        // Cursor in right 1/4 of S itself — promotion can't apply
+        // because the containing pane IS source. Stays a dead zone.
+        let setup = ThreePaneRow.make()
+        let sourceFrame = setup.frames[setup.p2]!
+        let cursorOnSourceRightQuarter = CGPoint(x: sourceFrame.maxX - 5, y: 50)
+
         let target = PaneDragCoordinator.resolveTarget(
-            location: cursor,
+            location: cursorOnSourceRightQuarter,
             paneFrames: setup.frames,
             containerBounds: setup.bounds,
             minimizedPaneIds: [],

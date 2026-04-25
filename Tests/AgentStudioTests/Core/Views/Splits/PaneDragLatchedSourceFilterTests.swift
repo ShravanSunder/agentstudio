@@ -51,9 +51,10 @@ struct PaneDragLatchedSourceFilterTests {
     }
 
     @Test
-    func r5_latched_dropsLatchWhenCursorMovesOverAdjacentSlot() {
-        // Arrange — cursor moves into right 1/4 of P₁ (slot 1 = adjacent
-        // to S=P₂ at index 1).
+    func r5_latched_promotesAdjacentSlotOverForeignSiblingToSplit() throws {
+        // Arrange — cursor moves into right 1/4 of P₁ (would resolve to
+        // slot 1 = adjacent to S=P₂). Sibling-promotion exception
+        // applies: result is split(P₁, .right), not nil.
         let setup = ThreePaneRow.make()
         let validForeignTarget = PaneDropTarget(
             paneId: setup.p3,
@@ -61,11 +62,42 @@ struct PaneDragLatchedSourceFilterTests {
             sizingTarget: .paneSplit(paneId: setup.p3, side: .left)
         )
         let p1Frame = setup.frames[setup.p1]!
-        let cursorInAdjacentSlot = CGPoint(x: p1Frame.maxX - 5, y: 50)
+        let cursorInAdjacentZone = CGPoint(x: p1Frame.maxX - 5, y: 50)
+
+        // Act
+        let result = try #require(
+            PaneDragCoordinator.resolveLatchedTarget(
+                location: cursorInAdjacentZone,
+                paneFrames: setup.frames,
+                containerBounds: setup.bounds,
+                minimizedPaneIds: [],
+                currentTarget: validForeignTarget,
+                isShiftHeld: false,
+                sourcePaneId: setup.p2,
+                shouldAcceptDrop: { _, _, _ in true }
+            )
+        )
+
+        // Assert
+        #expect(result.sizingTarget == .paneSplit(paneId: setup.p1, side: .right))
+    }
+
+    @Test
+    func r5_latched_dropsLatchWhenCursorOverSourcePaneOwnQuarterZone() {
+        // Arrange — cursor in right 1/4 of S. Promotion can't apply
+        // because the containing pane IS source. Latch drops.
+        let setup = ThreePaneRow.make()
+        let validForeignTarget = PaneDropTarget(
+            paneId: setup.p3,
+            zone: .left,
+            sizingTarget: .paneSplit(paneId: setup.p3, side: .left)
+        )
+        let sourceFrame = setup.frames[setup.p2]!
+        let cursorOnSourceRightQuarter = CGPoint(x: sourceFrame.maxX - 5, y: 50)
 
         // Act
         let result = PaneDragCoordinator.resolveLatchedTarget(
-            location: cursorInAdjacentSlot,
+            location: cursorOnSourceRightQuarter,
             paneFrames: setup.frames,
             containerBounds: setup.bounds,
             minimizedPaneIds: [],

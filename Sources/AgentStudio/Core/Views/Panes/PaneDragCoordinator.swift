@@ -68,11 +68,20 @@ struct PaneDragCoordinator {
             return nil
         }
 
-        guard isSourceAcceptable(target: target, sourcePaneId: sourcePaneId, sortedPaneIds: sortedPaneIds) else {
+        guard
+            let final = applySourceFilter(
+                rawTarget: target,
+                sourcePaneId: sourcePaneId,
+                sortedPaneIds: sortedPaneIds,
+                paneFrames: paneFrames,
+                splittablePanes: splittablePaneIds,
+                cursorLocation: location
+            )
+        else {
             return nil
         }
 
-        return paneTarget(from: target, sortedPaneIds: sortedPaneIds)
+        return paneTarget(from: final, sortedPaneIds: sortedPaneIds)
     }
 
     // The pure adapter keeps each geometry and sizing input explicit at the drag boundary.
@@ -102,19 +111,23 @@ struct PaneDragCoordinator {
 
         if let geometricCandidate {
             // R5: source filter rejects → drop the latch (do NOT fall
-            // through to currentTarget retention). Cursor over a
-            // self/adjacent zone is an explicit signal the user is in
-            // invalid territory; sticking the latch would lie to them.
+            // through to currentTarget retention). The filter may also
+            // PROMOTE an adjacent-slot rejection over a foreign sibling
+            // to a split of that sibling, so the 1/4 zone always gives
+            // commit feedback when it's over a non-source pane.
             guard
-                isSourceAcceptable(
-                    target: geometricCandidate,
+                let promoted = applySourceFilter(
+                    rawTarget: geometricCandidate,
                     sourcePaneId: sourcePaneId,
-                    sortedPaneIds: sortedPaneIds
+                    sortedPaneIds: sortedPaneIds,
+                    paneFrames: paneFrames,
+                    splittablePanes: splittablePaneIds,
+                    cursorLocation: location
                 )
             else {
                 return nil
             }
-            guard let paneTarget = paneTarget(from: geometricCandidate, sortedPaneIds: sortedPaneIds) else {
+            guard let paneTarget = paneTarget(from: promoted, sortedPaneIds: sortedPaneIds) else {
                 return nil
             }
             let sizingMode = DropSizingModeResolver.mode(for: paneTarget.sizingTarget, isShiftHeld: isShiftHeld)
@@ -131,11 +144,14 @@ struct PaneDragCoordinator {
         guard let currentTarget else { return nil }
         let currentDropTarget = dropTarget(from: currentTarget, sortedPaneIds: sortedPaneIds)
         if let currentDropTarget,
-            !isSourceAcceptable(
-                target: currentDropTarget,
+            applySourceFilter(
+                rawTarget: currentDropTarget,
                 sourcePaneId: sourcePaneId,
-                sortedPaneIds: sortedPaneIds
-            )
+                sortedPaneIds: sortedPaneIds,
+                paneFrames: paneFrames,
+                splittablePanes: splittablePaneIds,
+                cursorLocation: location
+            ) == nil
         {
             return nil
         }
@@ -200,27 +216,69 @@ struct PaneDragCoordinator {
         return visuals[target.sizingTarget]
     }
 
-    /// Universal source-filter rule (R1, R2). Returns `true` when the
-    /// resolved geometric target is a valid drop for the given source.
-    /// When the source isn't part of `sortedPaneIds` (e.g. cross-tab
-    /// drag), there's no adjacency to enforce — return true.
-    private static func isSourceAcceptable(
-        target: DropTarget,
+    // Universal source-filter rule (R1, R2) with the SIBLING-PROMOTION exception.
+    //   - R1 reject (split(S)) → nil, no promotion path.
+    //   - R2 reject (slot i or slot i+1):
+    //       cursor over a foreign sibling pane in that 1/4 zone →
+    //         promote to split(sibling, side) so the user gets commit
+    //         feedback near the edge.
+    //       cursor over the source pane itself, or in a corridor with
+    //         no foreign sibling → nil (dead zone).
+    //   - Cross-tab drag (source not in this row) → no R2 to enforce, pass through.
+    private static func applySourceFilter(
+        rawTarget: DropTarget,
         sourcePaneId: UUID?,
-        sortedPaneIds: [UUID]
-    ) -> Bool {
-        guard let sourcePaneId else { return true }
-        switch target {
+        sortedPaneIds: [UUID],
+        paneFrames: [UUID: CGRect],
+        splittablePanes: Set<UUID>,
+        cursorLocation: CGPoint
+    ) -> DropTarget? {
+        guard let sourcePaneId else { return rawTarget }
+        switch rawTarget {
         case .paneSplit(let paneId, _):
-            return paneId != sourcePaneId
+            return paneId == sourcePaneId ? nil : rawTarget
         case .paneSlot(_, let index):
             guard let sourceIndex = sortedPaneIds.firstIndex(of: sourcePaneId) else {
-                return true
+                return rawTarget
             }
-            return index != sourceIndex && index != sourceIndex + 1
+            if index != sourceIndex && index != sourceIndex + 1 {
+                return rawTarget
+            }
+            return promoteAdjacentSlotToSiblingSplit(
+                sourcePaneId: sourcePaneId,
+                paneFrames: paneFrames,
+                splittablePanes: splittablePanes,
+                cursorLocation: cursorLocation
+            )
         case .paneNewRow:
-            return true
+            return rawTarget
         }
+    }
+
+    /// Find the foreign sibling pane the cursor is hovering inside,
+    /// then build a split target on the side closer to the cursor.
+    /// Returns nil when the cursor is over the source pane itself, in
+    /// a corridor with no containing pane, or over a non-splittable
+    /// (e.g. minimized) pane.
+    private static func promoteAdjacentSlotToSiblingSplit(
+        sourcePaneId: UUID,
+        paneFrames: [UUID: CGRect],
+        splittablePanes: Set<UUID>,
+        cursorLocation: CGPoint
+    ) -> DropTarget? {
+        let containing =
+            paneFrames
+            .filter { $0.value.contains(cursorLocation) }
+            .min { lhs, rhs in
+                lhs.value.width * lhs.value.height < rhs.value.width * rhs.value.height
+            }
+        guard let containing else { return nil }
+        let paneId = containing.key
+        let frame = containing.value
+        guard paneId != sourcePaneId else { return nil }
+        guard splittablePanes.contains(paneId) else { return nil }
+        let side: DropZoneSide = cursorLocation.x < frame.midX ? .left : .right
+        return .paneSplit(paneId: paneId, side: side)
     }
 
     private static func sortedPaneIds(from paneFrames: [UUID: CGRect]) -> [UUID] {

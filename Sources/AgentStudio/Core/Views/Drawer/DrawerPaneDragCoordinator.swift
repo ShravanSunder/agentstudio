@@ -60,11 +60,17 @@ struct DrawerPaneDragCoordinator {
             return nil
         }
 
-        guard isSourceAcceptable(target: target, geometry: geometry) else {
+        guard
+            let final = applySourceFilter(
+                rawTarget: target,
+                geometry: geometry,
+                cursorLocation: location
+            )
+        else {
             return nil
         }
 
-        return drawerTarget(from: target)
+        return drawerTarget(from: final)
     }
 
     static func resolveLatchedTarget(
@@ -86,11 +92,19 @@ struct DrawerPaneDragCoordinator {
         )
 
         if let geometricCandidate {
-            // Cursor over a self/adjacent zone → drop the latch.
-            guard isSourceAcceptable(target: geometricCandidate, geometry: geometry) else {
+            // Cursor over a self/adjacent zone → drop the latch
+            // (or PROMOTE to split(sibling, side) when cursor is on
+            // a foreign sibling pane in the 1/4 zone).
+            guard
+                let promoted = applySourceFilter(
+                    rawTarget: geometricCandidate,
+                    geometry: geometry,
+                    cursorLocation: location
+                )
+            else {
                 return nil
             }
-            guard let drawerTarget = drawerTarget(from: geometricCandidate) else {
+            guard let drawerTarget = drawerTarget(from: promoted) else {
                 return nil
             }
             return shouldAcceptDrop(drawerTarget) ? drawerTarget : nil
@@ -99,7 +113,7 @@ struct DrawerPaneDragCoordinator {
         // No geometric candidate → retain currentTarget if still acceptable.
         guard let currentTarget else { return nil }
         let currentDropTarget = dropTarget(from: currentTarget)
-        guard isSourceAcceptable(target: currentDropTarget, geometry: geometry) else {
+        if applySourceFilter(rawTarget: currentDropTarget, geometry: geometry, cursorLocation: location) == nil {
             return nil
         }
         return shouldAcceptDrop(currentTarget) ? currentTarget : nil
@@ -122,10 +136,15 @@ struct DrawerPaneDragCoordinator {
             splittablePanes: geometry.splittablePaneIds
         )
 
+        // For visuals (no cursor location), keep the simpler bool
+        // filter — promotion is cursor-driven and only matters at
+        // resolve time. The split visuals for foreign panes are
+        // already in the dict and will activate naturally when the
+        // promoted target lands on them.
         return resolverVisuals.reduce(
             into: [DrawerRearrangeTarget: DrawerDropTargetVisual]()
         ) { accumulator, entry in
-            guard isSourceAcceptable(target: entry.key, geometry: geometry) else { return }
+            guard isSourceAcceptableForVisuals(target: entry.key, geometry: geometry) else { return }
             guard let target = drawerTarget(from: entry.key) else { return }
             accumulator[target] = entry.value
         }
@@ -142,9 +161,33 @@ struct DrawerPaneDragCoordinator {
         }
     }
 
-    /// Universal source-filter rule for drawer targets. Same as the
-    /// main-pane rule, plus the "solo-row band" exclusion.
-    private static func isSourceAcceptable(
+    /// Resolver-time source filter with sibling promotion (R1, R2,
+    /// plus drawer band rules). Returns the final drop target the
+    /// drawer should commit, or nil if the cursor is in a dead zone.
+    private static func applySourceFilter(
+        rawTarget: DropTarget,
+        geometry: DrawerPaneDragGeometry,
+        cursorLocation: CGPoint
+    ) -> DropTarget? {
+        guard !geometry.excludedPaneIds.isEmpty else { return rawTarget }
+        switch rawTarget {
+        case .paneSplit(let paneId, _):
+            return geometry.excludedPaneIds.contains(paneId) ? nil : rawTarget
+        case .paneSlot(let rowID, let index):
+            if isSlotAcceptable(rowID: rowID, index: index, geometry: geometry) {
+                return rawTarget
+            }
+            return promoteAdjacentSlotToSiblingSplit(geometry: geometry, cursorLocation: cursorLocation)
+        case .paneNewRow:
+            return isNewRowBandAcceptable(geometry: geometry) ? rawTarget : nil
+        }
+    }
+
+    /// Visuals-time source filter (no cursor — used when building the
+    /// full visuals dict). Drops self/adjacent entries; promotion is
+    /// not applied here because the split visuals for foreign panes
+    /// are already present in the dict.
+    private static func isSourceAcceptableForVisuals(
         target: DropTarget,
         geometry: DrawerPaneDragGeometry
     ) -> Bool {
@@ -157,6 +200,29 @@ struct DrawerPaneDragCoordinator {
         case .paneNewRow:
             return isNewRowBandAcceptable(geometry: geometry)
         }
+    }
+
+    /// Find the foreign sibling pane the cursor is hovering inside,
+    /// then build a split target on the side closer to the cursor.
+    /// Returns nil for cursor on the source pane, in a corridor with
+    /// no containing pane, or over a non-splittable pane.
+    private static func promoteAdjacentSlotToSiblingSplit(
+        geometry: DrawerPaneDragGeometry,
+        cursorLocation: CGPoint
+    ) -> DropTarget? {
+        let containing =
+            geometry.paneFrames
+            .filter { $0.value.contains(cursorLocation) }
+            .min { lhs, rhs in
+                lhs.value.width * lhs.value.height < rhs.value.width * rhs.value.height
+            }
+        guard let containing else { return nil }
+        let paneId = containing.key
+        let frame = containing.value
+        guard !geometry.excludedPaneIds.contains(paneId) else { return nil }
+        guard geometry.splittablePaneIds.contains(paneId) else { return nil }
+        let side: DropZoneSide = cursorLocation.x < frame.midX ? .left : .right
+        return .paneSplit(paneId: paneId, side: side)
     }
 
     /// Slot rejection (R2) operates in the resolver's GEOMETRIC index

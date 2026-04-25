@@ -49,8 +49,9 @@ struct DrawerSourceFilterTests {
     }
 
     @Test
-    func r7_singleRow_overLeftAdjacentSlot_returnsNil() {
-        // S at index 1; right 1/4 of P₁ → slot 1 (= position i, adjacent).
+    func r7_singleRow_overLeftAdjacentZoneOfSibling_promotesToSiblingSplit() {
+        // S at index 1; cursor in right 1/4 of P₁ would resolve to
+        // slot 1 (adjacent to S). Sibling-promotion → split(P₁, .right).
         let p1 = UUID()
         let s = UUID()
         let p3 = UUID()
@@ -71,12 +72,13 @@ struct DrawerSourceFilterTests {
             )
         )
 
-        #expect(target == nil)
+        #expect(target == .paneSplit(paneId: p1, side: .right))
     }
 
     @Test
-    func r7_singleRow_overRightAdjacentSlot_returnsNil() {
-        // S at index 1; left 1/4 of P₃ → slot 2 (= position i+1, adjacent).
+    func r7_singleRow_overRightAdjacentZoneOfSibling_promotesToSiblingSplit() {
+        // S at index 1; cursor in left 1/4 of P₃ → slot 2 (adjacent).
+        // Promotes to split(P₃, .left).
         let p1 = UUID()
         let s = UUID()
         let p3 = UUID()
@@ -86,6 +88,33 @@ struct DrawerSourceFilterTests {
             p3: CGRect(x: 220, y: 40, width: 100, height: 80),
         ]
         let cursor = CGPoint(x: 225, y: 80)  // P₃ left 1/4
+
+        let target = DrawerPaneDragCoordinator.resolveTarget(
+            location: cursor,
+            geometry: geometry(
+                paneFrames: frames,
+                layout: DrawerGridLayout(topRow: Layout.autoTiled([p1, s, p3])),
+                bounds: CGRect(x: 0, y: 0, width: 320, height: 140),
+                excludedPaneIds: [s]
+            )
+        )
+
+        #expect(target == .paneSplit(paneId: p3, side: .left))
+    }
+
+    @Test
+    func r7_singleRow_overSourcePaneOwnQuarterZone_returnsNil() {
+        // Cursor in right 1/4 of S itself — containing pane IS source,
+        // promotion fails → nil.
+        let p1 = UUID()
+        let s = UUID()
+        let p3 = UUID()
+        let frames: [UUID: CGRect] = [
+            p1: CGRect(x: 0, y: 40, width: 100, height: 80),
+            s: CGRect(x: 110, y: 40, width: 100, height: 80),
+            p3: CGRect(x: 220, y: 40, width: 100, height: 80),
+        ]
+        let cursor = CGPoint(x: 205, y: 80)  // S right 1/4
 
         let target = DrawerPaneDragCoordinator.resolveTarget(
             location: cursor,
