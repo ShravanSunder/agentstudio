@@ -178,12 +178,29 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
                 return false
             }
             let geometry = drawerPaneDragGeometry(excluding: excludedPaneIds(from: payload))
+            // Re-resolve through the SOURCE-AWARE latched path. The
+            // bound `currentTarget` may be stale (latched on a valid
+            // foreign target during the drag, then drifted onto a
+            // now-rejected zone before release). Using
+            // resolveLatchedTarget preserves "ride through gaps" while
+            // refusing to commit when the release is over an actually
+            // invalid zone.
             guard
-                let resolvedTarget = targetBinding.wrappedValue
-                    ?? DrawerPaneDragCoordinator.resolveTarget(
-                        location: location,
-                        geometry: geometry
-                    )
+                let resolvedTarget = DrawerPaneDragCoordinator.resolveLatchedTarget(
+                    location: location,
+                    geometry: geometry,
+                    currentTarget: targetBinding.wrappedValue,
+                    shouldAcceptDrop: { target in
+                        shouldAcceptDropClosure(
+                            payload,
+                            target,
+                            DrawerPaneDragCoordinator.sizingMode(
+                                for: target,
+                                isShiftHeld: NSEvent.modifierFlags.contains(.shift)
+                            )
+                        )
+                    }
+                )
             else {
                 RestoreTrace.log(
                     "DrawerSplit.performDrop rejected location=\(NSStringFromPoint(location)) payload=\(String(describing: payload))"
@@ -194,12 +211,6 @@ struct DrawerSplitContainerDropCaptureOverlay: NSViewRepresentable {
                 for: resolvedTarget,
                 isShiftHeld: NSEvent.modifierFlags.contains(.shift)
             )
-            guard shouldAcceptDropClosure(payload, resolvedTarget, sizingMode) else {
-                RestoreTrace.log(
-                    "DrawerSplit.performDrop validationRejected target=\(String(describing: resolvedTarget)) location=\(NSStringFromPoint(location)) payload=\(String(describing: payload))"
-                )
-                return false
-            }
 
             RestoreTrace.log(
                 "DrawerSplit.performDrop target=\(String(describing: resolvedTarget)) location=\(NSStringFromPoint(location))"

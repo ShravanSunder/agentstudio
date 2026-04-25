@@ -36,9 +36,12 @@ struct DrawerSplitContainerDropCaptureOverlayTests {
         let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: UUID()))
         let pasteboard = try pasteboard(containing: payload)
 
+        // Release in a true geometric gap: y between the pane bottom
+        // (80) and the bottom band start (96), so no row containsVertically
+        // matches and no band target fires.
         let didDrop = coordinator.performDrop(
             from: pasteboard,
-            location: CGPoint(x: 220, y: 110)
+            location: CGPoint(x: 50, y: 88)
         )
 
         #expect(didDrop)
@@ -83,7 +86,7 @@ struct DrawerSplitContainerDropCaptureOverlayTests {
             containing: SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: UUID()))
         )
 
-        _ = coordinator.performDrop(from: pasteboard, location: CGPoint(x: 220, y: 110))
+        _ = coordinator.performDrop(from: pasteboard, location: CGPoint(x: 50, y: 88))
 
         #expect(validatedSizingModes == [.halveTarget])
         #expect(handledSizingModes == validatedSizingModes)
@@ -133,6 +136,59 @@ struct DrawerSplitContainerDropCaptureOverlayTests {
                     payload: payload, target: .rowSlot(row: .top, insertionIndex: 1), sizingMode: .proportional)
             ]
         )
+    }
+
+    /// P1 — performDrop must NOT commit a stale latched target when the
+    /// release location is over a now-rejected zone (split-self,
+    /// adjacent slot on source's own pane). The drop must re-resolve
+    /// through the source-aware latched path, just like the main
+    /// overlay's performDrop does.
+    @Test
+    func performDrop_rejectsStaleLatchedTargetWhenReleaseIsOverSourcePane() throws {
+        // Arrange. Source has a frame in this drawer, so its own
+        // 1/4 zones are dead and split(source) is a no-op.
+        let sourcePaneId = UUID()
+        let siblingPaneId = UUID()
+        // Layout-wise the user latched on a valid foreign target during
+        // the drag, then drifted the release point onto the source pane
+        // itself. The binding is stale.
+        var latchedTarget: DrawerRearrangeTarget? = .paneSplit(paneId: siblingPaneId, side: .left)
+        var handledDrops: [HandledDrawerDrop] = []
+
+        let coordinator = DrawerSplitContainerDropCaptureOverlay.Coordinator(
+            targetBinding: Binding(
+                get: { latchedTarget },
+                set: { latchedTarget = $0 }
+            ),
+            sourcePaneIdBinding: .constant(nil),
+            shouldAcceptDrop: { _, _, _ in true },
+            handleDrop: { payload, target, sizingMode in
+                handledDrops.append(HandledDrawerDrop(payload: payload, target: target, sizingMode: sizingMode))
+            }
+        )
+        coordinator.updateLayout(
+            paneFrames: [
+                sourcePaneId: CGRect(x: 0, y: 0, width: 100, height: 80),
+                siblingPaneId: CGRect(x: 110, y: 0, width: 100, height: 80),
+            ],
+            layout: DrawerGridLayout(topRow: Layout.autoTiled([sourcePaneId, siblingPaneId])),
+            minimizedPaneIds: [],
+            containerBounds: CGRect(x: 0, y: 0, width: 220, height: 120),
+            isManagementLayerActive: true
+        )
+        let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: UUID()))
+        let pasteboard = try pasteboard(containing: payload)
+
+        // Act — release over source pane's center (split(source) =
+        // R1 self-reject; promotion can't fire on source itself).
+        let didDrop = coordinator.performDrop(
+            from: pasteboard,
+            location: CGPoint(x: 50, y: 40)
+        )
+
+        // Assert — drop refused; no handler called.
+        #expect(!didDrop)
+        #expect(handledDrops.isEmpty)
     }
 
     private func pasteboard(containing payload: SplitDropPayload) throws -> NSPasteboard {
