@@ -208,6 +208,11 @@ struct DrawerIconBar: View {
                                 .hoverTooltipAnchor(DrawerTooltipTarget.finder, in: Self.tooltipCoordinateSpaceName)
 
                                 if let onOpenInbox = trailingActions.onOpenInbox {
+                                    Divider()
+                                        .frame(height: AppStyles.Components.EditorChooser.dividerHeight)
+                                        .padding(
+                                            .horizontal, AppStyles.Components.EditorChooser.dividerHorizontalPadding)
+
                                     trailingActionButton(
                                         icon: .system(name: "bell.fill"),
                                         helpText: inboxToolTip,
