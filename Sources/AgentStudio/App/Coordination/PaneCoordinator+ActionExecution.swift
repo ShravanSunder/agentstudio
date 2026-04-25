@@ -716,35 +716,58 @@ extension PaneCoordinator {
             Self.logger.warning("closePane: pane \(paneId) not found")
             return
         }
-
-        let shouldCreateUndoEntry: Bool
-        if let tab = store.tabLayoutAtom.tab(tabId), tab.id == store.tabLayoutAtom.activeTabId {
-            if closingPane.isDrawerChild {
-                shouldCreateUndoEntry = closingPane.parentPaneId.map { tab.activePaneIds.contains($0) } ?? false
-            } else {
-                shouldCreateUndoEntry = tab.activePaneIds.contains(paneId)
-            }
-        } else {
-            shouldCreateUndoEntry = false
+        guard let tab = store.tabLayoutAtom.tab(tabId) else {
+            Self.logger.warning("closePane: tab \(tabId) not found")
+            return
         }
 
-        if shouldCreateUndoEntry {
-            if let snapshot = store.mutationCoordinator.snapshotForPaneClose(paneId: paneId, inTab: tabId) {
-                appendUndoEntry(.pane(snapshot))
+        let isDrawerChild = closingPane.isDrawerChild
+        let closingEmptiesTab: Bool = {
+            guard !isDrawerChild else { return false }
+            let remainingMainPaneIds = tab.allPaneIds.filter { candidatePaneId in
+                guard candidatePaneId != paneId else { return false }
+                guard let candidatePane = store.paneAtom.pane(candidatePaneId) else { return false }
+                return !candidatePane.isDrawerChild
+            }
+            return remainingMainPaneIds.isEmpty
+        }()
+
+        if closingEmptiesTab {
+            if let snapshot = store.mutationCoordinator.snapshotForClose(tabId: tabId) {
+                appendUndoEntry(.tab(snapshot))
             } else {
-                Self.logger.warning("closePane: snapshot failed for pane \(paneId) in tab \(tabId)")
+                Self.logger.warning("closePane: tab snapshot failed for last-pane close in tab \(tabId)")
             }
         } else {
-            Self.logger.debug("closePane: skipping undo snapshot for non-visible pane \(paneId) in tab \(tabId)")
+            let shouldSnapshotPane: Bool
+            if tab.id == store.tabLayoutAtom.activeTabId {
+                if isDrawerChild {
+                    shouldSnapshotPane = closingPane.parentPaneId.map { tab.activePaneIds.contains($0) } ?? false
+                } else {
+                    shouldSnapshotPane = tab.activePaneIds.contains(paneId)
+                }
+            } else {
+                shouldSnapshotPane = false
+            }
+
+            if shouldSnapshotPane {
+                if let snapshot = store.mutationCoordinator.snapshotForPaneClose(paneId: paneId, inTab: tabId) {
+                    appendUndoEntry(.pane(snapshot))
+                } else {
+                    Self.logger.warning("closePane: pane snapshot failed for pane \(paneId) in tab \(tabId)")
+                }
+            } else {
+                Self.logger.debug("closePane: skipping undo snapshot for non-visible pane \(paneId) in tab \(tabId)")
+            }
         }
 
-        if closingPane.isDrawerChild {
+        if isDrawerChild {
             if let parentPaneId = closingPane.parentPaneId {
                 execute(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
             } else {
                 teardownView(for: paneId)
                 store.mutationCoordinator.removePane(paneId)
-                viewRegistry.removeSlot(for: paneId)
+                viewRegistry.retireSlot(for: paneId)
             }
             expireOldUndoEntries()
             return
@@ -753,17 +776,24 @@ extension PaneCoordinator {
         let drawerChildIds = closingPane.drawer?.paneIds ?? []
         teardownDrawerPanes(for: paneId)
         teardownView(for: paneId)
-        store.tabLayoutAtom.removePaneFromLayout(paneId, inTab: tabId)
+        viewRegistry.retireSlot(for: paneId)
 
         for drawerPaneId in drawerChildIds {
-            store.paneAtom.removeDrawerPane(drawerPaneId, from: paneId)
             viewRegistry.retireSlot(for: drawerPaneId)
+        }
+
+        store.tabLayoutAtom.removePaneFromLayout(paneId, inTab: tabId)
+        for drawerPaneId in drawerChildIds {
+            store.paneAtom.removeDrawerPane(drawerPaneId, from: paneId)
         }
 
         let allOwnedPaneIds = currentOwnedPaneIds()
         if !allOwnedPaneIds.contains(paneId) {
             store.mutationCoordinator.removePane(paneId)
-            viewRegistry.retireSlot(for: paneId)
+        }
+
+        if store.tabLayoutAtom.tab(tabId)?.allPaneIds.isEmpty == true {
+            store.tabLayoutAtom.removeTab(tabId)
         }
 
         expireOldUndoEntries()

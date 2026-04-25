@@ -513,6 +513,25 @@ struct PaneCoordinatorHardeningTests {
         #expect(harness.viewRegistry.peekSlotForTesting(child.id) != nil)
     }
 
+    @Test("closePane on the final drawer child leaves an empty expanded drawer")
+    func closePane_lastDrawerChild_leavesEmptyExpandedDrawer() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parent.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let child = try #require(harness.store.addDrawerPane(to: parent.id))
+
+        harness.coordinator.execute(.closePane(tabId: tab.id, paneId: child.id))
+
+        let drawer = try #require(harness.store.pane(parent.id)?.drawer)
+        #expect(drawer.isExpanded)
+        #expect(drawer.paneIds.isEmpty)
+        #expect(drawer.activePaneId == nil)
+    }
+
     @Test("repair recreateSurface registers preparing placeholder when geometry is unavailable")
     func repairRecreateSurface_registersPreparingPlaceholderWhenGeometryUnavailable() {
         let harness = makeHarness()

@@ -155,8 +155,8 @@ struct PaneCoordinatorTests {
         #expect(Set(afterUndo.paneIds) == Set([paneA.id, paneB.id]))
     }
 
-    @Test("close-pane on a single-pane tab canonicalizes to close-tab before coordinator execution")
-    func closePane_singlePaneTabCanonicalizesToCloseTab() {
+    @Test("closePane on the last pane in an active tab produces a TabCloseSnapshot")
+    func closePane_lastPaneActive_producesTabSnapshot() {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let store = harness.store
@@ -165,26 +165,14 @@ struct PaneCoordinatorTests {
         let pane = makeWebviewPane(store, title: "Solo")
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
+        store.setActiveTab(tab.id)
 
-        let snapshot = WorkspaceCommandResolver.snapshot(
-            from: store.tabs,
-            activeTabId: store.activeTabId,
-            isManagementLayerActive: false
-        )
-        let validated = try? WorkspaceCommandValidator.validate(
-            .closePane(tabId: tab.id, paneId: pane.id),
-            state: snapshot
-        ).get()
-        guard let validated else {
-            Issue.record("Expected closePane to validate")
-            return
-        }
-
-        coordinator.execute(validated.action)
+        coordinator.execute(.closePane(tabId: tab.id, paneId: pane.id))
 
         #expect(store.tab(tab.id) == nil)
+        #expect(store.pane(pane.id) == nil)
         guard let entry = coordinator.undoStack.last else {
-            Issue.record("Expected undo entry after closePane escalation")
+            Issue.record("Expected undo entry after last-pane close")
             return
         }
         switch entry {
@@ -193,6 +181,63 @@ struct PaneCoordinatorTests {
         case .pane:
             Issue.record("Expected tab snapshot when closing the last pane")
         }
+    }
+
+    @Test("closePane on the last pane in a background tab still produces a TabCloseSnapshot")
+    func closePane_lastPaneBackground_stillProducesTabSnapshot() {
+        let harness = makeHarnessCoordinator()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let store = harness.store
+        let coordinator = harness.coordinator
+
+        let activePane = makeWebviewPane(store, title: "Active")
+        let activeTab = Tab(paneId: activePane.id)
+        store.appendTab(activeTab)
+        store.setActiveTab(activeTab.id)
+
+        let backgroundPane = makeWebviewPane(store, title: "Background")
+        let backgroundTab = Tab(paneId: backgroundPane.id)
+        store.appendTab(backgroundTab)
+
+        coordinator.execute(.closePane(tabId: backgroundTab.id, paneId: backgroundPane.id))
+
+        #expect(store.tab(backgroundTab.id) == nil)
+        guard case .tab(let snapshot)? = coordinator.undoStack.last else {
+            Issue.record("Expected TabCloseSnapshot for background last-pane close")
+            return
+        }
+        #expect(snapshot.tab.id == backgroundTab.id)
+    }
+
+    @Test("closePane on a non-last pane in an active tab produces a PaneCloseSnapshot")
+    func closePane_nonLastPaneActive_producesPaneSnapshot() {
+        let harness = makeHarnessCoordinator()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let store = harness.store
+        let coordinator = harness.coordinator
+
+        let paneA = makeWebviewPane(store, title: "A")
+        let paneB = makeWebviewPane(store, title: "B")
+        let tab = Tab(paneId: paneA.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+        store.insertPane(
+            paneB.id,
+            inTab: tab.id,
+            at: paneA.id,
+            direction: .horizontal,
+            position: .after,
+            sizingMode: .halveTarget
+        )
+
+        coordinator.execute(.closePane(tabId: tab.id, paneId: paneB.id))
+
+        #expect(store.tab(tab.id) != nil)
+        guard case .pane(let snapshot)? = coordinator.undoStack.last else {
+            Issue.record("Expected PaneCloseSnapshot")
+            return
+        }
+        #expect(snapshot.pane.id == paneB.id)
     }
 
     @Test("view lifecycle registers and unregisters pane filesystem context for worktree-backed panes")

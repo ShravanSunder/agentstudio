@@ -103,6 +103,7 @@ Each doc owns a specific concern. See [Architecture Overview](docs/architecture/
 | [Session Lifecycle](docs/architecture/session_lifecycle.md) | Pane identity, creation, close, undo, restore, zmx backend |
 | [Surface Architecture](docs/architecture/ghostty_surface_architecture.md) | Ghostty surface ownership, state machine, health, crash isolation |
 | [App Architecture](docs/architecture/appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid, controllers, events |
+| [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md) | The four-file system (AppCommand / AppShortcut / CommandSpec / LocalActionSpec), decision tree for adding bindings, contexts, alternateTriggers, where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
 | [Directory Structure](docs/architecture/directory_structure.md) | Module boundaries, Core vs Features, import rule, component placement |
 | [Style Guide](docs/guides/style_guide.md) | macOS design conventions and visual standards |
 

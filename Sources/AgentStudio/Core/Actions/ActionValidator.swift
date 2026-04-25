@@ -93,7 +93,7 @@ enum WorkspaceCommandValidator {
             guard let tab = state.tab(tabId) else {
                 return .failure(.tabNotFound(tabId: tabId))
             }
-            guard tab.ownsPane(paneId) else {
+            guard state.tabOwnsPane(tabId, paneId: paneId) else {
                 return .failure(.paneNotFound(paneId: paneId, tabId: tabId))
             }
             return .success(ValidatedAction(action))
