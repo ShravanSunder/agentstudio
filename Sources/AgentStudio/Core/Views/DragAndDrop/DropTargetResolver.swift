@@ -414,15 +414,17 @@ private struct RowFrames {
         }
         // SYMMETRIC clamp around the boundary so the highlight stays
         // visually consistent as the cursor moves between boundaries
-        // with differently-sized neighbors. Half-width = max of (the
-        // narrower neighbor's natural 1/4, the side-zone floor).
-        // Hover hit zones remain per-pane 1/4; only the painted visual
-        // snaps. The marker bar pins the actual commit point.
+        // with differently-sized neighbors. Half-width is the SMALLER
+        // of the two side-zone widths so the painted region cannot
+        // exceed either neighbor's actual hit zone — sideWidth caps at
+        // frame.width / 2 (the hover-zone collapse condition), so on
+        // narrow panes the visual shrinks with the hit area instead of
+        // overpainting into adjacent slots.
         let leftFrame = values[slotIndex - 1].frame
         let rightFrame = values[slotIndex].frame
-        let leftNatural = leftFrame.width / 4
-        let rightNatural = rightFrame.width / 4
-        let halfWidth = max(min(leftNatural, rightNatural), sideZoneFloor)
+        let leftSide = sideWidth(for: leftFrame, floor: sideZoneFloor)
+        let rightSide = sideWidth(for: rightFrame, floor: sideZoneFloor)
+        let halfWidth = min(leftSide, rightSide)
         let boundaryX = (leftFrame.maxX + rightFrame.minX) / 2
         return CGRect(
             x: boundaryX - halfWidth,

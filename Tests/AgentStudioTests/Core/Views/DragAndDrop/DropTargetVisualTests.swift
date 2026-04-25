@@ -103,9 +103,50 @@ struct DropTargetVisualTests {
         #expect(markerRect.midX == 400)
     }
 
+    /// Codex P1 — when panes are narrow enough that the natural side
+    /// zone collapses to half-pane width (sideZoneFloor * 2 >= width),
+    /// the painted slot region MUST also collapse to per-side half-
+    /// pane width. Otherwise the visual paints into adjacent slot zones
+    /// and clicking inside the painted area resolves to the wrong slot.
+    ///
+    /// Two 40pt panes touching at boundary x=40:
+    ///   sideWidth(for: 40pt frame, floor: 24) = min(max(10, 24), 20) = 20
+    ///   So slot 1 hover hit = [20..60] (right half of left + left half of right).
+    ///   Visual must match: half-width 20 around boundary = region [20..60].
+    @Test
+    func paneDragCoordinator_visualForSlotInsert_betweenNarrowPanes_capsAtHalfPaneWidth() throws {
+        let paneA = UUID()
+        let paneB = UUID()
+        let paneFrames: [UUID: CGRect] = [
+            paneA: CGRect(x: 0, y: 0, width: 40, height: 100),
+            paneB: CGRect(x: 40, y: 0, width: 40, height: 100),
+        ]
+        let containerBounds = CGRect(x: 0, y: 0, width: 80, height: 100)
+
+        let betweenTarget = PaneDropTarget(
+            paneId: paneA,
+            zone: .right,
+            sizingTarget: .paneSlot(row: .main, index: 1)
+        )
+
+        let visual = try #require(
+            PaneDragCoordinator.visual(
+                for: betweenTarget,
+                paneFrames: paneFrames,
+                containerBounds: containerBounds,
+                minimizedPaneIds: []
+            )
+        )
+
+        // Region width = 2 * 20 = 40 centered on boundary x=40 → [20..60].
+        // Hit zone for slot 1 also = [20..60], so visual matches commit area.
+        #expect(visual.region == CGRect(x: 20, y: 0, width: 40, height: 100))
+    }
+
     /// Issue C — narrow panes hit the side-zone floor (24pt). When
     /// both panes have natural 1/4 widths below the floor, both sides
-    /// should grow to the floor for a 48pt-wide centered region.
+    /// should grow to the floor for a 48pt-wide centered region — but
+    /// only when the floor doesn't exceed each pane's half-width cap.
     @Test
     func paneDragCoordinator_visualForSlotInsert_betweenVeryNarrowPanes_floorsToSideZoneFloor() throws {
         let paneA = UUID()
