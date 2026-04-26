@@ -109,6 +109,12 @@ final class ViewRegistry {
         retiredPaneIds.insert(paneId)
     }
 
+    /// True when the slot is tombstoned for a close/removal transition and must
+    /// remain readable until every registered surface stops rendering the pane id.
+    func isRetired(for paneId: UUID) -> Bool {
+        retiredPaneIds.contains(paneId)
+    }
+
     /// Delete a tombstoned slot once its close transition is fully absent from rendered surfaces.
     func finalizeRetiredSlotRemoval(for paneId: UUID) {
         guard retiredPaneIds.remove(paneId) != nil else { return }
@@ -182,7 +188,7 @@ final class ViewRegistry {
         }
 
         func isRetiredForTesting(_ paneId: UUID) -> Bool {
-            retiredPaneIds.contains(paneId)
+            isRetired(for: paneId)
         }
     #endif
 

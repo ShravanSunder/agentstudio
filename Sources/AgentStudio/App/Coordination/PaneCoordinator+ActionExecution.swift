@@ -112,6 +112,7 @@ extension PaneCoordinator {
         guard createViewForContent(pane: pane) != nil else {
             Self.logger.error("Webview creation failed — rolling back pane \(pane.id)")
             store.mutationCoordinator.removePane(pane.id)
+            // Safe immediate deletion: creation failed before the pane entered a rendered layout.
             viewRegistry.removeSlot(for: pane.id)
             return nil
         }
@@ -151,6 +152,7 @@ extension PaneCoordinator {
         guard createViewForContent(pane: pane) != nil else {
             Self.logger.error("Contextual webview creation failed — rolling back pane \(pane.id)")
             store.mutationCoordinator.removePane(pane.id)
+            // Safe immediate deletion: creation failed before the pane entered a rendered layout.
             viewRegistry.removeSlot(for: pane.id)
             return nil
         }
@@ -198,6 +200,7 @@ extension PaneCoordinator {
         guard createViewForContent(pane: pane) != nil else {
             Self.logger.error("Contextual drawer webview creation failed — rolling back pane \(pane.id)")
             store.paneAtom.removeDrawerPane(pane.id, from: parentPaneId)
+            // Safe immediate deletion: the synchronous drawer creation rollback completes before rendering resumes.
             viewRegistry.removeSlot(for: pane.id)
             return nil
         }
@@ -296,6 +299,7 @@ extension PaneCoordinator {
 
         case .extractPaneToTab(let tabId, let paneId):
             guard let newTab = store.tabLayoutAtom.extractPane(paneId, fromTab: tabId) else {
+                Self.logger.warning("extractPaneToTab: failed to extract pane \(paneId) from tab \(tabId)")
                 break
             }
             guard let pane = store.paneAtom.pane(paneId) else {
@@ -433,14 +437,15 @@ extension PaneCoordinator {
             guard let pane = store.paneAtom.pane(paneId), pane.residency == .backgrounded else { break }
             teardownView(for: paneId)
             store.paneAtom.purgeOrphanedPane(paneId)
-            viewRegistry.removeSlot(for: paneId)
+            viewRegistry.retireSlot(for: paneId)
 
         case .enterDrawer,
             .focusDrawerPaneUp,
             .focusDrawerPaneLeft,
             .focusDrawerPaneDown,
             .focusDrawerPaneRight:
-            break
+            Self.logger.debug(
+                "Drawer focus action reached PaneCoordinator after validation; handled by PaneTabViewController")
 
         case .detachDrawerPane(let parentPaneId, let drawerPaneId):
             guard let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id else {
@@ -679,7 +684,7 @@ extension PaneCoordinator {
             for pane in expiredPanes where !allOwnedPaneIds.contains(pane.id) {
                 teardownView(for: pane.id)
                 store.mutationCoordinator.removePane(pane.id)
-                viewRegistry.removeSlot(for: pane.id)
+                viewRegistry.retireSlot(for: pane.id)
                 Self.logger.debug("GC'd orphaned pane \(pane.id) from expired undo entry")
             }
         }

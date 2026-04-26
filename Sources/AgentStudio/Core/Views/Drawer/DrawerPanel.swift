@@ -147,7 +147,11 @@ struct DrawerPanel: View {
                 },
                 shouldHandleSplitDragPayload: { _ in true },
                 shouldAcceptDrop: { _, _, _, _ in false },
-                handleDrop: { _, _, _, _ in }
+                handleDrop: { _, _, _, _ in
+                    #if DEBUG
+                        assertionFailure("DrawerPanel drop handling is routed by the drawer overlay")
+                    #endif
+                }
             )
         )
     }

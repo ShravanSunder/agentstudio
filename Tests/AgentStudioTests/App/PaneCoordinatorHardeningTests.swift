@@ -163,6 +163,7 @@ struct PaneCoordinatorHardeningTests {
         let tab = Tab(paneId: pane.id)
         harness.store.appendTab(tab)
         harness.viewRegistry.register(PaneHostView(paneId: pane.id), for: pane.id)
+        harness.viewRegistry.surfaceRenderedIds("tab:\(tab.id)", ids: [pane.id])
 
         harness.coordinator.execute(.purgeOrphanedPane(paneId: pane.id))
         #expect(harness.store.pane(pane.id) != nil)
@@ -172,6 +173,8 @@ struct PaneCoordinatorHardeningTests {
         harness.coordinator.execute(.purgeOrphanedPane(paneId: pane.id))
         #expect(harness.store.pane(pane.id) == nil)
         #expect(harness.viewRegistry.view(for: pane.id) == nil)
+        #expect(harness.viewRegistry.isRetiredForTesting(pane.id))
+        #expect(harness.viewRegistry.peekSlotForTesting(pane.id) != nil)
     }
 
     @Test("insertPane newTerminal keeps inserted pane state when terminal view creation fails")
@@ -513,6 +516,56 @@ struct PaneCoordinatorHardeningTests {
         #expect(harness.viewRegistry.peekSlotForTesting(child.id) != nil)
     }
 
+    @Test(".removeDrawerPane stale segment reads the retired slot instead of creating a lazy fallback")
+    func removeDrawerPane_staleSegmentSlotRead_returnsRetiredSlot() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parent.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let child = try #require(harness.store.addDrawerPane(to: parent.id))
+        let originalSlot = harness.viewRegistry.ensureSlot(for: child.id)
+
+        harness.coordinator.execute(.removeDrawerPane(parentPaneId: parent.id, drawerPaneId: child.id))
+        let staleSegmentSlot = harness.viewRegistry.slot(for: child.id)
+
+        #expect(staleSegmentSlot === originalSlot)
+        #expect(harness.viewRegistry.isRetiredForTesting(child.id))
+    }
+
+    @Test(".removeDrawerPane finalizes retired slots only after every rendering surface drops the pane id")
+    func removeDrawerPane_surfaceUnionFinalizesOnlyAfterAllSurfacesDropPaneId() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parent.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let child = try #require(harness.store.addDrawerPane(to: parent.id))
+        let originalSlot = harness.viewRegistry.ensureSlot(for: child.id)
+
+        harness.viewRegistry.surfaceRenderedIds("tab:\(tab.id)", ids: [parent.id, child.id])
+        harness.viewRegistry.surfaceRenderedIds("drawer:\(parent.id)", ids: [child.id])
+
+        harness.coordinator.execute(.removeDrawerPane(parentPaneId: parent.id, drawerPaneId: child.id))
+
+        #expect(harness.viewRegistry.isRetiredForTesting(child.id))
+        #expect(harness.viewRegistry.peekSlotForTesting(child.id) === originalSlot)
+
+        harness.viewRegistry.surfaceRenderedIds("drawer:\(parent.id)", ids: [])
+
+        #expect(harness.viewRegistry.isRetiredForTesting(child.id))
+        #expect(harness.viewRegistry.peekSlotForTesting(child.id) === originalSlot)
+
+        harness.viewRegistry.surfaceRenderedIds("tab:\(tab.id)", ids: [parent.id])
+
+        #expect(!harness.viewRegistry.isRetiredForTesting(child.id))
+        #expect(harness.viewRegistry.peekSlotForTesting(child.id) == nil)
+    }
+
     @Test("closePane on the final drawer child leaves an empty expanded drawer")
     func closePane_lastDrawerChild_leavesEmptyExpandedDrawer() throws {
         let harness = makeHarness()
@@ -612,6 +665,47 @@ struct PaneCoordinatorHardeningTests {
         #expect(harness.store.tab(tab.id) == nil)
         #expect(harness.store.activeTabId == nil)
         #expect(harness.store.pane(terminalPane.id) == nil)
+    }
+
+    @Test("undoTabClose restore failure retires a stale rendered slot instead of deleting it")
+    func undoTabClose_restoreFailure_retiresStaleRenderedSlot() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let terminalPane = makeWorktreePane(harness.store, repo: repo, worktree: worktree, title: "Terminal")
+        let tab = Tab(paneId: terminalPane.id)
+        harness.store.appendTab(tab)
+        let originalSlot = harness.viewRegistry.ensureSlot(for: terminalPane.id)
+        harness.viewRegistry.surfaceRenderedIds("tab:\(tab.id)", ids: [terminalPane.id])
+
+        harness.coordinator.execute(.closeTab(tabId: tab.id))
+        harness.coordinator.undoCloseTab()
+
+        #expect(harness.store.pane(terminalPane.id) == nil)
+        #expect(harness.viewRegistry.isRetiredForTesting(terminalPane.id))
+        #expect(harness.viewRegistry.peekSlotForTesting(terminalPane.id) === originalSlot)
+    }
+
+    @Test("undoPaneClose restore failure retires a stale rendered drawer slot instead of deleting it")
+    func undoPaneClose_restoreFailure_retiresStaleRenderedDrawerSlot() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parent = makeWebviewPane(harness.store, title: "Parent")
+        let tab = Tab(paneId: parent.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let child = try #require(harness.store.addDrawerPane(to: parent.id))
+        let originalSlot = harness.viewRegistry.ensureSlot(for: child.id)
+        harness.viewRegistry.surfaceRenderedIds("drawer:\(parent.id)", ids: [child.id])
+
+        harness.coordinator.execute(.closePane(tabId: tab.id, paneId: child.id))
+        harness.coordinator.undoCloseTab()
+
+        #expect(harness.store.pane(child.id) == nil)
+        #expect(harness.viewRegistry.isRetiredForTesting(child.id))
+        #expect(harness.viewRegistry.peekSlotForTesting(child.id) === originalSlot)
     }
 
     @Test("undoTabClose preserves tab when only active arrangement is emptied")
@@ -722,10 +816,16 @@ struct PaneCoordinatorHardeningTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         var closedPaneIds: [UUID] = []
+        var oldestClosedSlot: ViewRegistry.PaneViewSlot?
         for index in 0...(harness.coordinator.maxUndoStackSize) {
             let pane = makeWebviewPane(harness.store, title: "Pane \(index)")
             let tab = Tab(paneId: pane.id)
             harness.store.appendTab(tab)
+            let slot = harness.viewRegistry.ensureSlot(for: pane.id)
+            if index == 0 {
+                oldestClosedSlot = slot
+                harness.viewRegistry.surfaceRenderedIds("tab:\(tab.id)", ids: [pane.id])
+            }
             harness.coordinator.execute(.closeTab(tabId: tab.id))
             closedPaneIds.append(pane.id)
         }
@@ -736,6 +836,8 @@ struct PaneCoordinatorHardeningTests {
             return
         }
         #expect(harness.store.pane(oldestClosedPaneId) == nil)
+        #expect(harness.viewRegistry.isRetiredForTesting(oldestClosedPaneId))
+        #expect(harness.viewRegistry.peekSlotForTesting(oldestClosedPaneId) === oldestClosedSlot)
     }
 
     @Test("restoreView defers runtime registration until after undo lookup")

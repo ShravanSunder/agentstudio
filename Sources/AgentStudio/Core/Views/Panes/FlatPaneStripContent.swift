@@ -1,4 +1,16 @@
 import SwiftUI
+import os.log
+
+private let flatPaneStripLogger = Logger(subsystem: "com.agentstudio", category: "FlatPaneStripContent")
+
+enum PaneSegmentMissingHostDisposition: Equatable {
+    case retiredTransition
+    case unexpectedMissingHost
+
+    static func resolve(isRetired: Bool) -> Self {
+        isRetired ? .retiredTransition : .unexpectedMissingHost
+    }
+}
 
 struct FlatPaneStripContent: View {
     let layout: Layout
@@ -70,6 +82,7 @@ struct FlatPaneStripContent: View {
                             coordinateSpaceName: coordinateSpaceName,
                             useDrawerFramePreference: useDrawerFramePreference,
                             onOpenPaneGitHub: onOpenPaneGitHub,
+                            viewRegistry: viewRegistry,
                             paneSlot: paneSlot
                         )
                         .id("\(segment.paneId.uuidString)-registered=\(paneSlot.host != nil)")
@@ -111,6 +124,7 @@ private struct PaneSegmentSlotView: View {
     let coordinateSpaceName: String?
     let useDrawerFramePreference: Bool
     let onOpenPaneGitHub: (UUID) -> Void
+    let viewRegistry: ViewRegistry
     @Bindable var paneSlot: ViewRegistry.PaneViewSlot
 
     var body: some View {
@@ -144,8 +158,38 @@ private struct PaneSegmentSlotView: View {
             )
             .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
         } else {
-            Color.clear
+            switch PaneSegmentMissingHostDisposition.resolve(
+                isRetired: viewRegistry.isRetired(for: segment.paneId)
+            ) {
+            case .retiredTransition:
+                Color.clear
+
+            case .unexpectedMissingHost:
+                UnexpectedMissingPaneHostPlaceholder(paneId: segment.paneId)
+            }
         }
+    }
+}
+
+private struct UnexpectedMissingPaneHostPlaceholder: View {
+    let paneId: UUID
+
+    var body: some View {
+        Color.clear
+            .onAppear {
+                Self.reportUnexpectedMissingHost(paneId: paneId)
+            }
+    }
+
+    private static func reportUnexpectedMissingHost(paneId: UUID) {
+        let message = "FlatPaneStripContent: missing host for non-retired pane \(paneId)"
+        #if DEBUG
+            assertionFailure(message)
+        #endif
+        flatPaneStripLogger.error(
+            "FlatPaneStripContent: missing host for non-retired pane \(paneId.uuidString, privacy: .public)"
+        )
+        RestoreTrace.log(message)
     }
 }
 

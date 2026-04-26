@@ -187,14 +187,14 @@ extension PaneCoordinator {
     private func removeFailedRestoredPane(_ paneId: UUID, fromTab tabId: UUID) {
         guard let pane = store.paneAtom.pane(paneId) else {
             teardownView(for: paneId)
-            viewRegistry.removeSlot(for: paneId)
+            viewRegistry.retireSlot(for: paneId)
             return
         }
 
         if pane.isDrawerChild, let parentPaneId = pane.parentPaneId {
             teardownView(for: paneId)
             store.paneAtom.removeDrawerPane(paneId, from: parentPaneId)
-            viewRegistry.removeSlot(for: paneId)
+            viewRegistry.retireSlot(for: paneId)
             return
         }
 
@@ -204,8 +204,8 @@ extension PaneCoordinator {
         store.tabLayoutAtom.removePaneFromLayout(paneId, inTab: tabId)
         store.mutationCoordinator.removePane(paneId)
         for drawerPaneId in drawerChildIds {
-            viewRegistry.removeSlot(for: drawerPaneId)
+            viewRegistry.retireSlot(for: drawerPaneId)
         }
-        viewRegistry.removeSlot(for: paneId)
+        viewRegistry.retireSlot(for: paneId)
     }
 }

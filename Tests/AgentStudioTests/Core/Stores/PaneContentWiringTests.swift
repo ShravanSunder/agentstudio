@@ -301,6 +301,18 @@ final class PaneContentWiringTests {
         #expect(registry.allWebviewViews.isEmpty)
     }
 
+    @Test("flat pane missing host fallback distinguishes retired transitions from real slot bugs")
+    func flatPaneMissingHostDisposition_distinguishesRetiredTransitions() {
+        #expect(
+            PaneSegmentMissingHostDisposition.resolve(isRetired: true)
+                == .retiredTransition
+        )
+        #expect(
+            PaneSegmentMissingHostDisposition.resolve(isRetired: false)
+                == .unexpectedMissingHost
+        )
+    }
+
     @Test
     func test_viewRegistry_ensureSlot_isIdempotent() {
         let registry = ViewRegistry()
