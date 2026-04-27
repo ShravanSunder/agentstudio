@@ -46,8 +46,22 @@ struct TestPushClock: Clock {
         let continuation: UnsafeContinuation<Void, Error>
     }
 
+    enum PendingSleepWaiterCondition {
+        case atLeast(Int)
+        case exactly(Int)
+
+        func isSatisfied(by count: Int) -> Bool {
+            switch self {
+            case .atLeast(let minimumCount):
+                count >= minimumCount
+            case .exactly(let expectedCount):
+                count == expectedCount
+            }
+        }
+    }
+
     struct PendingSleepWaiter {
-        let count: Int
+        let condition: PendingSleepWaiterCondition
         let continuation: UnsafeContinuation<Void, Never>
     }
 
@@ -113,6 +127,7 @@ struct TestPushClock: Clock {
 
     func advance(to instant: Instant) {
         var ready: [UnsafeContinuation<Void, Error>] = []
+        var resumedWaiters: [UnsafeContinuation<Void, Never>] = []
         state.withCriticalRegion { st in
             let nextNow = max(st.now, instant.nanoseconds)
             st.now = nextNow
@@ -120,10 +135,14 @@ struct TestPushClock: Clock {
             let resumed = st.pending.filter { $0.deadline <= nextNow }
             st.pending = remaining
             ready = resumed.map { $0.continuation }
+            resumedWaiters = Self.dequeueSatisfiedPendingSleepWaiters(state: &st)
         }
 
         for continuation in ready {
             continuation.resume()
+        }
+        for waiter in resumedWaiters {
+            waiter.resume()
         }
     }
 
@@ -132,8 +151,16 @@ struct TestPushClock: Clock {
     }
 
     func waitForPendingSleepCount(atLeast count: Int = 1) async {
+        await waitForPendingSleepCount(matching: .atLeast(count))
+    }
+
+    func waitForPendingSleepCount(exactly count: Int) async {
+        await waitForPendingSleepCount(matching: .exactly(count))
+    }
+
+    private func waitForPendingSleepCount(matching condition: PendingSleepWaiterCondition) async {
         let shouldResumeImmediately = state.withCriticalRegion { st in
-            st.pending.count >= count
+            condition.isSatisfied(by: st.pending.count)
         }
         if shouldResumeImmediately {
             return
@@ -141,12 +168,12 @@ struct TestPushClock: Clock {
 
         await withUnsafeContinuation { (continuation: UnsafeContinuation<Void, Never>) in
             let shouldResume = state.withCriticalRegion { st in
-                if st.pending.count >= count {
+                if condition.isSatisfied(by: st.pending.count) {
                     return true
                 }
 
                 st.pendingSleepWaiters.append(
-                    PendingSleepWaiter(count: count, continuation: continuation)
+                    PendingSleepWaiter(condition: condition, continuation: continuation)
                 )
                 return false
             }
@@ -158,13 +185,19 @@ struct TestPushClock: Clock {
     }
 
     private func cancel(_ generation: Int) {
+        var resumedWaiters: [UnsafeContinuation<Void, Never>] = []
         let continuation = state.withCriticalRegion { st -> UnsafeContinuation<Void, Error>? in
             guard let index = st.pending.firstIndex(where: { $0.generation == generation }) else {
                 return nil
             }
-            return st.pending.remove(at: index).continuation
+            let continuation = st.pending.remove(at: index).continuation
+            resumedWaiters = Self.dequeueSatisfiedPendingSleepWaiters(state: &st)
+            return continuation
         }
         continuation?.resume(throwing: CancellationError())
+        for waiter in resumedWaiters {
+            waiter.resume()
+        }
     }
 
     private static func dequeueSatisfiedPendingSleepWaiters(
@@ -175,8 +208,9 @@ struct TestPushClock: Clock {
         var remainingWaiters: [PendingSleepWaiter] = []
         var resumedWaiters: [UnsafeContinuation<Void, Never>] = []
 
+        let pendingCount = state.pending.count
         for waiter in state.pendingSleepWaiters {
-            if state.pending.count >= waiter.count {
+            if waiter.condition.isSatisfied(by: pendingCount) {
                 resumedWaiters.append(waiter.continuation)
             } else {
                 remainingWaiters.append(waiter)

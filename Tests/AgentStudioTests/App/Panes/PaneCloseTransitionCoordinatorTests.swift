@@ -13,9 +13,12 @@ struct PaneCloseTransitionCoordinatorTests {
         let coordinator = PaneCloseTransitionCoordinator(clock: clock)
         let paneId = UUID()
         var closeActionFired = false
+        var closeActionContinuation: CheckedContinuation<Void, Never>?
 
         coordinator.beginClosingPane(paneId, delay: .milliseconds(120)) {
             closeActionFired = true
+            closeActionContinuation?.resume()
+            closeActionContinuation = nil
         }
 
         #expect(coordinator.closingPaneIds.contains(paneId))
@@ -23,11 +26,12 @@ struct PaneCloseTransitionCoordinatorTests {
 
         await clock.waitForPendingSleepCount()
         clock.advance(by: .milliseconds(120))
-        for _ in 0..<5 {
-            if closeActionFired && !coordinator.closingPaneIds.contains(paneId) {
-                break
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            if closeActionFired {
+                continuation.resume()
+            } else {
+                closeActionContinuation = continuation
             }
-            await Task.yield()
         }
 
         #expect(closeActionFired == true)
@@ -47,10 +51,8 @@ struct PaneCloseTransitionCoordinatorTests {
 
         await clock.waitForPendingSleepCount()
         coordinator.cancelCloseTransition(paneId)
+        await clock.waitForPendingSleepCount(exactly: 0)
         clock.advance(by: .milliseconds(120))
-        for _ in 0..<5 {
-            await Task.yield()
-        }
 
         #expect(performCloseRan == false)
         #expect(coordinator.closingPaneIds.contains(paneId) == false)
@@ -70,9 +72,7 @@ struct PaneCloseTransitionCoordinatorTests {
             #expect(clock.pendingSleepCount == 1)
         }
 
-        for _ in 0..<5 {
-            await Task.yield()
-        }
+        await clock.waitForPendingSleepCount(exactly: 0)
 
         #expect(weakCoordinator == nil)
         #expect(clock.pendingSleepCount == 0)
@@ -90,12 +90,15 @@ struct PaneCloseTransitionCoordinatorTests {
         let paneId = UUID()
         let coordinator = PaneCloseTransitionCoordinator(clock: clock)
         var closeActionFired = false
+        var closeActionContinuation: CheckedContinuation<Void, Never>?
         let viewRegistry = ViewRegistry()
         let paneHost = PaneHostView(paneId: paneId)
         viewRegistry.register(paneHost, for: paneId)
         let dispatcher = PaneTabActionDispatcher(
             dispatch: { _ in
                 closeActionFired = true
+                closeActionContinuation?.resume()
+                closeActionContinuation = nil
             },
             shouldHandleSplitDragPayload: { _ in true },
             shouldAcceptDrop: { _, _, _, _ in false },
@@ -129,11 +132,12 @@ struct PaneCloseTransitionCoordinatorTests {
 
         await clock.waitForPendingSleepCount()
         clock.advance(by: .milliseconds(120))
-        for _ in 0..<5 {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             if closeActionFired {
-                break
+                continuation.resume()
+            } else {
+                closeActionContinuation = continuation
             }
-            await Task.yield()
         }
 
         #expect(closeActionFired == true)
@@ -170,11 +174,16 @@ struct PaneCloseTransitionCoordinatorTests {
 
         let clock = TestPushClock()
         let closeCoordinator = PaneCloseTransitionCoordinator(clock: clock)
+        var closeActionFinished = false
+        var closeActionContinuation: CheckedContinuation<Void, Never>?
         let actionDispatcher = PaneTabActionDispatcher(
             dispatch: { action in
                 switch action {
                 case .closePane(_, let paneId):
                     harness.coordinator.execute(.closePane(tabId: tab.id, paneId: paneId))
+                    closeActionFinished = true
+                    closeActionContinuation?.resume()
+                    closeActionContinuation = nil
                 default:
                     Issue.record("Unexpected action dispatched during drawer close transition: \(action)")
                 }
@@ -204,11 +213,12 @@ struct PaneCloseTransitionCoordinatorTests {
 
         await clock.waitForPendingSleepCount()
         clock.advance(by: .milliseconds(120))
-        for _ in 0..<5 {
-            if closeCoordinator.closingPaneIds.contains(drawerPane.id) == false {
-                break
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            if closeActionFinished {
+                continuation.resume()
+            } else {
+                closeActionContinuation = continuation
             }
-            await Task.yield()
         }
 
         #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds.isEmpty == true)
