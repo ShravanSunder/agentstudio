@@ -835,8 +835,7 @@ extension AppCommand {
                 icon: .system(.bell),
                 helpText: "Show or hide the notification inbox in the sidebar",
                 commandBarGroupName: "Window",
-                commandBarGroupPriority: CommandBarGroupPriority.window,
-                isHiddenInCommandBar: true
+                commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .showDrawerInboxNotifications:
             return CommandSpec(
@@ -846,8 +845,7 @@ extension AppCommand {
                 icon: .system(.bellBadge),
                 helpText: "Show notifications for the active drawer",
                 commandBarGroupName: "Window",
-                commandBarGroupPriority: CommandBarGroupPriority.window,
-                isHiddenInCommandBar: true
+                commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .showWorktreeSidebar:
             return CommandSpec(
@@ -857,8 +855,7 @@ extension AppCommand {
                 icon: .system(.sidebarLeft),
                 helpText: "Show or hide the repo explorer in the sidebar",
                 commandBarGroupName: "Window",
-                commandBarGroupPriority: CommandBarGroupPriority.window,
-                isHiddenInCommandBar: true
+                commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .newFloatingTerminal:
             return CommandSpec(

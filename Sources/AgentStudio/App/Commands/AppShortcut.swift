@@ -217,17 +217,17 @@ enum AppShortcut: String, CaseIterable {
         case .showInboxNotifications:
             return .init(
                 trigger: .init(key: .character(.i), modifiers: [.command]),
-                contexts: [.global]
+                contexts: [.global, .terminalAppOwned]
             )
         case .showDrawerInboxNotifications:
             return .init(
                 trigger: .init(key: .character(.i), modifiers: [.command, .shift]),
-                contexts: [.global]
+                contexts: [.global, .terminalAppOwned]
             )
         case .showWorktreeSidebar:
             return .init(
                 trigger: .init(key: .character(.s), modifiers: [.command]),
-                contexts: [.global]
+                contexts: [.global, .terminalAppOwned]
             )
         case .newWindow:
             return .init(

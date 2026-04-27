@@ -62,4 +62,20 @@ final class GhosttySurfaceShortcutTests {
             "Expected scroll-to-bottom in appOwnedShortcuts"
         )
     }
+
+    @Test
+    func test_appOwnedShortcuts_containsSidebarAndDrawerInboxShortcuts() {
+        #expect(
+            Ghostty.SurfaceView.appOwnedShortcuts.contains(.showInboxNotifications),
+            "Expected sidebar inbox shortcut in appOwnedShortcuts"
+        )
+        #expect(
+            Ghostty.SurfaceView.appOwnedShortcuts.contains(.showDrawerInboxNotifications),
+            "Expected drawer inbox shortcut in appOwnedShortcuts"
+        )
+        #expect(
+            Ghostty.SurfaceView.appOwnedShortcuts.contains(.showWorktreeSidebar),
+            "Expected worktree sidebar shortcut in appOwnedShortcuts"
+        )
+    }
 }

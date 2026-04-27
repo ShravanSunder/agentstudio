@@ -104,8 +104,28 @@ struct ShortcutCatalogTests {
             for: .init(key: .character(.i), modifiers: [.command, .shift]),
             in: .global
         )
+        let terminalShowDrawerInbox = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.i), modifiers: [.command, .shift]),
+            in: .terminalAppOwned
+        )
 
         #expect(showDrawerInbox == .showDrawerInboxNotifications)
+        #expect(terminalShowDrawerInbox == .showDrawerInboxNotifications)
+    }
+
+    @Test
+    func shortcutDecoder_decodesSidebarSurfaceShortcutsInTerminalPanes() {
+        let showInbox = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.i), modifiers: [.command]),
+            in: .terminalAppOwned
+        )
+        let showRepos = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.s), modifiers: [.command]),
+            in: .terminalAppOwned
+        )
+
+        #expect(showInbox == .showInboxNotifications)
+        #expect(showRepos == .showWorktreeSidebar)
     }
 
     @Test

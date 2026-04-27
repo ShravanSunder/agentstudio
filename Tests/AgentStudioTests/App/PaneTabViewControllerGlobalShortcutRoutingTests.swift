@@ -66,5 +66,12 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
                 managementLayer: managementLayer
             )
         )
+        #expect(
+            PaneTabViewController.shouldDispatchGlobalShortcut(
+                .showDrawerInboxNotifications,
+                uiState: uiState,
+                managementLayer: managementLayer
+            )
+        )
     }
 }
