@@ -67,4 +67,41 @@ struct WorkspaceFocusOwnerAtomTests {
 
         #expect(normalized == .drawerPane(parentPaneId: parentPaneId, paneId: drawerPaneId))
     }
+
+    @Test("normalizer respects explicit main pane focus while drawer is expanded")
+    func normalizer_respectsExplicitMainPaneFocusWhileDrawerExpanded() {
+        let parentPaneId = UUID()
+        let drawerPaneId = UUID()
+        let normalized = WorkspaceFocusOwnerNormalizer.normalize(
+            requested: .mainPane(paneId: parentPaneId),
+            context: .init(
+                activeMainPaneId: parentPaneId,
+                expandedDrawerParentPaneId: parentPaneId,
+                drawerPaneIds: [drawerPaneId],
+                activeDrawerPaneId: drawerPaneId,
+                minimizedDrawerPaneIds: []
+            )
+        )
+
+        #expect(normalized == .mainPane(paneId: parentPaneId))
+    }
+
+    @Test("normalizer collapses cross-parent drawer focus to active main pane")
+    func normalizer_collapsesCrossParentDrawerFocusToActiveMainPane() {
+        let activeParentPaneId = UUID()
+        let staleParentPaneId = UUID()
+        let drawerPaneId = UUID()
+        let normalized = WorkspaceFocusOwnerNormalizer.normalize(
+            requested: .emptyDrawer(parentPaneId: staleParentPaneId),
+            context: .init(
+                activeMainPaneId: activeParentPaneId,
+                expandedDrawerParentPaneId: activeParentPaneId,
+                drawerPaneIds: [drawerPaneId],
+                activeDrawerPaneId: drawerPaneId,
+                minimizedDrawerPaneIds: []
+            )
+        )
+
+        #expect(normalized == .mainPane(paneId: activeParentPaneId))
+    }
 }

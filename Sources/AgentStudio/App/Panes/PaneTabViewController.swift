@@ -345,7 +345,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if handleAppOwnedKeyEvent(event, requiresNeutralDrawerFocus: false) {
+        if handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: true) {
             return true
         }
         return super.performKeyEquivalent(with: event)
@@ -1152,39 +1152,31 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
     func handleAppOwnedKeyEvent(
         _ event: NSEvent,
-        requiresNeutralDrawerFocus: Bool = true
+        allowsModifiedEmptyDrawerShortcutWithTextFocus: Bool = false
     ) -> Bool {
-        if requiresNeutralDrawerFocus,
-            let trigger = ShortcutDecoder.decode(event: event),
-            ShortcutDecoder.shortcut(for: trigger, in: .emptyDrawer) == .addDrawerPane,
-            rawCharacterHasTextResponder(for: event)
-        {
-            return false
-        }
+        guard let trigger = ShortcutDecoder.decode(event: event) else { return false }
 
-        if shouldCreateFirstDrawerPane(
-            from: event,
-            requiresNeutralFocus: requiresNeutralDrawerFocus
+        // Raw-character triggers always require neutral focus, even
+        // when modifier-keyed shortcuts are allowed through text focus.
+        if let parentPaneId = firstDrawerPaneParentId(
+            for: trigger,
+            event: event,
+            requiresNeutralFocus: trigger.modifiers.isEmpty || !allowsModifiedEmptyDrawerShortcutWithTextFocus
         ) {
-            dispatchAction(.addDrawerPane(parentPaneId: activeMainPaneId()!))
+            dispatchAction(.addDrawerPane(parentPaneId: parentPaneId))
             return true
         }
 
-        if let trigger = ShortcutDecoder.decode(event: event),
-            let command = scopeAwarePaneCommand(for: trigger)
-        {
+        if let command = scopeAwarePaneCommand(for: trigger) {
             execute(command)
             return true
         }
 
-        if let trigger = ShortcutDecoder.decode(event: event),
-            shouldConsumeScopeAwarePaneTrigger(trigger)
-        {
+        if shouldConsumeScopeAwarePaneTrigger(trigger) {
             return true
         }
 
-        if let trigger = ShortcutDecoder.decode(event: event),
-            let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .global),
+        if let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .global),
             CommandDispatcher.shared.canDispatch(shortcut.command)
         {
             CommandDispatcher.shared.dispatch(shortcut.command)
@@ -1241,48 +1233,54 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         }
     }
 
-    private func shouldCreateFirstDrawerPane(
-        from event: NSEvent,
-        requiresNeutralFocus: Bool = true
-    ) -> Bool {
+    private func firstDrawerPaneParentId(
+        for trigger: ShortcutTrigger,
+        event: NSEvent,
+        requiresNeutralFocus: Bool
+    ) -> UUID? {
         // Routing goes through the command-spec system: decode the
         // event, then ask whether it dispatches `.addDrawerPane` in
         // the `.emptyDrawer` context. The raw-character "P" alternate
-        // on AppShortcut.addDrawerPane is what matches here; the
-        // primary cmd-shift-D goes through the global path elsewhere.
+        // on AppShortcut.addDrawerPane is scoped to `.emptyDrawer`;
+        // the primary cmd-shift-D also matches here when the drawer
+        // is open and empty.
         guard
             atom(\.managementLayer).isActive == false,
-            let trigger = ShortcutDecoder.decode(event: event),
             ShortcutDecoder.shortcut(for: trigger, in: .emptyDrawer) == .addDrawerPane
         else {
-            return false
+            return nil
         }
-        // requiresNeutralFocus gates the local-monitor path: the raw-
-        // character alternate must NOT be intercepted while a text-
-        // input responder owns focus, otherwise typing the character
-        // into any text field would create a drawer pane. The
-        // performKeyEquivalent path opts out of this gate because
-        // modifier-keyed shortcuts can fire even with a text field
-        // focused.
+        // The raw-character alternate must never be intercepted while
+        // a text-input responder owns focus, otherwise typing the
+        // character into any text field would create a drawer pane.
+        // The local monitor can additionally require neutral focus
+        // for all empty-drawer creation attempts.
         if requiresNeutralFocus, rawCharacterHasTextResponder(for: event) {
-            return false
+            return nil
         }
 
         guard
             case .emptyDrawer(let parentPaneId) = normalizedWorkspaceNavigationScopeState(),
             store.paneAtom.pane(parentPaneId)?.drawer?.paneIds.isEmpty == true
         else {
-            return false
+            Self.logger.warning("empty drawer shortcut ignored because navigation scope and pane drawer state disagree")
+            return nil
         }
-        return true
+        return parentPaneId
     }
 
     private func rawCharacterHasTextResponder(for event: NSEvent) -> Bool {
+        let eventWindowByNumber =
+            event.windowNumber > 0
+            ? NSApp.window(withWindowNumber: event.windowNumber)
+            : nil
+        let eventWindow =
+            event.window
+            ?? eventWindowByNumber
+            ?? NSApp.windows.first { $0.windowNumber == event.windowNumber }
         let responders = [
-            event.window?.firstResponder,
-            NSApp.window(withWindowNumber: event.windowNumber)?.firstResponder,
+            eventWindow?.firstResponder,
             view.window?.firstResponder,
-            NSApp.keyWindow?.firstResponder,
         ]
         return responders.contains { !Self.isNeutralResponderForRawCharacter($0) }
     }

@@ -237,7 +237,6 @@ struct DrawerPaneDragCoordinator {
         guard let containing else { return nil }
         let paneId = containing.key
         let frame = containing.value
-        guard !geometry.excludedPaneIds.contains(paneId) else { return nil }
         guard geometry.splittablePaneIds.contains(paneId) else { return nil }
         let side: DropZoneSide = cursorLocation.x < frame.midX ? .left : .right
         return .paneSplit(paneId: paneId, side: side)

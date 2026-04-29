@@ -85,8 +85,23 @@ struct ShortcutCatalogTests {
             for: .init(key: .character(.d), modifiers: [.command, .shift]),
             in: .global
         )
+        let rawPGlobal = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.p), modifiers: []),
+            in: .global
+        )
+        let rawPTerminal = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.p), modifiers: []),
+            in: .terminalAppOwned
+        )
+        let rawPEmptyDrawer = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.p), modifiers: []),
+            in: .emptyDrawer
+        )
 
         #expect(addDrawerPane == .addDrawerPane)
+        #expect(rawPGlobal == nil)
+        #expect(rawPTerminal == nil)
+        #expect(rawPEmptyDrawer == .addDrawerPane)
     }
 
     @Test
@@ -182,7 +197,7 @@ struct ShortcutCatalogTests {
             ShortcutDecoder.shortcut(
                 for: .init(key: .arrow(.down), modifiers: []),
                 in: .managementLayer
-            ) == nil
+            ) == .managementLayerOpenDrawer
         )
         #expect(openDrawer == .managementLayerOpenDrawer)
         #expect(exitMode == .managementLayerExit)
