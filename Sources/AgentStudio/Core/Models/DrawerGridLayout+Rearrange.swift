@@ -93,7 +93,7 @@ extension DrawerGridLayout {
                 preferredTargetPaneIndex: nil
             )
         case .createSecondRow(let position):
-            guard bottomRow == nil else {
+            guard layoutWithoutSource.bottomRow == nil else {
                 return .failure(.secondRowAlreadyExists)
             }
             return .success(

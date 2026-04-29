@@ -248,7 +248,7 @@ struct DrawerGridLayoutRearrangeTests {
     }
 
     @Test
-    func twoRows_createSecondRowFromOnlyBottomSource_isRejected() {
+    func twoRows_createSecondRowFromOnlyBottomSource_recreatesSecondRowAfterSourceRemoval() throws {
         let a = UUID()
         let b = UUID()
         let c = UUID()
@@ -258,13 +258,25 @@ struct DrawerGridLayoutRearrangeTests {
             rowSplitRatio: 0.5
         )
 
-        #expect(
+        let movedToTop = try requireSuccess(
+            layout.projectedMove(
+                paneId: c,
+                target: .createSecondRow(position: .top),
+                sizingMode: .proportional
+            )
+        )
+        #expect(movedToTop.topRow.paneIds == [c])
+        #expect(movedToTop.bottomRow?.paneIds == [a, b])
+
+        let movedToBottom = try requireSuccess(
             layout.projectedMove(
                 paneId: c,
                 target: .createSecondRow(position: .bottom),
                 sizingMode: .proportional
-            ) == .failure(.secondRowAlreadyExists)
+            )
         )
+        #expect(movedToBottom.topRow.paneIds == [a, b])
+        #expect(movedToBottom.bottomRow?.paneIds == [c])
     }
 
     @Test

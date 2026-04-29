@@ -489,6 +489,8 @@ struct PaneCoordinatorHardeningTests {
             position: .after,
             sizingMode: .halveTarget
         )
+        harness.viewRegistry.surfaceRenderedIds("tab:\(tab.id)", ids: [parent.id, sibling.id])
+        harness.viewRegistry.surfaceRenderedIds("drawer:\(parent.id)", ids: [child.id])
 
         harness.coordinator.execute(.closePane(tabId: tab.id, paneId: parent.id))
 
@@ -508,7 +510,10 @@ struct PaneCoordinatorHardeningTests {
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
         let child = try #require(harness.store.addDrawerPane(to: parent.id))
+        let survivor = try #require(harness.store.addDrawerPane(to: parent.id))
+        harness.store.setActiveDrawerPane(survivor.id, in: parent.id)
         _ = harness.viewRegistry.ensureSlot(for: child.id)
+        harness.viewRegistry.surfaceRenderedIds("drawer:\(parent.id)", ids: [child.id])
 
         harness.coordinator.execute(.removeDrawerPane(parentPaneId: parent.id, drawerPaneId: child.id))
 
@@ -526,7 +531,10 @@ struct PaneCoordinatorHardeningTests {
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
         let child = try #require(harness.store.addDrawerPane(to: parent.id))
+        let survivor = try #require(harness.store.addDrawerPane(to: parent.id))
+        harness.store.setActiveDrawerPane(survivor.id, in: parent.id)
         let originalSlot = harness.viewRegistry.ensureSlot(for: child.id)
+        harness.viewRegistry.surfaceRenderedIds("drawer:\(parent.id)", ids: [child.id])
 
         harness.coordinator.execute(.removeDrawerPane(parentPaneId: parent.id, drawerPaneId: child.id))
         let staleSegmentSlot = harness.viewRegistry.slot(for: child.id)
@@ -545,6 +553,8 @@ struct PaneCoordinatorHardeningTests {
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
         let child = try #require(harness.store.addDrawerPane(to: parent.id))
+        let survivor = try #require(harness.store.addDrawerPane(to: parent.id))
+        harness.store.setActiveDrawerPane(survivor.id, in: parent.id)
         let originalSlot = harness.viewRegistry.ensureSlot(for: child.id)
 
         harness.viewRegistry.surfaceRenderedIds("tab:\(tab.id)", ids: [parent.id, child.id])
@@ -838,6 +848,26 @@ struct PaneCoordinatorHardeningTests {
         #expect(harness.store.pane(oldestClosedPaneId) == nil)
         #expect(harness.viewRegistry.isRetiredForTesting(oldestClosedPaneId))
         #expect(harness.viewRegistry.peekSlotForTesting(oldestClosedPaneId) === oldestClosedSlot)
+    }
+
+    @Test("undo GC deletes expired pane slot immediately when no surface renders it")
+    func undoGc_expiredPaneWithoutRenderedSurfaceDeletesSlot() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        var oldestClosedPaneId: UUID?
+        for index in 0...(harness.coordinator.maxUndoStackSize) {
+            let pane = makeWebviewPane(harness.store, title: "Pane \(index)")
+            let tab = Tab(paneId: pane.id)
+            harness.store.appendTab(tab)
+            _ = harness.viewRegistry.ensureSlot(for: pane.id)
+            if index == 0 { oldestClosedPaneId = pane.id }
+            harness.coordinator.execute(.closeTab(tabId: tab.id))
+        }
+        #expect(harness.coordinator.undoStack.count == harness.coordinator.maxUndoStackSize)
+        let oldestPaneId = try #require(oldestClosedPaneId)
+        #expect(harness.store.pane(oldestPaneId) == nil)
+        #expect(!harness.viewRegistry.isRetiredForTesting(oldestPaneId))
+        #expect(harness.viewRegistry.peekSlotForTesting(oldestPaneId) == nil)
     }
 
     @Test("restoreView defers runtime registration until after undo lookup")

@@ -100,13 +100,15 @@ final class ViewRegistry {
         slots[paneId]?.host = nil
     }
 
-    /// Tombstone a slot for close transitions. The slot remains readable until all
-    /// registered render surfaces stop reporting the pane ID.
+    /// Tombstone a slot for close transitions. The slot remains readable while
+    /// any registered render surface still reports the pane ID; otherwise it is
+    /// finalized immediately.
     func retireSlot(for paneId: UUID) {
         guard let slot = slots[paneId] else { return }
 
         slot.host = nil
         retiredPaneIds.insert(paneId)
+        finalizeRetiredSlotsNotRenderedByAnySurface()
     }
 
     /// True when the slot is tombstoned for a close/removal transition and must

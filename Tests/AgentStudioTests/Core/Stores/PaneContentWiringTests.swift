@@ -353,19 +353,35 @@ final class PaneContentWiringTests {
         #expect(originalSlot !== recreatedSlot)
     }
 
-    @Test("retireSlot keeps the same slot readable until finalized")
-    func viewRegistry_retireSlot_keepsSameSlotUntilFinalized() {
+    @Test("retireSlot keeps the same slot readable while a surface still renders it")
+    func viewRegistry_retireSlot_keepsSameSlotWhileRendered() {
         let registry = ViewRegistry()
         let paneId = UUID()
 
         let live = registry.ensureSlot(for: paneId)
+        registry.surfaceRenderedIds("tab:tab1", ids: [paneId])
         registry.retireSlot(for: paneId)
 
         let retired = registry.slot(for: paneId)
         #expect(retired === live)
         #expect(retired.host == nil)
 
-        registry.finalizeRetiredSlotRemoval(for: paneId)
+        registry.surfaceRenderedIds("tab:tab1", ids: [])
+
+        let recreated = registry.ensureSlot(for: paneId)
+        #expect(recreated !== live)
+    }
+
+    @Test("retireSlot immediately deletes when no surface renders the pane")
+    func viewRegistry_retireSlot_withoutRenderedSurfaceFinalizesImmediately() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+
+        let live = registry.ensureSlot(for: paneId)
+        registry.retireSlot(for: paneId)
+
+        #expect(registry.isRetiredForTesting(paneId) == false)
+        #expect(registry.peekSlotForTesting(paneId) == nil)
 
         let recreated = registry.ensureSlot(for: paneId)
         #expect(recreated !== live)
@@ -389,6 +405,7 @@ final class PaneContentWiringTests {
         let paneId = UUID()
 
         let original = registry.ensureSlot(for: paneId)
+        registry.surfaceRenderedIds("tab:tab1", ids: [paneId])
         registry.retireSlot(for: paneId)
 
         let promoted = registry.ensureSlot(for: paneId)

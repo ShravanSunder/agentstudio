@@ -146,6 +146,7 @@ struct PaneCloseTransitionCoordinatorTests {
 
     @Test("drawer child close transition removes the last drawer pane into empty drawer context")
     func drawerChildCloseTransition_lastDrawerPane_landsInEmptyDrawerContext() async throws {
+        installTestAtomRegistryIfNeeded()
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -225,6 +226,6 @@ struct PaneCloseTransitionCoordinatorTests {
         #expect(closeCoordinator.closingPaneIds.contains(drawerPane.id) == false)
         #expect(window.firstResponder !== drawerHost)
         #expect(window.firstResponder !== drawerMountedContent)
-        #expect(window.firstResponder === window.contentView)
+        #expect(PaneTabViewController.isNeutralResponderForRawCharacter(window.firstResponder))
     }
 }
