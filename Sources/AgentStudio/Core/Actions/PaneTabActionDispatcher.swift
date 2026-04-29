@@ -3,15 +3,18 @@ import Foundation
 @MainActor
 final class PaneTabActionDispatcher: PaneActionDispatching {
     private let dispatchClosure: (PaneActionCommand) -> Void
-    private let shouldAcceptDropClosure: (SplitDropPayload, UUID, DropZone) -> Bool
-    private let handleDropClosure: (SplitDropPayload, UUID, DropZone) -> Void
+    private let shouldHandleSplitDragPayloadClosure: (SplitDropPayload) -> Bool
+    private let shouldAcceptDropClosure: (SplitDropPayload, UUID, DropZoneSide, DropSizingMode) -> Bool
+    private let handleDropClosure: (SplitDropPayload, UUID, DropZoneSide, DropSizingMode) -> Void
 
     init(
         dispatch: @escaping (PaneActionCommand) -> Void,
-        shouldAcceptDrop: @escaping (SplitDropPayload, UUID, DropZone) -> Bool,
-        handleDrop: @escaping (SplitDropPayload, UUID, DropZone) -> Void
+        shouldHandleSplitDragPayload: @escaping (SplitDropPayload) -> Bool,
+        shouldAcceptDrop: @escaping (SplitDropPayload, UUID, DropZoneSide, DropSizingMode) -> Bool,
+        handleDrop: @escaping (SplitDropPayload, UUID, DropZoneSide, DropSizingMode) -> Void
     ) {
         self.dispatchClosure = dispatch
+        self.shouldHandleSplitDragPayloadClosure = shouldHandleSplitDragPayload
         self.shouldAcceptDropClosure = shouldAcceptDrop
         self.handleDropClosure = handleDrop
     }
@@ -23,20 +26,26 @@ final class PaneTabActionDispatcher: PaneActionDispatching {
         dispatchClosure(action)
     }
 
+    func shouldHandleSplitDragPayload(_ payload: SplitDropPayload) -> Bool {
+        shouldHandleSplitDragPayloadClosure(payload)
+    }
+
     func shouldAcceptDrop(
         _ payload: SplitDropPayload,
         destinationPaneId: UUID,
-        zone: DropZone
+        zone: DropZoneSide,
+        sizingMode: DropSizingMode
     ) -> Bool {
-        let result = shouldAcceptDropClosure(payload, destinationPaneId, zone)
+        let result = shouldAcceptDropClosure(payload, destinationPaneId, zone, sizingMode)
         return result
     }
 
     func handleDrop(
         _ payload: SplitDropPayload,
         destinationPaneId: UUID,
-        zone: DropZone
+        zone: DropZoneSide,
+        sizingMode: DropSizingMode
     ) {
-        handleDropClosure(payload, destinationPaneId, zone)
+        handleDropClosure(payload, destinationPaneId, zone, sizingMode)
     }
 }

@@ -10,6 +10,7 @@ final class AtomRegistry {
     let repoCache: RepoCacheAtom
     let uiState: UIStateAtom
     let managementLayer: ManagementLayerAtom
+    let workspaceFocusOwner: WorkspaceFocusOwnerAtom
     let sessionRuntime: SessionRuntimeAtom
     let welcome: WelcomeAtom
 
@@ -23,6 +24,7 @@ final class AtomRegistry {
         repoCache: RepoCacheAtom = .init(),
         uiState: UIStateAtom = .init(),
         managementLayer: ManagementLayerAtom = .init(),
+        workspaceFocusOwner: WorkspaceFocusOwnerAtom = .init(),
         sessionRuntime: SessionRuntimeAtom = .init(),
         welcome: WelcomeAtom = .init()
     ) {
@@ -46,6 +48,7 @@ final class AtomRegistry {
         self.repoCache = repoCache
         self.uiState = uiState
         self.managementLayer = managementLayer
+        self.workspaceFocusOwner = workspaceFocusOwner
         self.sessionRuntime = sessionRuntime
         self.welcome = welcome
     }
@@ -58,8 +61,8 @@ final class AtomRegistry {
         WorkspaceLookupDerived()
     }
 
-    var workspaceFocus: WorkspaceFocusDerived {
-        WorkspaceFocusDerived()
+    var workspacePaneFocus: WorkspacePaneFocusDerived {
+        WorkspacePaneFocusDerived()
     }
 
     var tabDisplay: TabDisplayDerived {

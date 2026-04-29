@@ -34,6 +34,13 @@ struct PaneFocusContext: Sendable, Equatable {
     struct ActiveDrawerContext: Sendable, Equatable {
         let parentPaneId: UUID
         let paneId: UUID?
+        let isEmpty: Bool
+
+        init(parentPaneId: UUID, paneId: UUID?, isEmpty: Bool = false) {
+            self.parentPaneId = parentPaneId
+            self.paneId = paneId
+            self.isEmpty = isEmpty
+        }
     }
 
     let activeTabId: UUID?

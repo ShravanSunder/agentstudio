@@ -465,7 +465,7 @@ final class WorkspaceStoreTests {
         // Act
         store.insertPane(
             s2.id, inTab: tab.id, at: s1.id,
-            direction: .horizontal, position: .after
+            direction: .horizontal, position: .after, sizingMode: .halveTarget
         )
 
         // Assert
@@ -516,7 +516,8 @@ final class WorkspaceStoreTests {
         let s2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: s1.id)
         store.appendTab(tab)
-        store.insertPane(s2.id, inTab: tab.id, at: s1.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            s2.id, inTab: tab.id, at: s1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         guard let dividerId = store.tabs[0].layout.dividerIds.first else {
             Issue.record("Expected divider")
@@ -1206,7 +1207,7 @@ final class WorkspaceStoreTests {
         let p1 = makePane()
         let p2 = makePane()
         let layout = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(name: "Default", isDefault: true, layout: layout)
         let tab = Tab(
             panes: [p1.id],  // missing p2 — drifted
@@ -1237,7 +1238,7 @@ final class WorkspaceStoreTests {
         let p1 = makePane()
         let p2 = makePane()
         let layout1 = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let layout2 = Layout(paneId: p2.id)  // p2 duplicated across tabs
         let arr1 = PaneArrangement(name: "Default", isDefault: true, layout: layout1)
         let arr2 = PaneArrangement(name: "Default", isDefault: true, layout: layout2)
@@ -1272,7 +1273,7 @@ final class WorkspaceStoreTests {
         let p1 = makePane()
         let p2 = makePane()
         let layout1 = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let layout2 = Layout(paneId: p2.id)
         let arr1 = PaneArrangement(name: "Default", isDefault: true, layout: layout1)
         let arr2 = PaneArrangement(name: "Default", isDefault: true, layout: layout2)
@@ -1577,7 +1578,8 @@ final class WorkspaceStoreTests {
         #expect((store.tabs[0].zoomedPaneId) != nil)
 
         // Act — insert a new pane
-        store.insertPane(p2.id, inTab: tab.id, at: p1.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            p2.id, inTab: tab.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         // Assert — zoom cleared
         #expect((store.tabs[0].zoomedPaneId) == nil)

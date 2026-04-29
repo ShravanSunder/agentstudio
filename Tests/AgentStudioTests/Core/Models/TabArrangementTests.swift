@@ -27,7 +27,7 @@ final class TabArrangementTests {
         let paneA = UUID()
         let paneB = UUID()
         let defaultLayout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let defaultArr = PaneArrangement(
             name: "Default", isDefault: true, layout: defaultLayout, visiblePaneIds: Set(defaultLayout.paneIds))
         let customArr = PaneArrangement(
@@ -51,7 +51,7 @@ final class TabArrangementTests {
         let paneA = UUID()
         let paneB = UUID()
         let defaultLayout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: defaultLayout)
         let customArr = PaneArrangement(
             name: "Solo", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
@@ -93,8 +93,8 @@ final class TabArrangementTests {
         let paneB = UUID()
         let paneC = UUID()
         let fullLayout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
-            .inserting(paneId: paneC, at: paneB, direction: .horizontal, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
+            .inserting(paneId: paneC, at: paneB, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: fullLayout)
         let focusArr = PaneArrangement(
             name: "Focus", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
@@ -117,7 +117,7 @@ final class TabArrangementTests {
         let paneA = UUID()
         let paneB = UUID()
         let splitLayout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: splitLayout)
 
         let tab = Tab(
@@ -201,7 +201,7 @@ final class TabArrangementTests {
         let paneA = UUID()
         let paneB = UUID()
         let splitLayout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: splitLayout)
         let customArr = PaneArrangement(
             name: "Focus", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
@@ -246,7 +246,7 @@ final class TabArrangementTests {
         let paneA = UUID()
         let paneB = UUID()
         let layout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
 
         let arr = PaneArrangement(name: "Test", isDefault: false, layout: layout)
 
@@ -259,7 +259,7 @@ final class TabArrangementTests {
         let paneA = UUID()
         let paneB = UUID()
         let layout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
 
         let arr = PaneArrangement(
             name: "Subset",
@@ -277,7 +277,7 @@ final class TabArrangementTests {
         let paneA = UUID()
         let paneB = UUID()
         let layout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arr = PaneArrangement(
             name: "Focus",
             isDefault: false,

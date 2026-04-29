@@ -104,6 +104,20 @@ struct FooterHintBuilderTests {
     }
 
     @Test
+    func test_commandItemWithShortcut_showsShortcutHint() {
+        let item = makeCommandBarItem(
+            id: "cmd-drawer",
+            title: "Add Drawer Pane",
+            shortcutTrigger: ShortcutTrigger(key: .character(.d), modifiers: [])
+        )
+        let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true)
+        let keys = keysById(hints)
+
+        #expect(labels(hints).contains("Shortcut"))
+        #expect(keys["item-shortcut"] == ["D"])
+    }
+
+    @Test
     func test_commandItemWithChildren_showsOpenAndDrillIn() {
         let item = makeCommandBarItem(id: "cmd-1", title: "Cmd", hasChildren: true)
         let hints = FooterHintBuilder.hints(for: item, isNested: false, canOpenInCurrentTab: true)

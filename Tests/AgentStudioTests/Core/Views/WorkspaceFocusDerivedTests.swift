@@ -5,7 +5,7 @@ import Testing
 
 @MainActor
 @Suite(.serialized)
-struct WorkspaceFocusDerivedTests {
+struct WorkspacePaneFocusDerivedTests {
     init() {
         installTestAtomRegistryIfNeeded()
     }
@@ -13,9 +13,10 @@ struct WorkspaceFocusDerivedTests {
     @Test
     func emptyWorkspaceHasNoActiveContext() {
         withTestAtomRegistry { _ in
-            let focus = atom(\.workspaceFocus).currentFocus(
+            let focus = atom(\.workspacePaneFocus).currentFocus(
                 workspaceTab: atom(\.workspaceTab),
-                workspacePane: atom(\.workspacePane)
+                workspacePane: atom(\.workspacePane),
+                workspaceFocusOwner: atom(\.workspaceFocusOwner)
             )
 
             #expect(focus.paneContentType == .noActivePane)
@@ -36,9 +37,10 @@ struct WorkspaceFocusDerivedTests {
             store.appendTab(tab)
             store.setActiveTab(tab.id)
 
-            let focus = atom(\.workspaceFocus).currentFocus(
+            let focus = atom(\.workspacePaneFocus).currentFocus(
                 workspaceTab: atom(\.workspaceTab),
-                workspacePane: atom(\.workspacePane)
+                workspacePane: atom(\.workspacePane),
+                workspaceFocusOwner: atom(\.workspaceFocusOwner)
             )
 
             #expect(focus.paneContentType == .terminal)
@@ -78,13 +80,14 @@ struct WorkspaceFocusDerivedTests {
                 inTab: tab.id,
                 at: paneA.id,
                 direction: .horizontal,
-                position: .after
+                position: .after, sizingMode: .halveTarget
             )
             _ = store.addDrawerPane(to: paneA.id)
 
-            let focus = atom(\.workspaceFocus).currentFocus(
+            let focus = atom(\.workspacePaneFocus).currentFocus(
                 workspaceTab: atom(\.workspaceTab),
-                workspacePane: atom(\.workspacePane)
+                workspacePane: atom(\.workspacePane),
+                workspaceFocusOwner: atom(\.workspaceFocusOwner)
             )
 
             #expect(focus.satisfiedRequirements.contains(.hasMultiplePanes))
@@ -117,13 +120,138 @@ struct WorkspaceFocusDerivedTests {
             store.appendTab(tab)
             store.setActiveTab(tab.id)
 
-            let focus = atom(\.workspaceFocus).currentFocus(
+            let focus = atom(\.workspacePaneFocus).currentFocus(
                 workspaceTab: atom(\.workspaceTab),
-                workspacePane: atom(\.workspacePane)
+                workspacePane: atom(\.workspacePane),
+                workspaceFocusOwner: atom(\.workspaceFocusOwner)
             )
 
             #expect(focus.activeRepoId == repo.id)
             #expect(focus.activeWorktreeId == worktree.id)
+        }
+    }
+
+    @Test
+    func staleEmptyDrawerScope_isIgnoredWhenDrawerIsCollapsed() {
+        withTestAtomRegistry { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+            let tab = Tab(paneId: pane.id)
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            atoms.workspaceFocusOwner.focusEmptyDrawer(parentPaneId: pane.id)
+
+            let focus = atom(\.workspacePaneFocus).currentFocus(
+                workspaceTab: atom(\.workspaceTab),
+                workspacePane: atom(\.workspacePane),
+                workspaceFocusOwner: atom(\.workspaceFocusOwner)
+            )
+
+            #expect(focus.drawerFocusState == .inactive)
+            #expect(!focus.satisfiedRequirements.contains(.hasEmptyDrawerFocus))
+        }
+    }
+
+    @Test
+    func staleDrawerPaneOwner_fallsBackToRealActiveDrawerPane() {
+        withTestAtomRegistry { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
+            let tab = Tab(paneId: parentPane.id)
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            store.setActivePane(parentPane.id, inTab: tab.id)
+
+            let firstDrawerPane = store.addDrawerPane(to: parentPane.id)
+            let secondDrawerPane = store.addDrawerPane(to: parentPane.id)
+            let staleDrawerPane = firstDrawerPane?.id
+            let activeDrawerPane = secondDrawerPane?.id
+
+            guard let staleDrawerPane, let activeDrawerPane else {
+                Issue.record("Expected two drawer panes")
+                return
+            }
+
+            atoms.workspaceFocusOwner.focusDrawerPane(parentPaneId: parentPane.id, paneId: staleDrawerPane)
+
+            let focus = atom(\.workspacePaneFocus).currentFocus(
+                workspaceTab: atom(\.workspaceTab),
+                workspacePane: atom(\.workspacePane),
+                workspaceFocusOwner: atom(\.workspaceFocusOwner)
+            )
+
+            #expect(
+                focus.drawerFocusState == .drawerPane(parentPaneId: parentPane.id, paneId: activeDrawerPane)
+            )
+            #expect(focus.satisfiedRequirements.contains(.hasFocusedDrawerPane))
+        }
+    }
+
+    @Test
+    func focusedDrawerPane_reportsDrawerPaneIdentityAndMetadataNotParent() {
+        withTestAtomRegistry { atoms in
+            let store = WorkspaceStore(
+                catalogAtom: atoms.workspaceRepositoryTopology,
+                graphAtom: atoms.workspacePane,
+                interactionAtom: atoms.workspaceTabLayout
+            )
+            let parentRepoId = UUID()
+            let parentWorktreeId = UUID()
+            let drawerRepoId = UUID()
+            let drawerWorktreeId = UUID()
+            let parentPane = store.createPane(
+                source: .worktree(
+                    worktreeId: parentWorktreeId,
+                    repoId: parentRepoId,
+                    launchDirectory: URL(filePath: "/tmp/parent-worktree")
+                ),
+                title: "Parent"
+            )
+            let tab = Tab(paneId: parentPane.id)
+            store.appendTab(tab)
+            store.setActiveTab(tab.id)
+            store.setActivePane(parentPane.id, inTab: tab.id)
+
+            guard
+                let drawerPane = atoms.workspacePane.addDrawerPane(
+                    to: parentPane.id,
+                    content: .webview(WebviewState(url: URL(string: "https://drawer.example")!)),
+                    metadata: PaneMetadata(
+                        source: .worktree(
+                            worktreeId: drawerWorktreeId,
+                            repoId: drawerRepoId,
+                            launchDirectory: URL(filePath: "/tmp/drawer-worktree")
+                        ),
+                        title: "Drawer Web"
+                    )
+                )
+            else {
+                Issue.record("Expected drawer pane")
+                return
+            }
+
+            atoms.workspaceFocusOwner.focusDrawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id)
+
+            let focus = atom(\.workspacePaneFocus).currentFocus(
+                workspaceTab: atom(\.workspaceTab),
+                workspacePane: atom(\.workspacePane),
+                workspaceFocusOwner: atom(\.workspaceFocusOwner)
+            )
+
+            // Focus state correctly identifies the drawer child.
+            #expect(focus.drawerFocusState == .drawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id))
+            #expect(focus.activePaneId == drawerPane.id)
+            #expect(focus.activeRepoId == drawerRepoId)
+            #expect(focus.activeWorktreeId == drawerWorktreeId)
+            #expect(focus.paneContentType == .webview)
         }
     }
 }

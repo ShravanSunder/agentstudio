@@ -37,7 +37,7 @@ final class ArrangementDerivedTests {
                 inTab: tab.id,
                 at: firstPane.id,
                 direction: .horizontal,
-                position: .after
+                position: .after, sizingMode: .halveTarget
             )
             _ = store.minimizePane(secondPane.id, inTab: tab.id)
 
@@ -92,7 +92,7 @@ final class ArrangementDerivedTests {
                 inTab: tab.id,
                 at: firstPane.id,
                 direction: .horizontal,
-                position: .after
+                position: .after, sizingMode: .halveTarget
             )
             let arrangementId = try #require(
                 store.createArrangement(
@@ -137,14 +137,14 @@ final class ArrangementDerivedTests {
                 inTab: tab.id,
                 at: firstPane.id,
                 direction: .horizontal,
-                position: .after
+                position: .after, sizingMode: .halveTarget
             )
             _ = store.insertPane(
                 thirdPane.id,
                 inTab: tab.id,
                 at: secondPane.id,
                 direction: .horizontal,
-                position: .after
+                position: .after, sizingMode: .halveTarget
             )
 
             _ = try #require(
@@ -182,14 +182,14 @@ final class ArrangementDerivedTests {
                 inTab: tab.id,
                 at: firstPane.id,
                 direction: .horizontal,
-                position: .after
+                position: .after, sizingMode: .halveTarget
             )
             _ = store.insertPane(
                 thirdPane.id,
                 inTab: tab.id,
                 at: secondPane.id,
                 direction: .horizontal,
-                position: .after
+                position: .after, sizingMode: .halveTarget
             )
 
             _ = store.minimizePane(secondPane.id, inTab: tab.id)
@@ -236,7 +236,7 @@ final class ArrangementDerivedTests {
                 inTab: tab.id,
                 at: firstPane.id,
                 direction: .horizontal,
-                position: .after
+                position: .after, sizingMode: .halveTarget
             )
             _ = firstStore.minimizePane(secondPane.id, inTab: tab.id)
             #expect(firstStore.flush())

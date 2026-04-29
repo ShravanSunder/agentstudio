@@ -85,7 +85,7 @@ struct WorkspaceLookupDerivedTests {
                 inTab: tab.id,
                 at: paneA.id,
                 direction: .horizontal,
-                position: .after
+                position: .after, sizingMode: .halveTarget
             )
 
             let locations = atom(\.workspaceLookup).paneLocations(for: worktree.id)

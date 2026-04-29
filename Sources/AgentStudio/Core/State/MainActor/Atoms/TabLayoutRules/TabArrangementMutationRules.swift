@@ -15,7 +15,7 @@ enum TabArrangementMutationRules {
         let paneIdsToRemove = Set(defaultArrangement.layout.paneIds).subtracting(paneIds)
         var filteredLayout = defaultArrangement.layout
         for removeId in paneIdsToRemove {
-            if let newLayout = filteredLayout.removing(paneId: removeId) {
+            if let newLayout = filteredLayout.removing(paneId: removeId, sizingMode: .halveTarget) {
                 filteredLayout = newLayout
             }
         }
@@ -51,6 +51,25 @@ enum TabArrangementMutationRules {
         }
         updated.arrangements.remove(at: arrangementIndex)
         return updated
+    }
+
+    static func removingUserPane(_ paneId: UUID, from arrangements: [PaneArrangement]) -> [PaneArrangement] {
+        arrangements.map { arrangement in
+            var updated = arrangement
+            guard updated.layout.contains(paneId) else {
+                updated.visiblePaneIds.remove(paneId)
+                updated.minimizedPaneIds.remove(paneId)
+                return updated
+            }
+            if let newLayout = updated.layout.removing(paneId: paneId, sizingMode: .proportional) {
+                updated.layout = newLayout
+            } else {
+                updated.layout = Layout()
+            }
+            updated.visiblePaneIds.remove(paneId)
+            updated.minimizedPaneIds.remove(paneId)
+            return updated
+        }
     }
 
     static func switchingArrangement(to arrangementId: UUID, in state: TabArrangementState) -> TabArrangementState {
@@ -125,7 +144,7 @@ enum TabArrangementMutationRules {
             updated.zoomedPaneId = nil
         }
 
-        updated.arrangements = TabArrangementRepairRules.removingPane(paneId, from: updated.arrangements)
+        updated.arrangements = removingUserPane(paneId, from: updated.arrangements)
         updated.allPaneIds.removeAll { $0 == paneId }
         if updated.activePaneId == paneId {
             updated.activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(
@@ -162,14 +181,28 @@ enum TabArrangementMutationRules {
         let sourcePaneIds = defaultArrangement(in: source).layout.paneIds
         var currentTarget = targetPaneId
         for paneId in sourcePaneIds {
-            updated.arrangements[targetArrangementIndex].layout = updated.arrangements[targetArrangementIndex].layout
-                .inserting(paneId: paneId, at: currentTarget, direction: direction, position: position)
+            guard
+                let updatedActiveLayout = updated.arrangements[targetArrangementIndex].layout.inserting(
+                    paneId: paneId,
+                    at: currentTarget,
+                    direction: direction,
+                    position: position,
+                    sizingMode: .halveTarget
+                )
+            else { return nil }
+            updated.arrangements[targetArrangementIndex].layout = updatedActiveLayout
             updated.arrangements[targetArrangementIndex].visiblePaneIds.insert(paneId)
             if targetArrangementIndex != defaultArrangementIndex {
-                updated.arrangements[defaultArrangementIndex].layout = updated.arrangements[defaultArrangementIndex]
-                    .layout
-                    .inserting(paneId: paneId, at: currentTarget, direction: direction, position: position)
-                updated.arrangements[defaultArrangementIndex].visiblePaneIds.insert(paneId)
+                if let updatedDefaultLayout = updated.arrangements[defaultArrangementIndex].layout.inserting(
+                    paneId: paneId,
+                    at: currentTarget,
+                    direction: direction,
+                    position: position,
+                    sizingMode: .halveTarget
+                ) {
+                    updated.arrangements[defaultArrangementIndex].layout = updatedDefaultLayout
+                    updated.arrangements[defaultArrangementIndex].visiblePaneIds.insert(paneId)
+                }
             }
             if !updated.allPaneIds.contains(paneId) {
                 updated.allPaneIds.append(paneId)

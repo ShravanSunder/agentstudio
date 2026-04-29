@@ -70,7 +70,7 @@ final class WorkspaceStoreOrphanPoolTests {
         store.appendTab(tab)
         store.insertPane(
             pane2.id, inTab: tab.id, at: pane1.id,
-            direction: .horizontal, position: .after)
+            direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         store.backgroundPane(pane1.id)
 
@@ -105,7 +105,7 @@ final class WorkspaceStoreOrphanPoolTests {
         store.appendTab(tab)
         store.insertPane(
             pane2.id, inTab: tab.id, at: pane1.id,
-            direction: .horizontal, position: .after)
+            direction: .horizontal, position: .after, sizingMode: .halveTarget)
         store.setActivePane(pane1.id, inTab: tab.id)
 
         store.backgroundPane(pane1.id)
@@ -123,7 +123,7 @@ final class WorkspaceStoreOrphanPoolTests {
         store.appendTab(tab)
         store.insertPane(
             pane2.id, inTab: tab.id, at: pane1.id,
-            direction: .horizontal, position: .after)
+            direction: .horizontal, position: .after, sizingMode: .halveTarget)
         store.toggleZoom(paneId: pane1.id, inTab: tab.id)
 
         store.backgroundPane(pane1.id)
@@ -155,7 +155,7 @@ final class WorkspaceStoreOrphanPoolTests {
 
         store.reactivatePane(
             pane2.id, inTab: tab1.id, at: pane1.id,
-            direction: .horizontal, position: .after
+            direction: .horizontal, position: .after, sizingMode: .halveTarget
         )
 
         // Should now be in tab1's layout
@@ -172,12 +172,12 @@ final class WorkspaceStoreOrphanPoolTests {
         let pane2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         store.insertPane(
             pane2.id, inTab: tab.id, at: pane1.id,
-            direction: .horizontal, position: .after)
+            direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         // pane2 is active, not backgrounded
         store.reactivatePane(
             pane2.id, inTab: tab.id, at: pane1.id,
-            direction: .horizontal, position: .after
+            direction: .horizontal, position: .after, sizingMode: .halveTarget
         )
 
         // Should remain as-is (no duplicate insertion)
@@ -221,7 +221,7 @@ final class WorkspaceStoreOrphanPoolTests {
         store.appendTab(tab)
         store.insertPane(
             pane2.id, inTab: tab.id, at: pane1.id,
-            direction: .horizontal, position: .after)
+            direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         // Background pane2
         store.backgroundPane(pane2.id)
@@ -231,7 +231,7 @@ final class WorkspaceStoreOrphanPoolTests {
         // Reactivate pane2 back into the same tab
         store.reactivatePane(
             pane2.id, inTab: tab.id, at: pane1.id,
-            direction: .horizontal, position: .after
+            direction: .horizontal, position: .after, sizingMode: .halveTarget
         )
         #expect(store.orphanedPanes.isEmpty)
         #expect(store.tab(tab.id)!.panes.contains(pane2.id))

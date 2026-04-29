@@ -72,7 +72,6 @@ enum AppStyles {
 
         enum Layout {
             static let paneGap: CGFloat = 1
-            static let splitMinimumPaneSize: CGFloat = 10
             static let dropTargetMarkerWidth: CGFloat = 8
             static let dropTargetPreviewMinimumWidth: CGFloat = 34
             static let dropTargetPreviewMaxFraction: CGFloat = 0.22

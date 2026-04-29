@@ -144,13 +144,28 @@ struct ShortcutCatalogTests {
     }
 
     @Test
+    func shortcutCatalog_decodesDrawerMovementLetters() {
+        let expectations: [(String, ShortcutTrigger)] = [
+            ("i", .init(key: .character(.i), modifiers: [.option])),
+            ("j", .init(key: .character(.j), modifiers: [.option])),
+            ("k", .init(key: .character(.k), modifiers: [.option])),
+            ("l", .init(key: .character(.l), modifiers: [.option])),
+        ]
+
+        for (character, expected) in expectations {
+            let decoded = ShortcutDecoder.decode(
+                keyCode: 0,
+                modifierFlags: [.option],
+                charactersIgnoringModifiers: character
+            )
+            #expect(decoded == expected)
+        }
+    }
+
+    @Test
     func shortcutDecoder_decodesManagementShortcuts() {
         let focusLeft = ShortcutDecoder.shortcut(
             for: .init(key: .arrow(.left), modifiers: []),
-            in: .managementLayer
-        )
-        let enterDrawer = ShortcutDecoder.shortcut(
-            for: .init(key: .arrow(.down), modifiers: []),
             in: .managementLayer
         )
         let openDrawer = ShortcutDecoder.shortcut(
@@ -163,7 +178,12 @@ struct ShortcutCatalogTests {
         )
 
         #expect(focusLeft == .managementLayerFocusLeft)
-        #expect(enterDrawer == .managementLayerEnterDrawer)
+        #expect(
+            ShortcutDecoder.shortcut(
+                for: .init(key: .arrow(.down), modifiers: []),
+                in: .managementLayer
+            ) == nil
+        )
         #expect(openDrawer == .managementLayerOpenDrawer)
         #expect(exitMode == .managementLayerExit)
     }

@@ -27,7 +27,7 @@ final class PaneRemovalCascadeTests {
             let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
             store.insertPane(
                 pane.id, inTab: tab.id, at: paneIds.last!,
-                direction: .horizontal, position: .after
+                direction: .horizontal, position: .after, sizingMode: .halveTarget
             )
             paneIds.append(pane.id)
         }
@@ -35,6 +35,35 @@ final class PaneRemovalCascadeTests {
     }
 
     // MARK: - removePane cascades to ALL arrangements
+
+    @Test
+    func test_removePaneFromLayout_redistributesRemainingRatiosProportionally() {
+        let paneA = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let paneB = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let paneC = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let layout = Layout(
+            panes: [
+                .init(paneId: paneA.id, ratio: 0.5),
+                .init(paneId: paneB.id, ratio: 0.3),
+                .init(paneId: paneC.id, ratio: 0.2),
+            ],
+            dividerIds: [UUID(), UUID()]
+        )
+        let arrangement = PaneArrangement(layout: layout)
+        let tab = Tab(
+            allPaneIds: [paneA.id, paneB.id, paneC.id],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id,
+            activePaneId: paneA.id
+        )
+        store.appendTab(tab)
+
+        store.removePaneFromLayout(paneB.id, inTab: tab.id)
+
+        let updatedLayout = store.tab(tab.id)!.defaultArrangement.layout
+        #expect(updatedLayout.paneIds == [paneA.id, paneC.id])
+        expectApprox(updatedLayout.ratios, [0.714285714286, 0.285714285714])
+    }
 
     @Test
 
@@ -64,6 +93,48 @@ final class PaneRemovalCascadeTests {
         let customArr = updatedTab.arrangements.first { $0.id == arrId }!
         #expect(!(customArr.layout.contains(paneIds[1])))
         #expect(!(customArr.visiblePaneIds.contains(paneIds[1])))
+    }
+
+    @Test
+    func test_removePane_globalRepairPath_usesAdjacentAbsorb() {
+        let paneA = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let paneB = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let paneC = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let layout = Layout(
+            panes: [
+                .init(paneId: paneA.id, ratio: 0.4),
+                .init(paneId: paneB.id, ratio: 0.2),
+                .init(paneId: paneC.id, ratio: 0.4),
+            ],
+            dividerIds: [UUID(), UUID()]
+        )
+        let arrangement = PaneArrangement(layout: layout)
+        let tab = Tab(
+            allPaneIds: [paneA.id, paneB.id, paneC.id],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id,
+            activePaneId: paneA.id
+        )
+        store.appendTab(tab)
+
+        store.removePane(paneB.id)
+
+        let updatedLayout = store.tab(tab.id)!.defaultArrangement.layout
+        #expect(updatedLayout.paneIds == [paneA.id, paneC.id])
+        expectApprox(updatedLayout.ratios, [0.4, 0.6])
+    }
+
+    private func expectApprox(
+        _ actual: [Double],
+        _ expected: [Double],
+        tolerance: Double = 0.000001,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        #expect(actual.count == expected.count, sourceLocation: sourceLocation)
+        for (actualRatio, expectedRatio) in zip(actual, expected) {
+            #expect(abs(actualRatio - expectedRatio) < tolerance, sourceLocation: sourceLocation)
+        }
+        #expect(abs(actual.reduce(0, +) - 1.0) < tolerance, sourceLocation: sourceLocation)
     }
 
     @Test
@@ -257,7 +328,8 @@ final class PaneRemovalCascadeTests {
 
         // Extra pane so tab doesn't get removed
         let pane2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
-        store.insertPane(pane2.id, inTab: tab.id, at: pane.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            pane2.id, inTab: tab.id, at: pane.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         // Remove the pane that has a drawer
         store.removePane(pane.id)
@@ -301,7 +373,7 @@ final class PaneRemovalCascadeTests {
         // Reactivate by inserting next to the remaining pane
         store.reactivatePane(
             targetPaneId, inTab: tab.id,
-            at: paneIds[0], direction: .horizontal, position: .after
+            at: paneIds[0], direction: .horizontal, position: .after, sizingMode: .halveTarget
         )
 
         #expect(store.tab(tab.id)!.paneIds.contains(targetPaneId))
@@ -319,11 +391,13 @@ final class PaneRemovalCascadeTests {
 
         let tab1 = Tab(paneId: pane1.id)
         store.appendTab(tab1)
-        store.insertPane(pane2.id, inTab: tab1.id, at: pane1.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            pane2.id, inTab: tab1.id, at: pane1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         let tab2 = Tab(paneId: pane3.id)
         store.appendTab(tab2)
-        store.insertPane(pane2.id, inTab: tab2.id, at: pane3.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            pane2.id, inTab: tab2.id, at: pane3.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         // Remove pane2 globally — should be removed from both tabs
         store.removePane(pane2.id)

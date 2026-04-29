@@ -27,7 +27,7 @@ struct WorkspaceMutationCoordinatorTests {
             inTab: UUID(),
             at: UUID(),
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
 
         #expect(!didReactivate)

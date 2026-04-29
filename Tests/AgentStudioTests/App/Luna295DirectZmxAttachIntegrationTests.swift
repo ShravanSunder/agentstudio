@@ -523,7 +523,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
             inTab: tab.id,
             at: firstPane.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
         _ = harness.store.minimizePane(secondPane.id, inTab: tab.id)
         atom(\.uiState).setShowMinimizedBars(false)
@@ -564,7 +564,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
                 source: .newTerminal,
                 targetTabId: tab.id,
                 targetPaneId: existingPane.id,
-                direction: .right
+                direction: .right,
+                sizingMode: .halveTarget
             )
         )
 

@@ -11,8 +11,8 @@ struct TabArrangementMutationRulesTests {
         let paneB = UUID()
         let paneC = UUID()
         let layout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
-            .inserting(paneId: paneC, at: paneB, direction: .horizontal, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
+            .inserting(paneId: paneC, at: paneB, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
@@ -47,7 +47,8 @@ struct TabArrangementMutationRulesTests {
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: paneA)
-                .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after),
+                .inserting(
+                    paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!,
             visiblePaneIds: [paneA, paneB]
         )
         let focusArrangement = PaneArrangement(
@@ -81,7 +82,8 @@ struct TabArrangementMutationRulesTests {
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: paneA)
-                .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after),
+                .inserting(
+                    paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!,
             visiblePaneIds: [paneA, paneB]
         )
         let state = TabArrangementState(
@@ -111,7 +113,8 @@ struct TabArrangementMutationRulesTests {
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: paneA)
-                .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after),
+                .inserting(
+                    paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!,
             visiblePaneIds: [paneA, paneB]
         )
         let state = TabArrangementState(
@@ -138,15 +141,18 @@ struct TabArrangementMutationRulesTests {
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: paneA)
-                .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
-                .inserting(paneId: paneC, at: paneB, direction: .horizontal, position: .after),
+                .inserting(
+                    paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
+                .inserting(
+                    paneId: paneC, at: paneB, direction: .horizontal, position: .after, sizingMode: .halveTarget)!,
             visiblePaneIds: [paneA, paneB, paneC]
         )
         let focusArrangement = PaneArrangement(
             name: "Focus",
             isDefault: false,
             layout: Layout(paneId: paneA)
-                .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after),
+                .inserting(
+                    paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!,
             visiblePaneIds: [paneA, paneB]
         )
         let state = TabArrangementState(
@@ -218,7 +224,9 @@ struct TabArrangementMutationRulesTests {
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: sourcePaneA)
-                .inserting(paneId: sourcePaneB, at: sourcePaneA, direction: .horizontal, position: .after),
+                .inserting(
+                    paneId: sourcePaneB, at: sourcePaneA, direction: .horizontal, position: .after,
+                    sizingMode: .halveTarget)!,
             visiblePaneIds: [sourcePaneA, sourcePaneB]
         )
         let sourceFocus = PaneArrangement(
@@ -271,7 +279,9 @@ struct TabArrangementMutationRulesTests {
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: sourcePaneA)
-                .inserting(paneId: sourcePaneB, at: sourcePaneA, direction: .horizontal, position: .after),
+                .inserting(
+                    paneId: sourcePaneB, at: sourcePaneA, direction: .horizontal, position: .after,
+                    sizingMode: .halveTarget)!,
             visiblePaneIds: [sourcePaneA, sourcePaneB]
         )
         let targetDefault = PaneArrangement(
@@ -323,7 +333,9 @@ struct TabArrangementMutationRulesTests {
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: targetPaneA)
-                .inserting(paneId: targetPaneB, at: targetPaneA, direction: .horizontal, position: .after),
+                .inserting(
+                    paneId: targetPaneB, at: targetPaneA, direction: .horizontal, position: .after,
+                    sizingMode: .halveTarget)!,
             visiblePaneIds: [targetPaneA, targetPaneB]
         )
         let targetFocus = PaneArrangement(
@@ -372,7 +384,8 @@ struct TabArrangementMutationRulesTests {
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: paneA)
-                .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after),
+                .inserting(
+                    paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!,
             visiblePaneIds: [paneA, paneB],
             minimizedPaneIds: [paneA]
         )
@@ -406,7 +419,8 @@ struct TabArrangementMutationRulesTests {
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: paneA)
-                .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after),
+                .inserting(
+                    paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!,
             visiblePaneIds: [paneA, paneB],
             minimizedPaneIds: [paneB]
         )

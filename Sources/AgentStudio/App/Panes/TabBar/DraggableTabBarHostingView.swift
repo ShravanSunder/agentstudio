@@ -9,6 +9,7 @@ import UniformTypeIdentifiers
 /// Uses NSPanGestureRecognizer to detect drags while letting SwiftUI handle all other
 /// interactions (clicks, close buttons, right-clicks, hover).
 class DraggableTabBarHostingView: NSView, NSDraggingSource {
+    private static let paneDragHoverDwellDuration: TimeInterval = 0.1
 
     // MARK: - Properties
 
@@ -22,6 +23,8 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     /// Provides drag payload data (worktreeId, repoId, title) for a tab ID.
     /// Injected by the view controller to decouple from WorkspaceStore.
     var dragPayloadProvider: ((_ tabId: UUID) -> TabDragPayload?)?
+    var expandedDrawerParentIdForTab: ((_ tabId: UUID) -> UUID?)?
+    var onAutoDismissDrawerForDrag: ((_ tabId: UUID, _ drawerParentPaneId: UUID) -> Void)?
 
     /// Tab frames reported from SwiftUI, in SwiftUI coordinate space
     private var tabFrames: [UUID: CGRect] = [:]
@@ -35,7 +38,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     /// Track the tab being dragged and the original event for drag session
     private var panStartTabId: UUID?
     private var panStartEvent: NSEvent?
-    private var lastAutoSelectedTabIdForPaneDrag: UUID?
+    private var dwellState = DragDwellState.idle
 
     private var managementLayerObservation: Task<Void, Never>?
 
@@ -105,6 +108,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
                 tabBarAdapter?.draggingTabId = nil
                 tabBarAdapter?.dropTargetIndex = nil
             }
+            resetPaneDragDwell()
         }
     }
 
@@ -134,15 +138,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
     private func tabAtPoint(_ point: NSPoint) -> UUID? {
         // Convert to SwiftUI coordinate space (flipped Y)
         let swiftUIPoint = CGPoint(x: point.x, y: bounds.height - point.y)
-
-        let frames = currentTabFrames
-
-        for (tabId, frame) in frames {
-            if frame.contains(swiftUIPoint) {
-                return tabId
-            }
-        }
-        return nil
+        return DraggableTabBarGeometry.tabId(at: swiftUIPoint, tabFrames: currentTabFrames)
     }
 
     /// Find the insertion index for a drop at the given point
@@ -195,7 +191,13 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     private func clearDropTargetIndicator() {
         tabBarAdapter?.dropTargetIndex = nil
-        lastAutoSelectedTabIdForPaneDrag = nil
+        resetPaneDragDwell()
+    }
+
+    private func resetPaneDragDwell() {
+        dwellState = .idle
+        tabBarAdapter?.dwellTabId = nil
+        tabBarAdapter?.dwellProgress = 0
     }
 
     // MARK: - Pan Gesture Handler
@@ -256,8 +258,13 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
         // SwiftUI-compatible format for terminal split drops
         if let payload = dragPayloadProvider?(tabId) {
-            if let payloadData = try? JSONEncoder().encode(payload) {
+            do {
+                let payloadData = try JSONEncoder().encode(payload)
                 pasteboardItem.setData(payloadData, forType: .agentStudioTabDrop)
+            } catch {
+                RestoreTrace.log(
+                    "DraggableTabBarHostingView failed to encode tab drag payload tabId=\(tabId) error=\(error)"
+                )
             }
         }
 
@@ -332,6 +339,7 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
             self?.tabBarAdapter?.draggingTabId = nil
             self?.tabBarAdapter?.dropTargetIndex = nil
             self?.draggingTabId = nil
+            self?.resetPaneDragDwell()
         }
     }
 
@@ -378,25 +386,22 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         {
             Task { @MainActor [weak self] in
                 self?.tabBarAdapter?.dropTargetIndex = nil
+                self?.resetPaneDragDwell()
             }
             return []
         }
 
-        if types.contains(.agentStudioPaneDrop) {
-            let point = convert(sender.draggingLocation, from: nil)
-            if let hoveredTabId = tabAtPoint(point),
-                hoveredTabId != lastAutoSelectedTabIdForPaneDrag
-            {
-                lastAutoSelectedTabIdForPaneDrag = hoveredTabId
-                onSelect?(hoveredTabId)
-            }
-        }
+        updatePaneDragDwellIfNeeded(for: sender)
 
         updateDropTarget(for: sender)
         return .move
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
+        clearDropTargetIndicator()
+    }
+
+    override func draggingEnded(_ sender: NSDraggingInfo) {
         clearDropTargetIndicator()
     }
 
@@ -418,7 +423,10 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         // - Always use insertion index semantics on the tab row
         // - Create/move to a new tab at the insertion target
         if let paneData = pasteboard.data(forType: .agentStudioPaneDrop),
-            let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
+            let payload = decodePaneDragPayload(
+                from: paneData,
+                context: "performDragOperation"
+            )
         {
             if !Self.allowsTabBarInsertion(for: payload) {
                 return false
@@ -443,7 +451,10 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
 
     private func paneDropIsAllowedInTabBar(_ pasteboard: NSPasteboard) -> Bool {
         guard let paneData = pasteboard.data(forType: .agentStudioPaneDrop),
-            let payload = try? JSONDecoder().decode(PaneDragPayload.self, from: paneData)
+            let payload = decodePaneDragPayload(
+                from: paneData,
+                context: "paneDropIsAllowedInTabBar"
+            )
         else {
             return false
         }
@@ -454,6 +465,62 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         // Drawer child panes are constrained to their parent drawer and cannot
         // be moved into top-level tabs.
         payload.drawerParentPaneId == nil
+    }
+
+    private func updatePaneDragDwellIfNeeded(for sender: NSDraggingInfo) {
+        guard
+            let paneData = sender.draggingPasteboard.data(forType: .agentStudioPaneDrop),
+            let payload = decodePaneDragPayload(
+                from: paneData,
+                context: "updatePaneDragDwellIfNeeded"
+            )
+        else {
+            resetPaneDragDwell()
+            return
+        }
+
+        let point = convert(sender.draggingLocation, from: nil)
+        let hoveredTabId = tabAtPoint(point)
+        if let hoveredTabId, hoveredTabId != tabBarAdapter?.activeTabId {
+            onSelect?(hoveredTabId)
+
+            if let drawerParentId = DragAutoDismissDecision.shouldAutoDismiss(
+                payload: payload,
+                destinationTabId: hoveredTabId,
+                destinationExpandedDrawerParentPaneId: expandedDrawerParentIdForTab?(hoveredTabId)
+            ) {
+                onAutoDismissDrawerForDrag?(hoveredTabId, drawerParentId)
+            }
+        }
+
+        let now = CFAbsoluteTimeGetCurrent()
+        let (next, _) = DragDwellState.step(
+            current: dwellState,
+            hoveredTabId: hoveredTabId,
+            now: now,
+            dwellDuration: Self.paneDragHoverDwellDuration
+        )
+
+        dwellState = next
+        tabBarAdapter?.dwellTabId = next.hoveredTabId
+        tabBarAdapter?.dwellProgress = DragDwellProgress.progress(
+            state: next,
+            now: now,
+            dwellDuration: Self.paneDragHoverDwellDuration
+        )
+    }
+
+    private func decodePaneDragPayload(
+        from data: Data,
+        context: StaticString
+    ) -> PaneDragPayload? {
+        do {
+            return try JSONDecoder().decode(PaneDragPayload.self, from: data)
+        } catch {
+            RestoreTrace.log(
+                "DraggableTabBarHostingView.\(context) pane payload decode failed: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     private func updateDropTarget(for sender: NSDraggingInfo) {
