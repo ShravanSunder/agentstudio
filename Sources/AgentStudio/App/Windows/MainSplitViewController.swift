@@ -55,6 +55,7 @@ class MainSplitViewController: NSSplitViewController {
     private let inboxPrefsAtom: InboxNotificationPrefsAtom
     private let drawerInboxPresenter: InboxNotificationDrawerPresenter
     private let sidebarRootViewBuilder: SidebarRootViewBuilder
+    private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
 
     func syncVisibleTerminalGeometry(reason: StaticString) {
         paneTabViewController?.syncVisibleTerminalGeometry(reason: reason)
@@ -70,7 +71,9 @@ class MainSplitViewController: NSSplitViewController {
         inboxAtom: InboxNotificationAtom,
         inboxPrefsAtom: InboxNotificationPrefsAtom,
         drawerInboxPresenter: InboxNotificationDrawerPresenter,
-        sidebarRootViewBuilder: @escaping SidebarRootViewBuilder = MainSplitViewController.defaultSidebarRootViewBuilder
+        sidebarRootViewBuilder: @escaping SidebarRootViewBuilder = MainSplitViewController
+            .defaultSidebarRootViewBuilder,
+        closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
     ) {
         self.store = store
         self.actionExecutor = actionExecutor
@@ -82,6 +85,7 @@ class MainSplitViewController: NSSplitViewController {
         self.inboxPrefsAtom = inboxPrefsAtom
         self.drawerInboxPresenter = drawerInboxPresenter
         self.sidebarRootViewBuilder = sidebarRootViewBuilder
+        self.closeTransitionCoordinator = closeTransitionCoordinator
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -100,7 +104,8 @@ class MainSplitViewController: NSSplitViewController {
             executor: actionExecutor,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry,
-            drawerInboxPresentation: makeDrawerInboxPresentation()
+            drawerInboxPresentation: makeDrawerInboxPresentation(),
+            closeTransitionCoordinator: closeTransitionCoordinator
         )
         self.paneTabViewController = paneTabVC
 

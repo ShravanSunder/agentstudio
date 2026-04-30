@@ -107,14 +107,16 @@ extension WorkspaceStore {
         inTab tabId: UUID,
         at targetPaneId: UUID,
         direction: Layout.SplitDirection,
-        position: Layout.Position
+        position: Layout.Position,
+        sizingMode: DropSizingMode
     ) {
         mutationCoordinator.reactivatePane(
             paneId,
             inTab: tabId,
             at: targetPaneId,
             direction: direction,
-            position: position
+            position: position,
+            sizingMode: sizingMode
         )
     }
     func purgeOrphanedPane(_ paneId: UUID) { paneAtom.purgeOrphanedPane(paneId) }
@@ -131,14 +133,16 @@ extension WorkspaceStore {
         inTab tabId: UUID,
         at targetPaneId: UUID,
         direction: Layout.SplitDirection,
-        position: Layout.Position
+        position: Layout.Position,
+        sizingMode: DropSizingMode
     ) -> Bool {
         tabLayoutAtom.insertPane(
             paneId,
             inTab: tabId,
             at: targetPaneId,
             direction: direction,
-            position: position
+            position: position,
+            sizingMode: sizingMode
         )
     }
     func removePaneFromLayout(_ paneId: UUID, inTab tabId: UUID) {
@@ -172,30 +176,36 @@ extension WorkspaceStore {
         in parentPaneId: UUID,
         at targetDrawerPaneId: UUID,
         direction: Layout.SplitDirection,
-        position: Layout.Position
+        position: Layout.Position,
+        sizingMode: DropSizingMode
     ) -> Pane? {
+        let splitDirection: SplitNewDirection =
+            switch (direction, position) {
+            case (.horizontal, .before): .left
+            case (.horizontal, .after): .right
+            case (.vertical, .before): .up
+            case (.vertical, .after): .down
+            }
         let fallbackCWD = paneAtom.pane(parentPaneId)?.worktreeId.flatMap(repositoryTopologyAtom.worktree)?.path
         return paneAtom.insertDrawerPane(
             in: parentPaneId,
             at: targetDrawerPaneId,
-            direction: direction,
-            position: position,
+            direction: splitDirection,
+            sizingMode: sizingMode,
             parentFallbackCWD: fallbackCWD
         )
     }
     func moveDrawerPane(
         _ drawerPaneId: UUID,
         in parentPaneId: UUID,
-        at targetDrawerPaneId: UUID,
-        direction: Layout.SplitDirection,
-        position: Layout.Position
+        target: DrawerRearrangeTarget,
+        sizingMode: DropSizingMode
     ) {
         paneAtom.moveDrawerPane(
             drawerPaneId,
             in: parentPaneId,
-            at: targetDrawerPaneId,
-            direction: direction,
-            position: position
+            target: target,
+            sizingMode: sizingMode
         )
     }
     func removeDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) {

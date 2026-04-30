@@ -144,8 +144,23 @@ struct ShortcutCatalogTests {
             for: .init(key: .character(.d), modifiers: [.command, .shift]),
             in: .global
         )
+        let rawPGlobal = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.p), modifiers: []),
+            in: .global
+        )
+        let rawPTerminal = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.p), modifiers: []),
+            in: .terminalAppOwned
+        )
+        let rawPEmptyDrawer = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.p), modifiers: []),
+            in: .emptyDrawer
+        )
 
         #expect(addDrawerPane == .addDrawerPane)
+        #expect(rawPGlobal == nil)
+        #expect(rawPTerminal == nil)
+        #expect(rawPEmptyDrawer == .addDrawerPane)
     }
 
     @Test
@@ -203,17 +218,36 @@ struct ShortcutCatalogTests {
     }
 
     @Test
+    func shortcutCatalog_decodesDrawerMovementLetters() {
+        let expectations: [(String, ShortcutTrigger)] = [
+            ("i", .init(key: .character(.i), modifiers: [.option])),
+            ("j", .init(key: .character(.j), modifiers: [.option])),
+            ("k", .init(key: .character(.k), modifiers: [.option])),
+            ("l", .init(key: .character(.l), modifiers: [.option])),
+        ]
+
+        for (character, expected) in expectations {
+            let decoded = ShortcutDecoder.decode(
+                keyCode: 0,
+                modifierFlags: [.option],
+                charactersIgnoringModifiers: character
+            )
+            #expect(decoded == expected)
+        }
+    }
+
+    @Test
     func shortcutDecoder_decodesManagementShortcuts() {
         let focusLeft = ShortcutDecoder.shortcut(
             for: .init(key: .arrow(.left), modifiers: []),
             in: .managementLayer
         )
-        let enterDrawer = ShortcutDecoder.shortcut(
-            for: .init(key: .arrow(.down), modifiers: []),
-            in: .managementLayer
-        )
         let openDrawer = ShortcutDecoder.shortcut(
             for: .init(key: .character(.d), modifiers: []),
+            in: .managementLayer
+        )
+        let openDrawerWithDownArrow = ShortcutDecoder.shortcut(
+            for: .init(key: .arrow(.down), modifiers: []),
             in: .managementLayer
         )
         let exitMode = ShortcutDecoder.shortcut(
@@ -222,8 +256,8 @@ struct ShortcutCatalogTests {
         )
 
         #expect(focusLeft == .managementLayerFocusLeft)
-        #expect(enterDrawer == .managementLayerEnterDrawer)
         #expect(openDrawer == .managementLayerOpenDrawer)
+        #expect(openDrawerWithDownArrow == .managementLayerOpenDrawer)
         #expect(exitMode == .managementLayerExit)
     }
 

@@ -57,6 +57,7 @@ enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
     case rectangleBottomhalfFilled = "rectangle.bottomhalf.filled"
     case rectangleBottomhalfInsetFilled = "rectangle.bottomhalf.inset.filled"
     case rectangleExpandVertical = "rectangle.expand.vertical"
+    case rectanglePortraitAndArrowRight = "rectangle.portrait.and.arrow.right"
     case rectangleSplit1x2 = "rectangle.split.1x2"
     case rectangleSplit2x1 = "rectangle.split.2x1"
     case rectangleSplit2x2 = "rectangle.split.2x2"

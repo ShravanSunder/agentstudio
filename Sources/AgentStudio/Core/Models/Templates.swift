@@ -101,12 +101,18 @@ struct WorktreeTemplate: Codable, Identifiable, Hashable {
         var layout = Layout(paneId: first.id)
         for pane in panes.dropFirst() {
             let lastId = layout.paneIds.last ?? first.id
-            layout = layout.inserting(
-                paneId: pane.id,
-                at: lastId,
-                direction: splitDirection,
-                position: .after
-            )
+            guard
+                let updatedLayout = layout.inserting(
+                    paneId: pane.id,
+                    at: lastId,
+                    direction: splitDirection,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )
+            else {
+                fatalError("WorktreeTemplate failed to insert pane into generated layout")
+            }
+            layout = updatedLayout
         }
 
         let paneIds = panes.map(\.id)

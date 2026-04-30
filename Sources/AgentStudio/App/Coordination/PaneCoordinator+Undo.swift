@@ -7,6 +7,9 @@ extension PaneCoordinator {
         while let entry = popLastUndoEntry() {
             switch entry {
             case .tab(let snapshot):
+                for pane in snapshot.panes {
+                    closeTransitionCoordinator.cancelCloseTransition(pane.id)
+                }
                 undoTabClose(snapshot)
                 return
 
@@ -21,6 +24,10 @@ extension PaneCoordinator {
                 {
                     Self.logger.info("undoClose: parent pane \(parentId) gone — skipping drawer child entry")
                     continue
+                }
+                closeTransitionCoordinator.cancelCloseTransition(snapshot.pane.id)
+                for child in snapshot.drawerChildPanes {
+                    closeTransitionCoordinator.cancelCloseTransition(child.id)
                 }
                 undoPaneClose(snapshot)
                 return
@@ -180,14 +187,14 @@ extension PaneCoordinator {
     private func removeFailedRestoredPane(_ paneId: UUID, fromTab tabId: UUID) {
         guard let pane = store.paneAtom.pane(paneId) else {
             teardownView(for: paneId)
-            viewRegistry.removeSlot(for: paneId)
+            viewRegistry.retireSlot(for: paneId)
             return
         }
 
         if pane.isDrawerChild, let parentPaneId = pane.parentPaneId {
             teardownView(for: paneId)
             store.paneAtom.removeDrawerPane(paneId, from: parentPaneId)
-            viewRegistry.removeSlot(for: paneId)
+            viewRegistry.retireSlot(for: paneId)
             return
         }
 
@@ -197,8 +204,8 @@ extension PaneCoordinator {
         store.tabLayoutAtom.removePaneFromLayout(paneId, inTab: tabId)
         store.mutationCoordinator.removePane(paneId)
         for drawerPaneId in drawerChildIds {
-            viewRegistry.removeSlot(for: drawerPaneId)
+            viewRegistry.retireSlot(for: drawerPaneId)
         }
-        viewRegistry.removeSlot(for: paneId)
+        viewRegistry.retireSlot(for: paneId)
     }
 }

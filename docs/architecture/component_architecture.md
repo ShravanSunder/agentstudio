@@ -445,7 +445,7 @@ There is no standalone `ViewResolver` type in code; this behavior is owned by th
   - `PaneDropTargetOverlay` (single target visualization layer)
   - `PaneLeafContainer` (pane-type-agnostic leaf wrapper)
 
-> **Files:** `App/Panes/ViewRegistry.swift`, `Core/Views/Splits/SplitContainerDropCaptureOverlay.swift`
+> **Files:** `App/Panes/ViewRegistry.swift`, `Core/Views/Panes/SplitContainerDropCaptureOverlay.swift`
 
 ### 3.6 PaneCoordinator
 

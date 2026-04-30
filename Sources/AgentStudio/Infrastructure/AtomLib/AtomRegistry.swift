@@ -15,6 +15,7 @@ final class AtomRegistry {
     let uiState: UIStateAtom
     let inboxFilterDraft: InboxFilterDraftAtom
     let managementLayer: ManagementLayerAtom
+    let workspaceFocusOwner: WorkspaceFocusOwnerAtom
     let sessionRuntime: SessionRuntimeAtom
     let welcome: WelcomeAtom
 
@@ -33,6 +34,7 @@ final class AtomRegistry {
         uiState: UIStateAtom = .init(),
         inboxFilterDraft: InboxFilterDraftAtom = .init(),
         managementLayer: ManagementLayerAtom = .init(),
+        workspaceFocusOwner: WorkspaceFocusOwnerAtom = .init(),
         sessionRuntime: SessionRuntimeAtom = .init(),
         welcome: WelcomeAtom = .init()
     ) {
@@ -61,6 +63,7 @@ final class AtomRegistry {
         self.uiState = uiState
         self.inboxFilterDraft = inboxFilterDraft
         self.managementLayer = managementLayer
+        self.workspaceFocusOwner = workspaceFocusOwner
         self.sessionRuntime = sessionRuntime
         self.welcome = welcome
     }
@@ -73,8 +76,8 @@ final class AtomRegistry {
         WorkspaceLookupDerived()
     }
 
-    var commandContext: CommandContextDerived {
-        CommandContextDerived()
+    var workspacePaneFocus: WorkspacePaneFocusDerived {
+        WorkspacePaneFocusDerived()
     }
 
     lazy var attendedPane = AttendedPaneAtom(

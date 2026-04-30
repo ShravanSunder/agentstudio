@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Testing
 
@@ -12,9 +13,12 @@ struct PaneCloseTransitionCoordinatorTests {
         let coordinator = PaneCloseTransitionCoordinator(clock: clock)
         let paneId = UUID()
         var closeActionFired = false
+        var closeActionContinuation: CheckedContinuation<Void, Never>?
 
         coordinator.beginClosingPane(paneId, delay: .milliseconds(120)) {
             closeActionFired = true
+            closeActionContinuation?.resume()
+            closeActionContinuation = nil
         }
 
         #expect(coordinator.closingPaneIds.contains(paneId))
@@ -22,14 +26,35 @@ struct PaneCloseTransitionCoordinatorTests {
 
         await clock.waitForPendingSleepCount()
         clock.advance(by: .milliseconds(120))
-        for _ in 0..<5 {
-            if closeActionFired && !coordinator.closingPaneIds.contains(paneId) {
-                break
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            if closeActionFired {
+                continuation.resume()
+            } else {
+                closeActionContinuation = continuation
             }
-            await Task.yield()
         }
 
         #expect(closeActionFired == true)
+        #expect(coordinator.closingPaneIds.contains(paneId) == false)
+    }
+
+    @Test("cancelCloseTransition stops the pending performClose")
+    func paneCloseTransitionCoordinator_cancel_stopsPerformClose() async {
+        let clock = TestPushClock()
+        let coordinator = PaneCloseTransitionCoordinator(clock: clock)
+        let paneId = UUID()
+        var performCloseRan = false
+
+        coordinator.beginClosingPane(paneId, delay: .milliseconds(120)) {
+            performCloseRan = true
+        }
+
+        await clock.waitForPendingSleepCount()
+        coordinator.cancelCloseTransition(paneId)
+        await clock.waitForPendingSleepCount(exactly: 0)
+        clock.advance(by: .milliseconds(120))
+
+        #expect(performCloseRan == false)
         #expect(coordinator.closingPaneIds.contains(paneId) == false)
     }
 
@@ -47,9 +72,7 @@ struct PaneCloseTransitionCoordinatorTests {
             #expect(clock.pendingSleepCount == 1)
         }
 
-        for _ in 0..<5 {
-            await Task.yield()
-        }
+        await clock.waitForPendingSleepCount(exactly: 0)
 
         #expect(weakCoordinator == nil)
         #expect(clock.pendingSleepCount == 0)
@@ -67,15 +90,19 @@ struct PaneCloseTransitionCoordinatorTests {
         let paneId = UUID()
         let coordinator = PaneCloseTransitionCoordinator(clock: clock)
         var closeActionFired = false
+        var closeActionContinuation: CheckedContinuation<Void, Never>?
         let viewRegistry = ViewRegistry()
         let paneHost = PaneHostView(paneId: paneId)
         viewRegistry.register(paneHost, for: paneId)
         let dispatcher = PaneTabActionDispatcher(
             dispatch: { _ in
                 closeActionFired = true
+                closeActionContinuation?.resume()
+                closeActionContinuation = nil
             },
-            shouldAcceptDrop: { _, _, _ in false },
-            handleDrop: { _, _, _ in }
+            shouldHandleSplitDragPayload: { _ in true },
+            shouldAcceptDrop: { _, _, _, _ in false },
+            handleDrop: { _, _, _, _ in }
         )
         let container = FlatTabStripContainer(
             layout: Layout(paneId: paneId),
@@ -105,14 +132,100 @@ struct PaneCloseTransitionCoordinatorTests {
 
         await clock.waitForPendingSleepCount()
         clock.advance(by: .milliseconds(120))
-        for _ in 0..<5 {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             if closeActionFired {
-                break
+                continuation.resume()
+            } else {
+                closeActionContinuation = continuation
             }
-            await Task.yield()
         }
 
         #expect(closeActionFired == true)
         #expect(coordinator.closingPaneIds.contains(paneId) == false)
+    }
+
+    @Test("drawer child close transition removes the last drawer pane into empty drawer context")
+    func drawerChildCloseTransition_lastDrawerPane_landsInEmptyDrawerContext() async throws {
+        installTestAtomRegistryIfNeeded()
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+
+        let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+        let parentMountedContent = FocusablePaneTabCommandMountedContentView()
+        let drawerMountedContent = FocusablePaneTabCommandMountedContentView()
+        _ = try attachPaneHost(
+            paneId: parentPane.id,
+            in: harness,
+            to: window,
+            mountedContent: parentMountedContent
+        )
+        let drawerHost = try attachPaneHost(
+            paneId: drawerPane.id,
+            in: harness,
+            to: window,
+            mountedContent: drawerMountedContent
+        )
+
+        let clock = TestPushClock()
+        let closeCoordinator = PaneCloseTransitionCoordinator(clock: clock)
+        var closeActionFinished = false
+        var closeActionContinuation: CheckedContinuation<Void, Never>?
+        let actionDispatcher = PaneTabActionDispatcher(
+            dispatch: { action in
+                switch action {
+                case .closePane(_, let paneId):
+                    harness.coordinator.execute(.closePane(tabId: tab.id, paneId: paneId))
+                    closeActionFinished = true
+                    closeActionContinuation?.resume()
+                    closeActionContinuation = nil
+                default:
+                    Issue.record("Unexpected action dispatched during drawer close transition: \(action)")
+                }
+            },
+            shouldHandleSplitDragPayload: { _ in true },
+            shouldAcceptDrop: { _, _, _, _ in false },
+            handleDrop: { _, _, _, _ in }
+        )
+
+        let leaf = PaneLeafContainer(
+            paneHost: drawerHost,
+            tabId: tab.id,
+            isActive: true,
+            isSplit: false,
+            isSplitResizing: false,
+            store: harness.store,
+            repoCache: RepoCacheAtom(),
+            closeTransitionCoordinator: closeCoordinator,
+            actionDispatcher: actionDispatcher,
+            onPaneFocusTrigger: { _ in },
+            onOpenPaneGitHub: { _ in }
+        )
+
+        window.makeFirstResponder(drawerHost)
+
+        leaf.beginCloseTransition()
+
+        await clock.waitForPendingSleepCount()
+        clock.advance(by: .milliseconds(120))
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            if closeActionFinished {
+                continuation.resume()
+            } else {
+                closeActionContinuation = continuation
+            }
+        }
+
+        #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds.isEmpty == true)
+        #expect(closeCoordinator.closingPaneIds.contains(drawerPane.id) == false)
+        #expect(window.firstResponder !== drawerHost)
+        #expect(window.firstResponder !== drawerMountedContent)
+        #expect(PaneTabViewController.isNeutralResponderForRawCharacter(window.firstResponder))
     }
 }

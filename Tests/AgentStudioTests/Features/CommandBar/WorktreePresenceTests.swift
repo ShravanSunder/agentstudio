@@ -157,7 +157,8 @@ struct WorktreePresenceTests {
             ),
             title: "B"
         )
-        store.insertPane(paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         let presence = CommandBarDataSource.buildWorktreePresence(worktree: storedWorktree, repo: repo, store: store)
 
@@ -209,8 +210,10 @@ struct WorktreePresenceTests {
         )
         let tab = Tab(paneId: paneA.id)
         store.appendTab(tab)
-        store.insertPane(paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after)
-        store.insertPane(paneC.id, inTab: tab.id, at: paneB.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+        store.insertPane(
+            paneC.id, inTab: tab.id, at: paneB.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         let presence = CommandBarDataSource.buildWorktreePresence(worktree: storedWorktree, repo: repo, store: store)
 

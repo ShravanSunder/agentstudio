@@ -28,7 +28,7 @@ final class WorkspaceStoreArrangementTests {
             let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
             store.insertPane(
                 pane.id, inTab: tab.id, at: paneIds.last!,
-                direction: .horizontal, position: .after
+                direction: .horizontal, position: .after, sizingMode: .halveTarget
             )
             paneIds.append(pane.id)
         }
@@ -459,7 +459,7 @@ final class WorkspaceStoreArrangementTests {
         let newPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         store.insertPane(
             newPane.id, inTab: tab.id, at: paneIds[0],
-            direction: .horizontal, position: .after
+            direction: .horizontal, position: .after, sizingMode: .halveTarget
         )
 
         // Should be in custom arrangement (active)
@@ -510,7 +510,7 @@ final class WorkspaceStoreArrangementTests {
         store1.appendTab(tab)
         store1.insertPane(
             pane2.id, inTab: tab.id, at: pane1.id,
-            direction: .horizontal, position: .after
+            direction: .horizontal, position: .after, sizingMode: .halveTarget
         )
 
         let arrId = store1.createArrangement(
@@ -549,7 +549,7 @@ final class WorkspaceStoreArrangementTests {
         store1.appendTab(tab)
         store1.insertPane(
             pane2.id, inTab: tab.id, at: pane1.id,
-            direction: .horizontal, position: .after
+            direction: .horizontal, position: .after, sizingMode: .halveTarget
         )
         _ = store1.minimizePane(pane2.id, inTab: tab.id)
         store1.flush()

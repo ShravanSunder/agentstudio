@@ -5,7 +5,7 @@ import SwiftUI
 /// Top row of the command bar showing optional management state and current pane context.
 struct CommandBarStatusStrip: View {
     let mode: CommandBarAppMode
-    let context: CommandContext
+    let context: WorkspacePaneFocus
 
     var body: some View {
         HStack {

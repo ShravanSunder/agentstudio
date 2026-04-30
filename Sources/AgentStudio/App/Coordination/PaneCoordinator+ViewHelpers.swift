@@ -86,11 +86,9 @@ extension PaneCoordinator {
     func executeInsertDrawerPane(
         parentPaneId: UUID,
         targetDrawerPaneId: UUID,
-        direction: SplitNewDirection
+        direction: SplitNewDirection,
+        sizingMode: DropSizingMode
     ) {
-        let layoutDirection = bridgeDirection(direction)
-        let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
-
         let fallbackCWD =
             store.paneAtom.pane(parentPaneId)?.worktreeId.flatMap(store.repositoryTopologyAtom.worktree)?.path
 
@@ -98,8 +96,8 @@ extension PaneCoordinator {
             let drawerPane = store.paneAtom.insertDrawerPane(
                 in: parentPaneId,
                 at: targetDrawerPaneId,
-                direction: layoutDirection,
-                position: position,
+                direction: direction,
+                sizingMode: sizingMode,
                 parentFallbackCWD: fallbackCWD
             )
         else {
@@ -170,6 +168,14 @@ extension PaneCoordinator {
         }
     }
 
+    @discardableResult
+    func clearFirstResponderToWindowContent(for paneId: UUID) -> Bool {
+        let window = viewRegistry.view(for: paneId)?.window ?? NSApp.keyWindow
+        guard let window, let contentView = window.contentView else { return false }
+        pendingFocusPaneIds.remove(paneId)
+        return window.makeFirstResponder(contentView)
+    }
+
     func handlePaneHostAttachedToWindow(_ paneId: UUID) {
         guard pendingFocusPaneIds.contains(paneId) else { return }
         if applyPaneRefocusIfReady(for: paneId) {
@@ -225,6 +231,7 @@ extension PaneCoordinator {
             selectTab: { _ in },
             selectPane: { _, _ in },
             selectDrawerPane: { _, _ in },
+            selectEmptyDrawer: { _ in },
             syncRuntimeFocus: { [weak self] surfaceId in
                 self?.surfaceManager.syncFocus(activeSurfaceId: surfaceId)
             }

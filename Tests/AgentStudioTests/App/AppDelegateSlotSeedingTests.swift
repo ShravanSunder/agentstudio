@@ -39,5 +39,6 @@ struct AppDelegateSlotSeedingTests {
                 == Set([parentPane.id, drawerPane.id])
         )
         #expect(appDelegate.viewRegistry.slotPaneIdsForTesting == Set(restoredStore.panes.keys))
+        #expect(appDelegate.viewRegistry.isInitialRestorePending == true)
     }
 }

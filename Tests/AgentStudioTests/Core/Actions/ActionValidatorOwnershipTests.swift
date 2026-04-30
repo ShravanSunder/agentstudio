@@ -8,12 +8,16 @@ struct WorkspaceCommandValidatorOwnershipTests {
     private func makeSnapshot(
         tabs: [TabSnapshot],
         activeTabId: UUID? = nil,
-        isManagementLayerActive: Bool = false
+        isManagementLayerActive: Bool = false,
+        drawerParentByPaneId: [UUID: UUID] = [:],
+        drawerLayoutByParentPaneId: [UUID: DrawerGridLayout] = [:]
     ) -> ActionStateSnapshot {
         ActionStateSnapshot(
             tabs: tabs,
             activeTabId: activeTabId,
-            isManagementLayerActive: isManagementLayerActive
+            isManagementLayerActive: isManagementLayerActive,
+            drawerParentByPaneId: drawerParentByPaneId,
+            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId
         )
     }
 
@@ -100,7 +104,8 @@ struct WorkspaceCommandValidatorOwnershipTests {
             source: .existingPane(paneId: hiddenSourcePaneId, sourceTabId: sourceTabId),
             targetTabId: targetTabId,
             targetPaneId: targetPaneId,
-            direction: .right
+            direction: .right,
+            sizingMode: .halveTarget
         )
 
         let result = WorkspaceCommandValidator.validate(action, state: snapshot)
@@ -155,5 +160,69 @@ struct WorkspaceCommandValidatorOwnershipTests {
 
         if case .failure(.paneNotFound) = result { return }
         Issue.record("Expected paneNotFound error")
+    }
+
+    @Test
+    func moveDrawerPane_invalidDrawerLayoutFails() {
+        let parentPaneId = UUIDv7.generate()
+        let drawerPaneId = UUIDv7.generate()
+        let snapshot = makeSnapshot(
+            tabs: [
+                TabSnapshot(
+                    id: UUID(),
+                    visiblePaneIds: [parentPaneId],
+                    ownedPaneIds: [parentPaneId, drawerPaneId],
+                    activePaneId: parentPaneId
+                )
+            ],
+            isManagementLayerActive: true,
+            drawerParentByPaneId: [drawerPaneId: parentPaneId]
+        )
+
+        let result = DrawerCommandValidator.validateResultingLayout(
+            DrawerGridLayout(
+                topRow: Layout.autoTiled([UUID()]),
+                bottomRow: Layout.autoTiled([UUID()])
+            ),
+            parentPaneId: parentPaneId,
+            state: snapshot,
+            requestedDirection: .down,
+            wouldCreateThirdRow: true
+        )
+
+        if case .failure(
+            .invalidDrawerLayout(parentPaneId: parentPaneId, reason: .resultingLayoutWouldCreateThirdRow)
+        ) = result {
+            return
+        }
+        Issue.record("Expected invalidDrawerLayout when a drawer edit would create a third row")
+    }
+
+    @Test
+    func detachDrawerPane_hiddenParentFailsValidation() {
+        let parentPaneId = UUIDv7.generate()
+        let drawerPaneId = UUIDv7.generate()
+        let snapshot = makeSnapshot(
+            tabs: [
+                TabSnapshot(
+                    id: UUID(),
+                    visiblePaneIds: [],
+                    ownedPaneIds: [parentPaneId, drawerPaneId],
+                    activePaneId: nil
+                )
+            ],
+            drawerParentByPaneId: [drawerPaneId: parentPaneId],
+            drawerLayoutByParentPaneId: [
+                parentPaneId: DrawerGridLayout(topRow: Layout.autoTiled([drawerPaneId]))
+            ]
+        )
+
+        let result = WorkspaceCommandValidator.validate(
+            .detachDrawerPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId),
+            state: snapshot
+        )
+
+        if case .failure(.paneNotFound) = result { return }
+        Issue.record("Expected paneNotFound when parent is not showing in active arrangement")
     }
 }

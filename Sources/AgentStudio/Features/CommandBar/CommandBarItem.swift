@@ -317,6 +317,15 @@ enum FooterHintBuilder {
                 if item.hasChildren {
                     actions.append(FooterHint(id: "drill-in", key: "→", label: "Drill in"))
                 }
+                if let shortcutKeys = item.shortcutKeys {
+                    actions.append(
+                        FooterHint(
+                            id: "item-shortcut",
+                            keys: shortcutKeys,
+                            label: "Shortcut"
+                        )
+                    )
+                }
             }
         }
 

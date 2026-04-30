@@ -11,12 +11,16 @@ final class WorkspaceCommandValidatorTests {
     private func makeSnapshot(
         tabs: [TabSnapshot] = [],
         activeTabId: UUID? = nil,
-        isManagementLayerActive: Bool = false
+        isManagementLayerActive: Bool = false,
+        drawerParentByPaneId: [UUID: UUID] = [:],
+        drawerLayoutByParentPaneId: [UUID: DrawerGridLayout] = [:]
     ) -> ActionStateSnapshot {
         ActionStateSnapshot(
             tabs: tabs,
             activeTabId: activeTabId,
-            isManagementLayerActive: isManagementLayerActive
+            isManagementLayerActive: isManagementLayerActive,
+            drawerParentByPaneId: drawerParentByPaneId,
+            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId
         )
     }
 
@@ -241,8 +245,8 @@ final class WorkspaceCommandValidatorTests {
 
     @Test
 
-    func test_closePane_singlePaneTab_canonicalizesToCloseTab() {
-        // Arrange — single-pane close is canonicalized to closeTab during validation
+    func test_closePane_singlePaneTab_staysClosePane() {
+        // Arrange
         let (tab, tabId, paneId) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
 
@@ -257,7 +261,103 @@ final class WorkspaceCommandValidatorTests {
             Issue.record("Expected success")
             return
         }
-        #expect(validated.action == .closeTab(tabId: tabId))
+        #expect(validated.action == .closePane(tabId: tabId, paneId: paneId))
+    }
+
+    @Test
+    func test_focusDrawerPaneLeft_wrongParentFails() {
+        let parentPaneId = UUIDv7.generate()
+        let otherParentPaneId = UUIDv7.generate()
+        let drawerPaneId = UUIDv7.generate()
+
+        let snapshot = makeSnapshot(
+            tabs: [
+                TabSnapshot(
+                    id: UUID(),
+                    visiblePaneIds: [parentPaneId, otherParentPaneId],
+                    ownedPaneIds: [parentPaneId, otherParentPaneId, drawerPaneId],
+                    activePaneId: parentPaneId
+                )
+            ],
+            drawerParentByPaneId: [drawerPaneId: otherParentPaneId]
+        )
+
+        let result = WorkspaceCommandValidator.validate(
+            .focusDrawerPaneLeft(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId),
+            state: snapshot
+        )
+
+        if case .failure(.paneNotFound) = result { return }
+        Issue.record("Expected paneNotFound for wrong-parent drawer membership")
+    }
+
+    @Test
+    func test_detachDrawerPane_requiresRealDrawerChild() {
+        let parentPaneId = UUIDv7.generate()
+        let drawerPaneId = UUIDv7.generate()
+        let snapshot = makeSnapshot(
+            tabs: [
+                TabSnapshot(
+                    id: UUID(),
+                    visiblePaneIds: [parentPaneId],
+                    ownedPaneIds: [parentPaneId],
+                    activePaneId: parentPaneId
+                )
+            ]
+        )
+
+        let result = WorkspaceCommandValidator.validate(
+            .detachDrawerPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId),
+            state: snapshot
+        )
+
+        if case .failure(.paneNotFound) = result { return }
+        Issue.record("Expected paneNotFound when detach targets a non-drawer child")
+    }
+
+    @Test
+    func test_insertDrawerPane_thirdRowFailsAtValidatorBoundary() {
+        let parentPaneId = UUIDv7.generate()
+        let topPaneId = UUIDv7.generate()
+        let bottomPaneId = UUIDv7.generate()
+        let snapshot = makeSnapshot(
+            tabs: [
+                TabSnapshot(
+                    id: UUID(),
+                    visiblePaneIds: [parentPaneId],
+                    ownedPaneIds: [parentPaneId, topPaneId, bottomPaneId],
+                    activePaneId: parentPaneId
+                )
+            ],
+            isManagementLayerActive: true,
+            drawerParentByPaneId: [
+                topPaneId: parentPaneId,
+                bottomPaneId: parentPaneId,
+            ],
+            drawerLayoutByParentPaneId: [
+                parentPaneId: DrawerGridLayout(
+                    topRow: Layout.autoTiled([topPaneId]),
+                    bottomRow: Layout.autoTiled([bottomPaneId])
+                )
+            ]
+        )
+
+        let result = WorkspaceCommandValidator.validate(
+            .insertDrawerPane(
+                parentPaneId: parentPaneId,
+                targetDrawerPaneId: bottomPaneId,
+                direction: .down,
+                sizingMode: .halveTarget
+            ),
+            state: snapshot
+        )
+
+        if case .failure(
+            .invalidDrawerLayout(parentPaneId: parentPaneId, reason: .insertionTargetRejected(bottomPaneId))
+        ) = result {
+            return
+        }
+        Issue.record("Expected invalidDrawerLayout when insert would create a third row")
     }
 
     @Test
@@ -381,7 +481,8 @@ final class WorkspaceCommandValidatorTests {
             source: .existingPane(paneId: paneId, sourceTabId: tabId),
             targetTabId: tabId,
             targetPaneId: paneId,
-            direction: .right
+            direction: .right,
+            sizingMode: .halveTarget
         )
 
         // Act
@@ -420,7 +521,8 @@ final class WorkspaceCommandValidatorTests {
             source: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
             targetTabId: targetTabId,
             targetPaneId: targetPaneId,
-            direction: .right
+            direction: .right,
+            sizingMode: .halveTarget
         )
 
         // Act
@@ -440,7 +542,8 @@ final class WorkspaceCommandValidatorTests {
             source: .newTerminal,
             targetTabId: tabId,
             targetPaneId: paneId,
-            direction: .down
+            direction: .down,
+            sizingMode: .halveTarget
         )
 
         // Act
@@ -459,7 +562,8 @@ final class WorkspaceCommandValidatorTests {
             source: .newTerminal,
             targetTabId: UUID(),
             targetPaneId: UUID(),
-            direction: .right
+            direction: .right,
+            sizingMode: .halveTarget
         )
 
         // Act
@@ -480,7 +584,8 @@ final class WorkspaceCommandValidatorTests {
             source: .newTerminal,
             targetTabId: tabId,
             targetPaneId: UUID(),
-            direction: .right
+            direction: .right,
+            sizingMode: .halveTarget
         )
 
         // Act
@@ -501,7 +606,8 @@ final class WorkspaceCommandValidatorTests {
             source: .existingPane(paneId: UUID(), sourceTabId: UUID()),
             targetTabId: tabId,
             targetPaneId: paneId,
-            direction: .right
+            direction: .right,
+            sizingMode: .halveTarget
         )
 
         // Act

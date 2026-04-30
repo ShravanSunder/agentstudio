@@ -10,6 +10,7 @@ final class PaneFocusExecutor {
     typealias TabSelectionHandler = @MainActor (UUID) -> Void
     typealias PaneSelectionHandler = @MainActor (UUID, UUID) -> Void
     typealias DrawerSelectionHandler = @MainActor (UUID, UUID) -> Void
+    typealias DrawerEmptySelectionHandler = @MainActor (UUID) -> Void
     typealias RuntimeFocusHandler = @MainActor (UUID?) -> Void
 
     private var registeredHostViewsByPaneId: [UUID: PaneHostView] = [:]
@@ -19,6 +20,7 @@ final class PaneFocusExecutor {
     private let selectTab: TabSelectionHandler
     private let selectPane: PaneSelectionHandler
     private let selectDrawerPane: DrawerSelectionHandler
+    private let selectEmptyDrawer: DrawerEmptySelectionHandler
     private let syncRuntimeFocus: RuntimeFocusHandler
 
     init(
@@ -27,6 +29,7 @@ final class PaneFocusExecutor {
         selectTab: @escaping TabSelectionHandler,
         selectPane: @escaping PaneSelectionHandler,
         selectDrawerPane: @escaping DrawerSelectionHandler,
+        selectEmptyDrawer: @escaping DrawerEmptySelectionHandler,
         syncRuntimeFocus: @escaping RuntimeFocusHandler
     ) {
         self.hostViewProvider = hostViewProvider
@@ -34,6 +37,7 @@ final class PaneFocusExecutor {
         self.selectTab = selectTab
         self.selectPane = selectPane
         self.selectDrawerPane = selectDrawerPane
+        self.selectEmptyDrawer = selectEmptyDrawer
         self.syncRuntimeFocus = syncRuntimeFocus
     }
 

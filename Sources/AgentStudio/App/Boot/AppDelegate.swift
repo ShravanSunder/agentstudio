@@ -28,6 +28,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var watchedFolderCommands: (any WatchedFolderCommandHandling)!
     var viewRegistry: ViewRegistry!
     var paneCoordinator: PaneCoordinator!
+    var closeTransitionCoordinator: PaneCloseTransitionCoordinator!
     private var executor: ActionExecutor!
     private var tabBarAdapter: TabBarAdapter!
     private var runtime: SessionRuntime!
@@ -147,6 +148,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         runtime = SessionRuntime(atom: atomStore.sessionRuntime, store: store)
         cleanupOrphanZmxSessions()
         viewRegistry = ViewRegistry()
+        closeTransitionCoordinator = PaneCloseTransitionCoordinator()
         seedSlotsForRestoredPanes()
         let pipeline = FilesystemGitPipeline(
             bus: paneRuntimeBus,
@@ -161,6 +163,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             surfaceManager: SurfaceManager.shared,
             runtimeRegistry: .shared,
             paneEventBus: paneRuntimeBus,
+            closeTransitionCoordinator: closeTransitionCoordinator,
             filesystemSource: pipeline,
             windowLifecycleStore: windowLifecycleStore
         )
@@ -271,6 +274,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// SwiftUI read during tab-host creation sees stable slot identity instead of the lazy fallback.
     func seedSlotsForRestoredPanes() {
         guard store != nil, viewRegistry != nil else { return }
+        if store.paneAtom.panes.isEmpty {
+            viewRegistry.completeInitialRestore()
+        } else {
+            viewRegistry.beginInitialRestore()
+        }
         for paneId in store.paneAtom.panes.keys {
             viewRegistry.ensureSlot(for: paneId)
         }
@@ -362,7 +370,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             viewRegistry: viewRegistry,
             inboxAtom: inboxNotificationAtom,
             inboxPrefsAtom: inboxNotificationPrefsAtom,
-            drawerInboxPresenter: inboxNotificationDrawerPresenter
+            drawerInboxPresenter: inboxNotificationDrawerPresenter,
+            closeTransitionCoordinator: closeTransitionCoordinator
         )
         mainWindowController?.prepareLaunchMaximizeAndRestore()
         mainWindowController?.showWindow(nil)
@@ -543,7 +552,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 viewRegistry: viewRegistry,
                 inboxAtom: inboxNotificationAtom,
                 inboxPrefsAtom: inboxNotificationPrefsAtom,
-                drawerInboxPresenter: inboxNotificationDrawerPresenter
+                drawerInboxPresenter: inboxNotificationDrawerPresenter,
+                closeTransitionCoordinator: closeTransitionCoordinator
             )
             mainWindowController?.showWindow(nil)
             wireLifecycleConsumers()
@@ -627,9 +637,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
-        let focus = atom(\.commandContext).currentFocus(
+        let focus = atom(\.workspacePaneFocus).currentFocus(
             workspaceTab: workspaceTab,
-            workspacePane: store.paneAtom
+            workspacePane: store.paneAtom,
+            workspaceFocusOwner: atom(\.workspaceFocusOwner)
         )
         let isVisible = definition.isVisible(in: focus)
         menuItem.isHidden = !isVisible

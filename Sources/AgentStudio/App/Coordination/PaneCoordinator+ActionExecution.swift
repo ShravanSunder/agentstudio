@@ -81,7 +81,8 @@ extension PaneCoordinator {
             inTab: activeTabId,
             at: targetPaneId,
             direction: .horizontal,
-            position: .after
+            position: .after,
+            sizingMode: .halveTarget
         )
         store.tabLayoutAtom.setActivePane(pane.id, inTab: activeTabId)
         ensureTerminalPaneView(pane)
@@ -111,6 +112,7 @@ extension PaneCoordinator {
         guard createViewForContent(pane: pane) != nil else {
             Self.logger.error("Webview creation failed — rolling back pane \(pane.id)")
             store.mutationCoordinator.removePane(pane.id)
+            // Safe immediate deletion: creation failed before the pane entered a rendered layout.
             viewRegistry.removeSlot(for: pane.id)
             return nil
         }
@@ -150,6 +152,7 @@ extension PaneCoordinator {
         guard createViewForContent(pane: pane) != nil else {
             Self.logger.error("Contextual webview creation failed — rolling back pane \(pane.id)")
             store.mutationCoordinator.removePane(pane.id)
+            // Safe immediate deletion: creation failed before the pane entered a rendered layout.
             viewRegistry.removeSlot(for: pane.id)
             return nil
         }
@@ -161,7 +164,8 @@ extension PaneCoordinator {
             inTab: targetTabId,
             at: sourcePaneId,
             direction: layoutDirection,
-            position: position
+            position: position,
+            sizingMode: .halveTarget
         )
         store.tabLayoutAtom.setActivePane(pane.id, inTab: targetTabId)
 
@@ -196,6 +200,7 @@ extension PaneCoordinator {
         guard createViewForContent(pane: pane) != nil else {
             Self.logger.error("Contextual drawer webview creation failed — rolling back pane \(pane.id)")
             store.paneAtom.removeDrawerPane(pane.id, from: parentPaneId)
+            // Safe immediate deletion: the synchronous drawer creation rollback completes before rendering resumes.
             viewRegistry.removeSlot(for: pane.id)
             return nil
         }
@@ -294,6 +299,7 @@ extension PaneCoordinator {
 
         case .extractPaneToTab(let tabId, let paneId):
             guard let newTab = store.tabLayoutAtom.extractPane(paneId, fromTab: tabId) else {
+                Self.logger.warning("extractPaneToTab: failed to extract pane \(paneId) from tab \(tabId)")
                 break
             }
             guard let pane = store.paneAtom.pane(paneId) else {
@@ -311,12 +317,13 @@ extension PaneCoordinator {
                 )
             }
 
-        case .insertPane(let source, let targetTabId, let targetPaneId, let direction):
+        case .insertPaneRequest(let request):
             executeInsertPane(
-                source: source,
-                targetTabId: targetTabId,
-                targetPaneId: targetPaneId,
-                direction: direction
+                source: request.source,
+                targetTabId: request.targetTabId,
+                targetPaneId: request.targetPaneId,
+                direction: request.direction,
+                sizingMode: request.sizingMode
             )
 
         case .resizePane(let tabId, let splitId, let ratio):
@@ -418,7 +425,8 @@ extension PaneCoordinator {
                 inTab: targetTabId,
                 at: targetPaneId,
                 direction: layoutDirection,
-                position: position
+                position: position,
+                sizingMode: .halveTarget
             )
             viewRegistry.ensureSlot(for: paneId)
             if viewRegistry.view(for: paneId) == nil, let pane = store.paneAtom.pane(paneId) {
@@ -429,7 +437,39 @@ extension PaneCoordinator {
             guard let pane = store.paneAtom.pane(paneId), pane.residency == .backgrounded else { break }
             teardownView(for: paneId)
             store.paneAtom.purgeOrphanedPane(paneId)
-            viewRegistry.removeSlot(for: paneId)
+            viewRegistry.retireSlot(for: paneId)
+
+        case .enterDrawer,
+            .focusDrawerPaneUp,
+            .focusDrawerPaneLeft,
+            .focusDrawerPaneDown,
+            .focusDrawerPaneRight:
+            Self.logger.debug(
+                "Drawer focus action reached PaneCoordinator after validation; handled by PaneTabViewController")
+
+        case .detachDrawerPane(let parentPaneId, let drawerPaneId):
+            guard let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id else {
+                Self.logger.warning("detachDrawerPane: parent pane \(parentPaneId) is not in a visible tab")
+                break
+            }
+
+            guard store.paneAtom.detachDrawerPane(drawerPaneId, from: parentPaneId) != nil else {
+                Self.logger.warning("detachDrawerPane: failed releasing drawer pane \(drawerPaneId)")
+                break
+            }
+
+            store.tabLayoutAtom.insertPane(
+                drawerPaneId,
+                inTab: tabId,
+                at: parentPaneId,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+            store.tabLayoutAtom.setActivePane(drawerPaneId, inTab: tabId)
+            restoreViewsForActiveTabIfNeeded()
+            reattachForViewSwitch(paneId: drawerPaneId)
+            focusVisiblePaneHost(drawerPaneId)
 
         case .addDrawerPane(let parentPaneId):
             let fallbackCWD = store.paneAtom.pane(parentPaneId)?.worktreeId.flatMap(
@@ -442,9 +482,33 @@ extension PaneCoordinator {
             }
 
         case .removeDrawerPane(let parentPaneId, let drawerPaneId):
+            let drawerBeforeRemoval = store.paneAtom.pane(parentPaneId)?.drawer
+            let willBecomeEmptyDrawer =
+                drawerBeforeRemoval?.paneIds.contains { $0 != drawerPaneId } == false
+            if let drawer = drawerBeforeRemoval,
+                drawer.activeChildId == drawerPaneId
+            {
+                let preRemovalFallbackPaneId = drawer.paneIds.first { candidatePaneId in
+                    candidatePaneId != drawerPaneId && !drawer.minimizedPaneIds.contains(candidatePaneId)
+                }
+                if let preRemovalFallbackPaneId {
+                    focusVisiblePaneHost(preRemovalFallbackPaneId)
+                } else if willBecomeEmptyDrawer {
+                    _ = clearFirstResponderToWindowContent(for: parentPaneId)
+                } else {
+                    focusVisiblePaneHost(parentPaneId)
+                }
+            }
             teardownView(for: drawerPaneId)
             store.paneAtom.removeDrawerPane(drawerPaneId, from: parentPaneId)
-            viewRegistry.removeSlot(for: drawerPaneId)
+            viewRegistry.retireSlot(for: drawerPaneId)
+            if let activeDrawerPaneId = store.paneAtom.pane(parentPaneId)?.drawer?.activeChildId {
+                focusVisiblePaneHost(activeDrawerPaneId)
+            } else if willBecomeEmptyDrawer {
+                _ = clearFirstResponderToWindowContent(for: parentPaneId)
+            } else {
+                focusVisiblePaneHost(parentPaneId)
+            }
 
         case .toggleDrawer(let paneId):
             store.paneAtom.toggleDrawer(for: paneId)
@@ -481,22 +545,20 @@ extension PaneCoordinator {
                 reattachForViewSwitch(paneId: drawerPaneId)
             }
 
-        case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction):
+        case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction, let sizingMode):
             executeInsertDrawerPane(
                 parentPaneId: parentPaneId,
                 targetDrawerPaneId: targetDrawerPaneId,
-                direction: direction
+                direction: direction,
+                sizingMode: sizingMode
             )
 
-        case .moveDrawerPane(let parentPaneId, let drawerPaneId, let targetDrawerPaneId, let direction):
-            let layoutDirection = bridgeDirection(direction)
-            let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
+        case .moveDrawerPane(let parentPaneId, let drawerPaneId, let target, let sizingMode):
             store.paneAtom.moveDrawerPane(
                 drawerPaneId,
                 in: parentPaneId,
-                at: targetDrawerPaneId,
-                direction: layoutDirection,
-                position: position
+                target: target,
+                sizingMode: sizingMode
             )
             focusVisiblePaneHost(drawerPaneId)
 
@@ -622,7 +684,7 @@ extension PaneCoordinator {
             for pane in expiredPanes where !allOwnedPaneIds.contains(pane.id) {
                 teardownView(for: pane.id)
                 store.mutationCoordinator.removePane(pane.id)
-                viewRegistry.removeSlot(for: pane.id)
+                viewRegistry.retireSlot(for: pane.id)
                 Self.logger.debug("GC'd orphaned pane \(pane.id) from expired undo entry")
             }
         }
@@ -659,36 +721,58 @@ extension PaneCoordinator {
             Self.logger.warning("closePane: pane \(paneId) not found")
             return
         }
-
-        let shouldCreateUndoEntry: Bool
-        if let tab = store.tabLayoutAtom.tab(tabId), tab.id == store.tabLayoutAtom.activeTabId {
-            if closingPane.isDrawerChild {
-                shouldCreateUndoEntry = closingPane.parentPaneId.map { tab.activePaneIds.contains($0) } ?? false
-            } else {
-                shouldCreateUndoEntry = tab.activePaneIds.contains(paneId)
-            }
-        } else {
-            shouldCreateUndoEntry = false
+        guard let tab = store.tabLayoutAtom.tab(tabId) else {
+            Self.logger.warning("closePane: tab \(tabId) not found")
+            return
         }
 
-        if shouldCreateUndoEntry {
-            if let snapshot = store.mutationCoordinator.snapshotForPaneClose(paneId: paneId, inTab: tabId) {
-                appendUndoEntry(.pane(snapshot))
+        let isDrawerChild = closingPane.isDrawerChild
+        let closingEmptiesTab: Bool = {
+            guard !isDrawerChild else { return false }
+            let remainingMainPaneIds = tab.allPaneIds.filter { candidatePaneId in
+                guard candidatePaneId != paneId else { return false }
+                guard let candidatePane = store.paneAtom.pane(candidatePaneId) else { return false }
+                return !candidatePane.isDrawerChild
+            }
+            return remainingMainPaneIds.isEmpty
+        }()
+
+        if closingEmptiesTab {
+            if let snapshot = store.mutationCoordinator.snapshotForClose(tabId: tabId) {
+                appendUndoEntry(.tab(snapshot))
             } else {
-                Self.logger.warning("closePane: snapshot failed for pane \(paneId) in tab \(tabId)")
+                Self.logger.warning("closePane: tab snapshot failed for last-pane close in tab \(tabId)")
             }
         } else {
-            Self.logger.debug("closePane: skipping undo snapshot for non-visible pane \(paneId) in tab \(tabId)")
+            let shouldSnapshotPane: Bool
+            if tab.id == store.tabLayoutAtom.activeTabId {
+                if isDrawerChild {
+                    shouldSnapshotPane = closingPane.parentPaneId.map { tab.activePaneIds.contains($0) } ?? false
+                } else {
+                    shouldSnapshotPane = tab.activePaneIds.contains(paneId)
+                }
+            } else {
+                shouldSnapshotPane = false
+            }
+
+            if shouldSnapshotPane {
+                if let snapshot = store.mutationCoordinator.snapshotForPaneClose(paneId: paneId, inTab: tabId) {
+                    appendUndoEntry(.pane(snapshot))
+                } else {
+                    Self.logger.warning("closePane: pane snapshot failed for pane \(paneId) in tab \(tabId)")
+                }
+            } else {
+                Self.logger.debug("closePane: skipping undo snapshot for non-visible pane \(paneId) in tab \(tabId)")
+            }
         }
 
-        if closingPane.isDrawerChild {
-            teardownView(for: paneId)
+        if isDrawerChild {
             if let parentPaneId = closingPane.parentPaneId {
-                store.paneAtom.removeDrawerPane(paneId, from: parentPaneId)
-                viewRegistry.removeSlot(for: paneId)
+                execute(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
             } else {
+                teardownView(for: paneId)
                 store.mutationCoordinator.removePane(paneId)
-                viewRegistry.removeSlot(for: paneId)
+                viewRegistry.retireSlot(for: paneId)
             }
             expireOldUndoEntries()
             return
@@ -697,17 +781,24 @@ extension PaneCoordinator {
         let drawerChildIds = closingPane.drawer?.paneIds ?? []
         teardownDrawerPanes(for: paneId)
         teardownView(for: paneId)
-        store.tabLayoutAtom.removePaneFromLayout(paneId, inTab: tabId)
+        viewRegistry.retireSlot(for: paneId)
 
         for drawerPaneId in drawerChildIds {
+            viewRegistry.retireSlot(for: drawerPaneId)
+        }
+
+        store.tabLayoutAtom.removePaneFromLayout(paneId, inTab: tabId)
+        for drawerPaneId in drawerChildIds {
             store.paneAtom.removeDrawerPane(drawerPaneId, from: paneId)
-            viewRegistry.removeSlot(for: drawerPaneId)
         }
 
         let allOwnedPaneIds = currentOwnedPaneIds()
         if !allOwnedPaneIds.contains(paneId) {
             store.mutationCoordinator.removePane(paneId)
-            viewRegistry.removeSlot(for: paneId)
+        }
+
+        if store.tabLayoutAtom.tab(tabId)?.allPaneIds.isEmpty == true {
+            store.tabLayoutAtom.removeTab(tabId)
         }
 
         expireOldUndoEntries()
@@ -717,7 +808,8 @@ extension PaneCoordinator {
         source: PaneSource,
         targetTabId: UUID,
         targetPaneId: UUID,
-        direction: SplitNewDirection
+        direction: SplitNewDirection,
+        sizingMode: DropSizingMode
     ) {
         let layoutDirection = bridgeDirection(direction)
         let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
@@ -739,7 +831,7 @@ extension PaneCoordinator {
             store.tabLayoutAtom.removePaneFromLayout(paneId, inTab: sourceTabId)
             store.tabLayoutAtom.insertPane(
                 paneId, inTab: targetTabId, at: targetPaneId,
-                direction: layoutDirection, position: position
+                direction: layoutDirection, position: position, sizingMode: sizingMode
             )
 
         case .newTerminal:
@@ -759,7 +851,7 @@ extension PaneCoordinator {
 
                 store.tabLayoutAtom.insertPane(
                     pane.id, inTab: targetTabId, at: targetPaneId,
-                    direction: layoutDirection, position: position
+                    direction: layoutDirection, position: position, sizingMode: sizingMode
                 )
                 ensureTerminalPaneView(pane)
                 return
@@ -777,7 +869,7 @@ extension PaneCoordinator {
 
             store.tabLayoutAtom.insertPane(
                 pane.id, inTab: targetTabId, at: targetPaneId,
-                direction: layoutDirection, position: position
+                direction: layoutDirection, position: position, sizingMode: sizingMode
             )
             ensureTerminalPaneView(pane)
         }

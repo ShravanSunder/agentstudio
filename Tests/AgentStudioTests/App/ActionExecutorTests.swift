@@ -164,7 +164,7 @@ final class ActionExecutorTests {
         let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let layout = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
@@ -193,7 +193,7 @@ final class ActionExecutorTests {
         let p1 = store.createPane(source: .floating(launchDirectory: nil, title: "Left"), title: "Left")
         let p2 = store.createPane(source: .floating(launchDirectory: nil, title: "Right"), title: "Right")
         let layout = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
@@ -223,7 +223,7 @@ final class ActionExecutorTests {
         let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let layout = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
@@ -250,7 +250,7 @@ final class ActionExecutorTests {
         let p1 = store.createPane(source: .floating(launchDirectory: nil, title: "First"), title: "First")
         let p2 = store.createPane(source: .floating(launchDirectory: nil, title: "Second"), title: "Second")
         let layout = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
@@ -282,7 +282,7 @@ final class ActionExecutorTests {
         store.appendTab(tab)
         store.insertPane(
             p2.id, inTab: tab.id, at: p1.id,
-            direction: .horizontal, position: .after
+            direction: .horizontal, position: .after, sizingMode: .halveTarget
         )
 
         guard let dividerId = store.tabs[0].layout.dividerIds.first else {
@@ -308,7 +308,7 @@ final class ActionExecutorTests {
         store.appendTab(tab)
         store.insertPane(
             p2.id, inTab: tab.id, at: p1.id,
-            direction: .horizontal, position: .after
+            direction: .horizontal, position: .after, sizingMode: .halveTarget
         )
 
         // Resize first
@@ -333,7 +333,7 @@ final class ActionExecutorTests {
         let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let layout = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
@@ -374,7 +374,8 @@ final class ActionExecutorTests {
                 source: .existingPane(paneId: p2.id, sourceTabId: tab2.id),
                 targetTabId: tab1.id,
                 targetPaneId: p1.id,
-                direction: .right
+                direction: .right,
+                sizingMode: .halveTarget
             ))
 
         // Assert — tab2 was removed (last pane extracted), tab1 now has split
@@ -564,8 +565,10 @@ final class ActionExecutorTests {
 
         let tab = Tab(paneId: pA.id)
         store.appendTab(tab)
-        store.insertPane(pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after)
-        store.insertPane(pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+        store.insertPane(
+            pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         // Create custom arrangement with only panes A and B
         let arrId = store.createArrangement(
@@ -595,8 +598,10 @@ final class ActionExecutorTests {
 
         let tab = Tab(paneId: pA.id)
         store.appendTab(tab)
-        store.insertPane(pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after)
-        store.insertPane(pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+        store.insertPane(
+            pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         let customArrId = store.createArrangement(
             name: "Focus",
@@ -655,8 +660,10 @@ final class ActionExecutorTests {
 
         let tab = Tab(paneId: pA.id)
         store.appendTab(tab)
-        store.insertPane(pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after)
-        store.insertPane(pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+        store.insertPane(
+            pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         // Register stub PaneViews for all 3 panes
         let viewA = PaneHostView(paneId: pA.id)
@@ -698,8 +705,10 @@ final class ActionExecutorTests {
 
         let tab = Tab(paneId: pA.id)
         store.appendTab(tab)
-        store.insertPane(pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after)
-        store.insertPane(pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+        store.insertPane(
+            pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         // Register stub PaneViews for all 3 panes
         let viewA = PaneHostView(paneId: pA.id)

@@ -184,7 +184,7 @@ final class PaneTests {
         let drawerPaneId = UUID()
         let drawer = Drawer(
             paneIds: [drawerPaneId],
-            layout: Layout(paneId: drawerPaneId),
+            layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)),
             activeChildId: drawerPaneId,
             isExpanded: false
         )
@@ -254,7 +254,7 @@ final class PaneTests {
         let drawerPaneId = UUID()
         let drawer = Drawer(
             paneIds: [drawerPaneId],
-            layout: Layout(paneId: drawerPaneId),
+            layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)),
             activeChildId: drawerPaneId,
             isExpanded: true
         )
@@ -461,7 +461,14 @@ final class PaneTests {
     func test_drawer_codable_roundTrip() throws {
         let id1 = UUID()
         let id2 = UUID()
-        let layout = Layout(paneId: id1).inserting(paneId: id2, at: id1, direction: .horizontal, position: .after)
+        let layout = DrawerGridLayout(
+            topRow: Layout(paneId: id1).inserting(
+                paneId: id2,
+                at: id1,
+                direction: .horizontal,
+                position: .after, sizingMode: .halveTarget
+            )!
+        )
         let drawer = Drawer(paneIds: [id1, id2], layout: layout, activeChildId: id2, isExpanded: false)
 
         let data = try encoder.encode(drawer)
@@ -490,7 +497,12 @@ final class PaneTests {
     @Test
     func test_drawer_rejectsLegacyActivePaneIdEncoding() throws {
         let id = UUID()
-        let drawer = Drawer(paneIds: [id], layout: Layout(paneId: id), activeChildId: id, isExpanded: true)
+        let drawer = Drawer(
+            paneIds: [id],
+            layout: DrawerGridLayout(topRow: Layout(paneId: id)),
+            activeChildId: id,
+            isExpanded: true
+        )
         let currentJSON = try #require(String(data: try encoder.encode(drawer), encoding: .utf8))
         let legacyJSON = currentJSON.replacingOccurrences(of: "activeChildId", with: "activePaneId")
 

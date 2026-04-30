@@ -11,8 +11,8 @@
 Build one opt-in diagnostic harness for app investigations:
 
 - Tagged JSONL trace capture.
-- Swift tracing libraries own span/context semantics.
-- Agent Studio JSONL file exporter first, OTLP file/network exporters later.
+- Swift tracing libraries own context propagation where their public API supports it.
+- Agent Studio JSONL file writer first, OTLP file/network exporters later.
 - Per-run files.
 - Ring buffer with explicit flush.
 - Sampling/throttling for high-volume streams.
@@ -30,12 +30,12 @@ LUNA-368 reaches its first useful stopping point when a developer can launch the
 
 SP1a includes:
 
-- `swift-distributed-tracing` adopted for tracing/span/context APIs.
-- `swift-otel` adopted as the standard OTLP backend path, with local collector export allowed to stay disabled by default.
+- `swift-distributed-tracing` adopted for `ServiceContext` propagation.
+- `swift-otel` adopted as the standard future OTLP backend path, with local collector export disabled by default.
 - Stable Agent Studio JSONL exporter schema: top-level keys, `agentstudio.*` namespace, resource fields, `time_unix_nano`, and trace/span/log-like event vocabulary.
 - Propagation pattern established through one non-UI diagnostic flow that crosses at least one async boundary.
-- Local JSONL file exporter, ring buffer, explicit flush, rotation, env-var control, and per-run files.
-- One span/record proof on disk with trace ID, span ID, resource, scope, and attributes.
+- Local JSONL file writer, ring buffer, explicit flush, rotation, env-var control, and per-run files.
+- One local JSONL record proof on disk with trace ID, span ID, resource, scope, and attributes.
 - One generic trace triage script that can list recent traces or inspect a trace by correlation ID/tag.
 
 SP1a does not require direct OpenTelemetry Collector ingestion and does not write OTLP JSON. It preserves the OTel-shaped internal vocabulary so an OTLP file exporter or OTLP network exporter can be added later as another sink without redesigning the tracing model.
@@ -48,7 +48,7 @@ These slide after SP1a without architectural regret:
 - Throttling and payload references beyond the first high-volume stream that needs them.
 - `Record Experiment`.
 - Domain-specific shell tools.
-- Additional OTLP rollout beyond the SP1a compile/export proof.
+- OTLP rollout once a real `swift-otel` backend/export path is wired.
 - LUNA-361 notification observability consumers.
 - Drag overlay and drag-specific tooling on the separate drag branch.
 
@@ -58,22 +58,23 @@ SP1a adopts both Swift tracing libraries:
 
 ```
 swift-distributed-tracing
-  Tracing API, span lifecycle, and ServiceContext propagation contract.
+  ServiceContext propagation contract. Do not start spans unless a real tracing
+  backend is bootstrapped and exporting them.
 
 swift-otel
   Standard OTLP backend path. In swift-otel 1.0.5, span exporter types are package-internal,
   so Agent Studio cannot conform a custom JSONL exporter directly to OTelSpanExporter
   without a package change or adapter surface.
 
-AgentStudioJSONLTraceSink
-  App-local exporter for per-run JSONL files, fixtures, and agent-readable traces.
+AgentStudioJSONLTraceWriter
+  App-local writer for per-run JSONL files, fixtures, and agent-readable traces.
   Does not pretend to be OTLP. Keep its record shape OTel-aligned so later OTLP
-  file/network export is an additional exporter path, not a schema rewrite.
+  file/network export is an additional backend path, not a schema rewrite.
 ```
 
-JSONL is an exporter, not a separate tracing model. Instrumentation creates spans and span events through the tracing API where that API is active; the app-local JSONL exporter serializes OTel-aligned records for local diagnostics. The later OTLP network path uses `swift-otel`; an OTLP JSON file exporter is custom work if we want collector-readable files on disk.
+JSONL is the local diagnostic output format, not a separate observability vocabulary. The app-local writer serializes OTel-aligned records for local diagnostics. It must not create no-op spans just to look like OpenTelemetry. The later OTLP network path uses `swift-otel`; an OTLP JSON file exporter is custom work if we want collector-readable files on disk.
 
-SP1a should include a compile/export proof for `swift-otel`: one span can be emitted through the Swift tracing stack and sent through the backend path in a controlled local/dev configuration. The production debugging flow still writes Agent Studio JSONL locally so trace review, shell tools, and fixtures do not depend on a running collector or OTLP file reader.
+SP1a keeps `swift-otel` available as the future backend path but does not claim a custom exporter conformance that the public package surface does not expose. The production debugging flow writes Agent Studio JSONL locally so trace review, shell tools, and fixtures do not depend on a running collector or OTLP file reader.
 
 ## Terminology
 
@@ -154,6 +155,7 @@ These are consumer tags. They should not block the LUNA-368 tracer foundation. `
 AGENTSTUDIO_TRACE_TAGS=eventbus,runtime
 AGENTSTUDIO_TRACE_NAME=runtime-envelope-smoke
 AGENTSTUDIO_TRACE_DIR=/tmp
+AGENTSTUDIO_TRACE_BACKEND=jsonl
 ```
 
 Selectors:
@@ -170,6 +172,22 @@ Output:
 ```
 /tmp/agentstudio-<trace-name>-<pid>.jsonl
 ```
+
+Backend selector:
+
+```
+AGENTSTUDIO_TRACE_BACKEND=jsonl
+  SP1a default. Writes Agent Studio JSONL only. Does not bootstrap spans.
+
+AGENTSTUDIO_TRACE_BACKEND=otlp
+  Reserved. Future mode that bootstraps a real swift-otel backend and exports
+  spans/logs to an OTLP file or network endpoint.
+
+AGENTSTUDIO_TRACE_BACKEND=both
+  Reserved. Future mode that keeps local JSONL while also exporting OTLP.
+```
+
+Until `otlp` or `both` exists, unknown or unsupported backend values must fall back to `jsonl` with a startup diagnostic. The important invariant is that the app never starts a tracing span just to feed local JSONL. Spans are only valid when a real backend is bootstrapped and receives them.
 
 ## OTel-Aligned Record Shape
 
@@ -211,7 +229,7 @@ Rules:
 - `time_unix_nano` is canonical. Shell tools can format ISO time on read.
 - `scope.name` is the instrumentation library identifier for the emitting code path.
 - `scope.version` is the instrumentation scope release/schema version. Bump it when the emitted record shape for that scope changes.
-- Shell tools must not group by `trace_id` alone. Use domain IDs such as `command.id`, `runtime.session_id`, or `envelope.seq` when an orphan span lacks a parent trace.
+- Shell tools must not group by `trace_id` alone. Use domain IDs such as `command.id`, `runtime.session_id`, or `envelope.seq` when a record lacks a parent trace.
 
 ## Attribute Discipline
 
@@ -243,16 +261,17 @@ ServiceContext
   Trace/span identifiers are accessed through backend-provided keys/extensions.
 
 Span / Tracer
-  Native tracing operation and creation APIs.
+  Native tracing operation and creation APIs. Use only when a real backend/exporter
+  is bootstrapped, so span lifecycle data has a destination.
 ```
 
 Rules:
 
 - App/user ingress creates or receives a `ServiceContext`-backed trace context.
 - Runtime/eventbus paths pass context explicitly where available, especially across AppKit callbacks, detached tasks, and nonisolated work.
-- If no context exists, the tracer may create an orphan span with `agentstudio.trace.orphan=true`.
+- If no context exists, the local JSONL writer still emits the record with domain IDs.
 - Do not rely only on TaskLocal propagation in SP1a.
-- Do not create an app-owned `TraceContext` unless the library API leaves a concrete gap. Prefer `ServiceContext` plus domain IDs in span attributes.
+- Do not create an app-owned `TraceContext` unless the library API leaves a concrete gap. Prefer `ServiceContext` plus domain IDs in record attributes.
 - Document the proven propagation path as the pattern future scopes follow.
 
 ## Ownership And Concurrency
@@ -273,7 +292,7 @@ AgentStudioJSONLLogRecordExporter
   Only if this spec chooses log records for some diagnostics.
 
 Processor chain
-  Uses swift-otel batch/multiplex processor concepts where public APIs allow.
+  Later OTLP work uses swift-otel batch/multiplex processor concepts where public APIs allow.
 
 TraceWriter
   Actor owning mutable buffers and file I/O.
@@ -290,18 +309,24 @@ SP1a
   AgentStudioJSONL writer with OTel-aligned record shape.
   Persistent local debugging and fixture capture.
   ServiceContext-shaped context propagated through one non-UI diagnostic flow.
-  swift-otel compile/export proof for one span.
+  No no-op span lifecycle in the local JSONL path.
+  AGENTSTUDIO_TRACE_BACKEND=jsonl is the only active backend mode.
 
 SP1b+
   More trace tags and more shell tooling.
 
-MultiplexTraceSink
-  Later: Agent Studio JSONL + OTLP file and/or OTLP network simultaneously.
+OTLP backend
+  Later: AGENTSTUDIO_TRACE_BACKEND=otlp bootstraps swift-otel and exports to
+  an OTLP file or network endpoint.
+
+Multiplex backend
+  Later: AGENTSTUDIO_TRACE_BACKEND=both writes Agent Studio JSONL and OTLP
+  simultaneously.
 ```
 
-Do not make a running collector or OTLP file reader mandatory in SP1a. The app-local Agent Studio JSONL exporter is the default debug path. Keep the internal trace record close enough to OTel concepts that adding a custom OTLP JSON file exporter or swift-otel network exporter is a new exporter, not a model rewrite.
+Do not make a running collector or OTLP file reader mandatory in SP1a. The app-local Agent Studio JSONL writer is the default debug path. Keep the internal trace record close enough to OTel concepts that adding a custom OTLP JSON file exporter or swift-otel network exporter is a new backend path, not a model rewrite.
 
-Ring buffering should stay close to the export/write boundary. Prefer swift-otel batch processor behavior if a public API supports it. Otherwise, keep the app-owned writer actor as the local JSONL buffering boundary and document the later OTLP path separately.
+Ring buffering should stay close to the export/write boundary. Keep the app-owned writer actor as the local JSONL buffering boundary and document the later OTLP path separately.
 
 ## Sampling And Throttling
 
@@ -417,12 +442,13 @@ Acceptance:
 
 - [ ] Define `TraceTag`.
 - [ ] Define `TraceRecord`.
-- [ ] Use `ServiceContext` as the propagation carrier; add app domain IDs as span attributes.
+- [ ] Use `ServiceContext` as the propagation carrier; add app domain IDs as record attributes.
 - [ ] Implement Agent Studio JSONL writer with an OTel-aligned record shape.
 - [ ] Define disabled fast path.
 - [ ] Define env parsing and wildcard matching.
-- [ ] Add the `swift-distributed-tracing` dependency and prove one local trace record carries trace ID/span ID/context fields.
-- [ ] Add the `swift-otel` dependency and prove one span can use the backend path in a controlled local/dev configuration.
+- [ ] Treat `AGENTSTUDIO_TRACE_BACKEND=jsonl` as the only active SP1a backend mode; reserve `otlp` and `both` with diagnostics rather than silent behavior changes.
+- [ ] Add the `swift-distributed-tracing` dependency and prove one local trace record carries caller-provided trace ID/span ID plus `ServiceContext` correlation fields.
+- [ ] Add the `swift-otel` dependency for the future public OTLP backend path; do not create spans until a real backend/exporter is wired.
 
 ### SP1a Task B: JSONL + Ring Buffer
 
@@ -460,6 +486,8 @@ Acceptance:
 
 - [ ] Add record-experiment menu path.
 - [ ] Add domain-specific trace tools only after a consumer spec needs them.
+- [ ] Add `AGENTSTUDIO_TRACE_BACKEND=otlp` once a real swift-otel backend/export path is bootstrapped.
+- [ ] Add `AGENTSTUDIO_TRACE_BACKEND=both` only after JSONL and OTLP can be multiplexed without duplicating instrumentation call sites.
 - [ ] Decide whether always-available collector export belongs in the next implementation plan.
 
 ## Non-Goals

@@ -51,9 +51,10 @@ enum CommandBarDataSource {
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
-        let focus = atom(\.commandContext).currentFocus(
+        let focus = atom(\.workspacePaneFocus).currentFocus(
             workspaceTab: workspaceTab,
-            workspacePane: store.paneAtom
+            workspacePane: store.paneAtom,
+            workspaceFocusOwner: atom(\.workspaceFocusOwner)
         )
         return items(
             scope: scope,
@@ -70,7 +71,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         dispatcher: CommandDispatcher,
-        focus: CommandContext,
+        focus: WorkspacePaneFocus,
         notificationInboxCommands: InboxNotificationCommands? = nil
     ) -> [CommandBarItem] {
         switch scope {
@@ -114,7 +115,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         dispatcher: CommandDispatcher,
-        focus: CommandContext
+        focus: WorkspacePaneFocus
     ) -> [CommandBarItem] {
         var items: [CommandBarItem] = []
         items.append(contentsOf: paneItems(store: store, repoCache: repoCache))
@@ -290,7 +291,7 @@ enum CommandBarDataSource {
     /// Visible command definitions, filtered once.
     private static func visibleCommands(
         dispatcher: CommandDispatcher,
-        focus: CommandContext
+        focus: WorkspacePaneFocus
     ) -> [CommandSpec] {
         dispatcher.definitions.values.filter {
             !$0.isHiddenInCommandBar && $0.isVisible(in: focus)
@@ -302,7 +303,7 @@ enum CommandBarDataSource {
         dispatcher: CommandDispatcher,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        focus: CommandContext
+        focus: WorkspacePaneFocus
     ) -> [CommandBarItem] {
         visibleCommands(dispatcher: dispatcher, focus: focus)
             .sorted { $0.command.rawValue < $1.command.rawValue }
@@ -322,7 +323,7 @@ enum CommandBarDataSource {
         dispatcher: CommandDispatcher,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        focus: CommandContext,
+        focus: WorkspacePaneFocus,
         groupName: String,
         priority: Int
     ) -> [CommandBarItem] {
@@ -355,7 +356,7 @@ enum CommandBarDataSource {
                 title: def.label,
                 icon: def.icon,
                 iconColor: commandIconColor,
-                shortcutTrigger: def.shortcut?.trigger,
+                shortcutTrigger: def.commandBarShortcutTrigger,
                 group: groupName,
                 groupPriority: groupPriority,
                 keywords: commandKeywords(for: def),
@@ -375,7 +376,7 @@ enum CommandBarDataSource {
                 title: def.label,
                 icon: def.icon,
                 iconColor: commandIconColor,
-                shortcutTrigger: def.shortcut?.trigger,
+                shortcutTrigger: def.commandBarShortcutTrigger,
                 group: groupName,
                 groupPriority: groupPriority,
                 keywords: commandKeywords(for: def),
@@ -390,7 +391,7 @@ enum CommandBarDataSource {
             title: def.label,
             icon: def.icon,
             iconColor: commandIconColor,
-            shortcutTrigger: def.shortcut?.trigger,
+            shortcutTrigger: def.commandBarShortcutTrigger,
             group: groupName,
             groupPriority: groupPriority,
             keywords: commandKeywords(for: def),

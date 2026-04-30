@@ -48,6 +48,14 @@ struct AgentStudioTraceRuntime: Sendable {
             )
         }
 
+        if let unsupportedBackendSelector = configuration.unsupportedBackendSelector {
+            Self.writeStartupDiagnostic(
+                "AgentStudio tracing ignored unsupported backend selector: "
+                    + unsupportedBackendSelector
+                    + "; using jsonl"
+            )
+        }
+
         if configuration.isEnabled {
             let outputFileURL = configuration.outputFileURL(processIdentifier: processIdentifier)
             self.outputFileURL = outputFileURL
@@ -89,33 +97,31 @@ struct AgentStudioTraceRuntime: Sendable {
     ) async {
         guard configuration.isEnabled(tag), let writer else { return }
 
-        await withSpan(body, context: context ?? .current ?? .topLevel) { span in
-            var mergedAttributes = attributes()
-            let spanContext = span.context
-            mergedAttributes["agentstudio.trace.tag"] = .string(tag.rawValue)
-            if let correlationID = context?.agentStudioCorrelationID ?? spanContext.agentStudioCorrelationID {
-                mergedAttributes["agentstudio.correlation_id"] = .string(correlationID)
-            }
+        var mergedAttributes = attributes()
+        mergedAttributes["agentstudio.trace.tag"] = .string(tag.rawValue)
+        if let correlationID = context?.agentStudioCorrelationID {
+            mergedAttributes["agentstudio.correlation_id"] = .string(correlationID)
+        }
 
-            let record = AgentStudioTraceRecord(
-                timeUnixNano: timeUnixNano(),
-                severityText: severity,
-                body: body,
-                traceID: traceID ?? spanContext.otelTraceID,
-                spanID: spanID,
-                parentSpanID: parentSpanID,
-                resource: resource,
-                scope: .init(name: "agentstudio.\(tag.rawValue)", version: scopeVersion),
-                attributes: mergedAttributes
-            )
-            do {
-                try await writer.append(record)
-                if configuration.flushMode == .immediate {
-                    try await writer.flush()
-                }
-            } catch {
-                debugLog("[trace] failed to record \(body): \(error)")
+        // Local JSONL is the export path here; real spans belong to a bootstrapped OTLP backend.
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: timeUnixNano(),
+            severityText: severity,
+            body: body,
+            traceID: traceID ?? context?.otelTraceID,
+            spanID: spanID,
+            parentSpanID: parentSpanID,
+            resource: resource,
+            scope: .init(name: "agentstudio.\(tag.rawValue)", version: scopeVersion),
+            attributes: mergedAttributes
+        )
+        do {
+            try await writer.append(record)
+            if configuration.flushMode == .immediate {
+                try await writer.flush()
             }
+        } catch {
+            debugLog("[trace] failed to record \(body): \(error)")
         }
     }
 

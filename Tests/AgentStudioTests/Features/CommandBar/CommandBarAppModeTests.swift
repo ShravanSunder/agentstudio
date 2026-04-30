@@ -24,8 +24,8 @@ struct CommandBarAppModeTests {
 }
 
 @MainActor
-@Suite("CommandContext")
-struct CommandContextTests {
+@Suite("WorkspacePaneFocus")
+struct WorkspacePaneFocusTests {
     @Test
     func visibilityIgnoresMissingRequirementsOnlyWhenDefinitionHasNoRequirements() {
         let alwaysVisible = CommandSpec(
@@ -41,7 +41,7 @@ struct CommandContextTests {
             helpText: "Close the active tab",
             visibleWhen: [.hasActiveTab]
         )
-        let focus = CommandContext(paneContentType: .noActivePane, satisfiedRequirements: [])
+        let focus = WorkspacePaneFocus(paneContentType: .noActivePane, satisfiedRequirements: [])
 
         #expect(alwaysVisible.isVisible(in: focus))
         #expect(!tabOnly.isVisible(in: focus))
@@ -56,11 +56,11 @@ struct CommandContextTests {
             helpText: "Switch to a pane inside the active drawer",
             visibleWhen: [.hasActivePane, .hasDrawerPanes]
         )
-        let missingDrawer = CommandContext(
+        let missingDrawer = WorkspacePaneFocus(
             paneContentType: .terminal,
             satisfiedRequirements: [.hasActivePane]
         )
-        let ready = CommandContext(
+        let ready = WorkspacePaneFocus(
             paneContentType: .terminal,
             satisfiedRequirements: [.hasActivePane, .hasDrawerPanes]
         )
@@ -70,8 +70,52 @@ struct CommandContextTests {
     }
 
     @Test
+    func detachDrawerPaneVisibility_requiresFocusedDrawerPane() {
+        let definition = CommandDispatcher.shared.definition(for: .detachDrawerPane)
+        let emptyDrawerFocus = WorkspacePaneFocus(
+            paneContentType: .terminal,
+            drawerFocusState: .emptyDrawer(parentPaneId: UUID()),
+            satisfiedRequirements: [.hasActiveTab, .hasActivePane, .hasDrawer, .hasEmptyDrawerFocus]
+        )
+        let drawerPaneFocus = WorkspacePaneFocus(
+            paneContentType: .terminal,
+            drawerFocusState: .drawerPane(parentPaneId: UUID(), paneId: UUID()),
+            satisfiedRequirements: [.hasActiveTab, .hasActivePane, .hasDrawer, .hasDrawerPanes, .hasFocusedDrawerPane]
+        )
+
+        #expect(!definition.isVisible(in: emptyDrawerFocus))
+        #expect(definition.isVisible(in: drawerPaneFocus))
+    }
+
+    @Test
+    func drawerFocusCommandsExposeDisplayShortcutsWhenDrawerPaneIsFocused() {
+        let enterDrawer = CommandDispatcher.shared.definition(for: .enterDrawer)
+        let focusUp = CommandDispatcher.shared.definition(for: .focusDrawerPaneUp)
+        let focusLeft = CommandDispatcher.shared.definition(for: .focusDrawerPaneLeft)
+        let focusDown = CommandDispatcher.shared.definition(for: .focusDrawerPaneDown)
+        let focusRight = CommandDispatcher.shared.definition(for: .focusDrawerPaneRight)
+        let drawerPaneFocus = WorkspacePaneFocus(
+            paneContentType: .terminal,
+            drawerFocusState: .drawerPane(parentPaneId: UUID(), paneId: UUID()),
+            satisfiedRequirements: [.hasActiveTab, .hasActivePane, .hasDrawer, .hasDrawerPanes, .hasFocusedDrawerPane]
+        )
+
+        #expect(enterDrawer.isVisible(in: drawerPaneFocus))
+        #expect(focusUp.isVisible(in: drawerPaneFocus))
+        #expect(focusLeft.isVisible(in: drawerPaneFocus))
+        #expect(focusDown.isVisible(in: drawerPaneFocus))
+        #expect(focusRight.isVisible(in: drawerPaneFocus))
+
+        #expect(enterDrawer.commandBarShortcutTrigger == nil)
+        #expect(focusUp.commandBarShortcutTrigger == .init(key: .character(.i), modifiers: [.option]))
+        #expect(focusLeft.commandBarShortcutTrigger == .init(key: .character(.j), modifiers: [.option]))
+        #expect(focusDown.commandBarShortcutTrigger == .init(key: .character(.k), modifiers: [.option]))
+        #expect(focusRight.commandBarShortcutTrigger == .init(key: .character(.l), modifiers: [.option]))
+    }
+
+    @Test
     func terminalContextMetadata() {
-        let focus = CommandContext(
+        let focus = WorkspacePaneFocus(
             paneContentType: .terminal,
             satisfiedRequirements: [.hasActivePane, .paneIsTerminal]
         )
@@ -82,7 +126,10 @@ struct CommandContextTests {
 
     @Test
     func webviewContextMetadata() {
-        let focus = CommandContext(paneContentType: .webview, satisfiedRequirements: [.hasActivePane, .paneIsWebview])
+        let focus = WorkspacePaneFocus(
+            paneContentType: .webview,
+            satisfiedRequirements: [.hasActivePane, .paneIsWebview]
+        )
 
         #expect(focus.label == "Webview")
         #expect(focus.icon == "globe")
@@ -90,7 +137,10 @@ struct CommandContextTests {
 
     @Test
     func bridgeContextMetadata() {
-        let focus = CommandContext(paneContentType: .bridge, satisfiedRequirements: [.hasActivePane, .paneIsBridge])
+        let focus = WorkspacePaneFocus(
+            paneContentType: .bridge,
+            satisfiedRequirements: [.hasActivePane, .paneIsBridge]
+        )
 
         #expect(focus.label == "Bridge")
         #expect(focus.icon == "rectangle.split.2x1")
@@ -98,7 +148,7 @@ struct CommandContextTests {
 
     @Test
     func codeViewerContextMetadata() {
-        let focus = CommandContext(
+        let focus = WorkspacePaneFocus(
             paneContentType: .codeViewer,
             satisfiedRequirements: [.hasActivePane, .paneIsCodeViewer]
         )
@@ -109,7 +159,7 @@ struct CommandContextTests {
 
     @Test
     func unsupportedContextMetadata() {
-        let focus = CommandContext(paneContentType: .unsupported, satisfiedRequirements: [.hasActivePane])
+        let focus = WorkspacePaneFocus(paneContentType: .unsupported, satisfiedRequirements: [.hasActivePane])
 
         #expect(focus.label == "Unsupported")
         #expect(focus.icon == "questionmark.square")
@@ -117,7 +167,7 @@ struct CommandContextTests {
 
     @Test
     func noActivePaneHidesContextMetadata() {
-        let focus = CommandContext(paneContentType: .noActivePane, satisfiedRequirements: [])
+        let focus = WorkspacePaneFocus(paneContentType: .noActivePane, satisfiedRequirements: [])
 
         #expect(focus.label == nil)
         #expect(focus.icon == nil)
@@ -125,7 +175,7 @@ struct CommandContextTests {
 
     @Test
     func contentRequirementNormalizationReplacesMismatchedPaneKindFlag() {
-        let focus = CommandContext(
+        let focus = WorkspacePaneFocus(
             paneContentType: .terminal,
             satisfiedRequirements: [.hasActivePane, .paneIsWebview]
         )
@@ -136,17 +186,22 @@ struct CommandContextTests {
 }
 
 @MainActor
-@Suite("CommandContextDerivedProjection")
-struct CommandContextDerivedProjectionTests {
+@Suite("WorkspacePaneFocusDerivedProjection")
+struct WorkspacePaneFocusDerivedProjectionTests {
+    private func workspaceTab(for store: WorkspaceStore) -> WorkspaceTabDerived {
+        WorkspaceTabDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
+    }
+
     @Test
     func emptyWorkspaceHasNoActiveContext() {
         let store = WorkspaceStore()
-        let focus = CommandContextDerived().currentFocus(
-            workspaceTab: WorkspaceTabDerived(
-                shellAtom: store.tabShellAtom,
-                arrangementAtom: store.tabArrangementAtom
-            ),
-            workspacePane: store.paneAtom
+        let focus = WorkspacePaneFocusDerived().currentFocus(
+            workspaceTab: workspaceTab(for: store),
+            workspacePane: store.paneAtom,
+            workspaceFocusOwner: WorkspaceFocusOwnerAtom()
         )
 
         #expect(focus.paneContentType == .noActivePane)
@@ -154,19 +209,17 @@ struct CommandContextDerivedProjectionTests {
     }
 
     @Test
-    func activeTerminalTabReportsCommandRequirements() {
+    func activeTerminalTabReportsFocusRequirements() {
         let store = WorkspaceStore()
         let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane A"))
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        let focus = CommandContextDerived().currentFocus(
-            workspaceTab: WorkspaceTabDerived(
-                shellAtom: store.tabShellAtom,
-                arrangementAtom: store.tabArrangementAtom
-            ),
-            workspacePane: store.paneAtom
+        let focus = WorkspacePaneFocusDerived().currentFocus(
+            workspaceTab: workspaceTab(for: store),
+            workspacePane: store.paneAtom,
+            workspaceFocusOwner: WorkspaceFocusOwnerAtom()
         )
 
         #expect(focus.paneContentType == .terminal)
@@ -197,12 +250,10 @@ struct CommandContextDerivedProjectionTests {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        let focus = CommandContextDerived().currentFocus(
-            workspaceTab: WorkspaceTabDerived(
-                shellAtom: store.tabShellAtom,
-                arrangementAtom: store.tabArrangementAtom
-            ),
-            workspacePane: store.paneAtom
+        let focus = WorkspacePaneFocusDerived().currentFocus(
+            workspaceTab: workspaceTab(for: store),
+            workspacePane: store.paneAtom,
+            workspaceFocusOwner: WorkspaceFocusOwnerAtom()
         )
 
         #expect(focus.paneContentType == .noActivePane)
@@ -229,12 +280,10 @@ struct CommandContextDerivedProjectionTests {
         store.appendTab(tab)
         store.setActiveTab(tab.id)
 
-        let focus = CommandContextDerived().currentFocus(
-            workspaceTab: WorkspaceTabDerived(
-                shellAtom: store.tabShellAtom,
-                arrangementAtom: store.tabArrangementAtom
-            ),
-            workspacePane: store.paneAtom
+        let focus = WorkspacePaneFocusDerived().currentFocus(
+            workspaceTab: workspaceTab(for: store),
+            workspacePane: store.paneAtom,
+            workspaceFocusOwner: WorkspaceFocusOwnerAtom()
         )
 
         #expect(focus.paneContentType == .noActivePane)
@@ -257,15 +306,14 @@ struct CommandContextDerivedProjectionTests {
         tab.arrangements.append(namedArrangement)
         store.appendTab(tab)
         store.setActiveTab(tab.id)
-        store.insertPane(paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
         _ = store.addDrawerPane(to: paneA.id)
 
-        let focus = CommandContextDerived().currentFocus(
-            workspaceTab: WorkspaceTabDerived(
-                shellAtom: store.tabShellAtom,
-                arrangementAtom: store.tabArrangementAtom
-            ),
-            workspacePane: store.paneAtom
+        let focus = WorkspacePaneFocusDerived().currentFocus(
+            workspaceTab: workspaceTab(for: store),
+            workspacePane: store.paneAtom,
+            workspaceFocusOwner: WorkspaceFocusOwnerAtom()
         )
 
         #expect(focus.satisfiedRequirements.contains(.hasMultiplePanes))
@@ -285,12 +333,10 @@ struct CommandContextDerivedProjectionTests {
         store.appendTab(secondTab)
         store.setActiveTab(firstTab.id)
 
-        let focus = CommandContextDerived().currentFocus(
-            workspaceTab: WorkspaceTabDerived(
-                shellAtom: store.tabShellAtom,
-                arrangementAtom: store.tabArrangementAtom
-            ),
-            workspacePane: store.paneAtom
+        let focus = WorkspacePaneFocusDerived().currentFocus(
+            workspaceTab: workspaceTab(for: store),
+            workspacePane: store.paneAtom,
+            workspaceFocusOwner: WorkspaceFocusOwnerAtom()
         )
 
         #expect(focus.satisfiedRequirements.contains(.hasMultipleTabs))

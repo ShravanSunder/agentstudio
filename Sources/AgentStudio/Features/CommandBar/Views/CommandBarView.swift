@@ -71,14 +71,15 @@ struct CommandBarView: View {
         atom(\.managementLayer).isActive ? .management : .normal
     }
 
-    private var currentContext: CommandContext {
+    private var currentContext: WorkspacePaneFocus {
         let workspaceTab = WorkspaceTabDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
-        return atom(\.commandContext).currentFocus(
+        return atom(\.workspacePaneFocus).currentFocus(
             workspaceTab: workspaceTab,
-            workspacePane: store.paneAtom
+            workspacePane: store.paneAtom,
+            workspaceFocusOwner: atom(\.workspaceFocusOwner)
         )
     }
 

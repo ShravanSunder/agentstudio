@@ -47,11 +47,11 @@ struct CommandSpecContractTests {
     @Test("commands scope mirrors visible CommandSpec metadata")
     func commandsScopeMirrorsVisibleCommandSpecMetadata() throws {
         let store = makeCommandRichStore()
-        let focus = CommandContext(
+        let focus = WorkspacePaneFocus(
             activeTabId: UUID(),
             activePaneId: UUID(),
             paneContentType: .terminal,
-            satisfiedRequirements: Set(CommandRequirement.allCases)
+            satisfiedRequirements: Set(FocusRequirement.allCases)
         )
 
         let items = CommandBarDataSource.items(
@@ -82,7 +82,7 @@ struct CommandSpecContractTests {
             #expect(item.icon == definition.icon)
             #expect(item.group == definition.commandBarGroupName)
             #expect(item.groupPriority == definition.commandBarGroupPriority)
-            #expect(item.shortcutTrigger == definition.shortcut?.trigger)
+            #expect(item.shortcutTrigger == definition.commandBarShortcutTrigger)
             #expect(item.command == definition.command)
         }
     }
@@ -113,7 +113,14 @@ struct CommandSpecContractTests {
         )
         store.appendTab(tab)
         store.setActiveTab(tab.id)
-        store.insertPane(secondaryPane.id, inTab: tab.id, at: primaryPane.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            secondaryPane.id,
+            inTab: tab.id,
+            at: primaryPane.id,
+            direction: .horizontal,
+            position: .after,
+            sizingMode: .halveTarget
+        )
         _ = store.addDrawerPane(to: primaryPane.id)
 
         return store

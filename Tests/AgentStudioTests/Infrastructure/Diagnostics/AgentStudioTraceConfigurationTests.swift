@@ -67,6 +67,24 @@ struct AgentStudioTraceConfigurationTests {
     }
 
     @Test
+    func jsonlBackendIsDefaultAndOnlyActiveBackend() {
+        let defaultConfiguration = AgentStudioTraceConfiguration.from(environment: [:])
+        let explicitConfiguration = AgentStudioTraceConfiguration.from(environment: [
+            "AGENTSTUDIO_TRACE_BACKEND": "jsonl"
+        ])
+        let reservedConfiguration = AgentStudioTraceConfiguration.from(environment: [
+            "AGENTSTUDIO_TRACE_BACKEND": "otlp"
+        ])
+
+        #expect(defaultConfiguration.backend == .jsonl)
+        #expect(defaultConfiguration.unsupportedBackendSelector == nil)
+        #expect(explicitConfiguration.backend == .jsonl)
+        #expect(explicitConfiguration.unsupportedBackendSelector == nil)
+        #expect(reservedConfiguration.backend == .jsonl)
+        #expect(reservedConfiguration.unsupportedBackendSelector == "otlp")
+    }
+
+    @Test
     func unknownTagSelectorsAreReportedWithoutEnablingTracing() {
         let configuration = AgentStudioTraceConfiguration.from(environment: [
             "AGENTSTUDIO_TRACE_TAGS": "runtmie"
