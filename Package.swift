@@ -64,6 +64,7 @@ let package = Package(
                 "AgentStudio",
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
                 .product(name: "InMemoryTracing", package: "swift-distributed-tracing"),
+                .product(name: "Instrumentation", package: "swift-distributed-tracing"),
                 .product(name: "Tracing", package: "swift-distributed-tracing"),
             ],
             path: "Tests/AgentStudioTests",

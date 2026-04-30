@@ -170,49 +170,20 @@ struct RepoExplorerView: View {
     }
 
     private var filterBar: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: AppStyles.General.Typography.textXs))
-                .foregroundStyle(.tertiary)
-
-            TextField("Filter...", text: $filterText)
-                .textFieldStyle(.plain)
-                .font(.system(size: AppStyles.General.Typography.textSm))
-                .foregroundStyle(.primary)
-                .focused($focusedField, equals: .filter)
-                .onExitCommand {
-                    hideFilter()
-                }
-                .onKeyPress(.downArrow) {
-                    focusedField = nil
-                    return .handled
-                }
-
-            if !filterText.isEmpty {
-                Button {
-                    filterText = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: AppStyles.General.Typography.textSm))
-                        .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help(LocalActionSpec.clearFilter.actionSpec.helpText)
-                .transition(.opacity.animation(.easeOut(duration: 0.1)))
+        SidebarSearchField(
+            placeholder: "Filter...",
+            text: $filterText,
+            focusedField: $focusedField,
+            focusValue: .filter,
+            clearHelp: LocalActionSpec.clearFilter.actionSpec.helpText,
+            onExit: hideFilter,
+            onDownArrow: {
+                focusedField = nil
+                return .handled
             }
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.primary.opacity(0.06))
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(Color.primary.opacity(0.1), lineWidth: 1)
-        )
-        .padding(.horizontal, 8)
-        .padding(.vertical, 6)
+        .padding(.horizontal, AppStyles.Shell.Sidebar.SearchField.outerHorizontalPadding)
+        .padding(.vertical, AppStyles.Shell.Sidebar.SearchField.outerVerticalPadding)
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 

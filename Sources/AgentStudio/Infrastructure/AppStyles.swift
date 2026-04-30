@@ -112,15 +112,17 @@ enum AppStyles {
 
             enum SearchField {
                 static let contentSpacing: CGFloat = AppStyles.General.Spacing.standard
-                static let iconSize: CGFloat = AppStyles.General.Icon.compact
+                static let iconSize: CGFloat = AppStyles.General.Typography.textXs
                 static let textSize: CGFloat = AppStyles.General.Typography.textSm
-                static let horizontalPadding: CGFloat = 8
+                static let horizontalPadding: CGFloat = 10
                 static let verticalPadding: CGFloat = 6
-                static let cornerRadius: CGFloat = AppStyles.General.CornerRadius.bar
+                static let outerHorizontalPadding: CGFloat = 8
+                static let outerVerticalPadding: CGFloat = 6
+                static let cornerRadius: CGFloat = AppStyles.General.CornerRadius.panel
                 static let backgroundOpacity: CGFloat = AppStyles.General.Fill.muted
                 static let borderOpacity: CGFloat = AppStyles.General.Stroke.subtle
                 static let borderWidth: CGFloat = 1
-                static let clearTransitionDuration: Double = AppStyles.General.Animation.fast
+                static let clearTransitionDuration: Double = 0.10
             }
 
             static let groupChildRowLeadingInset: CGFloat =

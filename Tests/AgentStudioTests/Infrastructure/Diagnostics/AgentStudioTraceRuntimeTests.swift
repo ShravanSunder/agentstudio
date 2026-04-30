@@ -1,4 +1,6 @@
 import Foundation
+@_spi(Testing) import InMemoryTracing
+import Instrumentation
 import Testing
 import Tracing
 
@@ -228,5 +230,35 @@ struct AgentStudioTraceRuntimeTests {
             didEvaluate = true
             return true
         }
+    }
+}
+
+@Suite(.serialized)
+struct AgentStudioTraceRuntimeInstrumentationTests {
+    @Test
+    func jsonlOnlyBackendDoesNotCreateTracingSpans() async throws {
+        let tracer = InMemoryTracer()
+        InstrumentationSystem.bootstrap(tracer)
+
+        let runtime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_TAGS": "runtime",
+            ]),
+            processIdentifier: 852,
+            timeUnixNano: { 404 }
+        )
+
+        await runtime.record(tag: .runtime, body: "runtime.local-jsonl")
+        await runtime.record(tag: .runtime, body: "runtime.local-jsonl-again")
+        try await runtime.flush()
+
+        #expect(tracer.finishedSpans.isEmpty)
+    }
+
+    private func temporaryTraceDirectoryURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-trace-runtime-instrumentation-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
     }
 }

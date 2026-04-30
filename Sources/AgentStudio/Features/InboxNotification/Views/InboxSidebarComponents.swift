@@ -103,15 +103,21 @@ struct InboxSidebarHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                TextField("Search inbox...", text: $searchText)
-                    .textFieldStyle(.roundedBorder)
-                    .focused(focusedField, equals: .search)
-                    .onSubmit {
+                SidebarSearchField(
+                    placeholder: "Search inbox...",
+                    text: $searchText,
+                    focusedField: focusedField,
+                    focusValue: .search,
+                    clearHelp: "Clear inbox search",
+                    onSubmit: {
                         focusedField.wrappedValue = .list
+                    },
+                    onExit: actions.onEscape,
+                    onDownArrow: {
+                        focusedField.wrappedValue = .list
+                        return .handled
                     }
-                    .onExitCommand {
-                        actions.onEscape()
-                    }
+                )
 
                 Button(action: actions.onToggleSort) {
                     Image(systemName: sort == .newestFirst ? "arrow.down.to.line" : "arrow.up.to.line")

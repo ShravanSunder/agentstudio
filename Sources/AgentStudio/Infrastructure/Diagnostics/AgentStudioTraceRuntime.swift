@@ -108,6 +108,8 @@ struct AgentStudioTraceRuntime: Sendable {
             timeUnixNano: timeUnixNano(),
             severityText: severity,
             body: body,
+            // Dormant under jsonl-only backend; populated automatically when
+            // AGENTSTUDIO_TRACE_BACKEND=otlp wires a real tracer.
             traceID: traceID ?? context?.otelTraceID,
             spanID: spanID,
             parentSpanID: parentSpanID,
