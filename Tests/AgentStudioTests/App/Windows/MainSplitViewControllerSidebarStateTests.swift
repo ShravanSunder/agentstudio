@@ -83,6 +83,24 @@ struct MainSplitViewControllerSidebarStateTests {
         )
     }
 
+    @Test("initial split resize before restore does not overwrite persisted sidebar width")
+    func initialResizeBeforeRestoreDoesNotOverwritePersistedSidebarWidth() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            configureWorkspaceMetadata: { $0.setSidebarWidth(320) },
+            body: { harness in
+                harness.controller.splitViewDidResizeSubviews(Notification(name: .init("test")))
+                #expect(harness.store.metadataAtom.sidebarWidth == 320)
+
+                layOutMainSplitViewController(harness)
+                await eventually("sidebar should still restore persisted workspace width") {
+                    let sidebarWidth = harness.controller.splitViewItems.first?.viewController.view.frame.width ?? 0
+                    return abs(sidebarWidth - 320) <= 5
+                }
+            }
+        )
+    }
+
     @Test("resize persistence writes sidebar width into workspace metadata")
     func resizePersistsSidebarWidthIntoWorkspaceMetadata() async {
         await withMainSplitViewControllerHarness(

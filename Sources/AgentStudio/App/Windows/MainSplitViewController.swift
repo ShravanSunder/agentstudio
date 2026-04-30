@@ -181,13 +181,7 @@ class MainSplitViewController: NSSplitViewController {
             uiState.setSidebarCollapsed(isCollapsed)
         }
 
-        guard !isCollapsed, let sidebarWidth = currentSidebarWidth() else { return }
-        if let sidebarItem = splitViewItems.first, !didApplySidebarWidthAfterLayout,
-            abs(sidebarWidth - sidebarItem.minimumThickness) <= 1,
-            abs(store.metadataAtom.sidebarWidth - sidebarItem.minimumThickness) > 1
-        {
-            return
-        }
+        guard !isCollapsed, didApplySidebarWidthAfterLayout, let sidebarWidth = currentSidebarWidth() else { return }
         store.metadataAtom.setSidebarWidth(sidebarWidth)
     }
 

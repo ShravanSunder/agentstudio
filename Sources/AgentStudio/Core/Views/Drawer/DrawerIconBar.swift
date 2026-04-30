@@ -189,10 +189,6 @@ struct DrawerIconBar: View {
                                 }
                                 .hoverTooltipAnchor(DrawerTooltipTarget.chooser, in: Self.tooltipCoordinateSpaceName)
 
-                                Divider()
-                                    .frame(height: AppStyles.Components.EditorChooser.dividerHeight)
-                                    .padding(.horizontal, AppStyles.Components.EditorChooser.dividerHorizontalPadding)
-
                                 trailingActionButton(
                                     icon: trailingActionIcon(for: finderPresentation.icon),
                                     helpText: finderToolTip,
@@ -208,6 +204,8 @@ struct DrawerIconBar: View {
                                 .hoverTooltipAnchor(DrawerTooltipTarget.finder, in: Self.tooltipCoordinateSpaceName)
 
                                 if let onOpenInbox = trailingActions.onOpenInbox {
+                                    trailingActionDivider
+
                                     trailingActionButton(
                                         icon: .system(name: "bell.fill"),
                                         helpText: inboxToolTip,
@@ -263,6 +261,12 @@ struct DrawerIconBar: View {
             )
             .frame(height: DrawerLayout.iconButtonSize + (DrawerLayout.iconBarVerticalPadding * 2))
         }
+    }
+
+    private var trailingActionDivider: some View {
+        Divider()
+            .frame(height: AppStyles.Components.EditorChooser.dividerHeight)
+            .padding(.horizontal, AppStyles.Components.EditorChooser.dividerHorizontalPadding)
     }
 
     private var activeTooltipTarget: DrawerTooltipTarget? {
