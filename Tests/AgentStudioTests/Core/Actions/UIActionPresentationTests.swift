@@ -85,6 +85,15 @@ struct UIActionPresentationTests {
     }
 
     @Test
+    func drawerInboxToolTip_usesOverrideWithShortcut() {
+        let toolTip = AppCommand.showDrawerInboxNotifications.definition.controlToolTip(
+            textOverride: "Open notification inbox"
+        )
+
+        #expect(toolTip == "Open notification inbox (⌘⇧I)")
+    }
+
+    @Test
     func actionSpec_preservesTypedCommandIcons() {
         #expect(AppCommand.watchFolder.definition.icon == .system(.folderFillBadgePlus))
         #expect(AppCommand.watchFolder.definition.actionSpec.icon == .system(.folderFillBadgePlus))

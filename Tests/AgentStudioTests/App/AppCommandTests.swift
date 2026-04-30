@@ -241,9 +241,9 @@ final class AppCommandTests {
     }
 
     @Test
-    func test_toggleSidebar_isHiddenInCommandBar() {
+    func test_toggleSidebar_isVisibleInCommandBar() {
         let definition = CommandDispatcher.shared.definition(for: .toggleSidebar)
-        #expect(definition.isHiddenInCommandBar)
+        #expect(!definition.isHiddenInCommandBar)
     }
 
     @Test

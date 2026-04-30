@@ -70,7 +70,9 @@ struct DrawerIconBar: View {
     }
 
     private var inboxToolTip: String {
-        "Open notification inbox"
+        AppCommand.showDrawerInboxNotifications.definition.controlToolTip(
+            textOverride: "Open notification inbox"
+        )
     }
 
     var body: some View {
