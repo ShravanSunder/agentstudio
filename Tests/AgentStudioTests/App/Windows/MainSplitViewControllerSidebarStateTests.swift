@@ -68,6 +68,38 @@ struct MainSplitViewControllerSidebarStateTests {
         )
     }
 
+    @Test("viewDidLoad restores sidebar width from workspace metadata")
+    func viewDidLoadRestoresSidebarWidthFromWorkspaceMetadata() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            configureWorkspaceMetadata: { $0.setSidebarWidth(320) },
+            body: { harness in
+                layOutMainSplitViewController(harness)
+                await eventually("sidebar should restore persisted workspace width") {
+                    let sidebarWidth = harness.controller.splitViewItems.first?.viewController.view.frame.width ?? 0
+                    return abs(sidebarWidth - 320) <= 5
+                }
+            }
+        )
+    }
+
+    @Test("resize persistence writes sidebar width into workspace metadata")
+    func resizePersistsSidebarWidthIntoWorkspaceMetadata() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            body: { harness in
+                layOutMainSplitViewController(harness)
+                harness.controller.splitView.setPosition(330, ofDividerAt: 0)
+                harness.controller.splitView.layoutSubtreeIfNeeded()
+                harness.controller.splitViewDidResizeSubviews(Notification(name: .init("test")))
+
+                let sidebarWidth = harness.controller.splitViewItems.first?.viewController.view.frame.width ?? 0
+                #expect(sidebarWidth > 300)
+                #expect(abs(harness.store.metadataAtom.sidebarWidth - sidebarWidth) <= 1)
+            }
+        )
+    }
+
     @Test("showWorktreeSidebar expands a restored collapsed inbox surface back to repos")
     func showWorktreeSidebarExpandsCollapsedInboxSurface() async {
         await withMainSplitViewControllerHarness(
@@ -105,5 +137,13 @@ struct MainSplitViewControllerSidebarStateTests {
                 #expect(harness.atoms.uiState.sidebarHasFocus == false)
             }
         )
+    }
+
+    private func layOutMainSplitViewController(_ harness: MainSplitViewControllerHarness) {
+        harness.window.setContentSize(NSSize(width: 1000, height: 700))
+        harness.controller.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
+        harness.controller.splitView.frame = harness.controller.view.bounds
+        harness.controller.view.layoutSubtreeIfNeeded()
+        harness.controller.viewDidLayout()
     }
 }

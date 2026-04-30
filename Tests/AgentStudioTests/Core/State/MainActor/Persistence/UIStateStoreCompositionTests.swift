@@ -32,4 +32,36 @@ struct UIStateStoreCompositionTests {
 
         try? FileManager.default.removeItem(at: tempDir)
     }
+
+    @Test("sidebar composition changes autosave after restore")
+    func sidebarCompositionAutosavesAfterRestore() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "ui-state-store-composition-autosave-\(UUID().uuidString)")
+        let persistor = WorkspacePersistor(workspacesDir: tempDir)
+        persistor.ensureDirectory()
+
+        let workspaceId = UUID()
+        let atom = UIStateAtom()
+        let store = UIStateStore(
+            atom: atom,
+            editorChooserAtom: EditorChooserAtom(),
+            persistor: persistor,
+            persistDebounceDuration: .zero
+        )
+        store.restore(for: workspaceId)
+
+        atom.setSidebarCollapsed(true)
+        atom.setSidebarSurface(.inbox)
+
+        await assertEventuallyMain("sidebar composition should autosave") {
+            switch persistor.loadUI(for: workspaceId) {
+            case .loaded(let state):
+                return state.sidebarCollapsed == true && state.sidebarSurface == .inbox
+            case .missing, .corrupt:
+                return false
+            }
+        }
+
+        try? FileManager.default.removeItem(at: tempDir)
+    }
 }

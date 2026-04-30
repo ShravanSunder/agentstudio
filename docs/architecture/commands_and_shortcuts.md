@@ -138,6 +138,13 @@ If a value SOMETIMES gates behavior and SOMETIMES is purely visual
 (rare), prefer `AppPolicies` and have the visual layer read from it.
 Behavior is harder to migrate later than presentation.
 
+Use `AppStyles` only when changing the value cannot alter routing,
+validation, retention, state transitions, event emission, or which
+commands are accepted. Shared UI controls, such as sidebar search
+fields, should read visual constants from `AppStyles` and receive all
+feature behavior through values and closures. If changing the value can
+alter behavior, it belongs in `AppPolicies`.
+
 ## Adding a raw-character contextual shortcut
 
 A common pattern: a single keystroke (no modifiers) that fires only in

@@ -10,11 +10,20 @@ private let terminalActivityRouterLogger = Logger(
 /// Leaf runtime-bus subscriber that projects high-churn terminal facts into
 /// `TerminalActivityAtom`; inbox-worthy promotion stays in the notification router.
 final class TerminalActivityRouter {
+    private struct TraceRequest: Sendable {
+        let body: String
+        let traceID: String?
+        let parentSpanID: String?
+        let attributes: [String: AgentStudioTraceValue]
+    }
+
     private let bus: EventBus<RuntimeEnvelope>
     private let activityAtom: TerminalActivityAtom
     private let traceRuntime: AgentStudioTraceRuntime?
 
     private var busTask: Task<Void, Never>?
+    private var traceContinuation: AsyncStream<TraceRequest>.Continuation?
+    private var traceWorkerTask: Task<Void, Never>?
 
     init(
         bus: EventBus<RuntimeEnvelope>,
@@ -43,9 +52,12 @@ final class TerminalActivityRouter {
         }
     }
 
-    func stop() {
-        busTask?.cancel()
+    func stop() async {
+        let task = busTask
+        task?.cancel()
         busTask = nil
+        await task?.value
+        await drainTraceRecords()
     }
 
     private func consume(_ envelope: RuntimeEnvelope) {
@@ -56,16 +68,47 @@ final class TerminalActivityRouter {
 
     private func traceTerminalActivity(_ envelope: PaneEnvelope) {
         guard case .terminal(let event) = envelope.event else { return }
+        guard traceRuntime != nil else { return }
+        ensureTraceWorkerStarted()
         let attributes = terminalTraceAttributes(for: envelope, event: event)
-        // Trace writes are best-effort; use envelope.seq to reconstruct source order.
-        Task {
-            await traceRuntime?.record(
-                tag: .runtime,
+        traceContinuation?.yield(
+            .init(
                 body: "terminal.activity.observed",
                 traceID: envelope.correlationId?.uuidString,
                 parentSpanID: envelope.causationId?.uuidString,
                 attributes: attributes
             )
+        )
+    }
+
+    private func ensureTraceWorkerStarted() {
+        guard traceWorkerTask == nil, let traceRuntime else { return }
+        let (stream, continuation) = AsyncStream.makeStream(of: TraceRequest.self)
+        traceContinuation = continuation
+        traceWorkerTask = Task(priority: .utility) {
+            for await request in stream {
+                await traceRuntime.record(
+                    tag: .runtime,
+                    body: request.body,
+                    traceID: request.traceID,
+                    parentSpanID: request.parentSpanID,
+                    attributes: request.attributes
+                )
+            }
+        }
+    }
+
+    private func drainTraceRecords() async {
+        traceContinuation?.finish()
+        traceContinuation = nil
+        let workerTask = traceWorkerTask
+        traceWorkerTask = nil
+        await workerTask?.value
+        do {
+            try await traceRuntime?.flush()
+        } catch {
+            terminalActivityRouterLogger.warning(
+                "Terminal activity trace flush failed: \(error.localizedDescription)")
         }
     }
 

@@ -3,6 +3,7 @@ import SwiftUI
 import os.log
 
 let appLogger = Logger(subsystem: "com.agentstudio", category: "AppDelegate")
+
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var mainWindowController: MainWindowController?
@@ -41,6 +42,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: - OAuth
     private var oauthService: OAuthService!
     private var filesystemPipelineBootTask: Task<Void, Never>?
+    private var terminationDrainTask: Task<Void, Never>?
     var launchRestoreObservationTask: Task<Void, Never>?
     var windowRestoreBridge: WindowRestoreBridge?
     let launchRestoreObservationState = AppDelegateLaunchRestoreObservationState()
@@ -563,38 +565,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let store else { return .terminateNow }
 
-        do {
-            try repoCacheStore.flush(for: store.metadataAtom.workspaceId)
-        } catch {
-            appLogger.warning("Workspace cache flush failed at termination: \(error.localizedDescription)")
+        guard terminationDrainTask == nil else { return .terminateLater }
+        terminationDrainTask = Task { @MainActor [weak self] in
+            await self?.flushApplicationStateBeforeTermination(store: store)
+            sender.reply(toApplicationShouldTerminate: true)
         }
-
-        do {
-            try sidebarCacheStore.flush(for: store.metadataAtom.workspaceId)
-        } catch {
-            appLogger.warning("Sidebar cache flush failed at termination: \(error.localizedDescription)")
-        }
-
-        do {
-            try uiStateStore.flush(for: store.metadataAtom.workspaceId)
-        } catch {
-            appLogger.warning("Workspace UI flush failed at termination: \(error.localizedDescription)")
-        }
-
-        inboxNotificationRouter?.stop()
-        inboxPaneFocusTracker?.stop()
-        do {
-            try inboxNotificationStore?.flush()
-        } catch {
-            appLogger.warning("Inbox notification flush failed at termination: \(error.localizedDescription)")
-        }
-
-        // Always flush on quit — the pre-persist hook syncs runtime webview state
-        // back to the pane model, so this must run even when isDirty == false.
-        if !store.flush() {
-            appLogger.warning("Workspace flush failed at termination")
-        }
-        return .terminateNow
+        return .terminateLater
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {

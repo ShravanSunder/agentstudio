@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import os.log
 
 private let sidebarCacheStoreLogger = Logger(subsystem: "com.agentstudio", category: "SidebarCacheStore")
@@ -7,26 +8,40 @@ private let sidebarCacheStoreLogger = Logger(subsystem: "com.agentstudio", categ
 final class SidebarCacheStore {
     private let atom: SidebarCacheAtom
     private let persistor: WorkspacePersistor
+    private let persistDebounceDuration: Duration
+    private let clock: any Clock<Duration>
     private let recoveryReporter: PersistenceRecoveryReporter?
+    private var debouncedSaveTask: Task<Void, Never>?
+    private var isObservingCacheState = false
+    private var isRestoringState = false
+    private var activeWorkspaceId: UUID?
 
     init(
         atom: SidebarCacheAtom,
         persistor: WorkspacePersistor = WorkspacePersistor(),
+        persistDebounceDuration: Duration = .milliseconds(500),
+        clock: any Clock<Duration> = ContinuousClock(),
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.atom = atom
         self.persistor = persistor
+        self.persistDebounceDuration = persistDebounceDuration
+        self.clock = clock
         self.recoveryReporter = recoveryReporter
+        observeCacheState()
     }
 
     func restore(for workspaceId: UUID) {
+        activeWorkspaceId = workspaceId
         switch persistor.loadSidebarCache(for: workspaceId) {
         case .loaded(let state):
+            isRestoringState = true
             atom.hydrate(
                 expandedGroups: state.expandedGroups,
                 checkoutColors: state.checkoutColors,
                 collapsedInboxGroups: state.collapsedInboxGroups
             )
+            isRestoringState = false
         case .missing:
             break
         case .corrupt(let error):
@@ -44,6 +59,48 @@ final class SidebarCacheStore {
     }
 
     func flush(for workspaceId: UUID) throws {
+        activeWorkspaceId = workspaceId
+        debouncedSaveTask?.cancel()
+        debouncedSaveTask = nil
+        try persistNow(for: workspaceId)
+    }
+
+    private func observeCacheState() {
+        guard !isObservingCacheState else { return }
+        isObservingCacheState = true
+        withObservationTracking {
+            _ = atom.expandedGroups
+            _ = atom.checkoutColors
+            _ = atom.collapsedInboxGroups
+        } onChange: { [weak self] in
+            MainActor.assumeIsolated {
+                // SidebarCacheAtom is @MainActor; this traps if that ownership changes.
+                guard let self else { return }
+                let shouldIgnore = self.isRestoringState
+                self.isObservingCacheState = false
+                self.observeCacheState()
+                guard !shouldIgnore else { return }
+                self.schedulePersist()
+            }
+        }
+    }
+
+    private func schedulePersist() {
+        guard let workspaceId = activeWorkspaceId else { return }
+        debouncedSaveTask?.cancel()
+        debouncedSaveTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            try? await self.clock.sleep(for: self.persistDebounceDuration)
+            guard !Task.isCancelled else { return }
+            do {
+                try self.persistNow(for: workspaceId)
+            } catch {
+                sidebarCacheStoreLogger.warning("Sidebar cache autosave failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func persistNow(for workspaceId: UUID) throws {
         guard persistor.ensureDirectory() else {
             throw CocoaError(.fileWriteUnknown)
         }

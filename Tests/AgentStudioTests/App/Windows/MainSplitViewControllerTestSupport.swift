@@ -22,6 +22,7 @@ typealias MainSplitViewControllerTestSidebarBuilder =
 private func makeMainSplitViewControllerHarness(
     withRepos: Bool,
     configureUIState: @MainActor (UIStateAtom) -> Void,
+    configureWorkspaceMetadata: @MainActor (WorkspaceMetadataAtom) -> Void,
     sidebarRootViewBuilder: @escaping MainSplitViewControllerTestSidebarBuilder
 ) -> MainSplitViewControllerHarness {
     let tempDir = FileManager.default.temporaryDirectory
@@ -39,6 +40,7 @@ private func makeMainSplitViewControllerHarness(
         persistor: persistor
     )
     store.restore()
+    configureWorkspaceMetadata(atoms.workspaceMetadata)
 
     if withRepos {
         _ = store.addRepo(at: tempDir.appending(path: "repo"))
@@ -96,6 +98,7 @@ private func makeMainSplitViewControllerHarness(
 func withMainSplitViewControllerHarness<T>(
     withRepos: Bool = true,
     configureUIState: @MainActor (UIStateAtom) -> Void = { _ in },
+    configureWorkspaceMetadata: @MainActor (WorkspaceMetadataAtom) -> Void = { _ in },
     sidebarRootViewBuilder: @escaping MainSplitViewControllerTestSidebarBuilder = { uiState, onEscape in
         AnyView(MainSplitViewControllerTestSidebarView(uiState: uiState, onEscape: onEscape))
     },
@@ -104,6 +107,7 @@ func withMainSplitViewControllerHarness<T>(
     let harness = makeMainSplitViewControllerHarness(
         withRepos: withRepos,
         configureUIState: configureUIState,
+        configureWorkspaceMetadata: configureWorkspaceMetadata,
         sidebarRootViewBuilder: sidebarRootViewBuilder
     )
 
@@ -127,6 +131,7 @@ func withMainSplitViewControllerHarness<T>(
 func withUnloadedMainSplitViewControllerHarness<T>(
     withRepos: Bool = true,
     configureUIState: @MainActor (UIStateAtom) -> Void = { _ in },
+    configureWorkspaceMetadata: @MainActor (WorkspaceMetadataAtom) -> Void = { _ in },
     sidebarRootViewBuilder: @escaping MainSplitViewControllerTestSidebarBuilder = { uiState, onEscape in
         AnyView(MainSplitViewControllerTestSidebarView(uiState: uiState, onEscape: onEscape))
     },
@@ -135,6 +140,7 @@ func withUnloadedMainSplitViewControllerHarness<T>(
     let harness = makeMainSplitViewControllerHarness(
         withRepos: withRepos,
         configureUIState: configureUIState,
+        configureWorkspaceMetadata: configureWorkspaceMetadata,
         sidebarRootViewBuilder: sidebarRootViewBuilder
     )
 

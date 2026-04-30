@@ -200,10 +200,15 @@ Core views (e.g., `DrawerOverlay`, `DrawerIconBar`) that need to display feature
 
 **Imported by anyone.** Any layer (`Core/`, `Features/`, `App/`) can import from `SharedComponents/` freely.
 
+**Extract on second use.** When two surfaces need the same visual control or row primitive, extract the shared rendering into `SharedComponents/` and pass feature-specific data/actions as values and closures. Do not keep parallel hand-rolled controls that drift in spacing, typography, or focus treatment.
+
+**Style and policy source.** Shared components may consume `AppStyles` presentation tokens through `Infrastructure/`, but they should not own policy decisions. Behavioral limits, routing decisions, caps, and validation thresholds belong in `AppPolicies` and are applied by the feature/composition owner before values reach the component.
+
 #### What belongs here
 
 - Reusable buttons with consistent styling
 - Pills, chips, badges
+- Search fields and shell controls reused by sidebar surfaces, such as `SidebarSearchField`
 - Typography / color tokens
 - Layout primitives with design intent (e.g., `DividerBar`, `SectionStack`)
 - Icon wrappers (`OcticonImage` could reasonably live here; today it's in `Infrastructure/Icons/` — existing placement is grandfathered until a dedicated refactor)

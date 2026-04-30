@@ -38,8 +38,10 @@ class MainSplitViewController: NSSplitViewController {
     private var sidebarHostingController: NSHostingController<AnyView>?
     private var paneTabViewController: PaneTabViewController?
     private var sidebarFocusTask: Task<Void, Never>?
+    private var sidebarWidthRestoreTask: Task<Void, Never>?
     private var shouldExpandSidebarOnLoad = false
     private var shouldFocusSidebarWhenVisible = false
+    private var didApplySidebarWidthAfterLayout = false
 
     // MARK: - Dependencies (injected)
 
@@ -112,7 +114,6 @@ class MainSplitViewController: NSSplitViewController {
         // Configure split view
         splitView.isVertical = true
         splitView.dividerStyle = .thin
-        splitView.autosaveName = "MainSplitView"  // Persists divider position
 
         // Create sidebar (SwiftUI via NSHostingController)
         let sidebarView = sidebarRootViewBuilder(
@@ -157,19 +158,86 @@ class MainSplitViewController: NSSplitViewController {
         } else if uiState.sidebarCollapsed {
             sidebarItem.isCollapsed = true
         }
+
+        scheduleSidebarWidthRestore()
     }
 
     override func viewDidAppear() {
         super.viewDidAppear()
+        applySidebarWidthAfterLayoutIfNeeded()
         guard shouldFocusSidebarWhenVisible else { return }
         shouldFocusSidebarWhenVisible = false
         scheduleSidebarFocus()
     }
 
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        applySidebarWidthAfterLayoutIfNeeded()
+    }
+
     private func saveSidebarState() {
         let isCollapsed = splitViewItems.first?.isCollapsed ?? false
-        guard uiState.sidebarCollapsed != isCollapsed else { return }
-        uiState.setSidebarCollapsed(isCollapsed)
+        if uiState.sidebarCollapsed != isCollapsed {
+            uiState.setSidebarCollapsed(isCollapsed)
+        }
+
+        guard !isCollapsed, let sidebarWidth = currentSidebarWidth() else { return }
+        if let sidebarItem = splitViewItems.first, !didApplySidebarWidthAfterLayout,
+            abs(sidebarWidth - sidebarItem.minimumThickness) <= 1,
+            abs(store.metadataAtom.sidebarWidth - sidebarItem.minimumThickness) > 1
+        {
+            return
+        }
+        store.metadataAtom.setSidebarWidth(sidebarWidth)
+    }
+
+    private func applySidebarWidthAfterLayoutIfNeeded() {
+        guard !didApplySidebarWidthAfterLayout else { return }
+        guard splitViewItems.count >= 2 else { return }
+        guard let sidebarItem = splitViewItems.first, !sidebarItem.isCollapsed else { return }
+        guard splitView.bounds.width > 0 else { return }
+        let sidebarWidth = clampedSidebarWidth(for: sidebarItem)
+        let trailingMinimumThickness = splitViewItems.dropFirst().reduce(CGFloat(0)) { result, item in
+            result + item.minimumThickness
+        }
+        guard splitView.bounds.width >= sidebarWidth + trailingMinimumThickness else { return }
+        splitView.layoutSubtreeIfNeeded()
+        splitView.setPosition(sidebarWidth, ofDividerAt: 0)
+        splitView.adjustSubviews()
+        splitView.layoutSubtreeIfNeeded()
+        if let currentWidth = currentSidebarWidth(), abs(currentWidth - sidebarWidth) > 1 {
+            splitView.setPosition(sidebarWidth + (sidebarWidth - currentWidth), ofDividerAt: 0)
+            splitView.adjustSubviews()
+            splitView.layoutSubtreeIfNeeded()
+        }
+        guard let currentWidth = currentSidebarWidth(), abs(currentWidth - sidebarWidth) <= 1 else { return }
+        didApplySidebarWidthAfterLayout = true
+    }
+
+    private func scheduleSidebarWidthRestore() {
+        sidebarWidthRestoreTask?.cancel()
+        sidebarWidthRestoreTask = Task { @MainActor [weak self] in
+            for _ in 0..<5 {
+                guard let self, !Task.isCancelled, !self.didApplySidebarWidthAfterLayout else { return }
+                await Task.yield()
+                self.applySidebarWidthAfterLayoutIfNeeded()
+            }
+        }
+    }
+
+    private func clampedSidebarWidth(for sidebarItem: NSSplitViewItem) -> CGFloat {
+        let sidebarWidth = min(
+            max(store.metadataAtom.sidebarWidth, sidebarItem.minimumThickness),
+            sidebarItem.maximumThickness
+        )
+        return sidebarWidth
+    }
+
+    private func currentSidebarWidth() -> CGFloat? {
+        guard let sidebarView = splitViewItems.first?.viewController.view else { return nil }
+        let width = sidebarView.frame.width
+        guard width > 0 else { return nil }
+        return width
     }
 
     private func makeDrawerInboxPresentation() -> DrawerInboxPresentation {
@@ -235,7 +303,12 @@ class MainSplitViewController: NSSplitViewController {
             return
         }
         guard let sidebarItem = splitViewItems.first, sidebarItem.isCollapsed else { return }
+        didApplySidebarWidthAfterLayout = false
         sidebarItem.animator().isCollapsed = false
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            self?.applySidebarWidthAfterLayoutIfNeeded()
+        }
         scheduleSaveSidebarState()
     }
 
@@ -353,6 +426,7 @@ class MainSplitViewController: NSSplitViewController {
 
     func shutdown() {
         sidebarFocusTask?.cancel()
+        sidebarWidthRestoreTask?.cancel()
         shouldFocusSidebarWhenVisible = false
         paneTabViewController?.shutdown()
     }

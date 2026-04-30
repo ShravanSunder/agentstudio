@@ -37,6 +37,29 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
+    func observedExpansionChange_autosavesSidebarCache() async throws {
+        let workspaceId = UUID()
+        let atom = SidebarCacheAtom()
+        let store = SidebarCacheStore(
+            atom: atom,
+            persistor: persistor,
+            persistDebounceDuration: .zero
+        )
+        store.restore(for: workspaceId)
+
+        atom.setGroupExpanded(SidebarGroupKey("repo:agent-studio"), isExpanded: true)
+
+        await assertEventuallyMain("expanded repo group should autosave") {
+            switch persistor.loadSidebarCache(for: workspaceId) {
+            case .loaded(let cache):
+                return cache.expandedGroups == [SidebarGroupKey("repo:agent-studio")]
+            case .missing, .corrupt:
+                return false
+            }
+        }
+    }
+
+    @Test
     func restore_corruptSidebarCacheFile_fallsBackToDefaultsAndQuarantines() throws {
         let workspaceId = UUID()
         let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
