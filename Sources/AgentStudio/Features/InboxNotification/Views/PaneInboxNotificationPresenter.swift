@@ -10,6 +10,17 @@ final class PaneInboxNotificationPresenter {
         request = PaneInboxRequest(id: UUID(), parentPaneId: parentPaneId, paneIds: paneIds)
     }
 
+    func toggle(parentPaneId: UUID, paneIds: [UUID]) {
+        if request?.parentPaneId == parentPaneId,
+            request?.paneIds == paneIds
+        {
+            request = nil
+            return
+        }
+
+        open(parentPaneId: parentPaneId, paneIds: paneIds)
+    }
+
     func clearRequest(_ request: PaneInboxRequest) {
         guard self.request == request else { return }
         self.request = nil

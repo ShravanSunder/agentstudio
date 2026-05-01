@@ -7,13 +7,42 @@ struct PaneInboxNotificationPopover: View {
     let dispatcher: CommandDispatcher
     let onClose: @MainActor @Sendable () -> Void
 
+    @State private var selectedNotificationId: UUID?
+
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
             list
         }
-        .frame(width: 320, height: 400)
+        .frame(
+            width: AppStyles.Components.PaneInbox.popoverWidth,
+            height: AppStyles.Components.PaneInbox.popoverHeight
+        )
+        .background(
+            SelectablePopoverKeyboardBridge(
+                items: Self.keyboardItems(for: relevantNotifications),
+                selectedItemId: selectedNotificationId,
+                auxiliaryKey: nil,
+                onSelect: { notificationId in
+                    selectedNotificationId = notificationId
+                    activate(notificationId: notificationId)
+                },
+                onAuxiliary: { _ in },
+                onHighlight: { notificationId in
+                    selectedNotificationId = notificationId
+                },
+                onDismiss: onClose,
+                matchesAdditionalDismissShortcut: { event in
+                    guard let trigger = ShortcutDecoder.decode(event: event) else { return false }
+                    return trigger == AppShortcut.showPaneInboxNotifications.trigger
+                }
+            )
+            .frame(width: 0, height: 0)
+        )
+        .onAppear(perform: repairSelection)
+        .onChange(of: relevantNotificationIds) { _, _ in repairSelection() }
+        .onExitCommand(perform: onClose)
     }
 
     static func relevantNotifications(
@@ -30,6 +59,18 @@ struct PaneInboxNotificationPopover: View {
             .sorted { $0.timestamp > $1.timestamp }
     }
 
+    static func keyboardItems(
+        for notifications: [InboxNotification]
+    ) -> [SelectablePopoverKeyboardItem<UUID>] {
+        notifications.prefix(9).enumerated().map { index, notification in
+            SelectablePopoverKeyboardItem(
+                id: notification.id,
+                shortcutNumber: index + 1,
+                supportsAuxiliaryAction: false
+            )
+        }
+    }
+
     private var header: some View {
         HStack {
             Text("Pane inbox")
@@ -40,7 +81,7 @@ struct PaneInboxNotificationPopover: View {
             }
             .buttonStyle(.borderless)
         }
-        .padding(12)
+        .padding(AppStyles.Components.PaneInbox.headerPadding)
     }
 
     private var relevantNotifications: [InboxNotification] {
@@ -48,6 +89,10 @@ struct PaneInboxNotificationPopover: View {
             paneIds: paneIds,
             notifications: inboxAtom.notifications
         )
+    }
+
+    private var relevantNotificationIds: [UUID] {
+        relevantNotifications.map(\.id)
     }
 
     private var list: some View {
@@ -60,6 +105,14 @@ struct PaneInboxNotificationPopover: View {
                         ForEach(relevantNotifications) { notification in
                             InboxRow(notification: notification, now: Date())
                                 .contentShape(Rectangle())
+                                .background(
+                                    RoundedRectangle(cornerRadius: AppStyles.Components.PaneInbox.rowCornerRadius)
+                                        .fill(
+                                            selectedNotificationId == notification.id
+                                                ? Color.accentColor.opacity(AppStyles.General.Fill.active)
+                                                : Color.clear
+                                        )
+                                )
                                 .onTapGesture {
                                     activate(notification)
                                 }
@@ -68,6 +121,25 @@ struct PaneInboxNotificationPopover: View {
                 }
             }
         }
+    }
+
+    private func repairSelection() {
+        if let selectedNotificationId, relevantNotificationIds.contains(selectedNotificationId) {
+            return
+        }
+
+        selectedNotificationId = SelectablePopoverKeyboardRouter.defaultSelection(
+            items: Self.keyboardItems(for: relevantNotifications),
+            preferredItemId: nil
+        )
+    }
+
+    private func activate(notificationId: UUID) {
+        guard let notification = relevantNotifications.first(where: { $0.id == notificationId }) else {
+            return
+        }
+
+        activate(notification)
     }
 
     private func activate(_ notification: InboxNotification) {

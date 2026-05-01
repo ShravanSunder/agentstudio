@@ -277,6 +277,13 @@ enum AppStyles {
             static let dividerHeight: CGFloat = 16
             static let dividerHorizontalPadding: CGFloat = 2
         }
+
+        enum PaneInbox {
+            static let popoverWidth: CGFloat = 320
+            static let popoverHeight: CGFloat = 400
+            static let headerPadding: CGFloat = 12
+            static let rowCornerRadius: CGFloat = AppStyles.General.CornerRadius.panel
+        }
     }
 
     enum Welcome {

@@ -27,13 +27,29 @@ struct PaneInboxNotificationPopoverTests {
         #expect(relevant.map(\.title) == ["Parent", "Child"])
     }
 
+    @Test("keyboardItems maps relevant notifications to selectable popover items")
+    func keyboardItemsForRelevantNotifications() {
+        let paneId = UUID()
+        let first = makeNotification(id: UUID(), paneId: paneId, title: "First")
+        let second = makeNotification(id: UUID(), paneId: paneId, title: "Second")
+
+        let keyboardItems = PaneInboxNotificationPopover.keyboardItems(
+            for: [first, second]
+        )
+
+        #expect(keyboardItems.map(\.id) == [first.id, second.id])
+        #expect(keyboardItems.map(\.shortcutNumber) == [1, 2])
+        #expect(keyboardItems.allSatisfy { !$0.supportsAuxiliaryAction })
+    }
+
     private func makeNotification(
+        id: UUID = UUID(),
         paneId: UUID?,
         title: String = "Notification",
         isDismissedFromPaneInbox: Bool = false
     ) -> InboxNotification {
         InboxNotification(
-            id: UUID(),
+            id: id,
             timestamp: Date(timeIntervalSince1970: isDismissedFromPaneInbox ? 50 : 100),
             kind: .agentRpc,
             title: title,
