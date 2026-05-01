@@ -220,7 +220,8 @@ struct PersistenceChaosTests {
                 flavor: flavor,
                 store: .notificationInbox,
                 workspaceId: nil,
-                recovery: .quarantinedAndReset
+                recovery: .quarantinedAndReset,
+                additionalRecoverableFlavors: [.sliceTypeError]
             )
         }
     }
@@ -230,9 +231,10 @@ struct PersistenceChaosTests {
         flavor: ChaosStoreSeeder.Flavor,
         store: PersistenceRecoveryEvent.Store,
         workspaceId: UUID?,
-        recovery: PersistenceRecoveryEvent.Recovery
+        recovery: PersistenceRecoveryEvent.Recovery,
+        additionalRecoverableFlavors: Set<ChaosStoreSeeder.Flavor> = []
     ) {
-        if flavor.corruptsWholeFile {
+        if flavor.corruptsWholeFile || additionalRecoverableFlavors.contains(flavor) {
             #expect(events.count == 1)
             #expect(events.first?.store == store)
             #expect(events.first?.workspaceId == workspaceId)

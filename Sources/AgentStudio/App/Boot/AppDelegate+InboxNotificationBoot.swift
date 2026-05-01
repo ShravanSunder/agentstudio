@@ -3,9 +3,7 @@ import Observation
 
 extension AppDelegate {
     func bootLoadInboxNotificationStore(persistor: WorkspacePersistor) {
-        let fileURL = persistor.workspacesDir.appending(
-            path: "\(store.metadataAtom.workspaceId.uuidString).notification-inbox.json"
-        )
+        let fileURL = persistor.notificationInboxFileURL(for: store.metadataAtom.workspaceId)
         inboxNotificationStore = InboxNotificationStore(
             inboxAtom: inboxNotificationAtom,
             prefsAtom: inboxNotificationPrefsAtom,

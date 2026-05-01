@@ -48,6 +48,12 @@ final class InboxNotificationAtom {
         recalculateGlobalUnreadCount()
     }
 
+    func replaceAll(_ replacement: [InboxNotification]) {
+        notifications = replacement
+        enforceRetentionCap()
+        recalculateGlobalUnreadCount()
+    }
+
     func markRead(id: UUID) {
         update(id: id) { $0.isRead = true }
         recalculateGlobalUnreadCount()

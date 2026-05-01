@@ -106,9 +106,11 @@ final class InboxNotificationStore {
                 )
             }
             self.schemaVersion = decodedSchemaVersion
-            self.notifications =
-                (try? container.decodeIfPresent([InboxNotification].self, forKey: .notifications))
-                ?? []
+            if container.contains(.notifications) {
+                self.notifications = try container.decode([InboxNotification].self, forKey: .notifications)
+            } else {
+                self.notifications = []
+            }
             self.prefs =
                 (try? container.decodeIfPresent(Prefs.self, forKey: .prefs))
                 ?? .init()
@@ -153,10 +155,7 @@ final class InboxNotificationStore {
             throw error
         }
 
-        inboxAtom.clearAll()
-        for notification in payload.notifications {
-            inboxAtom.append(notification)
-        }
+        inboxAtom.replaceAll(payload.notifications)
         prefsAtom.setGrouping(payload.prefs.grouping)
         prefsAtom.setSort(payload.prefs.sort)
         prefsAtom.setBellEnabled(payload.prefs.bellEnabled)

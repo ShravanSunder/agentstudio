@@ -268,6 +268,19 @@ final class WorkspacePersistorTests {
         #expect(persistor.load().isMissing)
     }
 
+    @Test
+    func test_delete_removesNotificationInboxFile() throws {
+        let state = WorkspacePersistor.PersistableState()
+        let inboxFileURL = persistor.notificationInboxFileURL(for: state.id)
+        #expect(persistor.ensureDirectory())
+        try Data("{}".utf8).write(to: inboxFileURL, options: .atomic)
+        #expect(FileManager.default.fileExists(atPath: inboxFileURL.path))
+
+        persistor.delete(id: state.id)
+
+        #expect(!FileManager.default.fileExists(atPath: inboxFileURL.path))
+    }
+
     // MARK: - Multiple Saves
 
     @Test

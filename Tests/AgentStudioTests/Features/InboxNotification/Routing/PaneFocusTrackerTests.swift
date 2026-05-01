@@ -50,6 +50,25 @@ struct PaneFocusTrackerTests {
         return collected
     }
 
+    private func waitsForStreamCompletion(
+        from tracker: PaneFocusTracker,
+        maxIterations: Int = 50
+    ) async -> Bool {
+        var didFinish = false
+        let task = Task { @MainActor in
+            for await _ in tracker.focusGainedStream {}
+            didFinish = true
+        }
+
+        for _ in 0..<maxIterations where !didFinish {
+            await Task.yield()
+        }
+        if !didFinish {
+            task.cancel()
+        }
+        return didFinish
+    }
+
     @Test("emits pane ids on attended-pane transitions")
     func emitsOnTransition() async {
         let tabLayout = WorkspaceTabLayoutAtom()
@@ -101,5 +120,24 @@ struct PaneFocusTrackerTests {
         #expect(collected == [paneA])
         tracker.stop()
         attendedPane.stop()
+    }
+
+    @Test("finishes when attended-pane upstream finishes unexpectedly")
+    func finishesWhenUpstreamFinishesUnexpectedly() async {
+        let tabLayout = WorkspaceTabLayoutAtom()
+        let windowLifecycle = WindowLifecycleAtom()
+        let managementLayer = ManagementLayerAtom()
+        let attendedPane = AttendedPaneAtom(
+            tabLayout: tabLayout,
+            windowLifecycle: windowLifecycle,
+            managementLayer: managementLayer
+        )
+        let tracker = PaneFocusTracker(attendedPane: attendedPane)
+
+        attendedPane.stop()
+        await Task.yield()
+
+        #expect(await waitsForStreamCompletion(from: tracker))
+        tracker.stop()
     }
 }

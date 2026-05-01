@@ -151,8 +151,8 @@ struct InboxNotificationStoreTests {
         #expect(reportedRecovery?.recovery == .quarantinedAndReset)
     }
 
-    @Test("load defaults bad notification slice while preserving valid prefs")
-    func loadDefaultsBadNotificationSliceWhilePreservingPrefs() throws {
+    @Test("load quarantines bad notification slice")
+    func loadQuarantinesBadNotificationSlice() throws {
         let url = makeTempURL()
         let json = """
             {
@@ -168,18 +168,25 @@ struct InboxNotificationStoreTests {
         try Data(json.utf8).write(to: url, options: .atomic)
         let atom = InboxNotificationAtom()
         let prefs = InboxNotificationPrefsAtom()
+        var reportedRecovery: PersistenceRecoveryEvent?
         let store = InboxNotificationStore(
             inboxAtom: atom,
             prefsAtom: prefs,
-            fileURL: url
+            fileURL: url,
+            recoveryReporter: { reportedRecovery = $0 }
         )
 
-        try store.load()
+        #expect(throws: Error.self) {
+            try store.load()
+        }
 
+        #expect(!FileManager.default.fileExists(atPath: url.path))
         #expect(atom.notifications.isEmpty)
-        #expect(prefs.grouping == .byRepo)
-        #expect(prefs.sort == .oldestFirst)
-        #expect(prefs.bellEnabled)
+        #expect(prefs.grouping == .none)
+        #expect(prefs.sort == .newestFirst)
+        #expect(!prefs.bellEnabled)
+        #expect(reportedRecovery?.store == .notificationInbox)
+        #expect(reportedRecovery?.recovery == .quarantinedAndReset)
     }
 
     @Test("load defaults bad preference fields independently")

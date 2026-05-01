@@ -280,6 +280,7 @@ struct WorkspacePersistor {
             cacheFileURL(for: id),
             uiFileURL(for: id),
             sidebarCacheFileURL(for: id),
+            notificationInboxFileURL(for: id),
         ]
         for url in urls {
             do {
@@ -336,6 +337,10 @@ struct WorkspacePersistor {
 
     private func sidebarCacheFileURL(for id: UUID) -> URL {
         workspacesDir.appending(path: "\(id.uuidString)\(Self.sidebarCacheSuffix)")
+    }
+
+    func notificationInboxFileURL(for id: UUID) -> URL {
+        inboxFileURL(for: id)
     }
 
     private func inboxFileURL(for id: UUID) -> URL {

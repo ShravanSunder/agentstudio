@@ -65,7 +65,7 @@ actor AgentStudioJSONLTraceWriter {
         let droppedCount = originalLineCount - retainedOriginalLines.count
         droppedLineCount += droppedCount
 
-        bufferedLines = [overflowMarkerLine(droppedCount: droppedCount)].compactMap { $0 }
+        bufferedLines = [overflowMarkerLine(droppedCount: droppedCount)]
         bufferedLines.append(contentsOf: retainedOriginalLines)
     }
 
@@ -100,9 +100,10 @@ actor AgentStudioJSONLTraceWriter {
         return (attributes[.size] as? NSNumber)?.uint64Value ?? 0
     }
 
-    private func overflowMarkerLine(droppedCount: Int) -> String? {
+    private func overflowMarkerLine(droppedCount: Int) -> String {
+        let markerTimeUnixNano = timeUnixNano()
         let record = AgentStudioTraceRecord(
-            timeUnixNano: timeUnixNano(),
+            timeUnixNano: markerTimeUnixNano,
             severityText: .warn,
             body: "trace.buffer_overflow",
             traceID: nil,
@@ -115,7 +116,36 @@ actor AgentStudioJSONLTraceWriter {
                 "agentstudio.trace.total_dropped_count": .int(droppedLineCount),
             ]
         )
-        return try? encoder.encodeLine(record)
+        do {
+            return try encoder.encodeLine(record)
+        } catch {
+            debugLog("[trace] failed to encode overflow marker: \(error)")
+            return overflowMarkerFallbackLine(
+                droppedCount: droppedCount,
+                totalDroppedCount: droppedLineCount,
+                timeUnixNano: markerTimeUnixNano
+            )
+        }
+    }
+
+    private func overflowMarkerFallbackLine(
+        droppedCount: Int,
+        totalDroppedCount: Int,
+        timeUnixNano: UInt64
+    ) -> String {
+        [
+            "{",
+            "\"attributes\":{",
+            "\"agentstudio.trace.dropped_count\":\(droppedCount),",
+            "\"agentstudio.trace.total_dropped_count\":\(totalDroppedCount)",
+            "},",
+            "\"body\":\"trace.buffer_overflow\",",
+            "\"resource\":{},",
+            "\"scope\":{\"name\":\"agentstudio.trace\",\"version\":\"0.1.0\"},",
+            "\"severity_text\":\"WARN\",",
+            "\"time_unix_nano\":\(timeUnixNano)",
+            "}\n",
+        ].joined()
     }
 
     private static func currentTimeUnixNano() -> UInt64 {

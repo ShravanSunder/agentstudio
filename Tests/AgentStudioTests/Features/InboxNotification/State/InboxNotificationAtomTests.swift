@@ -74,6 +74,20 @@ struct InboxNotificationAtomTests {
         #expect(atom.notifications == [retry])
     }
 
+    @Test("replaceAll replaces entries and recalculates unread count")
+    func replaceAllRecalculatesUnreadCount() {
+        let atom = InboxNotificationAtom()
+        atom.append(makeInboxNotification(isRead: false))
+
+        atom.replaceAll([
+            makeInboxNotification(isRead: false),
+            makeInboxNotification(isRead: true),
+        ])
+
+        #expect(atom.notifications.count == 2)
+        #expect(atom.globalUnreadCount == 1)
+    }
+
     @Test("markRead(id:) sets isRead true")
     func markReadById() {
         let atom = InboxNotificationAtom()

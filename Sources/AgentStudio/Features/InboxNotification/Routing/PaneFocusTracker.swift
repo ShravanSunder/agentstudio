@@ -1,4 +1,10 @@
 import Foundation
+import os.log
+
+private let paneFocusTrackerLogger = Logger(
+    subsystem: "com.agentstudio",
+    category: "PaneFocusTracker"
+)
 
 /// Narrows attended-pane transitions down to non-nil focus-gained pane ids.
 ///
@@ -29,6 +35,13 @@ final class PaneFocusTracker {
                 guard let paneId else { continue }
                 self.continuation.yield(paneId)
             }
+            guard !Task.isCancelled, !self.isStopped else { return }
+            paneFocusTrackerLogger.warning(
+                "Attended-pane transition stream ended while pane focus tracker was active"
+            )
+            self.isStopped = true
+            self.streamTask = nil
+            self.continuation.finish()
         }
     }
 
