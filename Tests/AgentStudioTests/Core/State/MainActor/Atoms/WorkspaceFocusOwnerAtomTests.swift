@@ -24,7 +24,7 @@ struct WorkspaceFocusOwnerAtomTests {
             context: .init(
                 activeMainPaneId: parentPaneId,
                 expandedDrawerParentPaneId: parentPaneId,
-                drawerPaneIds: [],
+                paneIds: [],
                 activeDrawerPaneId: nil,
                 minimizedDrawerPaneIds: []
             )
@@ -41,7 +41,7 @@ struct WorkspaceFocusOwnerAtomTests {
             context: .init(
                 activeMainPaneId: parentPaneId,
                 expandedDrawerParentPaneId: nil,
-                drawerPaneIds: [],
+                paneIds: [],
                 activeDrawerPaneId: nil,
                 minimizedDrawerPaneIds: []
             )
@@ -59,7 +59,7 @@ struct WorkspaceFocusOwnerAtomTests {
             context: .init(
                 activeMainPaneId: parentPaneId,
                 expandedDrawerParentPaneId: parentPaneId,
-                drawerPaneIds: [drawerPaneId],
+                paneIds: [drawerPaneId],
                 activeDrawerPaneId: drawerPaneId,
                 minimizedDrawerPaneIds: []
             )
@@ -77,7 +77,7 @@ struct WorkspaceFocusOwnerAtomTests {
             context: .init(
                 activeMainPaneId: parentPaneId,
                 expandedDrawerParentPaneId: parentPaneId,
-                drawerPaneIds: [drawerPaneId],
+                paneIds: [drawerPaneId],
                 activeDrawerPaneId: drawerPaneId,
                 minimizedDrawerPaneIds: []
             )
@@ -88,20 +88,20 @@ struct WorkspaceFocusOwnerAtomTests {
 
     @Test("normalizer collapses cross-parent drawer focus to active main pane")
     func normalizer_collapsesCrossParentDrawerFocusToActiveMainPane() {
-        let activeParentPaneId = UUID()
+        let activeMainPaneId = UUID()
         let staleParentPaneId = UUID()
         let drawerPaneId = UUID()
         let normalized = WorkspaceFocusOwnerNormalizer.normalize(
-            requested: .emptyDrawer(parentPaneId: staleParentPaneId),
+            requested: .drawerPane(parentPaneId: staleParentPaneId, paneId: drawerPaneId),
             context: .init(
-                activeMainPaneId: activeParentPaneId,
-                expandedDrawerParentPaneId: activeParentPaneId,
-                drawerPaneIds: [drawerPaneId],
+                activeMainPaneId: activeMainPaneId,
+                expandedDrawerParentPaneId: activeMainPaneId,
+                paneIds: [drawerPaneId],
                 activeDrawerPaneId: drawerPaneId,
                 minimizedDrawerPaneIds: []
             )
         )
 
-        #expect(normalized == .mainPane(paneId: activeParentPaneId))
+        #expect(normalized == .mainPane(paneId: activeMainPaneId))
     }
 }

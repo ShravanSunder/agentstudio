@@ -48,6 +48,11 @@ struct SplitDropCommitDestination: Equatable {
     let drawerParentPaneId: UUID?
 }
 
+private struct PaneInboxCommandTarget {
+    let parentPaneId: UUID
+    let paneIds: [UUID]
+}
+
 /// Tab-based terminal controller with custom Ghostty-style tab bar.
 ///
 /// PaneTabViewController is a composition-oriented controller in `App/`. It reads
@@ -78,6 +83,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private let executor: ActionExecutor
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
+    private let paneInboxPresentation: PaneInboxPresentation?
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let tabRenamePopoverState: TabRenamePopoverState
     private let arrangementInlineRenameState: ArrangementInlineRenameState
@@ -159,6 +165,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         executor: ActionExecutor,
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
+        paneInboxPresentation: PaneInboxPresentation? = nil,
         installedEditorTargetsProvider: @escaping @MainActor () -> [ExternalEditorTarget] = {
             ExternalEditorTarget.refreshInstalledTargets()
         },
@@ -183,6 +190,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         self.executor = executor
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
+        self.paneInboxPresentation = paneInboxPresentation
         self.installedEditorTargetsProvider = installedEditorTargetsProvider
         self.openEditorHandler = openEditorHandler
         self.openFinderHandler = openFinderHandler
@@ -363,6 +371,43 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         setupAppNotificationObservers()
     }
 
+    static func shouldDispatchGlobalShortcut(
+        _ shortcut: AppShortcut,
+        uiState: UIStateAtom,
+        managementLayer: ManagementLayerAtom
+    ) -> Bool {
+        // Why: sidebar shortcuts are intentionally opt-in here. An
+        // exhaustive switch makes new global shortcuts choose a routing policy
+        // explicitly instead of inheriting accidental process-wide behavior.
+        switch shortcut {
+        case .toggleSidebar,
+            .closeTab, .newTab, .undoCloseTab, .nextTab, .prevTab,
+            .addDrawerPane, .toggleDrawer, .openPaneLocationInBookmarkedEditor,
+            .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
+            .toggleManagementLayer, .showInboxNotifications, .showPaneInboxNotifications, .showWorktreeSidebar,
+            .newWindow, .closeWindow, .showCommandBarEverything,
+            .showCommandBarCommands, .showCommandBarPanes, .selectTab1,
+            .selectTab2, .selectTab3, .selectTab4, .selectTab5, .selectTab6,
+            .selectTab7, .selectTab8, .selectTab9, .managementLayerFocusLeft,
+            .managementLayerFocusRight, .managementLayerEnterDrawer,
+            .managementLayerExitDrawer, .managementLayerOpenDrawer,
+            .managementLayerCreateTerminal, .managementLayerCreateBrowser,
+            .managementLayerExit:
+            return true
+        case .filterSidebar:
+            // Contract: returning false does not drop the key event. It allows the
+            // normal responder chain to keep Terminal Find and future inbox search
+            // bindings alive instead of globally stealing ⌘F.
+            return
+                !managementLayer.isActive
+                && !uiState.sidebarCollapsed
+                && uiState.sidebarHasFocus
+                && uiState.sidebarSurface == .repos
+        case .scrollToBottom:
+            return false
+        }
+    }
+
     private func setupAppNotificationObservers() {
         notificationTasks.append(
             Task { [weak self] in
@@ -374,21 +419,35 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                         await MainActor.run { [weak self] in
                             self?.handleTerminalProcessTerminated(paneId: paneId)
                         }
-                    default:
+                    case .terminalProcessTerminationHandled, .worktreeBellRang:
                         continue
                     }
                 }
             })
     }
 
-    isolated deinit {
+    func shutdown() {
         if let monitor = arrangementBarEventMonitor {
             NSEvent.removeMonitor(monitor)
+            arrangementBarEventMonitor = nil
         }
         for task in notificationTasks {
             task.cancel()
         }
         notificationTasks.removeAll()
+    }
+
+    isolated deinit {
+        let monitor = arrangementBarEventMonitor
+        let tasks = notificationTasks
+        Task { @MainActor in
+            if let monitor {
+                NSEvent.removeMonitor(monitor)
+            }
+            for task in tasks {
+                task.cancel()
+            }
+        }
     }
 
     // MARK: - Store Observation (AppKit-Level Concerns)
@@ -761,8 +820,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         return .init(
             activeMainPaneId: activeMainPaneId,
             expandedDrawerParentPaneId: drawer?.isExpanded == true ? activeMainPaneId : nil,
-            drawerPaneIds: drawer?.paneIds ?? [],
-            activeDrawerPaneId: drawer?.activePaneId,
+            paneIds: drawer?.paneIds ?? [],
+            activeDrawerPaneId: drawer?.activeChildId,
             minimizedDrawerPaneIds: drawer?.minimizedPaneIds ?? []
         )
     }
@@ -772,7 +831,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
         if drawer.isExpanded {
             managementNavigationScope = .drawer(parentPaneId: parentPaneId)
-            if let drawerPaneId = drawer.activePaneId, !drawer.minimizedPaneIds.contains(drawerPaneId) {
+            if let drawerPaneId = drawer.activeChildId, !drawer.minimizedPaneIds.contains(drawerPaneId) {
                 atom(\.workspaceFocusOwner).focusDrawerPane(parentPaneId: parentPaneId, paneId: drawerPaneId)
             } else {
                 atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parentPaneId)
@@ -805,7 +864,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private func visibleActiveDrawerPaneId(for parentPaneId: UUID) -> UUID? {
         guard let drawer = store.paneAtom.pane(parentPaneId)?.drawer else { return nil }
         guard drawer.isExpanded else { return nil }
-        guard let drawerPaneId = drawer.activePaneId else { return nil }
+        guard let drawerPaneId = drawer.activeChildId else { return nil }
         guard !drawer.minimizedPaneIds.contains(drawerPaneId) else { return nil }
         return drawerPaneId
     }
@@ -824,6 +883,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             onPaneFocusTrigger: { [weak self] trigger in
                 self?.handlePaneFocusTrigger(trigger)
             },
+            paneInboxPresentation: paneInboxPresentation,
             onOpenPaneGitHub: { [weak self] paneId in
                 self?.openGitHubWebview(for: paneId)
             }
@@ -1154,7 +1214,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         _ event: NSEvent,
         allowsModifiedEmptyDrawerShortcutWithTextFocus: Bool = false
     ) -> Bool {
-        guard let trigger = ShortcutDecoder.decode(event: event) else { return false }
+        guard let trigger = ShortcutDecoder.decode(event: event) else {
+            return false
+        }
 
         // Raw-character triggers always require neutral focus, even
         // when modifier-keyed shortcuts are allowed through text focus.
@@ -1236,25 +1298,22 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private func firstDrawerPaneParentId(
         for trigger: ShortcutTrigger,
         event: NSEvent,
-        requiresNeutralFocus: Bool
+        requiresNeutralFocus: Bool = true
     ) -> UUID? {
         // Routing goes through the command-spec system: decode the
-        // event, then ask whether it dispatches `.addDrawerPane` in
-        // the `.emptyDrawer` context. The raw-character "P" alternate
-        // on AppShortcut.addDrawerPane is scoped to `.emptyDrawer`;
-        // the primary cmd-shift-D also matches here when the drawer
-        // is open and empty.
+        // event once, then ask whether it dispatches `.addDrawerPane`
+        // in the `.emptyDrawer` context. The raw-character "P"
+        // alternate is empty-drawer only; cmd-shift-D reaches this
+        // path when the drawer is open and empty.
         guard
             atom(\.managementLayer).isActive == false,
             ShortcutDecoder.shortcut(for: trigger, in: .emptyDrawer) == .addDrawerPane
         else {
             return nil
         }
-        // The raw-character alternate must never be intercepted while
-        // a text-input responder owns focus, otherwise typing the
-        // character into any text field would create a drawer pane.
-        // The local monitor can additionally require neutral focus
-        // for all empty-drawer creation attempts.
+        // Raw-character alternates must never be intercepted while
+        // text input owns focus. Modified shortcuts may fire from
+        // performKeyEquivalent even when a text field is focused.
         if requiresNeutralFocus, rawCharacterHasTextResponder(for: event) {
             return nil
         }
@@ -1270,19 +1329,20 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func rawCharacterHasTextResponder(for event: NSEvent) -> Bool {
-        let eventWindowByNumber =
-            event.windowNumber > 0
-            ? NSApp.window(withWindowNumber: event.windowNumber)
-            : nil
-        let eventWindow =
-            event.window
-            ?? eventWindowByNumber
-            ?? NSApp.windows.first { $0.windowNumber == event.windowNumber }
+        let eventWindow = event.window ?? windowForRawCharacterEvent(event)
         let responders = [
             eventWindow?.firstResponder,
             view.window?.firstResponder,
         ]
         return responders.contains { !Self.isNeutralResponderForRawCharacter($0) }
+    }
+
+    private func windowForRawCharacterEvent(_ event: NSEvent) -> NSWindow? {
+        guard event.windowNumber > 0 else { return nil }
+
+        let application = NSApplication.shared
+        return application.window(withWindowNumber: event.windowNumber)
+            ?? application.windows.first { $0.windowNumber == event.windowNumber }
     }
 
     /// A responder is "neutral" for raw character keystrokes when it
@@ -1409,7 +1469,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             dispatchAction(.toggleDrawer(paneId: parentPaneId))
         }
 
-        if let drawerPaneId = store.paneAtom.pane(parentPaneId)?.drawer?.activePaneId {
+        if let drawerPaneId = store.paneAtom.pane(parentPaneId)?.drawer?.activeChildId {
             managementNavigationScope = .drawer(parentPaneId: parentPaneId)
             handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)))
         } else {
@@ -1421,7 +1481,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
     private func moveDrawerFocus(_ command: AppCommand) {
         guard case .drawer(let parentPaneId) = normalizedWorkspaceNavigationFocusScope() else { return }
-        guard let drawerPaneId = store.paneAtom.pane(parentPaneId)?.drawer?.activePaneId else { return }
+        guard let drawerPaneId = store.paneAtom.pane(parentPaneId)?.drawer?.activeChildId else { return }
 
         let direction: FocusDirection
         switch command {
@@ -1707,6 +1767,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return
         }
         if let pane = store.paneAtom.pane(paneId) {
+            AppEventBus.post(.terminalProcessTerminationHandled(paneId: paneId))
             if let parentPaneId = pane.parentPaneId,
                 let parentTab = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)
             {
@@ -1880,6 +1941,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         if handlePaneLocationCommand(command) {
             return
         }
+        if handlePaneInboxCommand(command) {
+            return
+        }
 
         switch command {
         case .newTab:
@@ -1890,7 +1954,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         case .renameTab:
             guard let activeTabId = store.tabLayoutAtom.activeTabId else { break }
             tabRenamePopoverState.present(for: activeTabId)
-        case .watchFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle:
+        case .watchFolder, .toggleSidebar, .filterSidebar,
+            .showInboxNotifications, .showPaneInboxNotifications, .showWorktreeSidebar,
+            .signInGitHub, .signInGoogle:
             break
         case .enterDrawer:
             enterDrawerFromActivePane()
@@ -1918,7 +1984,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 let paneId = tab.activePaneId,
                 let pane = store.paneAtom.pane(paneId),
                 let drawer = pane.drawer,
-                let activeDrawerPaneId = drawer.activePaneId
+                let activeDrawerPaneId = drawer.activeChildId
             else { break }
             dispatchAction(.closePane(tabId: tabId, paneId: activeDrawerPaneId))
 
@@ -2276,7 +2342,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return activeMainPaneId() != nil
         case .focusDrawerPaneUp, .focusDrawerPaneLeft, .focusDrawerPaneDown, .focusDrawerPaneRight:
             if case .drawerPane(let parentPaneId, _) = normalizedWorkspaceNavigationScopeState() {
-                return store.paneAtom.pane(parentPaneId)?.drawer?.activePaneId != nil
+                return store.paneAtom.pane(parentPaneId)?.drawer?.activeChildId != nil
             }
             return false
         case .navigateDrawerPane:
@@ -2297,6 +2363,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return store.tabLayoutAtom.activeTabId != nil
         case .addDrawerPane, .toggleDrawer, .closeDrawerPane:
             return canExecuteContextualCommand(command)
+        case .showPaneInboxNotifications:
+            return paneInboxPresentation != nil && activePaneInboxTarget() != nil
         case .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu:
@@ -2332,13 +2400,13 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             guard let targetPath = selectedPaneManagementContext()?.targetPath else { return false }
             let installedTargets = installedEditorTargetsProvider()
             var resolution = ExternalEditorTarget.resolveBookmarkedOrDefault(
-                bookmarkedEditorId: atom(\.uiState).editorChooserState.bookmarkedEditorId,
+                bookmarkedEditorId: atom(\.editorChooser).state.bookmarkedEditorId,
                 installedTargets: installedTargets
             )
             if case .bookmarkedEditorNotInstalled = resolution {
                 // A saved bookmark that is no longer installed should heal back to
                 // the implicit default launch order on the same key press.
-                atom(\.uiState).setBookmarkedEditor(nil)
+                atom(\.editorChooser).setBookmarkedEditor(nil)
                 resolution = ExternalEditorTarget.resolveBookmarkedOrDefault(
                     bookmarkedEditorId: nil,
                     installedTargets: installedTargets
@@ -2351,16 +2419,40 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return openFinderHandler(targetPath)
         case .openPaneLocationInEditorMenu:
             guard let activePaneId = activePaneIdForChooserRequest() else { return false }
-            if atom(\.uiState).editorChooserState.openForPaneId == activePaneId {
-                atom(\.uiState).setOpenEditorPane(nil)
+            if atom(\.editorChooser).state.openForPaneId == activePaneId {
+                atom(\.editorChooser).setOpenEditorPane(nil)
                 return true
             }
-            atom(\.uiState).setAvailableEditorTargets(installedEditorTargetsProvider())
-            atom(\.uiState).setOpenEditorPane(activePaneId)
+            atom(\.editorChooser).setAvailableTargets(installedEditorTargetsProvider())
+            atom(\.editorChooser).setOpenEditorPane(activePaneId)
             return true
         default:
             return false
         }
+    }
+
+    private func handlePaneInboxCommand(_ command: AppCommand) -> Bool {
+        guard command == .showPaneInboxNotifications else { return false }
+        guard let paneInboxPresentation, let target = activePaneInboxTarget() else { return false }
+        paneInboxPresentation.open(target.parentPaneId, target.paneIds)
+        return true
+    }
+
+    private func activePaneInboxTarget() -> PaneInboxCommandTarget? {
+        guard let parentPaneId = activePaneInboxParentPaneId() else { return nil }
+        let drawerPaneIds = store.paneAtom.pane(parentPaneId)?.drawer?.paneIds ?? []
+
+        return PaneInboxCommandTarget(parentPaneId: parentPaneId, paneIds: [parentPaneId] + drawerPaneIds)
+    }
+
+    private func activePaneInboxParentPaneId() -> UUID? {
+        guard let activePaneId = activeMainPaneId(),
+            let activePane = store.paneAtom.pane(activePaneId)
+        else {
+            return nil
+        }
+
+        return activePane.parentPaneId ?? activePane.id
     }
 
     private func selectedPaneManagementContext() -> PaneManagementContext? {

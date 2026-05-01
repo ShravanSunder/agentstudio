@@ -122,21 +122,21 @@ struct WelcomeSidebarIllustration: View {
 
     private var ghosttyGroup: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SidebarResolvedGroupHeaderRow(
+            RepoExplorerResolvedGroupHeaderRow(
                 isExpanded: true,
                 repoTitle: "ghostty",
                 organizationName: "ghostty-org"
             )
 
             VStack(alignment: .leading, spacing: 0) {
-                SidebarWorktreeRow(
+                RepoExplorerWorktreeRow(
                     worktree: ghosttyMainWorktree,
                     checkoutTitle: "ghostty",
                     branchName: "main",
                     checkoutIconKind: .mainCheckout,
                     iconColor: ghosttyColor,
                     branchStatus: ghosttyMainStatus,
-                    notificationCount: 0,
+                    unreadCount: 0,
                     onOpen: {},
                     onOpenNew: {},
                     onOpenInPane: {},
@@ -144,14 +144,14 @@ struct WelcomeSidebarIllustration: View {
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
-                SidebarWorktreeRow(
+                RepoExplorerWorktreeRow(
                     worktree: ghosttyGpuRendererWorktree,
                     checkoutTitle: "ghostty.gpu-renderer",
                     branchName: "feature/gpu-renderer",
                     checkoutIconKind: .gitWorktree,
                     iconColor: ghosttyColor,
                     branchStatus: gpuRendererStatus,
-                    notificationCount: 0,
+                    unreadCount: 0,
                     onOpen: {},
                     onOpenNew: {},
                     onOpenInPane: {},
@@ -159,14 +159,14 @@ struct WelcomeSidebarIllustration: View {
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
-                SidebarWorktreeRow(
+                RepoExplorerWorktreeRow(
                     worktree: ghosttyFixKeybindsWorktree,
                     checkoutTitle: "ghostty.fix-keybinds",
                     branchName: "fix/keybind-passthrough",
                     checkoutIconKind: .gitWorktree,
                     iconColor: ghosttyColor,
                     branchStatus: fixKeybindsStatus,
-                    notificationCount: 0,
+                    unreadCount: 0,
                     onOpen: {},
                     onOpenNew: {},
                     onOpenInPane: {},
@@ -181,21 +181,21 @@ struct WelcomeSidebarIllustration: View {
 
     private var uvGroup: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SidebarResolvedGroupHeaderRow(
+            RepoExplorerResolvedGroupHeaderRow(
                 isExpanded: true,
                 repoTitle: "uv",
                 organizationName: "astral-sh"
             )
 
             VStack(alignment: .leading, spacing: 0) {
-                SidebarWorktreeRow(
+                RepoExplorerWorktreeRow(
                     worktree: uvMainWorktree,
                     checkoutTitle: "uv",
                     branchName: "main",
                     checkoutIconKind: .mainCheckout,
                     iconColor: uvColor,
                     branchStatus: uvMainStatus,
-                    notificationCount: 0,
+                    unreadCount: 0,
                     onOpen: {},
                     onOpenNew: {},
                     onOpenInPane: {},
@@ -203,14 +203,14 @@ struct WelcomeSidebarIllustration: View {
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
-                SidebarWorktreeRow(
+                RepoExplorerWorktreeRow(
                     worktree: uvFixResolverWorktree,
                     checkoutTitle: "uv.fix-resolver",
                     branchName: "fix/resolver-perf",
                     checkoutIconKind: .gitWorktree,
                     iconColor: uvColor,
                     branchStatus: fixResolverStatus,
-                    notificationCount: 2,
+                    unreadCount: 2,
                     onOpen: {},
                     onOpenNew: {},
                     onOpenInPane: {},

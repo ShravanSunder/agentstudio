@@ -105,15 +105,24 @@ struct TerminalPaneMountViewExitBehaviorTests {
     }
 
     private func makeProcessExitMountView(
+        paneId: UUID = UUID(),
         showsRestorePresentationDuringStartup: Bool = false
     ) -> TerminalPaneMountView {
-        let paneId = UUID()
-        return TerminalPaneMountView(
+        TerminalPaneMountView(
             restoredSurfaceId: UUID(),
             paneId: paneId,
             title: "Terminal",
             showsRestorePresentationDuringStartup: showsRestorePresentationDuringStartup
         )
+    }
+
+    private func makeSubscribedPaneId(in store: WorkspaceStore) -> UUID {
+        let pane = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com/\(UUID().uuidString)")!)),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Terminal"), title: "Terminal")
+        )
+        store.appendTab(Tab(paneId: pane.id))
+        return pane.id
     }
 
     @Test("process termination without subscribers keeps a visible fallback")
@@ -136,8 +145,9 @@ struct TerminalPaneMountViewExitBehaviorTests {
     func processTermination_withSubscribers_immediatelySuppressesCompetingProcessExitedOverlay() async {
         let harness = await makeSubscribedPaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let paneId = makeSubscribedPaneId(in: harness.store)
 
-        let mountView = makeProcessExitMountView()
+        let mountView = makeProcessExitMountView(paneId: paneId)
 
         mountView.simulateSurfaceCloseForTesting(processAlive: false)
         mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))
@@ -180,8 +190,12 @@ struct TerminalPaneMountViewExitBehaviorTests {
     func startupRestoreClose_withSubscribersAutoClosesWithoutProcessExitedUI() async {
         let harness = await makeSubscribedPaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let paneId = makeSubscribedPaneId(in: harness.store)
 
-        let mountView = makeProcessExitMountView(showsRestorePresentationDuringStartup: true)
+        let mountView = makeProcessExitMountView(
+            paneId: paneId,
+            showsRestorePresentationDuringStartup: true
+        )
 
         mountView.beginRestorePresentationForTesting()
         #expect(mountView.isShowingStartupOverlayForTesting)
@@ -312,8 +326,9 @@ struct TerminalPaneMountViewExitBehaviorTests {
     func requestClose_immediatelySuppressesCompetingProcessExitedOverlay() async {
         let harness = await makeSubscribedPaneTabControllerHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let paneId = makeSubscribedPaneId(in: harness.store)
 
-        let mountView = makeProcessExitMountView()
+        let mountView = makeProcessExitMountView(paneId: paneId)
 
         mountView.requestClose()
         mountView.applyHealthUpdateForTesting(.processExited(exitCode: nil))

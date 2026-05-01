@@ -59,7 +59,7 @@ struct PaneManagementContext: Equatable {
 
         let statusChips: WorkspaceStatusChipsModel?
         if let worktreeId = pane?.worktreeId {
-            let branchStatus = RepoSidebarContentView.branchStatus(
+            let branchStatus = RepoExplorerView.branchStatus(
                 enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktreeId],
                 pullRequestCount: repoCache.pullRequestCountByWorktreeId[worktreeId]
             )
@@ -70,7 +70,7 @@ struct PaneManagementContext: Equatable {
         } else if let resolvedWorktreeId =
             workspaceLookup.repoAndWorktree(containing: pane?.metadata.cwd)?.worktree.id
         {
-            let branchStatus = RepoSidebarContentView.branchStatus(
+            let branchStatus = RepoExplorerView.branchStatus(
                 enrichment: repoCache.worktreeEnrichmentByWorktreeId[resolvedWorktreeId],
                 pullRequestCount: repoCache.pullRequestCountByWorktreeId[resolvedWorktreeId]
             )

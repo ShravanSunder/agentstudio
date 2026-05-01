@@ -112,10 +112,9 @@ struct AppShortcutSpec: Equatable {
     /// Primary trigger — what shows in the command bar / menus.
     let trigger: ShortcutTrigger
 
-    /// Alternate triggers that also dispatch the same command. Used
-    /// for context-specific bindings (e.g. raw-character P fires
-    /// `addDrawerPane` in `.emptyDrawer` while the modifier-keyed
-    /// cmd-shift-D primary fires it globally).
+    /// Alternate triggers keyed by the exact contexts where they are
+    /// valid. This prevents a context-specific raw character binding
+    /// from inheriting the broader contexts of the primary trigger.
     let alternateTriggers: [ShortcutTrigger: Set<ShortcutContext>]
 
     let contexts: Set<ShortcutContext>
@@ -140,7 +139,9 @@ struct AppShortcutSpec: Equatable {
     /// trigger when one exists. Other contexts use the primary.
     func displayTrigger(in context: ShortcutContext) -> ShortcutTrigger {
         if context == .emptyDrawer,
-            let rawCharacterAlternate = alternateTriggers.keys.first(where: { $0.modifiers.isEmpty })
+            let rawCharacterAlternate = alternateTriggers.first(where: { trigger, contexts in
+                trigger.modifiers.isEmpty && contexts.contains(context)
+            })?.key
         {
             return rawCharacterAlternate
         }
@@ -151,7 +152,9 @@ struct AppShortcutSpec: Equatable {
         if candidate == trigger {
             return contexts.contains(context)
         }
-        guard let contexts = alternateTriggers[candidate] else { return false }
+        guard let contexts = alternateTriggers[candidate] else {
+            return false
+        }
         return contexts.contains(context)
     }
 }
@@ -171,6 +174,9 @@ enum AppShortcut: String, CaseIterable {
     case toggleManagementLayer
     case toggleSidebar
     case filterSidebar
+    case showInboxNotifications
+    case showPaneInboxNotifications
+    case showWorktreeSidebar
     case newWindow
     case closeWindow
     case showCommandBarEverything
@@ -187,6 +193,7 @@ enum AppShortcut: String, CaseIterable {
     case selectTab9
     case managementLayerFocusLeft
     case managementLayerFocusRight
+    case managementLayerEnterDrawer
     case managementLayerExitDrawer
     case managementLayerOpenDrawer
     case managementLayerCreateTerminal
@@ -269,8 +276,23 @@ enum AppShortcut: String, CaseIterable {
             )
         case .filterSidebar:
             return .init(
-                trigger: .init(key: .character(.f), modifiers: [.command, .shift]),
+                trigger: .init(key: .character(.f), modifiers: [.command]),
                 contexts: [.global]
+            )
+        case .showInboxNotifications:
+            return .init(
+                trigger: .init(key: .character(.i), modifiers: [.command]),
+                contexts: [.global, .terminalAppOwned]
+            )
+        case .showPaneInboxNotifications:
+            return .init(
+                trigger: .init(key: .character(.i), modifiers: [.command, .shift]),
+                contexts: [.global, .terminalAppOwned]
+            )
+        case .showWorktreeSidebar:
+            return .init(
+                trigger: .init(key: .character(.s), modifiers: [.command]),
+                contexts: [.global, .terminalAppOwned]
             )
         case .newWindow:
             return .init(
@@ -319,6 +341,8 @@ enum AppShortcut: String, CaseIterable {
             return Self.managementSpec(key: .arrow(.left))
         case .managementLayerFocusRight:
             return Self.managementSpec(key: .arrow(.right))
+        case .managementLayerEnterDrawer:
+            return Self.managementSpec(key: .enter)
         case .managementLayerExitDrawer:
             return Self.managementSpec(key: .arrow(.up))
         case .managementLayerOpenDrawer:

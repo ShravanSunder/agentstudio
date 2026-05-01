@@ -241,6 +241,12 @@ final class AppCommandTests {
     }
 
     @Test
+    func test_toggleSidebar_isVisibleInCommandBar() {
+        let definition = CommandDispatcher.shared.definition(for: .toggleSidebar)
+        #expect(!definition.isHiddenInCommandBar)
+    }
+
+    @Test
     func test_dispatcher_registersDefinitionForEveryCommand() {
         let dispatcher = CommandDispatcher.shared
 
@@ -312,6 +318,22 @@ final class AppCommandTests {
         #expect(def.commandBarGroupName == "Pane")
         #expect(def.requiresManagementLayer == false)
         #expect(def.visibleWhen == [.hasActivePane])
+    }
+
+    @MainActor
+
+    @Test
+    func test_sidebarAndPaneInboxDefinitions_areCommandBarVisibleWithShortcuts() {
+        let sidebarInbox = CommandDispatcher.shared.definition(for: .showInboxNotifications)
+        let paneInbox = CommandDispatcher.shared.definition(for: .showPaneInboxNotifications)
+        let worktreeSidebar = CommandDispatcher.shared.definition(for: .showWorktreeSidebar)
+
+        #expect(sidebarInbox.shortcut == .showInboxNotifications)
+        #expect(!sidebarInbox.isHiddenInCommandBar)
+        #expect(paneInbox.shortcut == .showPaneInboxNotifications)
+        #expect(!paneInbox.isHiddenInCommandBar)
+        #expect(worktreeSidebar.shortcut == .showWorktreeSidebar)
+        #expect(!worktreeSidebar.isHiddenInCommandBar)
     }
 
     @MainActor
@@ -634,7 +656,7 @@ final class AppCommandTests {
         // Assert
         #expect(def.keyBinding?.key == "f")
         #expect(def.keyBinding?.modifiers.contains(.command) ?? false)
-        #expect(def.keyBinding?.modifiers.contains(.shift) ?? false)
+        #expect(!(def.keyBinding?.modifiers.contains(.shift) ?? false))
     }
 
     @MainActor

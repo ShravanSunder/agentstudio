@@ -6,30 +6,6 @@ import Testing
 @Suite(.serialized)
 @MainActor
 final class UIStateAtomTests {
-
-    @Test
-    func groupExpansion_updatesExpandedSet() {
-        let store = UIStateAtom()
-
-        store.setGroupExpanded("askluna", isExpanded: true)
-        store.setGroupExpanded("personal", isExpanded: true)
-        store.setGroupExpanded("personal", isExpanded: false)
-
-        #expect(store.expandedGroups.contains("askluna"))
-        #expect(!store.expandedGroups.contains("personal"))
-    }
-
-    @Test
-    func checkoutColor_setAndClear() {
-        let store = UIStateAtom()
-
-        store.setCheckoutColor("#22cc88", for: "repoKey")
-        #expect(store.checkoutColors["repoKey"] == "#22cc88")
-
-        store.setCheckoutColor(nil, for: "repoKey")
-        #expect(store.checkoutColors["repoKey"] == nil)
-    }
-
     @Test
     func filterState_settersUpdateFields() {
         let store = UIStateAtom()
@@ -43,26 +19,26 @@ final class UIStateAtomTests {
 
     @Test
     func editorChooserState_mutatorsUpdateFields() {
-        let store = UIStateAtom()
+        let store = EditorChooserAtom()
         let paneId = UUID()
 
         store.setBookmarkedEditor("cursor")
         store.setOpenEditorPane(paneId)
 
-        #expect(store.editorChooserState.bookmarkedEditorId == "cursor")
-        #expect(store.editorChooserState.openForPaneId == paneId)
+        #expect(store.state.bookmarkedEditorId == "cursor")
+        #expect(store.state.openForPaneId == paneId)
     }
 
     @Test
     func clear_resetsEditorChooserState() {
-        let store = UIStateAtom()
+        let store = EditorChooserAtom()
 
         store.setBookmarkedEditor("cursor")
         store.setOpenEditorPane(UUID())
 
         store.clear()
 
-        #expect(store.editorChooserState.bookmarkedEditorId == nil)
-        #expect(store.editorChooserState.openForPaneId == nil)
+        #expect(store.state.bookmarkedEditorId == nil)
+        #expect(store.state.openForPaneId == nil)
     }
 }

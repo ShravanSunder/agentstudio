@@ -11,6 +11,11 @@ private let stateLogger = Logger(subsystem: "com.agentstudio", category: "Comman
 /// Always accessed on the main thread (SwiftUI views + AppKit panel controller).
 @Observable
 final class CommandBarState {
+    enum OpenMode: Equatable {
+        case prefix(String)
+        case defaultScope(CommandBarScope)
+    }
+
     // MARK: - Visibility
 
     var isVisible: Bool = false
@@ -37,6 +42,7 @@ final class CommandBarState {
 
     /// Root scope that remains stable while navigating nested levels.
     private(set) var pinnedScope: CommandBarScope = .everything
+    private(set) var defaultRootScope: CommandBarScope = .everything
 
     // MARK: - Selection
 
@@ -70,7 +76,7 @@ final class CommandBarState {
         case "> ": return .commands
         case "$ ": return .panes
         case "# ": return .repos
-        default: return .everything
+        default: return defaultRootScope
         }
     }
 
@@ -110,6 +116,7 @@ final class CommandBarState {
         case .commands: return "Run a command..."
         case .panes: return "Search panes..."
         case .repos: return "Open repo or worktree..."
+        case .inbox: return "Search inbox..."
         }
     }
 
@@ -121,6 +128,7 @@ final class CommandBarState {
         case .commands: return "chevron.right.2"
         case .panes: return "terminal"
         case .repos: return "octicon-repo"
+        case .inbox: return "bell"
         }
     }
 
@@ -130,9 +138,27 @@ final class CommandBarState {
 
     // MARK: - Actions
 
-    /// Show the command bar with an optional prefix pre-filled.
-    /// Adds a trailing space after known prefixes so the cursor lands after it.
-    func show(prefix: String? = nil) {
+    /// Show the command bar rooted at a specific scope.
+    func show(defaultScope: CommandBarScope = .everything) {
+        show(mode: .defaultScope(defaultScope))
+    }
+
+    /// Show the command bar with a prefix pre-filled.
+    func show(prefix: String) {
+        show(mode: .prefix(prefix))
+    }
+
+    private func show(mode: OpenMode) {
+        let prefix: String?
+        switch mode {
+        case .prefix(let requestedPrefix):
+            prefix = requestedPrefix
+            defaultRootScope = .everything
+        case .defaultScope(let scope):
+            prefix = nil
+            defaultRootScope = scope
+        }
+
         if let prefix, !prefix.isEmpty, [">", "$", "#"].contains(prefix) {
             rawInput = prefix + " "
         } else {
@@ -150,6 +176,7 @@ final class CommandBarState {
         isVisible = false
         rawInput = ""
         pinnedScope = .everything
+        defaultRootScope = .everything
         navigationStack = []
         selectedIndex = 0
         stateLogger.debug("Command bar dismissed")
@@ -158,9 +185,32 @@ final class CommandBarState {
     /// Switch prefix in-place (when already open, pressing a different shortcut).
     func switchPrefix(_ prefix: String) {
         navigationStack = []
+        defaultRootScope = .everything
         rawInput = prefix.isEmpty ? "" : prefix + " "
         pinnedScope = activeScope
         selectedIndex = 0
+    }
+
+    @MainActor
+    static func forOpen(
+        windowLifecycle: WindowLifecycleAtom,
+        managementLayer: ManagementLayerAtom,
+        uiState: UIStateAtom
+    ) -> CommandBarState {
+        let state = CommandBarState()
+        let owner = KeyboardOwner.current(
+            windowLifecycle: windowLifecycle,
+            managementLayer: managementLayer,
+            uiState: uiState
+        )
+        state.show(defaultScope: defaultScope(for: owner))
+        return state
+    }
+
+    /// Root-scope mapping is shared by the production AppDelegate open path and
+    /// the test fixture entry point above so new owner→scope rows stay in sync.
+    static func defaultScope(for owner: KeyboardOwner) -> CommandBarScope {
+        owner == .sidebar(.inbox) ? .inbox : .everything
     }
 
     /// Push a nested level onto the navigation stack.

@@ -57,6 +57,16 @@ Use these broad ownership rules first, then consult [Directory Structure](docs/a
 - `Infrastructure/`
   Domain-agnostic utilities and external integrations. Organize these in subfolders by concern, such as `AtomLib/`, `Extensions/`, `Icons/`, `StateMachine/`, and integration-specific folders like `ExternalApps/`.
 
+### Shared UI, Styles, And Policies
+
+When two app surfaces need the same visual control, extract a stateless primitive into `SharedComponents/` instead of copying styling between features. Shared components render from value parameters, `@Binding`, and closures; they do not subscribe to atoms and they do not import `Core/`, `Features/`, or `App/`.
+
+Use `AppStyles` for presentation constants only: spacing, radii, icon sizes, opacity, typography, colors, and paint dimensions. Use `AppPolicies` for behavioral constants: limits, thresholds, retention caps, validation rules, routing rules, and accept/reject decisions. If changing the value can change state transitions or command/event behavior, it belongs in `AppPolicies` even when the UI reads it.
+
+### Command Specs And Execution Owners
+
+Before adding or changing a command, read [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md). Use `AppCommand` for identity, `AppShortcut` for bindings, `CommandSpec` for command-bar/tooltips, and `LocalActionSpec` for UI-only actions. App/window/sidebar shell commands may route through `AppDelegate`; pane, drawer, focus, layout, and workspace commands route through `PaneTabViewController` so keyboard shortcuts, command-bar rows, and drawer buttons share the same resolver.
+
 | Component | Owns | Location |
 |-----------|------|----------|
 | `AtomRegistry` | composition root for shared main-actor atoms and derived helpers | `Infrastructure/AtomLib/AtomRegistry.swift` |
@@ -68,7 +78,7 @@ Use these broad ownership rules first, then consult [Directory Structure](docs/a
 | `RepoCacheAtom` | repo enrichment, branches, git status, PR counts, recent targets | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
 | `UIStateAtom` | expanded groups, colors, filter state | `Core/State/MainActor/Atoms/UIStateAtom.swift` |
 | `WorkspaceFocusDerived` | shared app-wide focus reader for command visibility and status UI | `Core/State/MainActor/Atoms/WorkspaceFocusDerived.swift` |
-| `ManagementModeAtom` | management mode active/inactive state | `Core/State/MainActor/Atoms/ManagementModeAtom.swift` |
+| `ManagementLayerAtom` | management layer active/inactive state | `Core/State/MainActor/Atoms/ManagementLayerAtom.swift` |
 | `SessionRuntimeAtom` | runtime status per pane | `Core/State/MainActor/Atoms/SessionRuntimeAtom.swift` |
 | `WorkspaceStore` | persistence wrapper over the workspace-domain atoms | `Core/State/MainActor/Persistence/WorkspaceStore.swift` |
 | `RepoCacheStore` | persistence wrapper for `RepoCacheAtom` | `Core/State/MainActor/Persistence/RepoCacheStore.swift` |
@@ -103,7 +113,7 @@ Each doc owns a specific concern. See [Architecture Overview](docs/architecture/
 | [Session Lifecycle](docs/architecture/session_lifecycle.md) | Pane identity, creation, close, undo, restore, zmx backend |
 | [Surface Architecture](docs/architecture/ghostty_surface_architecture.md) | Ghostty surface ownership, state machine, health, crash isolation |
 | [App Architecture](docs/architecture/appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid, controllers, events |
-| [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md) | The four-file system (AppCommand / AppShortcut / CommandSpec / LocalActionSpec), decision tree for adding bindings, contexts, alternateTriggers, where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
+| [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md) | The four-file system (AppCommand / AppShortcut / CommandSpec / LocalActionSpec), execution-owner decision tree (`AppDelegate` shell vs `PaneTabViewController` pane/drawer), contexts, alternateTriggers, and where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
 | [Directory Structure](docs/architecture/directory_structure.md) | Module boundaries, Core vs Features, import rule, component placement |
 | [Style Guide](docs/guides/style_guide.md) | macOS design conventions and visual standards |
 
@@ -154,17 +164,25 @@ Use DeepWiki and official documentation for grounded context. Never guess at API
 
 These four patterns govern all code. Follow them. Breaking them creates bugs that are expensive to find.
 
-### 1. Unidirectional Flow — Valtio-style `private(set)`
+### 1. Atoms — canonical state
 
-Every `@Observable` store exposes state as `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers. See [WorkspaceStore](docs/architecture/component_architecture.md#32-workspacestore) for the canonical example.
+`@Observable @MainActor`, `private(set)` reads, mutation via methods (valtio-style). One atom per domain, one reason to change. No god-atom. Atoms never touch disk.
 
-### 2. Atomic Stores — Jotai-style Independent Atoms
+**Path convention (universal):** `<owner>/State/MainActor/Atoms/` for all atoms, whether Core or Feature. Shared atoms in `Core/State/MainActor/Atoms/`; feature-scoped atoms in `Features/<slice>/State/MainActor/Atoms/`. Existing features without the `MainActor/` subpath are grandfathered; new features adopt the full path.
 
-Each atom owns one domain with one reason to change. No god-store. Cross-atom coordination flows through coordinators or persistence wrappers, not direct atom-to-atom mutation. Shared reads use `atom(\.foo)` or `AtomReader`; `@Atom(\.foo)` is optional convenience sugar when stored-property access is genuinely cleaner. See [Three Persistence Tiers](docs/architecture/workspace_data_architecture.md#three-persistence-tiers) for how atoms map to persistence files.
+**Composition state vs feature state.** Composition state (app-wide UI shell — which surface is showing, has-focus, collapsed) lives on `UIStateAtom` in Core. Feature state (domain data specific to one feature) lives in feature atoms inside the feature slice. Never add a feature-specific property to a Core atom; never add a feature type to `Core/Models/` just because an atom references it — that forces feature types into Core.
 
-**Store boundaries are architectural decisions — always ask the user before changing them:**
-- **Adding a new store:** "Does this domain earn its own store? What's the one sentence job description? What's the single reason it changes?"
-- **Adding properties to an existing store:** "Does this property belong here, or is it polluting this store's job? Could it belong in a different store or be derived?" A store that accumulates unrelated properties is becoming a god-store by accretion.
+Shared reads use `atom(\.foo)` or `AtomReader`; `@Atom(\.foo)` is optional convenience sugar. See [component_architecture.md](docs/architecture/component_architecture.md) and [directory_structure.md — Feature Slice Self-Containment](docs/architecture/directory_structure.md) for canonical examples.
+
+### 2. Stores — persistence wrappers
+
+One store per persistence boundary. A store may wrap one atom (`RepoCacheStore`) or many that persist together in one file (`WorkspaceStore`). Stores own file I/O, debounced saves, and schema versioning. Stores never contain domain logic.
+
+**Path convention (universal):** `<owner>/State/MainActor/Persistence/` for all stores, whether Core or Feature. Shared stores in `Core/State/MainActor/Persistence/`; feature-scoped stores in `Features/<slice>/State/MainActor/Persistence/`. See [Three Persistence Tiers](docs/architecture/workspace_data_architecture.md#three-persistence-tiers) for the file-level mapping.
+
+**Atom and store boundaries are architectural decisions — always ask the user before changing them:**
+- **Adding a new atom or store:** "Does this earn its own atom/store? What's the one-sentence job description? What's the single reason it changes?"
+- **Adding properties to an existing atom:** "Does this property belong here, or is it polluting this atom's job? Could it belong elsewhere or be derived?" An atom that accumulates unrelated properties is becoming a god-atom by accretion.
 - **Adding new event types or coordinator responsibilities:** These expand the system's surface area. Discuss before implementing.
 
 ### 3. Coordinator Sequences, Doesn't Own
@@ -264,28 +282,41 @@ agent-studio/
 │   │   └── Panes/                    # Pane tab management and NSView registry
 │   ├── SharedComponents/             # Reusable UI building blocks
 │   ├── Core/                         # Shared domain — models, stores, pane system
-│   │   ├── Models/                   # Layout, Tab, Pane, Repo, Worktree
+│   │   ├── Models/                   # Layout, Tab, Pane, Repo, Worktree, SidebarSurface,
+│   │   │                             #   KeyboardOwner, ...
 │   │   ├── State/
 │   │   │   └── MainActor/
-│   │   │       ├── Atoms/            # WorkspaceMetadataAtom, WorkspaceRepositoryTopologyAtom, WorkspacePaneAtom, WorkspaceTabLayoutAtom, WorkspaceMutationCoordinator, ...
+│   │   │       ├── Atoms/            # WorkspaceMetadataAtom, WorkspacePaneAtom,
+│   │   │       │                     #   UIStateAtom, ManagementLayerAtom,
+│   │   │       │                     #   WorkspaceFocusDerived, KeyboardOwnerDerived, ...
 │   │   │       └── Persistence/      # WorkspaceStore, RepoCacheStore, UIStateStore
 │   │   ├── RuntimeEventSystem/       # Runtime actors, event bus, SessionRuntime, ZmxBackend
 │   │   ├── Actions/                  # PaneActionCommand, WorkspaceCommandResolver, WorkspaceCommandValidator
 │   │   └── Views/                    # Tab bar, splits, drawer, arrangement
-│   ├── Features/
+│   ├── Features/                     # Each feature is self-contained; see
+│   │   │                             #   directory_structure.md — Feature Slice Self-Containment
 │   │   ├── Terminal/                 # Ghostty C API bridge, SurfaceManager, views
 │   │   ├── Bridge/                   # React/WebView pane system (transport, runtime, state)
 │   │   ├── Webview/                  # Browser pane (navigation, history)
 │   │   ├── CommandBar/               # ⌘P command palette
-│   │   └── Sidebar/                  # Sidebar repo/worktree list
-│   └── Infrastructure/               # Utilities and integrations, organized by concern
+│   │   ├── RepoExplorer/             # Repo explorer (renamed from Features/Sidebar/ in
+│   │   │                             #   LUNA-361; the "sidebar" itself is composition in
+│   │   │                             #   App/, not a feature)
+│   │   └── <NewFeature>/             # Features/<Feature>/{Components,Models,Routing,
+│   │                                 #   State/MainActor/{Atoms,Persistence},Views}/
+│   ├── SharedComponents/             # Stateless UI primitives (design system). Currently
+│   │                                 #   hosts EditorChooser/; more primitives land here
+│   │                                 #   over time. Imports only Infrastructure. No atom
+│   │                                 #   subscriptions. State flows via @Binding / value
+│   │                                 #   parameters.
+│   └── Infrastructure/               # Domain-agnostic utilities
 ├── docs/architecture/                # Authoritative design docs (see table above)
 ├── docs/plans/                       # Date-prefixed implementation plans
 ├── vendor/ghostty/                   # Git submodule: Ghostty source
 └── vendor/zmx/                       # Git submodule: zmx session multiplexer
 ```
 
-**Import rule:** `App/ → Core/, Features/, Infrastructure/` | `Features/ → Core/, Infrastructure/` | `Core/ → Infrastructure/` | Never `Core/ → Features/`
+**Import rule:** `App/ → Core/, Features/, Infrastructure/, SharedComponents/` | `Features/ → Core/, Infrastructure/, SharedComponents/` | `Core/ → Infrastructure/` | `SharedComponents/ → Infrastructure/` | Never `Core/ → Features/`, `Features/X → Features/Y`, `SharedComponents/ → Core|Features|App`
 
 **Key config files:** `Package.swift` (SPM manifest), `.mise.toml` (build tasks), `.swift-format`, `.swiftlint.yml`
 

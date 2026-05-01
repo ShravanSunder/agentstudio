@@ -48,7 +48,7 @@ struct DrawerPanel: View {
     let layout: DrawerGridLayout
     let parentPaneId: UUID
     let tabId: UUID
-    let activePaneId: UUID?
+    let activeChildId: UUID?
     let minimizedPaneIds: Set<UUID>
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let height: CGFloat
@@ -60,6 +60,7 @@ struct DrawerPanel: View {
     let onDismiss: () -> Void
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let appLifecycleStore: AppLifecycleAtom
+    let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
     let dropTarget: DrawerRearrangeTarget?
     /// Active drag's source pane id, used to omit self/adjacent
@@ -84,7 +85,7 @@ struct DrawerPanel: View {
         layout: DrawerGridLayout,
         parentPaneId: UUID,
         tabId: UUID,
-        activePaneId: UUID?,
+        activeChildId: UUID?,
         minimizedPaneIds: Set<UUID>,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         height: CGFloat,
@@ -96,6 +97,7 @@ struct DrawerPanel: View {
         onDismiss: @escaping () -> Void,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         appLifecycleStore: AppLifecycleAtom,
+        paneInboxPresentation: PaneInboxPresentation?,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
         dropTarget: DrawerRearrangeTarget?,
         dragSourcePaneId: UUID?
@@ -103,7 +105,7 @@ struct DrawerPanel: View {
         self.layout = layout
         self.parentPaneId = parentPaneId
         self.tabId = tabId
-        self.activePaneId = activePaneId
+        self.activeChildId = activeChildId
         self.minimizedPaneIds = minimizedPaneIds
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.height = height
@@ -115,6 +117,7 @@ struct DrawerPanel: View {
         self.onDismiss = onDismiss
         self.onPaneFocusTrigger = onPaneFocusTrigger
         self.appLifecycleStore = appLifecycleStore
+        self.paneInboxPresentation = paneInboxPresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
         self.dropTarget = dropTarget
         self.dragSourcePaneId = dragSourcePaneId
@@ -164,7 +167,7 @@ struct DrawerPanel: View {
         FlatPaneStripContent(
             layout: rowLayout,
             tabId: tabId,
-            activePaneId: activePaneId,
+            activePaneId: activeChildId,
             minimizedPaneIds: minimizedPaneIds,
             collapsedPaneWidth: CollapsedPaneBar.barWidth,
             onSaveArrangement: nil,
@@ -176,6 +179,7 @@ struct DrawerPanel: View {
             viewRegistry: viewRegistry,
             coordinateSpaceName: Self.drawerDropCoordinateSpace,
             useDrawerFramePreference: true,
+            paneInboxPresentation: paneInboxPresentation,
             onOpenPaneGitHub: onOpenPaneGitHub
         )
     }
@@ -318,7 +322,7 @@ private struct DrawerSurfaceRegistrationModifier: ViewModifier {
                     layout: DrawerGridLayout(),
                     parentPaneId: UUID(),
                     tabId: UUID(),
-                    activePaneId: nil,
+                    activeChildId: nil,
                     minimizedPaneIds: [],
                     closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
                     height: 200,
@@ -331,6 +335,7 @@ private struct DrawerSurfaceRegistrationModifier: ViewModifier {
                     onDismiss: {},
                     onPaneFocusTrigger: { _ in },
                     appLifecycleStore: AppLifecycleAtom(),
+                    paneInboxPresentation: nil,
                     onOpenPaneGitHub: { _ in },
                     dropTarget: nil,
                     dragSourcePaneId: nil

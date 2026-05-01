@@ -77,6 +77,47 @@ final class WorkspaceStoreTests {
     }
 
     @Test
+    func test_restore_corruptWorkspace_reportsRecovery() throws {
+        let persistedDir = FileManager.default.temporaryDirectory
+            .appending(path: "workspace-store-corrupt-tests-\(UUID().uuidString)")
+        let persistor = WorkspacePersistor(workspacesDir: persistedDir)
+        #expect(persistor.ensureDirectory())
+        let workspaceId = UUID()
+        let stateURL = persistedDir.appending(path: "\(workspaceId.uuidString).workspace.state.json")
+        let cacheURL = persistedDir.appending(path: "\(workspaceId.uuidString).workspace.cache.json")
+        let uiURL = persistedDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
+        let sidebarCacheURL = persistedDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
+        let inboxURL = persistedDir.appending(path: "\(workspaceId.uuidString).notification-inbox.json")
+        try Data("not-json".utf8).write(to: stateURL, options: .atomic)
+        try Data("{}".utf8).write(to: cacheURL, options: .atomic)
+        try Data("{}".utf8).write(to: uiURL, options: .atomic)
+        try Data("{}".utf8).write(to: sidebarCacheURL, options: .atomic)
+        try Data("{}".utf8).write(to: inboxURL, options: .atomic)
+        var reportedRecovery: PersistenceRecoveryEvent?
+        let restoredStore = WorkspaceStore(
+            persistor: persistor,
+            recoveryReporter: { reportedRecovery = $0 }
+        )
+
+        restoredStore.restore()
+
+        #expect(reportedRecovery?.store == .workspace)
+        #expect(reportedRecovery?.workspaceId == workspaceId)
+        #expect(reportedRecovery?.recovery == .quarantinedAndReset)
+        #expect(reportedRecovery?.quarantinedFilename?.contains(".workspace.state.corrupt-") == true)
+        #expect(reportedRecovery?.quarantinedFilename?.contains(".workspace.cache.corrupt-") == true)
+        #expect(reportedRecovery?.quarantinedFilename?.contains(".workspace.ui.corrupt-") == true)
+        #expect(reportedRecovery?.quarantinedFilename?.contains(".workspace.sidebar-cache.corrupt-") == true)
+        #expect(reportedRecovery?.quarantinedFilename?.contains(".notification-inbox.corrupt-") == true)
+        #expect(!FileManager.default.fileExists(atPath: stateURL.path))
+        #expect(!FileManager.default.fileExists(atPath: cacheURL.path))
+        #expect(!FileManager.default.fileExists(atPath: uiURL.path))
+        #expect(!FileManager.default.fileExists(atPath: sidebarCacheURL.path))
+        #expect(!FileManager.default.fileExists(atPath: inboxURL.path))
+        #expect(restoredStore.panes.isEmpty)
+    }
+
+    @Test
     func test_workspaceStore_readsAndPersistsTheProvidedLiveAtomScope() throws {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let atoms = AtomRegistry()

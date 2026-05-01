@@ -138,6 +138,7 @@ struct DrawerPanelOverlay: View {
     let iconBarFrame: CGRect
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
+    let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
     let drawerDropTarget: DrawerRearrangeTarget?
     /// Active drag's source pane id, threaded through to DrawerPanel
@@ -212,7 +213,7 @@ struct DrawerPanelOverlay: View {
                     layout: info.drawer.layout,
                     parentPaneId: paneId,
                     tabId: tabId,
-                    activePaneId: info.drawer.activePaneId,
+                    activeChildId: info.drawer.activeChildId,
                     minimizedPaneIds: info.drawer.minimizedPaneIds,
                     closeTransitionCoordinator: closeTransitionCoordinator,
                     height: panelHeight,
@@ -232,6 +233,7 @@ struct DrawerPanelOverlay: View {
                     },
                     onPaneFocusTrigger: onPaneFocusTrigger,
                     appLifecycleStore: appLifecycleStore,
+                    paneInboxPresentation: paneInboxPresentation,
                     onOpenPaneGitHub: onOpenPaneGitHub,
                     dropTarget: drawerDropTarget,
                     dragSourcePaneId: dragSourcePaneId

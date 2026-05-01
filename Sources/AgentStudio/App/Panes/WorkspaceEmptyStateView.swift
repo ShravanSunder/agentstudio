@@ -283,22 +283,25 @@ struct WorkspaceEmptyStateView: View {
     }
 
     private var launcherShortcutsColumns: some View {
-        HStack(alignment: .top, spacing: AppStyles.Welcome.launcherShortcutsColumnsGap) {
+        let quickFindDefinition = AppCommand.showCommandBarEverything.definition
+        let newTabOrWorktreeDefinition = AppCommand.showCommandBarRepos.definition
+
+        return HStack(alignment: .top, spacing: AppStyles.Welcome.launcherShortcutsColumnsGap) {
             LauncherPreviewStack()
 
             VStack(alignment: .leading, spacing: AppStyles.Welcome.launcherRowGap) {
                 launcherShortcutRow(
-                    key: "⌘P",
-                    title: "Command palette",
+                    key: quickFindDefinition.keyBinding?.displayString,
+                    title: quickFindDefinition.label,
                     subtitle: "Everything in the app, one keypress away.",
-                    action: { CommandDispatcher.shared.dispatch(.showCommandBarEverything) }
+                    action: { CommandDispatcher.shared.dispatch(quickFindDefinition.command) }
                 )
 
                 launcherShortcutRow(
-                    key: "⌘T",
-                    title: "New tab or worktree",
+                    key: newTabOrWorktreeDefinition.keyBinding?.displayString,
+                    title: newTabOrWorktreeDefinition.label,
                     subtitle: "Opens the # picker. New Empty Tab is always first.",
-                    action: { CommandDispatcher.shared.dispatch(.showCommandBarRepos) }
+                    action: { CommandDispatcher.shared.dispatch(newTabOrWorktreeDefinition.command) }
                 )
 
                 launcherShortcutRow(

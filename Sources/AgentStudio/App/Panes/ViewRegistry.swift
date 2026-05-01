@@ -45,6 +45,20 @@ final class ViewRegistry {
     private var slots: [UUID: PaneViewSlot] = [:]
     private var retiredPaneIds: Set<UUID> = []
     private var renderedIdsBySurface: [String: Set<UUID>] = [:]
+    private(set) var isInitialRestorePending = false
+
+    /// Mark the launch window where restored pane slots may exist before hosts are recreated.
+    ///
+    /// Startup seeds slots before SwiftUI tab hosts render, then mounts hosts later once
+    /// the terminal container has reliable bounds. A nil host is expected during that window.
+    func beginInitialRestore() {
+        isInitialRestorePending = true
+    }
+
+    /// Mark that launch restore has either completed or found no panes to restore.
+    func completeInitialRestore() {
+        isInitialRestorePending = false
+    }
 
     /// Create the slot proactively when a pane enters workspace structure.
     /// Called by PaneCoordinator before any SwiftUI body can read the slot.

@@ -68,6 +68,9 @@ enum AppCommand: String, CaseIterable {
     case managementLayerExit
     // Workspace commands
     case toggleSidebar
+    case showInboxNotifications
+    case showPaneInboxNotifications
+    case showWorktreeSidebar
     case newFloatingTerminal
     // Window commands
     case newWindow

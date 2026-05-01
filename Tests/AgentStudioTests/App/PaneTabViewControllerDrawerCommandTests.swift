@@ -113,7 +113,7 @@ struct PaneTabViewControllerDrawerCommandTests {
 
         harness.controller.execute(.enterDrawer)
 
-        #expect(harness.store.pane(parent.id)?.drawer?.activePaneId == drawerPane.id)
+        #expect(harness.store.pane(parent.id)?.drawer?.activeChildId == drawerPane.id)
     }
 
     @Test("enterDrawer on an expanded empty drawer switches to empty drawer focus")
@@ -205,7 +205,7 @@ struct PaneTabViewControllerDrawerCommandTests {
 
         harness.controller.execute(.addDrawerPane)
 
-        let firstDrawerPaneId = try #require(harness.store.pane(parent.id)?.drawer?.activePaneId)
+        let firstDrawerPaneId = try #require(harness.store.pane(parent.id)?.drawer?.activeChildId)
         #expect(atom(\.workspaceFocusOwner).owner == .drawerPane(parentPaneId: parent.id, paneId: firstDrawerPaneId))
     }
 
@@ -263,7 +263,8 @@ struct PaneTabViewControllerDrawerCommandTests {
             )
         )
 
-        #expect(!harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: true))
+        #expect(
+            !harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: false))
         #expect(harness.store.tab(tab.id)?.activePaneId == parent.id)
     }
 
@@ -294,7 +295,7 @@ struct PaneTabViewControllerDrawerCommandTests {
             )
         )
 
-        #expect(harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: true))
+        #expect(harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: false))
         #expect(harness.store.pane(parent.id)?.drawer?.isExpanded == false)
         #expect(atom(\.workspaceFocusOwner).owner == .mainPane(paneId: parent.id))
     }
@@ -326,7 +327,7 @@ struct PaneTabViewControllerDrawerCommandTests {
             )
         )
 
-        #expect(harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: true))
+        #expect(harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: false))
         #expect(atom(\.workspaceFocusOwner).owner == .mainPane(paneId: parent.id))
     }
 
@@ -362,7 +363,7 @@ struct PaneTabViewControllerDrawerCommandTests {
             )
         )
 
-        #expect(harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: true))
+        #expect(harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: false))
         #expect(harness.store.tab(tab.id)?.activePaneId == left.id)
     }
 
@@ -380,7 +381,7 @@ struct PaneTabViewControllerDrawerCommandTests {
 
         harness.controller.execute(.focusDrawerPaneDown)
 
-        #expect(harness.store.pane(parent.id)?.drawer?.activePaneId == drawerPane.id)
+        #expect(harness.store.pane(parent.id)?.drawer?.activeChildId == drawerPane.id)
     }
 
     @Test("option-ijkl uses drawer movement after selecting a drawer pane directly")
@@ -426,8 +427,8 @@ struct PaneTabViewControllerDrawerCommandTests {
             )
         )
 
-        #expect(harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: true))
-        #expect(harness.store.pane(parent.id)?.drawer?.activePaneId == firstDrawerPane.id)
+        #expect(harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: false))
+        #expect(harness.store.pane(parent.id)?.drawer?.activeChildId == firstDrawerPane.id)
         #expect(harness.store.tab(tab.id)?.activePaneId == parent.id)
     }
 
@@ -475,8 +476,8 @@ struct PaneTabViewControllerDrawerCommandTests {
             )
         )
 
-        #expect(harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: true))
-        #expect(harness.store.pane(parent.id)?.drawer?.activePaneId == firstDrawerPane.id)
+        #expect(harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: false))
+        #expect(harness.store.pane(parent.id)?.drawer?.activeChildId == firstDrawerPane.id)
         #expect(harness.store.tab(tab.id)?.activePaneId == parent.id)
     }
 
@@ -588,7 +589,7 @@ struct PaneTabViewControllerDrawerCommandTests {
 
         harness.controller.execute(.managementLayerEnterDrawer)
 
-        #expect(harness.store.pane(parent.id)?.drawer?.activePaneId == drawerPane.id)
+        #expect(harness.store.pane(parent.id)?.drawer?.activeChildId == drawerPane.id)
     }
 
     @Test("management layer entry adopts expanded drawer scope for create terminal")

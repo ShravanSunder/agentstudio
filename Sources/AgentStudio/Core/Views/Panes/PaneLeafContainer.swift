@@ -29,8 +29,10 @@ struct PaneLeafContainer: View {
     let onOpenPaneGitHub: (UUID) -> Void
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
+    let paneInboxPresentation: PaneInboxPresentation?
 
     @State private var isHovered: Bool = false
+    @State private var paneInboxPopoverOpen = false
     private var managementLayer: ManagementLayerAtom {
         atom(\.managementLayer)
     }
@@ -54,7 +56,8 @@ struct PaneLeafContainer: View {
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
         dropTargetCoordinateSpace: String? = "tabContainer",
-        useDrawerFramePreference: Bool = false
+        useDrawerFramePreference: Bool = false,
+        paneInboxPresentation: PaneInboxPresentation? = nil
     ) {
         self.paneHost = paneHost
         self.tabId = tabId
@@ -69,6 +72,7 @@ struct PaneLeafContainer: View {
         self.onOpenPaneGitHub = onOpenPaneGitHub
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
+        self.paneInboxPresentation = paneInboxPresentation
     }
 
     /// Whether this pane is a drawer child (no drag, no drop, no sub-drawer).
@@ -146,6 +150,58 @@ struct PaneLeafContainer: View {
         )
     }
 
+    @ViewBuilder
+    private func drawerOverlay(
+        drawer: Drawer?,
+        locationTargetPaneId: UUID,
+        locationContext: PaneManagementContext
+    ) -> some View {
+        let trailingActions = DrawerEditorChooserFactory.makeTrailingActions(
+            editorChooser: atom(\.editorChooser),
+            paneId: locationTargetPaneId,
+            canOpenTarget: locationContext.targetPath != nil,
+            refreshInstalledTargets: {
+                ExternalEditorTarget.refreshInstalledTargets()
+            },
+            onOpenFinder: { openInFinder(locationContext) },
+            onOpenEditor: { editorId in
+                openInEditor(editorId, locationContext)
+            }
+        )
+
+        let paneInboxIds = [paneHost.id] + (drawer?.paneIds ?? [])
+        let hostedActions =
+            paneInboxPresentation?.trailingActions(
+                parentPaneId: paneHost.id,
+                paneIds: paneInboxIds,
+                baseTrailingActions: trailingActions,
+                inboxPopoverPresented: $paneInboxPopoverOpen
+            ) ?? trailingActions
+
+        baseDrawerOverlay(drawer: drawer, trailingActions: hostedActions)
+            .onChange(of: paneInboxPresentation?.pendingRequest()?.id) { _, _ in
+                guard let request = paneInboxPresentation?.pendingRequest() else { return }
+                guard request.parentPaneId == paneHost.id else { return }
+                guard request.paneIds == paneInboxIds else { return }
+                paneInboxPopoverOpen = true
+                paneInboxPresentation?.clearRequest(request)
+            }
+    }
+
+    private func baseDrawerOverlay(
+        drawer: Drawer?,
+        trailingActions: DrawerOverlay.TrailingActions
+    ) -> some View {
+        DrawerOverlay(
+            paneId: paneHost.id,
+            drawer: drawer,
+            isIconBarVisible: true,
+            trailingActions: trailingActions,
+            action: actionDispatcher.dispatch,
+            onPaneFocusTrigger: onPaneFocusTrigger
+        )
+    }
+
     var body: some View {
         GeometryReader { _ in
             let managementContext = PaneManagementContext.project(
@@ -176,24 +232,10 @@ struct PaneLeafContainer: View {
                     }
 
                     if !isDrawerChild {
-                        DrawerOverlay(
-                            paneId: paneHost.id,
+                        drawerOverlay(
                             drawer: drawer,
-                            isIconBarVisible: true,
-                            trailingActions: DrawerEditorChooserFactory.makeTrailingActions(
-                                uiState: atom(\.uiState),
-                                paneId: locationTargetPaneId,
-                                canOpenTarget: locationContext.targetPath != nil,
-                                refreshInstalledTargets: {
-                                    ExternalEditorTarget.refreshInstalledTargets()
-                                },
-                                onOpenFinder: { openInFinder(locationContext) },
-                                onOpenEditor: { editorId in
-                                    openInEditor(editorId, locationContext)
-                                }
-                            ),
-                            action: actionDispatcher.dispatch,
-                            onPaneFocusTrigger: onPaneFocusTrigger
+                            locationTargetPaneId: locationTargetPaneId,
+                            locationContext: locationContext
                         )
                         .fixedSize(horizontal: false, vertical: true)
                     }
@@ -564,7 +606,7 @@ struct PaneLeafContainer: View {
     private var currentLocationTargetPaneId: UUID {
         guard let drawer,
             drawer.isExpanded,
-            let drawerPaneId = drawer.activePaneId,
+            let drawerPaneId = drawer.activeChildId,
             !drawer.minimizedPaneIds.contains(drawerPaneId)
         else {
             return paneHost.id

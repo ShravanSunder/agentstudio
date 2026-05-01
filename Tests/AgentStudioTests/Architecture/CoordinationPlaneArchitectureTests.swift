@@ -308,7 +308,7 @@ struct CoordinationPlaneArchitectureTests {
             path: "Sources/AgentStudio/App/Boot/AppDelegate+LifecycleRouting.swift"
         )
         let sidebarPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Features/Sidebar/RepoSidebarContentView.swift"
+            path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"
         )
 
         let appDelegateRoutingSource = try String(contentsOf: appDelegateRoutingPath, encoding: .utf8)

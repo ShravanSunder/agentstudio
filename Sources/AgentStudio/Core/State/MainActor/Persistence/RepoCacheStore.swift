@@ -7,13 +7,16 @@ private let repoCacheStoreLogger = Logger(subsystem: "com.agentstudio", category
 final class RepoCacheStore {
     private let atom: RepoCacheAtom
     private let persistor: WorkspacePersistor
+    private let recoveryReporter: PersistenceRecoveryReporter?
 
     init(
         atom: RepoCacheAtom,
-        persistor: WorkspacePersistor = WorkspacePersistor()
+        persistor: WorkspacePersistor = WorkspacePersistor(),
+        recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.atom = atom
         self.persistor = persistor
+        self.recoveryReporter = recoveryReporter
     }
 
     func restore(for workspaceId: UUID) {
@@ -34,6 +37,13 @@ final class RepoCacheStore {
             break
         case .corrupt(let error):
             repoCacheStoreLogger.warning("Cache file corrupt, will rebuild from events: \(error)")
+            recoveryReporter?(
+                .init(
+                    store: .repoCache,
+                    workspaceId: workspaceId,
+                    recovery: .rebuiltFromEvents
+                )
+            )
         }
     }
 

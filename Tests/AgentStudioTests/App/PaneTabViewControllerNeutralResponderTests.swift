@@ -4,10 +4,10 @@ import Testing
 
 @testable import AgentStudio
 
-/// Raw empty-drawer shortcuts must not steal typed input while an
-/// NSText responder owns focus. Modifier-keyed shortcuts may still
-/// dispatch through `performKeyEquivalent`, but plain `p` is always
-/// gated by neutral focus.
+/// The empty-drawer raw-character shortcut must not steal text input.
+/// The local-monitor path always requires neutral focus, and
+/// `performKeyEquivalent` only relaxes that gate for modified
+/// shortcuts such as cmd-shift-D.
 ///
 /// The neutral-responder helper is the gate. NSText (and its
 /// subclasses — NSTextView is what the field editor uses) absorb
