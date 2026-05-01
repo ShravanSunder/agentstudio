@@ -4,11 +4,18 @@ import os.log
 private let flatPaneStripLogger = Logger(subsystem: "com.agentstudio", category: "FlatPaneStripContent")
 
 enum PaneSegmentMissingHostDisposition: Equatable {
+    case deferredInitialRestore
     case retiredTransition
     case unexpectedMissingHost
 
-    static func resolve(isRetired: Bool) -> Self {
-        isRetired ? .retiredTransition : .unexpectedMissingHost
+    static func resolve(isRetired: Bool, isInitialRestorePending: Bool) -> Self {
+        if isRetired {
+            return .retiredTransition
+        }
+        if isInitialRestorePending {
+            return .deferredInitialRestore
+        }
+        return .unexpectedMissingHost
     }
 }
 
@@ -27,6 +34,7 @@ struct FlatPaneStripContent: View {
     let viewRegistry: ViewRegistry
     let coordinateSpaceName: String?
     let useDrawerFramePreference: Bool
+    let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
     @State private var isSplitResizing = false
 
@@ -81,6 +89,7 @@ struct FlatPaneStripContent: View {
                             isSplitResizing: isSplitResizing,
                             coordinateSpaceName: coordinateSpaceName,
                             useDrawerFramePreference: useDrawerFramePreference,
+                            paneInboxPresentation: paneInboxPresentation,
                             onOpenPaneGitHub: onOpenPaneGitHub,
                             viewRegistry: viewRegistry,
                             paneSlot: paneSlot
@@ -123,6 +132,7 @@ private struct PaneSegmentSlotView: View {
     let isSplitResizing: Bool
     let coordinateSpaceName: String?
     let useDrawerFramePreference: Bool
+    let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
     let viewRegistry: ViewRegistry
     @Bindable var paneSlot: ViewRegistry.PaneViewSlot
@@ -154,13 +164,18 @@ private struct PaneSegmentSlotView: View {
                 onPaneFocusTrigger: onPaneFocusTrigger,
                 onOpenPaneGitHub: onOpenPaneGitHub,
                 dropTargetCoordinateSpace: coordinateSpaceName,
-                useDrawerFramePreference: useDrawerFramePreference
+                useDrawerFramePreference: useDrawerFramePreference,
+                paneInboxPresentation: paneInboxPresentation
             )
             .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
         } else {
             switch PaneSegmentMissingHostDisposition.resolve(
-                isRetired: viewRegistry.isRetired(for: segment.paneId)
+                isRetired: viewRegistry.isRetired(for: segment.paneId),
+                isInitialRestorePending: viewRegistry.isInitialRestorePending
             ) {
+            case .deferredInitialRestore:
+                Color.clear
+
             case .retiredTransition:
                 Color.clear
 

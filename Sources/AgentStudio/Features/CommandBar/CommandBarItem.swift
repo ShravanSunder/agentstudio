@@ -8,6 +8,7 @@ enum CommandBarScope {
     case commands  // ">" prefix — shows only commands grouped by category
     case panes  // "$" prefix — shows only panes grouped by tab
     case repos  // "#" prefix — shows repos and worktrees for opening
+    case inbox
 }
 
 // MARK: - CommandBarAppMode

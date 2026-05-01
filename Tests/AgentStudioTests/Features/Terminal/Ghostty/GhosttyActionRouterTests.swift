@@ -202,4 +202,109 @@ struct GhosttyActionRouterTests {
         #expect(exitCode == 7)
         #expect(duration == 42)
     }
+
+    @Test("registered surface routes observed terminal intelligence payloads through runtime envelopes")
+    func actionRouter_endToEnd_observedTerminalIntelligencePayloadsReachRuntime() async {
+        let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
+        let surfaceId = UUID()
+        let paneUUID = UUIDv7.generate()
+        let paneId = PaneId(uuid: paneUUID)
+        let runtime = TerminalRuntime(
+            paneId: paneId,
+            metadata: PaneMetadata(
+                paneId: paneId,
+                source: .init(TerminalSource.floating(launchDirectory: nil, title: "Runtime")),
+                title: "Runtime"
+            )
+        )
+        let runtimeRegistry = RuntimeRegistry()
+        _ = runtimeRegistry.register(runtime)
+        let lookup = FakeActionRoutingLookup(
+            surfaceIdsByViewObjectId: [surfaceViewObjectId: surfaceId],
+            paneIdsBySurfaceId: [surfaceId: paneUUID]
+        )
+
+        let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
+        Ghostty.ActionRouter.setRuntimeRegistry(runtimeRegistry)
+        defer {
+            Ghostty.ActionRouter.setRuntimeRegistry(originalRegistry)
+        }
+
+        let routedDesktopNotification =
+            Ghostty.ActionRouter.routeActionToTerminalRuntimeOnMainActor(
+                actionTag: UInt32(GHOSTTY_ACTION_DESKTOP_NOTIFICATION.rawValue),
+                payload: .desktopNotification(title: "Build", body: "Complete"),
+                surfaceViewObjectId: surfaceViewObjectId,
+                routingLookup: lookup
+            )
+        #expect(routedDesktopNotification)
+        #expect(
+            Ghostty.ActionRouter.routeActionToTerminalRuntimeOnMainActor(
+                actionTag: UInt32(GHOSTTY_ACTION_PROGRESS_REPORT.rawValue),
+                payload: .progressReport(
+                    stateRawValue: UInt32(GHOSTTY_PROGRESS_STATE_ERROR.rawValue),
+                    progress: 80
+                ),
+                surfaceViewObjectId: surfaceViewObjectId,
+                routingLookup: lookup
+            )
+        )
+        #expect(
+            Ghostty.ActionRouter.routeActionToTerminalRuntimeOnMainActor(
+                actionTag: UInt32(GHOSTTY_ACTION_RENDERER_HEALTH.rawValue),
+                payload: .rendererHealth(rawValue: UInt32(GHOSTTY_RENDERER_HEALTH_UNHEALTHY.rawValue)),
+                surfaceViewObjectId: surfaceViewObjectId,
+                routingLookup: lookup
+            )
+        )
+        #expect(
+            Ghostty.ActionRouter.routeActionToTerminalRuntimeOnMainActor(
+                actionTag: UInt32(GHOSTTY_ACTION_SCROLLBAR.rawValue),
+                payload: .scrollbar(total: 1000, offset: 900, length: 40),
+                surfaceViewObjectId: surfaceViewObjectId,
+                routingLookup: lookup
+            )
+        )
+        #expect(
+            Ghostty.ActionRouter.routeActionToTerminalRuntimeOnMainActor(
+                actionTag: UInt32(GHOSTTY_ACTION_PWD.rawValue),
+                payload: .cwdChanged("/tmp/project"),
+                surfaceViewObjectId: surfaceViewObjectId,
+                routingLookup: lookup
+            )
+        )
+
+        let replay = await runtime.eventsSince(seq: 0)
+        let events = replay.events.compactMap { envelope -> PaneRuntimeEvent? in
+            guard case .pane(let paneEnvelope) = envelope else { return nil }
+            return paneEnvelope.event
+        }
+
+        #expect(
+            events.contains {
+                guard case .terminal(.progressReportUpdated(ProgressState(kind: .error, percent: 80))) = $0
+                else { return false }
+                return true
+            }
+        )
+        #expect(
+            events.contains {
+                guard case .terminal(.rendererHealthChanged(false)) = $0 else { return false }
+                return true
+            }
+        )
+        #expect(
+            events.contains {
+                guard case .terminal(.scrollbarChanged(ScrollbarState(top: 900, bottom: 940, total: 1000))) = $0
+                else { return false }
+                return true
+            }
+        )
+        #expect(
+            events.contains {
+                guard case .terminal(.cwdChanged("/tmp/project")) = $0 else { return false }
+                return true
+            }
+        )
+    }
 }

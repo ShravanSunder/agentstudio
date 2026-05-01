@@ -4,12 +4,10 @@ import Testing
 
 @testable import AgentStudio
 
-/// Codex NEW P2 — `shouldCreateFirstDrawerPane` accepts a
-/// `requiresNeutralFocus` parameter but the body originally never
-/// read it. The local-monitor key path passes `true` so a raw `d`
-/// keystroke that fires while a text-input responder owns focus
-/// would still be intercepted to create a drawer pane (e.g. typing
-/// `d` into the command bar).
+/// The empty-drawer raw-character shortcut must not steal text input.
+/// The local-monitor path always requires neutral focus, and
+/// `performKeyEquivalent` only relaxes that gate for modified
+/// shortcuts such as cmd-shift-D.
 ///
 /// The neutral-responder helper is the gate. NSText (and its
 /// subclasses — NSTextView is what the field editor uses) absorb

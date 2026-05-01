@@ -4,7 +4,7 @@ struct WorkspaceFocusOwnerNormalizer {
     struct Context: Equatable, Sendable {
         let activeMainPaneId: UUID?
         let expandedDrawerParentPaneId: UUID?
-        let drawerPaneIds: [UUID]
+        let paneIds: [UUID]
         let activeDrawerPaneId: UUID?
         let minimizedDrawerPaneIds: Set<UUID>
     }
@@ -21,21 +21,21 @@ struct WorkspaceFocusOwnerNormalizer {
             return .mainPane(paneId: activeMainPaneId)
         }
 
-        let requestedParentPaneId: UUID? =
-            switch requested {
-            case .mainPane:
-                nil
-            case .emptyDrawer(let parentPaneId):
-                parentPaneId
-            case .drawerPane(let parentPaneId, _):
-                parentPaneId
-            }
+        let requestedParentPaneId: UUID
+        switch requested {
+        case .mainPane:
+            return .mainPane(paneId: activeMainPaneId)
+        case .emptyDrawer(let parentPaneId):
+            requestedParentPaneId = parentPaneId
+        case .drawerPane(let parentPaneId, _):
+            requestedParentPaneId = parentPaneId
+        }
 
-        guard requestedParentPaneId == nil || requestedParentPaneId == expandedDrawerParentPaneId else {
+        guard requestedParentPaneId == expandedDrawerParentPaneId else {
             return .mainPane(paneId: activeMainPaneId)
         }
 
-        let visibleDrawerPaneIds = context.drawerPaneIds.filter { paneId in
+        let visibleDrawerPaneIds = context.paneIds.filter { paneId in
             !context.minimizedDrawerPaneIds.contains(paneId)
         }
 

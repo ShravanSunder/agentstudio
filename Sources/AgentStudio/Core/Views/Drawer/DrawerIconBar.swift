@@ -16,6 +16,7 @@ private enum DrawerTooltipTarget: Hashable {
     case add
     case finder
     case chooser
+    case inbox
     case emptyAdd
 }
 
@@ -36,6 +37,7 @@ struct DrawerIconBar: View {
     @State private var isToggleHovered = false
     @State private var isFinderHovered = false
     @State private var isChooserHovered = false
+    @State private var isInboxHovered = false
     @State private var tooltipFrames: [DrawerTooltipTarget: CGRect] = [:]
 
     private enum TrailingActionIcon {
@@ -64,6 +66,12 @@ struct DrawerIconBar: View {
     private var chooserToolTip: String {
         AppCommand.openPaneLocationInEditorMenu.definition.controlToolTip(
             textOverride: "Open in Editor"
+        )
+    }
+
+    private var inboxToolTip: String {
+        AppCommand.showPaneInboxNotifications.definition.controlToolTip(
+            textOverride: "Open pane inbox"
         )
     }
 
@@ -183,10 +191,6 @@ struct DrawerIconBar: View {
                                 }
                                 .hoverTooltipAnchor(DrawerTooltipTarget.chooser, in: Self.tooltipCoordinateSpaceName)
 
-                                Divider()
-                                    .frame(height: AppStyles.Components.EditorChooser.dividerHeight)
-                                    .padding(.horizontal, AppStyles.Components.EditorChooser.dividerHorizontalPadding)
-
                                 trailingActionButton(
                                     icon: trailingActionIcon(for: finderPresentation.icon),
                                     helpText: finderToolTip,
@@ -200,6 +204,40 @@ struct DrawerIconBar: View {
                                     }
                                 }
                                 .hoverTooltipAnchor(DrawerTooltipTarget.finder, in: Self.tooltipCoordinateSpaceName)
+
+                                if let onOpenInbox = trailingActions.onOpenInbox {
+                                    trailingActionDivider
+
+                                    trailingActionButton(
+                                        icon: .system(name: "bell.fill"),
+                                        helpText: inboxToolTip,
+                                        isHovered: isInboxHovered,
+                                        action: onOpenInbox
+                                    )
+                                    .overlay(alignment: .topTrailing) {
+                                        if trailingActions.inboxUnreadCount > 0 {
+                                            Text("\(trailingActions.inboxUnreadCount)")
+                                                .font(.system(size: 9, weight: .semibold))
+                                                .padding(.horizontal, 4)
+                                                .padding(.vertical, 1)
+                                                .background(Capsule().fill(.red))
+                                                .foregroundStyle(.white)
+                                                .offset(x: 4, y: -4)
+                                        }
+                                    }
+                                    .onHover { hovering in
+                                        withAnimation(.easeInOut(duration: AppStyles.General.Animation.fast)) {
+                                            isInboxHovered = hovering
+                                        }
+                                    }
+                                    .hoverTooltipAnchor(DrawerTooltipTarget.inbox, in: Self.tooltipCoordinateSpaceName)
+                                    .popover(
+                                        isPresented: trailingActions.inboxPopoverPresented,
+                                        arrowEdge: .bottom
+                                    ) {
+                                        trailingActions.inboxPopoverContent
+                                    }
+                                }
                             }
                         }
                     }
@@ -227,12 +265,19 @@ struct DrawerIconBar: View {
         }
     }
 
+    private var trailingActionDivider: some View {
+        Divider()
+            .frame(height: AppStyles.Components.EditorChooser.dividerHeight)
+            .padding(.horizontal, AppStyles.Components.EditorChooser.dividerHorizontalPadding)
+    }
+
     private var activeTooltipTarget: DrawerTooltipTarget? {
         if trailingActions?.editorMenuPresented.wrappedValue == true { return nil }
         if isToggleHovered { return .toggle }
         if isAddHovered { return .add }
         if isChooserHovered { return .chooser }
         if isFinderHovered { return .finder }
+        if isInboxHovered { return .inbox }
         return nil
     }
 
@@ -246,6 +291,8 @@ struct DrawerIconBar: View {
             return finderToolTip
         case .chooser:
             return chooserToolTip
+        case .inbox:
+            return inboxToolTip
         case .emptyAdd:
             return nil
         }

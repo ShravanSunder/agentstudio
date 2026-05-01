@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 import os.log
 
-private let appLogger = Logger(subsystem: "com.agentstudio", category: "AppDelegate")
+let appLogger = Logger(subsystem: "com.agentstudio", category: "AppDelegate")
+
 @MainActor
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var mainWindowController: MainWindowController?
@@ -12,7 +13,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var store: WorkspaceStore!
     var repoCache: RepoCacheAtom! { atomStore.repoCache }
     var uiState: UIStateAtom! { atomStore.uiState }
+    var inboxNotificationAtom: InboxNotificationAtom!
+    var inboxNotificationPrefsAtom: InboxNotificationPrefsAtom!
+    var inboxNotificationStore: InboxNotificationStore!
+    var inboxNotificationRouter: InboxNotificationRouter!
+    var inboxPaneFocusTracker: PaneFocusTracker!
+    var paneInboxNotificationPresenter: PaneInboxNotificationPresenter!
+    var pendingPersistenceRecoveryEvents: [PersistenceRecoveryEvent] = []
+    var hasLoadedInboxNotificationStore = false
+    var terminalActivityRouter: TerminalActivityRouter!
     var repoCacheStore: RepoCacheStore!
+    var sidebarCacheStore: SidebarCacheStore!
     var uiStateStore: UIStateStore!
     var workspaceCacheCoordinator: WorkspaceCacheCoordinator!
     var watchedFolderCommands: (any WatchedFolderCommandHandling)!
@@ -31,6 +42,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     // MARK: - OAuth
     private var oauthService: OAuthService!
     private var filesystemPipelineBootTask: Task<Void, Never>?
+    private var terminationDrainTask: Task<Void, Never>?
     var launchRestoreObservationTask: Task<Void, Never>?
     var windowRestoreBridge: WindowRestoreBridge?
     let launchRestoreObservationState = AppDelegateLaunchRestoreObservationState()
@@ -79,14 +91,37 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             repositoryTopologyAtom: atomStore.workspaceRepositoryTopology,
             paneAtom: atomStore.workspacePane,
             tabLayoutAtom: atomStore.workspaceTabLayout,
-            mutationCoordinator: atomStore.workspaceMutationCoordinator
+            mutationCoordinator: atomStore.workspaceMutationCoordinator,
+            recoveryReporter: { [weak self] event in
+                self?.recordPersistenceRecovery(event)
+            }
         )
-        repoCacheStore = RepoCacheStore(atom: atomStore.repoCache)
-        uiStateStore = UIStateStore(atom: atomStore.uiState)
+        repoCacheStore = RepoCacheStore(
+            atom: atomStore.repoCache,
+            recoveryReporter: { [weak self] event in
+                self?.recordPersistenceRecovery(event)
+            }
+        )
+        sidebarCacheStore = SidebarCacheStore(
+            atom: atomStore.sidebarCache,
+            recoveryReporter: { [weak self] event in
+                self?.recordPersistenceRecovery(event)
+            }
+        )
+        uiStateStore = UIStateStore(
+            atom: atomStore.uiState,
+            editorChooserAtom: atomStore.editorChooser,
+            recoveryReporter: { [weak self] event in
+                self?.recordPersistenceRecovery(event)
+            }
+        )
+        inboxNotificationAtom = InboxNotificationAtom()
+        inboxNotificationPrefsAtom = InboxNotificationPrefsAtom()
+        paneInboxNotificationPresenter = PaneInboxNotificationPresenter()
         store.restore()
         managementLayerMonitor = ManagementLayerMonitor()
         appLifecycleStore = AppLifecycleAtom()
-        windowLifecycleStore = WindowLifecycleAtom()
+        windowLifecycleStore = atomStore.windowLifecycle
         applicationLifecycleMonitor = ApplicationLifecycleMonitor(
             appLifecycleStore: appLifecycleStore,
             windowLifecycleStore: windowLifecycleStore
@@ -99,12 +134,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private func bootLoadCacheStore(persistor: WorkspacePersistor) {
         _ = persistor
         repoCacheStore.restore(for: store.metadataAtom.workspaceId)
+        sidebarCacheStore.restore(for: store.metadataAtom.workspaceId)
         pruneStaleCache(store: store, repoCache: repoCache)
     }
 
     private func bootLoadUIStore(persistor: WorkspacePersistor) {
-        _ = persistor
         uiStateStore.restore(for: store.metadataAtom.workspaceId)
+        bootLoadInboxNotificationStore(persistor: persistor)
     }
 
     private func bootEstablishRuntimeBus(
@@ -153,8 +189,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         commandBarController = CommandBarPanelController(
             store: store,
             repoCache: repoCache,
-            dispatcher: .shared
+            dispatcher: .shared,
+            notificationInboxCommands: makeInboxNotificationCommands()
         )
+        bootStartInboxNotificationRouter(bus: paneRuntimeBus)
+        bootStartTerminalActivityRouter(bus: paneRuntimeBus)
         CommandDispatcher.shared.appCommandRouter = self
         oauthService = OAuthService()
     }
@@ -237,6 +276,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     /// SwiftUI read during tab-host creation sees stable slot identity instead of the lazy fallback.
     func seedSlotsForRestoredPanes() {
         guard store != nil, viewRegistry != nil else { return }
+        if store.paneAtom.panes.isEmpty {
+            viewRegistry.completeInitialRestore()
+        } else {
+            viewRegistry.beginInitialRestore()
+        }
         for paneId in store.paneAtom.panes.keys {
             viewRegistry.ensureSlot(for: paneId)
         }
@@ -326,6 +370,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             appLifecycleStore: appLifecycleStore,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry,
+            inboxAtom: inboxNotificationAtom,
+            inboxPrefsAtom: inboxNotificationPrefsAtom,
+            paneInboxPresenter: paneInboxNotificationPresenter,
             closeTransitionCoordinator: closeTransitionCoordinator
         )
         mainWindowController?.prepareLaunchMaximizeAndRestore()
@@ -505,6 +552,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 appLifecycleStore: appLifecycleStore,
                 tabBarAdapter: tabBarAdapter,
                 viewRegistry: viewRegistry,
+                inboxAtom: inboxNotificationAtom,
+                inboxPrefsAtom: inboxNotificationPrefsAtom,
+                paneInboxPresenter: paneInboxNotificationPresenter,
                 closeTransitionCoordinator: closeTransitionCoordinator
             )
             mainWindowController?.showWindow(nil)
@@ -515,24 +565,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard let store else { return .terminateNow }
 
-        do {
-            try repoCacheStore.flush(for: store.metadataAtom.workspaceId)
-        } catch {
-            appLogger.warning("Workspace cache flush failed at termination: \(error.localizedDescription)")
+        guard terminationDrainTask == nil else { return .terminateLater }
+        terminationDrainTask = Task { @MainActor [weak self] in
+            await self?.flushApplicationStateBeforeTermination(store: store)
+            sender.reply(toApplicationShouldTerminate: true)
         }
-
-        do {
-            try uiStateStore.flush(for: store.metadataAtom.workspaceId)
-        } catch {
-            appLogger.warning("Workspace UI flush failed at termination: \(error.localizedDescription)")
-        }
-
-        // Always flush on quit — the pre-persist hook syncs runtime webview state
-        // back to the pane model, so this must run even when isDirty == false.
-        if !store.flush() {
-            appLogger.warning("Workspace flush failed at termination")
-        }
-        return .terminateNow
+        return .terminateLater
     }
 
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
@@ -677,7 +715,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         // View menu
         let viewMenu = NSMenu(title: "View")
-        viewMenu.addItem(menuItem(command: .toggleSidebar, action: #selector(toggleSidebar)))
         viewMenu.addItem(menuItem(command: .filterSidebar, action: #selector(filterSidebar)))
         viewMenu.addItem(NSMenuItem.separator())
 
@@ -750,7 +787,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         window.makeKeyAndOrderFront(nil)
     }
 
-    @objc private func newWindow() {
+    @objc func newWindow() {
         showOrCreateMainWindow()
     }
 
@@ -766,13 +803,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         CommandDispatcher.shared.dispatch(.undoCloseTab)
     }
 
-    @objc private func closeWindow() {
+    @objc func closeWindow() {
         NSApp.keyWindow?.close()
     }
 
     // MARK: - Repo/Folder Intake
 
-    private func handleWatchFolderRequested(startingAt initialURL: URL? = nil) async {
+    func handleWatchFolderRequested(startingAt initialURL: URL? = nil) async {
         let welcome = atomStore.welcome
         welcome.beginChoosingFolder()
         defer { welcome.endChoosingFolder() }
@@ -866,7 +903,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         CommandDispatcher.shared.dispatch(.openWebview)
     }
 
-    private func handleSignInRequested(provider: OAuthProvider) {
+    func handleSignInRequested(provider: OAuthProvider) {
         guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
             appLogger.warning("No window available for OAuth")
             return
@@ -898,74 +935,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
     @objc private func showCommandBarPanes() {
         CommandDispatcher.shared.dispatch(.showCommandBarPanes)
-    }
-
-}
-// MARK: - ShellCommandHandling
-
-extension AppDelegate: ShellCommandHandling {
-    func canExecute(_ command: AppCommand) -> Bool {
-        switch command {
-        case .watchFolder, .toggleSidebar, .filterSidebar, .signInGitHub, .signInGoogle,
-            .newWindow, .closeWindow,
-            .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
-            true
-        default: false
-        }
-    }
-
-    func execute(_ command: AppCommand) -> Bool {
-        switch command {
-        case .watchFolder:
-            Task { await handleWatchFolderRequested() }
-            return true
-        case .toggleSidebar:
-            mainWindowController?.toggleSidebar()
-            return true
-        case .filterSidebar:
-            mainWindowController?.showSidebarFilter()
-            return true
-        case .newWindow:
-            newWindow()
-            return true
-        case .closeWindow:
-            closeWindow()
-            return true
-        case .showCommandBarEverything:
-            showCommandBar(prefix: nil, context: "command bar")
-            return true
-        case .showCommandBarCommands:
-            showCommandBar(prefix: ">", context: "command bar (commands)")
-            return true
-        case .showCommandBarPanes:
-            showCommandBar(prefix: "$", context: "command bar (panes)")
-            return true
-        case .showCommandBarRepos:
-            showCommandBar(prefix: "#", context: "command bar (repos)")
-            return true
-        case .signInGitHub:
-            handleSignInRequested(provider: .github)
-            return true
-        case .signInGoogle:
-            handleSignInRequested(provider: .google)
-            return true
-        default: return false
-        }
-    }
-
-    func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
-        switch (command, targetType) {
-        default: return false
-        }
-    }
-
-    private func showCommandBar(prefix: String?, context: String) {
-        appLogger.info("showCommandBar context=\(context, privacy: .public)")
-        guard let window = NSApp.keyWindow ?? mainWindowController?.window else {
-            appLogger.warning("No window available for \(context, privacy: .public)")
-            return
-        }
-        commandBarController.show(prefix: prefix, parentWindow: window)
     }
 
 }

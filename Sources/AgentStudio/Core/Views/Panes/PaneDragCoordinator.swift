@@ -136,7 +136,7 @@ struct PaneDragCoordinator {
         // and the policy still accepts it. This preserves "ride through
         // layout jitter" behavior.
         guard let currentTarget else { return nil }
-        let currentDropTarget = dropTarget(from: currentTarget, sortedPaneIds: sortedPaneIds)
+        let currentDropTarget = dropTarget(from: currentTarget)
         if let currentDropTarget,
             applySourceFilter(
                 rawTarget: currentDropTarget,
@@ -336,19 +336,12 @@ struct PaneDragCoordinator {
         return PaneDropTarget(paneId: sortedPaneIds[slotIndex - 1], zone: .right, sizingTarget: sizingTarget)
     }
 
-    private static func dropTarget(from target: PaneDropTarget, sortedPaneIds: [UUID]) -> DropTarget? {
+    private static func dropTarget(from target: PaneDropTarget) -> DropTarget? {
         switch target.sizingTarget {
         case .paneSlot, .paneSplit:
             return target.sizingTarget
         case .paneNewRow:
-            break
-        }
-        guard let index = sortedPaneIds.firstIndex(of: target.paneId) else { return nil }
-        switch target.zone {
-        case .left:
-            return .paneSlot(row: .main, index: index)
-        case .right:
-            return .paneSlot(row: .main, index: index + 1)
+            return nil
         }
     }
 

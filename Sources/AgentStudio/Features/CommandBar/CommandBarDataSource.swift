@@ -25,6 +25,7 @@ enum CommandBarDataSource {
         static let windowCommands = "Window"
         static let webviewCommands = "Webview"
         static let authCommands = "Auth"
+        static let inboxCommands = "Inbox"
     }
 
     enum Priority {
@@ -43,7 +44,8 @@ enum CommandBarDataSource {
         scope: CommandBarScope,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        dispatcher: CommandDispatcher
+        dispatcher: CommandDispatcher,
+        notificationInboxCommands: InboxNotificationCommands? = nil
     ) -> [CommandBarItem] {
         let workspaceTab = WorkspaceTabDerived(
             shellAtom: store.tabShellAtom,
@@ -59,7 +61,8 @@ enum CommandBarDataSource {
             store: store,
             repoCache: repoCache,
             dispatcher: dispatcher,
-            focus: focus
+            focus: focus,
+            notificationInboxCommands: notificationInboxCommands
         )
     }
 
@@ -68,7 +71,8 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         dispatcher: CommandDispatcher,
-        focus: WorkspacePaneFocus
+        focus: WorkspacePaneFocus,
+        notificationInboxCommands: InboxNotificationCommands? = nil
     ) -> [CommandBarItem] {
         switch scope {
         case .everything:
@@ -79,6 +83,8 @@ enum CommandBarDataSource {
             return paneAndTabItems(store: store, repoCache: repoCache)
         case .repos:
             return repoScopeItems(store: store)
+        case .inbox:
+            return inboxItems(commands: notificationInboxCommands)
         }
     }
 
@@ -668,7 +674,7 @@ enum CommandBarDataSource {
         {
             items = drawer.paneIds.enumerated().compactMap { index, drawerPaneId -> CommandBarItem? in
                 guard let drawerPane = workspacePane.pane(drawerPaneId) else { return nil }
-                let isActive = drawer.activePaneId == drawerPaneId
+                let isActive = drawer.activeChildId == drawerPaneId
                 return CommandBarItem(
                     id: "target-drawer-\(drawerPaneId.uuidString)",
                     title: paneDisplayLabel(for: drawerPane, store: store, repoCache: repoCache),

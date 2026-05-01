@@ -33,49 +33,55 @@ Sources/AgentStudio/
 │
 ├── Core/                             # Shared domain — pane system, models, state, runtime contracts
 │   ├── Actions/                      # PaneActionCommand, WorkspaceCommandResolver, WorkspaceCommandValidator, command/action metadata
-│   ├── Models/                       # Pane, Layout, Tab, Repo, Worktree, arrangement, FlatTabStripMetrics
+│   ├── Models/                       # Pane, Layout, Tab, Repo, Worktree, arrangement, FlatTabStripMetrics,
+│   │                                 #   composition-cutting enums (SidebarSurface, KeyboardOwner)
 │   ├── RuntimeEventSystem/           # Shared pane-runtime contracts, buses, projectors
 │   ├── State/
 │   │   └── MainActor/
 │   │       ├── Atoms/                # Workspace atoms, lifecycle atoms, repo/UI atoms, derived readers
 │   │       └── Persistence/          # WorkspaceStore, RepoCacheStore, UIStateStore
-│   └── Views/                        # Shared split/tree/drawer primitives
+│   └── Views/                        # Shared pane/tree/drawer primitives
 │       ├── Drawer/                   # DrawerLayout, DrawerPanel, DrawerOverlay, DrawerIconBar
-│       └── Splits/                   # FlatTabStripContainer, FlatPaneStripContent, CollapsedPaneBar,
+│       └── Panes/                    # FlatTabStripContainer, FlatPaneStripContent, CollapsedPaneBar,
 │                                     #   PaneLeafContainer, SplitContainerDropCaptureOverlay,
 │                                     #   PaneDragCoordinator, PaneDropTargetOverlay, SplitView
 │
-├── SharedComponents/                 # Reusable UI building blocks
-│   └── EditorChooser/                # Editor chooser menu content + row item model
-│
-├── Features/
+├── Features/                         # Each feature is a self-contained slice (see §Feature Slice
+│   │                                 #   Self-Containment below)
 │   ├── Bridge/                       # React/WebView pane system
-│   │   ├── Transport/                # JSON-RPC transport and bootstrap wiring
-│   │   │   ├── RPCRouter.swift
-│   │   │   ├── RPCMethod.swift
-│   │   │   ├── RPCMessageHandler.swift
-│   │   │   ├── BridgeBootstrap.swift
-│   │   │   ├── BridgeSchemeHandler.swift
-│   │   │   └── Methods/              # AgentMethods, DiffMethods, ReviewMethods, SystemMethods
-│   │   ├── Runtime/                  # BridgePaneController runtime/lifecycle orchestration
-│   │   ├── State/                    # Domain state + push state transport
-│   │   │   ├── BridgeDomainState.swift
-│   │   │   ├── BridgePaneState.swift
-│   │   │   └── Push/                 # PushTransport, PushPlan, Slice, EntitySlice, RevisionClock
-│   │   ├── Views/                    # BridgePaneMountView, BridgePaneContentView
-│   │   └── BridgeNavigationDecider.swift
+│   │   ├── Components/               # Reusable views within Bridge
+│   │   ├── Models/                   # Domain types owned by Bridge
+│   │   ├── Routing/                  # Bus subscribers / focus trackers
+│   │   ├── State/
+│   │   │   └── MainActor/
+│   │   │       ├── Atoms/            # BridgeDomainState, BridgePaneState, Push/*
+│   │   │       └── Persistence/      # (if needed)
+│   │   ├── Transport/                # Feature-specific (JSON-RPC): RPCRouter, RPCMethod, ...
+│   │   └── Views/                    # Composable screens
 │   │
 │   ├── CodeViewer/                   # Native code-viewer pane mount view
 │   ├── CommandBar/                   # ⌘P command palette
-│   ├── Sidebar/                      # Sidebar content and row/group rendering
+│   ├── RepoExplorer/                 # (renamed from Features/Sidebar/ in LUNA-361; the repo
+│   │                                 #   explorer feature. The sidebar itself is composition
+│   │                                 #   in App/, not a feature)
 │   ├── Terminal/                     # Everything Ghostty-specific
+│   │   ├── Components/               # Reusable views within Terminal
 │   │   ├── Ghostty/                  # C API bridge, SurfaceManager, SurfaceTypes
 │   │   ├── Hosting/                  # TerminalPaneMountView, GhosttyMountView, placeholder hosting
+│   │   ├── Models/                   # Feature-owned domain types
 │   │   ├── Restore/                  # Terminal restore scheduling/runtime
+│   │   ├── Routing/                  # Feature-local bus subscribers
 │   │   ├── Runtime/                  # TerminalRuntime
+│   │   ├── State/MainActor/          # Atoms/ and Persistence/ when feature holds state
 │   │   └── Views/                    # SurfaceErrorOverlay, SurfaceStartupOverlay
 │   │
 │   └── Webview/                      # Plain browser pane controller/runtime/views
+│
+├── SharedComponents/                 # Stateless, cross-app UI primitives (design system).
+│   │                                 #   Imports ONLY from Infrastructure.
+│   │                                 #   Never subscribes to atoms; state flows via bindings
+│   │                                 #   and value parameters.
+│   └── EditorChooser/                # Editor chooser menu content + row item model
 │
 ├── Infrastructure/                   # Utilities used by anyone, domain-agnostic
 │   ├── AtomLib/                      # AtomRegistry, AtomScope, AtomReader, Derived, DerivedSelector
@@ -93,6 +99,8 @@ Sources/AgentStudio/
 └── Package.swift
 ```
 
+> **Note on existing feature directories:** the tree above shows the target convention. Existing features like `Features/Bridge/State/` (without the `MainActor/` subpath) are grandfathered — they predate the convention and migrate in follow-up tickets. All NEW features adopt the full `State/MainActor/{Atoms,Persistence}/` path from day one.
+
 ---
 
 ## Import Rule (Hard Boundary)
@@ -100,16 +108,121 @@ Sources/AgentStudio/
 This is the single most important constraint. It determines where every file lives:
 
 ```
-App/            ──imports──►  Core/, Features/, SharedComponents/, Infrastructure/
-Features/*      ──imports──►  Core/, SharedComponents/, Infrastructure/
+App/              ──imports──►  Core/, Features/, Infrastructure/, SharedComponents/
+Features/*        ──imports──►  Core/, Infrastructure/, SharedComponents/
+Core/             ──imports──►  Infrastructure/
 SharedComponents/ ──imports──►  Infrastructure/
-Core/           ──imports──►  Infrastructure/
-Infrastructure/ ──imports──►  (nothing internal)
+Infrastructure/   ──imports──►  (nothing internal)
 ```
 
-**Never:** `Core/ → Features/`, `Core/ → SharedComponents/`, `Features/X → Features/Y`, `Infrastructure/ → Core/`
+**Never:** `Core/ → Features/`, `Features/X → Features/Y`, `Core/ → App/`, `SharedComponents/ → Core|Features|App`, `Infrastructure/ → anything above`
 
 If a file needs to know about `SurfaceManager` (Terminal) **and** `BridgePaneController` (Bridge), it can't be in `Core`. It lives in `App/` (composition root) or uses protocols defined in `Core/`.
+
+### Feature Slice Self-Containment
+
+Every feature slice under `Features/<slice>/` owns its own state, models, components, views, and routing. Features do not import each other; they do not leak types into Core.
+
+#### What lives inside a feature slice
+
+```
+Features/<slice>/
+├── Components/                   Reusable views within this feature.
+│                                 Can compose SharedComponents/, can
+│                                 accept @Binding / callbacks, should
+│                                 generally be stateless or hold only
+│                                 ephemeral view state.
+│
+├── Models/                       Domain types owned by this feature.
+│                                 Stay feature-local when possible.
+│                                 Move to Core/Models/ only when
+│                                 genuinely cross-cutting.
+│
+├── Routing/                      Event bus subscribers, focus
+│                                 trackers, other reactive glue.
+│                                 Leaf subscribers on the bus.
+│
+├── State/
+│   └── MainActor/
+│       ├── Atoms/                @MainActor @Observable canonical
+│       │                         state, private(set) reads,
+│       │                         mutation via methods. One atom
+│       │                         per domain, one reason to change.
+│       │
+│       └── Persistence/          Store wrappers over the atoms.
+│                                 One store per persistence boundary;
+│                                 may wrap one or many atoms that
+│                                 persist together.
+│
+└── Views/                        Composable screens — top-level
+                                  views the feature presents.
+                                  Compose Components/ and
+                                  SharedComponents/. Connect to
+                                  feature atoms via injection.
+```
+
+#### Universal path for atoms and stores
+
+`State/MainActor/{Atoms,Persistence}/` is the path for atoms and stores **everywhere**:
+
+- Core atoms live at `Core/State/MainActor/Atoms/`
+- Feature atoms live at `Features/<slice>/State/MainActor/Atoms/`
+- Core stores live at `Core/State/MainActor/Persistence/`
+- Feature stores live at `Features/<slice>/State/MainActor/Persistence/`
+
+The `MainActor/` segment makes actor isolation visible in the filesystem and leaves room for future actor-scoped paths if other isolation domains ever earn their own atom homes.
+
+#### Composition state vs feature state
+
+There are two kinds of state. They live in different places:
+
+- **Composition state** — app-wide UI shell state generic enough that multiple features consume it. Examples: sidebar collapsed / current surface / has-focus. Lives on `UIStateAtom` in Core. Generic tags only — does not reference feature-specific types.
+
+- **Feature state** — domain data owned by one feature. Examples: notification log, inbox view prefs, repo-explorer expanded groups. Lives in feature atoms inside the feature slice. Never leaks into Core.
+
+If you are tempted to add a feature-specific property to `UIStateAtom`, that property belongs in a feature atom instead. If you are tempted to add a feature type to `Core/Models/`, test it: does *multiple features* and *cross-cutting composition* consume it? If only one feature uses it, it belongs in that feature.
+
+#### The Core-imports-nothing-from-Features rule
+
+Feature atoms cannot be registered in `AtomRegistry` (which lives in `Infrastructure/` and must not import Features). Feature atoms are instantiated at the composition root (`App/Boot/`) and injected into the feature's views and routers. Views outside the feature slice — e.g., composition views in `App/` that host the feature — receive the feature's atom through the same injection path.
+
+Core views (e.g., `DrawerOverlay`, `DrawerIconBar`) that need to display feature-owned data take that data as props (struct parameters). The caller that supplies the props lives in a layer that *can* import the feature — usually `App/` or a different feature if called from there (which would then require the caller to be in `App/` per the cross-feature rule).
+
+### SharedComponents — the design-system layer
+
+`Sources/AgentStudio/SharedComponents/` is a single top-level directory holding stateless UI primitives used across the app. Buttons, pills, typography tokens, icon wrappers, small custom controls, layout primitives — the design system.
+
+#### Rules
+
+**Stateless.** Shared components do not subscribe to atoms. They do not hold observable state. They accept input via `@Binding`, value parameters, and closures for actions. They render from those inputs and emit intentions via the closures.
+
+**Imports only from Infrastructure.** `SharedComponents/` can import `Infrastructure/`, SwiftUI, AppKit, Foundation, and stdlib. It must not import `Core/`, `Features/`, or `App/`.
+
+**Imported by anyone.** Any layer (`Core/`, `Features/`, `App/`) can import from `SharedComponents/` freely.
+
+**Extract on second use.** When two surfaces need the same visual control or row primitive, extract the shared rendering into `SharedComponents/` and pass feature-specific data/actions as values and closures. Do not keep parallel hand-rolled controls that drift in spacing, typography, or focus treatment.
+
+**Style and policy source.** Shared components may consume `AppStyles` presentation tokens through `Infrastructure/`, but they should not own policy decisions. Behavioral limits, routing decisions, caps, and validation thresholds belong in `AppPolicies` and are applied by the feature/composition owner before values reach the component.
+
+#### What belongs here
+
+- Reusable buttons with consistent styling
+- Pills, chips, badges
+- Search fields and shell controls reused by sidebar surfaces, such as `SidebarSearchField`
+- Typography / color tokens
+- Layout primitives with design intent (e.g., `DividerBar`, `SectionStack`)
+- Icon wrappers (`OcticonImage` could reasonably live here; today it's in `Infrastructure/Icons/` — existing placement is grandfathered until a dedicated refactor)
+- Custom controls not tied to any feature's domain
+
+#### What does NOT belong here
+
+- Views that read from atoms → these are feature or composition views
+- Views that import from a specific feature → these are feature or composition views
+- Anything tied to a single feature's domain (those are feature `Components/`)
+
+#### Naming rationale
+
+"Components" at top level would collide semantically with feature-level `Components/`. Adding the `Shared` prefix makes it unambiguous. A bit verbose, but unambiguous beats cute.
 
 ### Slice Vocabulary (Core Slice vs Vertical Slice)
 
@@ -162,7 +275,8 @@ What does this file need to import (from within the project)?
 |---|---|
 | Multiple Features | `App/` (composition root) |
 | One Feature only | That `Features/X/` directory |
-| Only Core + Infrastructure | `Core/` |
+| Only Core + Infrastructure + SharedComponents | `Core/` |
+| Only Infrastructure (and it's a stateless UI primitive) | `SharedComponents/` |
 | Nothing internal | `Infrastructure/` |
 
 ### 2. The Deletion Test
@@ -182,6 +296,10 @@ What causes this file to change?
 | New terminal behavior (scrollbar, action, clipboard) | `Features/Terminal/` |
 | New bridge protocol method or push slice | `Features/Bridge/` |
 | App lifecycle / window management | `App/` |
+| New sidebar surface added | New `Features/<surface>/` slice + composition wiring in `App/` |
+| New sidebar shell / composition state | `UIStateAtom` in `Core/State/MainActor/Atoms/` (UI shell state is composition, not feature state) |
+| New design-system primitive (button, pill, token) | `SharedComponents/` |
+| New reusable view within a single feature | `Features/X/Components/` |
 | New utility used by multiple features | `Infrastructure/` |
 
 ### 4. The Multiplicity Test
@@ -202,14 +320,37 @@ Q2: Does it import from ONE Feature?
     YES → that Feature/
     NO  → continue
 
-Q3: Is it a utility/tool used by anyone?
+Q3: Is it a stateless UI primitive that could be used anywhere?
+    (no atom subscriptions, state via @Binding / parameters only,
+     imports only Infrastructure)
+    YES → SharedComponents/
+    NO  → continue
+
+Q4: Is it a utility/tool used by anyone?
     YES → Infrastructure/
     NO  → continue
 
-Q4: Is it a domain model, store, or service
+Q5: Is it a domain model, store, or service
     that the pane system needs regardless of pane type?
     YES → Core/
     NO  → re-evaluate (something was missed)
+
+---
+
+Parallel test for atoms specifically:
+
+  Is the state I'm storing:
+    • composition state (app-wide UI shell — surface, focus, collapsed)?
+        → UIStateAtom in Core/State/MainActor/Atoms/
+
+    • feature domain state (specific to one feature)?
+        → new atom in Features/<slice>/State/MainActor/Atoms/
+
+    • cross-cutting primitive needed by multiple features AND App?
+        → new atom in Core/State/MainActor/Atoms/
+
+  Never add a feature-specific property to a Core atom.
+  Never add a feature type to Core/Models/ "because an atom references it."
 ```
 
 ---

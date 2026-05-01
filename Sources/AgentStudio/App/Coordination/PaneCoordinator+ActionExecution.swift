@@ -486,7 +486,7 @@ extension PaneCoordinator {
             let willBecomeEmptyDrawer =
                 drawerBeforeRemoval?.paneIds.contains { $0 != drawerPaneId } == false
             if let drawer = drawerBeforeRemoval,
-                drawer.activePaneId == drawerPaneId
+                drawer.activeChildId == drawerPaneId
             {
                 let preRemovalFallbackPaneId = drawer.paneIds.first { candidatePaneId in
                     candidatePaneId != drawerPaneId && !drawer.minimizedPaneIds.contains(candidatePaneId)
@@ -502,7 +502,7 @@ extension PaneCoordinator {
             teardownView(for: drawerPaneId)
             store.paneAtom.removeDrawerPane(drawerPaneId, from: parentPaneId)
             viewRegistry.retireSlot(for: drawerPaneId)
-            if let activeDrawerPaneId = store.paneAtom.pane(parentPaneId)?.drawer?.activePaneId {
+            if let activeDrawerPaneId = store.paneAtom.pane(parentPaneId)?.drawer?.activeChildId {
                 focusVisiblePaneHost(activeDrawerPaneId)
             } else if willBecomeEmptyDrawer {
                 _ = clearFirstResponderToWindowContent(for: parentPaneId)
@@ -514,7 +514,7 @@ extension PaneCoordinator {
             store.paneAtom.toggleDrawer(for: paneId)
             if let drawer = store.paneAtom.pane(paneId)?.drawer,
                 drawer.isExpanded,
-                let activeDrawerPaneId = drawer.activePaneId
+                let activeDrawerPaneId = drawer.activeChildId
             {
                 restoreViewsForActiveTabIfNeeded()
                 focusVisiblePaneHost(activeDrawerPaneId)

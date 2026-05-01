@@ -43,6 +43,7 @@ struct ShortcutCatalogTests {
         let quickOpenDefinition = CommandDispatcher.shared.definition(for: .showCommandBarEverything)
         let startContextDefinition = CommandDispatcher.shared.definition(for: .showCommandBarRepos)
         let addDrawerPaneDefinition = CommandDispatcher.shared.definition(for: .addDrawerPane)
+        let paneInboxDefinition = CommandDispatcher.shared.definition(for: .showPaneInboxNotifications)
 
         #expect(managementLayerDefinition.keyBinding?.key == "r")
         #expect(managementLayerDefinition.keyBinding?.modifiers == [.command])
@@ -52,6 +53,9 @@ struct ShortcutCatalogTests {
         #expect(startContextDefinition.keyBinding?.modifiers == [.command])
         #expect(addDrawerPaneDefinition.keyBinding?.key == "d")
         #expect(addDrawerPaneDefinition.keyBinding?.modifiers == [.command, .shift])
+        #expect(paneInboxDefinition.keyBinding?.key == "i")
+        #expect(paneInboxDefinition.keyBinding?.modifiers == [.command, .shift])
+        #expect(paneInboxDefinition.actionSpec.label == "Show Pane Inbox")
     }
 
     @Test
@@ -80,13 +84,83 @@ struct ShortcutCatalogTests {
     }
 
     @Test
+    func shortcutDecoder_decodesSidebarSurfaceShortcuts() {
+        let showInbox = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.i), modifiers: [.command]),
+            in: .global
+        )
+        let showRepos = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.s), modifiers: [.command]),
+            in: .global
+        )
+
+        #expect(showInbox == .showInboxNotifications)
+        #expect(showRepos == .showWorktreeSidebar)
+    }
+
+    @Test
+    func shortcutDecoder_decodesPaneInboxShortcut() {
+        let showPaneInbox = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.i), modifiers: [.command, .shift]),
+            in: .global
+        )
+        let terminalShowPaneInbox = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.i), modifiers: [.command, .shift]),
+            in: .terminalAppOwned
+        )
+
+        #expect(showPaneInbox == .showPaneInboxNotifications)
+        #expect(terminalShowPaneInbox == .showPaneInboxNotifications)
+    }
+
+    @Test
+    func shortcutDecoder_decodesSidebarSurfaceShortcutsInTerminalPanes() {
+        let showInbox = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.i), modifiers: [.command]),
+            in: .terminalAppOwned
+        )
+        let showRepos = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.s), modifiers: [.command]),
+            in: .terminalAppOwned
+        )
+
+        #expect(showInbox == .showInboxNotifications)
+        #expect(showRepos == .showWorktreeSidebar)
+    }
+
+    @Test
+    func shortcutDecoder_decodesSidebarFilterShortcut() {
+        let showFilter = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.f), modifiers: [.command]),
+            in: .global
+        )
+
+        #expect(showFilter == .filterSidebar)
+    }
+
+    @Test
     func shortcutDecoder_decodesAddDrawerPaneShortcut() {
         let addDrawerPane = ShortcutDecoder.shortcut(
             for: .init(key: .character(.d), modifiers: [.command, .shift]),
             in: .global
         )
+        let rawPGlobal = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.p), modifiers: []),
+            in: .global
+        )
+        let rawPTerminal = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.p), modifiers: []),
+            in: .terminalAppOwned
+        )
+        let rawPEmptyDrawer = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.p), modifiers: []),
+            in: .emptyDrawer
+        )
 
         #expect(addDrawerPane == .addDrawerPane)
+        #expect(rawPGlobal == nil)
+        #expect(rawPTerminal == nil)
+        #expect(rawPEmptyDrawer == .addDrawerPane)
     }
 
     @Test
@@ -172,19 +246,18 @@ struct ShortcutCatalogTests {
             for: .init(key: .character(.d), modifiers: []),
             in: .managementLayer
         )
+        let openDrawerWithDownArrow = ShortcutDecoder.shortcut(
+            for: .init(key: .arrow(.down), modifiers: []),
+            in: .managementLayer
+        )
         let exitMode = ShortcutDecoder.shortcut(
             for: .init(key: .character(.r), modifiers: []),
             in: .managementLayer
         )
 
         #expect(focusLeft == .managementLayerFocusLeft)
-        #expect(
-            ShortcutDecoder.shortcut(
-                for: .init(key: .arrow(.down), modifiers: []),
-                in: .managementLayer
-            ) == nil
-        )
         #expect(openDrawer == .managementLayerOpenDrawer)
+        #expect(openDrawerWithDownArrow == .managementLayerOpenDrawer)
         #expect(exitMode == .managementLayerExit)
     }
 

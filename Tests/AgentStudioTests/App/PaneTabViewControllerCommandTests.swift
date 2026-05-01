@@ -211,10 +211,10 @@ struct PaneTabViewControllerCommandTests {
         }
 
         harness.store.setActiveDrawerPane(drawerPane.id, in: parentPane.id)
-        atom(\.uiState).setBookmarkedEditor("missing-editor")
+        atom(\.editorChooser).setBookmarkedEditor("missing-editor")
 
         harness.controller.execute(.openPaneLocationInBookmarkedEditor)
-        #expect(atom(\.uiState).editorChooserState.bookmarkedEditorId == nil)
+        #expect(atom(\.editorChooser).state.bookmarkedEditorId == nil)
         #expect(harness.launchRecorder.openedEditors.count == 1)
         #expect(harness.launchRecorder.openedEditors.first?.id == ExternalEditorTarget.cursor.id)
         #expect(
@@ -246,8 +246,72 @@ struct PaneTabViewControllerCommandTests {
 
         harness.controller.execute(.openPaneLocationInEditorMenu)
 
-        #expect(atom(\.uiState).editorChooserState.openForPaneId == drawerPane.id)
+        #expect(atom(\.editorChooser).state.openForPaneId == drawerPane.id)
     }
+
+    @Test("showPaneInboxNotifications opens for parent pane plus drawer children")
+    func executeShowPaneInboxNotifications_opensPaneInboxPresenter() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let parentPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+
+        harness.controller.execute(.showPaneInboxNotifications)
+
+        #expect(harness.paneInboxPresenter.request?.parentPaneId == parentPane.id)
+        #expect(harness.paneInboxPresenter.request?.paneIds == [parentPane.id, drawerPane.id])
+    }
+
+    @Test("showPaneInboxNotifications resolves drawer child focus to parent pane scope")
+    func executeShowPaneInboxNotifications_fromPaneInboxChildFocusOpensParentPaneInbox() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let parentPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let firstDrawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+        let secondDrawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+        harness.store.setActivePane(firstDrawerPane.id, inTab: tab.id)
+
+        harness.controller.execute(.showPaneInboxNotifications)
+
+        #expect(harness.paneInboxPresenter.request?.parentPaneId == parentPane.id)
+        #expect(
+            harness.paneInboxPresenter.request?.paneIds == [parentPane.id, firstDrawerPane.id, secondDrawerPane.id])
+    }
+
+    @Test("showPaneInboxNotifications opens for parent pane without drawer children")
+    func executeShowPaneInboxNotifications_withoutDrawerChildrenOpensForParentPane() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+
+        harness.controller.execute(.showPaneInboxNotifications)
+
+        #expect(harness.paneInboxPresenter.request?.parentPaneId == pane.id)
+        #expect(harness.paneInboxPresenter.request?.paneIds == [pane.id])
+    }
+
     @Test("openPaneLocationInFinder forwards the selected pane path to Finder")
     func executeOpenPaneLocationInFinder_revealsSelectedPanePath() {
         let harness = makeHarness()

@@ -592,7 +592,7 @@ struct PaneCoordinatorHardeningTests {
         let drawer = try #require(harness.store.pane(parent.id)?.drawer)
         #expect(drawer.isExpanded)
         #expect(drawer.paneIds.isEmpty)
-        #expect(drawer.activePaneId == nil)
+        #expect(drawer.activeChildId == nil)
     }
 
     @Test("repair recreateSurface registers preparing placeholder when geometry is unavailable")

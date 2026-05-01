@@ -101,7 +101,7 @@ struct PaneCoordinatorSlotLifecycleTests {
 
         let drawer = try #require(harness.store.pane(parent.id)?.drawer)
         #expect(drawer.paneIds == [third.id])
-        #expect(drawer.activePaneId == third.id)
+        #expect(drawer.activeChildId == third.id)
         #expect(harness.viewRegistry.isRetiredForTesting(first.id))
         #expect(harness.viewRegistry.isRetiredForTesting(second.id))
         #expect(harness.viewRegistry.peekSlotForTesting(first.id) === firstSlot)
@@ -129,7 +129,7 @@ struct PaneCoordinatorSlotLifecycleTests {
         harness.coordinator.execute(.addDrawerPane(parentPaneId: parent.id))
 
         let drawer = try #require(harness.store.pane(parent.id)?.drawer)
-        let newChildId = try #require(drawer.activePaneId)
+        let newChildId = try #require(drawer.activeChildId)
         #expect(drawer.paneIds == [newChildId])
         #expect(newChildId != closedChild.id)
         #expect(harness.viewRegistry.peekSlotForTesting(newChildId) != nil)

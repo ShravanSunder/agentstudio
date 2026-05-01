@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import GhosttyKit
+import SwiftUI
 import Testing
 
 @testable import AgentStudio
@@ -26,6 +27,7 @@ struct PaneTabViewControllerCommandHarness {
     let tempDir: URL
     let tabRenamePopoverState: TabRenamePopoverState
     let arrangementInlineRenameState: ArrangementInlineRenameState
+    let paneInboxPresenter: PaneInboxNotificationPresenter
     let launchRecorder: PaneTabViewControllerCommandLaunchRecorder
 }
 
@@ -57,6 +59,7 @@ func makePaneTabViewControllerCommandHarness(
     let windowLifecycleStore = WindowLifecycleAtom()
     let tabRenamePopoverState = TabRenamePopoverState()
     let arrangementInlineRenameState = ArrangementInlineRenameState()
+    let paneInboxPresenter = PaneInboxNotificationPresenter()
     let launchRecorder = PaneTabViewControllerCommandLaunchRecorder()
     let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
         appLifecycleStore: appLifecycleStore,
@@ -80,6 +83,17 @@ func makePaneTabViewControllerCommandHarness(
         executor: executor,
         tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
         viewRegistry: viewRegistry,
+        paneInboxPresentation: PaneInboxPresentation(
+            unreadCount: { _ in 0 },
+            open: { parentPaneId, paneIds in
+                paneInboxPresenter.open(parentPaneId: parentPaneId, paneIds: paneIds)
+            },
+            pendingRequest: { paneInboxPresenter.request },
+            clearRequest: { request in
+                paneInboxPresenter.clearRequest(request)
+            },
+            popoverContent: { _, _ in AnyView(EmptyView()) }
+        ),
         installedEditorTargetsProvider: { [.cursor, .vscode] },
         openEditorHandler: { editorId, path, _ in
             launchRecorder.openedEditors.append((id: editorId, path: path))
@@ -105,6 +119,7 @@ func makePaneTabViewControllerCommandHarness(
         tempDir: tempDir,
         tabRenamePopoverState: tabRenamePopoverState,
         arrangementInlineRenameState: arrangementInlineRenameState,
+        paneInboxPresenter: paneInboxPresenter,
         launchRecorder: launchRecorder
     )
 }

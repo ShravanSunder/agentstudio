@@ -61,8 +61,8 @@ struct WorkspacePaneFocusDerived {
             context: .init(
                 activeMainPaneId: activePaneId,
                 expandedDrawerParentPaneId: drawer?.isExpanded == true ? activePaneId : nil,
-                drawerPaneIds: drawer?.paneIds ?? [],
-                activeDrawerPaneId: drawer?.activePaneId,
+                paneIds: drawer?.paneIds ?? [],
+                activeDrawerPaneId: drawer?.activeChildId,
                 minimizedDrawerPaneIds: drawer?.minimizedPaneIds ?? []
             )
         )

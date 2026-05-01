@@ -89,8 +89,8 @@ struct PaneTabViewControllerEditorChooserCommandTests {
 
         harness.controller.execute(.openPaneLocationInEditorMenu)
 
-        #expect(atom(\.uiState).editorChooserState.openForPaneId == pane.id)
-        #expect(atom(\.uiState).availableEditorTargets.map(\.id) == ["cursor", "vscode"])
+        #expect(atom(\.editorChooser).state.openForPaneId == pane.id)
+        #expect(atom(\.editorChooser).availableTargets.map(\.id) == ["cursor", "vscode"])
     }
 
     @Test("openPaneLocationInEditorMenu toggles closed when already open for the selected pane")
@@ -107,11 +107,11 @@ struct PaneTabViewControllerEditorChooserCommandTests {
         let tab = Tab(paneId: pane.id)
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
-        atom(\.uiState).setOpenEditorPane(pane.id)
+        atom(\.editorChooser).setOpenEditorPane(pane.id)
 
         harness.controller.execute(.openPaneLocationInEditorMenu)
 
-        #expect(atom(\.uiState).editorChooserState.openForPaneId == nil)
+        #expect(atom(\.editorChooser).state.openForPaneId == nil)
     }
 }
 

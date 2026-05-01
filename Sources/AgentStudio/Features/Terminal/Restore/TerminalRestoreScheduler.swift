@@ -98,7 +98,7 @@ final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolving {
                 guard let drawer = store.paneAtom.pane(paneId)?.drawer, drawer.isExpanded else {
                     return nil
                 }
-                return drawer.activePaneId
+                return drawer.activeChildId
             }
         )
     }

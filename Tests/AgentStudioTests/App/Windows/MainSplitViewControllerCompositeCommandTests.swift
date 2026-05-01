@@ -1,0 +1,213 @@
+import AppKit
+import SwiftUI
+import Testing
+
+@testable import AgentStudio
+
+@MainActor
+@Suite(.serialized)
+struct MainSplitViewControllerCompositeCommandTests {
+    init() {
+        installTestAtomRegistryIfNeeded()
+    }
+
+    @Test("showInboxNotifications expands sidebar and focuses inbox when command bar is not key")
+    func showInboxNotificationsExpandsAndFocuses() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            configureUIState: { $0.setSidebarCollapsed(true) },
+            body: { harness in
+                harness.controller.showInboxNotifications(commandBarIsKey: false)
+                await eventually(
+                    "inbox should become first responder"
+                ) {
+                    harness.atoms.uiState.sidebarSurface == .inbox
+                        && harness.atoms.uiState.sidebarHasFocus
+                        && (harness.window.firstResponder as? NSView)?.identifier
+                            == InboxNotificationSidebarView.focusTargetIdentifier
+                        && harness.controller.isSidebarCollapsed == false
+                }
+            }
+        )
+    }
+
+    @Test("showInboxNotifications with command bar key does not steal focus")
+    func showInboxNotificationsDoesNotStealFocusWhenCommandBarIsKey() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            configureUIState: { $0.setSidebarHasFocus(true) },
+            body: { harness in
+                harness.controller.showInboxNotifications(commandBarIsKey: true)
+                await Task.yield()
+
+                #expect(harness.atoms.uiState.sidebarSurface == .inbox)
+                #expect(harness.atoms.uiState.sidebarHasFocus == false)
+                #expect(
+                    (harness.window.firstResponder as? NSView)?.identifier
+                        != InboxNotificationSidebarView.focusTargetIdentifier
+                )
+            }
+        )
+    }
+
+    @Test("showInboxNotifications retries until a delayed inbox mounts")
+    func showInboxNotificationsRetriesUntilDelayedInboxMounts() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            configureUIState: { $0.setSidebarCollapsed(true) },
+            sidebarRootViewBuilder: { uiState, onEscape in
+                AnyView(DelayedInboxTestSidebarView(uiState: uiState, onEscape: onEscape))
+            },
+            body: { harness in
+                harness.controller.showInboxNotifications(commandBarIsKey: false)
+
+                await eventually("delayed inbox should eventually gain focus") {
+                    harness.atoms.uiState.sidebarSurface == .inbox
+                        && harness.atoms.uiState.sidebarHasFocus
+                        && (harness.window.firstResponder as? NSView)?.identifier
+                            == InboxNotificationSidebarView.focusTargetIdentifier
+                        && harness.controller.isSidebarCollapsed == false
+                }
+            }
+        )
+    }
+
+    @Test("showWorktreeSidebar returns to repos surface and lets inbox focus clear naturally")
+    func showWorktreeSidebarSwitchesSurfaceAndClearsInboxFocus() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            body: { harness in
+                harness.controller.showInboxNotifications(commandBarIsKey: false)
+                await eventually("inbox should gain focus") {
+                    harness.atoms.uiState.sidebarHasFocus
+                }
+
+                harness.controller.showWorktreeSidebar()
+                await eventually("inbox focus should clear after surface swap") {
+                    harness.atoms.uiState.sidebarSurface == .repos
+                        && harness.atoms.uiState.sidebarHasFocus == false
+                }
+            }
+        )
+    }
+
+    @Test("showInboxNotifications toggles a visible inbox sidebar closed")
+    func showInboxNotificationsTogglesVisibleInboxClosed() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            body: { harness in
+                harness.controller.showInboxNotifications(commandBarIsKey: false)
+                await eventually("inbox should be visible and focused") {
+                    harness.atoms.uiState.sidebarSurface == .inbox
+                        && harness.atoms.uiState.sidebarHasFocus
+                        && harness.controller.isSidebarCollapsed == false
+                }
+
+                harness.controller.showInboxNotifications(commandBarIsKey: false)
+                await eventually("visible inbox should collapse on second toggle") {
+                    harness.controller.isSidebarCollapsed
+                        && harness.atoms.uiState.sidebarCollapsed
+                        && harness.atoms.uiState.sidebarHasFocus == false
+                }
+            }
+        )
+    }
+
+    @Test("showWorktreeSidebar toggles a visible repos sidebar closed")
+    func showWorktreeSidebarTogglesVisibleReposClosed() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            body: { harness in
+                #expect(harness.controller.isSidebarCollapsed == false)
+                #expect(harness.atoms.uiState.sidebarSurface == .repos)
+
+                harness.controller.showWorktreeSidebar()
+                await eventually("visible repos should collapse on toggle") {
+                    harness.controller.isSidebarCollapsed
+                        && harness.atoms.uiState.sidebarCollapsed
+                        && harness.atoms.uiState.sidebarHasFocus == false
+                }
+            }
+        )
+    }
+
+    @Test("showSidebarFilter leaves inbox untouched until inbox search exists")
+    func showSidebarFilterIsNoOpFromInbox() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            body: { harness in
+                harness.controller.showInboxNotifications(commandBarIsKey: false)
+                await eventually("inbox should be visible") {
+                    harness.atoms.uiState.sidebarSurface == .inbox
+                        && harness.controller.isSidebarCollapsed == false
+                }
+
+                harness.controller.showSidebarFilter()
+
+                #expect(harness.atoms.uiState.sidebarSurface == .inbox)
+                #expect(harness.atoms.uiState.isFilterVisible == false)
+                #expect(harness.controller.isSidebarCollapsed == false)
+            }
+        )
+    }
+
+    @Test("showInboxNotifications expands a restored collapsed inbox surface")
+    func showInboxNotificationsExpandsCollapsedInboxSurface() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            configureUIState: {
+                $0.setSidebarCollapsed(true)
+                $0.setSidebarSurface(.inbox)
+            },
+            body: { harness in
+                #expect(harness.controller.isSidebarCollapsed == true)
+                #expect(harness.atoms.uiState.sidebarSurface == .inbox)
+
+                harness.controller.showInboxNotifications(commandBarIsKey: false)
+
+                await eventually("collapsed inbox state should expand instead of collapsing") {
+                    harness.controller.isSidebarCollapsed == false
+                        && harness.atoms.uiState.sidebarCollapsed == false
+                        && harness.atoms.uiState.sidebarSurface == .inbox
+                        && harness.atoms.uiState.sidebarHasFocus
+                }
+            }
+        )
+    }
+
+}
+
+struct DelayedInboxTestSidebarView: View {
+    let uiState: UIStateAtom
+    let onEscape: @MainActor @Sendable () -> Void
+
+    @State private var isInboxMounted = false
+
+    var body: some View {
+        Group {
+            switch uiState.sidebarSurface {
+            case .repos:
+                Color.clear
+                    .onAppear {
+                        isInboxMounted = false
+                    }
+            case .inbox:
+                if isInboxMounted {
+                    MainSplitViewControllerTestInboxView(
+                        uiState: uiState,
+                        onEscape: onEscape
+                    )
+                } else {
+                    Color.clear
+                        .task {
+                            for _ in 0..<2 {
+                                await Task.yield()
+                            }
+                            isInboxMounted = true
+                        }
+                }
+            }
+        }
+        .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
+    }
+}

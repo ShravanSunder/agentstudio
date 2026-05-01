@@ -3,7 +3,7 @@ import Observation
 
 /// Root domain state per bridge pane.
 /// Full model defined in design doc section 8 (line 1440).
-/// This is the minimal set needed for Phase 2 push pipeline testing.
+/// This is the minimal set needed for push pipeline state projection.
 @Observable
 @MainActor
 final class PaneDomainState {

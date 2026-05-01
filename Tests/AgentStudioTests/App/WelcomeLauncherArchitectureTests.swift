@@ -31,6 +31,27 @@ struct WelcomeLauncherArchitectureTests {
         #expect(!source.contains("private func launcherIconShortcutButton("))
     }
 
+    @Test("launcher command rows derive labels and shortcuts from command specs")
+    func launcherCommandRowsDeriveFromCommandSpecs() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Panes/WorkspaceEmptyStateView.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(source.contains("let quickFindDefinition = AppCommand.showCommandBarEverything.definition"))
+        #expect(source.contains("let newTabOrWorktreeDefinition = AppCommand.showCommandBarRepos.definition"))
+        #expect(source.contains("key: quickFindDefinition.keyBinding?.displayString"))
+        #expect(source.contains("title: quickFindDefinition.label"))
+        #expect(source.contains("action: { CommandDispatcher.shared.dispatch(quickFindDefinition.command) }"))
+        #expect(source.contains("key: newTabOrWorktreeDefinition.keyBinding?.displayString"))
+        #expect(source.contains("title: newTabOrWorktreeDefinition.label"))
+        #expect(source.contains("action: { CommandDispatcher.shared.dispatch(newTabOrWorktreeDefinition.command) }"))
+        #expect(!source.contains("title: \"Command palette\""))
+    }
+
     @Test("main toolbar includes a command-spec-backed Watch Folder button")
     func mainToolbarIncludesCommandSpecBackedWatchFolderButton() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))

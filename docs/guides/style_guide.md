@@ -43,6 +43,11 @@ Use these apps as benchmarks for quality and style:
 - **Materials**: Use `.background(.ultraThinMaterial)` for modern, translucent overlays.
 - **Transitions**: Use `.matchedGeometryEffect` for seamless UI state changes.
 
+### Shared Shell Controls
+- **Extract repeated controls**: If two sidebar surfaces, popovers, or drawers need the same control, use a `SharedComponents/` primitive instead of copying the view shape.
+- **Sidebar search**: Use `SharedComponents/SidebarSearchField` with `AppStyles.Shell.Sidebar.SearchField` tokens for sidebar search surfaces. Do not hand-roll separate rounded search boxes in each feature.
+- **Presentation vs behavior**: Put spacing, radius, icon size, color, and opacity in `AppStyles`. Put limits, thresholds, validation, routing, retention, and accept/reject rules in `AppPolicies`.
+
 ### AppKit Styling
 - **NSVisualEffectView**: Use for vibrant backgrounds and sidebars.
 - **Standard Spacing**: Follow the 8pt/16pt grid system for all alignments.

@@ -304,13 +304,30 @@ final class PaneContentWiringTests {
     @Test("flat pane missing host fallback distinguishes retired transitions from real slot bugs")
     func flatPaneMissingHostDisposition_distinguishesRetiredTransitions() {
         #expect(
-            PaneSegmentMissingHostDisposition.resolve(isRetired: true)
+            PaneSegmentMissingHostDisposition.resolve(isRetired: true, isInitialRestorePending: false)
                 == .retiredTransition
         )
         #expect(
-            PaneSegmentMissingHostDisposition.resolve(isRetired: false)
+            PaneSegmentMissingHostDisposition.resolve(isRetired: false, isInitialRestorePending: true)
+                == .deferredInitialRestore
+        )
+        #expect(
+            PaneSegmentMissingHostDisposition.resolve(isRetired: false, isInitialRestorePending: false)
                 == .unexpectedMissingHost
         )
+    }
+
+    @Test("initial restore pending state is explicit and bounded")
+    func viewRegistry_initialRestorePending_isExplicitAndBounded() {
+        let registry = ViewRegistry()
+
+        #expect(registry.isInitialRestorePending == false)
+
+        registry.beginInitialRestore()
+        #expect(registry.isInitialRestorePending == true)
+
+        registry.completeInitialRestore()
+        #expect(registry.isInitialRestorePending == false)
     }
 
     @Test

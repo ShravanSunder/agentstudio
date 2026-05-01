@@ -20,45 +20,61 @@ struct UIStateStoreTests {
     func flushAndRestore_roundTripsPersistedUIState() throws {
         let workspaceId = UUID()
         let atom = UIStateAtom()
-        let uiStateStore = UIStateStore(atom: atom, persistor: persistor)
+        let uiStateStore = UIStateStore(atom: atom, editorChooserAtom: EditorChooserAtom(), persistor: persistor)
 
-        atom.setExpandedGroups(["repo:agent-studio", "repo:askluna"])
-        atom.setCheckoutColor("#ff6600", for: "repo:agent-studio")
         atom.setFilterText("terminal")
         atom.setFilterVisible(true)
         atom.setShowMinimizedBars(false)
+        atom.setSidebarCollapsed(true)
+        atom.setSidebarSurface(.inbox)
+        atom.setSidebarHasFocus(true)
 
         try uiStateStore.flush(for: workspaceId)
 
         let restoredAtom = UIStateAtom()
-        let restoredStore = UIStateStore(atom: restoredAtom, persistor: persistor)
+        let restoredStore = UIStateStore(
+            atom: restoredAtom,
+            editorChooserAtom: EditorChooserAtom(),
+            persistor: persistor
+        )
         restoredStore.restore(for: workspaceId)
 
-        #expect(restoredAtom.expandedGroups == ["repo:agent-studio", "repo:askluna"])
-        #expect(restoredAtom.checkoutColors == ["repo:agent-studio": "#ff6600"])
         #expect(restoredAtom.filterText == "terminal")
         #expect(restoredAtom.isFilterVisible)
         #expect(restoredAtom.showMinimizedBars == false)
+        #expect(restoredAtom.sidebarCollapsed)
+        #expect(restoredAtom.sidebarSurface == .inbox)
+        #expect(restoredAtom.sidebarHasFocus == false)
     }
 
     @Test
     func flush_operatesOnTheProvidedLiveAtomScope() throws {
         let workspaceId = UUID()
         let atom = UIStateAtom()
-        let store = UIStateStore(atom: atom, persistor: persistor)
+        let store = UIStateStore(atom: atom, editorChooserAtom: EditorChooserAtom(), persistor: persistor)
 
         atom.setFilterText("agent")
         atom.setFilterVisible(true)
         atom.setShowMinimizedBars(false)
+        atom.setSidebarCollapsed(true)
+        atom.setSidebarSurface(.inbox)
+        atom.setSidebarHasFocus(true)
 
         try store.flush(for: workspaceId)
 
         let restoredAtom = UIStateAtom()
-        UIStateStore(atom: restoredAtom, persistor: persistor).restore(for: workspaceId)
+        UIStateStore(
+            atom: restoredAtom,
+            editorChooserAtom: EditorChooserAtom(),
+            persistor: persistor
+        ).restore(for: workspaceId)
 
         #expect(restoredAtom.filterText == "agent")
         #expect(restoredAtom.isFilterVisible)
         #expect(restoredAtom.showMinimizedBars == false)
+        #expect(restoredAtom.sidebarCollapsed)
+        #expect(restoredAtom.sidebarSurface == .inbox)
+        #expect(restoredAtom.sidebarHasFocus == false)
     }
 
     @Test
@@ -68,15 +84,32 @@ struct UIStateStoreTests {
         try "not json".write(to: corruptURL, atomically: true, encoding: .utf8)
 
         let atom = UIStateAtom()
-        let store = UIStateStore(atom: atom, persistor: persistor)
+        var reportedRecovery: PersistenceRecoveryEvent?
+        let store = UIStateStore(
+            atom: atom,
+            editorChooserAtom: EditorChooserAtom(),
+            persistor: persistor,
+            recoveryReporter: { reportedRecovery = $0 }
+        )
 
         store.restore(for: workspaceId)
 
-        #expect(atom.expandedGroups.isEmpty)
-        #expect(atom.checkoutColors.isEmpty)
         #expect(atom.filterText.isEmpty)
         #expect(!atom.isFilterVisible)
         #expect(atom.showMinimizedBars)
+        #expect(atom.sidebarCollapsed == false)
+        #expect(atom.sidebarSurface == .repos)
+        #expect(atom.sidebarHasFocus == false)
+        #expect(reportedRecovery?.store == .uiState)
+        #expect(reportedRecovery?.workspaceId == workspaceId)
+        #expect(reportedRecovery?.recovery == .quarantinedAndReset)
+        let quarantinedFiles = try FileManager.default.contentsOfDirectory(
+            at: tempDir,
+            includingPropertiesForKeys: nil
+        ).filter {
+            $0.lastPathComponent.hasPrefix("\(workspaceId.uuidString).workspace.ui.corrupt-")
+        }
+        #expect(quarantinedFiles.count == 1)
     }
 
     @Test
@@ -102,8 +135,6 @@ struct UIStateStoreTests {
             {
                 "schemaVersion": 1,
                 "workspaceId": "\(workspaceId.uuidString)",
-                "expandedGroups": [],
-                "checkoutColors": {},
                 "filterText": "",
                 "isFilterVisible": false
             }
@@ -112,7 +143,7 @@ struct UIStateStoreTests {
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
         let atom = UIStateAtom()
-        let store = UIStateStore(atom: atom, persistor: persistor)
+        let store = UIStateStore(atom: atom, editorChooserAtom: EditorChooserAtom(), persistor: persistor)
 
         store.restore(for: workspaceId)
 
@@ -120,32 +151,12 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func editorChooserState_roundTripsThroughUIStatePersistence() throws {
-        let workspaceId = UUID()
-        let atom = UIStateAtom()
-        let store = UIStateStore(atom: atom, persistor: persistor)
-
-        atom.setBookmarkedEditor("cursor")
-        atom.setOpenEditorPane(UUID())
-
-        try store.flush(for: workspaceId)
-
-        let restoredAtom = UIStateAtom()
-        UIStateStore(atom: restoredAtom, persistor: persistor).restore(for: workspaceId)
-
-        #expect(restoredAtom.editorChooserState.bookmarkedEditorId == "cursor")
-        #expect(restoredAtom.editorChooserState.openForPaneId == nil)
-    }
-
-    @Test
-    func restore_missingEditorChooserState_defaultsToEmptyState() throws {
+    func restore_missingSidebarCompositionFields_defaultsToCollapsedFalseAndReposSurface() throws {
         let workspaceId = UUID()
         let json = """
             {
                 "schemaVersion": 1,
                 "workspaceId": "\(workspaceId.uuidString)",
-                "expandedGroups": [],
-                "checkoutColors": {},
                 "filterText": "",
                 "isFilterVisible": false,
                 "showMinimizedBars": true
@@ -155,10 +166,85 @@ struct UIStateStoreTests {
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
         let atom = UIStateAtom()
-        UIStateStore(atom: atom, persistor: persistor).restore(for: workspaceId)
+        UIStateStore(atom: atom, editorChooserAtom: EditorChooserAtom(), persistor: persistor).restore(for: workspaceId)
 
-        #expect(atom.editorChooserState.bookmarkedEditorId == nil)
-        #expect(atom.editorChooserState.openForPaneId == nil)
+        #expect(atom.sidebarCollapsed == false)
+        #expect(atom.sidebarSurface == .repos)
+        #expect(atom.sidebarHasFocus == false)
+    }
+
+    @Test
+    func restore_corruptFilterFields_preservesOtherUIState() throws {
+        let workspaceId = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "workspaceId": "\(workspaceId.uuidString)",
+                "filterText": 42,
+                "isFilterVisible": "bad-value",
+                "showMinimizedBars": false,
+                "sidebarCollapsed": true,
+                "sidebarSurface": "inbox"
+            }
+            """
+        let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
+        try Data(json.utf8).write(to: uiURL, options: .atomic)
+
+        let atom = UIStateAtom()
+        UIStateStore(atom: atom, editorChooserAtom: EditorChooserAtom(), persistor: persistor).restore(for: workspaceId)
+
+        #expect(atom.filterText.isEmpty)
+        #expect(atom.isFilterVisible == false)
+        #expect(atom.showMinimizedBars == false)
+        #expect(atom.sidebarCollapsed)
+        #expect(atom.sidebarSurface == .inbox)
+    }
+
+    @Test
+    func editorChooserState_roundTripsThroughUIStatePersistence() throws {
+        let workspaceId = UUID()
+        let atom = UIStateAtom()
+        let editorChooser = EditorChooserAtom()
+        let store = UIStateStore(atom: atom, editorChooserAtom: editorChooser, persistor: persistor)
+
+        editorChooser.setBookmarkedEditor("cursor")
+        editorChooser.setOpenEditorPane(UUID())
+
+        try store.flush(for: workspaceId)
+
+        let restoredAtom = UIStateAtom()
+        let restoredEditorChooser = EditorChooserAtom()
+        UIStateStore(
+            atom: restoredAtom,
+            editorChooserAtom: restoredEditorChooser,
+            persistor: persistor
+        ).restore(for: workspaceId)
+
+        #expect(restoredEditorChooser.state.bookmarkedEditorId == "cursor")
+        #expect(restoredEditorChooser.state.openForPaneId == nil)
+    }
+
+    @Test
+    func restore_missingEditorChooserState_defaultsToEmptyState() throws {
+        let workspaceId = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "workspaceId": "\(workspaceId.uuidString)",
+                "filterText": "",
+                "isFilterVisible": false,
+                "showMinimizedBars": true
+            }
+            """
+        let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
+        try Data(json.utf8).write(to: uiURL, options: .atomic)
+
+        let atom = UIStateAtom()
+        let editorChooser = EditorChooserAtom()
+        UIStateStore(atom: atom, editorChooserAtom: editorChooser, persistor: persistor).restore(for: workspaceId)
+
+        #expect(editorChooser.state.bookmarkedEditorId == nil)
+        #expect(editorChooser.state.openForPaneId == nil)
     }
 
     @Test
@@ -169,8 +255,6 @@ struct UIStateStoreTests {
             {
                 "schemaVersion": 1,
                 "workspaceId": "\(workspaceId.uuidString)",
-                "expandedGroups": [],
-                "checkoutColors": {},
                 "filterText": "",
                 "isFilterVisible": false,
                 "showMinimizedBars": true,
@@ -184,10 +268,11 @@ struct UIStateStoreTests {
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
         let atom = UIStateAtom()
-        UIStateStore(atom: atom, persistor: persistor).restore(for: workspaceId)
+        let editorChooser = EditorChooserAtom()
+        UIStateStore(atom: atom, editorChooserAtom: editorChooser, persistor: persistor).restore(for: workspaceId)
 
-        #expect(atom.editorChooserState.bookmarkedEditorId == "cursor")
-        #expect(atom.editorChooserState.openForPaneId == nil)
+        #expect(editorChooser.state.bookmarkedEditorId == "cursor")
+        #expect(editorChooser.state.openForPaneId == nil)
     }
 
     @Test
@@ -197,8 +282,6 @@ struct UIStateStoreTests {
             {
                 "schemaVersion": 1,
                 "workspaceId": "\(workspaceId.uuidString)",
-                "expandedGroups": ["repo:agent-studio"],
-                "checkoutColors": {"repo:agent-studio": "#ff6600"},
                 "filterText": "terminal",
                 "isFilterVisible": true,
                 "showMinimizedBars": false,
@@ -209,24 +292,23 @@ struct UIStateStoreTests {
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
         let atom = UIStateAtom()
-        UIStateStore(atom: atom, persistor: persistor).restore(for: workspaceId)
+        let editorChooser = EditorChooserAtom()
+        UIStateStore(atom: atom, editorChooserAtom: editorChooser, persistor: persistor).restore(for: workspaceId)
 
-        #expect(atom.expandedGroups == ["repo:agent-studio"])
-        #expect(atom.checkoutColors == ["repo:agent-studio": "#ff6600"])
         #expect(atom.filterText == "terminal")
         #expect(atom.isFilterVisible)
         #expect(atom.showMinimizedBars == false)
-        #expect(atom.editorChooserState.bookmarkedEditorId == nil)
-        #expect(atom.editorChooserState.openForPaneId == nil)
+        #expect(editorChooser.state.bookmarkedEditorId == nil)
+        #expect(editorChooser.state.openForPaneId == nil)
     }
 
     @Test
     func setBookmarkedEditor_nilClearsStoredBookmark() {
-        let atom = UIStateAtom()
+        let atom = EditorChooserAtom()
 
         atom.setBookmarkedEditor("cursor")
         atom.setBookmarkedEditor(nil)
 
-        #expect(atom.editorChooserState.bookmarkedEditorId == nil)
+        #expect(atom.state.bookmarkedEditorId == nil)
     }
 }

@@ -333,7 +333,7 @@ extension AppCommand {
                 command: self,
                 label: "Enter Drawer",
                 icon: .system(.rectangleBottomhalfFilled),
-                helpText: "Open the active drawer and focus its selected pane",
+                helpText: "Open the active pane and focus its selected pane",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",
@@ -358,7 +358,7 @@ extension AppCommand {
                 displayShortcutTrigger: displayShortcutTrigger,
                 label: "Move Drawer Focus",
                 icon: .system(.arrowUpLeftAndArrowDownRight),
-                helpText: "Move selection within the active drawer",
+                helpText: "Move selection within the active pane",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane, .hasFocusedDrawerPane],
                 commandBarGroupName: "Pane",
@@ -405,7 +405,7 @@ extension AppCommand {
                 command: self,
                 label: "Switch Drawer Pane",
                 icon: .system(.arrowDownToLine),
-                helpText: "Switch to a pane inside the active drawer",
+                helpText: "Switch to a pane inside the active pane",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane, .hasDrawerPanes],
                 commandBarGroupName: "Pane",
@@ -416,7 +416,7 @@ extension AppCommand {
                 command: self,
                 label: "Close Drawer Pane",
                 icon: .system(.xmarkRectanglePortrait),
-                helpText: "Close a pane inside the active drawer",
+                helpText: "Close a pane inside the active pane",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane, .hasDrawerPanes],
                 commandBarGroupName: "Pane",
@@ -516,6 +516,7 @@ extension AppCommand {
         case .managementLayerEnterDrawer:
             return CommandSpec(
                 command: self,
+                shortcut: .managementLayerEnterDrawer,
                 label: "Management Enter Drawer",
                 icon: .system(.arrowDown),
                 helpText: "Enter or expand the current drawer in management mode",
@@ -564,6 +565,36 @@ extension AppCommand {
                 label: "Toggle Sidebar",
                 icon: .system(.sidebarLeft),
                 helpText: "Show or hide the sidebar",
+                commandBarGroupName: "Window",
+                commandBarGroupPriority: CommandBarGroupPriority.window
+            )
+        case .showInboxNotifications:
+            return CommandSpec(
+                command: self,
+                shortcut: .showInboxNotifications,
+                label: "Toggle Inbox",
+                icon: .system(.bell),
+                helpText: "Show or hide the notification inbox in the sidebar",
+                commandBarGroupName: "Window",
+                commandBarGroupPriority: CommandBarGroupPriority.window
+            )
+        case .showPaneInboxNotifications:
+            return CommandSpec(
+                command: self,
+                shortcut: .showPaneInboxNotifications,
+                label: "Show Pane Inbox",
+                icon: .system(.bellBadge),
+                helpText: "Show notifications for the active pane and its drawer children",
+                commandBarGroupName: "Window",
+                commandBarGroupPriority: CommandBarGroupPriority.window
+            )
+        case .showWorktreeSidebar:
+            return CommandSpec(
+                command: self,
+                shortcut: .showWorktreeSidebar,
+                label: "Toggle Worktrees",
+                icon: .system(.sidebarLeft),
+                helpText: "Show or hide the repo explorer in the sidebar",
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
