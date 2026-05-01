@@ -109,7 +109,7 @@ struct PaneInboxNotificationPopover: View {
                                     RoundedRectangle(cornerRadius: AppStyles.Components.PaneInbox.rowCornerRadius)
                                         .fill(
                                             selectedNotificationId == notification.id
-                                                ? Color.accentColor.opacity(AppStyles.General.Fill.active)
+                                                ? Color.accentColor.opacity(AppStyles.General.Fill.selected)
                                                 : Color.clear
                                         )
                                 )

@@ -68,7 +68,7 @@ struct CommandBarResultRow: View {
         .frame(height: AppStyles.CommandBar.Rows.rowHeight)
         .background(
             RoundedRectangle(cornerRadius: AppStyles.CommandBar.Rows.selectedRowCornerRadius)
-                .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+                .fill(isSelected ? Color.accentColor.opacity(AppStyles.General.Fill.selected) : Color.clear)
                 .padding(.horizontal, AppStyles.CommandBar.Rows.selectedRowHorizontalInset)
         )
         .contentShape(Rectangle())

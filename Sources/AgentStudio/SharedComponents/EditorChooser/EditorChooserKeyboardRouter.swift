@@ -48,28 +48,6 @@ enum EditorChooserKeyboardRouter {
         )
     }
 
-    static func currentSelectionForTesting(
-        items: [EditorChoiceItem],
-        selectedEditorId: EditorTargetId?
-    ) -> EditorTargetId? {
-        SelectablePopoverKeyboardRouter.currentSelection(
-            items: keyboardItems(for: items),
-            selectedItemId: selectedEditorId
-        )
-    }
-
-    static func movedSelectionForTesting(
-        delta: Int,
-        items: [EditorChoiceItem],
-        selectedEditorId: EditorTargetId?
-    ) -> EditorTargetId? {
-        SelectablePopoverKeyboardRouter.movedSelection(
-            delta: delta,
-            items: keyboardItems(for: items),
-            selectedItemId: selectedEditorId
-        )
-    }
-
     private static func keyboardItems(
         for items: [EditorChoiceItem]
     ) -> [SelectablePopoverKeyboardItem<EditorTargetId>] {

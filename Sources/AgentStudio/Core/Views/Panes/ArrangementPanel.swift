@@ -182,7 +182,7 @@ struct ArrangementPanel: View {
             RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.button)
                 .fill(
                     pane.id == highlightPaneId && highlightVisible
-                        ? Color.accentColor.opacity(0.15)
+                        ? Color.accentColor.opacity(AppStyles.General.Fill.selected)
                         : Color.white.opacity(AppStyles.General.Fill.subtle)
                 )
         )
