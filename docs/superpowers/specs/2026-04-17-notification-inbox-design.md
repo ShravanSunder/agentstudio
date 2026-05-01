@@ -68,12 +68,12 @@ Three persistent surfaces. None transient.
 - **Toolbar entry point:** a new bell icon in the existing sidebar toolbar, next to the show/hide sidebar button. Shows a red dot (v1 default) when unread > 0. Clicking it runs the same composite command as ⌘I.
 - **Dismissal model:** read-state only — nothing is removed when you act on it. Inbox is the log of record.
 
-### 3.2 Drawer Inbox (popover, ⌘⇧I)
+### 3.2 Pane Inbox (popover, ⌘⇧I)
 
-- **Scope:** notifications for panes attached to **the drawer of the currently focused pane**. If focus is not on a layout pane with a drawer (e.g., focus is on a non-drawer pane, or no drawer exists), ⌘⇧I is a no-op.
+- **Scope:** notifications for the current pane and that pane's drawer child panes. If no pane is focused, ⌘⇧I is a no-op.
 - **Surface:** popover anchored on a bell icon placed as the rightmost icon in the drawer's icon strip, after a divider that separates it from the existing icons (finder, editor, etc.).
 - **Indicator:** numeric unread count on the bell icon.
-- **Dismissal model:** true dismiss — acting on an item removes it from the drawer popover. Same item remains visible in the global Inbox (marked read).
+- **Dismissal model:** true dismiss — acting on an item removes it from the pane popover. Same item remains visible in the global Inbox (marked read).
 
 ### 3.3 Per-worktree bell badge
 
@@ -433,7 +433,7 @@ No custom NSEvent monitor. No InboxLayerAtom precondition. No runtime gating bey
 Global shortcuts (always available when workspace window is key):
 ⌘I               run CMD+I composite command
 ⌘S               run CMD+S composite command
-⌘⇧I              open drawer inbox popover (no-op if not applicable)
+⌘⇧I              open pane inbox popover (no-op if not applicable)
 
 Inside the inbox view (active when the sidebar has focus):
 ⌥F               focus search field
@@ -1020,7 +1020,7 @@ From `Core/Models/Drawer.swift` and `Core/Models/Pane.swift`:
 
 - Flat 2-level hierarchy. A **layout pane** owns exactly one `Drawer`; a drawer owns **N child panes** (`drawerChild`). Child panes never have sub-drawers.
 - A child pane's drawer context is therefore `pane.parentPaneId → parent.drawer`.
-- The Drawer Inbox popover scope is well-defined: it shows notifications where `notification.paneId ∈ parent.drawer.paneIds` for the layout pane whose drawer hosts the currently focused pane.
+- The PaneInbox popover scope is well-defined: it shows notifications where `notification.paneId` is the current parent pane or one of that pane's drawer child panes.
 
 ### 10.3 Drawer icon strip integration
 
@@ -1030,7 +1030,7 @@ Integration path (preserves `Core → never imports Features`):
 
 1. Extend `DrawerOverlay.TrailingActions` with `onOpenInbox: () -> Void` and `inboxUnreadCount: Int`.
 2. The bell icon renders as a new `trailingActionButton` after a visible divider, as the rightmost slot.
-3. The Features-level wrapper (e.g., the view that composes `DrawerOverlay`) reads `InboxNotificationAtom.unreadCount(forDrawerPaneIds: parent.drawer.paneIds)` and injects it into `TrailingActions`. Core code never imports the atom.
+3. The Features-level wrapper (e.g., the view that composes `DrawerOverlay`) reads `InboxNotificationAtom.unreadCount(forPaneInboxPaneIds: paneIds)` and injects it into `TrailingActions`. Core code never imports the atom.
 
 ## 11. Resolved preference decisions
 
@@ -1150,7 +1150,7 @@ Per `AGENTS.md` testing standards (Swift 6 Testing, colocate `_test.swift`, no w
 
 - **Notification Inbox** — the persistent notification log; both sidebar view and drawer popover share the same underlying data (`InboxNotificationAtom`).
 - **Sidebar surface** — which content the sidebar renders. Stored on `UIStateAtom.sidebarSurface`: `.repos` or `.inbox`.
-- **Drawer Inbox** — the popover surface anchored on a drawer's bell icon; shows notifications for panes in that drawer only.
+- **PaneInbox** — the popover surface anchored on pane drawer chrome's bell icon; shows notifications for the current pane and that pane's drawer child panes.
 - **Global Inbox** — the sidebar view showing all notifications across all tabs/panes/drawers in the workspace.
 - **Read / Unread** — state in the global inbox; toggled by focus-through, Enter, Space.
 - **Dismissed from drawer** — local drawer state; notification disappears from drawer popover but remains in global inbox.

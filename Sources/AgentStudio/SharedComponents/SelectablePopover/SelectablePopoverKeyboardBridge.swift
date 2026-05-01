@@ -1,12 +1,16 @@
 import AppKit
 import SwiftUI
 
+struct SelectablePopoverAuxiliaryAction<ItemID: Hashable> {
+    let key: String
+    let perform: @MainActor (ItemID) -> Void
+}
+
 struct SelectablePopoverKeyboardBridge<ItemID: Hashable>: NSViewRepresentable {
     let items: [SelectablePopoverKeyboardItem<ItemID>]
     let selectedItemId: ItemID?
-    let auxiliaryKey: String?
+    let auxiliaryAction: SelectablePopoverAuxiliaryAction<ItemID>?
     let onSelect: (ItemID) -> Void
-    let onAuxiliary: (ItemID) -> Void
     let onHighlight: (ItemID) -> Void
     let onDismiss: () -> Void
     let matchesAdditionalDismissShortcut: (NSEvent) -> Bool
@@ -19,8 +23,10 @@ struct SelectablePopoverKeyboardBridge<ItemID: Hashable>: NSViewRepresentable {
 
     func updateNSView(_ nsView: SelectablePopoverFocusCapturingView<ItemID>, context _: Context) {
         update(nsView)
-        Task { @MainActor in
-            guard nsView.window?.firstResponder !== nsView else { return }
+        // Defer first-responder handoff past SwiftUI's update tick to avoid
+        // re-entering state observers while the representable is refreshing.
+        Task { @MainActor [weak nsView] in
+            guard let nsView, nsView.window?.firstResponder !== nsView else { return }
             nsView.window?.makeFirstResponder(nsView)
         }
     }
@@ -28,9 +34,8 @@ struct SelectablePopoverKeyboardBridge<ItemID: Hashable>: NSViewRepresentable {
     private func update(_ view: SelectablePopoverFocusCapturingView<ItemID>) {
         view.items = items
         view.selectedItemId = selectedItemId
-        view.auxiliaryKey = auxiliaryKey
+        view.auxiliaryAction = auxiliaryAction
         view.onSelect = onSelect
-        view.onAuxiliary = onAuxiliary
         view.onHighlight = onHighlight
         view.onDismiss = onDismiss
         view.matchesAdditionalDismissShortcut = matchesAdditionalDismissShortcut
@@ -40,9 +45,8 @@ struct SelectablePopoverKeyboardBridge<ItemID: Hashable>: NSViewRepresentable {
 final class SelectablePopoverFocusCapturingView<ItemID: Hashable>: NSView {
     var items: [SelectablePopoverKeyboardItem<ItemID>] = []
     var selectedItemId: ItemID?
-    var auxiliaryKey: String?
+    var auxiliaryAction: SelectablePopoverAuxiliaryAction<ItemID>?
     var onSelect: ((ItemID) -> Void)?
-    var onAuxiliary: ((ItemID) -> Void)?
     var onHighlight: ((ItemID) -> Void)?
     var onDismiss: (() -> Void)?
     var matchesAdditionalDismissShortcut: ((NSEvent) -> Bool)?
@@ -101,7 +105,7 @@ final class SelectablePopoverFocusCapturingView<ItemID: Hashable>: NSView {
             for: event,
             items: items,
             selectedItemId: selectedItemId,
-            auxiliaryKey: auxiliaryKey,
+            auxiliaryKey: auxiliaryAction?.key,
             matchesAdditionalDismissShortcut: matchesAdditionalDismissShortcut ?? { _ in false }
         ) {
         case .dismiss:
@@ -109,7 +113,7 @@ final class SelectablePopoverFocusCapturingView<ItemID: Hashable>: NSView {
         case .select(let itemId):
             onSelect?(itemId)
         case .auxiliary(let itemId):
-            onAuxiliary?(itemId)
+            auxiliaryAction?.perform(itemId)
         case .highlight(let itemId):
             onHighlight?(itemId)
         case .consume:
@@ -131,6 +135,9 @@ final class SelectablePopoverFocusCapturingView<ItemID: Hashable>: NSView {
         }
     }
 
+    // AppKit removes the view from its window before teardown, which gives us
+    // a main-actor cleanup point. Do not move this into deinit; the monitor
+    // token is non-Sendable under Swift 6 strict concurrency.
     private func teardownMonitor() {
         guard let localMonitor else { return }
         NSEvent.removeMonitor(localMonitor)

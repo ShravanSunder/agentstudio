@@ -45,7 +45,10 @@ Use these apps as benchmarks for quality and style:
 
 ### Shared Shell Controls
 - **Extract repeated controls**: If two sidebar surfaces, popovers, or drawers need the same control, use a `SharedComponents/` primitive instead of copying the view shape.
+- **Share interaction semantics**: If two popovers share selected-row state, arrow navigation, Return activation, Escape close, same-shortcut dismiss, focus capture, or numbered row activation, reuse or extract the shared keyboard/focus primitive even when row rendering differs.
 - **Sidebar search**: Use `SharedComponents/SidebarSearchField` with `AppStyles.Shell.Sidebar.SearchField` tokens for sidebar search surfaces. Do not hand-roll separate rounded search boxes in each feature.
+- **Search ownership**: Keep command-palette search in `Features/CommandBar/` until its command scope semantics are separable from the text field. Keep Webview's select-all text field local until another surface needs that exact AppKit behavior.
+- **Selectable popovers**: Use `SharedComponents/SelectablePopover` for menu-like popovers with highlighted rows, arrow-key navigation, Return activation, Escape close, same-shortcut dismiss, and optional numbered shortcuts.
 - **Presentation vs behavior**: Put spacing, radius, icon size, color, and opacity in `AppStyles`. Put limits, thresholds, validation, routing, retention, and accept/reject rules in `AppPolicies`.
 
 ### AppKit Styling

@@ -29,14 +29,13 @@ struct EditorChooserPopover: View {
             SelectablePopoverKeyboardBridge(
                 items: keyboardItems,
                 selectedItemId: selectedEditorId,
-                auxiliaryKey: "b",
+                auxiliaryAction: SelectablePopoverAuxiliaryAction(key: "b") { editorId in
+                    selectedEditorId = editorId
+                    onToggleBookmark(editorId)
+                },
                 onSelect: { editorId in
                     selectedEditorId = editorId
                     onSelect(editorId)
-                },
-                onAuxiliary: { editorId in
-                    selectedEditorId = editorId
-                    onToggleBookmark(editorId)
                 },
                 onHighlight: { editorId in
                     selectedEditorId = editorId

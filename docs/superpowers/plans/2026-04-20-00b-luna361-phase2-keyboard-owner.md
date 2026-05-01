@@ -948,7 +948,7 @@ cleanly everywhere. LUNA-361 Phase 2."
 - ✗ Drawer bell icon, drawer popover — Phase 3.
 - ✗ Bridge `inbox.post` RPC handler — Phase 3.
 - ✗ Inbox-scoped CommandBar actions (Mark all as read, Change grouping, etc.) — Phase 3.
-- ✗ ⌘⇧I drawer inbox popover — Phase 3.
+- ✗ ⌘⇧I pane inbox popover — Phase 3.
 - ✗ Inbox keymap (⌥F / ⌥G / ⌥S / arrows / Enter / Space / Esc) — Phase 3.
 - ✗ Unified keyboard dispatcher — deferred architectural debt.
 - ✗ Repos-navigation keymap — future ticket; `KeyboardOwner.sidebar(.repos)` default-scope mapping left at existing behavior intentionally.

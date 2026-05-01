@@ -22,7 +22,7 @@
 | Editor chooser menu row content | `SharedComponents/EditorChooser/EditorChooserMenuContent.swift` | Keep editor-specific | Editor rows have editor icons, bookmark controls, and direct-launch hints. PaneInbox should not pretend notifications are editor choices. |
 | Pane inbox popover | `Features/InboxNotification/Views/PaneInboxNotificationPopover.swift` | Refactor to use shared selectable popover | PaneInbox is pane-scoped notification UI; it needs the same selectable popover semantics as editor chooser. |
 | Pane inbox presenter | `Features/InboxNotification/Views/PaneInboxNotificationPresenter.swift` | Add toggle semantics | Same command shortcut should close the existing popover for the same pane target. |
-| Pane inbox naming | mixed `PaneInbox...` with UI text previously drifting toward drawer terminology | Standardize on PaneInbox | The icon lives in pane drawer chrome, but the semantic surface is current pane + drawer child panes. Never call it DrawerInbox. |
+| Pane inbox naming | mixed `PaneInbox...` with UI text previously drifting toward drawer terminology | Standardize on PaneInbox | The icon lives in pane drawer chrome, but the semantic surface is current pane + drawer child panes. |
 | Toolbar icon buttons/dividers | `Core/Views/Drawer/DrawerIconBar.swift` | Do not extract in this plan | Drawer icon bar is host chrome; after PaneInbox behavior is fixed, a later pass can extract shared toolbar button styling if there is a second host surface. |
 | Shortcut badges / numbered badges | `CommandBarShortcutBadge`, editor chooser badge code | Do not extract in this plan | Similar visual tokens but different semantics. Revisit after selectable popover lands and visual drift is inspected. |
 
@@ -1168,7 +1168,7 @@ git commit -m "fix(inbox): toggle pane inbox from command path"
 
 ---
 
-## Task 5: Pin PaneInbox Naming And Remove DrawerInbox Drift
+## Task 5: Pin PaneInbox Naming And Remove Legacy Naming Drift
 
 **Files:**
 - Modify: `Sources/AgentStudio/Features/InboxNotification/Views/PaneInboxNotificationPopover.swift`
@@ -1182,7 +1182,7 @@ git commit -m "fix(inbox): toggle pane inbox from command path"
 Run:
 
 ```bash
-rg -n "Drawer inbox|drawer inbox|DrawerInbox|drawerInbox" Sources Tests docs AGENTS.md
+rg -n "<legacy pane-inbox names>" Sources Tests docs AGENTS.md
 ```
 
 Expected before cleanup: any remaining user-visible text or type names are listed.
@@ -1203,7 +1203,7 @@ AppCommand.showPaneInboxNotifications.definition.controlToolTip(
 )
 ```
 
-Do not use “drawer inbox” except in explanatory comments that explicitly say the icon is placed in drawer chrome.
+Use `PaneInbox` for the product surface and describe the icon as living in pane drawer chrome when placement matters.
 
 - [ ] **Step 3: Add spec note**
 
@@ -1214,7 +1214,7 @@ In `docs/superpowers/specs/2026-04-25-luna361-notification-output-observability.
 
 The pane-scoped inbox is always named PaneInbox. It includes notifications
 for the active parent pane plus that pane's drawer child panes. The icon may
-live in pane drawer chrome, but the product concept is not DrawerInbox.
+live in pane drawer chrome, but the product concept is pane-scoped.
 ```
 
 - [ ] **Step 4: Run naming scan again**
@@ -1222,7 +1222,7 @@ live in pane drawer chrome, but the product concept is not DrawerInbox.
 Run:
 
 ```bash
-rg -n "Drawer inbox|drawer inbox|DrawerInbox|drawerInbox" Sources Tests docs AGENTS.md
+rg -n "<legacy pane-inbox names>" Sources Tests docs AGENTS.md
 ```
 
 Expected: no matches, or only an intentional invariant sentence explaining the forbidden term.
@@ -1442,4 +1442,3 @@ If no files changed, do not create an empty commit.
 - Do not move Webview `SelectAllTextField` yet.
 - Do not extract drawer toolbar buttons in this pass.
 - Do not add new AppDelegate command routing for PaneInbox.
-

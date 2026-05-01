@@ -23,12 +23,11 @@ struct PaneInboxNotificationPopover: View {
             SelectablePopoverKeyboardBridge(
                 items: Self.keyboardItems(for: relevantNotifications),
                 selectedItemId: selectedNotificationId,
-                auxiliaryKey: nil,
+                auxiliaryAction: nil,
                 onSelect: { notificationId in
                     selectedNotificationId = notificationId
                     activate(notificationId: notificationId)
                 },
-                onAuxiliary: { _ in },
                 onHighlight: { notificationId in
                     selectedNotificationId = notificationId
                 },
@@ -62,7 +61,8 @@ struct PaneInboxNotificationPopover: View {
     static func keyboardItems(
         for notifications: [InboxNotification]
     ) -> [SelectablePopoverKeyboardItem<UUID>] {
-        notifications.prefix(9).enumerated().map { index, notification in
+        let keyboardNotifications = notifications.prefix(AppPolicies.SelectablePopover.maxNumberedShortcuts)
+        return keyboardNotifications.enumerated().map { index, notification in
             SelectablePopoverKeyboardItem(
                 id: notification.id,
                 shortcutNumber: index + 1,

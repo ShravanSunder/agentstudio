@@ -97,7 +97,7 @@ App/Boot/
                                                                 into views
 
 App/Commands/
-├── AppCommand.swift                                     [MOD] + .showDrawerInboxNotifications
+├── AppCommand.swift                                     [MOD] + .showPaneInboxNotifications
 └── AppShortcut.swift                                    [MOD] bind ⌘⇧I
 
 App/Windows/
@@ -2981,7 +2981,7 @@ struct InboxNotificationDrawerPopover: View {
 
     private var header: some View {
         HStack {
-            Text("Drawer inbox")
+            Text("Pane inbox")
                 .font(.headline)
             Spacer()
             Button(action: onClose) {
@@ -3433,10 +3433,10 @@ LUNA-361 Phase 3."
 
 ---
 
-## Task 14: ⌘⇧I composite command — drawer inbox popover
+## Task 14: ⌘⇧I composite command — pane inbox popover
 
 **Files:**
-- Modify: `Sources/AgentStudio/App/Commands/AppCommand.swift` — add `.showDrawerInboxNotifications`
+- Modify: `Sources/AgentStudio/App/Commands/AppCommand.swift` — add `.showPaneInboxNotifications`
 - Modify: `Sources/AgentStudio/App/Commands/AppShortcut.swift` — bind ⌘⇧I
 - Modify: `Sources/AgentStudio/App/Boot/AppDelegate.swift` — dispatch handler
 
@@ -3444,29 +3444,29 @@ LUNA-361 Phase 3."
 
 ```swift
 // AppCommand.swift
-case showDrawerInbox
+case showPaneInbox
 ```
 
 - [ ] **Step 2: Bind the shortcut**
 
 ```swift
 // AppShortcut.swift
-ShortcutTrigger(key: "i", modifiers: [.command, .shift]): .showDrawerInboxNotifications,
+ShortcutTrigger(key: "i", modifiers: [.command, .shift]): .showPaneInboxNotifications,
 ```
 
 - [ ] **Step 3: Implement the handler**
 
-Per spec §3.2, `⌘⇧I` opens the drawer inbox popover **for the drawer of the currently focused pane**. If focus is not on a pane inside a drawer, the command is a no-op.
+Per spec §3.2, `⌘⇧I` opens the pane inbox popover for the focused pane and that pane's drawer children. If focus is not on a pane, the command is a no-op.
 
 ```swift
 // In AppDelegate.perform(_ command:) dispatch switch:
-case .showDrawerInboxNotifications:
-    openDrawerInboxForFocusedPane()
+case .showPaneInboxNotifications:
+    openPaneInboxForFocusedPane()
 ```
 
 ```swift
 @MainActor
-private func openDrawerInboxForFocusedPane() {
+private func openPaneInboxForFocusedPane() {
     // Resolve the focused pane
     guard let activePaneId = store.paneAtom.activePaneId else { return }
     // Look up the pane's parent (if any). Per spec §10.2 drawer model:
@@ -3483,10 +3483,10 @@ private func openDrawerInboxForFocusedPane() {
     // Activate the drawer popover. The presentation mechanism
     // depends on how InboxNotificationDrawerBellHost exposes its popover —
     // likely via a binding controlled by the view layer, so this
-    // handler may route through a shared `drawerInboxPopover-
+    // handler may route through a shared `paneInboxPopover-
     // Presenter` object. Follow the existing pattern for other
     // keyboard-triggered popovers.
-    drawerInboxPresenter.open(forDrawerPaneIds: drawer.paneIds)
+    paneInboxPresenter.open(forPaneIds: [parentPaneId] + drawer.paneIds)
 }
 ```
 
@@ -3504,10 +3504,10 @@ Manual verification is acceptable here given the AppKit/popover integration:
 Add a unit test for the no-op guard:
 
 ```swift
-@Test("showDrawerInbox no-op when focused pane has no drawer parent")
+@Test("showPaneInbox no-op when no pane is focused")
 func noOpWithoutDrawerParent() {
     // Setup: activePaneId points at a pane with parentPaneId == nil
-    // Assert: drawerInboxPresenter.open(...) was NOT called
+    // Assert: paneInboxPresenter.open(...) was NOT called
 }
 ```
 
@@ -3515,11 +3515,11 @@ func noOpWithoutDrawerParent() {
 mise run test
 mise run lint
 git add ...
-git commit -m "feat(app): wire CMD+SHIFT+I drawer inbox popover command
+git commit -m "feat(app): wire CMD+SHIFT+I pane inbox popover command
 
 Resolves the focused pane's drawer parent per spec §10.2 and
-opens InboxNotificationDrawerPopover scoped to that drawer's paneIds. No-op
-when focus is not on a pane inside a drawer. LUNA-361 Phase 3."
+opens the pane inbox popover scoped to the focused pane plus drawer child pane ids.
+No-op when no pane is focused. LUNA-361 Phase 3."
 ```
 
 ---
@@ -3785,7 +3785,7 @@ Fill in envelope constructors and fixture helpers against the real APIs.
     - [ ] **Bell toggle via CommandBar**: disable bell → fire Ghostty bell → no notification. Re-enable → bell notification appears.
     - [ ] **Sandbox health transitions**: emit `sandboxHealthChanged(healthy:false)` twice → only the FIRST produces a notification. Emit `sandboxHealthChanged(healthy:true)` → no notification. Subsequent `false` → produces a new notification.
     - [ ] **commandFinished duration gating**: run an unfocused-pane command that finishes in < 10s → no notification. >= 10s → notification appears. Same command in the focused pane → no notification at any duration.
-    - [ ] **Drawer popover**: focus a pane inside a drawer → ⌘⇧I → drawer inbox popover opens.
+    - [ ] **Pane popover**: focus a pane → ⌘⇧I → pane inbox popover opens.
     - [ ] **Persistence**: quit and relaunch → notifications and prefs persist.
     - [ ] **Corruption**: manually delete `notification-inbox.json` → relaunch → app works, inbox empty.
 - [ ] Grep for dead references:

@@ -187,7 +187,7 @@
 │    InboxNotificationTypes.swift             Grouping + Sort enums    │
 │                                                                      │
 │  Core/Views/Drawer/                                                  │
-│    DrawerInboxPresentation.swift            drawer placement seam —  │
+│    PaneInboxPresentation.swift              drawer placement seam —  │
 │                                             6 closures + one         │
 │                                             trailingActions helper.  │
 │                                             Primitives + AnyView     │
@@ -303,7 +303,7 @@
 │  Affordances live                                                    │
 │    ⌘I                  toggle inbox in sidebar                       │
 │    ⌘S                  toggle worktree list in sidebar               │
-│    ⌘⇧I                 drawer inbox popover (if drawer focused)      │
+│    ⌘⇧I                 pane inbox popover                            │
 │    Toolbar bell icon   with red dot when global unread > 0           │
 │    Per-worktree pill   🔔 N in RepoExplorerWorktreeRow               │
 │    Drawer bell         numeric count, opens popover                  │

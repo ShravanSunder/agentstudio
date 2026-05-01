@@ -136,6 +136,54 @@ struct SelectablePopoverKeyboardRouterTests {
     }
 
     @Test
+    func zero_passthroughs() {
+        guard
+            let event = makeKeyEvent(
+                characters: "0",
+                charactersIgnoringModifiers: "0",
+                keyCode: 29
+            )
+        else {
+            Issue.record("Expected synthetic key event")
+            return
+        }
+
+        let action = SelectablePopoverKeyboardRouter.action(
+            for: event,
+            items: items,
+            selectedItemId: "first",
+            matchesAdditionalDismissShortcut: { _ in false }
+        )
+
+        #expect(action == .passthrough)
+    }
+
+    @Test
+    func missingShortcutNumber_consumesDigit() {
+        guard
+            let event = makeKeyEvent(
+                characters: "9",
+                charactersIgnoringModifiers: "9",
+                keyCode: 25
+            )
+        else {
+            Issue.record("Expected synthetic key event")
+            return
+        }
+
+        let action = SelectablePopoverKeyboardRouter.action(
+            for: event,
+            items: [
+                SelectablePopoverKeyboardItem(id: "first", shortcutNumber: nil, supportsAuxiliaryAction: true)
+            ],
+            selectedItemId: "first",
+            matchesAdditionalDismissShortcut: { _ in false }
+        )
+
+        #expect(action == .consume)
+    }
+
+    @Test
     func auxiliaryKey_returnsAuxiliaryActionForCurrentItem() {
         guard
             let event = makeKeyEvent(
@@ -157,5 +205,93 @@ struct SelectablePopoverKeyboardRouterTests {
         )
 
         #expect(action == .auxiliary("second"))
+    }
+
+    @Test
+    func auxiliaryKey_consumesWhenCurrentItemDoesNotSupportAuxiliaryAction() {
+        guard
+            let event = makeKeyEvent(
+                characters: "b",
+                charactersIgnoringModifiers: "b",
+                keyCode: 11
+            )
+        else {
+            Issue.record("Expected synthetic key event")
+            return
+        }
+
+        let action = SelectablePopoverKeyboardRouter.action(
+            for: event,
+            items: items,
+            selectedItemId: "third",
+            auxiliaryKey: "b",
+            matchesAdditionalDismissShortcut: { _ in false }
+        )
+
+        #expect(action == .consume)
+    }
+
+    @Test
+    func nilAuxiliaryKey_passthroughsAuxiliaryCharacter() {
+        guard
+            let event = makeKeyEvent(
+                characters: "b",
+                charactersIgnoringModifiers: "b",
+                keyCode: 11
+            )
+        else {
+            Issue.record("Expected synthetic key event")
+            return
+        }
+
+        let action = SelectablePopoverKeyboardRouter.action(
+            for: event,
+            items: items,
+            selectedItemId: "first",
+            auxiliaryKey: nil,
+            matchesAdditionalDismissShortcut: { _ in false }
+        )
+
+        #expect(action == .passthrough)
+    }
+
+    @Test
+    func emptyItems_consumeSelectionKeys() {
+        guard let event = makeKeyEvent(keyCode: 36) else {
+            Issue.record("Expected synthetic key event")
+            return
+        }
+
+        let action = SelectablePopoverKeyboardRouter.action(
+            for: event,
+            items: [],
+            selectedItemId: Optional<String>.none,
+            matchesAdditionalDismissShortcut: { _ in false }
+        )
+
+        #expect(action == .consume)
+        #expect(
+            SelectablePopoverKeyboardRouter.defaultSelection(
+                items: [SelectablePopoverKeyboardItem<String>](),
+                preferredItemId: nil
+            ) == nil
+        )
+    }
+
+    @Test
+    func nilSelection_defaultsToFirstItem() {
+        #expect(
+            SelectablePopoverKeyboardRouter.currentSelection(
+                items: items,
+                selectedItemId: nil
+            ) == "first"
+        )
+        #expect(
+            SelectablePopoverKeyboardRouter.movedSelection(
+                delta: 1,
+                items: items,
+                selectedItemId: nil
+            ) == "second"
+        )
     }
 }

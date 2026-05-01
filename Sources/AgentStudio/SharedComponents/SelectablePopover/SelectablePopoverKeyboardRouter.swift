@@ -52,7 +52,8 @@ enum SelectablePopoverKeyboardRouter {
 
         if let characters = event.charactersIgnoringModifiers,
             characters.count == 1,
-            let shortcutNumber = Int(characters)
+            let shortcutNumber = Int(characters),
+            (1...AppPolicies.SelectablePopover.maxNumberedShortcuts).contains(shortcutNumber)
         {
             guard let itemId = items.first(where: { $0.shortcutNumber == shortcutNumber })?.id else {
                 return .consume
