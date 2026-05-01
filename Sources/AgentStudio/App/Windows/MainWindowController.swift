@@ -34,7 +34,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         viewRegistry: ViewRegistry,
         inboxAtom: InboxNotificationAtom,
         inboxPrefsAtom: InboxNotificationPrefsAtom,
-        drawerInboxPresenter: InboxNotificationDrawerPresenter,
+        paneInboxPresenter: PaneInboxNotificationPresenter,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
     ) {
         let window = NSWindow(
@@ -73,7 +73,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             viewRegistry: viewRegistry,
             inboxAtom: inboxAtom,
             inboxPrefsAtom: inboxPrefsAtom,
-            drawerInboxPresenter: drawerInboxPresenter,
+            paneInboxPresenter: paneInboxPresenter,
             closeTransitionCoordinator: closeTransitionCoordinator
         )
         self.splitViewController = splitVC

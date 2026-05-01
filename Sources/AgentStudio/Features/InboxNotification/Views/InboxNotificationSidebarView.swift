@@ -201,7 +201,7 @@ struct InboxNotificationSidebarView: View {
 
     private func activate(_ notification: InboxNotification) {
         inboxAtom.markRead(id: notification.id)
-        inboxAtom.dismissFromDrawer(id: notification.id)
+        inboxAtom.dismissFromPaneInbox(id: notification.id)
 
         switch InboxSidebarActivationResolver.resolve(
             notification: notification,

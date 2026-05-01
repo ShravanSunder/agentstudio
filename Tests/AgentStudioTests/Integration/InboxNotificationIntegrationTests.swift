@@ -297,11 +297,11 @@ struct InboxNotificationIntegrationTests {
         #expect(listModel.sections.count == 1)
         #expect(listModel.sections[0].notifications.count == routedEvents.count)
 
-        let drawerNotifications = InboxNotificationDrawerPopover.relevantNotifications(
-            drawerPaneIds: [paneId.uuid],
+        let paneNotifications = PaneInboxNotificationPopover.relevantNotifications(
+            paneIds: [paneId.uuid],
             notifications: notifications
         )
-        #expect(drawerNotifications.count == routedEvents.count)
+        #expect(paneNotifications.count == routedEvents.count)
 
         fixture.shutdown()
     }

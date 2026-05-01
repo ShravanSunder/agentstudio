@@ -63,6 +63,10 @@ When two app surfaces need the same visual control, extract a stateless primitiv
 
 Use `AppStyles` for presentation constants only: spacing, radii, icon sizes, opacity, typography, colors, and paint dimensions. Use `AppPolicies` for behavioral constants: limits, thresholds, retention caps, validation rules, routing rules, and accept/reject decisions. If changing the value can change state transitions or command/event behavior, it belongs in `AppPolicies` even when the UI reads it.
 
+### Command Specs And Execution Owners
+
+Before adding or changing a command, read [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md). Use `AppCommand` for identity, `AppShortcut` for bindings, `CommandSpec` for command-bar/tooltips, and `LocalActionSpec` for UI-only actions. App/window/sidebar shell commands may route through `AppDelegate`; pane, drawer, focus, layout, and workspace commands route through `PaneTabViewController` so keyboard shortcuts, command-bar rows, and drawer buttons share the same resolver.
+
 | Component | Owns | Location |
 |-----------|------|----------|
 | `AtomRegistry` | composition root for shared main-actor atoms and derived helpers | `Infrastructure/AtomLib/AtomRegistry.swift` |
@@ -109,7 +113,7 @@ Each doc owns a specific concern. See [Architecture Overview](docs/architecture/
 | [Session Lifecycle](docs/architecture/session_lifecycle.md) | Pane identity, creation, close, undo, restore, zmx backend |
 | [Surface Architecture](docs/architecture/ghostty_surface_architecture.md) | Ghostty surface ownership, state machine, health, crash isolation |
 | [App Architecture](docs/architecture/appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid, controllers, events |
-| [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md) | The four-file system (AppCommand / AppShortcut / CommandSpec / LocalActionSpec), decision tree for adding bindings, contexts, alternateTriggers, where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
+| [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md) | The four-file system (AppCommand / AppShortcut / CommandSpec / LocalActionSpec), execution-owner decision tree (`AppDelegate` shell vs `PaneTabViewController` pane/drawer), contexts, alternateTriggers, and where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
 | [Directory Structure](docs/architecture/directory_structure.md) | Module boundaries, Core vs Features, import rule, component placement |
 | [Style Guide](docs/guides/style_guide.md) | macOS design conventions and visual standards |
 

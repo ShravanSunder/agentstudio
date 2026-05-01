@@ -9,7 +9,7 @@ struct SingleTabContent: View {
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
-    let drawerInboxPresentation: DrawerInboxPresentation?
+    let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
 
     init(
@@ -21,7 +21,7 @@ struct SingleTabContent: View {
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
-        drawerInboxPresentation: DrawerInboxPresentation? = nil,
+        paneInboxPresentation: PaneInboxPresentation? = nil,
         onOpenPaneGitHub: @escaping (UUID) -> Void
     ) {
         self.tabId = tabId
@@ -32,7 +32,7 @@ struct SingleTabContent: View {
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
         self.onPaneFocusTrigger = onPaneFocusTrigger
-        self.drawerInboxPresentation = drawerInboxPresentation
+        self.paneInboxPresentation = paneInboxPresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
     }
 
@@ -63,7 +63,7 @@ struct SingleTabContent: View {
                 repoCache: repoCache,
                 viewRegistry: viewRegistry,
                 appLifecycleStore: appLifecycleStore,
-                drawerInboxPresentation: drawerInboxPresentation,
+                paneInboxPresentation: paneInboxPresentation,
                 onOpenPaneGitHub: onOpenPaneGitHub
             )
             .background(AppStyles.Shell.PaneChrome.background)

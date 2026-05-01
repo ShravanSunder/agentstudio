@@ -4,12 +4,13 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("DrawerInboxPresentation")
-struct DrawerInboxPresentationTests {
-    @Test("trailing actions inject drawer unread count and preserve existing actions")
+@Suite("PaneInboxPresentation")
+struct PaneInboxPresentationTests {
+    @Test("trailing actions inject pane inbox unread count and preserve existing actions")
     func trailingActionsInjectUnreadCount() {
         let parentPaneId = UUID()
-        let drawerPaneId = UUID()
+        let drawerChildPaneId = UUID()
+        let paneIds = [parentPaneId, drawerChildPaneId]
         var openedParentPaneId: UUID?
         var openedPaneIds: [UUID]?
         var didOpenFinder = false
@@ -20,8 +21,8 @@ struct DrawerInboxPresentationTests {
             buttonTitle: "Cursor",
             onOpenFinder: { didOpenFinder = true }
         )
-        let presentation = DrawerInboxPresentation(
-            unreadCount: { paneIds in paneIds == [drawerPaneId] ? 1 : 0 },
+        let presentation = PaneInboxPresentation(
+            unreadCount: { requestedPaneIds in requestedPaneIds == paneIds ? 1 : 0 },
             open: { parentPaneId, paneIds in
                 openedParentPaneId = parentPaneId
                 openedPaneIds = paneIds
@@ -34,7 +35,7 @@ struct DrawerInboxPresentationTests {
 
         let actions = presentation.trailingActions(
             parentPaneId: parentPaneId,
-            drawerPaneIds: [drawerPaneId],
+            paneIds: paneIds,
             baseTrailingActions: baseActions,
             inboxPopoverPresented: Binding(
                 get: { isPopoverPresented },
@@ -55,6 +56,6 @@ struct DrawerInboxPresentationTests {
 
         actions.onOpenInbox?()
         #expect(openedParentPaneId == parentPaneId)
-        #expect(openedPaneIds == [drawerPaneId])
+        #expect(openedPaneIds == paneIds)
     }
 }

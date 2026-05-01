@@ -785,6 +785,14 @@ Agent Studio has two typed presentation layers for user-triggerable UI:
 └──────────────────────────────────────────────────────────────┘
 ```
 
+`ShellCommandHandling` is deliberately narrow. It may open app windows,
+toggle the sidebar shell, open command-bar modes, and start app-level
+auth or file-picker flows. It must not own pane-local presentation.
+Commands that depend on active pane identity, drawer focus, drawer
+children, or workspace validation terminate in `WorkspaceCommandHandling`
+on `PaneTabViewController`. This keeps keyboard shortcuts, command-bar
+rows, and drawer buttons on the same resolver path.
+
 For UI actions that are *not* `AppCommand`s — for example drawer hover tooltips, sidebar
 editor menus, settings buttons, and command-bar mode entries — the app uses
 `ActionSpec` and `LocalActionSpec` in `Core/Actions/UIActionPresentation.swift`.

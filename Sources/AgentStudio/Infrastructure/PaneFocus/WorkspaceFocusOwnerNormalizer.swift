@@ -4,7 +4,7 @@ struct WorkspaceFocusOwnerNormalizer {
     struct Context: Equatable, Sendable {
         let activeMainPaneId: UUID?
         let expandedDrawerParentPaneId: UUID?
-        let drawerPaneIds: [UUID]
+        let paneIds: [UUID]
         let activeDrawerPaneId: UUID?
         let minimizedDrawerPaneIds: Set<UUID>
     }
@@ -35,7 +35,7 @@ struct WorkspaceFocusOwnerNormalizer {
             return .mainPane(paneId: activeMainPaneId)
         }
 
-        let visibleDrawerPaneIds = context.drawerPaneIds.filter { paneId in
+        let visibleDrawerPaneIds = context.paneIds.filter { paneId in
             !context.minimizedDrawerPaneIds.contains(paneId)
         }
 

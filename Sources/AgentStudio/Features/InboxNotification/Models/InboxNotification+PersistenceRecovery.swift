@@ -10,7 +10,7 @@ extension InboxNotification {
             body: event.notificationBody,
             source: .global,
             isRead: false,
-            isDismissedFromDrawer: false
+            isDismissedFromPaneInbox: false
         )
     }
 }

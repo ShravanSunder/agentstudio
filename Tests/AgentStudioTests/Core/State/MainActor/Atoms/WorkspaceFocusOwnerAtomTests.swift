@@ -24,7 +24,7 @@ struct WorkspaceFocusOwnerAtomTests {
             context: .init(
                 activeMainPaneId: parentPaneId,
                 expandedDrawerParentPaneId: parentPaneId,
-                drawerPaneIds: [],
+                paneIds: [],
                 activeDrawerPaneId: nil,
                 minimizedDrawerPaneIds: []
             )
@@ -41,7 +41,7 @@ struct WorkspaceFocusOwnerAtomTests {
             context: .init(
                 activeMainPaneId: parentPaneId,
                 expandedDrawerParentPaneId: nil,
-                drawerPaneIds: [],
+                paneIds: [],
                 activeDrawerPaneId: nil,
                 minimizedDrawerPaneIds: []
             )
@@ -59,7 +59,7 @@ struct WorkspaceFocusOwnerAtomTests {
             context: .init(
                 activeMainPaneId: parentPaneId,
                 expandedDrawerParentPaneId: parentPaneId,
-                drawerPaneIds: [drawerPaneId],
+                paneIds: [drawerPaneId],
                 activeDrawerPaneId: drawerPaneId,
                 minimizedDrawerPaneIds: []
             )
@@ -77,7 +77,7 @@ struct WorkspaceFocusOwnerAtomTests {
             context: .init(
                 activeMainPaneId: parentPaneId,
                 expandedDrawerParentPaneId: parentPaneId,
-                drawerPaneIds: [drawerPaneId],
+                paneIds: [drawerPaneId],
                 activeDrawerPaneId: drawerPaneId,
                 minimizedDrawerPaneIds: []
             )
@@ -96,7 +96,7 @@ struct WorkspaceFocusOwnerAtomTests {
             context: .init(
                 activeMainPaneId: activeMainPaneId,
                 expandedDrawerParentPaneId: activeMainPaneId,
-                drawerPaneIds: [drawerPaneId],
+                paneIds: [drawerPaneId],
                 activeDrawerPaneId: drawerPaneId,
                 minimizedDrawerPaneIds: []
             )

@@ -48,6 +48,11 @@ struct SplitDropCommitDestination: Equatable {
     let drawerParentPaneId: UUID?
 }
 
+private struct PaneInboxCommandTarget {
+    let parentPaneId: UUID
+    let paneIds: [UUID]
+}
+
 /// Tab-based terminal controller with custom Ghostty-style tab bar.
 ///
 /// PaneTabViewController is a composition-oriented controller in `App/`. It reads
@@ -78,7 +83,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private let executor: ActionExecutor
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
-    private let drawerInboxPresentation: DrawerInboxPresentation?
+    private let paneInboxPresentation: PaneInboxPresentation?
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let tabRenamePopoverState: TabRenamePopoverState
     private let arrangementInlineRenameState: ArrangementInlineRenameState
@@ -160,7 +165,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         executor: ActionExecutor,
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
-        drawerInboxPresentation: DrawerInboxPresentation? = nil,
+        paneInboxPresentation: PaneInboxPresentation? = nil,
         installedEditorTargetsProvider: @escaping @MainActor () -> [ExternalEditorTarget] = {
             ExternalEditorTarget.refreshInstalledTargets()
         },
@@ -185,7 +190,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         self.executor = executor
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
-        self.drawerInboxPresentation = drawerInboxPresentation
+        self.paneInboxPresentation = paneInboxPresentation
         self.installedEditorTargetsProvider = installedEditorTargetsProvider
         self.openEditorHandler = openEditorHandler
         self.openFinderHandler = openFinderHandler
@@ -379,7 +384,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             .closeTab, .newTab, .undoCloseTab, .nextTab, .prevTab,
             .addDrawerPane, .toggleDrawer, .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
-            .toggleManagementLayer, .showInboxNotifications, .showDrawerInboxNotifications, .showWorktreeSidebar,
+            .toggleManagementLayer, .showInboxNotifications, .showPaneInboxNotifications, .showWorktreeSidebar,
             .newWindow, .closeWindow, .showCommandBarEverything,
             .showCommandBarCommands, .showCommandBarPanes, .selectTab1,
             .selectTab2, .selectTab3, .selectTab4, .selectTab5, .selectTab6,
@@ -815,7 +820,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         return .init(
             activeMainPaneId: activeMainPaneId,
             expandedDrawerParentPaneId: drawer?.isExpanded == true ? activeMainPaneId : nil,
-            drawerPaneIds: drawer?.paneIds ?? [],
+            paneIds: drawer?.paneIds ?? [],
             activeDrawerPaneId: drawer?.activeChildId,
             minimizedDrawerPaneIds: drawer?.minimizedPaneIds ?? []
         )
@@ -878,7 +883,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             onPaneFocusTrigger: { [weak self] trigger in
                 self?.handlePaneFocusTrigger(trigger)
             },
-            drawerInboxPresentation: drawerInboxPresentation,
+            paneInboxPresentation: paneInboxPresentation,
             onOpenPaneGitHub: { [weak self] paneId in
                 self?.openGitHubWebview(for: paneId)
             }
@@ -1934,6 +1939,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         if handlePaneLocationCommand(command) {
             return
         }
+        if handlePaneInboxCommand(command) {
+            return
+        }
 
         switch command {
         case .newTab:
@@ -1945,7 +1953,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             guard let activeTabId = store.tabLayoutAtom.activeTabId else { break }
             tabRenamePopoverState.present(for: activeTabId)
         case .watchFolder, .toggleSidebar, .filterSidebar,
-            .showInboxNotifications, .showDrawerInboxNotifications, .showWorktreeSidebar,
+            .showInboxNotifications, .showPaneInboxNotifications, .showWorktreeSidebar,
             .signInGitHub, .signInGoogle:
             break
         case .enterDrawer:
@@ -2353,6 +2361,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return store.tabLayoutAtom.activeTabId != nil
         case .addDrawerPane, .toggleDrawer, .closeDrawerPane:
             return canExecuteContextualCommand(command)
+        case .showPaneInboxNotifications:
+            return paneInboxPresentation != nil && activePaneInboxTarget() != nil
         case .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder,
             .openPaneLocationInEditorMenu:
@@ -2417,6 +2427,30 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         default:
             return false
         }
+    }
+
+    private func handlePaneInboxCommand(_ command: AppCommand) -> Bool {
+        guard command == .showPaneInboxNotifications else { return false }
+        guard let paneInboxPresentation, let target = activePaneInboxTarget() else { return false }
+        paneInboxPresentation.open(target.parentPaneId, target.paneIds)
+        return true
+    }
+
+    private func activePaneInboxTarget() -> PaneInboxCommandTarget? {
+        guard let parentPaneId = activePaneInboxParentPaneId() else { return nil }
+        let drawerPaneIds = store.paneAtom.pane(parentPaneId)?.drawer?.paneIds ?? []
+
+        return PaneInboxCommandTarget(parentPaneId: parentPaneId, paneIds: [parentPaneId] + drawerPaneIds)
+    }
+
+    private func activePaneInboxParentPaneId() -> UUID? {
+        guard let activePaneId = activeMainPaneId(),
+            let activePane = store.paneAtom.pane(activePaneId)
+        else {
+            return nil
+        }
+
+        return activePane.parentPaneId ?? activePane.id
     }
 
     private func selectedPaneManagementContext() -> PaneManagementContext? {

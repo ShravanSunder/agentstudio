@@ -12,7 +12,7 @@ struct InboxNotificationAtomTests {
         worktreeId: UUID? = nil,
         tabId: UUID? = nil,
         isRead: Bool = false,
-        isDismissedFromDrawer: Bool = false,
+        isDismissedFromPaneInbox: Bool = false,
         timestamp: Date = Date()
     ) -> InboxNotification {
         InboxNotification(
@@ -27,7 +27,7 @@ struct InboxNotificationAtomTests {
                 worktreeId: worktreeId
             ),
             isRead: isRead,
-            isDismissedFromDrawer: isDismissedFromDrawer
+            isDismissedFromPaneInbox: isDismissedFromPaneInbox
         )
     }
 
@@ -110,23 +110,23 @@ struct InboxNotificationAtomTests {
         #expect(atom.notifications.allSatisfy { $0.isRead })
     }
 
-    @Test("dismissFromDrawer(id:) sets flag true")
-    func dismissFromDrawerById() {
+    @Test("dismissFromPaneInbox(id:) sets flag true")
+    func dismissFromPaneInboxById() {
         let atom = InboxNotificationAtom()
         let notification = makeInboxNotification()
         atom.append(notification)
-        atom.dismissFromDrawer(id: notification.id)
-        #expect(atom.notifications[0].isDismissedFromDrawer == true)
+        atom.dismissFromPaneInbox(id: notification.id)
+        #expect(atom.notifications[0].isDismissedFromPaneInbox == true)
     }
 
-    @Test("dismissFromDrawer(paneId:) sets flag true for every pane entry")
-    func dismissFromDrawerByPane() {
+    @Test("dismissFromPaneInbox(paneId:) sets flag true for every pane entry")
+    func dismissFromPaneInboxByPane() {
         let paneA = UUID()
         let atom = InboxNotificationAtom()
         atom.append(makeInboxNotification(paneId: paneA))
         atom.append(makeInboxNotification(paneId: paneA))
-        atom.dismissFromDrawer(paneId: paneA)
-        #expect(atom.notifications.allSatisfy { $0.isDismissedFromDrawer })
+        atom.dismissFromPaneInbox(paneId: paneA)
+        #expect(atom.notifications.allSatisfy { $0.isDismissedFromPaneInbox })
     }
 
     @Test("toggleReadState flips the value")
@@ -171,8 +171,8 @@ struct InboxNotificationAtomTests {
         #expect(atom.unreadCount(forTabId: tab) == 2)
     }
 
-    @Test("unreadCount(forDrawerPaneIds:) sums across ids")
-    func unreadCountForDrawer() {
+    @Test("unreadCount(forPaneIds:) sums across ids")
+    func unreadCountForPaneIds() {
         let pane1 = UUID()
         let pane2 = UUID()
         let pane3 = UUID()
@@ -180,7 +180,7 @@ struct InboxNotificationAtomTests {
         atom.append(makeInboxNotification(paneId: pane1, isRead: false))
         atom.append(makeInboxNotification(paneId: pane2, isRead: false))
         atom.append(makeInboxNotification(paneId: pane3, isRead: false))
-        #expect(atom.unreadCount(forDrawerPaneIds: [pane1, pane2]) == 2)
+        #expect(atom.unreadCount(forPaneIds: [pane1, pane2]) == 2)
     }
 
     @Test("globalUnreadCount counts all unread")

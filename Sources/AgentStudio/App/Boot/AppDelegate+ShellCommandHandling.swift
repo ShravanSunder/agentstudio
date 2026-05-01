@@ -4,7 +4,7 @@ extension AppDelegate: ShellCommandHandling {
     func canExecute(_ command: AppCommand) -> Bool {
         switch command {
         case .watchFolder, .toggleSidebar, .filterSidebar,
-            .showInboxNotifications, .showDrawerInboxNotifications, .showWorktreeSidebar,
+            .showInboxNotifications, .showWorktreeSidebar,
             .signInGitHub, .signInGoogle, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
             true
@@ -25,9 +25,6 @@ extension AppDelegate: ShellCommandHandling {
             return true
         case .showInboxNotifications:
             mainWindowController?.showInboxNotifications(commandBarIsKey: commandBarController.isKeyWindow)
-            return true
-        case .showDrawerInboxNotifications:
-            openDrawerInboxForActiveDrawer()
             return true
         case .showWorktreeSidebar:
             mainWindowController?.showWorktreeSidebar()

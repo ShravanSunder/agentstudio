@@ -1,8 +1,8 @@
 import SwiftUI
 
 @MainActor
-struct InboxNotificationDrawerPopover: View {
-    let drawerPaneIds: [UUID]
+struct PaneInboxNotificationPopover: View {
+    let paneIds: [UUID]
     let inboxAtom: InboxNotificationAtom
     let dispatcher: CommandDispatcher
     let onClose: @MainActor @Sendable () -> Void
@@ -17,22 +17,22 @@ struct InboxNotificationDrawerPopover: View {
     }
 
     static func relevantNotifications(
-        drawerPaneIds: [UUID],
+        paneIds: [UUID],
         notifications: [InboxNotification]
     ) -> [InboxNotification] {
-        let paneIdSet = Set(drawerPaneIds)
+        let paneIdSet = Set(paneIds)
         return
             notifications
             .filter { notification in
                 guard let paneId = notification.paneId else { return false }
-                return paneIdSet.contains(paneId) && !notification.isDismissedFromDrawer
+                return paneIdSet.contains(paneId) && !notification.isDismissedFromPaneInbox
             }
             .sorted { $0.timestamp > $1.timestamp }
     }
 
     private var header: some View {
         HStack {
-            Text("Drawer inbox")
+            Text("Pane inbox")
                 .font(.headline)
             Spacer()
             Button(action: onClose) {
@@ -45,7 +45,7 @@ struct InboxNotificationDrawerPopover: View {
 
     private var relevantNotifications: [InboxNotification] {
         Self.relevantNotifications(
-            drawerPaneIds: drawerPaneIds,
+            paneIds: paneIds,
             notifications: inboxAtom.notifications
         )
     }
@@ -72,7 +72,7 @@ struct InboxNotificationDrawerPopover: View {
 
     private func activate(_ notification: InboxNotification) {
         inboxAtom.markRead(id: notification.id)
-        inboxAtom.dismissFromDrawer(id: notification.id)
+        inboxAtom.dismissFromPaneInbox(id: notification.id)
         if let paneId = notification.paneId {
             dispatcher.dispatch(.focusPane, target: paneId, targetType: .pane)
         }

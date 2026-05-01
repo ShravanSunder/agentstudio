@@ -60,7 +60,7 @@ struct DrawerPanel: View {
     let onDismiss: () -> Void
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let appLifecycleStore: AppLifecycleAtom
-    let drawerInboxPresentation: DrawerInboxPresentation?
+    let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
     let dropTarget: DrawerRearrangeTarget?
     /// Active drag's source pane id, used to omit self/adjacent
@@ -97,7 +97,7 @@ struct DrawerPanel: View {
         onDismiss: @escaping () -> Void,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         appLifecycleStore: AppLifecycleAtom,
-        drawerInboxPresentation: DrawerInboxPresentation?,
+        paneInboxPresentation: PaneInboxPresentation?,
         onOpenPaneGitHub: @escaping (UUID) -> Void,
         dropTarget: DrawerRearrangeTarget?,
         dragSourcePaneId: UUID?
@@ -117,7 +117,7 @@ struct DrawerPanel: View {
         self.onDismiss = onDismiss
         self.onPaneFocusTrigger = onPaneFocusTrigger
         self.appLifecycleStore = appLifecycleStore
-        self.drawerInboxPresentation = drawerInboxPresentation
+        self.paneInboxPresentation = paneInboxPresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
         self.dropTarget = dropTarget
         self.dragSourcePaneId = dragSourcePaneId
@@ -179,7 +179,7 @@ struct DrawerPanel: View {
             viewRegistry: viewRegistry,
             coordinateSpaceName: Self.drawerDropCoordinateSpace,
             useDrawerFramePreference: true,
-            drawerInboxPresentation: drawerInboxPresentation,
+            paneInboxPresentation: paneInboxPresentation,
             onOpenPaneGitHub: onOpenPaneGitHub
         )
     }
@@ -335,7 +335,7 @@ private struct DrawerSurfaceRegistrationModifier: ViewModifier {
                     onDismiss: {},
                     onPaneFocusTrigger: { _ in },
                     appLifecycleStore: AppLifecycleAtom(),
-                    drawerInboxPresentation: nil,
+                    paneInboxPresentation: nil,
                     onOpenPaneGitHub: { _ in },
                     dropTarget: nil,
                     dragSourcePaneId: nil

@@ -124,7 +124,7 @@ struct MainWindowControllerInboxToolbarButtonTests {
             body: nil,
             source: .global,
             isRead: false,
-            isDismissedFromDrawer: false
+            isDismissedFromPaneInbox: false
         )
     }
 }
@@ -143,7 +143,7 @@ private struct MainWindowControllerHarness {
 private func withMainWindowControllerHarness<T>(
     inboxAtom: InboxNotificationAtom = InboxNotificationAtom(),
     inboxPrefsAtom: InboxNotificationPrefsAtom = InboxNotificationPrefsAtom(),
-    drawerInboxPresenter: InboxNotificationDrawerPresenter = InboxNotificationDrawerPresenter(),
+    paneInboxPresenter: PaneInboxNotificationPresenter = PaneInboxNotificationPresenter(),
     body: @MainActor (MainWindowControllerHarness) async throws -> T
 ) async rethrows -> T {
     let tempDir = FileManager.default.temporaryDirectory
@@ -189,7 +189,7 @@ private func withMainWindowControllerHarness<T>(
             viewRegistry: viewRegistry,
             inboxAtom: inboxAtom,
             inboxPrefsAtom: inboxPrefsAtom,
-            drawerInboxPresenter: drawerInboxPresenter
+            paneInboxPresenter: paneInboxPresenter
         )
         controller = windowController
         windowController.showWindow(nil)

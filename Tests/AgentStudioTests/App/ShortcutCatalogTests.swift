@@ -43,7 +43,7 @@ struct ShortcutCatalogTests {
         let quickOpenDefinition = CommandDispatcher.shared.definition(for: .showCommandBarEverything)
         let startContextDefinition = CommandDispatcher.shared.definition(for: .showCommandBarRepos)
         let addDrawerPaneDefinition = CommandDispatcher.shared.definition(for: .addDrawerPane)
-        let drawerInboxDefinition = CommandDispatcher.shared.definition(for: .showDrawerInboxNotifications)
+        let paneInboxDefinition = CommandDispatcher.shared.definition(for: .showPaneInboxNotifications)
 
         #expect(managementLayerDefinition.keyBinding?.key == "r")
         #expect(managementLayerDefinition.keyBinding?.modifiers == [.command])
@@ -53,9 +53,9 @@ struct ShortcutCatalogTests {
         #expect(startContextDefinition.keyBinding?.modifiers == [.command])
         #expect(addDrawerPaneDefinition.keyBinding?.key == "d")
         #expect(addDrawerPaneDefinition.keyBinding?.modifiers == [.command, .shift])
-        #expect(drawerInboxDefinition.keyBinding?.key == "i")
-        #expect(drawerInboxDefinition.keyBinding?.modifiers == [.command, .shift])
-        #expect(drawerInboxDefinition.actionSpec.label == "Show Drawer Inbox")
+        #expect(paneInboxDefinition.keyBinding?.key == "i")
+        #expect(paneInboxDefinition.keyBinding?.modifiers == [.command, .shift])
+        #expect(paneInboxDefinition.actionSpec.label == "Show Pane Inbox")
     }
 
     @Test
@@ -99,18 +99,18 @@ struct ShortcutCatalogTests {
     }
 
     @Test
-    func shortcutDecoder_decodesDrawerInboxShortcut() {
-        let showDrawerInbox = ShortcutDecoder.shortcut(
+    func shortcutDecoder_decodesPaneInboxShortcut() {
+        let showPaneInbox = ShortcutDecoder.shortcut(
             for: .init(key: .character(.i), modifiers: [.command, .shift]),
             in: .global
         )
-        let terminalShowDrawerInbox = ShortcutDecoder.shortcut(
+        let terminalShowPaneInbox = ShortcutDecoder.shortcut(
             for: .init(key: .character(.i), modifiers: [.command, .shift]),
             in: .terminalAppOwned
         )
 
-        #expect(showDrawerInbox == .showDrawerInboxNotifications)
-        #expect(terminalShowDrawerInbox == .showDrawerInboxNotifications)
+        #expect(showPaneInbox == .showPaneInboxNotifications)
+        #expect(terminalShowPaneInbox == .showPaneInboxNotifications)
     }
 
     @Test

@@ -21,7 +21,7 @@ struct CommandBarSurfaceCommandTests {
         )
 
         let sidebarInbox = items.first { $0.command == .showInboxNotifications }
-        let drawerInbox = items.first { $0.command == .showDrawerInboxNotifications }
+        let paneInbox = items.first { $0.command == .showPaneInboxNotifications }
         let worktreeSidebar = items.first { $0.command == .showWorktreeSidebar }
 
         #expect(sidebarInbox?.title == "Toggle Inbox")
@@ -29,10 +29,10 @@ struct CommandBarSurfaceCommandTests {
         #expect(sidebarInbox?.shortcutTrigger == AppShortcut.showInboxNotifications.trigger)
         #expect(sidebarInbox?.shortcutKeys?.map(\.symbol).joined() == "⌘I")
 
-        #expect(drawerInbox?.title == "Show Drawer Inbox")
-        #expect(drawerInbox?.group == "Window")
-        #expect(drawerInbox?.shortcutTrigger == AppShortcut.showDrawerInboxNotifications.trigger)
-        #expect(drawerInbox?.shortcutKeys?.map(\.symbol).joined() == "⌘⇧I")
+        #expect(paneInbox?.title == "Show Pane Inbox")
+        #expect(paneInbox?.group == "Window")
+        #expect(paneInbox?.shortcutTrigger == AppShortcut.showPaneInboxNotifications.trigger)
+        #expect(paneInbox?.shortcutKeys?.map(\.symbol).joined() == "⌘⇧I")
 
         #expect(worktreeSidebar?.title == "Toggle Worktrees")
         #expect(worktreeSidebar?.group == "Window")

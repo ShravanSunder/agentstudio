@@ -175,7 +175,7 @@ enum AppShortcut: String, CaseIterable {
     case toggleSidebar
     case filterSidebar
     case showInboxNotifications
-    case showDrawerInboxNotifications
+    case showPaneInboxNotifications
     case showWorktreeSidebar
     case newWindow
     case closeWindow
@@ -284,7 +284,7 @@ enum AppShortcut: String, CaseIterable {
                 trigger: .init(key: .character(.i), modifiers: [.command]),
                 contexts: [.global, .terminalAppOwned]
             )
-        case .showDrawerInboxNotifications:
+        case .showPaneInboxNotifications:
             return .init(
                 trigger: .init(key: .character(.i), modifiers: [.command, .shift]),
                 contexts: [.global, .terminalAppOwned]

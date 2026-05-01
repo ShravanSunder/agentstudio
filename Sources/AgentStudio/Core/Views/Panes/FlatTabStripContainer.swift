@@ -14,7 +14,7 @@ struct FlatTabStripContainer: View {
     let repoCache: RepoCacheAtom
     let viewRegistry: ViewRegistry
     let appLifecycleStore: AppLifecycleAtom
-    let drawerInboxPresentation: DrawerInboxPresentation?
+    let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
 
     @State private var paneFrames: [UUID: CGRect] = [:]
@@ -47,7 +47,7 @@ struct FlatTabStripContainer: View {
         repoCache: RepoCacheAtom,
         viewRegistry: ViewRegistry,
         appLifecycleStore: AppLifecycleAtom,
-        drawerInboxPresentation: DrawerInboxPresentation? = nil,
+        paneInboxPresentation: PaneInboxPresentation? = nil,
         onOpenPaneGitHub: @escaping (UUID) -> Void
     ) {
         self.layout = layout
@@ -62,7 +62,7 @@ struct FlatTabStripContainer: View {
         self.repoCache = repoCache
         self.viewRegistry = viewRegistry
         self.appLifecycleStore = appLifecycleStore
-        self.drawerInboxPresentation = drawerInboxPresentation
+        self.paneInboxPresentation = paneInboxPresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
     }
 
@@ -165,7 +165,7 @@ struct FlatTabStripContainer: View {
                         viewRegistry: viewRegistry,
                         coordinateSpaceName: "tabContainer",
                         useDrawerFramePreference: false,
-                        drawerInboxPresentation: drawerInboxPresentation,
+                        paneInboxPresentation: paneInboxPresentation,
                         onOpenPaneGitHub: onOpenPaneGitHub
                     )
                     .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: closingPaneIds)
@@ -184,7 +184,7 @@ struct FlatTabStripContainer: View {
                     iconBarFrame: iconBarFrame,
                     actionDispatcher: actionDispatcher,
                     onPaneFocusTrigger: onPaneFocusTrigger,
-                    drawerInboxPresentation: drawerInboxPresentation,
+                    paneInboxPresentation: paneInboxPresentation,
                     onOpenPaneGitHub: onOpenPaneGitHub,
                     drawerDropTarget: drawerDropTarget,
                     dragSourcePaneId: activeDragSourcePaneId
@@ -337,7 +337,7 @@ struct FlatTabStripContainer: View {
             actionDispatcher: actionDispatcher,
             onPaneFocusTrigger: onPaneFocusTrigger,
             onOpenPaneGitHub: onOpenPaneGitHub,
-            drawerInboxPresentation: drawerInboxPresentation
+            paneInboxPresentation: paneInboxPresentation
         )
     }
 

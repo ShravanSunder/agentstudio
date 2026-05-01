@@ -72,7 +72,7 @@ final class InboxNotificationRouter {
             for await paneId in self.focusTracker.focusGainedStream {
                 guard !Task.isCancelled else { return }
                 self.inboxAtom.markRead(paneId: paneId)
-                self.inboxAtom.dismissFromDrawer(paneId: paneId)
+                self.inboxAtom.dismissFromPaneInbox(paneId: paneId)
             }
             if !Task.isCancelled {
                 inboxNotificationRouterLogger.warning("Focus stream ended while inbox router was active")
@@ -104,7 +104,7 @@ final class InboxNotificationRouter {
                 )
             ),
             isRead: false,
-            isDismissedFromDrawer: false
+            isDismissedFromPaneInbox: false
         )
         inboxAtom.append(notification)
     }

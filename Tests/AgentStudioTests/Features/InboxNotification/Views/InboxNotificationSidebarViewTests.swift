@@ -156,7 +156,7 @@ struct InboxNotificationSidebarViewTests {
                 )
             ),
             isRead: false,
-            isDismissedFromDrawer: false
+            isDismissedFromPaneInbox: false
         )
 
         let outcome = InboxSidebarActivationResolver.resolve(
@@ -178,7 +178,7 @@ struct InboxNotificationSidebarViewTests {
             body: nil,
             source: .pane(.init(paneId: paneId.uuid)),
             isRead: false,
-            isDismissedFromDrawer: false
+            isDismissedFromPaneInbox: false
         )
         let workspacePaneAtom = WorkspacePaneAtom()
         workspacePaneAtom.addPane(

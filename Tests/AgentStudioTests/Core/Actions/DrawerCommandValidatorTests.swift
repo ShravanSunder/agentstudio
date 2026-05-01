@@ -7,7 +7,7 @@ import Testing
 struct DrawerCommandValidatorTests {
     private func makeState(
         parentPaneId: UUID,
-        drawerPaneIds: [UUID],
+        paneIds: [UUID],
         layout: DrawerGridLayout
     ) -> ActionStateSnapshot {
         ActionStateSnapshot(
@@ -15,14 +15,14 @@ struct DrawerCommandValidatorTests {
                 TabSnapshot(
                     id: UUID(),
                     visiblePaneIds: [parentPaneId],
-                    ownedPaneIds: [parentPaneId] + drawerPaneIds,
+                    ownedPaneIds: [parentPaneId] + paneIds,
                     activePaneId: parentPaneId
                 )
             ],
             activeTabId: nil,
             isManagementLayerActive: true,
             drawerParentByPaneId: Dictionary(
-                uniqueKeysWithValues: drawerPaneIds.map { ($0, parentPaneId) }
+                uniqueKeysWithValues: paneIds.map { ($0, parentPaneId) }
             ),
             drawerLayoutByParentPaneId: [parentPaneId: layout]
         )
@@ -36,7 +36,7 @@ struct DrawerCommandValidatorTests {
         let c = UUID()
         let state = makeState(
             parentPaneId: parent,
-            drawerPaneIds: [a, b, c],
+            paneIds: [a, b, c],
             layout: DrawerGridLayout(topRow: Layout.autoTiled([a, b, c]))
         )
 
@@ -59,7 +59,7 @@ struct DrawerCommandValidatorTests {
         let b = UUID()
         let state = makeState(
             parentPaneId: parent,
-            drawerPaneIds: [a, b],
+            paneIds: [a, b],
             layout: DrawerGridLayout(topRow: Layout.autoTiled([a, b]))
         )
 
@@ -83,7 +83,7 @@ struct DrawerCommandValidatorTests {
         let c = UUID()
         let state = makeState(
             parentPaneId: parent,
-            drawerPaneIds: [a, b, c],
+            paneIds: [a, b, c],
             layout: DrawerGridLayout(
                 topRow: Layout.autoTiled([a, b]),
                 bottomRow: Layout.autoTiled([c]),

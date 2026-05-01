@@ -29,10 +29,10 @@ struct PaneLeafContainer: View {
     let onOpenPaneGitHub: (UUID) -> Void
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
-    let drawerInboxPresentation: DrawerInboxPresentation?
+    let paneInboxPresentation: PaneInboxPresentation?
 
     @State private var isHovered: Bool = false
-    @State private var drawerInboxPopoverOpen = false
+    @State private var paneInboxPopoverOpen = false
     private var managementLayer: ManagementLayerAtom {
         atom(\.managementLayer)
     }
@@ -57,7 +57,7 @@ struct PaneLeafContainer: View {
         onOpenPaneGitHub: @escaping (UUID) -> Void,
         dropTargetCoordinateSpace: String? = "tabContainer",
         useDrawerFramePreference: Bool = false,
-        drawerInboxPresentation: DrawerInboxPresentation? = nil
+        paneInboxPresentation: PaneInboxPresentation? = nil
     ) {
         self.paneHost = paneHost
         self.tabId = tabId
@@ -72,7 +72,7 @@ struct PaneLeafContainer: View {
         self.onOpenPaneGitHub = onOpenPaneGitHub
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
-        self.drawerInboxPresentation = drawerInboxPresentation
+        self.paneInboxPresentation = paneInboxPresentation
     }
 
     /// Whether this pane is a drawer child (no drag, no drop, no sub-drawer).
@@ -169,22 +169,22 @@ struct PaneLeafContainer: View {
             }
         )
 
-        let drawerPaneIds = drawer?.paneIds ?? []
+        let paneInboxIds = [paneHost.id] + (drawer?.paneIds ?? [])
         let hostedActions =
-            drawerInboxPresentation?.trailingActions(
+            paneInboxPresentation?.trailingActions(
                 parentPaneId: paneHost.id,
-                drawerPaneIds: drawerPaneIds,
+                paneIds: paneInboxIds,
                 baseTrailingActions: trailingActions,
-                inboxPopoverPresented: $drawerInboxPopoverOpen
+                inboxPopoverPresented: $paneInboxPopoverOpen
             ) ?? trailingActions
 
         baseDrawerOverlay(drawer: drawer, trailingActions: hostedActions)
-            .onChange(of: drawerInboxPresentation?.pendingRequest()?.id) { _, _ in
-                guard let request = drawerInboxPresentation?.pendingRequest() else { return }
+            .onChange(of: paneInboxPresentation?.pendingRequest()?.id) { _, _ in
+                guard let request = paneInboxPresentation?.pendingRequest() else { return }
                 guard request.parentPaneId == paneHost.id else { return }
-                guard request.drawerPaneIds == drawerPaneIds else { return }
-                drawerInboxPopoverOpen = true
-                drawerInboxPresentation?.clearRequest(request)
+                guard request.paneIds == paneInboxIds else { return }
+                paneInboxPopoverOpen = true
+                paneInboxPresentation?.clearRequest(request)
             }
     }
 

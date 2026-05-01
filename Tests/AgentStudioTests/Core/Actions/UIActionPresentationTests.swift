@@ -85,12 +85,12 @@ struct UIActionPresentationTests {
     }
 
     @Test
-    func drawerInboxToolTip_usesOverrideWithShortcut() {
-        let toolTip = AppCommand.showDrawerInboxNotifications.definition.controlToolTip(
-            textOverride: "Open notification inbox"
+    func paneInboxToolTip_usesOverrideWithShortcut() {
+        let toolTip = AppCommand.showPaneInboxNotifications.definition.controlToolTip(
+            textOverride: "Open pane inbox"
         )
 
-        #expect(toolTip == "Open notification inbox (⌘⇧I)")
+        #expect(toolTip == "Open pane inbox (⌘⇧I)")
     }
 
     @Test

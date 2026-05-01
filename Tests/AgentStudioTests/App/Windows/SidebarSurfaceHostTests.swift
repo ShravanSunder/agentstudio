@@ -39,7 +39,7 @@ struct SidebarSurfaceHostTests {
                     )
                 ),
                 isRead: false,
-                isDismissedFromDrawer: false
+                isDismissedFromPaneInbox: false
             )
         )
 

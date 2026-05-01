@@ -14,7 +14,7 @@ Use the LUNA-368 tracer to discover what Agent Studio can actually observe from 
 
 The immediate product question:
 
-> A CLI such as Gemini, Claude Code, or Codex produced output while I was not focused on that pane. What did Ghostty expose to us, what did Agent Studio receive, and why did I get, or not get, an inbox notification, drawer row, toolbar bell dot, or worktree pill?
+> A CLI such as Gemini, Claude Code, or Codex produced output while I was not focused on that pane. What did Ghostty expose to us, what did Agent Studio receive, and why did I get, or not get, an inbox notification, pane inbox row, toolbar bell dot, or worktree pill?
 
 This spec is not a behavior-change spec first. It is a capture-and-analysis spec:
 
@@ -164,7 +164,7 @@ terminal.activity
 inbox
 ui.surface
 ui.interaction
-drawer
+paneInbox
 ```
 
 These tags are consumer integrations over the LUNA-368 tracer. They do not expand the initial LUNA-368 foundation acceptance unless explicitly pulled in.
@@ -272,7 +272,7 @@ inbox.append exists, but ui.surface count remains stale or absent.
 Meaning:
 - Atom/UI binding bug.
 - Scoped count mismatch.
-- Drawer scope mismatch.
+- Pane inbox scope mismatch.
 
 ### Case 6: Immediate Read/Dismiss
 
@@ -345,7 +345,7 @@ Default delivery record should be a summary. Add per-subscriber verbose mode onl
 inbox.classify
 inbox.append
 inbox.markRead
-inbox.dismissFromDrawer
+inbox.dismissFromPaneInbox
 inbox.counts
 ```
 
@@ -362,8 +362,8 @@ pane.attended=true|false
 
 ```
 ui.surface.toolbarBell
-ui.surface.drawerBell
-ui.surface.drawerPopover
+ui.surface.paneInboxBell
+ui.surface.paneInboxPopover
 ui.surface.worktreePill
 ui.surface.sidebarInbox
 ```
@@ -376,44 +376,44 @@ app.focus.attendedPaneChanged
 app.focus.keyboardOwnerChanged
 ```
 
-### Interaction And Drawer
+### Interaction And Pane Inbox
 
 ```
 ui.interaction.click
-drawer.inboxTrigger
-drawer.popoverOpen
-drawer.popoverClose
-drawer.rowActivation
+paneInbox.trigger
+paneInbox.popoverOpen
+paneInbox.popoverClose
+paneInbox.rowActivation
 ```
 
-## Drawer Click Flow
+## Pane Inbox Click Flow
 
-Drawer inbox button:
+Pane inbox button:
 
 ```
 ui.interaction.click
-  interaction.target=drawerInboxButton
+  interaction.target=paneInboxButton
 
-drawer.inboxTrigger
-  drawer.state=expanded
-  drawer.source_pane_ids=[...]
+paneInbox.trigger
+  paneInbox.host=drawer_toolbox
+  paneInbox.pane_ids=[...]
 
 inbox.counts
-  inbox.scope=drawer
+  inbox.scope=paneInbox
   inbox.unread_count=...
 
-ui.surface.drawerPopover
+ui.surface.paneInboxPopover
   ui.open=true
   ui.row_count=...
 ```
 
-Drawer row activation:
+Pane inbox row activation:
 
 ```
 ui.interaction.click
   interaction.target=inboxRow
 
-drawer.rowActivation
+paneInbox.rowActivation
   notification.id=...
   pane.id=...
 
@@ -433,7 +433,7 @@ inbox.markRead
 Launch with:
 
 ```
-AGENTSTUDIO_TRACE_TAGS=app.focus,runtime,eventbus,terminal.activity,inbox,ui.surface,ui.interaction,drawer
+AGENTSTUDIO_TRACE_TAGS=app.focus,runtime,eventbus,terminal.activity,inbox,ui.surface,ui.interaction,paneInbox
 AGENTSTUDIO_TRACE_NAME=notif-cli-smoke
 ```
 
@@ -488,7 +488,7 @@ For each command:
 - Wait for output/completion.
 - Capture the JSONL trace.
 - Record whether the user expected feedback.
-- Open sidebar inbox and drawer inbox only when the UI behavior is in question.
+- Open sidebar inbox and pane inbox only when the UI behavior is in question.
 - Note whether the trace shows semantic event, inferred activity, both, or neither.
 
 ## Evidence Output
@@ -549,16 +549,16 @@ Do not paste raw command output unless explicitly needed and safe. Prefer counts
 
 - [ ] Resolve whether scoped count calculations need view models before tracing. Counts must be headlessly testable before this task starts.
 - [ ] Toolbar bell count.
-- [ ] Drawer bell count.
-- [ ] Drawer popover open/row count.
+- [ ] Pane inbox bell count.
+- [ ] Pane inbox popover open/row count.
 - [ ] Worktree pill count.
 - [ ] Sidebar inbox row count.
 
-### Task F: Instrument Focus And Drawer Interactions
+### Task F: Instrument Focus And Pane Inbox Interactions
 
 - [ ] Attended pane changes.
-- [ ] Drawer inbox button click.
-- [ ] Drawer row activation.
+- [ ] Pane inbox button click.
+- [ ] Pane inbox row activation.
 - [ ] Focus-pane action path.
 
 ### Task G: Capture Evidence And Convert To Tests
@@ -584,5 +584,5 @@ Do not paste raw command output unless explicitly needed and safe. Prefer counts
 1. What is the first reliable raw-output activity source: scrollbar growth, Ghostty screen extraction, render callbacks, or another bridge?
 2. Which UI count computations should move into testable view models before tracing?
 3. Should command-finished threshold remain 10 seconds once unseen activity exists?
-4. Should drawer-scoped empty state explain when global notifications exist outside the drawer scope?
+4. Should pane-inbox-scoped empty state explain when global notifications exist outside the pane inbox scope?
 5. Which CLI outputs are safe to capture as payloads, if any, under explicit opt-in?

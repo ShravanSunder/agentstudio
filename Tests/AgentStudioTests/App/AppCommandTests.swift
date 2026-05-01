@@ -323,15 +323,15 @@ final class AppCommandTests {
     @MainActor
 
     @Test
-    func test_sidebarAndDrawerInboxDefinitions_areCommandBarVisibleWithShortcuts() {
+    func test_sidebarAndPaneInboxDefinitions_areCommandBarVisibleWithShortcuts() {
         let sidebarInbox = CommandDispatcher.shared.definition(for: .showInboxNotifications)
-        let drawerInbox = CommandDispatcher.shared.definition(for: .showDrawerInboxNotifications)
+        let paneInbox = CommandDispatcher.shared.definition(for: .showPaneInboxNotifications)
         let worktreeSidebar = CommandDispatcher.shared.definition(for: .showWorktreeSidebar)
 
         #expect(sidebarInbox.shortcut == .showInboxNotifications)
         #expect(!sidebarInbox.isHiddenInCommandBar)
-        #expect(drawerInbox.shortcut == .showDrawerInboxNotifications)
-        #expect(!drawerInbox.isHiddenInCommandBar)
+        #expect(paneInbox.shortcut == .showPaneInboxNotifications)
+        #expect(!paneInbox.isHiddenInCommandBar)
         #expect(worktreeSidebar.shortcut == .showWorktreeSidebar)
         #expect(!worktreeSidebar.isHiddenInCommandBar)
     }

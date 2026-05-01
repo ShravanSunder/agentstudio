@@ -64,14 +64,14 @@ final class GhosttySurfaceShortcutTests {
     }
 
     @Test
-    func test_appOwnedShortcuts_containsSidebarAndDrawerInboxShortcuts() {
+    func test_appOwnedShortcuts_containsSidebarAndPaneInboxShortcuts() {
         #expect(
             Ghostty.SurfaceView.appOwnedShortcuts.contains(.showInboxNotifications),
             "Expected sidebar inbox shortcut in appOwnedShortcuts"
         )
         #expect(
-            Ghostty.SurfaceView.appOwnedShortcuts.contains(.showDrawerInboxNotifications),
-            "Expected drawer inbox shortcut in appOwnedShortcuts"
+            Ghostty.SurfaceView.appOwnedShortcuts.contains(.showPaneInboxNotifications),
+            "Expected pane inbox shortcut in appOwnedShortcuts"
         )
         #expect(
             Ghostty.SurfaceView.appOwnedShortcuts.contains(.showWorktreeSidebar),

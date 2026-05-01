@@ -67,7 +67,7 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
     let source: Source
 
     var isRead: Bool
-    var isDismissedFromDrawer: Bool
+    var isDismissedFromPaneInbox: Bool
 
     var paneId: UUID? {
         guard case .pane(let paneSource) = source else { return nil }

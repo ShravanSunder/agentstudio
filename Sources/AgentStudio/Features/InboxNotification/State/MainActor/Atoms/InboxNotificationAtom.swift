@@ -23,7 +23,7 @@ final class InboxNotificationAtom {
         unreadCount { $0.tabId == tabId }
     }
 
-    func unreadCount(forDrawerPaneIds paneIds: [UUID]) -> Int {
+    func unreadCount(forPaneIds paneIds: [UUID]) -> Int {
         let paneIdSet = Set(paneIds)
         return unreadCount { notification in
             guard
@@ -67,13 +67,13 @@ final class InboxNotificationAtom {
         recalculateGlobalUnreadCount()
     }
 
-    func dismissFromDrawer(id: UUID) {
-        update(id: id) { $0.isDismissedFromDrawer = true }
+    func dismissFromPaneInbox(id: UUID) {
+        update(id: id) { $0.isDismissedFromPaneInbox = true }
     }
 
-    func dismissFromDrawer(paneId: UUID) {
+    func dismissFromPaneInbox(paneId: UUID) {
         for index in notifications.indices where notifications[index].paneId == paneId {
-            notifications[index].isDismissedFromDrawer = true
+            notifications[index].isDismissedFromPaneInbox = true
         }
     }
 

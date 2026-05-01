@@ -34,7 +34,7 @@ struct FlatPaneStripContent: View {
     let viewRegistry: ViewRegistry
     let coordinateSpaceName: String?
     let useDrawerFramePreference: Bool
-    let drawerInboxPresentation: DrawerInboxPresentation?
+    let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
     @State private var isSplitResizing = false
 
@@ -89,7 +89,7 @@ struct FlatPaneStripContent: View {
                             isSplitResizing: isSplitResizing,
                             coordinateSpaceName: coordinateSpaceName,
                             useDrawerFramePreference: useDrawerFramePreference,
-                            drawerInboxPresentation: drawerInboxPresentation,
+                            paneInboxPresentation: paneInboxPresentation,
                             onOpenPaneGitHub: onOpenPaneGitHub,
                             viewRegistry: viewRegistry,
                             paneSlot: paneSlot
@@ -132,7 +132,7 @@ private struct PaneSegmentSlotView: View {
     let isSplitResizing: Bool
     let coordinateSpaceName: String?
     let useDrawerFramePreference: Bool
-    let drawerInboxPresentation: DrawerInboxPresentation?
+    let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
     let viewRegistry: ViewRegistry
     @Bindable var paneSlot: ViewRegistry.PaneViewSlot
@@ -165,7 +165,7 @@ private struct PaneSegmentSlotView: View {
                 onOpenPaneGitHub: onOpenPaneGitHub,
                 dropTargetCoordinateSpace: coordinateSpaceName,
                 useDrawerFramePreference: useDrawerFramePreference,
-                drawerInboxPresentation: drawerInboxPresentation
+                paneInboxPresentation: paneInboxPresentation
             )
             .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
         } else {

@@ -1,24 +1,24 @@
 import SwiftUI
 
-struct DrawerInboxRequest: Equatable, Identifiable {
+struct PaneInboxRequest: Equatable, Identifiable {
     let id: UUID
     let parentPaneId: UUID
-    let drawerPaneIds: [UUID]
+    let paneIds: [UUID]
 }
 
 /// Core receives primitive counts, callbacks, and type-erased popover content;
 /// the inbox feature keeps ownership of notification state.
 @MainActor
-struct DrawerInboxPresentation {
+struct PaneInboxPresentation {
     let unreadCount: @MainActor ([UUID]) -> Int
     let open: @MainActor (UUID, [UUID]) -> Void
-    let pendingRequest: @MainActor () -> DrawerInboxRequest?
-    let clearRequest: @MainActor (DrawerInboxRequest) -> Void
+    let pendingRequest: @MainActor () -> PaneInboxRequest?
+    let clearRequest: @MainActor (PaneInboxRequest) -> Void
     let popoverContent: @MainActor ([UUID], @escaping @MainActor @Sendable () -> Void) -> AnyView
 
     func trailingActions(
         parentPaneId: UUID,
-        drawerPaneIds: [UUID],
+        paneIds: [UUID],
         baseTrailingActions: DrawerOverlay.TrailingActions,
         inboxPopoverPresented: Binding<Bool>
     ) -> DrawerOverlay.TrailingActions {
@@ -28,13 +28,13 @@ struct DrawerInboxPresentation {
             editorMenuPresented: baseTrailingActions.editorMenuPresented,
             buttonTitle: baseTrailingActions.buttonTitle,
             onOpenFinder: baseTrailingActions.onOpenFinder,
-            onOpenInbox: { open(parentPaneId, drawerPaneIds) },
+            onOpenInbox: { open(parentPaneId, paneIds) },
             inboxPopoverPresented: inboxPopoverPresented,
             inboxPopoverContent: popoverContent(
-                drawerPaneIds,
+                paneIds,
                 { inboxPopoverPresented.wrappedValue = false }
             ),
-            inboxUnreadCount: unreadCount(drawerPaneIds)
+            inboxUnreadCount: unreadCount(paneIds)
         )
     }
 }

@@ -47,7 +47,7 @@ struct InboxNotificationListModelTests {
                 )
             ),
             isRead: isRead,
-            isDismissedFromDrawer: false
+            isDismissedFromPaneInbox: false
         )
     }
 

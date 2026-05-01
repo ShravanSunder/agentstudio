@@ -27,7 +27,7 @@ struct NotificationTests {
                 )
             ),
             isRead: false,
-            isDismissedFromDrawer: false
+            isDismissedFromPaneInbox: false
         )
 
         let encoder = JSONEncoder()
@@ -43,7 +43,7 @@ struct NotificationTests {
         #expect(decoded.kind == original.kind)
         #expect(decoded.source == original.source)
         #expect(decoded.isRead == original.isRead)
-        #expect(decoded.isDismissedFromDrawer == original.isDismissedFromDrawer)
+        #expect(decoded.isDismissedFromPaneInbox == original.isDismissedFromPaneInbox)
     }
 
     @Test("InboxNotificationKind enumerates expected cases")

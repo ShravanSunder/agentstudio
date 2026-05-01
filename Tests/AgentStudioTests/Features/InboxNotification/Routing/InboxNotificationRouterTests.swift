@@ -619,7 +619,7 @@ struct InboxNotificationRouterTests {
                 body: nil,
                 source: .pane(.init(paneId: paneId.uuid)),
                 isRead: false,
-                isDismissedFromDrawer: false
+                isDismissedFromPaneInbox: false
             )
         )
         #expect(fixture.inboxAtom.unreadCount(forPaneId: paneId.uuid) == 1)
@@ -628,11 +628,11 @@ struct InboxNotificationRouterTests {
         makeWindowKey(fixture.windowLifecycle)
         await assertEventuallyMain("focus gain should mark pane notification read") {
             fixture.inboxAtom.unreadCount(forPaneId: paneId.uuid) == 0
-                && fixture.inboxAtom.notifications[0].isDismissedFromDrawer
+                && fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox
         }
 
         #expect(fixture.inboxAtom.unreadCount(forPaneId: paneId.uuid) == 0)
-        #expect(fixture.inboxAtom.notifications[0].isDismissedFromDrawer)
+        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox)
         fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()

@@ -22,6 +22,6 @@ struct InboxNotificationPersistenceRecoveryTests {
         #expect(notification.title == "Sidebar cache reset")
         #expect(notification.body?.contains("workspace.sidebar-cache.corrupt.json") == true)
         #expect(notification.isRead == false)
-        #expect(notification.isDismissedFromDrawer == false)
+        #expect(notification.isDismissedFromPaneInbox == false)
     }
 }

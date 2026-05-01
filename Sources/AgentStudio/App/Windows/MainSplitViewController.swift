@@ -55,7 +55,7 @@ class MainSplitViewController: NSSplitViewController {
     private let viewRegistry: ViewRegistry
     private let inboxAtom: InboxNotificationAtom
     private let inboxPrefsAtom: InboxNotificationPrefsAtom
-    private let drawerInboxPresenter: InboxNotificationDrawerPresenter
+    private let paneInboxPresenter: PaneInboxNotificationPresenter
     private let sidebarRootViewBuilder: SidebarRootViewBuilder
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
 
@@ -72,7 +72,7 @@ class MainSplitViewController: NSSplitViewController {
         viewRegistry: ViewRegistry,
         inboxAtom: InboxNotificationAtom,
         inboxPrefsAtom: InboxNotificationPrefsAtom,
-        drawerInboxPresenter: InboxNotificationDrawerPresenter,
+        paneInboxPresenter: PaneInboxNotificationPresenter,
         sidebarRootViewBuilder: @escaping SidebarRootViewBuilder = MainSplitViewController
             .defaultSidebarRootViewBuilder,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
@@ -85,7 +85,7 @@ class MainSplitViewController: NSSplitViewController {
         self.viewRegistry = viewRegistry
         self.inboxAtom = inboxAtom
         self.inboxPrefsAtom = inboxPrefsAtom
-        self.drawerInboxPresenter = drawerInboxPresenter
+        self.paneInboxPresenter = paneInboxPresenter
         self.sidebarRootViewBuilder = sidebarRootViewBuilder
         self.closeTransitionCoordinator = closeTransitionCoordinator
         super.init(nibName: nil, bundle: nil)
@@ -106,7 +106,7 @@ class MainSplitViewController: NSSplitViewController {
             executor: actionExecutor,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry,
-            drawerInboxPresentation: makeDrawerInboxPresentation(),
+            paneInboxPresentation: makePaneInboxPresentation(),
             closeTransitionCoordinator: closeTransitionCoordinator
         )
         self.paneTabViewController = paneTabVC
@@ -234,24 +234,24 @@ class MainSplitViewController: NSSplitViewController {
         return width
     }
 
-    private func makeDrawerInboxPresentation() -> DrawerInboxPresentation {
-        DrawerInboxPresentation(
-            unreadCount: { [inboxAtom] drawerPaneIds in
-                inboxAtom.unreadCount(forDrawerPaneIds: drawerPaneIds)
+    private func makePaneInboxPresentation() -> PaneInboxPresentation {
+        PaneInboxPresentation(
+            unreadCount: { [inboxAtom] paneIds in
+                inboxAtom.unreadCount(forPaneIds: paneIds)
             },
-            open: { [drawerInboxPresenter] parentPaneId, drawerPaneIds in
-                drawerInboxPresenter.open(parentPaneId: parentPaneId, drawerPaneIds: drawerPaneIds)
+            open: { [paneInboxPresenter] parentPaneId, paneIds in
+                paneInboxPresenter.open(parentPaneId: parentPaneId, paneIds: paneIds)
             },
-            pendingRequest: { [drawerInboxPresenter] in
-                drawerInboxPresenter.request
+            pendingRequest: { [paneInboxPresenter] in
+                paneInboxPresenter.request
             },
-            clearRequest: { [drawerInboxPresenter] request in
-                drawerInboxPresenter.clearRequest(request)
+            clearRequest: { [paneInboxPresenter] request in
+                paneInboxPresenter.clearRequest(request)
             },
-            popoverContent: { [inboxAtom] drawerPaneIds, onClose in
+            popoverContent: { [inboxAtom] paneIds, onClose in
                 AnyView(
-                    InboxNotificationDrawerPopover(
-                        drawerPaneIds: drawerPaneIds,
+                    PaneInboxNotificationPopover(
+                        paneIds: paneIds,
                         inboxAtom: inboxAtom,
                         dispatcher: CommandDispatcher.shared,
                         onClose: onClose

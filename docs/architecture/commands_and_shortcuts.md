@@ -58,6 +58,40 @@ You almost never want to skip a layer. If you find yourself hardcoding
 a key character in a view OR a label string in a controller, you're
 about to create a parallel system — back up to step 1.
 
+## Choosing the execution owner
+
+`CommandDispatcher` can route to two handler families:
+
+| Handler | Owns | Examples |
+|---------|------|----------|
+| `ShellCommandHandling` (`AppDelegate`) | App/window/sidebar/command-bar shell actions that do not need pane-local focus or drawer resolution. | `newWindow`, `closeWindow`, `showCommandBarEverything`, `toggleSidebar`, `showInboxNotifications`, `showWorktreeSidebar`, sign-in flows. |
+| `WorkspaceCommandHandling` (`PaneTabViewController`) | Tab, pane, drawer, and workspace actions that need active pane state, drawer focus, pane target resolution, or workspace validation. | `toggleDrawer`, `addDrawerPane`, `openPaneLocationInEditorMenu`, `openPaneLocationInFinder`, `showPaneInboxNotifications`, focus and layout commands. |
+
+If a command operates on a pane, drawer, or pane-adjacent control, it
+belongs in `PaneTabViewController`. Do not route pane-local commands
+through `AppDelegate` and then infer the active pane from
+`WorkspaceStore`; that bypasses the drawer-aware focus and selection
+helpers used by the rest of the pane system.
+
+`showPaneInboxNotifications` is pane-scoped even though the bell control
+lives in the pane drawer toolbox. Its target is the active parent pane
+plus that pane's drawer children. It must stay enabled for a focused
+parent pane even when the drawer is closed or empty.
+
+The drawer command pattern is:
+
+```text
+AppShortcut → AppCommand → CommandDispatcher
+  → PaneTabViewController.execute(...)
+  → drawer-aware target resolver
+  → atom/binding read by DrawerIconBar
+```
+
+The command bar uses the same `CommandDispatcher.dispatch(...)` path as
+keyboard shortcuts. If a command works from a button but not from
+`Cmd-P`, the execution owner is probably wrong or the command is using a
+side channel instead of the same binding/state model as the button.
+
 ## Multiple bindings per command — `alternateTriggers`
 
 A command can have one **primary** trigger plus any number of

@@ -37,7 +37,7 @@ struct InboxNotificationStoreTests {
             body: nil,
             source: .pane(.init(paneId: UUID())),
             isRead: false,
-            isDismissedFromDrawer: false
+            isDismissedFromPaneInbox: false
         )
 
         atom1.append(note)
@@ -234,7 +234,7 @@ struct InboxNotificationStoreTests {
                 body: nil,
                 source: .global,
                 isRead: false,
-                isDismissedFromDrawer: false
+                isDismissedFromPaneInbox: false
             )
         )
         store.scheduleDebouncedSave()

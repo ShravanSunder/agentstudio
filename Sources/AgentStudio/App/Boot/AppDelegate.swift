@@ -18,7 +18,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var inboxNotificationStore: InboxNotificationStore!
     var inboxNotificationRouter: InboxNotificationRouter!
     var inboxPaneFocusTracker: PaneFocusTracker!
-    var inboxNotificationDrawerPresenter: InboxNotificationDrawerPresenter!
+    var paneInboxNotificationPresenter: PaneInboxNotificationPresenter!
     var pendingPersistenceRecoveryEvents: [PersistenceRecoveryEvent] = []
     var hasLoadedInboxNotificationStore = false
     var terminalActivityRouter: TerminalActivityRouter!
@@ -117,7 +117,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         )
         inboxNotificationAtom = InboxNotificationAtom()
         inboxNotificationPrefsAtom = InboxNotificationPrefsAtom()
-        inboxNotificationDrawerPresenter = InboxNotificationDrawerPresenter()
+        paneInboxNotificationPresenter = PaneInboxNotificationPresenter()
         store.restore()
         managementLayerMonitor = ManagementLayerMonitor()
         appLifecycleStore = AppLifecycleAtom()
@@ -372,7 +372,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             viewRegistry: viewRegistry,
             inboxAtom: inboxNotificationAtom,
             inboxPrefsAtom: inboxNotificationPrefsAtom,
-            drawerInboxPresenter: inboxNotificationDrawerPresenter,
+            paneInboxPresenter: paneInboxNotificationPresenter,
             closeTransitionCoordinator: closeTransitionCoordinator
         )
         mainWindowController?.prepareLaunchMaximizeAndRestore()
@@ -554,7 +554,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 viewRegistry: viewRegistry,
                 inboxAtom: inboxNotificationAtom,
                 inboxPrefsAtom: inboxNotificationPrefsAtom,
-                drawerInboxPresenter: inboxNotificationDrawerPresenter,
+                paneInboxPresenter: paneInboxNotificationPresenter,
                 closeTransitionCoordinator: closeTransitionCoordinator
             )
             mainWindowController?.showWindow(nil)
