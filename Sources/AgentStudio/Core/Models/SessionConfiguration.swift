@@ -9,9 +9,6 @@ struct SessionConfiguration: Sendable {
     /// Whether session restore is enabled. Defaults to true.
     let isEnabled: Bool
 
-    /// App-wide policy for restoring hidden/background panes.
-    let backgroundRestorePolicy: BackgroundRestorePolicy
-
     /// Path to the zmx binary. Nil if zmx is not found.
     let zmxPath: String?
 
@@ -37,8 +34,6 @@ struct SessionConfiguration: Sendable {
 
         let zmxPath = findZmx()
         let zmxDir = AppDataPaths.zmxDirectory(environment: env).path
-        let backgroundRestorePolicy = Self.resolveBackgroundRestorePolicy()
-
         let healthInterval =
             env["AGENTSTUDIO_HEALTH_INTERVAL"]
             .flatMap { Double($0) }
@@ -50,7 +45,6 @@ struct SessionConfiguration: Sendable {
 
         return Self(
             isEnabled: isEnabled,
-            backgroundRestorePolicy: backgroundRestorePolicy,
             zmxPath: zmxPath,
             zmxDir: zmxDir,
             healthCheckInterval: healthInterval,
@@ -65,18 +59,21 @@ struct SessionConfiguration: Sendable {
 
     init(
         isEnabled: Bool,
-        backgroundRestorePolicy: BackgroundRestorePolicy = .existingSessionsOnly,
         zmxPath: String?,
         zmxDir: String,
         healthCheckInterval: TimeInterval,
         maxCheckpointAge: TimeInterval
     ) {
         self.isEnabled = isEnabled
-        self.backgroundRestorePolicy = backgroundRestorePolicy
         self.zmxPath = zmxPath
         self.zmxDir = zmxDir
         self.healthCheckInterval = healthCheckInterval
         self.maxCheckpointAge = maxCheckpointAge
+    }
+
+    /// Hidden/background panes restore only when a live zmx session already exists.
+    func shouldRestoreHiddenPane(hasExistingSession: Bool) -> Bool {
+        hasExistingSession
     }
 
     // MARK: - Terminfo Discovery
@@ -266,17 +263,6 @@ struct SessionConfiguration: Sendable {
             }
         }
         return nil
-    }
-
-    private static func resolveBackgroundRestorePolicy(
-        defaults: UserDefaults = .standard
-    ) -> BackgroundRestorePolicy {
-        guard let rawValue = defaults.string(forKey: "backgroundRestorePolicy"),
-            let parsed = BackgroundRestorePolicy(rawValue: rawValue)
-        else {
-            return .existingSessionsOnly
-        }
-        return parsed
     }
 
     /// Validate that a candidate zmx binary can actually launch and respond.

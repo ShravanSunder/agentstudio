@@ -136,10 +136,11 @@ final class SessionConfigurationTests {
 
     @Test
 
-    func test_backgroundRestorePolicy_defaultsToExistingSessionsOnly() {
+    func test_sessionRestoreDetect_usesExistingSessionsOnlyHiddenRestorePolicy() {
         let config = SessionConfiguration.detect(environment: [:])
 
-        #expect(config.backgroundRestorePolicy == .existingSessionsOnly)
+        #expect(config.shouldRestoreHiddenPane(hasExistingSession: true))
+        #expect(!config.shouldRestoreHiddenPane(hasExistingSession: false))
     }
 
     // MARK: - zmxDir

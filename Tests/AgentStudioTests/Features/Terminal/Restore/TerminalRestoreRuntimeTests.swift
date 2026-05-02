@@ -22,7 +22,6 @@ struct TerminalRestoreRuntimeTests {
         let runtime = TerminalRestoreRuntime(
             sessionConfiguration: SessionConfiguration(
                 isEnabled: true,
-                backgroundRestorePolicy: .existingSessionsOnly,
                 zmxPath: "/tmp/fake-zmx",
                 zmxDir: "/tmp/fake-zmx-dir",
                 healthCheckInterval: 30,
@@ -59,7 +58,6 @@ struct TerminalRestoreRuntimeTests {
         let runtime = TerminalRestoreRuntime(
             sessionConfiguration: SessionConfiguration(
                 isEnabled: true,
-                backgroundRestorePolicy: .existingSessionsOnly,
                 zmxPath: "/tmp/fake-zmx",
                 zmxDir: "/tmp/fake-zmx-dir",
                 healthCheckInterval: 30,
@@ -89,7 +87,6 @@ struct TerminalRestoreRuntimeTests {
         let runtime = TerminalRestoreRuntime(
             sessionConfiguration: SessionConfiguration(
                 isEnabled: true,
-                backgroundRestorePolicy: .existingSessionsOnly,
                 zmxPath: "/tmp/fake-zmx",
                 zmxDir: "/tmp/fake-zmx-dir",
                 healthCheckInterval: 30,
@@ -118,7 +115,6 @@ struct TerminalRestoreRuntimeTests {
         let runtime = TerminalRestoreRuntime(
             sessionConfiguration: SessionConfiguration(
                 isEnabled: true,
-                backgroundRestorePolicy: .existingSessionsOnly,
                 zmxPath: "/tmp/fake-zmx",
                 zmxDir: "/tmp/fake-zmx-dir",
                 healthCheckInterval: 30,

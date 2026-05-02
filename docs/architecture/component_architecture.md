@@ -607,8 +607,7 @@ Required cache validity fields:
 
 **Global preferences (`preferences.global.json`)**
 
-- Terminal defaults (for example `terminalFontSize`)
-- Global behavior toggles (for example `autoRefreshWorktrees`, `detachOnClose`)
+- True app-wide user-configurable defaults that are not workspace-scoped
 - Global visual defaults (for example drawer ratio if globally scoped)
 
 **Keybindings (`keybindings.json`)**
