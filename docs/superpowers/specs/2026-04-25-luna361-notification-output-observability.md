@@ -641,8 +641,9 @@ Do not paste raw command output unless explicitly needed and safe. Prefer counts
 
 ### Task B: Instrument Ghostty Signal Capture
 
-- [ ] Trace every Ghostty action received by `Ghostty.ActionRouter`.
-- [ ] Trace translation into `PaneRuntimeEvent`.
+- [ ] Trace every non-high-volume Ghostty action received by `Ghostty.ActionRouter`.
+- [ ] Do not emit per-callback Ghostty records for `.scrollbar`; summarize scrollback growth through the debounced `terminal.activity.*` unseen-activity window from Task C.
+- [ ] Trace translation into `PaneRuntimeEvent` for non-high-volume actions.
 - [ ] Classify each signal as `semantic`, `inferred`, `context`, `deferred`, or `unhandled`.
 - [ ] Add focused tests for representative action translation records.
 

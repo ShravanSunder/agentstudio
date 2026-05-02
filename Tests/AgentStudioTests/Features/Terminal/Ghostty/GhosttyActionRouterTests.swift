@@ -307,4 +307,129 @@ struct GhosttyActionRouterTests {
             }
         )
     }
+
+    @Test("registered surface writes Ghostty action translation trace records")
+    func actionRouterTrace_registeredSurfaceWritesTranslationRecord() async throws {
+        let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
+        let surfaceId = UUID()
+        let paneUUID = UUIDv7.generate()
+        let paneId = PaneId(uuid: paneUUID)
+        let runtime = TerminalRuntime(
+            paneId: paneId,
+            metadata: PaneMetadata(
+                paneId: paneId,
+                source: .init(TerminalSource.floating(launchDirectory: nil, title: "Runtime")),
+                title: "Runtime"
+            )
+        )
+        let runtimeRegistry = RuntimeRegistry()
+        _ = runtimeRegistry.register(runtime)
+        let lookup = FakeActionRoutingLookup(
+            surfaceIdsByViewObjectId: [surfaceViewObjectId: surfaceId],
+            paneIdsBySurfaceId: [surfaceId: paneUUID]
+        )
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
+                "AGENTSTUDIO_TRACE_NAME": "ghostty-action-router",
+                "AGENTSTUDIO_TRACE_TAGS": "runtime",
+            ]),
+            processIdentifier: 251,
+            sessionID: "ghostty-session",
+            timeUnixNano: { 909 }
+        )
+
+        let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
+        Ghostty.ActionRouter.setRuntimeRegistry(runtimeRegistry)
+        Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
+        defer {
+            Ghostty.ActionRouter.setRuntimeRegistry(originalRegistry)
+            Ghostty.ActionRouter.bindTraceRuntime(nil)
+        }
+
+        #expect(
+            Ghostty.ActionRouter.routeActionToTerminalRuntimeOnMainActor(
+                actionTag: UInt32(GHOSTTY_ACTION_DESKTOP_NOTIFICATION.rawValue),
+                payload: .desktopNotification(title: "Build", body: "Complete"),
+                surfaceViewObjectId: surfaceViewObjectId,
+                routingLookup: lookup
+            )
+        )
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        await assertEventuallyMain("Ghostty action router should write translation trace") {
+            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+                .contains("\"body\":\"ghostty.action.translated\"") == true
+        }
+
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"agentstudio.ghostty.action.name\":\"desktopNotification\""))
+        #expect(contents.contains("\"agentstudio.ghostty.action.payload\":\"desktopNotification\""))
+        #expect(contents.contains("\"agentstudio.ghostty.route.result\":true"))
+        #expect(contents.contains("\"agentstudio.ghostty.signal.class\":\"semantic\""))
+        #expect(contents.contains("\"agentstudio.pane.id\":\"\(paneUUID.uuidString)\""))
+        #expect(contents.contains("\"agentstudio.runtime.event\":\"desktopNotificationRequested\""))
+        #expect(contents.contains("\"agentstudio.surface.id\":\"\(surfaceId.uuidString)\""))
+    }
+
+    @Test("scrollbar callbacks do not write per-callback Ghostty action trace records")
+    func actionRouterTrace_scrollbarCallbacksDoNotWritePerCallbackRecords() async throws {
+        let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
+        let surfaceId = UUID()
+        let paneUUID = UUIDv7.generate()
+        let paneId = PaneId(uuid: paneUUID)
+        let runtime = TerminalRuntime(
+            paneId: paneId,
+            metadata: PaneMetadata(
+                paneId: paneId,
+                source: .init(TerminalSource.floating(launchDirectory: nil, title: "Runtime")),
+                title: "Runtime"
+            )
+        )
+        let runtimeRegistry = RuntimeRegistry()
+        _ = runtimeRegistry.register(runtime)
+        let lookup = FakeActionRoutingLookup(
+            surfaceIdsByViewObjectId: [surfaceViewObjectId: surfaceId],
+            paneIdsBySurfaceId: [surfaceId: paneUUID]
+        )
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
+                "AGENTSTUDIO_TRACE_NAME": "ghostty-action-router-scrollbar",
+                "AGENTSTUDIO_TRACE_TAGS": "runtime",
+            ]),
+            processIdentifier: 252,
+            sessionID: "ghostty-session",
+            timeUnixNano: { 1001 }
+        )
+
+        let originalRegistry = Ghostty.ActionRouter.runtimeRegistryForActionRouting
+        Ghostty.ActionRouter.setRuntimeRegistry(runtimeRegistry)
+        Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
+        defer {
+            Ghostty.ActionRouter.setRuntimeRegistry(originalRegistry)
+            Ghostty.ActionRouter.bindTraceRuntime(nil)
+        }
+
+        #expect(
+            Ghostty.ActionRouter.routeActionToTerminalRuntimeOnMainActor(
+                actionTag: UInt32(GHOSTTY_ACTION_SCROLLBAR.rawValue),
+                payload: .scrollbar(total: 1000, offset: 900, length: 40),
+                surfaceViewObjectId: surfaceViewObjectId,
+                routingLookup: lookup
+            )
+        )
+        await Task.yield()
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        #expect(FileManager.default.fileExists(atPath: outputFileURL.path) == false)
+    }
+
+    private func temporaryTraceDirectoryURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-ghostty-action-router-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
 }

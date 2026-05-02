@@ -120,6 +120,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         inboxNotificationPrefsAtom = InboxNotificationPrefsAtom()
         paneInboxNotificationPresenter = PaneInboxNotificationPresenter()
         traceRuntime = .fromEnvironment()
+        Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
         store.restore()
         managementLayerMonitor = ManagementLayerMonitor()
         appLifecycleStore = AppLifecycleAtom()
