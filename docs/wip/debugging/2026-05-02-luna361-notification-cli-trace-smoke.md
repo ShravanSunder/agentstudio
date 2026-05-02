@@ -20,7 +20,7 @@ Launch command:
 ```bash
 SWIFT_BUILD_DIR=".build-agent-$PPID" mise run build
 
-AGENTSTUDIO_TRACE_TAGS="runtime,terminal.activity,inbox,paneInbox" \
+AGENTSTUDIO_TRACE_TAGS="app.focus,runtime,terminal.activity,inbox,paneInbox" \
 AGENTSTUDIO_TRACE_DIR="$PWD/tmp/luna361-notification-traces" \
 AGENTSTUDIO_TRACE_NAME="luna361-cli-smoke" \
 AGENTSTUDIO_TRACE_FLUSH="immediate" \
@@ -32,6 +32,7 @@ Why this selector:
 - `runtime` captures Ghostty semantic action translation, while code filters high-volume callbacks such as scrollbar, render, mouse, and key-sequence actions.
 - `terminal.activity` captures debounced unseen scrollback windows and non-scrollbar terminal activity snapshots.
 - `inbox` captures classify decisions, suppression reasons, notification appends, and focus-clear mutations.
+- `app.focus` captures attended-pane changes so suppression decisions can be tied back to focus state.
 - `paneInbox` captures low-volume pane inbox open/close/presentation interactions.
 - It intentionally does not enable `eventbus`, `ui.surface`, `ui.interaction`, or `*` until those consumers have explicit anti-spam filters.
 
@@ -81,6 +82,12 @@ Show unseen activity windows:
 
 ```bash
 jq 'select((.body | startswith("terminal.activity.unseenWindow")) or .body=="terminal.activity.outputBurst") | {body, pane: .attributes["agentstudio.pane.id"], rows: .attributes["terminal.activity.rows_added"], events: .attributes["terminal.activity.event_count"], burst: .attributes["terminal.activity.threshold_rows"]}' "$TRACE_FILE"
+```
+
+Show focus and pane inbox interactions:
+
+```bash
+jq 'select(.body=="app.focus.attendedPaneChanged" or (.body | startswith("paneInbox."))) | {body, pane: .attributes["agentstudio.pane.id"], parent: .attributes["agentstudio.pane.parent_id"], scopeCount: .attributes["agentstudio.pane.scope_count"], notification: .attributes["agentstudio.notification.id"]}' "$TRACE_FILE"
 ```
 
 Check for spam:
