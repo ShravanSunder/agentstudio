@@ -17,11 +17,13 @@ final class PaneFocusTracker {
 
     private let continuation: AsyncStream<UUID>.Continuation
     private let attendedPane: AttendedPaneAtom
+    private let traceRuntime: AgentStudioTraceRuntime?
     private var streamTask: Task<Void, Never>?
     private var isStopped = false
 
-    init(attendedPane: AttendedPaneAtom) {
+    init(attendedPane: AttendedPaneAtom, traceRuntime: AgentStudioTraceRuntime? = nil) {
         self.attendedPane = attendedPane
+        self.traceRuntime = traceRuntime
         // `AttendedPaneAtom.transitions` is the single-consumer coordinator feed.
         // If another feature needs the same stream, add fan-out at the atom boundary.
         let (stream, continuation) = AsyncStream.makeStream(of: UUID.self)
@@ -32,6 +34,7 @@ final class PaneFocusTracker {
             guard let self else { return }
             for await paneId in self.attendedPane.transitions {
                 guard !Task.isCancelled, !self.isStopped else { return }
+                self.traceAttendedPaneTransition(paneId)
                 guard let paneId else { continue }
                 self.continuation.yield(paneId)
             }
@@ -56,5 +59,25 @@ final class PaneFocusTracker {
     deinit {
         streamTask?.cancel()
         continuation.finish()
+    }
+
+    private func traceAttendedPaneTransition(_ paneId: UUID?) {
+        guard let traceRuntime else { return }
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.app.focus.attended": .bool(paneId != nil),
+            "agentstudio.app.focus.source": .string("AttendedPaneAtom"),
+        ]
+        if let paneId {
+            attributes["agentstudio.pane.id"] = .string(paneId.uuidString)
+        }
+        let finalizedAttributes = attributes
+        // swiftlint:disable:next no_task_detached
+        Task.detached(priority: .utility) {
+            await traceRuntime.record(
+                tag: .appFocus,
+                body: "app.focus.attendedPaneChanged",
+                attributes: finalizedAttributes
+            )
+        }
     }
 }

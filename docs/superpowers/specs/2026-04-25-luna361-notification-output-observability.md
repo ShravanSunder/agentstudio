@@ -682,7 +682,7 @@ Do not paste raw command output unless explicitly needed and safe. Prefer counts
 
 ### Task G: Instrument Focus And Pane Inbox Interactions
 
-- [ ] Attended pane changes.
+- [x] Attended pane changes.
 - [x] Pane inbox button click / request / close / presentation state.
 - [ ] Pane inbox row activation.
 - [ ] Focus-pane action path.

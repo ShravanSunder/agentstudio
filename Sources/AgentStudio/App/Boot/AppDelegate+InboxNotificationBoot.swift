@@ -23,7 +23,10 @@ extension AppDelegate {
     }
 
     func bootStartInboxNotificationRouter(bus: EventBus<RuntimeEnvelope>) {
-        inboxPaneFocusTracker = PaneFocusTracker(attendedPane: atomStore.attendedPane)
+        inboxPaneFocusTracker = PaneFocusTracker(
+            attendedPane: atomStore.attendedPane,
+            traceRuntime: traceRuntime
+        )
         inboxNotificationRouter = InboxNotificationRouter(
             bus: bus,
             inboxAtom: inboxNotificationAtom,
