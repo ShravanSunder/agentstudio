@@ -67,15 +67,24 @@ final class InboxNotificationStore {
 
             init(from decoder: Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                self.grouping =
-                    (try? container.decodeIfPresent(InboxNotificationGrouping.self, forKey: .grouping))
-                    ?? .none
-                self.sort =
-                    (try? container.decodeIfPresent(InboxNotificationSort.self, forKey: .sort))
-                    ?? .newestFirst
-                self.bellEnabled =
-                    (try? container.decodeIfPresent(Bool.self, forKey: .bellEnabled))
-                    ?? false
+                self.grouping = decodeRecoverablePreferenceField(
+                    InboxNotificationGrouping.self,
+                    from: container,
+                    forKey: .grouping,
+                    default: .none
+                )
+                self.sort = decodeRecoverablePreferenceField(
+                    InboxNotificationSort.self,
+                    from: container,
+                    forKey: .sort,
+                    default: .newestFirst
+                )
+                self.bellEnabled = decodeRecoverablePreferenceField(
+                    Bool.self,
+                    from: container,
+                    forKey: .bellEnabled,
+                    default: false
+                )
             }
         }
 
@@ -111,9 +120,12 @@ final class InboxNotificationStore {
             } else {
                 self.notifications = []
             }
-            self.prefs =
-                (try? container.decodeIfPresent(Prefs.self, forKey: .prefs))
-                ?? .init()
+            self.prefs = decodeRecoverablePayloadField(
+                Prefs.self,
+                from: container,
+                forKey: .prefs,
+                default: .init()
+            )
         }
     }
 
@@ -162,10 +174,26 @@ final class InboxNotificationStore {
     }
 
     func save() async throws {
-        try flush()
+        do {
+            let data = try encodedPayloadData()
+            try await Self.writePayloadData(data, to: fileURL)
+        } catch {
+            reportSaveFailed()
+            throw error
+        }
     }
 
     func flush() throws {
+        do {
+            let data = try encodedPayloadData()
+            try Self.writePayloadDataSynchronously(data, to: fileURL)
+        } catch {
+            reportSaveFailed()
+            throw error
+        }
+    }
+
+    private func encodedPayloadData() throws -> Data {
         let payload = Payload(
             schemaVersion: Payload.currentSchemaVersion,
             notifications: inboxAtom.notifications,
@@ -179,8 +207,15 @@ final class InboxNotificationStore {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(payload)
+        return try encoder.encode(payload)
+    }
 
+    @concurrent
+    nonisolated private static func writePayloadData(_ data: Data, to fileURL: URL) async throws {
+        try writePayloadDataSynchronously(data, to: fileURL)
+    }
+
+    nonisolated private static func writePayloadDataSynchronously(_ data: Data, to fileURL: URL) throws {
         try FileManager.default.createDirectory(
             at: fileURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -230,4 +265,64 @@ final class InboxNotificationStore {
             return nil
         }
     }
+
+    private func reportSaveFailed() {
+        recoveryReporter?(
+            .init(store: .notificationInbox, workspaceId: nil, recovery: .saveFailed)
+        )
+    }
+}
+
+private func decodeRecoverablePreferenceField<Key: CodingKey, Value: Decodable>(
+    _ type: Value.Type,
+    from container: KeyedDecodingContainer<Key>,
+    forKey key: Key,
+    default defaultValue: @autoclosure () -> Value
+) -> Value {
+    decodeRecoverableInboxField(
+        type,
+        from: container,
+        forKey: key,
+        payloadName: "InboxNotificationPrefs",
+        default: defaultValue()
+    )
+}
+
+private func decodeRecoverablePayloadField<Key: CodingKey, Value: Decodable>(
+    _ type: Value.Type,
+    from container: KeyedDecodingContainer<Key>,
+    forKey key: Key,
+    default defaultValue: @autoclosure () -> Value
+) -> Value {
+    decodeRecoverableInboxField(
+        type,
+        from: container,
+        forKey: key,
+        payloadName: "InboxNotificationPayload",
+        default: defaultValue()
+    )
+}
+
+private func decodeRecoverableInboxField<Key: CodingKey, Value: Decodable>(
+    _ type: Value.Type,
+    from container: KeyedDecodingContainer<Key>,
+    forKey key: Key,
+    payloadName: String,
+    default defaultValue: @autoclosure () -> Value
+) -> Value {
+    do {
+        if let value = try container.decodeIfPresent(type, forKey: key) {
+            return value
+        }
+    } catch {
+        inboxNotificationStoreLogger.warning(
+            "\(payloadName, privacy: .public) invalid field \(key.stringValue, privacy: .public); using default"
+        )
+        return defaultValue()
+    }
+
+    inboxNotificationStoreLogger.warning(
+        "\(payloadName, privacy: .public) missing field \(key.stringValue, privacy: .public); using default"
+    )
+    return defaultValue()
 }

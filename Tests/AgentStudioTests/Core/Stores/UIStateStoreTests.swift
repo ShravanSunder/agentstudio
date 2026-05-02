@@ -129,6 +129,30 @@ struct UIStateStoreTests {
     }
 
     @Test
+    func flushFailure_reportsSaveFailedRecovery() {
+        let workspaceId = UUID()
+        let blockedDirectoryURL = FileManager.default.temporaryDirectory
+            .appending(path: "ui-state-blocked-\(UUID().uuidString)")
+        try? Data("not-a-directory".utf8).write(to: blockedDirectoryURL, options: .atomic)
+        let atom = UIStateAtom()
+        var reportedRecovery: PersistenceRecoveryEvent?
+        let store = UIStateStore(
+            atom: atom,
+            editorChooserAtom: EditorChooserAtom(),
+            persistor: WorkspacePersistor(workspacesDir: blockedDirectoryURL),
+            recoveryReporter: { reportedRecovery = $0 }
+        )
+
+        #expect(throws: Error.self) {
+            try store.flush(for: workspaceId)
+        }
+
+        #expect(reportedRecovery?.store == .uiState)
+        #expect(reportedRecovery?.workspaceId == workspaceId)
+        #expect(reportedRecovery?.recovery == .saveFailed)
+    }
+
+    @Test
     func restore_missingShowMinimizedBars_defaultsToTrue() throws {
         let workspaceId = UUID()
         let json = """

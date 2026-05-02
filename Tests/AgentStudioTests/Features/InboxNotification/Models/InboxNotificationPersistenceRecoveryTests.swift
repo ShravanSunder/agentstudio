@@ -24,4 +24,17 @@ struct InboxNotificationPersistenceRecoveryTests {
         #expect(notification.isRead == false)
         #expect(notification.isDismissedFromPaneInbox == false)
     }
+
+    @Test("factory describes save and quarantine failures")
+    func factoryDescribesSaveAndQuarantineFailures() {
+        let saveFailed = InboxNotification.persistenceRecovery(
+            .init(store: .notificationInbox, workspaceId: nil, recovery: .saveFailed)
+        )
+        let quarantineFailed = InboxNotification.persistenceRecovery(
+            .init(store: .workspace, workspaceId: nil, recovery: .quarantineFailed)
+        )
+
+        #expect(saveFailed.body?.contains("could not save") == true)
+        #expect(quarantineFailed.body?.contains("moving it aside failed") == true)
+    }
 }

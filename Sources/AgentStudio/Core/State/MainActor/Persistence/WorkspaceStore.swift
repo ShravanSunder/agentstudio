@@ -104,7 +104,7 @@ final class WorkspaceStore {
                 .init(
                     store: .workspace,
                     workspaceId: quarantine?.workspaceId,
-                    recovery: .quarantinedAndReset,
+                    recovery: quarantine?.recovery ?? .quarantineFailed,
                     quarantinedFilename: quarantine?.recoveryFilename
                 )
             )
@@ -171,6 +171,7 @@ final class WorkspaceStore {
             workspaceStoreLogger.error(
                 "Failed to persist workspace because the workspaces directory could not be created"
             )
+            reportSaveFailed()
             return false
         }
 
@@ -192,7 +193,18 @@ final class WorkspaceStore {
             return true
         } catch {
             workspaceStoreLogger.error("Failed to persist workspace: \(error.localizedDescription)")
+            reportSaveFailed()
             return false
         }
+    }
+
+    private func reportSaveFailed() {
+        recoveryReporter?(
+            .init(
+                store: .workspace,
+                workspaceId: metadataAtom.workspaceId,
+                recovery: .saveFailed
+            )
+        )
     }
 }

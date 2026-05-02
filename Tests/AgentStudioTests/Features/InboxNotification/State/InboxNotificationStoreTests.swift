@@ -251,6 +251,30 @@ struct InboxNotificationStoreTests {
         }
     }
 
+    @Test("save failure reports persistence recovery event")
+    func saveFailureReportsPersistenceRecoveryEvent() async {
+        let parentFileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("inbox-save-parent-\(UUID().uuidString)")
+        try? Data("not-a-directory".utf8).write(to: parentFileURL, options: .atomic)
+        let fileURL = parentFileURL.appending(path: "notification-inbox.json")
+        let atom = InboxNotificationAtom()
+        let prefs = InboxNotificationPrefsAtom()
+        var reportedRecovery: PersistenceRecoveryEvent?
+        let store = InboxNotificationStore(
+            inboxAtom: atom,
+            prefsAtom: prefs,
+            fileURL: fileURL,
+            recoveryReporter: { reportedRecovery = $0 }
+        )
+
+        await #expect(throws: Error.self) {
+            try await store.save()
+        }
+
+        #expect(reportedRecovery?.store == .notificationInbox)
+        #expect(reportedRecovery?.recovery == .saveFailed)
+    }
+
     private struct FailingClock: Clock {
         struct Failure: Error {}
 

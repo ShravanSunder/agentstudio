@@ -124,6 +124,7 @@ struct AgentStudioTraceRuntime: Sendable {
             }
         } catch {
             debugLog("[trace] failed to record \(body): \(error)")
+            Self.writeStartupDiagnostic("AgentStudio tracing failed to record \(body): \(error)")
         }
     }
 

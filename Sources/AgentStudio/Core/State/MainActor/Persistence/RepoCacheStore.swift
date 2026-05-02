@@ -48,20 +48,27 @@ final class RepoCacheStore {
     }
 
     func flush(for workspaceId: UUID) throws {
-        guard persistor.ensureDirectory() else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        try persistor.saveCache(
-            .init(
-                workspaceId: workspaceId,
-                repoEnrichmentByRepoId: atom.repoEnrichmentByRepoId,
-                worktreeEnrichmentByWorktreeId: atom.worktreeEnrichmentByWorktreeId,
-                pullRequestCountByWorktreeId: atom.pullRequestCountByWorktreeId,
-                notificationCountByWorktreeId: atom.notificationCountByWorktreeId,
-                recentTargets: atom.recentTargets,
-                sourceRevision: atom.sourceRevision,
-                lastRebuiltAt: atom.lastRebuiltAt
+        do {
+            guard persistor.ensureDirectory() else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            try persistor.saveCache(
+                .init(
+                    workspaceId: workspaceId,
+                    repoEnrichmentByRepoId: atom.repoEnrichmentByRepoId,
+                    worktreeEnrichmentByWorktreeId: atom.worktreeEnrichmentByWorktreeId,
+                    pullRequestCountByWorktreeId: atom.pullRequestCountByWorktreeId,
+                    notificationCountByWorktreeId: atom.notificationCountByWorktreeId,
+                    recentTargets: atom.recentTargets,
+                    sourceRevision: atom.sourceRevision,
+                    lastRebuiltAt: atom.lastRebuiltAt
+                )
             )
-        )
+        } catch {
+            recoveryReporter?(
+                .init(store: .repoCache, workspaceId: workspaceId, recovery: .saveFailed)
+            )
+            throw error
+        }
     }
 }

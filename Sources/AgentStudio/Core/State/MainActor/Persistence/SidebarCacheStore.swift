@@ -101,16 +101,27 @@ final class SidebarCacheStore {
     }
 
     private func persistNow(for workspaceId: UUID) throws {
-        guard persistor.ensureDirectory() else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        try persistor.saveSidebarCache(
-            .init(
-                workspaceId: workspaceId,
-                expandedGroups: atom.expandedGroups,
-                checkoutColors: atom.checkoutColors,
-                collapsedInboxGroups: atom.collapsedInboxGroups
+        do {
+            guard persistor.ensureDirectory() else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            try persistor.saveSidebarCache(
+                .init(
+                    workspaceId: workspaceId,
+                    expandedGroups: atom.expandedGroups,
+                    checkoutColors: atom.checkoutColors,
+                    collapsedInboxGroups: atom.collapsedInboxGroups
+                )
             )
+        } catch {
+            reportSaveFailed(workspaceId: workspaceId)
+            throw error
+        }
+    }
+
+    private func reportSaveFailed(workspaceId: UUID) {
+        recoveryReporter?(
+            .init(store: .sidebarCache, workspaceId: workspaceId, recovery: .saveFailed)
         )
     }
 }

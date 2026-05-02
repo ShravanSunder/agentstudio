@@ -17,6 +17,8 @@ struct PersistenceRecoveryEvent: Sendable, Equatable {
         case resetToDefaults
         case rebuiltFromEvents
         case quarantinedAndReset
+        case quarantineFailed
+        case saveFailed
     }
 
     let store: Store
