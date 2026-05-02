@@ -102,6 +102,29 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
+    func flushFailure_reportsSaveFailedRecovery() {
+        let workspaceId = UUID()
+        let blockedDirectoryURL = FileManager.default.temporaryDirectory
+            .appending(path: "sidebar-cache-blocked-\(UUID().uuidString)")
+        try? Data("not-a-directory".utf8).write(to: blockedDirectoryURL, options: .atomic)
+        let atom = SidebarCacheAtom()
+        var reportedRecovery: PersistenceRecoveryEvent?
+        let store = SidebarCacheStore(
+            atom: atom,
+            persistor: WorkspacePersistor(workspacesDir: blockedDirectoryURL),
+            recoveryReporter: { reportedRecovery = $0 }
+        )
+
+        #expect(throws: Error.self) {
+            try store.flush(for: workspaceId)
+        }
+
+        #expect(reportedRecovery?.store == .sidebarCache)
+        #expect(reportedRecovery?.workspaceId == workspaceId)
+        #expect(reportedRecovery?.recovery == .saveFailed)
+    }
+
+    @Test
     func restore_partialSidebarCachePayload_defaultsMissingSlices() throws {
         let workspaceId = UUID()
         let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")

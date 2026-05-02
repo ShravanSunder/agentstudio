@@ -183,8 +183,18 @@ struct PaneLeafContainer: View {
                 guard let request = paneInboxPresentation?.pendingRequest() else { return }
                 guard request.parentPaneId == paneHost.id else { return }
                 guard request.paneIds == paneInboxIds else { return }
-                paneInboxPopoverOpen = true
+                switch request.intent {
+                case .open:
+                    paneInboxPopoverOpen = true
+                    paneInboxPresentation?.setPresented(paneHost.id, paneInboxIds, true)
+                case .close:
+                    paneInboxPopoverOpen = false
+                    paneInboxPresentation?.setPresented(paneHost.id, paneInboxIds, false)
+                }
                 paneInboxPresentation?.clearRequest(request)
+            }
+            .onChange(of: paneInboxPopoverOpen) { _, isPresented in
+                paneInboxPresentation?.setPresented(paneHost.id, paneInboxIds, isPresented)
             }
     }
 

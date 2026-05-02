@@ -17,6 +17,8 @@ actor AgentStudioJSONLTraceWriter {
 
     private var bufferedLines: [String] = []
     private(set) var droppedLineCount = 0
+    private(set) var failedFlushCount = 0
+    private(set) var lastFlushErrorDescription: String?
 
     init(
         fileURL: URL,
@@ -47,6 +49,15 @@ actor AgentStudioJSONLTraceWriter {
     func flush() throws {
         guard !bufferedLines.isEmpty else { return }
 
+        do {
+            try flushBufferedLines()
+        } catch {
+            recordFlushFailure(error)
+            throw error
+        }
+    }
+
+    private func flushBufferedLines() throws {
         let data = Data(bufferedLines.joined().utf8)
         try fileManager.createDirectory(
             at: fileURL.deletingLastPathComponent(),
@@ -55,6 +66,13 @@ actor AgentStudioJSONLTraceWriter {
         try rotateFileIfNeeded(appendingByteCount: UInt64(data.count))
         try append(data, to: fileURL)
         bufferedLines.removeAll(keepingCapacity: true)
+    }
+
+    private func recordFlushFailure(_ error: Error) {
+        failedFlushCount += 1
+        lastFlushErrorDescription = String(describing: error)
+        bufferedLines.append(flushFailureMarkerLine(error: error))
+        trimBufferIfNeeded()
     }
 
     private func trimBufferIfNeeded() {
@@ -143,6 +161,58 @@ actor AgentStudioJSONLTraceWriter {
             "\"resource\":{},",
             "\"scope\":{\"name\":\"agentstudio.trace\",\"version\":\"0.1.0\"},",
             "\"severity_text\":\"WARN\",",
+            "\"time_unix_nano\":\(timeUnixNano)",
+            "}\n",
+        ].joined()
+    }
+
+    private func flushFailureMarkerLine(error flushError: Error) -> String {
+        let markerTimeUnixNano = timeUnixNano()
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: markerTimeUnixNano,
+            severityText: .error,
+            body: "trace.flush_failed",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [:],
+            scope: .init(name: "agentstudio.trace", version: "0.1.0"),
+            attributes: [
+                "agentstudio.trace.failed_flush_count": .int(failedFlushCount),
+                "agentstudio.trace.error": .string(String(describing: flushError)),
+            ]
+        )
+        do {
+            return try encoder.encodeLine(record)
+        } catch {
+            debugLog("[trace] failed to encode flush failure marker: \(error)")
+            return flushFailureFallbackLine(
+                failedFlushCount: failedFlushCount,
+                errorDescription: String(describing: flushError),
+                timeUnixNano: markerTimeUnixNano
+            )
+        }
+    }
+
+    private func flushFailureFallbackLine(
+        failedFlushCount: Int,
+        errorDescription: String,
+        timeUnixNano: UInt64
+    ) -> String {
+        let escapedError =
+            errorDescription
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return [
+            "{",
+            "\"attributes\":{",
+            "\"agentstudio.trace.error\":\"\(escapedError)\",",
+            "\"agentstudio.trace.failed_flush_count\":\(failedFlushCount)",
+            "},",
+            "\"body\":\"trace.flush_failed\",",
+            "\"resource\":{},",
+            "\"scope\":{\"name\":\"agentstudio.trace\",\"version\":\"0.1.0\"},",
+            "\"severity_text\":\"ERROR\",",
             "\"time_unix_nano\":\(timeUnixNano)",
             "}\n",
         ].joined()

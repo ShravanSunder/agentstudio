@@ -1524,7 +1524,7 @@ Before marking Phase 1 complete, run the full verification matrix:
 - ✗ Drawer bell icon, `DrawerOverlay.TrailingActions` extensions — Phase 3.
 - ✗ Bridge `inbox.post` RPC handler — Phase 3.
 - ✗ `CommandBar` `.inbox` scope registration or actions — Phase 2 registers, Phase 3 populates.
-- ✗ `⌘⇧I` drawer inbox popover command — Phase 3.
+- ✗ `⌘⇧I` pane inbox popover command — Phase 3.
 - ✗ Inbox-specific keymap (`⌥F`, `⌥G`, `⌥S`, arrows, etc.) — Phase 3.
 - ✗ Per-worktree `🔔 N` pill data binding — Phase 3.
 - ✗ Adding new primitives to `SharedComponents/` (layer already exists with `EditorChooser/`; this phase consumes it but adds no new primitives).

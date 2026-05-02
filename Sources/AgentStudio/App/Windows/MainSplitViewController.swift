@@ -242,6 +242,12 @@ class MainSplitViewController: NSSplitViewController {
             open: { [paneInboxPresenter] parentPaneId, paneIds in
                 paneInboxPresenter.open(parentPaneId: parentPaneId, paneIds: paneIds)
             },
+            toggle: { [paneInboxPresenter] parentPaneId, paneIds in
+                paneInboxPresenter.toggle(parentPaneId: parentPaneId, paneIds: paneIds)
+            },
+            setPresented: { [paneInboxPresenter] parentPaneId, paneIds, isPresented in
+                paneInboxPresenter.setPresented(parentPaneId: parentPaneId, paneIds: paneIds, isPresented: isPresented)
+            },
             pendingRequest: { [paneInboxPresenter] in
                 paneInboxPresenter.request
             },

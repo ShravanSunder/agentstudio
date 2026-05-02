@@ -112,10 +112,7 @@ struct DrawerIconBar: View {
                         .hoverTooltipAnchor(DrawerTooltipTarget.toggle, in: Self.tooltipCoordinateSpaceName)
                         .help(toggleToolTip)
 
-                        // Vertical divider
-                        Divider()
-                            .frame(height: 16)
-                            .padding(.horizontal, 2)
+                        drawerToolbarDivider
 
                         // Add button (right)
                         Button(action: onAdd) {
@@ -141,7 +138,7 @@ struct DrawerIconBar: View {
                         Spacer()
 
                         if let trailingActions {
-                            HStack(spacing: AppStyles.Components.EditorChooser.trailingClusterSpacing) {
+                            HStack(spacing: AppStyles.Shell.DrawerToolbar.trailingClusterSpacing) {
                                 Button {
                                     trailingActions.editorMenuPresented.wrappedValue.toggle()
                                 } label: {
@@ -217,12 +214,26 @@ struct DrawerIconBar: View {
                                     .overlay(alignment: .topTrailing) {
                                         if trailingActions.inboxUnreadCount > 0 {
                                             Text("\(trailingActions.inboxUnreadCount)")
-                                                .font(.system(size: 9, weight: .semibold))
-                                                .padding(.horizontal, 4)
-                                                .padding(.vertical, 1)
+                                                .font(
+                                                    .system(
+                                                        size: AppStyles.Components.PaneInbox.unreadBadgeFontSize,
+                                                        weight: .semibold
+                                                    )
+                                                )
+                                                .padding(
+                                                    .horizontal,
+                                                    AppStyles.Components.PaneInbox.unreadBadgeHorizontalPadding
+                                                )
+                                                .padding(
+                                                    .vertical,
+                                                    AppStyles.Components.PaneInbox.unreadBadgeVerticalPadding
+                                                )
                                                 .background(Capsule().fill(.red))
                                                 .foregroundStyle(.white)
-                                                .offset(x: 4, y: -4)
+                                                .offset(
+                                                    x: AppStyles.Components.PaneInbox.unreadBadgeOffset,
+                                                    y: -AppStyles.Components.PaneInbox.unreadBadgeOffset
+                                                )
                                         }
                                     }
                                     .onHover { hovering in
@@ -266,9 +277,13 @@ struct DrawerIconBar: View {
     }
 
     private var trailingActionDivider: some View {
+        drawerToolbarDivider
+    }
+
+    private var drawerToolbarDivider: some View {
         Divider()
-            .frame(height: AppStyles.Components.EditorChooser.dividerHeight)
-            .padding(.horizontal, AppStyles.Components.EditorChooser.dividerHorizontalPadding)
+            .frame(height: AppStyles.Shell.DrawerToolbar.dividerHeight)
+            .padding(.horizontal, AppStyles.Shell.DrawerToolbar.dividerHorizontalPadding)
     }
 
     private var activeTooltipTarget: DrawerTooltipTarget? {

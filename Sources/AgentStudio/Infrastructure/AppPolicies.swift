@@ -2,6 +2,10 @@ import CoreGraphics
 import Foundation
 
 enum AppPolicies {
+    enum SelectablePopover {
+        static let maxNumberedShortcuts: Int = 9
+    }
+
     enum WorkspaceFocus {
         enum Terminal {
             static let stickyBottomBufferPx: CGFloat = 60

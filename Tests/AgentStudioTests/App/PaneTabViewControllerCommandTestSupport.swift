@@ -88,6 +88,12 @@ func makePaneTabViewControllerCommandHarness(
             open: { parentPaneId, paneIds in
                 paneInboxPresenter.open(parentPaneId: parentPaneId, paneIds: paneIds)
             },
+            toggle: { parentPaneId, paneIds in
+                paneInboxPresenter.toggle(parentPaneId: parentPaneId, paneIds: paneIds)
+            },
+            setPresented: { parentPaneId, paneIds, isPresented in
+                paneInboxPresenter.setPresented(parentPaneId: parentPaneId, paneIds: paneIds, isPresented: isPresented)
+            },
             pendingRequest: { paneInboxPresenter.request },
             clearRequest: { request in
                 paneInboxPresenter.clearRequest(request)

@@ -118,6 +118,23 @@ final class WorkspaceStoreTests {
     }
 
     @Test
+    func test_flushFailure_reportsSaveFailedRecovery() {
+        let blockedDirectoryURL = FileManager.default.temporaryDirectory
+            .appending(path: "workspace-store-blocked-\(UUID().uuidString)")
+        try? Data("not-a-directory".utf8).write(to: blockedDirectoryURL, options: .atomic)
+        var reportedRecovery: PersistenceRecoveryEvent?
+        let store = WorkspaceStore(
+            persistor: WorkspacePersistor(workspacesDir: blockedDirectoryURL),
+            recoveryReporter: { reportedRecovery = $0 }
+        )
+
+        #expect(store.flush() == false)
+        #expect(reportedRecovery?.store == .workspace)
+        #expect(reportedRecovery?.workspaceId == store.metadataAtom.workspaceId)
+        #expect(reportedRecovery?.recovery == .saveFailed)
+    }
+
+    @Test
     func test_workspaceStore_readsAndPersistsTheProvidedLiveAtomScope() throws {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let atoms = AtomRegistry()

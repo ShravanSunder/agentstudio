@@ -35,11 +35,11 @@ The source plan is `docs/superpowers/plans/2026-04-20-00c-luna361-phase3-notific
 | 8. Row/header/empty components | Done | `InboxRow`, `InboxNotificationGroupHeader`, `InboxNotificationEmptyState`. |
 | 9. Sidebar inbox view | Done | Search, grouping, sorting, list navigation helpers, row actions, click-through/dead-pane fallback. |
 | 9a. Sidebar toolbar bell | Done | Search/find icon removed; repo and bell toolbar icons are active-state toggles with padding and unread dot. |
-| 10. Drawer trailing actions/bell | Done | Core seam is `DrawerInboxPresentation`; Core does not reference feature types. |
+| 10. Drawer trailing actions/bell | Done | Core seam is `PaneInboxPresentation`; Core does not reference feature types. |
 | 11. Drawer bell host/popover | Done | Drawer popover filters by drawer pane ids and ignores drawer-dismissed notifications. |
 | 12. Worktree unread pill | Done | Repo explorer row takes primitive unread count; tests cover show/hide. |
 | 13. CommandBar inbox scope | Done | `InboxNotificationCommands` uses `Actions` + `Snapshot`; CommandBar consumes seam, no feature atom imports. |
-| 14. `⌘⇧I` drawer inbox command | Done | Dispatch path is wired and tested, including no-op logging paths. |
+| 14. `⌘⇧I` pane inbox command | Done | Dispatch path is wired and tested, including no-op logging paths. |
 | 15. Sidebar surface swap/boot wiring | Done | Inbox sidebar is live through `SidebarSurfaceHost`; placeholder was removed. |
 | 16. Integration verification | Mostly done | Headless tests cover bus→atom→model, Bridge RPC→router→atom, and approval/security receive-side routing. Full live OSC visual smoke remains manual/native evidence still needed for this PR. |
 

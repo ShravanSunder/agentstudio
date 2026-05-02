@@ -91,6 +91,31 @@ struct AgentStudioJSONLTraceWriterTests {
         #expect(currentContents.contains("\"body\":\"runtime.after-rotate\""))
     }
 
+    @Test
+    func flushFailureIsCountedAndBufferedAsSelfTraceRecord() async throws {
+        let blockedParentURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("trace-blocked-parent-\(UUID().uuidString)")
+        try Data("not-a-directory".utf8).write(to: blockedParentURL, options: .atomic)
+        let fileURL = blockedParentURL.appending(path: "trace.jsonl")
+        let writer = AgentStudioJSONLTraceWriter(fileURL: fileURL, timeUnixNano: { 1234 })
+
+        try await writer.append(traceRecord(body: "runtime.before-failure", sequence: 1))
+        await #expect(throws: Error.self) {
+            try await writer.flush()
+        }
+
+        #expect(await writer.failedFlushCount == 1)
+        #expect(await writer.lastFlushErrorDescription != nil)
+
+        try FileManager.default.removeItem(at: blockedParentURL)
+        try await writer.flush()
+
+        let contents = try String(contentsOf: fileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"runtime.before-failure\""))
+        #expect(contents.contains("\"body\":\"trace.flush_failed\""))
+        #expect(contents.contains("\"agentstudio.trace.failed_flush_count\":1"))
+    }
+
     private func temporaryTraceFileURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-trace-writer-tests", isDirectory: true)

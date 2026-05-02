@@ -25,7 +25,7 @@ struct CommandBarScopePill: View {
         .padding(.vertical, 3)
         .background(
             RoundedRectangle(cornerRadius: 6)
-                .fill(Color.accentColor.opacity(0.15))
+                .fill(Color.accentColor.opacity(AppStyles.General.Fill.selected))
         )
     }
 }

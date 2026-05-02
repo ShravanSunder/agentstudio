@@ -40,6 +40,10 @@ extension PersistenceRecoveryEvent {
                 "The saved cache could not be loaded, so it will rebuild from runtime events."
             case .quarantinedAndReset:
                 "The saved file could not be loaded, so it was moved aside and defaults were used."
+            case .quarantineFailed:
+                "The saved file could not be loaded, and moving it aside failed. Defaults were used."
+            case .saveFailed:
+                "The app could not save this state file. Recent changes may not be restored after restart."
             }
 
         guard let quarantinedFilename else { return action }

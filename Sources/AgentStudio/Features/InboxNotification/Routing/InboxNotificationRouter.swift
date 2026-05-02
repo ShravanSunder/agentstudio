@@ -41,6 +41,11 @@ final class InboxNotificationRouter {
         self.focusTracker = focusTracker
     }
 
+    deinit {
+        busTask?.cancel()
+        focusTask?.cancel()
+    }
+
     func stop() {
         busTask?.cancel()
         busTask = nil

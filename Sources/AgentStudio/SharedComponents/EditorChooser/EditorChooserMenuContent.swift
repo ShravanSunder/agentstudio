@@ -106,7 +106,7 @@ struct EditorChooserMenuContent: View {
                 .frame(width: style.appIconSize, height: style.appIconSize)
         } else {
             Image(systemName: "app")
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: AppStyles.Components.EditorChooser.fallbackIconFontSize, weight: .medium))
                 .frame(width: style.appIconSize, height: style.appIconSize)
         }
     }
@@ -158,7 +158,7 @@ struct EditorChooserMenuContent: View {
             RoundedRectangle(cornerRadius: style.rowCornerRadius)
                 .fill(
                     selectedEditorId == item.id
-                        ? Color.accentColor.opacity(0.15)
+                        ? Color.accentColor.opacity(AppStyles.Components.EditorChooser.selectedRowFillOpacity)
                         : (hoveredRowId == item.id
                             ? Color.primary.opacity(AppStyles.General.Fill.hover)
                             : Color.clear)
