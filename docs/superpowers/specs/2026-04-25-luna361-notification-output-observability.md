@@ -660,7 +660,8 @@ Do not paste raw command output unless explicitly needed and safe. Prefer counts
 ### Task D: Instrument Runtime And EventBus Consumer Path
 
 - [ ] Trace terminal and bridge events before envelope emission.
-- [ ] Trace eventbus post/deliver summaries.
+- [ ] Trace eventbus post summaries.
+- [x] Trace filtered eventbus deliver summaries for terminal activity and inbox consumers.
 - [ ] Preserve `trace_id`/domain IDs when possible.
 
 ### Task E: Instrument Inbox Decisions

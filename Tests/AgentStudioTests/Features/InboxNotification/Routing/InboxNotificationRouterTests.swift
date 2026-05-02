@@ -136,13 +136,17 @@ struct InboxNotificationRouterTests {
         }
     }
 
-    private func makeTraceRuntime(name: String, processIdentifier: Int32) -> AgentStudioTraceRuntime {
+    private func makeTraceRuntime(
+        name: String,
+        processIdentifier: Int32,
+        tags: String = "inbox"
+    ) -> AgentStudioTraceRuntime {
         AgentStudioTraceRuntime(
             configuration: AgentStudioTraceConfiguration.from(environment: [
                 "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": name,
-                "AGENTSTUDIO_TRACE_TAGS": "inbox",
+                "AGENTSTUDIO_TRACE_TAGS": tags,
             ]),
             processIdentifier: processIdentifier,
             sessionID: "inbox-session",
@@ -225,6 +229,44 @@ struct InboxNotificationRouterTests {
         #expect(contents.contains("\"agentstudio.inbox.reason\":\"matched\""))
         #expect(contents.contains("\"agentstudio.inbox.kind\":\"agentDesktopNotification\""))
         #expect(contents.contains("\"agentstudio.inbox.global_unread_after\":1"))
+        fixture.router.stop()
+        fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
+
+    @Test("inbox router records eventbus delivery summaries without scrollbar spam")
+    func inboxRouterRecordsEventBusDeliverySummariesWithoutScrollbarSpam() async throws {
+        let traceRuntime = makeTraceRuntime(
+            name: "inbox-eventbus-delivery",
+            processIdentifier: 263,
+            tags: "eventbus"
+        )
+        let fixture = await makeFixture(traceRuntime: traceRuntime)
+        let paneId = PaneId()
+        _ = addTerminalPane(paneId, to: fixture)
+
+        _ = await fixture.bus.post(makePaneEnvelope(paneId: paneId, event: .terminal(.bellRang)))
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: 100))),
+                seq: 2
+            )
+        )
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        await assertEventuallyMain("inbox router should write eventbus delivery summary") {
+            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+                .contains("\"body\":\"eventbus.deliver\"") == true
+        }
+
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"agentstudio.eventbus.consumer\":\"InboxNotificationRouter\""))
+        #expect(contents.contains("\"agentstudio.eventbus.name\":\"paneRuntime\""))
+        #expect(contents.contains("\"agentstudio.eventbus.delivery\":\"consumed\""))
+        #expect(contents.contains("\"agentstudio.inbox.reason\":\"bell_disabled\""))
+        #expect(contents.contains("\"agentstudio.runtime.event\":\"bellRang\""))
+        #expect(contents.contains("\"agentstudio.runtime.event\":\"scrollbarChanged\"") == false)
         fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()

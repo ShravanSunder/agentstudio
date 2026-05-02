@@ -118,11 +118,30 @@ final class TerminalActivityRouter {
             return
         }
         ensureTraceWorkerStarted()
+        traceEventBusDelivery(envelope)
         let attributes = terminalTraceAttributes(for: envelope, event: event)
         traceContinuation?.yield(
             .init(
                 tag: .terminalActivity,
                 body: "terminal.activity.observed",
+                traceID: envelope.correlationId?.uuidString,
+                parentSpanID: envelope.causationId?.uuidString,
+                attributes: attributes
+            )
+        )
+    }
+
+    private func traceEventBusDelivery(_ envelope: PaneEnvelope) {
+        guard !RuntimeEnvelopeTraceSummary.isHighVolumeActivityOnly(envelope.event) else { return }
+        var attributes = RuntimeEnvelopeTraceSummary(envelope).attributes(
+            eventBusName: "paneRuntime",
+            consumerName: "TerminalActivityRouter"
+        )
+        attributes["agentstudio.eventbus.delivery"] = .string("consumed")
+        traceContinuation?.yield(
+            .init(
+                tag: .eventbus,
+                body: "eventbus.deliver",
                 traceID: envelope.correlationId?.uuidString,
                 parentSpanID: envelope.causationId?.uuidString,
                 attributes: attributes

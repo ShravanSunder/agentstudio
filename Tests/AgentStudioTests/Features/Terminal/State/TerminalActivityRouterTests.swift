@@ -118,6 +118,63 @@ struct TerminalActivityRouterTests {
         await router.stop()
     }
 
+    @Test("records eventbus delivery summaries without scrollbar spam")
+    func recordsEventBusDeliverySummariesWithoutScrollbarSpam() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
+                "AGENTSTUDIO_TRACE_NAME": "terminal-activity-eventbus",
+                "AGENTSTUDIO_TRACE_TAGS": "eventbus",
+            ]),
+            processIdentifier: 251,
+            sessionID: "terminal-session",
+            timeUnixNano: { 909 }
+        )
+        let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
+        let paneId = PaneId()
+
+        await router.start()
+        _ = await bus.post(
+            .pane(
+                .test(
+                    event: .terminal(.bellRang),
+                    paneId: paneId,
+                    paneKind: .terminal,
+                    seq: 1
+                )
+            )
+        )
+        _ = await bus.post(
+            .pane(
+                .test(
+                    event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: 100))),
+                    paneId: paneId,
+                    paneKind: .terminal,
+                    seq: 2
+                )
+            )
+        )
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        await assertEventuallyMain("terminal activity router should write eventbus delivery summary") {
+            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+                .contains("\"body\":\"eventbus.deliver\"") == true
+        }
+
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"agentstudio.eventbus.consumer\":\"TerminalActivityRouter\""))
+        #expect(contents.contains("\"agentstudio.eventbus.name\":\"paneRuntime\""))
+        #expect(contents.contains("\"agentstudio.eventbus.delivery\":\"consumed\""))
+        #expect(contents.contains("\"agentstudio.runtime.event\":\"bellRang\""))
+        #expect(contents.contains("\"agentstudio.envelope.seq\":1"))
+        #expect(contents.contains("\"agentstudio.runtime.event\":\"scrollbarChanged\"") == false)
+        await router.stop()
+    }
+
     @Test("stop drains buffered terminal activity trace records")
     func stopDrainsBufferedTerminalActivityTraceRecords() async throws {
         let bus = EventBus<RuntimeEnvelope>()

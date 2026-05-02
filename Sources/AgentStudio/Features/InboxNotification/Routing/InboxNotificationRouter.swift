@@ -117,6 +117,7 @@ final class InboxNotificationRouter {
     private func handle(_ envelope: RuntimeEnvelope) {
         guard case .pane(let paneEnvelope) = envelope else { return }
         let decision = classify(paneEnvelope)
+        traceEventBusDelivery(decision, envelope: paneEnvelope)
         traceClassificationDecision(decision, envelope: paneEnvelope)
         guard let kind = decision.kind else { return }
 
@@ -251,6 +252,21 @@ final class InboxNotificationRouter {
         traceInboxRecord(body: "inbox.classify", attributes: attributes)
     }
 
+    private func traceEventBusDelivery(_ decision: ClassificationDecision, envelope: PaneEnvelope) {
+        guard shouldTraceClassificationDecision(decision, event: envelope.event) else { return }
+        var attributes = RuntimeEnvelopeTraceSummary(envelope).attributes(
+            eventBusName: "paneRuntime",
+            consumerName: "InboxNotificationRouter"
+        )
+        attributes["agentstudio.eventbus.delivery"] = .string("consumed")
+        attributes["agentstudio.inbox.decision"] = .string(decision.action)
+        attributes["agentstudio.inbox.reason"] = .string(decision.reason)
+        if let kind = decision.kind {
+            attributes["agentstudio.inbox.kind"] = .string(kind.rawValue)
+        }
+        traceRecord(tag: .eventbus, body: "eventbus.deliver", attributes: attributes)
+    }
+
     private func shouldTraceClassificationDecision(
         _ decision: ClassificationDecision,
         event: PaneRuntimeEvent
@@ -282,45 +298,20 @@ final class InboxNotificationRouter {
             "agentstudio.pane.id": .string(paneId.uuidString),
         ]
         if let event {
-            attributes["agentstudio.runtime.event"] = .string(traceEventName(for: event))
+            attributes["agentstudio.runtime.event"] = .string(event.traceEventName)
         }
         return attributes
     }
 
-    private func traceEventName(for event: PaneRuntimeEvent) -> String {
-        switch event {
-        case .terminal(let terminalEvent):
-            return terminalEvent.eventName.rawValue
-        case .browser(let browserEvent):
-            return browserEvent.eventName.rawValue
-        case .diff(let diffEvent):
-            return diffEvent.eventName.rawValue
-        case .editor(let editorEvent):
-            return editorEvent.eventName.rawValue
-        case .agentNotificationRequested:
-            return "agentNotificationRequested"
-        case .plugin(_, let pluginEvent):
-            return pluginEvent.eventName.rawValue
-        case .paneFilesystemContext(let filesystemContextEvent):
-            return filesystemContextEvent.eventName.rawValue
-        case .lifecycle(let lifecycleEvent):
-            return "lifecycle.\(enumCaseName(lifecycleEvent))"
-        case .filesystem(let filesystemEvent):
-            return "filesystem.\(enumCaseName(filesystemEvent))"
-        case .artifact(let artifactEvent):
-            return "artifact.\(enumCaseName(artifactEvent))"
-        case .security(let securityEvent):
-            return "security.\(enumCaseName(securityEvent))"
-        case .error(let errorEvent):
-            return "error.\(enumCaseName(errorEvent))"
-        }
-    }
-
-    private func enumCaseName<Value>(_ value: Value) -> String {
-        Mirror(reflecting: value).children.first?.label ?? String(describing: value)
-    }
-
     private func traceInboxRecord(
+        body: String,
+        attributes: [String: AgentStudioTraceValue]
+    ) {
+        traceRecord(tag: .inbox, body: body, attributes: attributes)
+    }
+
+    private func traceRecord(
+        tag: AgentStudioTraceTag,
         body: String,
         attributes: [String: AgentStudioTraceValue]
     ) {
@@ -329,7 +320,7 @@ final class InboxNotificationRouter {
         // swiftlint:disable:next no_task_detached
         Task.detached(priority: .utility) {
             await traceRuntime.record(
-                tag: .inbox,
+                tag: tag,
                 body: body,
                 attributes: attributes
             )

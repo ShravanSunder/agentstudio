@@ -20,7 +20,7 @@ Launch command:
 ```bash
 SWIFT_BUILD_DIR=".build-agent-$PPID" mise run build
 
-AGENTSTUDIO_TRACE_TAGS="app.focus,runtime,terminal.activity,inbox,paneInbox" \
+AGENTSTUDIO_TRACE_TAGS="app.focus,runtime,eventbus,terminal.activity,inbox,paneInbox" \
 AGENTSTUDIO_TRACE_DIR="$PWD/tmp/luna361-notification-traces" \
 AGENTSTUDIO_TRACE_NAME="luna361-cli-smoke" \
 AGENTSTUDIO_TRACE_FLUSH="immediate" \
@@ -31,15 +31,17 @@ Why this selector:
 
 - `runtime` captures Ghostty semantic action translation, while code filters high-volume callbacks such as scrollbar, render, mouse, and key-sequence actions.
 - `terminal.activity` captures debounced unseen scrollback windows and non-scrollbar terminal activity snapshots.
+- `eventbus` captures filtered delivery summaries for the terminal activity and inbox consumers.
 - `inbox` captures classify decisions, suppression reasons, notification appends, and focus-clear mutations.
 - `app.focus` captures attended-pane changes so suppression decisions can be tied back to focus state.
 - `paneInbox` captures low-volume pane inbox open/close/presentation interactions.
-- It intentionally does not enable `eventbus`, `ui.surface`, `ui.interaction`, or `*` until those consumers have explicit anti-spam filters.
+- It intentionally does not enable `ui.surface`, `ui.interaction`, or `*` until those consumers have explicit anti-spam filters.
 
 ## Anti-Spam Contract
 
 - Ghostty `.scrollbar`, `.render`, mouse-state, and key-sequence callbacks do not write per-callback runtime records.
 - Unattended scrollback growth is collapsed into one `terminal.activity.unseenWindowStarted`, at most one `terminal.activity.unseenWindowExtended`, optional `terminal.activity.outputBurst`, and one `terminal.activity.unseenWindowClosed` per quiet window.
+- Eventbus delivery tracing is consumer-scoped and filtered. It does not trace `.scrollbarChanged` delivery per callback.
 - Inbox does not trace ignored `.scrollbarChanged` classify decisions. The terminal activity window is the evidence for that path.
 - Pane inbox UI tracing records request/presentation edges only. It does not trace SwiftUI renders.
 
@@ -76,6 +78,12 @@ Show notification decisions:
 
 ```bash
 jq 'select(.body=="inbox.classify") | {time_unix_nano, decision: .attributes["agentstudio.inbox.decision"], reason: .attributes["agentstudio.inbox.reason"], kind: .attributes["agentstudio.inbox.kind"], event: .attributes["agentstudio.runtime.event"], pane: .attributes["agentstudio.pane.id"]}' "$TRACE_FILE"
+```
+
+Show eventbus delivery summaries:
+
+```bash
+jq 'select(.body=="eventbus.deliver") | {consumer: .attributes["agentstudio.eventbus.consumer"], event: .attributes["agentstudio.runtime.event"], seq: .attributes["agentstudio.envelope.seq"], pane: .attributes["agentstudio.pane.id"], decision: .attributes["agentstudio.inbox.decision"]}' "$TRACE_FILE"
 ```
 
 Show unseen activity windows:
