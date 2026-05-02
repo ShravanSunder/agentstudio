@@ -16,10 +16,11 @@ struct PaneInboxNotificationPresenterTests {
 
         #expect(presenter.request?.parentPaneId == parentPaneId)
         #expect(presenter.request?.paneIds == paneIds)
+        #expect(presenter.request?.intent == .open)
     }
 
     @Test("toggle closes the same pane inbox target")
-    func toggleSameTargetCloses() {
+    func toggleSamePendingTargetClearsRequest() {
         let presenter = PaneInboxNotificationPresenter()
         let parentPaneId = UUID()
         let childPaneId = UUID()
@@ -29,6 +30,34 @@ struct PaneInboxNotificationPresenterTests {
 
         presenter.toggle(parentPaneId: parentPaneId, paneIds: [parentPaneId, childPaneId])
         #expect(presenter.request == nil)
+    }
+
+    @Test("toggle sends close request for an already presented target")
+    func togglePresentedTargetSendsCloseRequest() {
+        let presenter = PaneInboxNotificationPresenter()
+        let parentPaneId = UUID()
+        let childPaneId = UUID()
+        let paneIds = [parentPaneId, childPaneId]
+
+        presenter.setPresented(parentPaneId: parentPaneId, paneIds: paneIds, isPresented: true)
+        presenter.toggle(parentPaneId: parentPaneId, paneIds: paneIds)
+
+        #expect(presenter.request?.parentPaneId == parentPaneId)
+        #expect(presenter.request?.paneIds == paneIds)
+        #expect(presenter.request?.intent == .close)
+    }
+
+    @Test("dismissed target can be opened again")
+    func dismissedTargetCanBeOpenedAgain() {
+        let presenter = PaneInboxNotificationPresenter()
+        let parentPaneId = UUID()
+        let paneIds = [parentPaneId]
+
+        presenter.setPresented(parentPaneId: parentPaneId, paneIds: paneIds, isPresented: true)
+        presenter.setPresented(parentPaneId: parentPaneId, paneIds: paneIds, isPresented: false)
+        presenter.toggle(parentPaneId: parentPaneId, paneIds: paneIds)
+
+        #expect(presenter.request?.intent == .open)
     }
 
     @Test("toggle replaces a different pane inbox target")

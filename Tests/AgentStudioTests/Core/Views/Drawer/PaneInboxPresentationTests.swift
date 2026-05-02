@@ -28,6 +28,7 @@ struct PaneInboxPresentationTests {
                 openedParentPaneId = parentPaneId
                 openedPaneIds = paneIds
             },
+            setPresented: { _, _, _ in },
             pendingRequest: { nil },
             clearRequest: { _ in },
             popoverContent: { _, _ in AnyView(EmptyView()) }

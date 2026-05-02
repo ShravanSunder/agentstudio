@@ -3435,6 +3435,14 @@ LUNA-361 Phase 3."
 
 ## Task 14: ⌘⇧I composite command — pane inbox popover
 
+> **Correction after implementation:** The codebase-level command architecture
+> in `docs/architecture/commands_and_shortcuts.md` supersedes the AppDelegate
+> sketch below. `showPaneInboxNotifications` is a pane-scoped
+> `PaneTabViewController` command, not an AppDelegate shell command. It targets
+> the active parent pane plus that pane's drawer children, remains available
+> even when the drawer is closed or empty, and toggles the existing pane inbox
+> popover closed when the same target is already presented.
+
 **Files:**
 - Modify: `Sources/AgentStudio/App/Commands/AppCommand.swift` — add `.showPaneInboxNotifications`
 - Modify: `Sources/AgentStudio/App/Commands/AppShortcut.swift` — bind ⌘⇧I

@@ -12,6 +12,10 @@ struct CommandBarSurfaceCommandTests {
     @Test("commands scope includes sidebar and drawer commands with shortcut labels")
     func commandsScopeIncludesSidebarAndDrawerCommandsWithShortcutLabels() {
         let store = WorkspaceStore()
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: "Pane"))
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
 
         let items = CommandBarDataSource.items(
             scope: .commands,
@@ -29,8 +33,8 @@ struct CommandBarSurfaceCommandTests {
         #expect(sidebarInbox?.shortcutTrigger == AppShortcut.showInboxNotifications.trigger)
         #expect(sidebarInbox?.shortcutKeys?.map(\.symbol).joined() == "⌘I")
 
-        #expect(paneInbox?.title == "Show Pane Inbox")
-        #expect(paneInbox?.group == "Window")
+        #expect(paneInbox?.title == "Toggle Pane Inbox")
+        #expect(paneInbox?.group == "Pane")
         #expect(paneInbox?.shortcutTrigger == AppShortcut.showPaneInboxNotifications.trigger)
         #expect(paneInbox?.shortcutKeys?.map(\.symbol).joined() == "⌘⇧I")
 
