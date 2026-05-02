@@ -1,6 +1,6 @@
 # LUNA-361 Notification Output Observability Spec
 
-**Status:** Draft consumer/discovery spec. Requires the LUNA-368 tracer foundation before implementation.
+**Status:** Ready-for-implementation consumer/discovery spec. LUNA-368 SP1a is on `main`; this spec is the next notification-observability branch.
 
 **Depends on:** `docs/superpowers/specs/2026-04-25-luna368-tagged-jsonl-tracer-design.md`
 
@@ -23,6 +23,21 @@ This spec is not a behavior-change spec first. It is a capture-and-analysis spec
 3. Classify which signals are semantic, which are inferred, and which are missing.
 4. Trace the notification pipeline decisions for the signals that already exist.
 5. Convert observed gaps into either tests, notification policy work, or follow-up terminal-output extraction work.
+
+## Current Baseline On Main
+
+As of `notification-system-5`, the merged baseline already has:
+
+- PaneInbox UI and command wiring for the active parent pane plus drawer child panes.
+- Local JSONL tracing with env-var control, per-run files, ring buffer, flush, rotation, and failure self-records.
+- `TerminalActivityRouter` writing `terminal.activity.observed` records through the current `runtime` trace tag.
+- Inbox routing for semantic events that already exist: bridge `inbox.post`, OSC desktop notification, bell when enabled, command-finished above threshold while unattended, progress error, secure input, renderer unhealthy, approval, and security.
+
+The observed manual gap is also clear:
+
+- Normal Gemini/Claude/Codex stdout or stderr does not automatically create an inbox event.
+- That is expected unless Ghostty emits a semantic action, bridge code calls `inbox.post`, bell/OSC is emitted, or shell integration emits `commandFinished` meeting the policy gate.
+- The next branch must collect evidence before changing notification policy.
 
 ## Stopping Point
 
@@ -167,7 +182,39 @@ ui.interaction
 paneInbox
 ```
 
-These tags are consumer integrations over the LUNA-368 tracer. They do not expand the initial LUNA-368 foundation acceptance unless explicitly pulled in.
+These tags are consumer integrations over the LUNA-368 tracer. The current merged tracer enum only supports the generic foundation tags. Therefore Task A starts by adding the consumer tags to `AgentStudioTraceTag`, with tests proving they parse from `AGENTSTUDIO_TRACE_TAGS`.
+
+Implementation note:
+
+```
+AgentStudioTraceTag.runtime
+  Already exists and is used by TerminalActivityRouter.
+
+AgentStudioTraceTag.terminalActivity
+AgentStudioTraceTag.inbox
+AgentStudioTraceTag.uiSurface
+AgentStudioTraceTag.uiInteraction
+AgentStudioTraceTag.appFocus
+AgentStudioTraceTag.paneInbox
+  New consumer tags for this branch.
+```
+
+Trace runtime ownership:
+
+```
+AppDelegate / composition root
+        |
+        v
+single AgentStudioTraceRuntime.fromEnvironment()
+        |
+        +-- TerminalActivityRouter
+        +-- Ghostty action tracing adapter
+        +-- InboxNotificationRouter
+        +-- UI surface / PaneInbox trace emitters
+        +-- EventBus trace observer
+```
+
+Do not let each consumer call `.fromEnvironment()` independently. Multiple writers pointed at the same trace file would make flush ordering and file ownership ambiguous. The notification-observability branch should promote the trace runtime to one app-scoped service and pass it through explicit initializers.
 
 ## Current Notification State Machine
 
@@ -199,14 +246,56 @@ Unattended pane shows activity not represented by a semantic Ghostty event
 scrollbar/screen/render/scrollback activity inference
         |
         v
-unseen activity indicator
+debounced unseen activity fact
         |
-        +-- maybe promoted to notification only by explicit policy
+        +-- trace evidence now
+        +-- maybe promoted to indicator/notification later only by explicit policy
 ```
 
 Do not route all output directly to the notification inbox. The inbox remains for semantic/actionable events. Output bursts first become evidence for activity. Whether activity becomes an indicator or a notification is a product decision after the evidence pass.
 
-`unseen activity` is a product concept, not just instrumentation. Before implementing notification behavior changes, run a UX/product brainstorm and decide whether unseen activity is:
+For this branch, `unseen activity` means a debounced inferred activity fact:
+
+```
+pane was unattended
+terminal activity was observed or inferred
+activity was coalesced into one bounded window
+record says what source and volume we saw
+record does not create a notification by itself
+```
+
+The collector should capture enough data to tune heuristics:
+
+```
+first_observed_at
+last_observed_at
+activity.duration_ms
+activity.source=scrollbar|command-finished|progress|url|unknown
+activity.is_inferred=true|false
+activity.rows_added, when available
+activity.event_count
+agentstudio.pane.attended=false
+```
+
+Suggested initial debounce policy for evidence only:
+
+```
+start window
+  first activity for an unattended pane
+
+extend window
+  more inferred activity arrives before the quiet timeout
+
+close window
+  no activity for 750ms
+
+burst marker
+  rows_added crosses the existing TerminalActivityAtom output-burst threshold
+```
+
+These values are not product policy. The initial row threshold should reuse the existing `TerminalActivityAtom` output-burst threshold instead of introducing a second magic number. The evidence pass may move that threshold into `AppPolicies` if it needs to become a shared named policy.
+
+After the evidence pass, run a UX/product brainstorm and decide whether unseen activity is:
 
 - a separate lightweight indicator,
 - a replacement for some duration-threshold command-finished notifications,
@@ -297,8 +386,8 @@ runtime.ghosttyActionObserved
   ghostty.action_tag=...
   ghostty.action_name=...
   ghostty.signal_class=semantic|inferred|context|unhandled
-  pane.id=...
-  surface.id=...
+  agentstudio.pane.id=...
+  agentstudio.surface.id=...
 
 runtime.ghosttyActionTranslated
   ghostty.action_name=...
@@ -320,6 +409,9 @@ runtime.eventReplay
 ```
 terminal.activity.scrollbarChanged
 terminal.activity.outputBurst
+terminal.activity.unseenWindowStarted
+terminal.activity.unseenWindowExtended
+terminal.activity.unseenWindowClosed
 terminal.activity.progress
 terminal.activity.commandFinished
 terminal.activity.urlObserved
@@ -331,6 +423,18 @@ Every inferred record must include:
 ```
 terminal.activity.source=scrollbar|progress|url|command-finished|unknown
 terminal.activity.is_inferred=true|false
+```
+
+Every unseen activity window record must include:
+
+```
+terminal.activity.window_id=...
+terminal.activity.duration_ms=...
+terminal.activity.event_count=...
+terminal.activity.rows_added=...
+agentstudio.pane.attended=false
+terminal.activity.debounce_ms=750
+terminal.activity.threshold_rows=<TerminalActivityAtom output-burst threshold>
 ```
 
 ### EventBus
@@ -359,7 +463,7 @@ inbox.counts
 inbox.decision=notify|ignored
 inbox.reason=...
 inbox.kind=...
-pane.attended=true|false
+agentstudio.pane.attended=true|false
 ```
 
 ### UI Surface
@@ -400,7 +504,7 @@ ui.interaction.click
 
 paneInbox.trigger
   paneInbox.host=drawer_toolbox
-  paneInbox.pane_ids=[...]
+  agentstudio.pane.ids=[...]
 
 inbox.counts
   inbox.scope=paneInbox
@@ -419,14 +523,14 @@ ui.interaction.click
 
 paneInbox.rowActivation
   notification.id=...
-  pane.id=...
+  agentstudio.pane.id=...
 
 actions.dispatch
   action.name=focusPane
   action.validation=accepted
 
 app.focus.attendedPaneChanged
-  pane.id=...
+  agentstudio.pane.id=...
 
 inbox.markRead
   affected_count=...
@@ -439,6 +543,8 @@ Launch with:
 ```
 AGENTSTUDIO_TRACE_TAGS=app.focus,runtime,eventbus,terminal.activity,inbox,ui.surface,ui.interaction,paneInbox
 AGENTSTUDIO_TRACE_NAME=notif-cli-smoke
+AGENTSTUDIO_TRACE_DIR=<project-root>/tmp/traces
+AGENTSTUDIO_TRACE_FLUSH=immediate
 ```
 
 Run in separate panes and keep a note of which pane is attended:
@@ -495,12 +601,14 @@ For each command:
 - Open sidebar inbox and pane inbox only when the UI behavior is in question.
 - Note whether the trace shows semantic event, inferred activity, both, or neither.
 
+Persist the exact trace path from startup stderr. Do not rely on memory or `/tmp` discovery. The trace file and evidence note together are the debugging artifact.
+
 ## Evidence Output
 
 Create:
 
 ```
-docs/wip/luna361-notification-cli-trace-smoke-2026-04-25.md
+docs/wip/debugging/2026-05-02-luna361-notification-cli-trace-smoke.md
 ```
 
 The evidence note must include:
@@ -521,35 +629,46 @@ Do not paste raw command output unless explicitly needed and safe. Prefer counts
 
 ## Implementation Tasks
 
-### Task A: Instrument Ghostty Signal Capture
+### Task A: Enable Consumer Trace Tags
+
+- [ ] Add `app.focus`, `terminal.activity`, `inbox`, `ui.surface`, `ui.interaction`, and `paneInbox` to `AgentStudioTraceTag`.
+- [ ] Add parser tests for the exact launch selector list.
+- [ ] Promote `AgentStudioTraceRuntime` to one app-scoped service in the composition root and pass it into consumers.
+- [ ] Add a test or architecture assertion that notification-observability consumers do not each create their own trace runtime from the environment.
+- [ ] Keep `runtime` records working for the existing `TerminalActivityRouter`.
+- [ ] Do not add drag tags or drag overlay work in this branch.
+
+### Task B: Instrument Ghostty Signal Capture
 
 - [ ] Trace every Ghostty action received by `Ghostty.ActionRouter`.
 - [ ] Trace translation into `PaneRuntimeEvent`.
 - [ ] Classify each signal as `semantic`, `inferred`, `context`, `deferred`, or `unhandled`.
 - [ ] Add focused tests for representative action translation records.
 
-### Task B: Instrument Terminal Activity Inference
+### Task C: Instrument Terminal Activity Inference
 
 - [ ] Trace scrollbar changes.
-- [ ] Trace output-burst threshold transitions.
+- [ ] Add a debounced unseen-activity window model for unattended panes.
+- [ ] Trace output-burst threshold transitions inside the window.
+- [ ] Trace window start, extend, and close records.
 - [ ] Trace progress/url/command-finished activity snapshots.
 - [ ] Include `is_inferred` and `source` attributes.
 - [ ] Add tests proving inferred activity does not automatically create inbox notifications.
 
-### Task C: Instrument Runtime And EventBus Consumer Path
+### Task D: Instrument Runtime And EventBus Consumer Path
 
 - [ ] Trace terminal and bridge events before envelope emission.
 - [ ] Trace eventbus post/deliver summaries.
 - [ ] Preserve `trace_id`/domain IDs when possible.
 
-### Task D: Instrument Inbox Decisions
+### Task E: Instrument Inbox Decisions
 
 - [ ] Trace every classify decision.
 - [ ] Include ignored reasons.
 - [ ] Trace append/read/dismiss/count changes.
 - [ ] Add tests for attended-pane suppression, below-threshold suppression, bell-disabled suppression, and activity-only suppression.
 
-### Task E: Instrument UI Surface Counts
+### Task F: Instrument UI Surface Counts
 
 - [ ] Resolve whether scoped count calculations need view models before tracing. Counts must be headlessly testable before this task starts.
 - [ ] Toolbar bell count.
@@ -558,16 +677,16 @@ Do not paste raw command output unless explicitly needed and safe. Prefer counts
 - [ ] Worktree pill count.
 - [ ] Sidebar inbox row count.
 
-### Task F: Instrument Focus And Pane Inbox Interactions
+### Task G: Instrument Focus And Pane Inbox Interactions
 
 - [ ] Attended pane changes.
 - [ ] Pane inbox button click.
 - [ ] Pane inbox row activation.
 - [ ] Focus-pane action path.
 
-### Task G: Capture Evidence And Convert To Tests
+### Task H: Capture Evidence And Convert To Tests
 
-- [ ] Create `docs/wip/luna361-notification-cli-trace-smoke-2026-04-25.md`.
+- [ ] Create `docs/wip/debugging/2026-05-02-luna361-notification-cli-trace-smoke.md`.
 - [ ] Run CLI smoke matrix.
 - [ ] Add JSONL snippets and `jq` extracts.
 - [ ] Build the signal inventory table from real traces.

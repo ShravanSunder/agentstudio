@@ -1,6 +1,6 @@
 # LUNA-368 Tagged JSONL Tracer Design Spec
 
-**Status:** Draft design spec. Do not execute until reviewed.
+**Status:** SP1a implemented on `main`. SP1b and later backend/exporter work remain design material.
 
 **Linear:** [LUNA-368](https://linear.app/askluna/issue/LUNA-368/debugging-harness-tagged-jsonl-tracer-debug-overlays-headless)
 
@@ -35,7 +35,7 @@ SP1a includes:
 - Stable Agent Studio JSONL exporter schema: top-level keys, `agentstudio.*` namespace, resource fields, `time_unix_nano`, and trace/span/log-like event vocabulary.
 - Propagation pattern established through one non-UI diagnostic flow that crosses at least one async boundary.
 - Local JSONL file writer, ring buffer, explicit flush, rotation, env-var control, and per-run files.
-- One local JSONL record proof on disk with trace ID, span ID, resource, scope, and attributes.
+- One local JSONL record proof on disk with resource, scope, attributes, and domain correlation IDs. `trace_id` and `span_id` are optional in JSONL-only mode and must not be faked by creating no-op spans.
 - One generic trace triage script that can list recent traces or inspect a trace by correlation ID/tag.
 
 SP1a does not require direct OpenTelemetry Collector ingestion and does not write OTLP JSON. It preserves the OTel-shaped internal vocabulary so an OTLP file exporter or OTLP network exporter can be added later as another sink without redesigning the tracing model.
