@@ -68,6 +68,27 @@ final class PaneInboxNotificationPresenter {
         guard self.request == request else { return }
         self.request = nil
     }
+
+    func recordRowActivation(notification: InboxNotification, paneIds: [UUID]) {
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.action.name": .string("focusPane"),
+            "agentstudio.notification.id": .string(notification.id.uuidString),
+            "agentstudio.notification.kind": .string(notification.kind.rawValue),
+            "agentstudio.pane.scope_count": .int(paneIds.count),
+            "agentstudio.pane.scope_ids": .stringArray(paneIds.map(\.uuidString)),
+        ]
+        if let parentPaneId = paneIds.first {
+            attributes["agentstudio.pane.parent_id"] = .string(parentPaneId.uuidString)
+        }
+        if let paneId = notification.paneId {
+            attributes["agentstudio.pane.id"] = .string(paneId.uuidString)
+        }
+        tracePaneInboxInteraction(
+            body: "paneInbox.rowActivation",
+            attributes: attributes
+        )
+    }
+
     private func tracePaneInboxInteraction(
         body: String,
         parentPaneId: UUID,
@@ -89,6 +110,22 @@ final class PaneInboxNotificationPresenter {
                 tag: .paneInbox,
                 body: body,
                 attributes: traceAttributes
+            )
+        }
+    }
+
+    private func tracePaneInboxInteraction(
+        body: String,
+        attributes: [String: AgentStudioTraceValue]
+    ) {
+        guard let traceRuntime else { return }
+        // Escapes MainActor so JSONL file work cannot contend with UI interaction handling.
+        // swiftlint:disable:next no_task_detached
+        Task.detached(priority: .utility) {
+            await traceRuntime.record(
+                tag: .paneInbox,
+                body: body,
+                attributes: attributes
             )
         }
     }

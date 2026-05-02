@@ -117,4 +117,38 @@ struct PaneInboxNotificationPresenterTests {
         #expect(contents.contains("\"agentstudio.pane.parent_id\":\"\(parentPaneId.uuidString)\""))
         #expect(contents.contains("\"agentstudio.pane.scope_count\":2"))
     }
+
+    @Test("pane inbox presenter traces row activation target")
+    func paneInboxPresenterTracesRowActivationTarget() async throws {
+        let traceRuntime = makeTraceRuntime(name: "pane-inbox-row-activation", processIdentifier: 264)
+        let presenter = PaneInboxNotificationPresenter(traceRuntime: traceRuntime)
+        let parentPaneId = UUID()
+        let childPaneId = UUID()
+        let notification = InboxNotification(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 100),
+            kind: .agentRpc,
+            title: "Done",
+            body: nil,
+            source: .pane(.init(paneId: childPaneId)),
+            isRead: false,
+            isDismissedFromPaneInbox: false
+        )
+
+        presenter.recordRowActivation(notification: notification, paneIds: [parentPaneId, childPaneId])
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        await assertEventuallyMain("pane inbox presenter should write row activation trace") {
+            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+                .contains("\"body\":\"paneInbox.rowActivation\"") == true
+        }
+
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"agentstudio.action.name\":\"focusPane\""))
+        #expect(contents.contains("\"agentstudio.notification.id\":\"\(notification.id.uuidString)\""))
+        #expect(contents.contains("\"agentstudio.notification.kind\":\"agentRpc\""))
+        #expect(contents.contains("\"agentstudio.pane.id\":\"\(childPaneId.uuidString)\""))
+        #expect(contents.contains("\"agentstudio.pane.parent_id\":\"\(parentPaneId.uuidString)\""))
+        #expect(contents.contains("\"agentstudio.pane.scope_count\":2"))
+    }
 }

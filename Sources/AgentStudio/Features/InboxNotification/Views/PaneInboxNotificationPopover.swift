@@ -5,6 +5,7 @@ struct PaneInboxNotificationPopover: View {
     let paneIds: [UUID]
     let inboxAtom: InboxNotificationAtom
     let dispatcher: CommandDispatcher
+    let onActivate: @MainActor (InboxNotification) -> Void
     let onClose: @MainActor @Sendable () -> Void
 
     @State private var selectedNotificationId: UUID?
@@ -143,6 +144,7 @@ struct PaneInboxNotificationPopover: View {
     }
 
     private func activate(_ notification: InboxNotification) {
+        onActivate(notification)
         inboxAtom.markRead(id: notification.id)
         inboxAtom.dismissFromPaneInbox(id: notification.id)
         if let paneId = notification.paneId {

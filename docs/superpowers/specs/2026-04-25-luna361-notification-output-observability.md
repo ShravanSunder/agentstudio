@@ -684,7 +684,7 @@ Do not paste raw command output unless explicitly needed and safe. Prefer counts
 
 - [x] Attended pane changes.
 - [x] Pane inbox button click / request / close / presentation state.
-- [ ] Pane inbox row activation.
+- [x] Pane inbox row activation.
 - [ ] Focus-pane action path.
 
 ### Task H: Capture Evidence And Convert To Tests

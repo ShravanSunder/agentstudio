@@ -254,12 +254,15 @@ class MainSplitViewController: NSSplitViewController {
             clearRequest: { [paneInboxPresenter] request in
                 paneInboxPresenter.clearRequest(request)
             },
-            popoverContent: { [inboxAtom] paneIds, onClose in
+            popoverContent: { [inboxAtom, paneInboxPresenter] paneIds, onClose in
                 AnyView(
                     PaneInboxNotificationPopover(
                         paneIds: paneIds,
                         inboxAtom: inboxAtom,
                         dispatcher: CommandDispatcher.shared,
+                        onActivate: { notification in
+                            paneInboxPresenter.recordRowActivation(notification: notification, paneIds: paneIds)
+                        },
                         onClose: onClose
                     )
                 )
