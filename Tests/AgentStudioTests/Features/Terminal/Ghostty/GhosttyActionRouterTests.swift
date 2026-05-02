@@ -373,8 +373,8 @@ struct GhosttyActionRouterTests {
         #expect(contents.contains("\"agentstudio.surface.id\":\"\(surfaceId.uuidString)\""))
     }
 
-    @Test("scrollbar callbacks do not write per-callback Ghostty action trace records")
-    func actionRouterTrace_scrollbarCallbacksDoNotWritePerCallbackRecords() async throws {
+    @Test("high-volume callbacks do not write per-callback Ghostty action trace records")
+    func actionRouterTrace_highVolumeCallbacksDoNotWritePerCallbackRecords() async throws {
         let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
         let surfaceId = UUID()
         let paneUUID = UUIDv7.generate()
@@ -417,6 +417,14 @@ struct GhosttyActionRouterTests {
             Ghostty.ActionRouter.routeActionToTerminalRuntimeOnMainActor(
                 actionTag: UInt32(GHOSTTY_ACTION_SCROLLBAR.rawValue),
                 payload: .scrollbar(total: 1000, offset: 900, length: 40),
+                surfaceViewObjectId: surfaceViewObjectId,
+                routingLookup: lookup
+            )
+        )
+        #expect(
+            Ghostty.ActionRouter.routeActionToTerminalRuntimeOnMainActor(
+                actionTag: UInt32(GHOSTTY_ACTION_KEY_SEQUENCE.rawValue),
+                payload: .keySequence(active: true, triggerTag: 0, key: 112, mods: 0),
                 surfaceViewObjectId: surfaceViewObjectId,
                 routingLookup: lookup
             )

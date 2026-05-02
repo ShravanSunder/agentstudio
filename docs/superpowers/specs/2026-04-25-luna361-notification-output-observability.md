@@ -30,7 +30,7 @@ As of `notification-system-5`, the merged baseline already has:
 
 - PaneInbox UI and command wiring for the active parent pane plus drawer child panes.
 - Local JSONL tracing with env-var control, per-run files, ring buffer, flush, rotation, and failure self-records.
-- `TerminalActivityRouter` writing `terminal.activity.observed` records through the current `runtime` trace tag.
+- `TerminalActivityRouter` writing `terminal.activity.observed` records through the `terminal.activity` trace tag.
 - Inbox routing for semantic events that already exist: bridge `inbox.post`, OSC desktop notification, bell when enabled, command-finished above threshold while unattended, progress error, secure input, renderer unhealthy, approval, and security.
 
 The observed manual gap is also clear:
@@ -137,7 +137,7 @@ These are not direct stdout/stderr records. They are inference records and must 
 
 ```
 terminal.activity.scrollbarChanged
-  Emits the raw scrollbar total/top/bottom values.
+  Reserved for a future verbose mode. The default smoke path must not emit per-scrollbar records.
 
 terminal.activity.outputBurst
   Emits when scrollbar total growth crosses the configured output burst threshold.
@@ -642,7 +642,7 @@ Do not paste raw command output unless explicitly needed and safe. Prefer counts
 ### Task B: Instrument Ghostty Signal Capture
 
 - [x] Trace every non-high-volume Ghostty action received by `Ghostty.ActionRouter`.
-- [x] Do not emit per-callback Ghostty records for `.scrollbar`; summarize scrollback growth through the debounced `terminal.activity.*` unseen-activity window from Task C.
+- [x] Do not emit per-callback Ghostty records for high-volume callbacks such as `.scrollbar`, `.render`, mouse-state, or key-sequence actions; summarize scrollback growth through the debounced `terminal.activity.*` unseen-activity window from Task C.
 - [x] Trace translation into `PaneRuntimeEvent` for non-high-volume actions.
 - [x] Classify each signal as `semantic`, `inferred`, `context`, `deferred`, or `unhandled`.
 - [x] Add focused tests for representative action translation records.
@@ -689,7 +689,7 @@ Do not paste raw command output unless explicitly needed and safe. Prefer counts
 
 ### Task H: Capture Evidence And Convert To Tests
 
-- [ ] Create `docs/wip/debugging/2026-05-02-luna361-notification-cli-trace-smoke.md`.
+- [x] Create `docs/wip/debugging/2026-05-02-luna361-notification-cli-trace-smoke.md`.
 - [ ] Run CLI smoke matrix.
 - [ ] Add JSONL snippets and `jq` extracts.
 - [ ] Build the signal inventory table from real traces.

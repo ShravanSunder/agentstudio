@@ -58,7 +58,13 @@ extension Ghostty.ActionRouter {
     }
 
     static func isHighVolumeTraceAction(_ actionTag: UInt32) -> Bool {
-        GhosttyActionTag(rawValue: actionTag) == .scrollbar
+        guard let actionTag = GhosttyActionTag(rawValue: actionTag) else { return false }
+        switch actionTag {
+        case .scrollbar, .render, .mouseShape, .mouseVisibility, .mouseOverLink, .keySequence:
+            return true
+        default:
+            return false
+        }
     }
 
     static func signalClass(
