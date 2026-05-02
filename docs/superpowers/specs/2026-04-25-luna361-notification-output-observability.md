@@ -632,30 +632,30 @@ Do not paste raw command output unless explicitly needed and safe. Prefer counts
 
 ### Task A: Enable Consumer Trace Tags
 
-- [ ] Add `app.focus`, `terminal.activity`, `inbox`, `ui.surface`, `ui.interaction`, and `paneInbox` to `AgentStudioTraceTag`.
-- [ ] Add parser tests for the exact launch selector list.
-- [ ] Promote `AgentStudioTraceRuntime` to one app-scoped service in the composition root and pass it into consumers.
-- [ ] Add a test or architecture assertion that notification-observability consumers do not each create their own trace runtime from the environment.
-- [ ] Keep `runtime` records working for the existing `TerminalActivityRouter`.
-- [ ] Do not add drag tags or drag overlay work in this branch.
+- [x] Add `app.focus`, `terminal.activity`, `inbox`, `ui.surface`, `ui.interaction`, and `paneInbox` to `AgentStudioTraceTag`.
+- [x] Add parser tests for the exact launch selector list.
+- [x] Promote `AgentStudioTraceRuntime` to one app-scoped service in the composition root and pass it into consumers.
+- [x] Add a test or architecture assertion that notification-observability consumers do not each create their own trace runtime from the environment.
+- [x] Keep `runtime` records working for the existing `TerminalActivityRouter`.
+- [x] Do not add drag tags or drag overlay work in this branch.
 
 ### Task B: Instrument Ghostty Signal Capture
 
-- [ ] Trace every non-high-volume Ghostty action received by `Ghostty.ActionRouter`.
-- [ ] Do not emit per-callback Ghostty records for `.scrollbar`; summarize scrollback growth through the debounced `terminal.activity.*` unseen-activity window from Task C.
-- [ ] Trace translation into `PaneRuntimeEvent` for non-high-volume actions.
-- [ ] Classify each signal as `semantic`, `inferred`, `context`, `deferred`, or `unhandled`.
-- [ ] Add focused tests for representative action translation records.
+- [x] Trace every non-high-volume Ghostty action received by `Ghostty.ActionRouter`.
+- [x] Do not emit per-callback Ghostty records for `.scrollbar`; summarize scrollback growth through the debounced `terminal.activity.*` unseen-activity window from Task C.
+- [x] Trace translation into `PaneRuntimeEvent` for non-high-volume actions.
+- [x] Classify each signal as `semantic`, `inferred`, `context`, `deferred`, or `unhandled`.
+- [x] Add focused tests for representative action translation records.
 
 ### Task C: Instrument Terminal Activity Inference
 
-- [ ] Trace scrollbar changes.
-- [ ] Add a debounced unseen-activity window model for unattended panes.
-- [ ] Trace output-burst threshold transitions inside the window.
-- [ ] Trace window start, extend, and close records.
-- [ ] Trace progress/url/command-finished activity snapshots.
-- [ ] Include `is_inferred` and `source` attributes.
-- [ ] Add tests proving inferred activity does not automatically create inbox notifications.
+- [x] Trace scrollbar changes as debounced unseen-activity windows instead of per-callback records.
+- [x] Add a debounced unseen-activity window model for unattended panes.
+- [x] Trace output-burst threshold transitions inside the window.
+- [x] Trace window start, extend, and close records.
+- [x] Trace progress/url/command-finished activity snapshots.
+- [x] Include `is_inferred` and `source` attributes.
+- [x] Add tests proving inferred activity does not automatically create inbox notifications.
 
 ### Task D: Instrument Runtime And EventBus Consumer Path
 
@@ -665,11 +665,11 @@ Do not paste raw command output unless explicitly needed and safe. Prefer counts
 
 ### Task E: Instrument Inbox Decisions
 
-- [ ] Trace every inbox-relevant classify decision.
-- [ ] Do not emit inbox ignore records for high-volume activity-only events such as `.scrollbarChanged`; the `terminal.activity.*` debounced window is the evidence for that path.
-- [ ] Include ignored reasons.
-- [ ] Trace append/read/dismiss/count changes.
-- [ ] Add tests for attended-pane suppression, below-threshold suppression, bell-disabled suppression, and activity-only suppression.
+- [x] Trace every inbox-relevant classify decision.
+- [x] Do not emit inbox ignore records for high-volume activity-only events such as `.scrollbarChanged`; the `terminal.activity.*` debounced window is the evidence for that path.
+- [x] Include ignored reasons.
+- [x] Trace append/read/dismiss/count changes.
+- [x] Add tests for attended-pane suppression, below-threshold suppression, bell-disabled suppression, and activity-only suppression.
 
 ### Task F: Instrument UI Surface Counts
 
@@ -683,7 +683,7 @@ Do not paste raw command output unless explicitly needed and safe. Prefer counts
 ### Task G: Instrument Focus And Pane Inbox Interactions
 
 - [ ] Attended pane changes.
-- [ ] Pane inbox button click.
+- [x] Pane inbox button click / request / close / presentation state.
 - [ ] Pane inbox row activation.
 - [ ] Focus-pane action path.
 
