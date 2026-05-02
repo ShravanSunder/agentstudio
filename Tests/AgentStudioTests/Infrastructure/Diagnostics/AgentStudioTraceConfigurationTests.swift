@@ -34,6 +34,24 @@ struct AgentStudioTraceConfigurationTests {
     }
 
     @Test
+    func notificationObservabilityConsumerTagsParseFromSmokeSelector() {
+        let configuration = AgentStudioTraceConfiguration.from(environment: [
+            "AGENTSTUDIO_TRACE_TAGS":
+                "app.focus,runtime,eventbus,terminal.activity,inbox,ui.surface,ui.interaction,paneInbox"
+        ])
+
+        #expect(configuration.unknownTagSelectors.isEmpty)
+        #expect(configuration.isEnabled(.appFocus))
+        #expect(configuration.isEnabled(.runtime))
+        #expect(configuration.isEnabled(.eventbus))
+        #expect(configuration.isEnabled(.terminalActivity))
+        #expect(configuration.isEnabled(.inbox))
+        #expect(configuration.isEnabled(.uiSurface))
+        #expect(configuration.isEnabled(.uiInteraction))
+        #expect(configuration.isEnabled(.paneInbox))
+    }
+
+    @Test
     func wildcardEnablesAllKnownTags() {
         let configuration = AgentStudioTraceConfiguration.from(environment: [
             "AGENTSTUDIO_TRACE_TAGS": "*"

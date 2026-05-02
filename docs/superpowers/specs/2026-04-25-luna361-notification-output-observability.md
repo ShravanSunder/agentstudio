@@ -284,7 +284,8 @@ start window
   first activity for an unattended pane
 
 extend window
-  more inferred activity arrives before the quiet timeout
+  more inferred activity arrives before the quiet timeout;
+  emit at most one extended record per window
 
 close window
   no activity for 750ms

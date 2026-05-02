@@ -11,34 +11,72 @@ private let terminalActivityRouterLogger = Logger(
 /// `TerminalActivityAtom`; inbox-worthy promotion stays in the notification router.
 final class TerminalActivityRouter {
     private struct TraceRequest: Sendable {
+        let tag: AgentStudioTraceTag
         let body: String
         let traceID: String?
         let parentSpanID: String?
         let attributes: [String: AgentStudioTraceValue]
     }
 
+    private struct UnseenActivityWindow {
+        let id: UUID
+        let paneId: UUID
+        let thresholdRows: Int
+        let debounceMilliseconds: Int
+        let startedAtMilliseconds: Int64
+        var lastObservedAtMilliseconds: Int64
+        var eventCount: Int
+        var rowsAdded: Int
+        var baselineRows: Int
+        var latestRows: Int
+        var didEmitExtended: Bool
+        var didEmitBurst: Bool
+        var generation: Int
+        var closeTask: Task<Void, Never>?
+    }
+
     private let bus: EventBus<RuntimeEnvelope>
     private let activityAtom: TerminalActivityAtom
+    private let attendedPane: AttendedPaneAtom?
     private let traceRuntime: AgentStudioTraceRuntime?
+    private let unseenActivityDebounceDuration: Duration
+    private let unseenActivityDebounceMilliseconds: Int
+    private let unseenActivityClock: any Clock<Duration>
+    private let nowMilliseconds: @Sendable () -> Int64
 
     private var busTask: Task<Void, Never>?
     private var traceContinuation: AsyncStream<TraceRequest>.Continuation?
     private var traceWorkerTask: Task<Void, Never>?
+    private var unseenActivityWindows: [UUID: UnseenActivityWindow] = [:]
 
     init(
         bus: EventBus<RuntimeEnvelope>,
         activityAtom: TerminalActivityAtom,
-        traceRuntime: AgentStudioTraceRuntime? = .fromEnvironment()
+        attendedPane: AttendedPaneAtom? = nil,
+        traceRuntime: AgentStudioTraceRuntime? = nil,
+        unseenActivityDebounceDuration: Duration = .milliseconds(750),
+        unseenActivityClock: any Clock<Duration> = ContinuousClock(),
+        nowMilliseconds: @escaping @Sendable () -> Int64 = {
+            Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
+        }
     ) {
         self.bus = bus
         self.activityAtom = activityAtom
+        self.attendedPane = attendedPane
         self.traceRuntime = traceRuntime
+        self.unseenActivityDebounceDuration = unseenActivityDebounceDuration
+        self.unseenActivityDebounceMilliseconds = Self.milliseconds(from: unseenActivityDebounceDuration)
+        self.unseenActivityClock = unseenActivityClock
+        self.nowMilliseconds = nowMilliseconds
     }
 
     deinit {
         busTask?.cancel()
         traceContinuation?.finish()
         traceWorkerTask?.cancel()
+        for (_, window) in unseenActivityWindows {
+            window.closeTask?.cancel()
+        }
     }
 
     func start() async {
@@ -75,10 +113,15 @@ final class TerminalActivityRouter {
     private func traceTerminalActivity(_ envelope: PaneEnvelope) {
         guard case .terminal(let event) = envelope.event else { return }
         guard traceRuntime != nil else { return }
+        if case .scrollbarChanged(let state) = event {
+            traceUnseenActivityIfNeeded(envelope, scrollbarState: state)
+            return
+        }
         ensureTraceWorkerStarted()
         let attributes = terminalTraceAttributes(for: envelope, event: event)
         traceContinuation?.yield(
             .init(
+                tag: .terminalActivity,
                 body: "terminal.activity.observed",
                 traceID: envelope.correlationId?.uuidString,
                 parentSpanID: envelope.causationId?.uuidString,
@@ -95,7 +138,7 @@ final class TerminalActivityRouter {
         traceWorkerTask = Task.detached(priority: .utility) {
             for await request in stream {
                 await traceRuntime.record(
-                    tag: .runtime,
+                    tag: request.tag,
                     body: request.body,
                     traceID: request.traceID,
                     parentSpanID: request.parentSpanID,
@@ -106,6 +149,7 @@ final class TerminalActivityRouter {
     }
 
     private func drainTraceRecords() async {
+        closeAllUnseenActivityWindows(reason: "router.stop")
         traceContinuation?.finish()
         traceContinuation = nil
         let workerTask = traceWorkerTask
@@ -117,6 +161,155 @@ final class TerminalActivityRouter {
             terminalActivityRouterLogger.warning(
                 "Terminal activity trace flush failed: \(error.localizedDescription)")
         }
+    }
+
+    private func traceUnseenActivityIfNeeded(
+        _ envelope: PaneEnvelope,
+        scrollbarState: ScrollbarState
+    ) {
+        if let attendedPaneId = attendedPane?.attendedPaneId, envelope.paneId.uuid == attendedPaneId {
+            return
+        }
+
+        let paneId = envelope.paneId.uuid
+        let observedAtMilliseconds = nowMilliseconds()
+        var window =
+            unseenActivityWindows[paneId]
+            ?? UnseenActivityWindow(
+                id: UUID(),
+                paneId: paneId,
+                thresholdRows: activityAtom.outputBurstThreshold,
+                debounceMilliseconds: unseenActivityDebounceMilliseconds,
+                startedAtMilliseconds: observedAtMilliseconds,
+                lastObservedAtMilliseconds: observedAtMilliseconds,
+                eventCount: 0,
+                rowsAdded: 0,
+                baselineRows: scrollbarState.total,
+                latestRows: scrollbarState.total,
+                didEmitExtended: false,
+                didEmitBurst: false,
+                generation: 0,
+                closeTask: nil
+            )
+        let isNewWindow = window.eventCount == 0
+        window.eventCount += 1
+        window.lastObservedAtMilliseconds = observedAtMilliseconds
+        window.latestRows = scrollbarState.total
+        window.rowsAdded = max(window.rowsAdded, scrollbarState.total - window.baselineRows)
+        window.generation += 1
+        window.closeTask?.cancel()
+        let generation = window.generation
+        unseenActivityWindows[paneId] = window
+
+        if isNewWindow {
+            traceUnseenActivityWindow(
+                body: "terminal.activity.unseenWindowStarted",
+                window: window,
+                envelope: envelope
+            )
+        } else if !window.didEmitExtended {
+            window.didEmitExtended = true
+            unseenActivityWindows[paneId] = window
+            traceUnseenActivityWindow(
+                body: "terminal.activity.unseenWindowExtended",
+                window: window,
+                envelope: envelope
+            )
+        }
+        if !window.didEmitBurst, window.rowsAdded >= window.thresholdRows {
+            window.didEmitBurst = true
+            unseenActivityWindows[paneId] = window
+            traceUnseenActivityWindow(
+                body: "terminal.activity.outputBurst",
+                window: window,
+                envelope: envelope
+            )
+        }
+        scheduleUnseenActivityClose(paneId: paneId, generation: generation)
+    }
+
+    private func scheduleUnseenActivityClose(paneId: UUID, generation: Int) {
+        unseenActivityWindows[paneId]?.closeTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await unseenActivityClock.sleep(for: unseenActivityDebounceDuration)
+            } catch {
+                return
+            }
+            closeUnseenActivityWindow(paneId: paneId, generation: generation, reason: "quiet")
+        }
+    }
+
+    private func closeUnseenActivityWindow(paneId: UUID, generation: Int, reason: String) {
+        guard let window = unseenActivityWindows[paneId], window.generation == generation else { return }
+        window.closeTask?.cancel()
+        unseenActivityWindows[paneId] = nil
+        traceUnseenActivityWindow(
+            body: "terminal.activity.unseenWindowClosed",
+            window: window,
+            envelope: nil,
+            reason: reason
+        )
+    }
+
+    private func closeAllUnseenActivityWindows(reason: String) {
+        let windows = unseenActivityWindows
+        unseenActivityWindows.removeAll()
+        for (_, window) in windows {
+            window.closeTask?.cancel()
+            traceUnseenActivityWindow(
+                body: "terminal.activity.unseenWindowClosed",
+                window: window,
+                envelope: nil,
+                reason: reason
+            )
+        }
+    }
+
+    private func traceUnseenActivityWindow(
+        body: String,
+        window: UnseenActivityWindow,
+        envelope: PaneEnvelope?,
+        reason: String? = nil
+    ) {
+        ensureTraceWorkerStarted()
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.pane.attended": .bool(false),
+            "agentstudio.pane.id": .string(window.paneId.uuidString),
+            "terminal.activity.baseline_rows": .int(window.baselineRows),
+            "terminal.activity.debounce_ms": .int(window.debounceMilliseconds),
+            "terminal.activity.duration_ms": .int(
+                Int(window.lastObservedAtMilliseconds - window.startedAtMilliseconds)
+            ),
+            "terminal.activity.event_count": .int(window.eventCount),
+            "terminal.activity.is_inferred": .bool(true),
+            "terminal.activity.latest_rows": .int(window.latestRows),
+            "terminal.activity.rows_added": .int(window.rowsAdded),
+            "terminal.activity.source": .string("scrollbar"),
+            "terminal.activity.threshold_rows": .int(window.thresholdRows),
+            "terminal.activity.window_id": .string(window.id.uuidString),
+        ]
+        if let reason {
+            attributes["terminal.activity.close_reason"] = .string(reason)
+        }
+        if let envelope {
+            attributes.merge(
+                terminalTraceAttributes(
+                    for: envelope,
+                    event: .scrollbarChanged(
+                        ScrollbarState(top: 0, bottom: 0, total: window.latestRows)
+                    ))
+            ) { current, _ in current }
+        }
+        traceContinuation?.yield(
+            .init(
+                tag: .terminalActivity,
+                body: body,
+                traceID: envelope?.correlationId?.uuidString,
+                parentSpanID: envelope?.causationId?.uuidString,
+                attributes: attributes
+            )
+        )
     }
 
     private func terminalTraceAttributes(
@@ -140,5 +333,13 @@ final class TerminalActivityRouter {
             attributes["agentstudio.envelope.causation_id"] = .string(causationId.uuidString)
         }
         return attributes
+    }
+
+    private static func milliseconds(from duration: Duration) -> Int {
+        let attosecondsPerMillisecond: Int64 = 1_000_000_000_000_000
+        let components = duration.components
+        let seconds = components.seconds.multipliedReportingOverflow(by: 1000)
+        guard seconds.overflow == false else { return Int(seconds.partialValue) }
+        return Int(seconds.partialValue + components.attoseconds / attosecondsPerMillisecond)
     }
 }

@@ -41,7 +41,9 @@ extension AppDelegate {
     func bootStartTerminalActivityRouter(bus: EventBus<RuntimeEnvelope>) {
         terminalActivityRouter = TerminalActivityRouter(
             bus: bus,
-            activityAtom: atomStore.terminalActivity
+            activityAtom: atomStore.terminalActivity,
+            attendedPane: atomStore.attendedPane,
+            traceRuntime: traceRuntime
         )
         Task { @MainActor [weak self] in
             await self?.terminalActivityRouter.start()
