@@ -1218,6 +1218,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return false
         }
 
+        // Raw-character triggers always require neutral focus, even
+        // when modifier-keyed shortcuts are allowed through text focus.
         if let parentPaneId = firstDrawerPaneParentId(
             for: trigger,
             event: event,
@@ -1309,7 +1311,6 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         else {
             return nil
         }
-
         // Raw-character alternates must never be intercepted while
         // text input owns focus. Modified shortcuts may fire from
         // performKeyEquivalent even when a text field is focused.
@@ -1321,6 +1322,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             case .emptyDrawer(let parentPaneId) = normalizedWorkspaceNavigationScopeState(),
             store.paneAtom.pane(parentPaneId)?.drawer?.paneIds.isEmpty == true
         else {
+            Self.logger.warning(
+                "empty drawer shortcut ignored because navigation scope and pane drawer state disagree")
             return nil
         }
         return parentPaneId
