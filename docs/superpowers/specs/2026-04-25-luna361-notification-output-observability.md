@@ -215,6 +215,10 @@ Do not route all output directly to the notification inbox. The inbox remains fo
 
 Until that decision is made, this spec should only collect evidence for raw output/activity gaps.
 
+## PaneInbox Naming Invariant
+
+The pane-scoped inbox is always named PaneInbox. It includes notifications for the active parent pane plus that pane's drawer child panes. The icon may live in pane drawer chrome, but the product concept is pane-scoped, not drawer-scoped.
+
 ## Proof Cases
 
 ### Case 1: No Ghostty Signal

@@ -61,7 +61,14 @@ Use these broad ownership rules first, then consult [Directory Structure](docs/a
 
 When two app surfaces need the same visual control, extract a stateless primitive into `SharedComponents/` instead of copying styling between features. Shared components render from value parameters, `@Binding`, and closures; they do not subscribe to atoms and they do not import `Core/`, `Features/`, or `App/`.
 
+Before creating a feature-local UI primitive, check for an existing shared component with the same interaction semantics. Reuse or extract keyboard, focus, selection, and command-toggle behavior even when row content differs. Styling parity alone is not enough.
+
 Use `AppStyles` for presentation constants only: spacing, radii, icon sizes, opacity, typography, colors, and paint dimensions. Use `AppPolicies` for behavioral constants: limits, thresholds, retention caps, validation rules, routing rules, and accept/reject decisions. If changing the value can change state transitions or command/event behavior, it belongs in `AppPolicies` even when the UI reads it.
+
+Search rule of thumb:
+- Sidebar search surfaces use `SharedComponents/SidebarSearchField`.
+- Command bar search remains command-bar-owned because it owns scope and shortcut semantics.
+- Webview select-all fields remain Webview-owned until a second feature needs that exact AppKit behavior.
 
 ### Command Specs And Execution Owners
 

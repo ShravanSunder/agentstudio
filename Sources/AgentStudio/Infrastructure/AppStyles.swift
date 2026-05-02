@@ -27,6 +27,7 @@ enum AppStyles {
             static let hover: CGFloat = 0.08
             static let pressed: CGFloat = 0.10
             static let active: CGFloat = 0.12
+            static let selected: CGFloat = 0.15
         }
 
         enum CornerRadius {
@@ -43,6 +44,8 @@ enum AppStyles {
         }
 
         enum Typography {
+            // Dense overlay text, used only where text sits inside a tiny chrome affordance.
+            static let textXxs: CGFloat = 9
             static let textXs: CGFloat = 11
             static let textSm: CGFloat = 12
             static let textBase: CGFloat = 13
@@ -170,6 +173,12 @@ enum AppStyles {
             static let background = Color(nsColor: NSColor(white: 0.09, alpha: 1.0))
         }
 
+        enum DrawerToolbar {
+            static let trailingClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
+            static let dividerHeight: CGFloat = 16
+            static let dividerHorizontalPadding: CGFloat = 2
+        }
+
         enum ManagementLayer {
             static let modeDimmingOpacity: CGFloat = 0.30
             static let controlFillOpacity: CGFloat = 0.95
@@ -269,13 +278,23 @@ enum AppStyles {
             static let bookmarkHitSize: CGFloat = 24
             static let badgeFontSize: CGFloat = AppStyles.General.Typography.textXs
             static let badgeFillOpacity: CGFloat = AppStyles.General.Fill.hover
+            static let fallbackIconFontSize: CGFloat = AppStyles.General.Typography.textSm
+            static let selectedRowFillOpacity: CGFloat = AppStyles.General.Fill.selected
 
             static let chooserButtonContentSpacing: CGFloat = AppStyles.General.Spacing.tight
             static let chooserButtonHorizontalPadding: CGFloat = AppStyles.General.Spacing.standard
-            static let chooserChevronFontSize: CGFloat = 9
-            static let trailingClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
-            static let dividerHeight: CGFloat = 16
-            static let dividerHorizontalPadding: CGFloat = 2
+            static let chooserChevronFontSize: CGFloat = AppStyles.General.Typography.textXxs
+        }
+
+        enum PaneInbox {
+            static let popoverWidth: CGFloat = 320
+            static let popoverHeight: CGFloat = 400
+            static let headerPadding: CGFloat = 12
+            static let rowCornerRadius: CGFloat = AppStyles.General.CornerRadius.panel
+            static let unreadBadgeFontSize: CGFloat = AppStyles.General.Typography.textXxs
+            static let unreadBadgeHorizontalPadding: CGFloat = 4
+            static let unreadBadgeVerticalPadding: CGFloat = 1
+            static let unreadBadgeOffset: CGFloat = 4
         }
     }
 

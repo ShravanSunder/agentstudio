@@ -39,16 +39,19 @@ extension AppDelegate {
         inboxNotificationRouter?.stop()
         inboxPaneFocusTracker?.stop()
         await stopTerminalActivityRouterBeforeTermination()
-        do {
-            try inboxNotificationStore?.flush()
-        } catch {
-            appLogger.warning("Inbox notification flush failed at termination: \(error.localizedDescription)")
-        }
 
         // Always flush on quit — the pre-persist hook syncs runtime webview state
         // back to the pane model, so this must run even when isDirty == false.
+        // Run it before inbox flush so any save-failure recovery event can be
+        // persisted with the rest of the notification log.
         if !store.flush() {
             appLogger.warning("Workspace flush failed at termination")
+        }
+
+        do {
+            try await inboxNotificationStore?.save()
+        } catch {
+            appLogger.warning("Inbox notification flush failed at termination: \(error.localizedDescription)")
         }
     }
 

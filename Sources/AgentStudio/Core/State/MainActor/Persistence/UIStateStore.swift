@@ -110,19 +110,30 @@ final class UIStateStore {
     }
 
     private func persistNow(for workspaceId: UUID) throws {
-        guard persistor.ensureDirectory() else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        try persistor.saveUI(
-            .init(
-                workspaceId: workspaceId,
-                filterText: atom.filterText,
-                isFilterVisible: atom.isFilterVisible,
-                showMinimizedBars: atom.showMinimizedBars,
-                sidebarCollapsed: atom.sidebarCollapsed,
-                sidebarSurface: atom.sidebarSurface,
-                editorChooserState: .init(bookmarkedEditorId: editorChooserAtom.state.bookmarkedEditorId)
+        do {
+            guard persistor.ensureDirectory() else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            try persistor.saveUI(
+                .init(
+                    workspaceId: workspaceId,
+                    filterText: atom.filterText,
+                    isFilterVisible: atom.isFilterVisible,
+                    showMinimizedBars: atom.showMinimizedBars,
+                    sidebarCollapsed: atom.sidebarCollapsed,
+                    sidebarSurface: atom.sidebarSurface,
+                    editorChooserState: .init(bookmarkedEditorId: editorChooserAtom.state.bookmarkedEditorId)
+                )
             )
+        } catch {
+            reportSaveFailed(workspaceId: workspaceId)
+            throw error
+        }
+    }
+
+    private func reportSaveFailed(workspaceId: UUID) {
+        recoveryReporter?(
+            .init(store: .uiState, workspaceId: workspaceId, recovery: .saveFailed)
         )
     }
 }

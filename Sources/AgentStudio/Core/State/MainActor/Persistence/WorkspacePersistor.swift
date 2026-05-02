@@ -9,10 +9,15 @@ struct WorkspacePersistor {
     struct CanonicalQuarantineResult: Sendable, Equatable {
         let workspaceId: UUID?
         let quarantinedFilenames: [String]
+        let failed: Bool
 
         var recoveryFilename: String? {
             guard !quarantinedFilenames.isEmpty else { return nil }
             return quarantinedFilenames.joined(separator: ", ")
+        }
+
+        var recovery: PersistenceRecoveryEvent.Recovery {
+            failed ? .quarantineFailed : .quarantinedAndReset
         }
     }
 
@@ -147,7 +152,14 @@ struct WorkspacePersistor {
                 options: .skipsHiddenFiles
             )
         } catch {
-            return nil
+            persistorLogger.error(
+                "Failed to list workspace directory before quarantining corrupt canonical workspace: \(error)"
+            )
+            return CanonicalQuarantineResult(
+                workspaceId: nil,
+                quarantinedFilenames: [],
+                failed: true
+            )
         }
 
         guard let canonicalURL = contents.first(where: { $0.lastPathComponent.hasSuffix(Self.canonicalSuffix) })
@@ -179,7 +191,8 @@ struct WorkspacePersistor {
 
         return CanonicalQuarantineResult(
             workspaceId: workspaceId,
-            quarantinedFilenames: quarantinedFilenames
+            quarantinedFilenames: quarantinedFilenames,
+            failed: quarantinedFilenames.isEmpty
         )
     }
 

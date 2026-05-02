@@ -202,7 +202,17 @@ Core views (e.g., `DrawerOverlay`, `DrawerIconBar`) that need to display feature
 
 **Extract on second use.** When two surfaces need the same visual control or row primitive, extract the shared rendering into `SharedComponents/` and pass feature-specific data/actions as values and closures. Do not keep parallel hand-rolled controls that drift in spacing, typography, or focus treatment.
 
+**Share interaction semantics, not only pixels.** If two surfaces have the same behavior contract — selected row, arrow navigation, Return activation, Escape close, same-shortcut dismiss, numbered row activation, focus capture — extract that behavior into `SharedComponents/` and pass feature-specific row content/actions as closures. A feature may keep its own row rendering; it may not duplicate the keyboard/focus state machine without a documented reason.
+
 **Style and policy source.** Shared components may consume `AppStyles` presentation tokens through `Infrastructure/`, but they should not own policy decisions. Behavioral limits, routing decisions, caps, and validation thresholds belong in `AppPolicies` and are applied by the feature/composition owner before values reach the component.
+
+#### Search and text input ownership
+
+`SidebarSearchField` is the shared sidebar search control. Sidebar surfaces use it with `AppStyles.Shell.Sidebar.SearchField` tokens instead of hand-rolling rounded search boxes.
+
+Do not merge `CommandBarSearchField` into `SidebarSearchField`: the command bar owns scope, command filtering, and command-palette shortcut semantics. It may share future lower-level text-field pieces only after those semantics are separated.
+
+Do not move `SelectAllTextField` out of Webview until a second feature needs that exact AppKit select-all behavior. Reuse starts at the behavior contract, not at a coincidental visual resemblance.
 
 #### What belongs here
 

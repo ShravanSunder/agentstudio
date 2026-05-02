@@ -55,7 +55,7 @@ struct ShortcutCatalogTests {
         #expect(addDrawerPaneDefinition.keyBinding?.modifiers == [.command, .shift])
         #expect(paneInboxDefinition.keyBinding?.key == "i")
         #expect(paneInboxDefinition.keyBinding?.modifiers == [.command, .shift])
-        #expect(paneInboxDefinition.actionSpec.label == "Show Pane Inbox")
+        #expect(paneInboxDefinition.actionSpec.label == "Toggle Pane Inbox")
     }
 
     @Test

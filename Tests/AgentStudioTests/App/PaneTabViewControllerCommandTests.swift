@@ -312,6 +312,23 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.paneInboxPresenter.request?.paneIds == [pane.id])
     }
 
+    @Test("showPaneInboxNotifications toggles an already-open pane inbox closed")
+    func executeShowPaneInboxNotifications_togglesOpenPaneInboxClosed() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+
+        harness.controller.execute(.showPaneInboxNotifications)
+        #expect(harness.paneInboxPresenter.request?.parentPaneId == pane.id)
+
+        harness.controller.execute(.showPaneInboxNotifications)
+        #expect(harness.paneInboxPresenter.request == nil)
+    }
+
     @Test("openPaneLocationInFinder forwards the selected pane path to Finder")
     func executeOpenPaneLocationInFinder_revealsSelectedPanePath() {
         let harness = makeHarness()

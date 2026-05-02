@@ -35,6 +35,12 @@ final class TerminalActivityRouter {
         self.traceRuntime = traceRuntime
     }
 
+    deinit {
+        busTask?.cancel()
+        traceContinuation?.finish()
+        traceWorkerTask?.cancel()
+    }
+
     func start() async {
         guard busTask == nil else { return }
 
@@ -85,7 +91,8 @@ final class TerminalActivityRouter {
         guard traceWorkerTask == nil, let traceRuntime else { return }
         let (stream, continuation) = AsyncStream.makeStream(of: TraceRequest.self)
         traceContinuation = continuation
-        traceWorkerTask = Task(priority: .utility) {
+        // swiftlint:disable:next no_task_detached
+        traceWorkerTask = Task.detached(priority: .utility) {
             for await request in stream {
                 await traceRuntime.record(
                     tag: .runtime,

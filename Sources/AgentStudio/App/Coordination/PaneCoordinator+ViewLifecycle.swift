@@ -702,9 +702,7 @@ extension PaneCoordinator {
             let paneId = PaneId(uuid: pane.id)
             return visibilityTierResolver.tier(for: paneId) == .p1Hidden ? pane.id : nil
         }
-        let needsHiddenSessionDiscovery =
-            sessionConfig.backgroundRestorePolicy != .off
-            && !hiddenZmxPaneIds.isEmpty
+        let needsHiddenSessionDiscovery = !hiddenZmxPaneIds.isEmpty
         if !needsHiddenSessionDiscovery {
             return []
         }

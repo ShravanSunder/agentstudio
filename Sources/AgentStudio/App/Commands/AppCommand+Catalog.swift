@@ -582,11 +582,13 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 shortcut: .showPaneInboxNotifications,
-                label: "Show Pane Inbox",
+                label: "Toggle Pane Inbox",
                 icon: .system(.bellBadge),
                 helpText: "Show notifications for the active pane and its drawer children",
-                commandBarGroupName: "Window",
-                commandBarGroupPriority: CommandBarGroupPriority.window
+                appliesTo: [.pane],
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: CommandBarGroupPriority.pane
             )
         case .showWorktreeSidebar:
             return CommandSpec(

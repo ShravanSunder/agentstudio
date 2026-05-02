@@ -28,12 +28,8 @@ struct TerminalRestoreRuntime {
         self.liveSessionIdsProvider = liveSessionIdsProvider
     }
 
-    func shouldStartHiddenRestore(
-        policy: BackgroundRestorePolicy,
-        hasExistingSession: Bool
-    ) -> Bool {
+    func shouldStartHiddenRestore(hasExistingSession: Bool) -> Bool {
         TerminalRestoreScheduler.shouldStartHiddenRestore(
-            policy: policy,
             hasExistingSession: hasExistingSession
         )
     }
@@ -50,7 +46,6 @@ struct TerminalRestoreRuntime {
         guard pane.provider == .zmx else { return true }
         guard let sessionId = zmxSessionId(for: pane, store: store) else { return false }
         return shouldStartHiddenRestore(
-            policy: sessionConfiguration.backgroundRestorePolicy,
             hasExistingSession: liveSessionIds.contains(sessionId)
         )
     }

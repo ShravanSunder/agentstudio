@@ -2435,7 +2435,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private func handlePaneInboxCommand(_ command: AppCommand) -> Bool {
         guard command == .showPaneInboxNotifications else { return false }
         guard let paneInboxPresentation, let target = activePaneInboxTarget() else { return false }
-        paneInboxPresentation.open(target.parentPaneId, target.paneIds)
+        paneInboxPresentation.toggle(target.parentPaneId, target.paneIds)
         return true
     }
 

@@ -480,10 +480,7 @@ zmx terminal panes require a trusted `initialFrame` before Ghostty surface creat
 
 **Restore ordering.** `TerminalRestoreScheduler.order(_:resolver:)` sorts panes by `VisibilityTier` — `p0Visible` first, then `p1Hidden`. Within the visible tier, the active pane sorts first. This ensures the active tab paints before background tabs are hydrated. Background tabs are restored cooperatively with `Task.yield()` after every two panes.
 
-**Background restore policy.** `BackgroundRestorePolicy` controls whether hidden zmx panes are restored at boot:
-- `.off` — skip all hidden panes
-- `.existingSessionsOnly` — restore only if a live zmx session already exists (discovered via `discoverLiveSessionIds()`)
-- `.allTerminalPanes` — restore all hidden zmx panes unconditionally
+**Background hidden-pane restore behavior.** Hidden zmx panes are restored at boot only when a live zmx session already exists (discovered via `discoverLiveSessionIds()`). This is fixed product behavior, not a user-configurable preference.
 
 **The flow:**
 

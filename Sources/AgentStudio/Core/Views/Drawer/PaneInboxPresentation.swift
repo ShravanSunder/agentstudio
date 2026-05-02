@@ -1,9 +1,15 @@
 import SwiftUI
 
+enum PaneInboxRequestIntent: Equatable {
+    case open
+    case close
+}
+
 struct PaneInboxRequest: Equatable, Identifiable {
     let id: UUID
     let parentPaneId: UUID
     let paneIds: [UUID]
+    let intent: PaneInboxRequestIntent
 }
 
 /// Core receives primitive counts, callbacks, and type-erased popover content;
@@ -12,6 +18,8 @@ struct PaneInboxRequest: Equatable, Identifiable {
 struct PaneInboxPresentation {
     let unreadCount: @MainActor ([UUID]) -> Int
     let open: @MainActor (UUID, [UUID]) -> Void
+    let toggle: @MainActor (UUID, [UUID]) -> Void
+    let setPresented: @MainActor (UUID, [UUID], Bool) -> Void
     let pendingRequest: @MainActor () -> PaneInboxRequest?
     let clearRequest: @MainActor (PaneInboxRequest) -> Void
     let popoverContent: @MainActor ([UUID], @escaping @MainActor @Sendable () -> Void) -> AnyView
@@ -28,7 +36,7 @@ struct PaneInboxPresentation {
             editorMenuPresented: baseTrailingActions.editorMenuPresented,
             buttonTitle: baseTrailingActions.buttonTitle,
             onOpenFinder: baseTrailingActions.onOpenFinder,
-            onOpenInbox: { open(parentPaneId, paneIds) },
+            onOpenInbox: { toggle(parentPaneId, paneIds) },
             inboxPopoverPresented: inboxPopoverPresented,
             inboxPopoverContent: popoverContent(
                 paneIds,
