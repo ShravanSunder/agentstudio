@@ -6,8 +6,11 @@ import Testing
 @Suite(.serialized)
 struct TerminalRestoreTypesTests {
     @Test
-    func backgroundRestorePolicy_defaultsToExistingSessionsOnly() {
-        #expect(SessionConfiguration.detect().backgroundRestorePolicy == .existingSessionsOnly)
+    func hiddenRestorePolicy_usesExistingSessionsOnlyBehavior() {
+        let config = SessionConfiguration.detect()
+
+        #expect(config.shouldRestoreHiddenPane(hasExistingSession: true))
+        #expect(!config.shouldRestoreHiddenPane(hasExistingSession: false))
     }
 
     @Test

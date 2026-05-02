@@ -635,8 +635,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 title: "About AgentStudio", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
                 keyEquivalent: ""))
         appMenu.addItem(NSMenuItem.separator())
-        appMenu.addItem(NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ","))
-        appMenu.addItem(NSMenuItem.separator())
         appMenu.addItem(
             NSMenuItem(title: "Hide AgentStudio", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
         let hideOthersItem = NSMenuItem(
@@ -774,18 +772,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     // MARK: - Menu Actions
-
-    @objc private func openSettings() {
-        // Open settings window
-        let settingsView = SettingsView()
-        let hostingController = NSHostingController(rootView: settingsView)
-        let window = NSWindow(contentViewController: hostingController)
-        window.title = "Settings"
-        window.styleMask = [.titled, .closable]
-        window.setContentSize(NSSize(width: 450, height: 380))
-        window.center()
-        window.makeKeyAndOrderFront(nil)
-    }
 
     @objc func newWindow() {
         showOrCreateMainWindow()

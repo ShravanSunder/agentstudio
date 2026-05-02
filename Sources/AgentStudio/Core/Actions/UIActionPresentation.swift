@@ -71,7 +71,6 @@ enum LocalActionSpec {
     case revealInFinder
     case copyPath
     case revealDataLocationInFinder
-    case openZellijConfig
     case clearFilter
     case refreshWorktrees
     case chooseFolderToScan
@@ -150,9 +149,6 @@ enum LocalActionSpec {
             return ActionSpec(
                 label: "Reveal in Finder", helpText: "Reveal the AgentStudio data folder in Finder",
                 icon: .system(.folder))
-        case .openZellijConfig:
-            return ActionSpec(
-                label: "Open Zellij Config", helpText: "Open the Zellij configuration folder", icon: .system(.folder))
         case .clearFilter:
             return ActionSpec(
                 label: "Clear Filter", helpText: "Clear filter", icon: .system(.xmarkCircleFill))
