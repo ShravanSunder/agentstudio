@@ -125,6 +125,9 @@ extension RuntimeEnvelopeTraceSummary {
     static func isHighVolumeActivityOnly(_ event: PaneRuntimeEvent) -> Bool {
         switch event {
         case .terminal(.scrollbarChanged),
+            .terminal(.cwdChanged),
+            .terminal(.titleChanged),
+            .terminal(.tabTitleChanged),
             .terminal(.cellSizeChanged),
             .terminal(.mouseShapeChanged),
             .terminal(.mouseVisibilityChanged),
@@ -181,19 +184,19 @@ extension PaneRuntimeEvent {
     var traceEventName: String {
         switch self {
         case .terminal(let event):
-            return event.eventName.rawValue
+            return event.traceEventName
         case .browser(let event):
-            return event.eventName.rawValue
+            return event.traceEventName
         case .diff(let event):
-            return event.eventName.rawValue
+            return event.traceEventName
         case .editor(let event):
-            return event.eventName.rawValue
+            return event.traceEventName
         case .agentNotificationRequested:
             return "agentNotificationRequested"
         case .plugin(_, let event):
-            return event.eventName.rawValue
+            return "plugin.\(event.eventName.rawValue)"
         case .paneFilesystemContext(let event):
-            return event.eventName.rawValue
+            return event.traceEventName
         case .lifecycle(let event):
             return event.traceName
         case .filesystem(let event):
@@ -205,6 +208,36 @@ extension PaneRuntimeEvent {
         case .error(let event):
             return event.traceName
         }
+    }
+}
+
+extension GhosttyEvent {
+    var traceEventName: String {
+        "terminal.\(eventName.rawValue)"
+    }
+}
+
+extension BrowserEvent {
+    var traceEventName: String {
+        "browser.\(eventName.rawValue)"
+    }
+}
+
+extension DiffEvent {
+    var traceEventName: String {
+        "diff.\(eventName.rawValue)"
+    }
+}
+
+extension EditorEvent {
+    var traceEventName: String {
+        "editor.\(eventName.rawValue)"
+    }
+}
+
+extension PaneFilesystemContextEvent {
+    var traceEventName: String {
+        "paneFilesystemContext.\(eventName.rawValue)"
     }
 }
 

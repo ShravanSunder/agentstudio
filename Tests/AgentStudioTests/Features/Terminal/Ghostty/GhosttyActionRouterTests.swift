@@ -369,7 +369,7 @@ struct GhosttyActionRouterTests {
         #expect(contents.contains("\"agentstudio.ghostty.route.result\":true"))
         #expect(contents.contains("\"agentstudio.ghostty.signal.class\":\"semantic\""))
         #expect(contents.contains("\"agentstudio.pane.id\":\"\(paneUUID.uuidString)\""))
-        #expect(contents.contains("\"agentstudio.runtime.event\":\"desktopNotificationRequested\""))
+        #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.desktopNotificationRequested\""))
         #expect(contents.contains("\"agentstudio.surface.id\":\"\(surfaceId.uuidString)\""))
     }
 

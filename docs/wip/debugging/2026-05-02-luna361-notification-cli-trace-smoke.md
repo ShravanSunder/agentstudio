@@ -30,7 +30,7 @@ AGENTSTUDIO_TRACE_FLUSH="immediate" \
 Why this selector:
 
 - `runtime` captures Ghostty semantic action translation, while code filters high-volume callbacks such as scrollbar, render, mouse, and key-sequence actions.
-- `terminal.activity` captures debounced unseen scrollback windows and non-scrollbar terminal activity snapshots.
+- `terminal.activity` captures debounced unseen scrollback windows and non-noisy terminal activity snapshots.
 - `eventbus` captures filtered delivery summaries for the terminal activity and inbox consumers.
 - `inbox` captures classify decisions, suppression reasons, notification appends, and focus-clear mutations.
 - `app.focus` captures attended-pane changes so suppression decisions can be tied back to focus state.
@@ -40,6 +40,7 @@ Why this selector:
 ## Anti-Spam Contract
 
 - Ghostty `.scrollbar`, `.render`, mouse-state, and key-sequence callbacks do not write per-callback runtime records.
+- Prompt churn such as terminal title and cwd changes is excluded from default `terminal.activity`, `eventbus`, and ignored-inbox records.
 - Unattended scrollback growth is collapsed into one `terminal.activity.unseenWindowStarted`, at most one `terminal.activity.unseenWindowExtended`, optional `terminal.activity.outputBurst`, and one `terminal.activity.unseenWindowClosed` per quiet window.
 - Eventbus delivery tracing is consumer-scoped and filtered. It does not trace `.scrollbarChanged` delivery per callback.
 - Inbox does not trace ignored `.scrollbarChanged` classify decisions. The terminal activity window is the evidence for that path.

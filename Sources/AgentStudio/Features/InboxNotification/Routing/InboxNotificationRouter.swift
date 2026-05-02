@@ -8,20 +8,41 @@ private let inboxNotificationRouterLogger = Logger(
 
 @MainActor
 final class InboxNotificationRouter {
-    private struct ClassificationDecision: Sendable {
-        let kind: InboxNotificationKind?
-        let reason: String
+    private struct TraceRequest: Sendable {
+        let tag: AgentStudioTraceTag
+        let body: String
+        let attributes: [String: AgentStudioTraceValue]
+    }
+
+    private enum ClassificationDecision: Sendable {
+        case notify(InboxNotificationKind)
+        case ignore(reason: String)
 
         var action: String {
-            kind == nil ? "ignore" : "notify"
+            switch self {
+            case .notify:
+                return "notify"
+            case .ignore:
+                return "ignore"
+            }
         }
 
-        static func notify(_ kind: InboxNotificationKind) -> Self {
-            Self(kind: kind, reason: "matched")
+        var kind: InboxNotificationKind? {
+            switch self {
+            case .notify(let kind):
+                return kind
+            case .ignore:
+                return nil
+            }
         }
 
-        static func ignore(_ reason: String) -> Self {
-            Self(kind: nil, reason: reason)
+        var reason: String {
+            switch self {
+            case .notify:
+                return "matched"
+            case .ignore(let reason):
+                return reason
+            }
         }
     }
 
@@ -36,6 +57,8 @@ final class InboxNotificationRouter {
 
     private var busTask: Task<Void, Never>?
     private var focusTask: Task<Void, Never>?
+    private var traceContinuation: AsyncStream<TraceRequest>.Continuation?
+    private var traceWorkerTask: Task<Void, Never>?
     private var sandboxHealthWasHealthyByPaneId: [UUID: Bool] = [:]
     private var progressErrorWasActiveByPaneId: [UUID: Bool] = [:]
     private var rendererWasHealthyByPaneId: [UUID: Bool] = [:]
@@ -64,13 +87,20 @@ final class InboxNotificationRouter {
     deinit {
         busTask?.cancel()
         focusTask?.cancel()
+        traceContinuation?.finish()
+        traceWorkerTask?.cancel()
     }
 
-    func stop() {
+    func stop() async {
+        let busTask = busTask
         busTask?.cancel()
-        busTask = nil
+        self.busTask = nil
+        let focusTask = focusTask
         focusTask?.cancel()
-        focusTask = nil
+        self.focusTask = nil
+        await busTask?.value
+        await focusTask?.value
+        await drainTraceRecords()
         sandboxHealthWasHealthyByPaneId.removeAll()
         progressErrorWasActiveByPaneId.removeAll()
         rendererWasHealthyByPaneId.removeAll()
@@ -164,12 +194,12 @@ final class InboxNotificationRouter {
         case .agentNotificationRequested:
             return .notify(.agentRpc)
         case .terminal(.bellRang):
-            return prefsAtom.bellEnabled ? .notify(.bellRang) : .ignore("bell_disabled")
+            return prefsAtom.bellEnabled ? .notify(.bellRang) : .ignore(reason: "bell_disabled")
         case .terminal(.commandFinished(_, let duration)):
             // Skip the pane the user is actively attending; the inbox is for unattended work.
-            guard envelope.paneId.uuid != attendedPane.attendedPaneId else { return .ignore("attended_pane") }
+            guard envelope.paneId.uuid != attendedPane.attendedPaneId else { return .ignore(reason: "attended_pane") }
             guard duration >= AppPolicies.InboxNotification.commandFinishedMinDurationSeconds else {
-                return .ignore("below_duration_threshold")
+                return .ignore(reason: "below_duration_threshold")
             }
             return .notify(.commandFinished)
         case .terminal(.progressReportUpdated(let progress)):
@@ -180,7 +210,7 @@ final class InboxNotificationRouter {
             return classifyRendererHealth(healthy, paneId: envelope.paneId.uuid)
         case .lifecycle(.paneClosed):
             pruneEdgeState(for: envelope.paneId.uuid)
-            return .ignore("pane_closed_pruned_edge_state")
+            return .ignore(reason: "pane_closed_pruned_edge_state")
         case .artifact(.approvalRequested):
             return .notify(.approvalRequested)
         case .security(.networkEgressBlocked),
@@ -194,14 +224,14 @@ final class InboxNotificationRouter {
             // Health is edge-triggered per pane so one unhealthy runtime does not mute another.
             let shouldNotify = wasHealthy && !healthy
             sandboxHealthWasHealthyByPaneId[paneId] = healthy
-            return shouldNotify ? .notify(.securityEvent) : .ignore("sandbox_health_no_unhealthy_edge")
+            return shouldNotify ? .notify(.securityEvent) : .ignore(reason: "sandbox_health_no_unhealthy_edge")
         case .terminal(.scrollbarChanged):
-            return .ignore("activity_only_scrollbar")
+            return .ignore(reason: "activity_only_scrollbar")
         default:
             inboxNotificationRouterLogger.info(
                 "Ignoring unclassified inbox event: \(String(describing: envelope.event), privacy: .public)"
             )
-            return .ignore("unclassified")
+            return .ignore(reason: "unclassified")
         }
     }
 
@@ -209,14 +239,14 @@ final class InboxNotificationRouter {
         let isError = progress?.kind == .error
         let wasError = progressErrorWasActiveByPaneId[paneId, default: false]
         progressErrorWasActiveByPaneId[paneId] = isError
-        return isError && !wasError ? .notify(.terminalProgressError) : .ignore("progress_error_no_new_edge")
+        return isError && !wasError ? .notify(.terminalProgressError) : .ignore(reason: "progress_error_no_new_edge")
     }
 
     private func classifySecureInput(_ isActive: Bool, paneId: UUID) -> ClassificationDecision {
         let wasActive = secureInputWasActiveByPaneId[paneId, default: false]
         secureInputWasActiveByPaneId[paneId] = isActive
-        guard isActive && !wasActive else { return .ignore("secure_input_no_new_edge") }
-        guard paneId != attendedPane.attendedPaneId else { return .ignore("attended_pane") }
+        guard isActive && !wasActive else { return .ignore(reason: "secure_input_no_new_edge") }
+        guard paneId != attendedPane.attendedPaneId else { return .ignore(reason: "attended_pane") }
         return .notify(.terminalSecureInputRequested)
     }
 
@@ -224,7 +254,7 @@ final class InboxNotificationRouter {
         let wasHealthy = rendererWasHealthyByPaneId[paneId, default: true]
         let shouldNotify = wasHealthy && !healthy
         rendererWasHealthyByPaneId[paneId] = healthy
-        return shouldNotify ? .notify(.terminalRendererUnhealthy) : .ignore("renderer_health_no_unhealthy_edge")
+        return shouldNotify ? .notify(.terminalRendererUnhealthy) : .ignore(reason: "renderer_health_no_unhealthy_edge")
     }
 
     private func pruneEdgeState(for paneId: UUID) {
@@ -272,7 +302,7 @@ final class InboxNotificationRouter {
         event: PaneRuntimeEvent
     ) -> Bool {
         if decision.kind != nil { return true }
-        if case .terminal(.scrollbarChanged) = event {
+        if RuntimeEnvelopeTraceSummary.isHighVolumeActivityOnly(event) {
             return false
         }
         return true
@@ -315,14 +345,43 @@ final class InboxNotificationRouter {
         body: String,
         attributes: [String: AgentStudioTraceValue]
     ) {
-        guard let traceRuntime else { return }
-        // Escapes MainActor so JSONL file work cannot contend with inbox routing.
-        // swiftlint:disable:next no_task_detached
-        Task.detached(priority: .utility) {
-            await traceRuntime.record(
+        ensureTraceWorkerStarted()
+        traceContinuation?.yield(
+            .init(
                 tag: tag,
                 body: body,
                 attributes: attributes
+            )
+        )
+    }
+
+    private func ensureTraceWorkerStarted() {
+        guard traceWorkerTask == nil, let traceRuntime else { return }
+        let (stream, continuation) = AsyncStream.makeStream(of: TraceRequest.self)
+        traceContinuation = continuation
+        // swiftlint:disable:next no_task_detached
+        traceWorkerTask = Task.detached(priority: .utility) {
+            for await request in stream {
+                await traceRuntime.record(
+                    tag: request.tag,
+                    body: request.body,
+                    attributes: request.attributes
+                )
+            }
+        }
+    }
+
+    private func drainTraceRecords() async {
+        traceContinuation?.finish()
+        traceContinuation = nil
+        let workerTask = traceWorkerTask
+        traceWorkerTask = nil
+        await workerTask?.value
+        do {
+            try await traceRuntime?.flush()
+        } catch {
+            inboxNotificationRouterLogger.warning(
+                "Inbox notification trace flush failed: \(error.localizedDescription)"
             )
         }
     }

@@ -3,6 +3,28 @@ import Testing
 
 @testable import AgentStudio
 
+private struct TraceRecordFixture: Decodable {
+    let body: String
+    let attributes: [String: TraceAttributeFixture]
+}
+
+private enum TraceAttributeFixture: Decodable, Equatable {
+    case int(Int)
+    case string(String)
+    case other
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let value = try? container.decode(Int.self) {
+            self = .int(value)
+        } else if let value = try? container.decode(String.self) {
+            self = .string(value)
+        } else {
+            self = .other
+        }
+    }
+}
+
 @MainActor
 @Suite("InboxNotificationRouter routing contract", .serialized)
 struct InboxNotificationRouterTests {
@@ -160,6 +182,13 @@ struct InboxNotificationRouterTests {
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
     }
 
+    private func traceRecords(in fileURL: URL) throws -> [TraceRecordFixture] {
+        let contents = try String(contentsOf: fileURL, encoding: .utf8)
+        return try contents.split(separator: "\n").map { line in
+            try JSONDecoder().decode(TraceRecordFixture.self, from: Data(line.utf8))
+        }
+    }
+
     @Test("desktopNotificationRequested posts an inbox notification")
     func desktopNotificationRequested() async {
         let fixture = await makeFixture()
@@ -183,7 +212,7 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].title == "Done")
         #expect(fixture.inboxAtom.notifications[0].body == "exit 0")
         #expect(fixture.inboxAtom.notifications[0].paneId == paneId.uuid)
-        fixture.router.stop()
+        await fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
@@ -223,13 +252,26 @@ struct InboxNotificationRouterTests {
         }
 
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        let records = try traceRecords(in: outputFileURL)
+        let classifyRecords = records.filter { $0.body == "inbox.classify" }
+        #expect(classifyRecords.count == 3)
+        let matchedRecord = try #require(
+            classifyRecords.first {
+                $0.attributes["agentstudio.inbox.reason"] == .string("matched")
+            }
+        )
+        #expect(matchedRecord.attributes["agentstudio.inbox.decision"] == .string("notify"))
+        #expect(matchedRecord.attributes["agentstudio.inbox.kind"] == .string("agentDesktopNotification"))
+        #expect(
+            matchedRecord.attributes["agentstudio.runtime.event"] == .string("terminal.desktopNotificationRequested"))
+        #expect(matchedRecord.attributes["agentstudio.envelope.seq"] == .int(3))
         #expect(contents.contains("\"body\":\"inbox.classify\""))
         #expect(contents.contains("\"agentstudio.inbox.reason\":\"bell_disabled\""))
         #expect(contents.contains("\"agentstudio.inbox.reason\":\"below_duration_threshold\""))
         #expect(contents.contains("\"agentstudio.inbox.reason\":\"matched\""))
         #expect(contents.contains("\"agentstudio.inbox.kind\":\"agentDesktopNotification\""))
         #expect(contents.contains("\"agentstudio.inbox.global_unread_after\":1"))
-        fixture.router.stop()
+        await fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
@@ -261,13 +303,24 @@ struct InboxNotificationRouterTests {
         }
 
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        let records = try traceRecords(in: outputFileURL)
+        let deliveryRecords = records.filter { $0.body == "eventbus.deliver" }
+        #expect(deliveryRecords.count == 1)
+        let deliveryAttributes = try #require(deliveryRecords.first?.attributes)
+        #expect(deliveryAttributes["agentstudio.eventbus.consumer"] == .string("InboxNotificationRouter"))
+        #expect(deliveryAttributes["agentstudio.eventbus.name"] == .string("paneRuntime"))
+        #expect(deliveryAttributes["agentstudio.eventbus.delivery"] == .string("consumed"))
+        #expect(deliveryAttributes["agentstudio.inbox.decision"] == .string("ignore"))
+        #expect(deliveryAttributes["agentstudio.inbox.reason"] == .string("bell_disabled"))
+        #expect(deliveryAttributes["agentstudio.runtime.event"] == .string("terminal.bellRang"))
+        #expect(deliveryAttributes["agentstudio.envelope.seq"] == .int(1))
         #expect(contents.contains("\"agentstudio.eventbus.consumer\":\"InboxNotificationRouter\""))
         #expect(contents.contains("\"agentstudio.eventbus.name\":\"paneRuntime\""))
         #expect(contents.contains("\"agentstudio.eventbus.delivery\":\"consumed\""))
         #expect(contents.contains("\"agentstudio.inbox.reason\":\"bell_disabled\""))
-        #expect(contents.contains("\"agentstudio.runtime.event\":\"bellRang\""))
-        #expect(contents.contains("\"agentstudio.runtime.event\":\"scrollbarChanged\"") == false)
-        fixture.router.stop()
+        #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.bellRang\""))
+        #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.scrollbarChanged\"") == false)
+        await fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
@@ -289,7 +342,7 @@ struct InboxNotificationRouterTests {
 
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         #expect(FileManager.default.fileExists(atPath: outputFileURL.path) == false)
-        fixture.router.stop()
+        await fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
@@ -326,7 +379,7 @@ struct InboxNotificationRouterTests {
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("\"agentstudio.inbox.unread_before\":1"))
         #expect(contents.contains("\"agentstudio.inbox.unread_after\":0"))
-        fixture.router.stop()
+        await fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
@@ -348,7 +401,7 @@ struct InboxNotificationRouterTests {
         )
         #expect(fixture.inboxAtom.notifications.count == 1)
         #expect(fixture.inboxAtom.notifications[0].kind == .bellRang)
-        fixture.router.stop()
+        await fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
@@ -397,7 +450,7 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications.count == 1)
         #expect(fixture.inboxAtom.notifications[0].kind == .commandFinished)
         #expect(fixture.inboxAtom.notifications[0].paneId == unfocusedPaneId.uuid)
-        fixture.router.stop()
+        await fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
@@ -427,7 +480,7 @@ struct InboxNotificationRouterTests {
         if fixture.inboxAtom.notifications.count == 1 {
             #expect(fixture.inboxAtom.notifications[0].kind == .commandFinished)
         }
-        fixture.router.stop()
+        await fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
@@ -478,7 +531,7 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[1].kind == .securityEvent)
         #expect(fixture.inboxAtom.notifications[1].repoId == repoId)
         #expect(fixture.inboxAtom.notifications[1].worktreeId == worktreeId)
-        fixture.router.stop()
+        await fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
@@ -537,7 +590,7 @@ struct InboxNotificationRouterTests {
             description: "healthy transition should arm only that pane's next unhealthy edge"
         )
 
-        fixture.router.stop()
+        await fixture.router.stop()
         await fixture.router.start()
         _ = await fixture.bus.post(
             makePaneEnvelope(
@@ -552,7 +605,7 @@ struct InboxNotificationRouterTests {
             description: "router restart should reset sandbox edge state"
         )
 
-        fixture.router.stop()
+        await fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
@@ -611,7 +664,7 @@ struct InboxNotificationRouterTests {
 
         #expect(fixture.inboxAtom.notifications.map(\.kind) == [.terminalProgressError, .terminalProgressError])
         #expect(fixture.inboxAtom.notifications[0].body == "progress 80%")
-        fixture.router.stop()
+        await fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
@@ -667,7 +720,7 @@ struct InboxNotificationRouterTests {
                 .terminalSecureInputRequested,
             ])
         #expect(fixture.inboxAtom.notifications[0].title == "Secure input requested")
-        fixture.router.stop()
+        await fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
@@ -720,7 +773,7 @@ struct InboxNotificationRouterTests {
         #expect(
             fixture.inboxAtom.notifications.map(\.kind) == [.terminalRendererUnhealthy, .terminalRendererUnhealthy])
         #expect(fixture.inboxAtom.notifications[0].title == "Terminal renderer unhealthy")
-        fixture.router.stop()
+        await fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
@@ -769,7 +822,7 @@ struct InboxNotificationRouterTests {
                 .terminalRendererUnhealthy,
                 .terminalRendererUnhealthy,
             ])
-        fixture.router.stop()
+        await fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
@@ -803,7 +856,7 @@ struct InboxNotificationRouterTests {
 
         #expect(fixture.inboxAtom.unreadCount(forPaneId: paneId.uuid) == 0)
         #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox)
-        fixture.router.stop()
+        await fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
@@ -830,7 +883,7 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].kind == .agentRpc)
         #expect(fixture.inboxAtom.notifications[0].title == "Claude Code finished")
         #expect(fixture.inboxAtom.notifications[0].body == "3 files changed")
-        fixture.router.stop()
+        await fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()
     }

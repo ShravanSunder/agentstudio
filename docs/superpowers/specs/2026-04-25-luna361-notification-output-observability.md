@@ -542,7 +542,7 @@ inbox.markRead
 Launch with:
 
 ```
-AGENTSTUDIO_TRACE_TAGS=app.focus,runtime,eventbus,terminal.activity,inbox,ui.surface,ui.interaction,paneInbox
+AGENTSTUDIO_TRACE_TAGS=app.focus,runtime,eventbus,terminal.activity,inbox,paneInbox
 AGENTSTUDIO_TRACE_NAME=notif-cli-smoke
 AGENTSTUDIO_TRACE_DIR=<project-root>/tmp/traces
 AGENTSTUDIO_TRACE_FLUSH=immediate

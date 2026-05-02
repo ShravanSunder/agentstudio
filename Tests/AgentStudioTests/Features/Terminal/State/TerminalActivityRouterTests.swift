@@ -28,17 +28,28 @@ struct TerminalActivityRouterTests {
     }
 
     private struct TraceRecordFixture: Decodable {
+        let body: String
+        let traceID: String?
         let attributes: [String: TraceAttributeFixture]
+
+        enum CodingKeys: String, CodingKey {
+            case attributes
+            case body
+            case traceID = "trace_id"
+        }
     }
 
-    private enum TraceAttributeFixture: Decodable {
+    private enum TraceAttributeFixture: Decodable, Equatable {
         case int(Int)
+        case string(String)
         case other
 
         init(from decoder: Decoder) throws {
             let container = try decoder.singleValueContainer()
             if let value = try? container.decode(Int.self) {
                 self = .int(value)
+            } else if let value = try? container.decode(String.self) {
+                self = .string(value)
             } else {
                 self = .other
             }
@@ -110,7 +121,7 @@ struct TerminalActivityRouterTests {
         }
 
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
-        #expect(contents.contains("\"agentstudio.runtime.event\":\"bellRang\""))
+        #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.bellRang\""))
         #expect(contents.contains("\"agentstudio.envelope.seq\":7"))
         #expect(contents.contains("\"agentstudio.pane.id\":\"\(paneId.uuidString)\""))
         #expect(contents.contains("\"agentstudio.envelope.correlation_id\":\"\(correlationId.uuidString)\""))
@@ -166,12 +177,21 @@ struct TerminalActivityRouterTests {
         }
 
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        let records = try traceRecords(in: outputFileURL)
+        let deliveryRecords = records.filter { $0.body == "eventbus.deliver" }
+        #expect(deliveryRecords.count == 1)
+        let deliveryAttributes = try #require(deliveryRecords.first?.attributes)
+        #expect(deliveryAttributes["agentstudio.eventbus.consumer"] == .string("TerminalActivityRouter"))
+        #expect(deliveryAttributes["agentstudio.eventbus.name"] == .string("paneRuntime"))
+        #expect(deliveryAttributes["agentstudio.eventbus.delivery"] == .string("consumed"))
+        #expect(deliveryAttributes["agentstudio.runtime.event"] == .string("terminal.bellRang"))
+        #expect(deliveryAttributes["agentstudio.envelope.seq"] == .int(1))
         #expect(contents.contains("\"agentstudio.eventbus.consumer\":\"TerminalActivityRouter\""))
         #expect(contents.contains("\"agentstudio.eventbus.name\":\"paneRuntime\""))
         #expect(contents.contains("\"agentstudio.eventbus.delivery\":\"consumed\""))
-        #expect(contents.contains("\"agentstudio.runtime.event\":\"bellRang\""))
+        #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.bellRang\""))
         #expect(contents.contains("\"agentstudio.envelope.seq\":1"))
-        #expect(contents.contains("\"agentstudio.runtime.event\":\"scrollbarChanged\"") == false)
+        #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.scrollbarChanged\"") == false)
         await router.stop()
     }
 
@@ -369,6 +389,52 @@ struct TerminalActivityRouterTests {
         attendedPane.stop()
     }
 
+    @Test("stop closes unseen activity window with router stop reason")
+    func stopClosesUnseenActivityWindowWithRouterStopReason() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "terminal-activity-stop-close",
+                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
+            ]),
+            processIdentifier: 252,
+            sessionID: "terminal-session",
+            timeUnixNano: { 1001 }
+        )
+        let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
+        let paneId = PaneId()
+        let correlationId = UUID()
+
+        await router.start()
+        _ = await bus.post(
+            .pane(
+                .test(
+                    event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: 100))),
+                    paneId: paneId,
+                    paneKind: .terminal,
+                    correlationId: correlationId
+                )
+            )
+        )
+
+        await assertEventuallyMain("terminal activity router should open an unseen activity window") {
+            atom.snapshot(for: paneId.uuid)?.outputBurst != nil
+        }
+
+        await router.stop()
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let records = try traceRecords(in: outputFileURL)
+        let closeRecord = try #require(
+            records.first { $0.body == "terminal.activity.unseenWindowClosed" }
+        )
+        #expect(closeRecord.traceID == correlationId.uuidString)
+        #expect(closeRecord.attributes["terminal.activity.close_reason"] == .string("router.stop"))
+    }
+
     @Test("start is idempotent and does not double-consume events")
     func startIsIdempotentAndDoesNotDoubleConsumeEvents() async {
         let bus = EventBus<RuntimeEnvelope>()
@@ -476,15 +542,19 @@ struct TerminalActivityRouterTests {
     }
 
     private func traceEnvelopeSequences(in fileURL: URL) throws -> [Int] {
-        let contents = try String(contentsOf: fileURL, encoding: .utf8)
-        return try contents.split(separator: "\n").map { line in
-            let data = Data(line.utf8)
-            let record = try JSONDecoder().decode(TraceRecordFixture.self, from: data)
+        try traceRecords(in: fileURL).map { record in
             guard case .int(let sequence) = record.attributes["agentstudio.envelope.seq"] else {
                 Issue.record("Missing integer envelope sequence in trace record")
                 return -1
             }
             return sequence
+        }
+    }
+
+    private func traceRecords(in fileURL: URL) throws -> [TraceRecordFixture] {
+        let contents = try String(contentsOf: fileURL, encoding: .utf8)
+        return try contents.split(separator: "\n").map { line in
+            try JSONDecoder().decode(TraceRecordFixture.self, from: Data(line.utf8))
         }
     }
 }

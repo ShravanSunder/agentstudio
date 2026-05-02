@@ -36,7 +36,7 @@ extension AppDelegate {
             appLogger.warning("Workspace UI flush failed at termination: \(error.localizedDescription)")
         }
 
-        inboxNotificationRouter?.stop()
+        await inboxNotificationRouter?.stop()
         inboxPaneFocusTracker?.stop()
         await stopTerminalActivityRouterBeforeTermination()
 

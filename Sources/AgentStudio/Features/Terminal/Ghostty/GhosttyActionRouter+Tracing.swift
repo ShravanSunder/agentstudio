@@ -34,7 +34,7 @@ extension Ghostty.ActionRouter {
                 attributes["agentstudio.ghostty.action.payload"] = .string(payloadTraceName(payload))
             }
             if let event {
-                attributes["agentstudio.runtime.event"] = .string(event.eventName.rawValue)
+                attributes["agentstudio.runtime.event"] = .string(event.traceEventName)
             }
             if let paneId {
                 attributes["agentstudio.pane.id"] = .string(paneId.uuidString)

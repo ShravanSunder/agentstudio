@@ -32,7 +32,8 @@ final class TerminalActivityRouter {
         var didEmitExtended: Bool
         var didEmitBurst: Bool
         var generation: Int
-        var closeTask: Task<Void, Never>?
+        var lastCorrelationId: UUID?
+        var lastCausationId: UUID?
     }
 
     private let bus: EventBus<RuntimeEnvelope>
@@ -48,6 +49,7 @@ final class TerminalActivityRouter {
     private var traceContinuation: AsyncStream<TraceRequest>.Continuation?
     private var traceWorkerTask: Task<Void, Never>?
     private var unseenActivityWindows: [UUID: UnseenActivityWindow] = [:]
+    private var unseenActivityCloseTasksByPaneId: [UUID: Task<Void, Never>] = [:]
 
     init(
         bus: EventBus<RuntimeEnvelope>,
@@ -74,8 +76,8 @@ final class TerminalActivityRouter {
         busTask?.cancel()
         traceContinuation?.finish()
         traceWorkerTask?.cancel()
-        for (_, window) in unseenActivityWindows {
-            window.closeTask?.cancel()
+        for (_, closeTask) in unseenActivityCloseTasksByPaneId {
+            closeTask.cancel()
         }
     }
 
@@ -101,6 +103,7 @@ final class TerminalActivityRouter {
         task?.cancel()
         busTask = nil
         await task?.value
+        closeAllUnseenActivityWindows(reason: "router.stop")
         await drainTraceRecords()
     }
 
@@ -117,6 +120,7 @@ final class TerminalActivityRouter {
             traceUnseenActivityIfNeeded(envelope, scrollbarState: state)
             return
         }
+        guard !RuntimeEnvelopeTraceSummary.isHighVolumeActivityOnly(envelope.event) else { return }
         ensureTraceWorkerStarted()
         traceEventBusDelivery(envelope)
         let attributes = terminalTraceAttributes(for: envelope, event: event)
@@ -208,7 +212,8 @@ final class TerminalActivityRouter {
                 didEmitExtended: false,
                 didEmitBurst: false,
                 generation: 0,
-                closeTask: nil
+                lastCorrelationId: nil,
+                lastCausationId: nil
             )
         let isNewWindow = window.eventCount == 0
         window.eventCount += 1
@@ -216,7 +221,9 @@ final class TerminalActivityRouter {
         window.latestRows = scrollbarState.total
         window.rowsAdded = max(window.rowsAdded, scrollbarState.total - window.baselineRows)
         window.generation += 1
-        window.closeTask?.cancel()
+        window.lastCorrelationId = envelope.correlationId
+        window.lastCausationId = envelope.causationId
+        unseenActivityCloseTasksByPaneId[paneId]?.cancel()
         let generation = window.generation
         unseenActivityWindows[paneId] = window
 
@@ -248,7 +255,7 @@ final class TerminalActivityRouter {
     }
 
     private func scheduleUnseenActivityClose(paneId: UUID, generation: Int) {
-        unseenActivityWindows[paneId]?.closeTask = Task { @MainActor [weak self] in
+        unseenActivityCloseTasksByPaneId[paneId] = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
                 try await unseenActivityClock.sleep(for: unseenActivityDebounceDuration)
@@ -261,7 +268,8 @@ final class TerminalActivityRouter {
 
     private func closeUnseenActivityWindow(paneId: UUID, generation: Int, reason: String) {
         guard let window = unseenActivityWindows[paneId], window.generation == generation else { return }
-        window.closeTask?.cancel()
+        unseenActivityCloseTasksByPaneId[paneId]?.cancel()
+        unseenActivityCloseTasksByPaneId[paneId] = nil
         unseenActivityWindows[paneId] = nil
         traceUnseenActivityWindow(
             body: "terminal.activity.unseenWindowClosed",
@@ -274,8 +282,12 @@ final class TerminalActivityRouter {
     private func closeAllUnseenActivityWindows(reason: String) {
         let windows = unseenActivityWindows
         unseenActivityWindows.removeAll()
+        let closeTasks = unseenActivityCloseTasksByPaneId
+        unseenActivityCloseTasksByPaneId.removeAll()
+        for (_, closeTask) in closeTasks {
+            closeTask.cancel()
+        }
         for (_, window) in windows {
-            window.closeTask?.cancel()
             traceUnseenActivityWindow(
                 body: "terminal.activity.unseenWindowClosed",
                 window: window,
@@ -324,8 +336,8 @@ final class TerminalActivityRouter {
             .init(
                 tag: .terminalActivity,
                 body: body,
-                traceID: envelope?.correlationId?.uuidString,
-                parentSpanID: envelope?.causationId?.uuidString,
+                traceID: envelope?.correlationId?.uuidString ?? window.lastCorrelationId?.uuidString,
+                parentSpanID: envelope?.causationId?.uuidString ?? window.lastCausationId?.uuidString,
                 attributes: attributes
             )
         )
@@ -339,8 +351,8 @@ final class TerminalActivityRouter {
             "agentstudio.envelope.event_id": .string(envelope.eventId.uuidString),
             "agentstudio.envelope.seq": .int(Int(envelope.seq)),
             "agentstudio.pane.id": .string(envelope.paneId.uuidString),
-            "agentstudio.pane.kind": .string(String(describing: envelope.paneKind)),
-            "agentstudio.runtime.event": .string(event.eventName.rawValue),
+            "agentstudio.pane.kind": .string(envelope.paneKind.traceName),
+            "agentstudio.runtime.event": .string(event.traceEventName),
         ]
         if let commandId = envelope.commandId {
             attributes["agentstudio.command.id"] = .string(commandId.uuidString)
