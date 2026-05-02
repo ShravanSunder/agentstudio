@@ -31,7 +31,8 @@ extension AppDelegate {
             paneAtom: store.paneAtom,
             tabLayout: store.tabLayoutAtom,
             attendedPane: atomStore.attendedPane,
-            focusTracker: inboxPaneFocusTracker
+            focusTracker: inboxPaneFocusTracker,
+            traceRuntime: traceRuntime
         )
         Task { @MainActor [weak self] in
             await self?.inboxNotificationRouter.start()

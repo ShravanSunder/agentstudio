@@ -53,6 +53,12 @@ extension AppDelegate {
         } catch {
             appLogger.warning("Inbox notification flush failed at termination: \(error.localizedDescription)")
         }
+
+        do {
+            try await traceRuntime?.flush()
+        } catch {
+            appLogger.warning("Trace flush failed at termination: \(error.localizedDescription)")
+        }
     }
 
     private func stopTerminalActivityRouterBeforeTermination() async {

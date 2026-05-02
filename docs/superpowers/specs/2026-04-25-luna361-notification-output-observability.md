@@ -665,7 +665,8 @@ Do not paste raw command output unless explicitly needed and safe. Prefer counts
 
 ### Task E: Instrument Inbox Decisions
 
-- [ ] Trace every classify decision.
+- [ ] Trace every inbox-relevant classify decision.
+- [ ] Do not emit inbox ignore records for high-volume activity-only events such as `.scrollbarChanged`; the `terminal.activity.*` debounced window is the evidence for that path.
 - [ ] Include ignored reasons.
 - [ ] Trace append/read/dismiss/count changes.
 - [ ] Add tests for attended-pane suppression, below-threshold suppression, bell-disabled suppression, and activity-only suppression.

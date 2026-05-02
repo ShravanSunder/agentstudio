@@ -8,6 +8,23 @@ private let inboxNotificationRouterLogger = Logger(
 
 @MainActor
 final class InboxNotificationRouter {
+    private struct ClassificationDecision: Sendable {
+        let kind: InboxNotificationKind?
+        let reason: String
+
+        var action: String {
+            kind == nil ? "ignore" : "notify"
+        }
+
+        static func notify(_ kind: InboxNotificationKind) -> Self {
+            Self(kind: kind, reason: "matched")
+        }
+
+        static func ignore(_ reason: String) -> Self {
+            Self(kind: nil, reason: reason)
+        }
+    }
+
     private let bus: EventBus<RuntimeEnvelope>
     private let inboxAtom: InboxNotificationAtom
     private let prefsAtom: InboxNotificationPrefsAtom
@@ -15,6 +32,7 @@ final class InboxNotificationRouter {
     private let tabLayout: WorkspaceTabLayoutAtom
     private let attendedPane: AttendedPaneAtom
     private let focusTracker: PaneFocusTracker
+    private let traceRuntime: AgentStudioTraceRuntime?
 
     private var busTask: Task<Void, Never>?
     private var focusTask: Task<Void, Never>?
@@ -30,7 +48,8 @@ final class InboxNotificationRouter {
         paneAtom: WorkspacePaneAtom,
         tabLayout: WorkspaceTabLayoutAtom,
         attendedPane: AttendedPaneAtom,
-        focusTracker: PaneFocusTracker
+        focusTracker: PaneFocusTracker,
+        traceRuntime: AgentStudioTraceRuntime? = nil
     ) {
         self.bus = bus
         self.inboxAtom = inboxAtom
@@ -39,6 +58,7 @@ final class InboxNotificationRouter {
         self.tabLayout = tabLayout
         self.attendedPane = attendedPane
         self.focusTracker = focusTracker
+        self.traceRuntime = traceRuntime
     }
 
     deinit {
@@ -76,8 +96,17 @@ final class InboxNotificationRouter {
             guard let self else { return }
             for await paneId in self.focusTracker.focusGainedStream {
                 guard !Task.isCancelled else { return }
+                let unreadBefore = self.inboxAtom.unreadCount(forPaneId: paneId)
                 self.inboxAtom.markRead(paneId: paneId)
                 self.inboxAtom.dismissFromPaneInbox(paneId: paneId)
+                self.traceInboxMutation(
+                    body: "inbox.focusGainedClearedPane",
+                    paneId: paneId,
+                    attributes: [
+                        "agentstudio.inbox.unread_before": .int(unreadBefore),
+                        "agentstudio.inbox.unread_after": .int(self.inboxAtom.unreadCount(forPaneId: paneId)),
+                    ]
+                )
             }
             if !Task.isCancelled {
                 inboxNotificationRouterLogger.warning("Focus stream ended while inbox router was active")
@@ -87,7 +116,9 @@ final class InboxNotificationRouter {
 
     private func handle(_ envelope: RuntimeEnvelope) {
         guard case .pane(let paneEnvelope) = envelope else { return }
-        guard let kind = classify(paneEnvelope) else { return }
+        let decision = classify(paneEnvelope)
+        traceClassificationDecision(decision, envelope: paneEnvelope)
+        guard let kind = decision.kind else { return }
 
         let paneId = paneEnvelope.paneId.uuid
         let resolvedContext = resolveContext(for: paneId)
@@ -111,22 +142,35 @@ final class InboxNotificationRouter {
             isRead: false,
             isDismissedFromPaneInbox: false
         )
+        let globalUnreadBefore = inboxAtom.globalUnreadCount
         inboxAtom.append(notification)
+        traceInboxMutation(
+            body: "inbox.notification.appended",
+            paneId: paneId,
+            attributes: [
+                "agentstudio.inbox.kind": .string(kind.rawValue),
+                "agentstudio.inbox.notification.id": .string(notification.id.uuidString),
+                "agentstudio.inbox.global_unread_before": .int(globalUnreadBefore),
+                "agentstudio.inbox.global_unread_after": .int(inboxAtom.globalUnreadCount),
+            ]
+        )
     }
 
-    private func classify(_ envelope: PaneEnvelope) -> InboxNotificationKind? {
+    private func classify(_ envelope: PaneEnvelope) -> ClassificationDecision {
         switch envelope.event {
         case .terminal(.desktopNotificationRequested):
-            return .agentDesktopNotification
+            return .notify(.agentDesktopNotification)
         case .agentNotificationRequested:
-            return .agentRpc
+            return .notify(.agentRpc)
         case .terminal(.bellRang):
-            return prefsAtom.bellEnabled ? .bellRang : nil
+            return prefsAtom.bellEnabled ? .notify(.bellRang) : .ignore("bell_disabled")
         case .terminal(.commandFinished(_, let duration)):
             // Skip the pane the user is actively attending; the inbox is for unattended work.
-            guard envelope.paneId.uuid != attendedPane.attendedPaneId else { return nil }
-            guard duration >= AppPolicies.InboxNotification.commandFinishedMinDurationSeconds else { return nil }
-            return .commandFinished
+            guard envelope.paneId.uuid != attendedPane.attendedPaneId else { return .ignore("attended_pane") }
+            guard duration >= AppPolicies.InboxNotification.commandFinishedMinDurationSeconds else {
+                return .ignore("below_duration_threshold")
+            }
+            return .notify(.commandFinished)
         case .terminal(.progressReportUpdated(let progress)):
             return classifyProgressReport(progress, paneId: envelope.paneId.uuid)
         case .terminal(.secureInputChanged(let isActive)):
@@ -135,49 +179,51 @@ final class InboxNotificationRouter {
             return classifyRendererHealth(healthy, paneId: envelope.paneId.uuid)
         case .lifecycle(.paneClosed):
             pruneEdgeState(for: envelope.paneId.uuid)
-            return nil
+            return .ignore("pane_closed_pruned_edge_state")
         case .artifact(.approvalRequested):
-            return .approvalRequested
+            return .notify(.approvalRequested)
         case .security(.networkEgressBlocked),
             .security(.filesystemAccessDenied),
             .security(.secretAccessed),
             .security(.processSpawnBlocked):
-            return .securityEvent
+            return .notify(.securityEvent)
         case .security(.sandboxHealthChanged(let healthy)):
             let paneId = envelope.paneId.uuid
             let wasHealthy = sandboxHealthWasHealthyByPaneId[paneId, default: true]
             // Health is edge-triggered per pane so one unhealthy runtime does not mute another.
             let shouldNotify = wasHealthy && !healthy
             sandboxHealthWasHealthyByPaneId[paneId] = healthy
-            return shouldNotify ? .securityEvent : nil
+            return shouldNotify ? .notify(.securityEvent) : .ignore("sandbox_health_no_unhealthy_edge")
+        case .terminal(.scrollbarChanged):
+            return .ignore("activity_only_scrollbar")
         default:
             inboxNotificationRouterLogger.info(
                 "Ignoring unclassified inbox event: \(String(describing: envelope.event), privacy: .public)"
             )
-            return nil
+            return .ignore("unclassified")
         }
     }
 
-    private func classifyProgressReport(_ progress: ProgressState?, paneId: UUID) -> InboxNotificationKind? {
+    private func classifyProgressReport(_ progress: ProgressState?, paneId: UUID) -> ClassificationDecision {
         let isError = progress?.kind == .error
         let wasError = progressErrorWasActiveByPaneId[paneId, default: false]
         progressErrorWasActiveByPaneId[paneId] = isError
-        return isError && !wasError ? .terminalProgressError : nil
+        return isError && !wasError ? .notify(.terminalProgressError) : .ignore("progress_error_no_new_edge")
     }
 
-    private func classifySecureInput(_ isActive: Bool, paneId: UUID) -> InboxNotificationKind? {
+    private func classifySecureInput(_ isActive: Bool, paneId: UUID) -> ClassificationDecision {
         let wasActive = secureInputWasActiveByPaneId[paneId, default: false]
         secureInputWasActiveByPaneId[paneId] = isActive
-        guard isActive && !wasActive else { return nil }
-        guard paneId != attendedPane.attendedPaneId else { return nil }
-        return .terminalSecureInputRequested
+        guard isActive && !wasActive else { return .ignore("secure_input_no_new_edge") }
+        guard paneId != attendedPane.attendedPaneId else { return .ignore("attended_pane") }
+        return .notify(.terminalSecureInputRequested)
     }
 
-    private func classifyRendererHealth(_ healthy: Bool, paneId: UUID) -> InboxNotificationKind? {
+    private func classifyRendererHealth(_ healthy: Bool, paneId: UUID) -> ClassificationDecision {
         let wasHealthy = rendererWasHealthyByPaneId[paneId, default: true]
         let shouldNotify = wasHealthy && !healthy
         rendererWasHealthyByPaneId[paneId] = healthy
-        return shouldNotify ? .terminalRendererUnhealthy : nil
+        return shouldNotify ? .notify(.terminalRendererUnhealthy) : .ignore("renderer_health_no_unhealthy_edge")
     }
 
     private func pruneEdgeState(for paneId: UUID) {
@@ -185,6 +231,109 @@ final class InboxNotificationRouter {
         progressErrorWasActiveByPaneId.removeValue(forKey: paneId)
         rendererWasHealthyByPaneId.removeValue(forKey: paneId)
         secureInputWasActiveByPaneId.removeValue(forKey: paneId)
+    }
+
+    private func traceClassificationDecision(_ decision: ClassificationDecision, envelope: PaneEnvelope) {
+        guard shouldTraceClassificationDecision(decision, event: envelope.event) else { return }
+        var attributes = inboxTraceAttributes(paneId: envelope.paneId.uuid, event: envelope.event)
+        attributes["agentstudio.inbox.decision"] = .string(decision.action)
+        attributes["agentstudio.inbox.reason"] = .string(decision.reason)
+        if let kind = decision.kind {
+            attributes["agentstudio.inbox.kind"] = .string(kind.rawValue)
+        }
+        attributes["agentstudio.envelope.seq"] = .int(Int(envelope.seq))
+        if let correlationId = envelope.correlationId {
+            attributes["agentstudio.envelope.correlation_id"] = .string(correlationId.uuidString)
+        }
+        if let causationId = envelope.causationId {
+            attributes["agentstudio.envelope.causation_id"] = .string(causationId.uuidString)
+        }
+        traceInboxRecord(body: "inbox.classify", attributes: attributes)
+    }
+
+    private func shouldTraceClassificationDecision(
+        _ decision: ClassificationDecision,
+        event: PaneRuntimeEvent
+    ) -> Bool {
+        if decision.kind != nil { return true }
+        if case .terminal(.scrollbarChanged) = event {
+            return false
+        }
+        return true
+    }
+
+    private func traceInboxMutation(
+        body: String,
+        paneId: UUID,
+        attributes extraAttributes: [String: AgentStudioTraceValue]
+    ) {
+        var attributes = inboxTraceAttributes(paneId: paneId, event: nil)
+        attributes.merge(extraAttributes) { current, _ in current }
+        traceInboxRecord(body: body, attributes: attributes)
+    }
+
+    private func inboxTraceAttributes(
+        paneId: UUID,
+        event: PaneRuntimeEvent?
+    ) -> [String: AgentStudioTraceValue] {
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.inbox.global_unread_count": .int(inboxAtom.globalUnreadCount),
+            "agentstudio.pane.attended": .bool(paneId == attendedPane.attendedPaneId),
+            "agentstudio.pane.id": .string(paneId.uuidString),
+        ]
+        if let event {
+            attributes["agentstudio.runtime.event"] = .string(traceEventName(for: event))
+        }
+        return attributes
+    }
+
+    private func traceEventName(for event: PaneRuntimeEvent) -> String {
+        switch event {
+        case .terminal(let terminalEvent):
+            return terminalEvent.eventName.rawValue
+        case .browser(let browserEvent):
+            return browserEvent.eventName.rawValue
+        case .diff(let diffEvent):
+            return diffEvent.eventName.rawValue
+        case .editor(let editorEvent):
+            return editorEvent.eventName.rawValue
+        case .agentNotificationRequested:
+            return "agentNotificationRequested"
+        case .plugin(_, let pluginEvent):
+            return pluginEvent.eventName.rawValue
+        case .paneFilesystemContext(let filesystemContextEvent):
+            return filesystemContextEvent.eventName.rawValue
+        case .lifecycle(let lifecycleEvent):
+            return "lifecycle.\(enumCaseName(lifecycleEvent))"
+        case .filesystem(let filesystemEvent):
+            return "filesystem.\(enumCaseName(filesystemEvent))"
+        case .artifact(let artifactEvent):
+            return "artifact.\(enumCaseName(artifactEvent))"
+        case .security(let securityEvent):
+            return "security.\(enumCaseName(securityEvent))"
+        case .error(let errorEvent):
+            return "error.\(enumCaseName(errorEvent))"
+        }
+    }
+
+    private func enumCaseName<Value>(_ value: Value) -> String {
+        Mirror(reflecting: value).children.first?.label ?? String(describing: value)
+    }
+
+    private func traceInboxRecord(
+        body: String,
+        attributes: [String: AgentStudioTraceValue]
+    ) {
+        guard let traceRuntime else { return }
+        // Escapes MainActor so JSONL file work cannot contend with inbox routing.
+        // swiftlint:disable:next no_task_detached
+        Task.detached(priority: .utility) {
+            await traceRuntime.record(
+                tag: .inbox,
+                body: body,
+                attributes: attributes
+            )
+        }
     }
 
     private func title(for event: PaneRuntimeEvent) -> String {

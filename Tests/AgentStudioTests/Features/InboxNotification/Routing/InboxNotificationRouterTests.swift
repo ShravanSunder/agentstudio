@@ -17,9 +17,10 @@ struct InboxNotificationRouterTests {
         let attendedPane: AttendedPaneAtom
         let tracker: PaneFocusTracker
         let router: InboxNotificationRouter
+        let traceRuntime: AgentStudioTraceRuntime?
     }
 
-    private func makeFixture() async -> Fixture {
+    private func makeFixture(traceRuntime: AgentStudioTraceRuntime? = nil) async -> Fixture {
         let bus = EventBus<RuntimeEnvelope>()
         let inboxAtom = InboxNotificationAtom()
         let prefsAtom = InboxNotificationPrefsAtom()
@@ -40,7 +41,8 @@ struct InboxNotificationRouterTests {
             paneAtom: paneAtom,
             tabLayout: tabLayout,
             attendedPane: attendedPane,
-            focusTracker: tracker
+            focusTracker: tracker,
+            traceRuntime: traceRuntime
         )
         await router.start()
 
@@ -54,7 +56,8 @@ struct InboxNotificationRouterTests {
             managementLayer: managementLayer,
             attendedPane: attendedPane,
             tracker: tracker,
-            router: router
+            router: router,
+            traceRuntime: traceRuntime
         )
     }
 
@@ -133,6 +136,26 @@ struct InboxNotificationRouterTests {
         }
     }
 
+    private func makeTraceRuntime(name: String, processIdentifier: Int32) -> AgentStudioTraceRuntime {
+        AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
+                "AGENTSTUDIO_TRACE_NAME": name,
+                "AGENTSTUDIO_TRACE_TAGS": "inbox",
+            ]),
+            processIdentifier: processIdentifier,
+            sessionID: "inbox-session",
+            timeUnixNano: { 1111 }
+        )
+    }
+
+    private func temporaryTraceDirectoryURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-inbox-router-trace-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+
     @Test("desktopNotificationRequested posts an inbox notification")
     func desktopNotificationRequested() async {
         let fixture = await makeFixture()
@@ -156,6 +179,111 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].title == "Done")
         #expect(fixture.inboxAtom.notifications[0].body == "exit 0")
         #expect(fixture.inboxAtom.notifications[0].paneId == paneId.uuid)
+        fixture.router.stop()
+        fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
+
+    @Test("inbox tracing records notify decisions and suppression reasons")
+    func inboxTracingRecordsNotifyDecisionsAndSuppressionReasons() async throws {
+        let traceRuntime = makeTraceRuntime(name: "inbox-decisions", processIdentifier: 260)
+        let fixture = await makeFixture(traceRuntime: traceRuntime)
+        let paneId = PaneId()
+        _ = addTerminalPane(paneId, to: fixture)
+
+        _ = await fixture.bus.post(makePaneEnvelope(paneId: paneId, event: .terminal(.bellRang)))
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.commandFinished(exitCode: 0, duration: 3)),
+                seq: 2
+            )
+        )
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.desktopNotificationRequested(title: "Done", body: "exit 0")),
+                seq: 3
+            )
+        )
+        await waitForNotificationCount(
+            1,
+            in: fixture,
+            description: "desktop notification should be routed after suppressions"
+        )
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        await assertEventuallyMain("inbox router should write decision and append traces") {
+            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+                .contains("\"body\":\"inbox.notification.appended\"") == true
+        }
+
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"body\":\"inbox.classify\""))
+        #expect(contents.contains("\"agentstudio.inbox.reason\":\"bell_disabled\""))
+        #expect(contents.contains("\"agentstudio.inbox.reason\":\"below_duration_threshold\""))
+        #expect(contents.contains("\"agentstudio.inbox.reason\":\"matched\""))
+        #expect(contents.contains("\"agentstudio.inbox.kind\":\"agentDesktopNotification\""))
+        #expect(contents.contains("\"agentstudio.inbox.global_unread_after\":1"))
+        fixture.router.stop()
+        fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
+
+    @Test("activity-only scrollbar ignores do not write inbox trace records")
+    func activityOnlyScrollbarIgnoresDoNotWriteInboxTraceRecords() async throws {
+        let traceRuntime = makeTraceRuntime(name: "inbox-scrollbar-ignore", processIdentifier: 261)
+        let fixture = await makeFixture(traceRuntime: traceRuntime)
+        let paneId = PaneId()
+        _ = addTerminalPane(paneId, to: fixture)
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: 100)))
+            )
+        )
+        await Task.yield()
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        #expect(FileManager.default.fileExists(atPath: outputFileURL.path) == false)
+        fixture.router.stop()
+        fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
+
+    @Test("focus gained trace records read and pane-inbox dismissal counts")
+    func focusGainedTraceRecordsReadAndPaneInboxDismissalCounts() async throws {
+        let traceRuntime = makeTraceRuntime(name: "inbox-focus-cleared", processIdentifier: 262)
+        let fixture = await makeFixture(traceRuntime: traceRuntime)
+        let paneId = PaneId()
+        _ = addTerminalPane(paneId, to: fixture)
+
+        fixture.inboxAtom.append(
+            InboxNotification(
+                id: UUID(),
+                timestamp: Date(),
+                kind: .bellRang,
+                title: "Bell",
+                body: nil,
+                source: .pane(.init(paneId: paneId.uuid)),
+                isRead: false,
+                isDismissedFromPaneInbox: false
+            )
+        )
+
+        await Task.yield()
+        makeWindowKey(fixture.windowLifecycle)
+        await assertEventuallyMain("focus gain should write a pane clear trace") {
+            guard let outputFileURL = traceRuntime.outputFileURL else { return false }
+            return (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+                .contains("\"body\":\"inbox.focusGainedClearedPane\"") == true
+        }
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"agentstudio.inbox.unread_before\":1"))
+        #expect(contents.contains("\"agentstudio.inbox.unread_after\":0"))
         fixture.router.stop()
         fixture.tracker.stop()
         fixture.attendedPane.stop()
