@@ -42,8 +42,8 @@ struct PaneInboxNotificationPopoverTests {
         #expect(keyboardItems.allSatisfy { !$0.supportsAuxiliaryAction })
     }
 
-    @Test("keyboardItems caps numbered shortcuts at selectable popover policy")
-    func keyboardItemsCapsNumberedShortcutsAtPolicyLimit() {
+    @Test("keyboardItems keeps every notification navigable while capping numbered shortcuts")
+    func keyboardItemsKeepsEveryNotificationNavigableWhileCappingNumberedShortcuts() {
         let paneId = UUID()
         let notifications = (0..<(AppPolicies.SelectablePopover.maxNumberedShortcuts + 3)).map { index in
             makeNotification(id: UUID(), paneId: paneId, title: "Notification \(index)")
@@ -51,8 +51,13 @@ struct PaneInboxNotificationPopoverTests {
 
         let keyboardItems = PaneInboxNotificationPopover.keyboardItems(for: notifications)
 
-        #expect(keyboardItems.count == AppPolicies.SelectablePopover.maxNumberedShortcuts)
-        #expect(keyboardItems.map(\.shortcutNumber) == Array(1...AppPolicies.SelectablePopover.maxNumberedShortcuts))
+        #expect(keyboardItems.count == notifications.count)
+        #expect(keyboardItems.map(\.id) == notifications.map(\.id))
+        #expect(
+            keyboardItems.map(\.shortcutNumber)
+                == Array(1...AppPolicies.SelectablePopover.maxNumberedShortcuts).map(Optional.some)
+                + Array(repeating: nil, count: 3)
+        )
     }
 
     private func makeNotification(

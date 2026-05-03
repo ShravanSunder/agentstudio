@@ -1,16 +1,24 @@
 import AppKit
 
 enum SelectablePopoverKeyboardRouter {
+    private enum KeyCode: UInt16 {
+        case escape = 53
+        case returnKey = 36
+        case keypadEnter = 76
+        case downArrow = 125
+        case upArrow = 126
+    }
+
     static func action<ItemID: Hashable>(
         for event: NSEvent,
         items: [SelectablePopoverKeyboardItem<ItemID>],
         selectedItemId: ItemID?,
-        auxiliaryKey: String? = nil,
+        auxiliaryKey: Character? = nil,
         matchesAdditionalDismissShortcut: (NSEvent) -> Bool
     ) -> SelectablePopoverKeyboardAction<ItemID> {
         guard event.type == .keyDown else { return .passthrough }
 
-        if event.keyCode == 53 || matchesAdditionalDismissShortcut(event) {
+        if event.keyCode == KeyCode.escape.rawValue || matchesAdditionalDismissShortcut(event) {
             return .dismiss
         }
 
@@ -19,17 +27,17 @@ enum SelectablePopoverKeyboardRouter {
         guard !hasModifiers else { return .passthrough }
 
         switch event.keyCode {
-        case 36, 76:
+        case KeyCode.returnKey.rawValue, KeyCode.keypadEnter.rawValue:
             guard let itemId = currentSelection(items: items, selectedItemId: selectedItemId) else {
                 return .consume
             }
             return .select(itemId)
-        case 125:
+        case KeyCode.downArrow.rawValue:
             guard let itemId = movedSelection(delta: 1, items: items, selectedItemId: selectedItemId) else {
                 return .consume
             }
             return .highlight(itemId)
-        case 126:
+        case KeyCode.upArrow.rawValue:
             guard let itemId = movedSelection(delta: -1, items: items, selectedItemId: selectedItemId) else {
                 return .consume
             }
@@ -39,7 +47,7 @@ enum SelectablePopoverKeyboardRouter {
         }
 
         if let auxiliaryKey,
-            event.charactersIgnoringModifiers?.lowercased() == auxiliaryKey.lowercased()
+            event.charactersIgnoringModifiers?.lowercased() == String(auxiliaryKey).lowercased()
         {
             guard
                 let itemId = currentSelection(items: items, selectedItemId: selectedItemId),
@@ -56,7 +64,7 @@ enum SelectablePopoverKeyboardRouter {
             (1...AppPolicies.SelectablePopover.maxNumberedShortcuts).contains(shortcutNumber)
         {
             guard let itemId = items.first(where: { $0.shortcutNumber == shortcutNumber })?.id else {
-                return .consume
+                return .passthrough
             }
             return .select(itemId)
         }

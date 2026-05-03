@@ -44,7 +44,7 @@ enum AppStyles {
         }
 
         enum Typography {
-            // Dense overlay text, used only where text sits inside a tiny chrome affordance.
+            // Smallest readable label for dense chrome affordances.
             static let textXxs: CGFloat = 9
             static let textXs: CGFloat = 11
             static let textSm: CGFloat = 12

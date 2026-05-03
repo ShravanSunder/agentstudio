@@ -52,6 +52,19 @@ struct PaneInboxNotificationPresenterTests {
         #expect(presenter.request == nil)
     }
 
+    @Test("toggle treats pane inbox target identity as order independent")
+    func toggleTreatsPaneInboxTargetIdentityAsOrderIndependent() {
+        let presenter = PaneInboxNotificationPresenter()
+        let parentPaneId = UUID()
+        let childPaneId = UUID()
+
+        presenter.toggle(parentPaneId: parentPaneId, paneIds: [parentPaneId, childPaneId])
+        #expect(presenter.request?.intent == .open)
+
+        presenter.toggle(parentPaneId: parentPaneId, paneIds: [childPaneId, parentPaneId])
+        #expect(presenter.request == nil)
+    }
+
     @Test("toggle sends close request for an already presented target")
     func togglePresentedTargetSendsCloseRequest() {
         let presenter = PaneInboxNotificationPresenter()

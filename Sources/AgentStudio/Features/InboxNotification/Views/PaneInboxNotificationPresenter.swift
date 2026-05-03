@@ -133,7 +133,12 @@ final class PaneInboxNotificationPresenter {
 
 private struct PaneInboxTarget: Equatable {
     let parentPaneId: UUID
-    let paneIds: [UUID]
+    let paneIdSet: Set<UUID>
+
+    init(parentPaneId: UUID, paneIds: [UUID]) {
+        self.parentPaneId = parentPaneId
+        self.paneIdSet = Set(paneIds)
+    }
 }
 
 extension PaneInboxRequest {

@@ -1,4 +1,10 @@
 import SwiftUI
+import os.log
+
+private let paneInboxNotificationPopoverLogger = Logger(
+    subsystem: "com.agentstudio",
+    category: "PaneInboxNotificationPopover"
+)
 
 @MainActor
 struct PaneInboxNotificationPopover: View {
@@ -62,11 +68,10 @@ struct PaneInboxNotificationPopover: View {
     static func keyboardItems(
         for notifications: [InboxNotification]
     ) -> [SelectablePopoverKeyboardItem<UUID>] {
-        let keyboardNotifications = notifications.prefix(AppPolicies.SelectablePopover.maxNumberedShortcuts)
-        return keyboardNotifications.enumerated().map { index, notification in
+        notifications.enumerated().map { index, notification in
             SelectablePopoverKeyboardItem(
                 id: notification.id,
-                shortcutNumber: index + 1,
+                shortcutNumber: index < AppPolicies.SelectablePopover.maxNumberedShortcuts ? index + 1 : nil,
                 supportsAuxiliaryAction: false
             )
         }
@@ -137,6 +142,9 @@ struct PaneInboxNotificationPopover: View {
 
     private func activate(notificationId: UUID) {
         guard let notification = relevantNotifications.first(where: { $0.id == notificationId }) else {
+            paneInboxNotificationPopoverLogger.warning(
+                "Pane inbox activation dropped unknown notification id \(notificationId.uuidString, privacy: .public)"
+            )
             return
         }
 
