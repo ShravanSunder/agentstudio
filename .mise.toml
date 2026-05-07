@@ -146,7 +146,8 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$PPID}"
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
+BUILD_PATH="$SWIFT_BUILD_DIR"
 echo "[build] BUILD_PATH=$BUILD_PATH"
 xcb_pipe=$(_xcb_pipe_cmd)
 swift build --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
@@ -158,7 +159,8 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build-release-agent-$PPID}"
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" release
+BUILD_PATH="$SWIFT_BUILD_DIR"
 echo "[build-release] BUILD_PATH=$BUILD_PATH"
 xcb_pipe=$(_xcb_pipe_cmd)
 swift build -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
@@ -169,7 +171,8 @@ description = "Run default test suite (excludes E2E + ZmxE2E by default)"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$PPID}"
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
+BUILD_PATH="$SWIFT_BUILD_DIR"
 TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
 echo "[test] BUILD_PATH=$BUILD_PATH"
 echo "[test] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
@@ -227,7 +230,8 @@ description = "Run test suite with code coverage and print coverage JSON path"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$PPID}"
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
+BUILD_PATH="$SWIFT_BUILD_DIR"
 TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
 echo "[test-coverage] BUILD_PATH=$BUILD_PATH"
 echo "[test-coverage] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
@@ -328,7 +332,8 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$PPID}"
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
+BUILD_PATH="$SWIFT_BUILD_DIR"
 export AGENT_STUDIO_BENCHMARK_MODE=benchmark
 xcb_pipe=$(_xcb_pipe_cmd)
 swift test --build-path "$BUILD_PATH" --filter "PushBenchmarkSupportTests" 2>&1 | $xcb_pipe
@@ -338,11 +343,29 @@ swift test --build-path "$BUILD_PATH" --filter "PushPerformanceBenchmarkTests" 2
 [tasks.clean]
 description = "Clean all build artifacts"
 run = """
-rm -rf .build Frameworks/GhosttyKit.xcframework AgentStudio.app
+rm -rf .build .build-agent-* .build-release-agent-* Frameworks/GhosttyKit.xcframework AgentStudio.app
 rm -rf Sources/AgentStudio/Resources/ghostty
 rm -rf vendor/ghostty/.zig-cache vendor/ghostty/zig-out vendor/ghostty/macos/build vendor/ghostty/macos/*.xcframework
 rm -rf vendor/zmx/.zig-cache vendor/zmx/zig-out
 echo "Cleaned all build artifacts"
+"""
+
+[tasks.clean-agent-builds]
+description = "Reap stale .slot-claim leaks from agent build dirs (safe while other agents work)"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+shopt -s nullglob
+reaped=0
+for dir in .build-agent-* .build-release-agent-*; do
+  [ -d "$dir/.slot-claim" ] || continue
+  if ! lsof +D "$dir" >/dev/null 2>&1; then
+    rm -rf "$dir/.slot-claim"
+    echo "[clean-agent-builds] reaped stale claim: $dir/.slot-claim"
+    reaped=$((reaped + 1))
+  fi
+done
+echo "[clean-agent-builds] reaped $reaped stale claim(s)"
 """
 
 [tasks.create-app-bundle]
@@ -352,7 +375,31 @@ run = """
 #!/usr/bin/env bash
 set -e
 
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build-release-agent-$PPID}"
+# Locate the freshest release artifact across slots (build-release ran first and
+# left its binary in one of .build-release-agent-{1..4}). Honors SWIFT_BUILD_DIR
+# if the caller pinned it.
+if [ -n "${SWIFT_BUILD_DIR:-}" ] && [ -f "$SWIFT_BUILD_DIR/release/AgentStudio" ]; then
+  BUILD_PATH="$SWIFT_BUILD_DIR"
+else
+  BUILD_PATH=""
+  newest_mtime=0
+  for n in 1 2 3 4; do
+    candidate=".build-release-agent-$n"
+    binary="$candidate/release/AgentStudio"
+    if [ -f "$binary" ]; then
+      mtime=$(stat -f %m "$binary")
+      if [ "$mtime" -gt "$newest_mtime" ]; then
+        newest_mtime="$mtime"
+        BUILD_PATH="$candidate"
+      fi
+    fi
+  done
+  if [ -z "$BUILD_PATH" ]; then
+    echo "create-app-bundle: no release artifact found in .build-release-agent-{1..4}" >&2
+    exit 1
+  fi
+fi
+echo "[create-app-bundle] BUILD_PATH=$BUILD_PATH"
 APP_DIR="AgentStudio.app/Contents"
 rm -rf AgentStudio.app
 mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
