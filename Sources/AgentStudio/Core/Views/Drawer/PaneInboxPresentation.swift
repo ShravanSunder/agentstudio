@@ -10,6 +10,10 @@ struct PaneInboxRequest: Equatable, Identifiable {
     let parentPaneId: UUID
     let paneIds: [UUID]
     let intent: PaneInboxRequestIntent
+
+    func matches(parentPaneId: UUID, paneIds: [UUID]) -> Bool {
+        self.parentPaneId == parentPaneId && Set(self.paneIds) == Set(paneIds)
+    }
 }
 
 /// Core receives primitive counts, callbacks, and type-erased popover content;

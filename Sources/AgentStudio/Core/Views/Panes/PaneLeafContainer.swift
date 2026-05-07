@@ -184,8 +184,12 @@ struct PaneLeafContainer: View {
         baseDrawerOverlay(drawer: drawer, trailingActions: hostedActions)
             .onChange(of: paneInboxPresentation?.pendingRequest()?.id) { _, _ in
                 guard let request = paneInboxPresentation?.pendingRequest() else { return }
-                guard request.parentPaneId == paneInboxScope.parentPaneId else { return }
-                guard request.paneIds == paneInboxScope.paneIds else { return }
+                guard
+                    request.matches(
+                        parentPaneId: paneInboxScope.parentPaneId,
+                        paneIds: paneInboxScope.paneIds
+                    )
+                else { return }
                 switch request.intent {
                 case .open:
                     paneInboxPopoverOpen = true

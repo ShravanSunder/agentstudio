@@ -778,6 +778,10 @@ struct InboxNotificationRouterTests {
         fixture.attendedPane.stop()
     }
 
+}
+
+@MainActor
+extension InboxNotificationRouterTests {
     @Test("pane closed prunes edge detector state for reused pane identifiers")
     func paneClosedPrunesEdgeDetectorState() async {
         let fixture = await makeFixture()
