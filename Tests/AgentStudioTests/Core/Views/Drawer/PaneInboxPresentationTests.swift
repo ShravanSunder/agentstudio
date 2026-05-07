@@ -44,6 +44,27 @@ struct PaneInboxPresentationTests {
         #expect(scope.paneIds == [parentPaneId, firstDrawerPaneId, secondDrawerPaneId])
     }
 
+    @Test("pane inbox requests match semantically identical scopes regardless of pane-id ordering")
+    func paneInboxRequestMatchesScopeBySetIdentity() {
+        let parentPaneId = UUIDv7.generate()
+        let firstDrawerPaneId = UUIDv7.generate()
+        let secondDrawerPaneId = UUIDv7.generate()
+        let request = PaneInboxRequest(
+            id: UUIDv7.generate(),
+            parentPaneId: parentPaneId,
+            paneIds: [parentPaneId, firstDrawerPaneId, secondDrawerPaneId],
+            intent: .open
+        )
+
+        #expect(
+            request.matches(
+                parentPaneId: parentPaneId,
+                paneIds: [secondDrawerPaneId, parentPaneId, firstDrawerPaneId]
+            )
+        )
+        #expect(!request.matches(parentPaneId: UUIDv7.generate(), paneIds: request.paneIds))
+    }
+
     @Test("trailing actions inject pane inbox unread count and preserve existing actions")
     func trailingActionsInjectUnreadCount() {
         let parentPaneId = UUID()
