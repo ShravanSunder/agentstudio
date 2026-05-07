@@ -9,35 +9,57 @@ import SwiftUI
 @MainActor
 final class DrawerDismissMonitor {
     private var monitor: Any?
-    /// Drawer panel + connector bounding rect in global (flipped window) coordinates.
-    var drawerRect: CGRect = .zero
-    /// Icon bar bounding rect in global (flipped window) coordinates.
-    var iconBarRect: CGRect = .zero
+    private weak var coordinateView: NSView?
+    /// Drawer panel + connector bounding rect in tab-container top-left coordinates.
+    var drawerRectInTab: CGRect = .zero
+    /// Icon bar bounding rect in tab-container top-left coordinates.
+    var iconBarRectInTab: CGRect = .zero
 
     var onDismiss: () -> Void = {}
 
     init() {}
 
+    func setCoordinateView(_ view: NSView?) {
+        coordinateView = view
+    }
+
     func install() {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
             guard let self else { return event }
-            guard let window = event.window else { return event }
-
-            // Convert event location to flipped screen coordinates matching SwiftUI .global.
-            // AppKit screen coords: origin at bottom-left of main screen, Y grows up.
-            // SwiftUI .global:      origin at top-left of main screen, Y grows down.
-            let screenPoint = window.convertPoint(toScreen: event.locationInWindow)
-            guard let screenMaxY = (window.screen ?? NSScreen.main)?.frame.maxY else { return event }
-            let globalPoint = CGPoint(x: screenPoint.x, y: screenMaxY - screenPoint.y)
+            guard let topLeftTabPoint = self.topLeftTabPoint(for: event) else { return event }
 
             // Returning nil consumes the event so the same click cannot also
             // make the underlying main pane firstResponder. Returning event
             // would dismiss the drawer AND focus whatever NSView is below —
             // a regression where outside clicks toggle drawer visibility but
             // also activate the main pane content underneath.
-            return self.handleMouseDown(globalPoint: globalPoint) ? nil : event
+            return self.handleMouseDown(topLeftTabPoint: topLeftTabPoint) ? nil : event
         }
+    }
+
+    func topLeftTabPoint(for event: NSEvent) -> CGPoint? {
+        guard let eventWindow = event.window else { return nil }
+        guard let coordinateView else { return nil }
+        guard coordinateView.window === eventWindow else { return nil }
+
+        let localPoint = coordinateView.convert(event.locationInWindow, from: nil)
+        return Self.topLeftPoint(
+            fromAppKitPoint: localPoint,
+            bounds: coordinateView.bounds,
+            isFlipped: coordinateView.isFlipped
+        )
+    }
+
+    static func topLeftPoint(
+        fromAppKitPoint point: CGPoint,
+        bounds: CGRect,
+        isFlipped: Bool
+    ) -> CGPoint {
+        CGPoint(
+            x: point.x - bounds.minX,
+            y: isFlipped ? point.y - bounds.minY : bounds.maxY - point.y
+        )
     }
 
     /// Outside-click dismissal test.
@@ -46,15 +68,15 @@ final class DrawerDismissMonitor {
     /// region and the icon bar. Empty rects contain no points, so a click
     /// during a transient frame reset is treated as "outside both" and
     /// dismisses — this matches the working debug-branch behavior. The
-    /// non-zero-only preference reducers keep `drawerRect` and `iconBarRect`
+    /// non-zero-only preference reducers keep the stored drawer and icon bar rects
     /// stable across SwiftUI re-publish cycles.
-    func shouldDismiss(globalPoint: CGPoint) -> Bool {
-        !drawerRect.contains(globalPoint) && !iconBarRect.contains(globalPoint)
+    func shouldDismiss(topLeftTabPoint: CGPoint) -> Bool {
+        !drawerRectInTab.contains(topLeftTabPoint) && !iconBarRectInTab.contains(topLeftTabPoint)
     }
 
     @discardableResult
-    func handleMouseDown(globalPoint: CGPoint) -> Bool {
-        guard shouldDismiss(globalPoint: globalPoint) else { return false }
+    func handleMouseDown(topLeftTabPoint: CGPoint) -> Bool {
+        guard shouldDismiss(topLeftTabPoint: topLeftTabPoint) else { return false }
         onDismiss()
         return true
     }
@@ -73,14 +95,14 @@ final class DrawerDismissMonitor {
     }
 }
 
-// MARK: - Preference Key for Drawer Panel Global Frame
+// MARK: - Preference Key for Drawer Dismiss Frame
 
-/// Reports the drawer panel's frame in the global coordinate space for outside-click dismissal.
+/// Reports the drawer panel + connector frame in tab-container coordinates for outside-click dismissal.
 ///
 /// The reducer keeps the last non-zero value. SwiftUI publishes `.zero` during
 /// transitions and teardown; accepting those would erase the real frame and
 /// silently break the dismiss monitor's outside-click test.
-struct DrawerPanelGlobalFrameKey: PreferenceKey {
+struct DrawerDismissFrameInTabKey: PreferenceKey {
     static let defaultValue: CGRect = .zero
     static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
         let next = nextValue()
@@ -93,7 +115,7 @@ struct DrawerPanelGlobalFrameKey: PreferenceKey {
 /// Reports the drawer panel frame in the `"tabContainer"` coordinate space.
 /// FlatTabStripContainer uses this to mount drawer drag capture at tab level.
 ///
-/// Same non-zero-only reducer as `DrawerPanelGlobalFrameKey`: a transient
+/// Same non-zero-only reducer as `DrawerDismissFrameInTabKey`: a transient
 /// zero update during a transition must not unmount the drawer capture.
 struct DrawerPanelFrameInTabKey: PreferenceKey {
     static let defaultValue: CGRect = .zero
@@ -105,7 +127,7 @@ struct DrawerPanelFrameInTabKey: PreferenceKey {
 
 // MARK: - Preference Key for Icon Bar Frame
 
-/// Reports the icon bar's frame in the global coordinate space.
+/// Reports the icon bar's frame in tab-container coordinates.
 /// DrawerPanelOverlay reads this to exclude the icon bar from dismiss hit testing.
 ///
 /// Same non-zero-only reducer: stale-but-real frame is preferred over a
@@ -124,8 +146,8 @@ struct DrawerIconBarFrameKey: PreferenceKey {
 /// Positioned at the tab container level so it can extend beyond the originating
 /// pane's bounds, with an S-curve connector visually bridging the panel to the icon bar.
 ///
-/// Uses an even-odd fill content shape to exclude the drawer area from dismiss
-/// hit-testing, so only clicks genuinely outside the drawer dismiss it.
+/// Outside-click dismissal is owned by `DrawerDismissMonitor` so dismissing clicks
+/// can be consumed before they refocus underlying AppKit content.
 struct DrawerPanelOverlay: View {
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
@@ -141,6 +163,7 @@ struct DrawerPanelOverlay: View {
     let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
     let drawerDropTarget: DrawerRearrangeTarget?
+    let dismissCoordinateView: NSView?
     /// Active drag's source pane id, threaded through to DrawerPanel
     /// so its visuals dict applies the source-aware filter (R1, R2,
     /// R8/R13a).
@@ -148,7 +171,7 @@ struct DrawerPanelOverlay: View {
 
     @AppStorage("drawerHeightRatio") private var heightRatio: Double = DrawerLayout.heightRatioMax
     @State private var dismissMonitor = DrawerDismissMonitor()
-    @State private var drawerPanelGlobalFrame: CGRect = .zero
+    @State private var drawerDismissFrameInTab: CGRect = .zero
 
     /// Find the pane whose drawer is currently expanded.
     /// Invariant: only one drawer can be expanded at a time (toggle behavior).
@@ -253,20 +276,21 @@ struct DrawerPanelOverlay: View {
                 GeometryReader { geometry in
                     Color.clear
                         .preference(
-                            key: DrawerPanelGlobalFrameKey.self,
-                            value: geometry.frame(in: .global)
+                            key: DrawerDismissFrameInTabKey.self,
+                            value: geometry.frame(in: .named("tabContainer"))
                         )
                 }
             )
             .position(x: centerX, y: centerY)
-            .onPreferenceChange(DrawerPanelGlobalFrameKey.self) { drawerPanelGlobalFrame = $0 }
+            .onPreferenceChange(DrawerDismissFrameInTabKey.self) { drawerDismissFrameInTab = $0 }
             .onAppear {
                 dismissMonitor.onDismiss = {
                     actionDispatcher.dispatch(.toggleDrawer(paneId: paneId))
                     onPaneFocusTrigger(.drawer(.toggle(parentPaneId: paneId)))
                 }
-                dismissMonitor.drawerRect = drawerPanelGlobalFrame
-                dismissMonitor.iconBarRect = iconBarFrame
+                dismissMonitor.setCoordinateView(dismissCoordinateView)
+                dismissMonitor.drawerRectInTab = drawerDismissFrameInTab
+                dismissMonitor.iconBarRectInTab = iconBarFrame
                 dismissMonitor.install()
             }
             .onDisappear {
@@ -278,15 +302,51 @@ struct DrawerPanelOverlay: View {
                     onPaneFocusTrigger(.drawer(.toggle(parentPaneId: paneId)))
                 }
             }
-            .onChange(of: drawerPanelGlobalFrame) { _, frame in
-                dismissMonitor.drawerRect = frame
+            .task(id: dismissCoordinateView.map(ObjectIdentifier.init)) {
+                dismissMonitor.setCoordinateView(dismissCoordinateView)
+            }
+            .onChange(of: drawerDismissFrameInTab) { _, frame in
+                dismissMonitor.drawerRectInTab = frame
             }
             .onChange(of: iconBarFrame) { _, frame in
-                dismissMonitor.iconBarRect = frame
+                dismissMonitor.iconBarRectInTab = frame
             }
         }
     }
 
+}
+
+// MARK: - Drawer Dismiss Coordinate Space Bridge
+
+/// Publishes the AppKit view whose local coordinates match the SwiftUI
+/// `"tabContainer"` coordinate space used by drawer dismiss hit testing.
+struct DrawerDismissCoordinateSpaceBridge: NSViewRepresentable {
+    let onViewChanged: (NSView?) -> Void
+
+    func makeNSView(context _: Context) -> DrawerDismissCoordinateSpaceView {
+        let view = DrawerDismissCoordinateSpaceView()
+        view.onViewChanged = onViewChanged
+        return view
+    }
+
+    func updateNSView(_ nsView: DrawerDismissCoordinateSpaceView, context _: Context) {
+        nsView.onViewChanged = onViewChanged
+    }
+
+    static func dismantleNSView(_ nsView: DrawerDismissCoordinateSpaceView, coordinator _: ()) {
+        nsView.onViewChanged(nil)
+    }
+}
+
+final class DrawerDismissCoordinateSpaceView: NSView {
+    var onViewChanged: (NSView?) -> Void = { _ in }
+
+    override var isFlipped: Bool { true }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        onViewChanged(window == nil ? nil : self)
+    }
 }
 
 // MARK: - DrawerOutlineShape
