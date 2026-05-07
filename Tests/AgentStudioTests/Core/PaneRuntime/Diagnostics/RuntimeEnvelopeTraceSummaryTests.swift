@@ -58,6 +58,23 @@ struct RuntimeEnvelopeTraceSummaryTests {
                 .browser(.consoleMessage(level: .log, message: "render"))
             )
         )
+        #expect(
+            RuntimeEnvelopeTraceSummary.isHighVolumeActivityOnly(
+                .paneFilesystemContext(
+                    .gitWorkingTreeInCwd(
+                        context: .init(
+                            paneId: PaneId(),
+                            repoId: UUID(),
+                            cwd: URL(fileURLWithPath: "/tmp"),
+                            worktreeId: WorktreeId()
+                        ),
+                        staged: 0,
+                        unstaged: 0,
+                        untracked: 0
+                    )
+                )
+            )
+        )
         #expect(RuntimeEnvelopeTraceSummary.isHighVolumeActivityOnly(.terminal(.bellRang)) == false)
         #expect(
             RuntimeEnvelopeTraceSummary.isHighVolumeActivityOnly(

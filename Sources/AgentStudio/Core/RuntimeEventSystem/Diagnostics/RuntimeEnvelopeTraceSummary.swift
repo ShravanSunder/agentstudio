@@ -140,6 +140,8 @@ extension RuntimeEnvelopeTraceSummary {
         case .browser(.consoleMessage),
             .editor(.diagnosticsUpdated):
             return true
+        case .paneFilesystemContext(.gitWorkingTreeInCwd):
+            return true
         default:
             return false
         }

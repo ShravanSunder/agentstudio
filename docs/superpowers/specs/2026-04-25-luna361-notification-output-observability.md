@@ -562,7 +562,7 @@ Short normal output
 
 Long-running command finish
   sleep 12; echo done
-  sleep 12; echo error >&2; exit 1
+  (sleep 12; echo error >&2; false)
 
 Bell
   sleep 12; printf '\a'

@@ -888,3 +888,74 @@ struct InboxNotificationRouterTests {
         fixture.attendedPane.stop()
     }
 }
+
+@MainActor
+extension InboxNotificationRouterTests {
+    @Test("commandFinished notifies for drawer child while owning parent pane is attended")
+    func commandFinishedNotifiesForDrawerChildOfAttendedParentPane() async throws {
+        let fixture = await makeFixture()
+
+        let parentPaneId = PaneId()
+        _ = addTerminalPane(parentPaneId, to: fixture)
+        let drawerPane = try #require(
+            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+        )
+        makeWindowKey(fixture.windowLifecycle)
+        await Task.yield()
+        #expect(fixture.attendedPane.attendedPaneId == parentPaneId.uuid)
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: PaneId(uuid: drawerPane.id),
+                event: .terminal(.commandFinished(exitCode: 0, duration: 20))
+            )
+        )
+
+        await waitForNotificationCount(
+            1,
+            in: fixture,
+            description: "hidden drawer child command finish should route to parent pane inbox"
+        )
+        #expect(fixture.inboxAtom.notifications[0].kind == .commandFinished)
+        #expect(fixture.inboxAtom.notifications[0].paneId == drawerPane.id)
+        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false)
+        await fixture.router.stop()
+        fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
+
+    @Test("focus-gained on parent pane keeps drawer-child pane inbox notifications visible")
+    func focusGainedOnParentPaneDoesNotDismissDrawerChildPaneInboxNotifications() async throws {
+        let fixture = await makeFixture()
+        let parentPaneId = PaneId()
+        _ = addTerminalPane(parentPaneId, to: fixture)
+        let drawerPane = try #require(
+            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+        )
+
+        fixture.inboxAtom.append(
+            InboxNotification(
+                id: UUID(),
+                timestamp: Date(),
+                kind: .commandFinished,
+                title: "Done",
+                body: nil,
+                source: .pane(.init(paneId: drawerPane.id)),
+                isRead: false,
+                isDismissedFromPaneInbox: false
+            )
+        )
+
+        await Task.yield()
+        makeWindowKey(fixture.windowLifecycle)
+        await assertEventuallyMain("focus gain should mark parent as attended") {
+            fixture.attendedPane.attendedPaneId == parentPaneId.uuid
+        }
+
+        #expect(fixture.inboxAtom.notifications[0].paneId == drawerPane.id)
+        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false)
+        await fixture.router.stop()
+        fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
+}

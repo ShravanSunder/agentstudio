@@ -27,6 +27,50 @@ struct PaneInboxNotificationPopoverTests {
         #expect(relevant.map(\.title) == ["Parent", "Child"])
     }
 
+    @Test("popover includes drawer child notification from resolved parent pane scope")
+    func popoverIncludesDrawerChildNotificationFromParentScope() {
+        let parentPaneId = UUIDv7.generate()
+        let drawerChildPaneId = UUIDv7.generate()
+        let panes = makePaneLookup(parentPaneId: parentPaneId, drawerPaneId: drawerChildPaneId)
+        let scope = PaneInboxScopeResolver.resolve(
+            anchorPaneId: parentPaneId,
+            pane: { panes[$0] }
+        )
+        let childNotification = makeNotification(paneId: drawerChildPaneId, title: "Drawer child")
+        let unrelated = makeNotification(paneId: UUID(), title: "Other")
+
+        let relevant = PaneInboxNotificationPopover.relevantNotifications(
+            paneIds: scope.paneIds,
+            notifications: [unrelated, childNotification]
+        )
+
+        #expect(scope.parentPaneId == parentPaneId)
+        #expect(scope.paneIds == [parentPaneId, drawerChildPaneId])
+        #expect(relevant.map(\.id) == [childNotification.id])
+    }
+
+    @Test("popover includes parent notification from resolved drawer child scope")
+    func popoverIncludesParentNotificationFromDrawerChildScope() {
+        let parentPaneId = UUIDv7.generate()
+        let drawerChildPaneId = UUIDv7.generate()
+        let panes = makePaneLookup(parentPaneId: parentPaneId, drawerPaneId: drawerChildPaneId)
+        let scope = PaneInboxScopeResolver.resolve(
+            anchorPaneId: drawerChildPaneId,
+            pane: { panes[$0] }
+        )
+        let parentNotification = makeNotification(paneId: parentPaneId, title: "Parent")
+        let childNotification = makeNotification(paneId: drawerChildPaneId, title: "Drawer child")
+
+        let relevant = PaneInboxNotificationPopover.relevantNotifications(
+            paneIds: scope.paneIds,
+            notifications: [parentNotification, childNotification]
+        )
+
+        #expect(scope.parentPaneId == parentPaneId)
+        #expect(scope.paneIds == [parentPaneId, drawerChildPaneId])
+        #expect(relevant.map(\.id) == [parentNotification.id, childNotification.id])
+    }
+
     @Test("keyboardItems maps relevant notifications to selectable popover items")
     func keyboardItemsForRelevantNotifications() {
         let paneId = UUID()
@@ -76,5 +120,35 @@ struct PaneInboxNotificationPopoverTests {
             isRead: false,
             isDismissedFromPaneInbox: isDismissedFromPaneInbox
         )
+    }
+
+    private func makePaneLookup(parentPaneId: UUID, drawerPaneId: UUID) -> [UUID: Pane] {
+        let parentPane = Pane(
+            id: parentPaneId,
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(
+                paneId: PaneId(uuid: parentPaneId),
+                contentType: .terminal,
+                source: .floating(launchDirectory: nil, title: nil),
+                title: "Parent"
+            ),
+            kind: .layout(drawer: Drawer(paneIds: [drawerPaneId], activeChildId: drawerPaneId))
+        )
+        let drawerPane = Pane(
+            id: drawerPaneId,
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(
+                paneId: PaneId(uuid: drawerPaneId),
+                contentType: .terminal,
+                source: .floating(launchDirectory: nil, title: nil),
+                title: "Drawer"
+            ),
+            kind: .drawerChild(parentPaneId: parentPaneId)
+        )
+
+        return [
+            parentPane.id: parentPane,
+            drawerPane.id: drawerPane,
+        ]
     }
 }

@@ -560,7 +560,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             },
             selectTab: { [weak self] tabId in
                 guard let self else { return }
-                self.store.tabLayoutAtom.setActiveTab(tabId)
+                self.selectTabAndRestoreVisibleViews(tabId)
                 atom(\.workspaceFocusOwner).focusMainPane(
                     self.store.tabLayoutAtom.tab(tabId)?.activePaneId
                 )
@@ -570,7 +570,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 guard let self else { return }
                 self.recordSelectionDrivenRefocusSuppression(tabId: tabId, paneId: paneId)
                 if self.store.tabLayoutAtom.activeTabId != tabId {
-                    self.store.tabLayoutAtom.setActiveTab(tabId)
+                    self.selectTabAndRestoreVisibleViews(tabId)
                 }
                 if let tab = self.store.tabLayoutAtom.tab(tabId), tab.activeMinimizedPaneIds.contains(paneId) {
                     self.executor.execute(.expandPane(tabId: tabId, paneId: paneId))
@@ -602,6 +602,11 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 SurfaceManager.shared.syncFocus(activeSurfaceId: surfaceId)
             }
         )
+    }
+
+    private func selectTabAndRestoreVisibleViews(_ tabId: UUID) {
+        store.tabLayoutAtom.setActiveTab(tabId)
+        executor.restoreVisibleViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
     }
 
     private func recordSelectionDrivenRefocusSuppression(tabId: UUID?, paneId: UUID?) {
@@ -2091,8 +2096,28 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func focusTargetedPane(_ paneId: UUID) {
+        if let parentPaneId = store.paneAtom.pane(paneId)?.parentPaneId {
+            focusTargetedDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId)
+            return
+        }
+
         guard let tab = store.tabLayoutAtom.tabs.first(where: { $0.activePaneIds.contains(paneId) }) else { return }
         handlePaneFocusTrigger(.command(.focusPane(tabId: tab.id, paneId: paneId)))
+    }
+
+    private func focusTargetedDrawerPane(parentPaneId: UUID, drawerPaneId: UUID) {
+        guard
+            let tab = store.tabLayoutAtom.tabs.first(where: { $0.paneIds.contains(parentPaneId) }),
+            store.paneAtom.pane(parentPaneId)?.drawer?.paneIds.contains(drawerPaneId) == true
+        else {
+            return
+        }
+
+        handlePaneFocusTrigger(.command(.focusPane(tabId: tab.id, paneId: parentPaneId)))
+        if store.paneAtom.pane(parentPaneId)?.drawer?.isExpanded == false {
+            dispatchAction(.toggleDrawer(paneId: parentPaneId))
+        }
+        handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)))
     }
 
     private func handlePaneFocusCommand(_ command: AppCommand) -> Bool {
@@ -2438,9 +2463,11 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
     private func activePaneInboxTarget() -> PaneInboxCommandTarget? {
         guard let parentPaneId = activePaneInboxParentPaneId() else { return nil }
-        let drawerPaneIds = store.paneAtom.pane(parentPaneId)?.drawer?.paneIds ?? []
-
-        return PaneInboxCommandTarget(parentPaneId: parentPaneId, paneIds: [parentPaneId] + drawerPaneIds)
+        let scope = PaneInboxScopeResolver.resolve(
+            anchorPaneId: parentPaneId,
+            pane: { store.paneAtom.pane($0) }
+        )
+        return PaneInboxCommandTarget(parentPaneId: scope.parentPaneId, paneIds: scope.paneIds)
     }
 
     private func activePaneInboxParentPaneId() -> UUID? {

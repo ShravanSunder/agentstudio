@@ -14,6 +14,7 @@ struct PaneTabViewControllerTabRetentionTests {
         let store: WorkspaceStore
         let viewRegistry: ViewRegistry
         let controller: PaneTabViewController
+        let windowLifecycleStore: WindowLifecycleAtom
         let window: NSWindow
         let tempDir: URL
     }
@@ -36,7 +37,8 @@ struct PaneTabViewControllerTabRetentionTests {
             viewRegistry: viewRegistry,
             runtime: runtime,
             surfaceManager: MockPersistentTabSurfaceManager(),
-            runtimeRegistry: RuntimeRegistry()
+            runtimeRegistry: RuntimeRegistry(),
+            windowLifecycleStore: windowLifecycleStore
         )
         let controller = PaneTabViewController(
             store: store,
@@ -63,6 +65,7 @@ struct PaneTabViewControllerTabRetentionTests {
             store: store,
             viewRegistry: viewRegistry,
             controller: controller,
+            windowLifecycleStore: windowLifecycleStore,
             window: window,
             tempDir: tempDir
         )
@@ -78,6 +81,74 @@ struct PaneTabViewControllerTabRetentionTests {
         let contentView = try #require(harness.window.contentView)
         host.frame = contentView.bounds
         contentView.addSubview(host)
+    }
+
+    @Test
+    func inactivePersistentTab_allowsMissingHostUntilSelected() throws {
+        let harness = makeHarness()
+        defer {
+            PaneViewRepresentable.onDismantleForTesting = nil
+            try? FileManager.default.removeItem(at: harness.tempDir)
+        }
+
+        let activePane = harness.store.createPane(
+            source: .floating(launchDirectory: harness.tempDir, title: "Active"),
+            provider: .zmx
+        )
+        let inactivePane = harness.store.createPane(
+            source: .floating(launchDirectory: harness.tempDir, title: "Inactive"),
+            provider: .zmx
+        )
+        let activeTab = Tab(paneId: activePane.id, name: "Active")
+        let inactiveTab = Tab(paneId: inactivePane.id, name: "Inactive")
+        harness.store.appendTab(activeTab)
+        harness.store.appendTab(inactiveTab)
+        registerPaneHost(activePane.id, in: harness)
+        harness.viewRegistry.ensureSlot(for: inactivePane.id)
+
+        harness.store.setActiveTab(activeTab.id)
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        let inactiveTabHost = try #require(harness.controller.tabHostViewForTesting(tabId: inactiveTab.id))
+        #expect(inactiveTabHost.isHidden)
+        #expect(harness.viewRegistry.view(for: inactivePane.id) == nil)
+    }
+
+    @Test
+    func selectingInactivePersistentTab_restoresMissingHostBeforeVisibleRender() throws {
+        let harness = makeHarness()
+        defer {
+            PaneViewRepresentable.onDismantleForTesting = nil
+            try? FileManager.default.removeItem(at: harness.tempDir)
+        }
+
+        let activePane = harness.store.createPane(
+            source: .floating(launchDirectory: harness.tempDir, title: "Active"),
+            provider: .zmx
+        )
+        let inactivePane = harness.store.createPane(
+            source: .floating(launchDirectory: harness.tempDir, title: "Inactive"),
+            provider: .zmx
+        )
+        let activeTab = Tab(paneId: activePane.id, name: "Active")
+        let inactiveTab = Tab(paneId: inactivePane.id, name: "Inactive")
+        harness.store.appendTab(activeTab)
+        harness.store.appendTab(inactiveTab)
+        registerPaneHost(activePane.id, in: harness)
+        harness.viewRegistry.ensureSlot(for: inactivePane.id)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(
+            NSRect(x: 0, y: 0, width: 1000, height: 700)
+        )
+        harness.windowLifecycleStore.recordLaunchLayoutSettled()
+        harness.store.setActiveTab(activeTab.id)
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        #expect(harness.viewRegistry.view(for: inactivePane.id) == nil)
+
+        harness.controller.selectTab(at: 1)
+
+        #expect(harness.store.activeTabId == inactiveTab.id)
+        #expect(harness.viewRegistry.view(for: inactivePane.id) != nil)
     }
 
     @Test

@@ -9,7 +9,8 @@ func makeTestPaneCoordinator(
     viewRegistry: ViewRegistry,
     runtime: SessionRuntime,
     surfaceManager: PaneCoordinatorSurfaceManaging,
-    runtimeRegistry: RuntimeRegistry
+    runtimeRegistry: RuntimeRegistry,
+    windowLifecycleStore: WindowLifecycleAtom = WindowLifecycleAtom()
 ) -> PaneCoordinator {
     PaneCoordinator(
         store: store,
@@ -17,7 +18,7 @@ func makeTestPaneCoordinator(
         runtime: runtime,
         surfaceManager: surfaceManager,
         runtimeRegistry: runtimeRegistry,
-        windowLifecycleStore: WindowLifecycleAtom()
+        windowLifecycleStore: windowLifecycleStore
     )
 }
 
