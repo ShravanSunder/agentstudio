@@ -51,6 +51,30 @@ struct GhosttyActionRouterTests {
         #expect(Ghostty.ActionRouter.interceptedTags.contains(.render))
     }
 
+    @Test("Ghostty trace signal classes are pinned by semantic bucket")
+    func traceSignalClassesArePinnedBySemanticBucket() {
+        #expect(Ghostty.ActionRouter.signalClass(for: .desktopNotification) == .semantic)
+        #expect(Ghostty.ActionRouter.signalClass(for: .commandFinished) == .semantic)
+        #expect(Ghostty.ActionRouter.signalClass(for: .scrollbar) == .inferred)
+        #expect(Ghostty.ActionRouter.signalClass(for: .setTitle) == .context)
+        #expect(Ghostty.ActionRouter.signalClass(for: .newWindow) == .deferred)
+        #expect(Ghostty.ActionRouter.signalClass(for: .render) == .deferred)
+    }
+
+    @Test("Ghostty payload trace names use stable case names")
+    func payloadTraceNamesUseStableCaseNames() {
+        #expect(
+            Ghostty.ActionRouter.payloadTraceName(
+                .desktopNotification(title: "Build", body: "Complete")
+            ) == "desktopNotification"
+        )
+        #expect(
+            Ghostty.ActionRouter.payloadTraceName(.commandFinished(exitCode: 0, duration: 12))
+                == "commandFinished"
+        )
+        #expect(Ghostty.ActionRouter.payloadTraceName(.noPayload) == "noPayload")
+    }
+
     @Test("routing returns false when surface has no pane mapping")
     func routeWithResolvedSurfaceView_missingPaneMapping() {
         let surfaceViewObjectId = ObjectIdentifier(NSView(frame: .zero))
@@ -333,7 +357,7 @@ struct GhosttyActionRouterTests {
                 "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "ghostty-action-router",
-                "AGENTSTUDIO_TRACE_TAGS": "runtime",
+                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
             ]),
             processIdentifier: 251,
             sessionID: "ghostty-session",
@@ -398,7 +422,7 @@ struct GhosttyActionRouterTests {
                 "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
                 "AGENTSTUDIO_TRACE_FLUSH": "immediate",
                 "AGENTSTUDIO_TRACE_NAME": "ghostty-action-router-scrollbar",
-                "AGENTSTUDIO_TRACE_TAGS": "runtime",
+                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
             ]),
             processIdentifier: 252,
             sessionID: "ghostty-session",

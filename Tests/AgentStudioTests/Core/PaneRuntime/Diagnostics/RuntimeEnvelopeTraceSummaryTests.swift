@@ -82,4 +82,17 @@ struct RuntimeEnvelopeTraceSummaryTests {
             ) == false
         )
     }
+
+    @Test("runtime event trace names are namespaced")
+    func runtimeEventTraceNamesAreNamespaced() {
+        #expect(PaneRuntimeEvent.terminal(.bellRang).traceEventName == "terminal.bellRang")
+        #expect(
+            PaneRuntimeEvent.browser(.pageLoaded(url: URL(fileURLWithPath: "/tmp/index.html"))).traceEventName
+                == "browser.pageLoaded"
+        )
+        #expect(
+            PaneRuntimeEvent.agentNotificationRequested(title: "Done", body: nil).traceEventName
+                == "agent.notificationRequested")
+        #expect(PaneRuntimeEvent.lifecycle(.paneClosed).traceEventName == "lifecycle.paneClosed")
+    }
 }

@@ -25,7 +25,7 @@ struct InboxNotificationIntegrationTests {
 
         func shutdown() async {
             await router.stop()
-            tracker.stop()
+            await tracker.stop()
             attendedPane.stop()
         }
     }

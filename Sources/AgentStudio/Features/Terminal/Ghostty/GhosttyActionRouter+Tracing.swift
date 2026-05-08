@@ -1,5 +1,42 @@
 import Foundation
 
+final class GhosttyActionTraceQueueStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var queue: AgentStudioTraceEventQueue?
+
+    func bind(_ runtime: AgentStudioTraceRuntime?) {
+        lock.lock()
+        let previousQueue = queue
+        queue = runtime.map(AgentStudioTraceEventQueue.init(traceRuntime:))
+        lock.unlock()
+        previousQueue?.cancel()
+    }
+
+    func record(
+        tag: AgentStudioTraceTag,
+        body: String,
+        attributes: [String: AgentStudioTraceValue]
+    ) {
+        lock.lock()
+        let queue = queue
+        lock.unlock()
+        queue?.record(tag: tag, body: body, attributes: attributes)
+    }
+
+    func drain() async throws {
+        let queue = takeQueue()
+        try await queue?.drain()
+    }
+
+    private func takeQueue() -> AgentStudioTraceEventQueue? {
+        lock.lock()
+        let queue = queue
+        self.queue = nil
+        lock.unlock()
+        return queue
+    }
+}
+
 extension Ghostty.ActionRouter {
     enum GhosttyTraceSignalClass: String, Sendable {
         case semantic
@@ -21,40 +58,36 @@ extension Ghostty.ActionRouter {
         reason: String?
     ) {
         guard !isHighVolumeTraceAction(actionTag) else { return }
-        Task { @MainActor in
-            guard let traceRuntime = traceRuntimeForActionRouting else { return }
-            var attributes: [String: AgentStudioTraceValue] = [
-                "agentstudio.ghostty.action.tag": .int(Int(actionTag)),
-                "agentstudio.ghostty.signal.class": .string(signalClass.rawValue),
-            ]
-            if let actionName = GhosttyActionTag(rawValue: actionTag).map({ String(describing: $0) }) {
-                attributes["agentstudio.ghostty.action.name"] = .string(actionName)
-            }
-            if let payload {
-                attributes["agentstudio.ghostty.action.payload"] = .string(payloadTraceName(payload))
-            }
-            if let event {
-                attributes["agentstudio.runtime.event"] = .string(event.traceEventName)
-            }
-            if let paneId {
-                attributes["agentstudio.pane.id"] = .string(paneId.uuidString)
-            }
-            if let surfaceId {
-                attributes["agentstudio.surface.id"] = .string(surfaceId.uuidString)
-            }
-            if let routeResult {
-                attributes["agentstudio.ghostty.route.result"] = .bool(routeResult)
-            }
-            if let reason {
-                attributes["agentstudio.ghostty.route.reason"] = .string(reason)
-            }
-            let finalizedAttributes = attributes
-            await traceRuntime.record(
-                tag: .runtime,
-                body: body,
-                attributes: finalizedAttributes
-            )
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.ghostty.action.tag": .int(Int(actionTag)),
+            "agentstudio.ghostty.signal.class": .string(signalClass.rawValue),
+        ]
+        if let actionName = GhosttyActionTag(rawValue: actionTag).map({ String(describing: $0) }) {
+            attributes["agentstudio.ghostty.action.name"] = .string(actionName)
         }
+        if let payload {
+            attributes["agentstudio.ghostty.action.payload"] = .string(payloadTraceName(payload))
+        }
+        if let event {
+            attributes["agentstudio.runtime.event"] = .string(event.traceEventName)
+        }
+        if let paneId {
+            attributes["agentstudio.pane.id"] = .string(paneId.uuidString)
+        }
+        if let surfaceId {
+            attributes["agentstudio.surface.id"] = .string(surfaceId.uuidString)
+        }
+        if let routeResult {
+            attributes["agentstudio.ghostty.route.result"] = .bool(routeResult)
+        }
+        if let reason {
+            attributes["agentstudio.ghostty.route.reason"] = .string(reason)
+        }
+        actionTraceQueueStore.record(
+            tag: .terminalActivity,
+            body: body,
+            attributes: attributes
+        )
     }
 
     static func isHighVolumeTraceAction(_ actionTag: UInt32) -> Bool {

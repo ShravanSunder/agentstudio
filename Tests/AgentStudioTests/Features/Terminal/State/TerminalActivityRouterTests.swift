@@ -435,6 +435,100 @@ struct TerminalActivityRouterTests {
         #expect(closeRecord.attributes["terminal.activity.close_reason"] == .string("router.stop"))
     }
 
+    @Test("pane close prunes unseen activity window immediately")
+    func paneClosePrunesUnseenActivityWindowImmediately() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
+                "AGENTSTUDIO_TRACE_NAME": "terminal-activity-pane-close",
+                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
+            ]),
+            processIdentifier: 253,
+            sessionID: "terminal-session",
+            timeUnixNano: { 1002 }
+        )
+        let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
+        let paneId = PaneId()
+
+        await router.start()
+        _ = await bus.post(
+            .pane(
+                .test(
+                    event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: 100))),
+                    paneId: paneId,
+                    paneKind: .terminal
+                )
+            )
+        )
+        _ = await bus.post(
+            .pane(
+                .test(
+                    event: .lifecycle(.paneClosed),
+                    paneId: paneId,
+                    paneKind: .terminal
+                )
+            )
+        )
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        await assertEventuallyMain("terminal activity router should process pane close") {
+            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+                .contains("\"terminal.activity.close_reason\":\"pane.closed\"") == true
+        }
+        await router.stop()
+
+        let closeRecords = try traceRecords(in: outputFileURL)
+            .filter { $0.body == "terminal.activity.unseenWindowClosed" }
+        #expect(closeRecords.count == 1)
+        #expect(closeRecords.first?.attributes["terminal.activity.close_reason"] == .string("pane.closed"))
+    }
+
+    @Test("decreasing scrollbar totals do not emit negative rows added")
+    func decreasingScrollbarTotalsDoNotEmitNegativeRowsAdded() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "terminal-activity-decreasing-scrollbar",
+                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
+            ]),
+            processIdentifier: 254,
+            sessionID: "terminal-session",
+            timeUnixNano: { 1003 }
+        )
+        let router = TerminalActivityRouter(bus: bus, activityAtom: atom, traceRuntime: traceRuntime)
+        let paneId = PaneId()
+
+        await router.start()
+        for totalRows in [100, 80] {
+            _ = await bus.post(
+                .pane(
+                    .test(
+                        event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: totalRows))),
+                        paneId: paneId,
+                        paneKind: .terminal
+                    )
+                )
+            )
+        }
+
+        await router.stop()
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let records = try traceRecords(in: outputFileURL)
+        for record in records {
+            #expect(record.attributes["terminal.activity.rows_added"] != .int(-20))
+        }
+        let closeRecord = try #require(records.first { $0.body == "terminal.activity.unseenWindowClosed" })
+        #expect(closeRecord.attributes["terminal.activity.rows_added"] == .int(0))
+    }
+
     @Test("start is idempotent and does not double-consume events")
     func startIsIdempotentAndDoesNotDoubleConsumeEvents() async {
         let bus = EventBus<RuntimeEnvelope>()

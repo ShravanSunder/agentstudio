@@ -36,9 +36,21 @@ extension AppDelegate {
             appLogger.warning("Workspace UI flush failed at termination: \(error.localizedDescription)")
         }
 
-        await inboxNotificationRouter?.stop()
-        inboxPaneFocusTracker?.stop()
-        await stopTerminalActivityRouterBeforeTermination()
+        await runTerminationDrain("inbox notification trace") { [weak self] in
+            await self?.inboxNotificationRouter?.stop()
+        }
+        await runTerminationDrain("pane focus trace") { [weak self] in
+            await self?.inboxPaneFocusTracker?.stop()
+        }
+        await runTerminationDrain("terminal activity trace") { [weak self] in
+            await self?.terminalActivityRouter?.stop()
+        }
+        await runTerminationDrain("pane inbox presenter trace") { [weak self] in
+            await self?.paneInboxNotificationPresenter?.drainTraceRecords()
+        }
+        await runTerminationDrain("Ghostty action trace") {
+            await Ghostty.ActionRouter.drainTraceRuntimeForActionRouting()
+        }
 
         // Always flush on quit — the pre-persist hook syncs runtime webview state
         // back to the pane model, so this must run even when isDirty == false.
@@ -61,12 +73,14 @@ extension AppDelegate {
         }
     }
 
-    private func stopTerminalActivityRouterBeforeTermination() async {
-        guard let terminalActivityRouter else { return }
+    private func runTerminationDrain(
+        _ name: String,
+        operation: @escaping @MainActor () async -> Void
+    ) async {
         let didDrain = await withCheckedContinuation { continuation in
             let completion = TerminationDrainCompletion()
             Task { @MainActor in
-                await terminalActivityRouter.stop()
+                await operation()
                 completion.resume(continuation, value: true)
             }
             Task {
@@ -75,8 +89,7 @@ extension AppDelegate {
             }
         }
         if !didDrain {
-            appLogger.warning(
-                "Terminal activity trace drain timed out at termination; continuing shutdown")
+            appLogger.warning("\(name) drain timed out at termination; continuing shutdown")
         }
     }
 }

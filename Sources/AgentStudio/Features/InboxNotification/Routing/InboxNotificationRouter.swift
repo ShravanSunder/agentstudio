@@ -127,10 +127,8 @@ final class InboxNotificationRouter {
             for await paneId in self.focusTracker.focusGainedStream {
                 guard !Task.isCancelled else { return }
                 let unreadBefore = self.inboxAtom.unreadCount(forPaneId: paneId)
-                self.inboxAtom.markRead(paneId: paneId)
-                self.inboxAtom.dismissFromPaneInbox(paneId: paneId)
                 self.traceInboxMutation(
-                    body: "inbox.focusGainedClearedPane",
+                    body: "inbox.focusGainedObservedPane",
                     paneId: paneId,
                     attributes: [
                         "agentstudio.inbox.unread_before": .int(unreadBefore),
@@ -153,6 +151,19 @@ final class InboxNotificationRouter {
 
         let paneId = paneEnvelope.paneId.uuid
         let resolvedContext = resolveContext(for: paneId)
+        if resolvedContext == nil {
+            inboxNotificationRouterLogger.warning(
+                "Inbox notification context unresolved for pane \(paneId.uuidString, privacy: .public)"
+            )
+            traceInboxMutation(
+                body: "inbox.context.unresolved",
+                paneId: paneId,
+                attributes: [
+                    "agentstudio.inbox.context.reason": .string("pane_not_found"),
+                    "agentstudio.runtime.event": .string(paneEnvelope.event.traceEventName),
+                ]
+            )
+        }
         let notification = InboxNotification(
             id: UUID(),
             timestamp: Date(),
@@ -228,7 +239,7 @@ final class InboxNotificationRouter {
         case .terminal(.scrollbarChanged):
             return .ignore(reason: "activity_only_scrollbar")
         default:
-            inboxNotificationRouterLogger.info(
+            inboxNotificationRouterLogger.warning(
                 "Ignoring unclassified inbox event: \(String(describing: envelope.event), privacy: .public)"
             )
             return .ignore(reason: "unclassified")
@@ -357,7 +368,10 @@ final class InboxNotificationRouter {
 
     private func ensureTraceWorkerStarted() {
         guard traceWorkerTask == nil, let traceRuntime else { return }
-        let (stream, continuation) = AsyncStream.makeStream(of: TraceRequest.self)
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: TraceRequest.self,
+            bufferingPolicy: .bufferingNewest(AppPolicies.Diagnostics.traceEventQueueBufferLimit)
+        )
         traceContinuation = continuation
         // swiftlint:disable:next no_task_detached
         traceWorkerTask = Task.detached(priority: .utility) {
@@ -380,8 +394,9 @@ final class InboxNotificationRouter {
         do {
             try await traceRuntime?.flush()
         } catch {
+            let diagnostics = await traceRuntime?.diagnostics() ?? .empty
             inboxNotificationRouterLogger.warning(
-                "Inbox notification trace flush failed: \(error.localizedDescription)"
+                "Inbox notification trace flush failed: \(error.localizedDescription); failedFlushCount=\(diagnostics.failedFlushCount); lastFlushError=\(diagnostics.lastFlushErrorDescription ?? "none")"
             )
         }
     }

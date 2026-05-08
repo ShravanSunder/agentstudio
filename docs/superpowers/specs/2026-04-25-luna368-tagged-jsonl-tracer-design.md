@@ -135,14 +135,21 @@ restore
   Existing RestoreTrace content migrated under this tag.
 ```
 
+Consumer tags added by LUNA-361 on top of the tracer foundation:
+
+```
+app.focus
+inbox
+paneInbox
+terminal.activity
+ui.interaction
+ui.surface
+```
+
 Reserved later tags:
 
 ```
 drag
-app.focus
-inbox
-ui.surface
-terminal.activity
 drawer
 style
 ```
@@ -197,7 +204,7 @@ This is the app-local Agent Studio JSONL exporter shape. It serializes tracing r
 {
   "time_unix_nano": 1777134723123000000,
   "severity_text": "INFO",
-  "body": "eventbus.post",
+  "body": "eventbus.deliver",
   "trace_id": "01JSP7V3Q6DJT4R5J3BMK6Y2QE",
   "span_id": "01JSP7V3Q6A1B2C3D4E5F6G7H8",
   "parent_span_id": "01JSP7V3Q66RUNTIME00000001",
@@ -213,7 +220,7 @@ This is the app-local Agent Studio JSONL exporter shape. It serializes tracing r
     "agentstudio.trace.name": "runtime-envelope-smoke",
     "agentstudio.trace.tag": "eventbus",
     "agentstudio.session.id": "01JSP7V3Q6SESSION",
-    "event.name": "eventbus.post",
+    "event.name": "eventbus.deliver",
     "envelope.seq": 441
   }
 }

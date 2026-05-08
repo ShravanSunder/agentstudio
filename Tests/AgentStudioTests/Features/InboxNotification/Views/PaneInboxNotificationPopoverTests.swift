@@ -27,6 +27,81 @@ struct PaneInboxNotificationPopoverTests {
         #expect(relevant.map(\.title) == ["Parent", "Child"])
     }
 
+    @Test("unread mode hides read and pane-dismissed notifications before capping")
+    func unreadModeFiltersUnreadActivePaneNotificationsBeforeCapping() {
+        let paneId = UUID()
+        let newestRead = makeNotification(
+            paneId: paneId,
+            title: "Read",
+            timestamp: Date(timeIntervalSince1970: 200),
+            isRead: true
+        )
+        let newestDismissed = makeNotification(
+            paneId: paneId,
+            title: "Dismissed",
+            timestamp: Date(timeIntervalSince1970: 190),
+            isDismissedFromPaneInbox: true
+        )
+        let unreadNotifications = (0..<30).map { index in
+            makeNotification(
+                paneId: paneId,
+                title: "Unread \(index)",
+                timestamp: Date(timeIntervalSince1970: TimeInterval(100 - index))
+            )
+        }
+
+        let relevant = PaneInboxNotificationPopover.relevantNotifications(
+            paneIds: [paneId],
+            notifications: [newestRead, newestDismissed] + unreadNotifications,
+            filterMode: .unread
+        )
+
+        #expect(relevant.count == AppPolicies.PaneInbox.maxVisibleNotifications)
+        #expect(relevant.allSatisfy { !$0.isRead && !$0.isDismissedFromPaneInbox })
+        #expect(relevant.first?.title == "Unread 0")
+        #expect(relevant.last?.title == "Unread 24")
+    }
+
+    @Test("all mode includes read and pane-dismissed notifications before capping")
+    func allModeIncludesReadAndPaneDismissedNotificationsBeforeCapping() {
+        let paneId = UUID()
+        let read = makeNotification(
+            paneId: paneId,
+            title: "Read",
+            timestamp: Date(timeIntervalSince1970: 300),
+            isRead: true
+        )
+        let dismissed = makeNotification(
+            paneId: paneId,
+            title: "Dismissed",
+            timestamp: Date(timeIntervalSince1970: 290),
+            isDismissedFromPaneInbox: true
+        )
+        let scopedNotifications = (0..<30).map { index in
+            makeNotification(
+                paneId: paneId,
+                title: "Scoped \(index)",
+                timestamp: Date(timeIntervalSince1970: TimeInterval(100 - index))
+            )
+        }
+        let unrelated = makeNotification(
+            paneId: UUID(),
+            title: "Other",
+            timestamp: Date(timeIntervalSince1970: 400)
+        )
+
+        let relevant = PaneInboxNotificationPopover.relevantNotifications(
+            paneIds: [paneId],
+            notifications: [unrelated, read, dismissed] + scopedNotifications,
+            filterMode: .all
+        )
+
+        #expect(relevant.count == AppPolicies.PaneInbox.maxVisibleNotifications)
+        #expect(relevant.map(\.title).prefix(2) == ["Read", "Dismissed"])
+        #expect(relevant.contains { $0.title == "Other" } == false)
+        #expect(relevant.last?.title == "Scoped 22")
+    }
+
     @Test("popover includes drawer child notification from resolved parent pane scope")
     func popoverIncludesDrawerChildNotificationFromParentScope() {
         let parentPaneId = UUIDv7.generate()
@@ -104,20 +179,49 @@ struct PaneInboxNotificationPopoverTests {
         )
     }
 
+    @Test("presenting and closing popover does not mark notifications read or dismissed")
+    func presentingAndClosingPopoverDoesNotMarkNotificationsReadOrDismissed() {
+        let parentPaneId = UUID()
+        let notification = makeNotification(paneId: parentPaneId, title: "Passive")
+        let inboxAtom = InboxNotificationAtom()
+        let presentationAtom = PaneInboxPresentationAtom()
+        var didClose = false
+        inboxAtom.append(notification)
+
+        let popover = PaneInboxNotificationPopover(
+            parentPaneId: parentPaneId,
+            paneIds: [parentPaneId],
+            inboxAtom: inboxAtom,
+            presentationAtom: presentationAtom,
+            dispatcher: CommandDispatcher.shared,
+            onActivate: { _ in },
+            onClose: { didClose = true }
+        )
+
+        _ = popover.body
+        popover.onClose()
+
+        #expect(didClose)
+        #expect(inboxAtom.notifications.first?.isRead == false)
+        #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == false)
+    }
+
     private func makeNotification(
         id: UUID = UUID(),
         paneId: UUID?,
         title: String = "Notification",
+        timestamp: Date? = nil,
+        isRead: Bool = false,
         isDismissedFromPaneInbox: Bool = false
     ) -> InboxNotification {
         InboxNotification(
             id: id,
-            timestamp: Date(timeIntervalSince1970: isDismissedFromPaneInbox ? 50 : 100),
+            timestamp: timestamp ?? Date(timeIntervalSince1970: isDismissedFromPaneInbox ? 50 : 100),
             kind: .agentRpc,
             title: title,
             body: nil,
             source: paneId.map { .pane(.init(paneId: $0)) } ?? .global,
-            isRead: false,
+            isRead: isRead,
             isDismissedFromPaneInbox: isDismissedFromPaneInbox
         )
     }

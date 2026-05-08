@@ -66,7 +66,7 @@ struct PaneInboxPresentationTests {
     }
 
     @Test("trailing actions inject pane inbox unread count and preserve existing actions")
-    func trailingActionsInjectUnreadCount() {
+    func trailingActionsInjectUnreadBadgeAndPreserveExistingActions() {
         let parentPaneId = UUID()
         let drawerChildPaneId = UUID()
         let paneIds = [parentPaneId, drawerChildPaneId]
@@ -90,7 +90,8 @@ struct PaneInboxPresentationTests {
             setPresented: { _, _, _ in },
             pendingRequest: { nil },
             clearRequest: { _ in },
-            popoverContent: { _, _ in AnyView(EmptyView()) }
+            popoverContent: { _, _, _ in AnyView(EmptyView()) },
+            pruneFilterModes: { _ in }
         )
         var isPopoverPresented = false
 
@@ -106,7 +107,7 @@ struct PaneInboxPresentationTests {
 
         #expect(actions.canOpenTarget == true)
         #expect(actions.buttonTitle == "Cursor")
-        #expect(actions.inboxUnreadCount == 1)
+        #expect(actions.inboxUnreadBadge?.text == "1")
         #expect(actions.inboxPopoverContent != nil)
 
         actions.inboxPopoverPresented.wrappedValue = true
@@ -118,6 +119,15 @@ struct PaneInboxPresentationTests {
         actions.onOpenInbox?()
         #expect(openedParentPaneId == parentPaneId)
         #expect(openedPaneIds == paneIds)
+    }
+
+    @Test("pane inbox badge caps visible count instead of overstating the popover")
+    func paneInboxBadgeCapsVisibleCountInsteadOfOverstatingPopover() {
+        let badge = PaneInboxUnreadBadge(
+            unreadCount: AppPolicies.PaneInbox.maxVisibleNotifications + 5
+        )
+
+        #expect(badge?.text == "\(AppPolicies.PaneInbox.maxVisibleNotifications)+")
     }
 
     private func makePaneLookup(

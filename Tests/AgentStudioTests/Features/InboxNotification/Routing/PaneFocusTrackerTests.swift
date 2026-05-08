@@ -92,7 +92,7 @@ struct PaneFocusTrackerTests {
 
         let collected = await collect(from: tracker, expected: 2)
         #expect(collected == [paneA, paneB])
-        tracker.stop()
+        await tracker.stop()
         attendedPane.stop()
     }
 
@@ -140,7 +140,7 @@ struct PaneFocusTrackerTests {
                 && contents.contains("\"agentstudio.pane.id\":\"\(paneB.uuidString)\"")
         }
 
-        tracker.stop()
+        await tracker.stop()
         attendedPane.stop()
     }
 
@@ -166,7 +166,7 @@ struct PaneFocusTrackerTests {
 
         let collected = await collect(from: tracker, expected: 2, maxIterations: 10)
         #expect(collected == [paneA])
-        tracker.stop()
+        await tracker.stop()
         attendedPane.stop()
     }
 
@@ -186,7 +186,7 @@ struct PaneFocusTrackerTests {
         await Task.yield()
 
         #expect(await waitsForStreamCompletion(from: tracker))
-        tracker.stop()
+        await tracker.stop()
     }
 
     private func temporaryTraceDirectoryURL() -> URL {

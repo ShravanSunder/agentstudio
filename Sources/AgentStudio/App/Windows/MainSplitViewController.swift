@@ -235,37 +235,45 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     private func makePaneInboxPresentation() -> PaneInboxPresentation {
-        PaneInboxPresentation(
-            unreadCount: { [inboxAtom] paneIds in
-                inboxAtom.unreadCount(forPaneIds: paneIds)
+        let inbox = inboxAtom
+        let presenter = paneInboxPresenter
+        let paneInboxState = atom(\.paneInboxPresentationState)
+        return PaneInboxPresentation(
+            unreadCount: { paneIds in
+                inbox.visiblePaneInboxUnreadCount(forPaneIds: paneIds)
             },
-            open: { [paneInboxPresenter] parentPaneId, paneIds in
-                paneInboxPresenter.open(parentPaneId: parentPaneId, paneIds: paneIds)
+            open: { parentPaneId, paneIds in
+                presenter.open(parentPaneId: parentPaneId, paneIds: paneIds)
             },
-            toggle: { [paneInboxPresenter] parentPaneId, paneIds in
-                paneInboxPresenter.toggle(parentPaneId: parentPaneId, paneIds: paneIds)
+            toggle: { parentPaneId, paneIds in
+                presenter.toggle(parentPaneId: parentPaneId, paneIds: paneIds)
             },
-            setPresented: { [paneInboxPresenter] parentPaneId, paneIds, isPresented in
-                paneInboxPresenter.setPresented(parentPaneId: parentPaneId, paneIds: paneIds, isPresented: isPresented)
+            setPresented: { parentPaneId, paneIds, isPresented in
+                presenter.setPresented(parentPaneId: parentPaneId, paneIds: paneIds, isPresented: isPresented)
             },
-            pendingRequest: { [paneInboxPresenter] in
-                paneInboxPresenter.request
+            pendingRequest: {
+                presenter.request
             },
-            clearRequest: { [paneInboxPresenter] request in
-                paneInboxPresenter.clearRequest(request)
+            clearRequest: { request in
+                presenter.clearRequest(request)
             },
-            popoverContent: { [inboxAtom, paneInboxPresenter] paneIds, onClose in
+            popoverContent: { parentPaneId, paneIds, onClose in
                 AnyView(
                     PaneInboxNotificationPopover(
+                        parentPaneId: parentPaneId,
                         paneIds: paneIds,
-                        inboxAtom: inboxAtom,
+                        inboxAtom: inbox,
+                        presentationAtom: paneInboxState,
                         dispatcher: CommandDispatcher.shared,
                         onActivate: { notification in
-                            paneInboxPresenter.recordRowActivation(notification: notification, paneIds: paneIds)
+                            presenter.recordRowActivation(notification: notification, paneIds: paneIds)
                         },
                         onClose: onClose
                     )
                 )
+            },
+            pruneFilterModes: { retainedParentPaneIds in
+                paneInboxState.prune(retainingParentPaneIds: retainedParentPaneIds)
             }
         )
     }

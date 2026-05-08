@@ -212,8 +212,8 @@ struct DrawerIconBar: View {
                                         action: onOpenInbox
                                     )
                                     .overlay(alignment: .topTrailing) {
-                                        if trailingActions.inboxUnreadCount > 0 {
-                                            Text("\(trailingActions.inboxUnreadCount)")
+                                        if let inboxUnreadBadge = trailingActions.inboxUnreadBadge {
+                                            Text(inboxUnreadBadge.text)
                                                 .font(
                                                     .system(
                                                         size: AppStyles.Components.PaneInbox.unreadBadgeFontSize,

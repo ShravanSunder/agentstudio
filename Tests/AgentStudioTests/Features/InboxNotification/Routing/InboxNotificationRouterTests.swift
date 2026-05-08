@@ -42,7 +42,7 @@ struct InboxNotificationRouterTests {
         let traceRuntime: AgentStudioTraceRuntime?
     }
 
-    private func makeFixture(traceRuntime: AgentStudioTraceRuntime? = nil) async -> Fixture {
+    func makeFixture(traceRuntime: AgentStudioTraceRuntime? = nil) async -> Fixture {
         let bus = EventBus<RuntimeEnvelope>()
         let inboxAtom = InboxNotificationAtom()
         let prefsAtom = InboxNotificationPrefsAtom()
@@ -83,13 +83,13 @@ struct InboxNotificationRouterTests {
         )
     }
 
-    private func makeWindowKey(_ atom: WindowLifecycleAtom) {
+    func makeWindowKey(_ atom: WindowLifecycleAtom) {
         let id = UUID()
         atom.recordWindowRegistered(id)
         atom.recordWindowBecameKey(id)
     }
 
-    private func addTerminalPane(
+    func addTerminalPane(
         _ paneId: PaneId,
         to fixture: Fixture,
         repoId: UUID? = nil,
@@ -133,7 +133,7 @@ struct InboxNotificationRouterTests {
         return tab.id
     }
 
-    private func makePaneEnvelope(
+    func makePaneEnvelope(
         paneId: PaneId,
         event: PaneRuntimeEvent,
         seq: UInt64 = 1
@@ -148,7 +148,7 @@ struct InboxNotificationRouterTests {
         )
     }
 
-    private func waitForNotificationCount(
+    func waitForNotificationCount(
         _ count: Int,
         in fixture: Fixture,
         description: String
@@ -213,8 +213,42 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].body == "exit 0")
         #expect(fixture.inboxAtom.notifications[0].paneId == paneId.uuid)
         await fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
+    }
+
+    @Test("missing pane context emits unresolved context trace before appending notification")
+    func missingPaneContextEmitsUnresolvedContextTrace() async throws {
+        let traceRuntime = makeTraceRuntime(name: "inbox-context-unresolved", processIdentifier: 272)
+        let fixture = await makeFixture(traceRuntime: traceRuntime)
+        let paneId = PaneId()
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.desktopNotificationRequested(title: "Done", body: "exit 0"))
+            )
+        )
+
+        await waitForNotificationCount(
+            1,
+            in: fixture,
+            description: "desktop notification should still append with unresolved context"
+        )
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        await fixture.router.stop()
+        await fixture.tracker.stop()
+        fixture.attendedPane.stop()
+
+        let records = try traceRecords(in: outputFileURL)
+        let unresolvedRecord = try #require(records.first { $0.body == "inbox.context.unresolved" })
+        #expect(unresolvedRecord.attributes["agentstudio.inbox.context.reason"] == .string("pane_not_found"))
+        #expect(
+            unresolvedRecord.attributes["agentstudio.runtime.event"]
+                == .string("terminal.desktopNotificationRequested")
+        )
+        #expect(fixture.inboxAtom.notifications[0].tabId == nil)
+        #expect(fixture.inboxAtom.notifications[0].repoId == nil)
     }
 
     @Test("inbox tracing records notify decisions and suppression reasons")
@@ -272,7 +306,7 @@ struct InboxNotificationRouterTests {
         #expect(contents.contains("\"agentstudio.inbox.kind\":\"agentDesktopNotification\""))
         #expect(contents.contains("\"agentstudio.inbox.global_unread_after\":1"))
         await fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -321,7 +355,7 @@ struct InboxNotificationRouterTests {
         #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.bellRang\""))
         #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.scrollbarChanged\"") == false)
         await fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -343,13 +377,13 @@ struct InboxNotificationRouterTests {
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         #expect(FileManager.default.fileExists(atPath: outputFileURL.path) == false)
         await fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
-    @Test("focus gained trace records read and pane-inbox dismissal counts")
-    func focusGainedTraceRecordsReadAndPaneInboxDismissalCounts() async throws {
-        let traceRuntime = makeTraceRuntime(name: "inbox-focus-cleared", processIdentifier: 262)
+    @Test("focus gained trace records attention without marking pane notifications read")
+    func focusGainedTraceRecordsAttentionWithoutMarkingPaneNotificationsRead() async throws {
+        let traceRuntime = makeTraceRuntime(name: "inbox-focus-observed", processIdentifier: 262)
         let fixture = await makeFixture(traceRuntime: traceRuntime)
         let paneId = PaneId()
         _ = addTerminalPane(paneId, to: fixture)
@@ -369,18 +403,20 @@ struct InboxNotificationRouterTests {
 
         await Task.yield()
         makeWindowKey(fixture.windowLifecycle)
-        await assertEventuallyMain("focus gain should write a pane clear trace") {
+        await assertEventuallyMain("focus gain should write a pane attention trace") {
             guard let outputFileURL = traceRuntime.outputFileURL else { return false }
             return (try? String(contentsOf: outputFileURL, encoding: .utf8))?
-                .contains("\"body\":\"inbox.focusGainedClearedPane\"") == true
+                .contains("\"body\":\"inbox.focusGainedObservedPane\"") == true
         }
 
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("\"agentstudio.inbox.unread_before\":1"))
-        #expect(contents.contains("\"agentstudio.inbox.unread_after\":0"))
+        #expect(contents.contains("\"agentstudio.inbox.unread_after\":1"))
+        #expect(fixture.inboxAtom.notifications[0].isRead == false)
+        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false)
         await fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -402,7 +438,7 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications.count == 1)
         #expect(fixture.inboxAtom.notifications[0].kind == .bellRang)
         await fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -451,7 +487,7 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].kind == .commandFinished)
         #expect(fixture.inboxAtom.notifications[0].paneId == unfocusedPaneId.uuid)
         await fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -481,7 +517,7 @@ struct InboxNotificationRouterTests {
             #expect(fixture.inboxAtom.notifications[0].kind == .commandFinished)
         }
         await fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -532,7 +568,7 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[1].repoId == repoId)
         #expect(fixture.inboxAtom.notifications[1].worktreeId == worktreeId)
         await fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -606,7 +642,7 @@ struct InboxNotificationRouterTests {
         )
 
         await fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -665,7 +701,7 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications.map(\.kind) == [.terminalProgressError, .terminalProgressError])
         #expect(fixture.inboxAtom.notifications[0].body == "progress 80%")
         await fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -721,7 +757,7 @@ struct InboxNotificationRouterTests {
             ])
         #expect(fixture.inboxAtom.notifications[0].title == "Secure input requested")
         await fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -774,7 +810,7 @@ struct InboxNotificationRouterTests {
             fixture.inboxAtom.notifications.map(\.kind) == [.terminalRendererUnhealthy, .terminalRendererUnhealthy])
         #expect(fixture.inboxAtom.notifications[0].title == "Terminal renderer unhealthy")
         await fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -827,12 +863,12 @@ extension InboxNotificationRouterTests {
                 .terminalRendererUnhealthy,
             ])
         await fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
-    @Test("focus-gained marks pane notifications read and dismissed from drawer")
-    func focusGainedClearsUnread() async {
+    @Test("focus-gained keeps pane notifications unread until explicit activation")
+    func focusGainedKeepsPaneNotificationsUnreadUntilExplicitActivation() async {
         let fixture = await makeFixture()
         let paneId = PaneId()
         _ = addTerminalPane(paneId, to: fixture)
@@ -853,15 +889,15 @@ extension InboxNotificationRouterTests {
 
         await Task.yield()
         makeWindowKey(fixture.windowLifecycle)
-        await assertEventuallyMain("focus gain should mark pane notification read") {
-            fixture.inboxAtom.unreadCount(forPaneId: paneId.uuid) == 0
-                && fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox
+        await assertEventuallyMain("focus gain should mark pane attended") {
+            fixture.attendedPane.attendedPaneId == paneId.uuid
         }
 
-        #expect(fixture.inboxAtom.unreadCount(forPaneId: paneId.uuid) == 0)
-        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox)
+        #expect(fixture.inboxAtom.unreadCount(forPaneId: paneId.uuid) == 1)
+        #expect(fixture.inboxAtom.notifications[0].isRead == false)
+        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false)
         await fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -888,78 +924,7 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].title == "Claude Code finished")
         #expect(fixture.inboxAtom.notifications[0].body == "3 files changed")
         await fixture.router.stop()
-        fixture.tracker.stop()
-        fixture.attendedPane.stop()
-    }
-}
-
-@MainActor
-extension InboxNotificationRouterTests {
-    @Test("commandFinished notifies for drawer child while owning parent pane is attended")
-    func commandFinishedNotifiesForDrawerChildOfAttendedParentPane() async throws {
-        let fixture = await makeFixture()
-
-        let parentPaneId = PaneId()
-        _ = addTerminalPane(parentPaneId, to: fixture)
-        let drawerPane = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
-        )
-        makeWindowKey(fixture.windowLifecycle)
-        await Task.yield()
-        #expect(fixture.attendedPane.attendedPaneId == parentPaneId.uuid)
-
-        _ = await fixture.bus.post(
-            makePaneEnvelope(
-                paneId: PaneId(uuid: drawerPane.id),
-                event: .terminal(.commandFinished(exitCode: 0, duration: 20))
-            )
-        )
-
-        await waitForNotificationCount(
-            1,
-            in: fixture,
-            description: "hidden drawer child command finish should route to parent pane inbox"
-        )
-        #expect(fixture.inboxAtom.notifications[0].kind == .commandFinished)
-        #expect(fixture.inboxAtom.notifications[0].paneId == drawerPane.id)
-        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false)
-        await fixture.router.stop()
-        fixture.tracker.stop()
-        fixture.attendedPane.stop()
-    }
-
-    @Test("focus-gained on parent pane keeps drawer-child pane inbox notifications visible")
-    func focusGainedOnParentPaneDoesNotDismissDrawerChildPaneInboxNotifications() async throws {
-        let fixture = await makeFixture()
-        let parentPaneId = PaneId()
-        _ = addTerminalPane(parentPaneId, to: fixture)
-        let drawerPane = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
-        )
-
-        fixture.inboxAtom.append(
-            InboxNotification(
-                id: UUID(),
-                timestamp: Date(),
-                kind: .commandFinished,
-                title: "Done",
-                body: nil,
-                source: .pane(.init(paneId: drawerPane.id)),
-                isRead: false,
-                isDismissedFromPaneInbox: false
-            )
-        )
-
-        await Task.yield()
-        makeWindowKey(fixture.windowLifecycle)
-        await assertEventuallyMain("focus gain should mark parent as attended") {
-            fixture.attendedPane.attendedPaneId == parentPaneId.uuid
-        }
-
-        #expect(fixture.inboxAtom.notifications[0].paneId == drawerPane.id)
-        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false)
-        await fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 }

@@ -194,7 +194,7 @@ extension PaneRuntimeEvent {
         case .editor(let event):
             return event.traceEventName
         case .agentNotificationRequested:
-            return "agentNotificationRequested"
+            return "agent.notificationRequested"
         case .plugin(_, let event):
             return "plugin.\(event.eventName.rawValue)"
         case .paneFilesystemContext(let event):

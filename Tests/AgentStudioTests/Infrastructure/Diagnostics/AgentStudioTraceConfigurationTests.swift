@@ -61,6 +61,32 @@ struct AgentStudioTraceConfigurationTests {
     }
 
     @Test
+    func tagSelectionTreatsNilEmptyAndOffAsDisabled() {
+        #expect(AgentStudioTraceTag.parseSelection(nil).tags.isEmpty)
+        #expect(AgentStudioTraceTag.parseSelection("").tags.isEmpty)
+        #expect(AgentStudioTraceTag.parseSelection("  off  ").tags.isEmpty)
+        #expect(AgentStudioTraceTag.parseSelection(nil).unknownSelectors.isEmpty)
+        #expect(AgentStudioTraceTag.parseSelection("").unknownSelectors.isEmpty)
+        #expect(AgentStudioTraceTag.parseSelection("  off  ").unknownSelectors.isEmpty)
+    }
+
+    @Test
+    func tagSelectionSupportsPrefixWildcards() {
+        let selection = AgentStudioTraceTag.parseSelection("terminal.*")
+
+        #expect(selection.tags == [.terminalActivity])
+        #expect(selection.unknownSelectors.isEmpty)
+    }
+
+    @Test
+    func tagSelectionKeepsMixedKnownAndUnknownSelectors() {
+        let selection = AgentStudioTraceTag.parseSelection(" Runtime, paneInbox, missing.tag ")
+
+        #expect(selection.tags == [.runtime, .paneInbox])
+        #expect(selection.unknownSelectors == ["missing.tag"])
+    }
+
+    @Test
     func traceNameAndDirectoryAreSanitizedForFileOutput() {
         let configuration = AgentStudioTraceConfiguration.from(environment: [
             "AGENTSTUDIO_TRACE_TAGS": "runtime",

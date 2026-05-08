@@ -1,15 +1,25 @@
 import Foundation
 import Observation
+import os.log
+
+private let paneInboxNotificationPresenterLogger = Logger(
+    subsystem: "com.agentstudio",
+    category: "PaneInboxNotificationPresenter"
+)
 
 @MainActor
 @Observable
 final class PaneInboxNotificationPresenter {
     private(set) var request: PaneInboxRequest?
     private var presentedTarget: PaneInboxTarget?
-    private let traceRuntime: AgentStudioTraceRuntime?
+    private let traceQueue: AgentStudioTraceEventQueue?
 
     init(traceRuntime: AgentStudioTraceRuntime? = nil) {
-        self.traceRuntime = traceRuntime
+        self.traceQueue = traceRuntime.map(AgentStudioTraceEventQueue.init(traceRuntime:))
+    }
+
+    deinit {
+        traceQueue?.cancel()
     }
 
     func open(parentPaneId: UUID, paneIds: [UUID]) {
@@ -89,45 +99,36 @@ final class PaneInboxNotificationPresenter {
         )
     }
 
-    private func tracePaneInboxInteraction(
-        body: String,
-        parentPaneId: UUID,
-        paneIds: [UUID],
-        attributes extraAttributes: [String: AgentStudioTraceValue]
-    ) {
-        guard let traceRuntime else { return }
-        var attributes: [String: AgentStudioTraceValue] = [
-            "agentstudio.pane.parent_id": .string(parentPaneId.uuidString),
-            "agentstudio.pane.scope_count": .int(paneIds.count),
-            "agentstudio.pane.scope_ids": .stringArray(paneIds.map(\.uuidString)),
-        ]
-        attributes.merge(extraAttributes) { current, _ in current }
-        let traceAttributes = attributes
-        // Escapes MainActor so JSONL file work cannot contend with UI interaction handling.
-        // swiftlint:disable:next no_task_detached
-        Task.detached(priority: .utility) {
-            await traceRuntime.record(
-                tag: .paneInbox,
-                body: body,
-                attributes: traceAttributes
+    func drainTraceRecords() async {
+        do {
+            try await traceQueue?.drain()
+        } catch {
+            paneInboxNotificationPresenterLogger.warning(
+                "Pane inbox presenter trace drain failed: \(error.localizedDescription)"
             )
         }
     }
 
     private func tracePaneInboxInteraction(
         body: String,
+        parentPaneId: UUID,
+        paneIds: [UUID],
+        attributes extraAttributes: [String: AgentStudioTraceValue]
+    ) {
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.pane.parent_id": .string(parentPaneId.uuidString),
+            "agentstudio.pane.scope_count": .int(paneIds.count),
+            "agentstudio.pane.scope_ids": .stringArray(paneIds.map(\.uuidString)),
+        ]
+        attributes.merge(extraAttributes) { current, _ in current }
+        traceQueue?.record(tag: .paneInbox, body: body, attributes: attributes)
+    }
+
+    private func tracePaneInboxInteraction(
+        body: String,
         attributes: [String: AgentStudioTraceValue]
     ) {
-        guard let traceRuntime else { return }
-        // Escapes MainActor so JSONL file work cannot contend with UI interaction handling.
-        // swiftlint:disable:next no_task_detached
-        Task.detached(priority: .utility) {
-            await traceRuntime.record(
-                tag: .paneInbox,
-                body: body,
-                attributes: attributes
-            )
-        }
+        traceQueue?.record(tag: .paneInbox, body: body, attributes: attributes)
     }
 }
 

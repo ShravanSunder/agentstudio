@@ -1,5 +1,11 @@
 import Foundation
 import Observation
+import os.log
+
+private let inboxNotificationAtomLogger = Logger(
+    subsystem: "com.agentstudio",
+    category: "InboxNotificationAtom"
+)
 
 /// Canonical mutable state for the notification log.
 ///
@@ -33,6 +39,19 @@ final class InboxNotificationAtom {
                 return false
             }
             return true
+        }
+    }
+
+    func visiblePaneInboxUnreadCount(forPaneIds paneIds: [UUID]) -> Int {
+        let paneIdSet = Set(paneIds)
+        return unreadCount { notification in
+            guard
+                let paneId = notification.paneId,
+                paneIdSet.contains(paneId)
+            else {
+                return false
+            }
+            return !notification.isDismissedFromPaneInbox
         }
     }
 
@@ -99,7 +118,12 @@ final class InboxNotificationAtom {
     }
 
     private func update(id: UUID, mutate: (inout InboxNotification) -> Void) {
-        guard let index = notifications.firstIndex(where: { $0.id == id }) else { return }
+        guard let index = notifications.firstIndex(where: { $0.id == id }) else {
+            inboxNotificationAtomLogger.warning(
+                "Ignored inbox notification update for unknown id \(id.uuidString, privacy: .public)"
+            )
+            return
+        }
         mutate(&notifications[index])
     }
 
@@ -117,6 +141,9 @@ final class InboxNotificationAtom {
         notifications.sort { $0.timestamp < $1.timestamp }
         let overflow = notifications.count - retentionCap
         notifications.removeFirst(overflow)
+        inboxNotificationAtomLogger.warning(
+            "Inbox notification retention cap dropped \(overflow, privacy: .public) oldest row(s)"
+        )
     }
 
     private func recalculateGlobalUnreadCount() {

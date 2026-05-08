@@ -110,6 +110,9 @@ final class TerminalActivityRouter {
     private func consume(_ envelope: RuntimeEnvelope) {
         guard case .pane(let paneEnvelope) = envelope else { return }
         activityAtom.consume(paneEnvelope)
+        if case .lifecycle(.paneClosed) = paneEnvelope.event {
+            closeUnseenActivityWindow(paneId: paneEnvelope.paneId.uuid, reason: "pane.closed")
+        }
         traceTerminalActivity(paneEnvelope)
     }
 
@@ -155,7 +158,10 @@ final class TerminalActivityRouter {
 
     private func ensureTraceWorkerStarted() {
         guard traceWorkerTask == nil, let traceRuntime else { return }
-        let (stream, continuation) = AsyncStream.makeStream(of: TraceRequest.self)
+        let (stream, continuation) = AsyncStream.makeStream(
+            of: TraceRequest.self,
+            bufferingPolicy: .bufferingNewest(AppPolicies.Diagnostics.traceEventQueueBufferLimit)
+        )
         traceContinuation = continuation
         // swiftlint:disable:next no_task_detached
         traceWorkerTask = Task.detached(priority: .utility) {
@@ -181,8 +187,10 @@ final class TerminalActivityRouter {
         do {
             try await traceRuntime?.flush()
         } catch {
+            let diagnostics = await traceRuntime?.diagnostics() ?? .empty
             terminalActivityRouterLogger.warning(
-                "Terminal activity trace flush failed: \(error.localizedDescription)")
+                "Terminal activity trace flush failed: \(error.localizedDescription); failedFlushCount=\(diagnostics.failedFlushCount); lastFlushError=\(diagnostics.lastFlushErrorDescription ?? "none")"
+            )
         }
     }
 
@@ -219,7 +227,7 @@ final class TerminalActivityRouter {
         window.eventCount += 1
         window.lastObservedAtMilliseconds = observedAtMilliseconds
         window.latestRows = scrollbarState.total
-        window.rowsAdded = max(window.rowsAdded, scrollbarState.total - window.baselineRows)
+        window.rowsAdded = max(window.rowsAdded, max(0, scrollbarState.total - window.baselineRows))
         window.generation += 1
         window.lastCorrelationId = envelope.correlationId
         window.lastCausationId = envelope.causationId
@@ -268,6 +276,19 @@ final class TerminalActivityRouter {
 
     private func closeUnseenActivityWindow(paneId: UUID, generation: Int, reason: String) {
         guard let window = unseenActivityWindows[paneId], window.generation == generation else { return }
+        unseenActivityCloseTasksByPaneId[paneId]?.cancel()
+        unseenActivityCloseTasksByPaneId[paneId] = nil
+        unseenActivityWindows[paneId] = nil
+        traceUnseenActivityWindow(
+            body: "terminal.activity.unseenWindowClosed",
+            window: window,
+            envelope: nil,
+            reason: reason
+        )
+    }
+
+    private func closeUnseenActivityWindow(paneId: UUID, reason: String) {
+        guard let window = unseenActivityWindows[paneId] else { return }
         unseenActivityCloseTasksByPaneId[paneId]?.cancel()
         unseenActivityCloseTasksByPaneId[paneId] = nil
         unseenActivityWindows[paneId] = nil
@@ -370,7 +391,10 @@ final class TerminalActivityRouter {
         let attosecondsPerMillisecond: Int64 = 1_000_000_000_000_000
         let components = duration.components
         let seconds = components.seconds.multipliedReportingOverflow(by: 1000)
-        guard seconds.overflow == false else { return Int(seconds.partialValue) }
+        guard seconds.overflow == false else {
+            terminalActivityRouterLogger.warning("Duration overflow while formatting terminal activity debounce")
+            return .max
+        }
         return Int(seconds.partialValue + components.attoseconds / attosecondsPerMillisecond)
     }
 }

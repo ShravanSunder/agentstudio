@@ -477,6 +477,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         updateVisibleTabHost()
         rebuildEmptyStateView()
         updateEmptyState()
+        prunePaneInboxPresentationState()
 
         let isManagementLayerActive = atom(\.managementLayer).isActive
         let didExitManagementLayer = lastManagementLayerActive && !isManagementLayerActive
@@ -525,6 +526,16 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         if didExitManagementLayer {
             requestPaneRefocus(.managementLayerExited)
         }
+    }
+
+    private func prunePaneInboxPresentationState() {
+        guard let paneInboxPresentation else { return }
+        let retainedParentPaneIds = Set(
+            store.paneAtom.panes.values.compactMap { pane in
+                pane.isDrawerChild ? nil : pane.id
+            }
+        )
+        paneInboxPresentation.pruneFilterModes(retainedParentPaneIds)
     }
 
     private func preferredVisibleFocusPaneId() -> UUID? {

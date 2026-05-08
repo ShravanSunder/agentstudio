@@ -197,6 +197,27 @@ struct InboxNotificationAtomTests {
         #expect(atom.unreadCount(forPaneIds: [pane1, pane2]) == 2)
     }
 
+    @Test("visiblePaneInboxUnreadCount excludes pane-dismissed notifications")
+    func visiblePaneInboxUnreadCountExcludesPaneDismissedNotifications() {
+        let paneId = UUID()
+        let otherPaneId = UUID()
+        let atom = InboxNotificationAtom()
+        let dismissedNotification = makeInboxNotification(
+            paneId: paneId,
+            isRead: true,
+            isDismissedFromPaneInbox: true
+        )
+        atom.append(makeInboxNotification(paneId: paneId, isRead: false))
+        atom.append(dismissedNotification)
+        atom.append(makeInboxNotification(paneId: paneId, isRead: true))
+        atom.append(makeInboxNotification(paneId: otherPaneId, isRead: false))
+
+        atom.toggleReadState(id: dismissedNotification.id)
+
+        #expect(atom.visiblePaneInboxUnreadCount(forPaneIds: [paneId]) == 1)
+        #expect(atom.unreadCount(forPaneIds: [paneId]) == 2)
+    }
+
     @Test("globalUnreadCount counts all unread")
     func globalUnread() {
         let atom = InboxNotificationAtom()

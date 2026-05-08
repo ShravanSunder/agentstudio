@@ -13,11 +13,10 @@ extension SurfaceManager: GhosttyActionRoutingLookup {}
 typealias GhosttyActionRoutingLookupProvider = @MainActor () -> any GhosttyActionRoutingLookup
 
 extension Ghostty {
-    /// Owns Ghostty action-tag handling and routes surface-scoped actions into
-    /// SurfaceManager and TerminalRuntime on the main actor.
+    /// Owns Ghostty action-tag handling, host-side suppression, and trace emission.
     enum ActionRouter {
         @MainActor private static var runtimeRegistryOverride: RuntimeRegistry = .shared
-        @MainActor static var traceRuntimeForActionRouting: AgentStudioTraceRuntime?
+        static let actionTraceQueueStore = GhosttyActionTraceQueueStore()
         static let explicitlyRoutedTags: Set<GhosttyActionTag> = [
             .newTab,
             .ringBell,
@@ -570,7 +569,16 @@ extension Ghostty {
 
         @MainActor
         static func bindTraceRuntime(_ runtime: AgentStudioTraceRuntime?) {
-            traceRuntimeForActionRouting = runtime
+            actionTraceQueueStore.bind(runtime)
+        }
+
+        @MainActor
+        static func drainTraceRuntimeForActionRouting() async {
+            do {
+                try await actionTraceQueueStore.drain()
+            } catch {
+                ghosttyLogger.warning("Ghostty action trace drain failed: \(error.localizedDescription)")
+            }
         }
 
         @MainActor
@@ -682,8 +690,8 @@ extension Ghostty {
             }
 
             let surfaceViewObjectId = ObjectIdentifier(resolvedSurfaceView)
-            // Returning `true` here preserves Ghostty's synchronous "handled" contract
-            // while the actual runtime delivery completes on MainActor.
+            // Preserve Ghostty's synchronous handled contract while the actual runtime
+            // delivery completes on MainActor.
             Task { @MainActor [weak resolvedSurfaceView] in
                 if let resolvedSurfaceView {
                     updateSurfaceHostCache(

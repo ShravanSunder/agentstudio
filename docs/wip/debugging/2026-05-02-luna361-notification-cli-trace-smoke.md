@@ -29,12 +29,12 @@ AGENTSTUDIO_TRACE_FLUSH="immediate" \
 
 Why this selector:
 
-- `runtime` captures Ghostty semantic action translation, while code filters high-volume callbacks such as scrollbar, render, mouse, and key-sequence actions.
+- `runtime` is kept for compatibility with older tracer consumers; current Ghostty action records emit on `terminal.activity`.
 - `terminal.activity` captures debounced unseen scrollback windows and non-noisy terminal activity snapshots.
 - `eventbus` captures filtered delivery summaries for the terminal activity and inbox consumers.
-- `inbox` captures classify decisions, suppression reasons, notification appends, and focus-clear mutations.
+- `inbox` captures classify decisions, suppression reasons, notification appends, unresolved context, and focus observation. Focus observation does not mark notifications read or dismiss them from Pane Inbox.
 - `app.focus` captures attended-pane changes so suppression decisions can be tied back to focus state.
-- `paneInbox` captures low-volume pane inbox open/close/presentation interactions.
+- `paneInbox` captures low-volume pane inbox request, cancellation, presentation, and row-activation interactions.
 - It intentionally does not enable `ui.surface`, `ui.interaction`, or `*` until those consumers have explicit anti-spam filters.
 
 ## Anti-Spam Contract

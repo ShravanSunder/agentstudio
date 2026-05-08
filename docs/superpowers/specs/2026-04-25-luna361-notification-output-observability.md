@@ -378,52 +378,57 @@ Meaning:
 - Attention semantics issue.
 - The UI may look empty even though the event briefly existed.
 
-## Required Records
+## Implemented Record Vocabulary
 
 ### Ghostty Action Capture
 
 ```
-runtime.ghosttyActionObserved
-  ghostty.action_tag=...
-  ghostty.action_name=...
-  ghostty.signal_class=semantic|inferred|context|unhandled
+ghostty.action.received
+ghostty.action.translated
+ghostty.action.dropped
+  agentstudio.ghostty.action.tag=...
+  agentstudio.ghostty.action.name=...
+  agentstudio.ghostty.action.payload=...
+  agentstudio.ghostty.signal.class=semantic|inferred|context|deferred|unhandled
+  agentstudio.ghostty.route.result=true|false
+  agentstudio.ghostty.route.reason=...
   agentstudio.pane.id=...
   agentstudio.surface.id=...
-
-runtime.ghosttyActionTranslated
-  ghostty.action_name=...
-  runtime.event_name=...
-  runtime.translation=translated|deferred|unhandled
+  agentstudio.runtime.event=...
 ```
+
+Ghostty action records use the `terminal.activity` tag. The old `runtime.ghosttyActionObserved` and
+`runtime.ghosttyActionTranslated` names are not emitted.
 
 ### Runtime
 
 ```
-runtime.emitEnvelope
-runtime.bridgeEvent
-runtime.eventDropped
-runtime.eventReplay
+runtime envelope records
 ```
+
+Runtime-envelope producer tracing is not implemented in this branch. The current data-collection path
+observes runtime envelopes at the terminal-activity and inbox consumers.
 
 ### Terminal Activity
 
 ```
-terminal.activity.scrollbarChanged
+terminal.activity.observed
 terminal.activity.outputBurst
 terminal.activity.unseenWindowStarted
 terminal.activity.unseenWindowExtended
 terminal.activity.unseenWindowClosed
-terminal.activity.progress
-terminal.activity.commandFinished
-terminal.activity.urlObserved
-terminal.activity.inference
 ```
 
-Every inferred record must include:
+`terminal.activity.observed` covers non-high-volume terminal events such as command-finished,
+progress, URL, bell, and desktop-notification envelopes. High-volume scrollbar callbacks are
+collapsed into the unseen-window records.
+
+Every terminal activity record should include:
 
 ```
-terminal.activity.source=scrollbar|progress|url|command-finished|unknown
+terminal.activity.source=scrollbar|progress|url|command-finished|...
 terminal.activity.is_inferred=true|false
+agentstudio.runtime.event=...
 ```
 
 Every unseen activity window record must include:
@@ -441,31 +446,32 @@ terminal.activity.threshold_rows=<TerminalActivityAtom output-burst threshold>
 ### EventBus
 
 ```
-eventbus.post
 eventbus.deliver
-eventbus.streamFinished
 ```
 
-Default delivery record should be a summary. Add per-subscriber verbose mode only if needed.
+Only consumer-scoped delivery summaries are implemented. `eventbus.post` and stream-finished records
+are reserved until producer-side tracing is added.
 
 ### Inbox
 
 ```
 inbox.classify
-inbox.append
-inbox.markRead
-inbox.dismissFromPaneInbox
-inbox.counts
+inbox.notification.appended
+inbox.context.unresolved
+inbox.focusGainedObservedPane
 ```
 
 `inbox.classify` must include:
 
 ```
-inbox.decision=notify|ignored
-inbox.reason=...
-inbox.kind=...
+agentstudio.inbox.decision=notify|ignore
+agentstudio.inbox.reason=...
+agentstudio.inbox.kind=...
 agentstudio.pane.attended=true|false
 ```
+
+Focus observation does not mark notifications read or dismiss them from Pane Inbox. Read/dismiss state
+changes happen only on explicit user actions.
 
 ### UI Surface
 
@@ -485,56 +491,47 @@ app.focus.attendedPaneChanged
 app.focus.keyboardOwnerChanged
 ```
 
+UI surface count tracing is planned, not implemented in the current data-collection branch.
+
 ### Interaction And Pane Inbox
 
 ```
-ui.interaction.click
-paneInbox.trigger
-paneInbox.popoverOpen
-paneInbox.popoverClose
+paneInbox.requested
+paneInbox.requestCancelled
+paneInbox.presentationChanged
 paneInbox.rowActivation
 ```
+
+Generic `ui.interaction.click` is planned separately. Current Pane Inbox tracing records requests,
+presentation edges, and row activation.
 
 ## Pane Inbox Click Flow
 
 Pane inbox button:
 
 ```
-ui.interaction.click
-  interaction.target=paneInboxButton
+paneInbox.requested
+  agentstudio.pane.parent_id=...
+  agentstudio.pane.scope_ids=[...]
+  agentstudio.pane_inbox.intent=open|close
 
-paneInbox.trigger
-  paneInbox.host=drawer_toolbox
-  agentstudio.pane.ids=[...]
-
-inbox.counts
-  inbox.scope=paneInbox
-  inbox.unread_count=...
-
-ui.surface.paneInboxPopover
-  ui.open=true
-  ui.row_count=...
+paneInbox.presentationChanged
+  agentstudio.pane.parent_id=...
+  agentstudio.pane.scope_ids=[...]
+  agentstudio.pane_inbox.presented=true|false
 ```
 
 Pane inbox row activation:
 
 ```
-ui.interaction.click
-  interaction.target=inboxRow
-
 paneInbox.rowActivation
-  notification.id=...
+  agentstudio.notification.id=...
   agentstudio.pane.id=...
-
-actions.dispatch
-  action.name=focusPane
-  action.validation=accepted
+  agentstudio.pane.parent_id=...
+  agentstudio.action.name=focusPane
 
 app.focus.attendedPaneChanged
   agentstudio.pane.id=...
-
-inbox.markRead
-  affected_count=...
 ```
 
 ## CLI Smoke Matrix
@@ -669,7 +666,8 @@ Do not paste raw command output unless explicitly needed and safe. Prefer counts
 - [x] Trace every inbox-relevant classify decision.
 - [x] Do not emit inbox ignore records for high-volume activity-only events such as `.scrollbarChanged`; the `terminal.activity.*` debounced window is the evidence for that path.
 - [x] Include ignored reasons.
-- [x] Trace append/read/dismiss/count changes.
+- [x] Trace notification append and unresolved-context records.
+- [ ] Trace explicit read/dismiss/count changes.
 - [x] Add tests for attended-pane suppression, below-threshold suppression, bell-disabled suppression, and activity-only suppression.
 
 ### Task F: Instrument UI Surface Counts

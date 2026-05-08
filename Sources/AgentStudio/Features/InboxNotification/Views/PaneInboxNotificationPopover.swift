@@ -8,8 +8,10 @@ private let paneInboxNotificationPopoverLogger = Logger(
 
 @MainActor
 struct PaneInboxNotificationPopover: View {
+    let parentPaneId: UUID
     let paneIds: [UUID]
     let inboxAtom: InboxNotificationAtom
+    let presentationAtom: PaneInboxPresentationAtom
     let dispatcher: CommandDispatcher
     let onActivate: @MainActor (InboxNotification) -> Void
     let onClose: @MainActor @Sendable () -> Void
@@ -53,16 +55,25 @@ struct PaneInboxNotificationPopover: View {
 
     static func relevantNotifications(
         paneIds: [UUID],
-        notifications: [InboxNotification]
+        notifications: [InboxNotification],
+        filterMode: PaneInboxNotificationFilterMode = .unread
     ) -> [InboxNotification] {
         let paneIdSet = Set(paneIds)
         return
             notifications
             .filter { notification in
                 guard let paneId = notification.paneId else { return false }
-                return paneIdSet.contains(paneId) && !notification.isDismissedFromPaneInbox
+                guard paneIdSet.contains(paneId) else { return false }
+                switch filterMode {
+                case .unread:
+                    return !notification.isRead && !notification.isDismissedFromPaneInbox
+                case .all:
+                    return true
+                }
             }
             .sorted { $0.timestamp > $1.timestamp }
+            .prefix(AppPolicies.PaneInbox.maxVisibleNotifications)
+            .map { $0 }
     }
 
     static func keyboardItems(
@@ -78,10 +89,34 @@ struct PaneInboxNotificationPopover: View {
     }
 
     private var header: some View {
-        HStack {
+        HStack(spacing: AppStyles.Components.PaneInbox.headerControlSpacing) {
             Text("Pane inbox")
                 .font(.headline)
             Spacer()
+            Button(action: toggleFilterMode) {
+                HStack(spacing: AppStyles.General.Spacing.tight) {
+                    Image(systemName: filterMode.systemImageName)
+                    Text(filterMode.label)
+                }
+                .font(
+                    .system(
+                        size: AppStyles.Components.PaneInbox.filterButtonFontSize,
+                        weight: .medium
+                    )
+                )
+                .padding(.horizontal, AppStyles.Components.PaneInbox.filterButtonHorizontalPadding)
+                .padding(.vertical, AppStyles.Components.PaneInbox.filterButtonVerticalPadding)
+                .background(
+                    RoundedRectangle(cornerRadius: AppStyles.Components.PaneInbox.filterButtonCornerRadius)
+                        .fill(Color.white.opacity(AppStyles.General.Fill.hover))
+                )
+            }
+            .buttonStyle(.borderless)
+            .help(filterMode.helpText)
+
+            Divider()
+                .frame(height: AppStyles.Components.PaneInbox.headerSeparatorHeight)
+
             Button(action: onClose) {
                 Image(systemName: "xmark.circle.fill")
             }
@@ -93,8 +128,13 @@ struct PaneInboxNotificationPopover: View {
     private var relevantNotifications: [InboxNotification] {
         Self.relevantNotifications(
             paneIds: paneIds,
-            notifications: inboxAtom.notifications
+            notifications: inboxAtom.notifications,
+            filterMode: filterMode
         )
+    }
+
+    private var filterMode: PaneInboxNotificationFilterMode {
+        presentationAtom.filterMode(for: parentPaneId)
     }
 
     private var relevantNotificationIds: [UUID] {
@@ -138,6 +178,11 @@ struct PaneInboxNotificationPopover: View {
             items: Self.keyboardItems(for: relevantNotifications),
             preferredItemId: nil
         )
+    }
+
+    private func toggleFilterMode() {
+        presentationAtom.toggleFilterMode(for: parentPaneId)
+        repairSelection()
     }
 
     private func activate(notificationId: UUID) {
