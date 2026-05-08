@@ -44,7 +44,7 @@ enum AppStyles {
         }
 
         enum Typography {
-            // Dense overlay text, used only where text sits inside a tiny chrome affordance.
+            // Smallest readable label for dense chrome affordances.
             static let textXxs: CGFloat = 9
             static let textXs: CGFloat = 11
             static let textSm: CGFloat = 12
@@ -290,6 +290,12 @@ enum AppStyles {
             static let popoverWidth: CGFloat = 320
             static let popoverHeight: CGFloat = 400
             static let headerPadding: CGFloat = 12
+            static let headerControlSpacing: CGFloat = AppStyles.General.Spacing.standard
+            static let headerSeparatorHeight: CGFloat = AppStyles.General.Button.compact
+            static let filterButtonHorizontalPadding: CGFloat = AppStyles.General.Spacing.loose
+            static let filterButtonVerticalPadding: CGFloat = AppStyles.General.Spacing.tight
+            static let filterButtonCornerRadius: CGFloat = AppStyles.General.CornerRadius.button
+            static let filterButtonFontSize: CGFloat = AppStyles.General.Typography.textXs
             static let rowCornerRadius: CGFloat = AppStyles.General.CornerRadius.panel
             static let unreadBadgeFontSize: CGFloat = AppStyles.General.Typography.textXxs
             static let unreadBadgeHorizontalPadding: CGFloat = 4

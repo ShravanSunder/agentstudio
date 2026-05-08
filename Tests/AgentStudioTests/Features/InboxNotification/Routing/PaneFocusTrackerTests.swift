@@ -92,7 +92,55 @@ struct PaneFocusTrackerTests {
 
         let collected = await collect(from: tracker, expected: 2)
         #expect(collected == [paneA, paneB])
-        tracker.stop()
+        await tracker.stop()
+        attendedPane.stop()
+    }
+
+    @Test("traces attended-pane transitions without changing focus-gained stream")
+    func tracesAttendedPaneTransitions() async throws {
+        let tabLayout = WorkspaceTabLayoutAtom()
+        let windowLifecycle = WindowLifecycleAtom()
+        let managementLayer = ManagementLayerAtom()
+        let attendedPane = AttendedPaneAtom(
+            tabLayout: tabLayout,
+            windowLifecycle: windowLifecycle,
+            managementLayer: managementLayer
+        )
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
+                "AGENTSTUDIO_TRACE_NAME": "pane-focus-tracker",
+                "AGENTSTUDIO_TRACE_TAGS": "app.focus",
+            ]),
+            processIdentifier: 271,
+            sessionID: "pane-focus-session",
+            timeUnixNano: { 2002 }
+        )
+        let tracker = PaneFocusTracker(attendedPane: attendedPane, traceRuntime: traceRuntime)
+        let paneA = UUID()
+        let paneB = UUID()
+        let tab = makeTab(activePaneId: paneA, paneIds: [paneA, paneB])
+
+        tabLayout.appendTab(tab)
+        makeWindowKey(windowLifecycle)
+        await Task.yield()
+        tabLayout.setActivePane(paneB, inTab: tab.id)
+        await Task.yield()
+
+        let collected = await collect(from: tracker, expected: 2)
+        #expect(collected == [paneA, paneB])
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        await assertEventuallyMain("focus tracker should write attended-pane trace records") {
+            guard let contents = try? String(contentsOf: outputFileURL, encoding: .utf8) else {
+                return false
+            }
+            return contents.contains("\"body\":\"app.focus.attendedPaneChanged\"")
+                && contents.contains("\"agentstudio.app.focus.attended\":true")
+                && contents.contains("\"agentstudio.pane.id\":\"\(paneB.uuidString)\"")
+        }
+
+        await tracker.stop()
         attendedPane.stop()
     }
 
@@ -118,7 +166,7 @@ struct PaneFocusTrackerTests {
 
         let collected = await collect(from: tracker, expected: 2, maxIterations: 10)
         #expect(collected == [paneA])
-        tracker.stop()
+        await tracker.stop()
         attendedPane.stop()
     }
 
@@ -138,6 +186,12 @@ struct PaneFocusTrackerTests {
         await Task.yield()
 
         #expect(await waitsForStreamCompletion(from: tracker))
-        tracker.stop()
+        await tracker.stop()
+    }
+
+    private func temporaryTraceDirectoryURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-pane-focus-tracker-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
     }
 }

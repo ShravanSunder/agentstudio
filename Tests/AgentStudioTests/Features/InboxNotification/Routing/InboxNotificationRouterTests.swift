@@ -3,6 +3,28 @@ import Testing
 
 @testable import AgentStudio
 
+private struct TraceRecordFixture: Decodable {
+    let body: String
+    let attributes: [String: TraceAttributeFixture]
+}
+
+private enum TraceAttributeFixture: Decodable, Equatable {
+    case int(Int)
+    case string(String)
+    case other
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let value = try? container.decode(Int.self) {
+            self = .int(value)
+        } else if let value = try? container.decode(String.self) {
+            self = .string(value)
+        } else {
+            self = .other
+        }
+    }
+}
+
 @MainActor
 @Suite("InboxNotificationRouter routing contract", .serialized)
 struct InboxNotificationRouterTests {
@@ -17,9 +39,10 @@ struct InboxNotificationRouterTests {
         let attendedPane: AttendedPaneAtom
         let tracker: PaneFocusTracker
         let router: InboxNotificationRouter
+        let traceRuntime: AgentStudioTraceRuntime?
     }
 
-    private func makeFixture() async -> Fixture {
+    func makeFixture(traceRuntime: AgentStudioTraceRuntime? = nil) async -> Fixture {
         let bus = EventBus<RuntimeEnvelope>()
         let inboxAtom = InboxNotificationAtom()
         let prefsAtom = InboxNotificationPrefsAtom()
@@ -40,7 +63,8 @@ struct InboxNotificationRouterTests {
             paneAtom: paneAtom,
             tabLayout: tabLayout,
             attendedPane: attendedPane,
-            focusTracker: tracker
+            focusTracker: tracker,
+            traceRuntime: traceRuntime
         )
         await router.start()
 
@@ -54,17 +78,18 @@ struct InboxNotificationRouterTests {
             managementLayer: managementLayer,
             attendedPane: attendedPane,
             tracker: tracker,
-            router: router
+            router: router,
+            traceRuntime: traceRuntime
         )
     }
 
-    private func makeWindowKey(_ atom: WindowLifecycleAtom) {
+    func makeWindowKey(_ atom: WindowLifecycleAtom) {
         let id = UUID()
         atom.recordWindowRegistered(id)
         atom.recordWindowBecameKey(id)
     }
 
-    private func addTerminalPane(
+    func addTerminalPane(
         _ paneId: PaneId,
         to fixture: Fixture,
         repoId: UUID? = nil,
@@ -108,7 +133,7 @@ struct InboxNotificationRouterTests {
         return tab.id
     }
 
-    private func makePaneEnvelope(
+    func makePaneEnvelope(
         paneId: PaneId,
         event: PaneRuntimeEvent,
         seq: UInt64 = 1
@@ -123,13 +148,44 @@ struct InboxNotificationRouterTests {
         )
     }
 
-    private func waitForNotificationCount(
+    func waitForNotificationCount(
         _ count: Int,
         in fixture: Fixture,
         description: String
     ) async {
         await assertEventuallyMain(description) {
             fixture.inboxAtom.notifications.count == count
+        }
+    }
+
+    private func makeTraceRuntime(
+        name: String,
+        processIdentifier: Int32,
+        tags: String = "inbox"
+    ) -> AgentStudioTraceRuntime {
+        AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_DIR": temporaryTraceDirectoryURL().path,
+                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
+                "AGENTSTUDIO_TRACE_NAME": name,
+                "AGENTSTUDIO_TRACE_TAGS": tags,
+            ]),
+            processIdentifier: processIdentifier,
+            sessionID: "inbox-session",
+            timeUnixNano: { 1111 }
+        )
+    }
+
+    private func temporaryTraceDirectoryURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-inbox-router-trace-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+
+    private func traceRecords(in fileURL: URL) throws -> [TraceRecordFixture] {
+        let contents = try String(contentsOf: fileURL, encoding: .utf8)
+        return try contents.split(separator: "\n").map { line in
+            try JSONDecoder().decode(TraceRecordFixture.self, from: Data(line.utf8))
         }
     }
 
@@ -156,8 +212,211 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].title == "Done")
         #expect(fixture.inboxAtom.notifications[0].body == "exit 0")
         #expect(fixture.inboxAtom.notifications[0].paneId == paneId.uuid)
-        fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.router.stop()
+        await fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
+
+    @Test("missing pane context emits unresolved context trace before appending notification")
+    func missingPaneContextEmitsUnresolvedContextTrace() async throws {
+        let traceRuntime = makeTraceRuntime(name: "inbox-context-unresolved", processIdentifier: 272)
+        let fixture = await makeFixture(traceRuntime: traceRuntime)
+        let paneId = PaneId()
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.desktopNotificationRequested(title: "Done", body: "exit 0"))
+            )
+        )
+
+        await waitForNotificationCount(
+            1,
+            in: fixture,
+            description: "desktop notification should still append with unresolved context"
+        )
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        await fixture.router.stop()
+        await fixture.tracker.stop()
+        fixture.attendedPane.stop()
+
+        let records = try traceRecords(in: outputFileURL)
+        let unresolvedRecord = try #require(records.first { $0.body == "inbox.context.unresolved" })
+        #expect(unresolvedRecord.attributes["agentstudio.inbox.context.reason"] == .string("pane_not_found"))
+        #expect(
+            unresolvedRecord.attributes["agentstudio.runtime.event"]
+                == .string("terminal.desktopNotificationRequested")
+        )
+        #expect(fixture.inboxAtom.notifications[0].tabId == nil)
+        #expect(fixture.inboxAtom.notifications[0].repoId == nil)
+    }
+
+    @Test("inbox tracing records notify decisions and suppression reasons")
+    func inboxTracingRecordsNotifyDecisionsAndSuppressionReasons() async throws {
+        let traceRuntime = makeTraceRuntime(name: "inbox-decisions", processIdentifier: 260)
+        let fixture = await makeFixture(traceRuntime: traceRuntime)
+        let paneId = PaneId()
+        _ = addTerminalPane(paneId, to: fixture)
+
+        _ = await fixture.bus.post(makePaneEnvelope(paneId: paneId, event: .terminal(.bellRang)))
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.commandFinished(exitCode: 0, duration: 3)),
+                seq: 2
+            )
+        )
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.desktopNotificationRequested(title: "Done", body: "exit 0")),
+                seq: 3
+            )
+        )
+        await waitForNotificationCount(
+            1,
+            in: fixture,
+            description: "desktop notification should be routed after suppressions"
+        )
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        await assertEventuallyMain("inbox router should write decision and append traces") {
+            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+                .contains("\"body\":\"inbox.notification.appended\"") == true
+        }
+
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        let records = try traceRecords(in: outputFileURL)
+        let classifyRecords = records.filter { $0.body == "inbox.classify" }
+        #expect(classifyRecords.count == 3)
+        let matchedRecord = try #require(
+            classifyRecords.first {
+                $0.attributes["agentstudio.inbox.reason"] == .string("matched")
+            }
+        )
+        #expect(matchedRecord.attributes["agentstudio.inbox.decision"] == .string("notify"))
+        #expect(matchedRecord.attributes["agentstudio.inbox.kind"] == .string("agentDesktopNotification"))
+        #expect(
+            matchedRecord.attributes["agentstudio.runtime.event"] == .string("terminal.desktopNotificationRequested"))
+        #expect(matchedRecord.attributes["agentstudio.envelope.seq"] == .int(3))
+        #expect(contents.contains("\"body\":\"inbox.classify\""))
+        #expect(contents.contains("\"agentstudio.inbox.reason\":\"bell_disabled\""))
+        #expect(contents.contains("\"agentstudio.inbox.reason\":\"below_duration_threshold\""))
+        #expect(contents.contains("\"agentstudio.inbox.reason\":\"matched\""))
+        #expect(contents.contains("\"agentstudio.inbox.kind\":\"agentDesktopNotification\""))
+        #expect(contents.contains("\"agentstudio.inbox.global_unread_after\":1"))
+        await fixture.router.stop()
+        await fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
+
+    @Test("inbox router records eventbus delivery summaries without scrollbar spam")
+    func inboxRouterRecordsEventBusDeliverySummariesWithoutScrollbarSpam() async throws {
+        let traceRuntime = makeTraceRuntime(
+            name: "inbox-eventbus-delivery",
+            processIdentifier: 263,
+            tags: "eventbus"
+        )
+        let fixture = await makeFixture(traceRuntime: traceRuntime)
+        let paneId = PaneId()
+        _ = addTerminalPane(paneId, to: fixture)
+
+        _ = await fixture.bus.post(makePaneEnvelope(paneId: paneId, event: .terminal(.bellRang)))
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: 100))),
+                seq: 2
+            )
+        )
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        await assertEventuallyMain("inbox router should write eventbus delivery summary") {
+            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+                .contains("\"body\":\"eventbus.deliver\"") == true
+        }
+
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        let records = try traceRecords(in: outputFileURL)
+        let deliveryRecords = records.filter { $0.body == "eventbus.deliver" }
+        #expect(deliveryRecords.count == 1)
+        let deliveryAttributes = try #require(deliveryRecords.first?.attributes)
+        #expect(deliveryAttributes["agentstudio.eventbus.consumer"] == .string("InboxNotificationRouter"))
+        #expect(deliveryAttributes["agentstudio.eventbus.name"] == .string("paneRuntime"))
+        #expect(deliveryAttributes["agentstudio.eventbus.delivery"] == .string("consumed"))
+        #expect(deliveryAttributes["agentstudio.inbox.decision"] == .string("ignore"))
+        #expect(deliveryAttributes["agentstudio.inbox.reason"] == .string("bell_disabled"))
+        #expect(deliveryAttributes["agentstudio.runtime.event"] == .string("terminal.bellRang"))
+        #expect(deliveryAttributes["agentstudio.envelope.seq"] == .int(1))
+        #expect(contents.contains("\"agentstudio.eventbus.consumer\":\"InboxNotificationRouter\""))
+        #expect(contents.contains("\"agentstudio.eventbus.name\":\"paneRuntime\""))
+        #expect(contents.contains("\"agentstudio.eventbus.delivery\":\"consumed\""))
+        #expect(contents.contains("\"agentstudio.inbox.reason\":\"bell_disabled\""))
+        #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.bellRang\""))
+        #expect(contents.contains("\"agentstudio.runtime.event\":\"terminal.scrollbarChanged\"") == false)
+        await fixture.router.stop()
+        await fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
+
+    @Test("activity-only scrollbar ignores do not write inbox trace records")
+    func activityOnlyScrollbarIgnoresDoNotWriteInboxTraceRecords() async throws {
+        let traceRuntime = makeTraceRuntime(name: "inbox-scrollbar-ignore", processIdentifier: 261)
+        let fixture = await makeFixture(traceRuntime: traceRuntime)
+        let paneId = PaneId()
+        _ = addTerminalPane(paneId, to: fixture)
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: paneId,
+                event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: 100)))
+            )
+        )
+        await Task.yield()
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        #expect(FileManager.default.fileExists(atPath: outputFileURL.path) == false)
+        await fixture.router.stop()
+        await fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
+
+    @Test("focus gained trace records attention without marking pane notifications read")
+    func focusGainedTraceRecordsAttentionWithoutMarkingPaneNotificationsRead() async throws {
+        let traceRuntime = makeTraceRuntime(name: "inbox-focus-observed", processIdentifier: 262)
+        let fixture = await makeFixture(traceRuntime: traceRuntime)
+        let paneId = PaneId()
+        _ = addTerminalPane(paneId, to: fixture)
+
+        fixture.inboxAtom.append(
+            InboxNotification(
+                id: UUID(),
+                timestamp: Date(),
+                kind: .bellRang,
+                title: "Bell",
+                body: nil,
+                source: .pane(.init(paneId: paneId.uuid)),
+                isRead: false,
+                isDismissedFromPaneInbox: false
+            )
+        )
+
+        await Task.yield()
+        makeWindowKey(fixture.windowLifecycle)
+        await assertEventuallyMain("focus gain should write a pane attention trace") {
+            guard let outputFileURL = traceRuntime.outputFileURL else { return false }
+            return (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+                .contains("\"body\":\"inbox.focusGainedObservedPane\"") == true
+        }
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(contents.contains("\"agentstudio.inbox.unread_before\":1"))
+        #expect(contents.contains("\"agentstudio.inbox.unread_after\":1"))
+        #expect(fixture.inboxAtom.notifications[0].isRead == false)
+        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false)
+        await fixture.router.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -178,8 +437,8 @@ struct InboxNotificationRouterTests {
         )
         #expect(fixture.inboxAtom.notifications.count == 1)
         #expect(fixture.inboxAtom.notifications[0].kind == .bellRang)
-        fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.router.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -227,8 +486,8 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications.count == 1)
         #expect(fixture.inboxAtom.notifications[0].kind == .commandFinished)
         #expect(fixture.inboxAtom.notifications[0].paneId == unfocusedPaneId.uuid)
-        fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.router.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -257,8 +516,8 @@ struct InboxNotificationRouterTests {
         if fixture.inboxAtom.notifications.count == 1 {
             #expect(fixture.inboxAtom.notifications[0].kind == .commandFinished)
         }
-        fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.router.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -308,8 +567,8 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[1].kind == .securityEvent)
         #expect(fixture.inboxAtom.notifications[1].repoId == repoId)
         #expect(fixture.inboxAtom.notifications[1].worktreeId == worktreeId)
-        fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.router.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -367,7 +626,7 @@ struct InboxNotificationRouterTests {
             description: "healthy transition should arm only that pane's next unhealthy edge"
         )
 
-        fixture.router.stop()
+        await fixture.router.stop()
         await fixture.router.start()
         _ = await fixture.bus.post(
             makePaneEnvelope(
@@ -382,8 +641,8 @@ struct InboxNotificationRouterTests {
             description: "router restart should reset sandbox edge state"
         )
 
-        fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.router.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -441,8 +700,8 @@ struct InboxNotificationRouterTests {
 
         #expect(fixture.inboxAtom.notifications.map(\.kind) == [.terminalProgressError, .terminalProgressError])
         #expect(fixture.inboxAtom.notifications[0].body == "progress 80%")
-        fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.router.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -497,8 +756,8 @@ struct InboxNotificationRouterTests {
                 .terminalSecureInputRequested,
             ])
         #expect(fixture.inboxAtom.notifications[0].title == "Secure input requested")
-        fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.router.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -550,11 +809,15 @@ struct InboxNotificationRouterTests {
         #expect(
             fixture.inboxAtom.notifications.map(\.kind) == [.terminalRendererUnhealthy, .terminalRendererUnhealthy])
         #expect(fixture.inboxAtom.notifications[0].title == "Terminal renderer unhealthy")
-        fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.router.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
+}
+
+@MainActor
+extension InboxNotificationRouterTests {
     @Test("pane closed prunes edge detector state for reused pane identifiers")
     func paneClosedPrunesEdgeDetectorState() async {
         let fixture = await makeFixture()
@@ -599,13 +862,13 @@ struct InboxNotificationRouterTests {
                 .terminalRendererUnhealthy,
                 .terminalRendererUnhealthy,
             ])
-        fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.router.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
-    @Test("focus-gained marks pane notifications read and dismissed from drawer")
-    func focusGainedClearsUnread() async {
+    @Test("focus-gained keeps pane notifications unread until explicit activation")
+    func focusGainedKeepsPaneNotificationsUnreadUntilExplicitActivation() async {
         let fixture = await makeFixture()
         let paneId = PaneId()
         _ = addTerminalPane(paneId, to: fixture)
@@ -626,15 +889,15 @@ struct InboxNotificationRouterTests {
 
         await Task.yield()
         makeWindowKey(fixture.windowLifecycle)
-        await assertEventuallyMain("focus gain should mark pane notification read") {
-            fixture.inboxAtom.unreadCount(forPaneId: paneId.uuid) == 0
-                && fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox
+        await assertEventuallyMain("focus gain should mark pane attended") {
+            fixture.attendedPane.attendedPaneId == paneId.uuid
         }
 
-        #expect(fixture.inboxAtom.unreadCount(forPaneId: paneId.uuid) == 0)
-        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox)
-        fixture.router.stop()
-        fixture.tracker.stop()
+        #expect(fixture.inboxAtom.unreadCount(forPaneId: paneId.uuid) == 1)
+        #expect(fixture.inboxAtom.notifications[0].isRead == false)
+        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false)
+        await fixture.router.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
@@ -660,8 +923,8 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].kind == .agentRpc)
         #expect(fixture.inboxAtom.notifications[0].title == "Claude Code finished")
         #expect(fixture.inboxAtom.notifications[0].body == "3 files changed")
-        fixture.router.stop()
-        fixture.tracker.stop()
+        await fixture.router.stop()
+        await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 }

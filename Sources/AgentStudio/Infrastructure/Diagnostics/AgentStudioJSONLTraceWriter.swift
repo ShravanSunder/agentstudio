@@ -6,6 +6,13 @@ import Foundation
     import Glibc
 #endif
 
+struct AgentStudioTraceWriterDiagnostics: Equatable, Sendable {
+    static let empty = Self(failedFlushCount: 0, lastFlushErrorDescription: nil)
+
+    let failedFlushCount: Int
+    let lastFlushErrorDescription: String?
+}
+
 actor AgentStudioJSONLTraceWriter {
     private let fileURL: URL
     private let rotatedFileURL: URL
@@ -55,6 +62,13 @@ actor AgentStudioJSONLTraceWriter {
             recordFlushFailure(error)
             throw error
         }
+    }
+
+    func diagnostics() -> AgentStudioTraceWriterDiagnostics {
+        AgentStudioTraceWriterDiagnostics(
+            failedFlushCount: failedFlushCount,
+            lastFlushErrorDescription: lastFlushErrorDescription
+        )
     }
 
     private func flushBufferedLines() throws {

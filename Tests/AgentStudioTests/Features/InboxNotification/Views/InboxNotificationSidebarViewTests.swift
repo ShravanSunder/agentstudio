@@ -201,6 +201,54 @@ struct InboxNotificationSidebarViewTests {
 
         #expect(outcome == .focusPane(paneId.uuid))
     }
+
+    @Test("activation resolver focuses live drawer child pane rows")
+    func activationResolverFocusesLiveDrawerChildPane() {
+        let parentPaneId = UUIDv7.generate()
+        let drawerPaneId = UUIDv7.generate()
+        let notification = InboxNotification(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 100),
+            kind: .commandFinished,
+            title: "Done",
+            body: nil,
+            source: .pane(.init(paneId: drawerPaneId)),
+            isRead: false,
+            isDismissedFromPaneInbox: false
+        )
+        let workspacePaneAtom = WorkspacePaneAtom()
+        let parentPane = Pane(
+            id: parentPaneId,
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(
+                paneId: PaneId(uuid: parentPaneId),
+                contentType: .terminal,
+                source: .floating(launchDirectory: nil, title: nil),
+                title: "Parent"
+            ),
+            kind: .layout(drawer: Drawer(paneIds: [drawerPaneId], activeChildId: drawerPaneId))
+        )
+        let drawerPane = Pane(
+            id: drawerPaneId,
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: PaneMetadata(
+                paneId: PaneId(uuid: drawerPaneId),
+                contentType: .terminal,
+                source: .floating(launchDirectory: nil, title: nil),
+                title: "Drawer"
+            ),
+            kind: .drawerChild(parentPaneId: parentPaneId)
+        )
+        workspacePaneAtom.addPane(parentPane)
+        workspacePaneAtom.addPane(drawerPane)
+
+        let outcome = InboxSidebarActivationResolver.resolve(
+            notification: notification,
+            workspacePaneAtom: workspacePaneAtom
+        )
+
+        #expect(outcome == .focusPane(drawerPaneId))
+    }
 }
 
 @MainActor

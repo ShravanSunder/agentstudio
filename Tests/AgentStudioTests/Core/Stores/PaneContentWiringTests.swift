@@ -304,15 +304,35 @@ final class PaneContentWiringTests {
     @Test("flat pane missing host fallback distinguishes retired transitions from real slot bugs")
     func flatPaneMissingHostDisposition_distinguishesRetiredTransitions() {
         #expect(
-            PaneSegmentMissingHostDisposition.resolve(isRetired: true, isInitialRestorePending: false)
+            PaneSegmentMissingHostDisposition.resolve(
+                isRetired: true,
+                isInitialRestorePending: false,
+                isInactivePersistentTab: false
+            )
                 == .retiredTransition
         )
         #expect(
-            PaneSegmentMissingHostDisposition.resolve(isRetired: false, isInitialRestorePending: true)
+            PaneSegmentMissingHostDisposition.resolve(
+                isRetired: false,
+                isInitialRestorePending: true,
+                isInactivePersistentTab: false
+            )
                 == .deferredInitialRestore
         )
         #expect(
-            PaneSegmentMissingHostDisposition.resolve(isRetired: false, isInitialRestorePending: false)
+            PaneSegmentMissingHostDisposition.resolve(
+                isRetired: false,
+                isInitialRestorePending: false,
+                isInactivePersistentTab: true
+            )
+                == .deferredInactiveTabRestore
+        )
+        #expect(
+            PaneSegmentMissingHostDisposition.resolve(
+                isRetired: false,
+                isInitialRestorePending: false,
+                isInactivePersistentTab: false
+            )
                 == .unexpectedMissingHost
         )
     }

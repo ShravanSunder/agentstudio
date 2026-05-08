@@ -60,7 +60,7 @@ struct TerminalActivitySnapshot: Equatable, Sendable {
 final class TerminalActivityAtom {
     private(set) var snapshotsByPaneId: [UUID: TerminalActivitySnapshot] = [:]
 
-    private let outputBurstThreshold: Int
+    let outputBurstThreshold: Int
     private let recentURLLimit: Int
 
     init(

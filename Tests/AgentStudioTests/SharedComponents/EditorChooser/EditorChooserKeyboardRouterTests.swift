@@ -87,7 +87,7 @@ struct EditorChooserKeyboardRouterTests {
     }
 
     @Test
-    func outOfRangeDigit_consumesWithoutSelection() {
+    func outOfRangeDigit_passesThroughWithoutSelection() {
         guard
             let event = makeKeyEvent(
                 characters: "9",
@@ -106,7 +106,7 @@ struct EditorChooserKeyboardRouterTests {
             matchesAdditionalDismissShortcut: { _ in false }
         )
 
-        #expect(action == .consume)
+        #expect(action == .passthrough)
     }
 
     @Test

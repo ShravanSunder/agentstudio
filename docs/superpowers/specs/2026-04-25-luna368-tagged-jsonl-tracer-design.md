@@ -1,6 +1,6 @@
 # LUNA-368 Tagged JSONL Tracer Design Spec
 
-**Status:** Draft design spec. Do not execute until reviewed.
+**Status:** SP1a implemented on `main`. SP1b and later backend/exporter work remain design material.
 
 **Linear:** [LUNA-368](https://linear.app/askluna/issue/LUNA-368/debugging-harness-tagged-jsonl-tracer-debug-overlays-headless)
 
@@ -35,7 +35,7 @@ SP1a includes:
 - Stable Agent Studio JSONL exporter schema: top-level keys, `agentstudio.*` namespace, resource fields, `time_unix_nano`, and trace/span/log-like event vocabulary.
 - Propagation pattern established through one non-UI diagnostic flow that crosses at least one async boundary.
 - Local JSONL file writer, ring buffer, explicit flush, rotation, env-var control, and per-run files.
-- One local JSONL record proof on disk with trace ID, span ID, resource, scope, and attributes.
+- One local JSONL record proof on disk with resource, scope, attributes, and domain correlation IDs. `trace_id` and `span_id` are optional in JSONL-only mode and must not be faked by creating no-op spans.
 - One generic trace triage script that can list recent traces or inspect a trace by correlation ID/tag.
 
 SP1a does not require direct OpenTelemetry Collector ingestion and does not write OTLP JSON. It preserves the OTel-shaped internal vocabulary so an OTLP file exporter or OTLP network exporter can be added later as another sink without redesigning the tracing model.
@@ -135,14 +135,21 @@ restore
   Existing RestoreTrace content migrated under this tag.
 ```
 
+Consumer tags added by LUNA-361 on top of the tracer foundation:
+
+```
+app.focus
+inbox
+paneInbox
+terminal.activity
+ui.interaction
+ui.surface
+```
+
 Reserved later tags:
 
 ```
 drag
-app.focus
-inbox
-ui.surface
-terminal.activity
 drawer
 style
 ```
@@ -197,7 +204,7 @@ This is the app-local Agent Studio JSONL exporter shape. It serializes tracing r
 {
   "time_unix_nano": 1777134723123000000,
   "severity_text": "INFO",
-  "body": "eventbus.post",
+  "body": "eventbus.deliver",
   "trace_id": "01JSP7V3Q6DJT4R5J3BMK6Y2QE",
   "span_id": "01JSP7V3Q6A1B2C3D4E5F6G7H8",
   "parent_span_id": "01JSP7V3Q66RUNTIME00000001",
@@ -213,7 +220,7 @@ This is the app-local Agent Studio JSONL exporter shape. It serializes tracing r
     "agentstudio.trace.name": "runtime-envelope-smoke",
     "agentstudio.trace.tag": "eventbus",
     "agentstudio.session.id": "01JSP7V3Q6SESSION",
-    "event.name": "eventbus.post",
+    "event.name": "eventbus.deliver",
     "envelope.seq": 441
   }
 }

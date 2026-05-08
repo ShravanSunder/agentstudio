@@ -6,8 +6,67 @@ import Testing
 @MainActor
 @Suite("PaneInboxPresentation")
 struct PaneInboxPresentationTests {
+    @Test("pane inbox scope resolves parent panes to parent plus drawer children")
+    func paneInboxScopeResolvesParentPane() throws {
+        let parentPaneId = UUIDv7.generate()
+        let firstDrawerPaneId = UUIDv7.generate()
+        let secondDrawerPaneId = UUIDv7.generate()
+        let panes = makePaneLookup(
+            parentPaneId: parentPaneId,
+            drawerPaneIds: [firstDrawerPaneId, secondDrawerPaneId]
+        )
+
+        let scope = PaneInboxScopeResolver.resolve(
+            anchorPaneId: parentPaneId,
+            pane: { panes[$0] }
+        )
+
+        #expect(scope.parentPaneId == parentPaneId)
+        #expect(scope.paneIds == [parentPaneId, firstDrawerPaneId, secondDrawerPaneId])
+    }
+
+    @Test("pane inbox scope resolves drawer child panes to parent plus sibling drawer children")
+    func paneInboxScopeResolvesDrawerChildPane() throws {
+        let parentPaneId = UUIDv7.generate()
+        let firstDrawerPaneId = UUIDv7.generate()
+        let secondDrawerPaneId = UUIDv7.generate()
+        let panes = makePaneLookup(
+            parentPaneId: parentPaneId,
+            drawerPaneIds: [firstDrawerPaneId, secondDrawerPaneId]
+        )
+
+        let scope = PaneInboxScopeResolver.resolve(
+            anchorPaneId: firstDrawerPaneId,
+            pane: { panes[$0] }
+        )
+
+        #expect(scope.parentPaneId == parentPaneId)
+        #expect(scope.paneIds == [parentPaneId, firstDrawerPaneId, secondDrawerPaneId])
+    }
+
+    @Test("pane inbox requests match semantically identical scopes regardless of pane-id ordering")
+    func paneInboxRequestMatchesScopeBySetIdentity() {
+        let parentPaneId = UUIDv7.generate()
+        let firstDrawerPaneId = UUIDv7.generate()
+        let secondDrawerPaneId = UUIDv7.generate()
+        let request = PaneInboxRequest(
+            id: UUIDv7.generate(),
+            parentPaneId: parentPaneId,
+            paneIds: [parentPaneId, firstDrawerPaneId, secondDrawerPaneId],
+            intent: .open
+        )
+
+        #expect(
+            request.matches(
+                parentPaneId: parentPaneId,
+                paneIds: [secondDrawerPaneId, parentPaneId, firstDrawerPaneId]
+            )
+        )
+        #expect(!request.matches(parentPaneId: UUIDv7.generate(), paneIds: request.paneIds))
+    }
+
     @Test("trailing actions inject pane inbox unread count and preserve existing actions")
-    func trailingActionsInjectUnreadCount() {
+    func trailingActionsInjectUnreadBadgeAndPreserveExistingActions() {
         let parentPaneId = UUID()
         let drawerChildPaneId = UUID()
         let paneIds = [parentPaneId, drawerChildPaneId]
@@ -31,7 +90,8 @@ struct PaneInboxPresentationTests {
             setPresented: { _, _, _ in },
             pendingRequest: { nil },
             clearRequest: { _ in },
-            popoverContent: { _, _ in AnyView(EmptyView()) }
+            popoverContent: { _, _, _ in AnyView(EmptyView()) },
+            pruneFilterModes: { _ in }
         )
         var isPopoverPresented = false
 
@@ -47,7 +107,7 @@ struct PaneInboxPresentationTests {
 
         #expect(actions.canOpenTarget == true)
         #expect(actions.buttonTitle == "Cursor")
-        #expect(actions.inboxUnreadCount == 1)
+        #expect(actions.inboxUnreadBadge?.text == "1")
         #expect(actions.inboxPopoverContent != nil)
 
         actions.inboxPopoverPresented.wrappedValue = true
@@ -59,5 +119,36 @@ struct PaneInboxPresentationTests {
         actions.onOpenInbox?()
         #expect(openedParentPaneId == parentPaneId)
         #expect(openedPaneIds == paneIds)
+    }
+
+    @Test("pane inbox badge caps visible count instead of overstating the popover")
+    func paneInboxBadgeCapsVisibleCountInsteadOfOverstatingPopover() {
+        let badge = PaneInboxUnreadBadge(
+            unreadCount: AppPolicies.PaneInbox.maxVisibleNotifications + 5
+        )
+
+        #expect(badge?.text == "\(AppPolicies.PaneInbox.maxVisibleNotifications)+")
+    }
+
+    private func makePaneLookup(
+        parentPaneId: UUID,
+        drawerPaneIds: [UUID]
+    ) -> [UUID: Pane] {
+        var drawer = Drawer()
+        drawer.paneIds = drawerPaneIds
+
+        var parentPane = makePane(id: parentPaneId, title: "Parent")
+        parentPane.kind = .layout(drawer: drawer)
+        let drawerPanes = drawerPaneIds.map { drawerPaneId in
+            var drawerPane = makePane(id: drawerPaneId, title: "Drawer")
+            drawerPane.kind = .drawerChild(parentPaneId: parentPaneId)
+            return drawerPane
+        }
+
+        return Dictionary(
+            uniqueKeysWithValues: ([parentPane] + drawerPanes).map { pane in
+                (pane.id, pane)
+            }
+        )
     }
 }

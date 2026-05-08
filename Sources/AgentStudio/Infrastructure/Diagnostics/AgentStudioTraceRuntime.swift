@@ -132,6 +132,10 @@ struct AgentStudioTraceRuntime: Sendable {
         try await writer?.flush()
     }
 
+    func diagnostics() async -> AgentStudioTraceWriterDiagnostics {
+        await writer?.diagnostics() ?? .empty
+    }
+
     private static func resourceAttributes(
         serviceName: String,
         serviceVersion: String?,

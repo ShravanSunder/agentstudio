@@ -13,10 +13,10 @@ extension SurfaceManager: GhosttyActionRoutingLookup {}
 typealias GhosttyActionRoutingLookupProvider = @MainActor () -> any GhosttyActionRoutingLookup
 
 extension Ghostty {
-    /// Owns Ghostty action-tag handling and routes surface-scoped actions into
-    /// SurfaceManager and TerminalRuntime on the main actor.
+    /// Owns Ghostty action-tag handling, host-side suppression, and trace emission.
     enum ActionRouter {
         @MainActor private static var runtimeRegistryOverride: RuntimeRegistry = .shared
+        static let actionTraceQueueStore = GhosttyActionTraceQueueStore()
         static let explicitlyRoutedTags: Set<GhosttyActionTag> = [
             .newTab,
             .ringBell,
@@ -109,9 +109,24 @@ extension Ghostty {
         ) -> Bool {
             let rawActionTag = UInt32(truncatingIfNeeded: action.tag.rawValue)
             guard let actionTag = GhosttyActionTag(rawValue: rawActionTag) else {
+                traceGhosttyAction(
+                    body: "ghostty.action.received",
+                    actionTag: rawActionTag,
+                    signalClass: .unhandled,
+                    routeResult: false,
+                    reason: "unknown_action"
+                )
                 logUnknownAction(actionTag: rawActionTag, target: target, routingLookupProvider: routingLookupProvider)
                 return false
             }
+
+            traceGhosttyAction(
+                body: "ghostty.action.received",
+                actionTag: rawActionTag,
+                signalClass: signalClass(for: actionTag),
+                routeResult: nil,
+                reason: nil
+            )
 
             if interceptedTags.contains(actionTag) {
                 return handleInterceptedAction(actionTag)
@@ -553,6 +568,20 @@ extension Ghostty {
         }
 
         @MainActor
+        static func bindTraceRuntime(_ runtime: AgentStudioTraceRuntime?) {
+            actionTraceQueueStore.bind(runtime)
+        }
+
+        @MainActor
+        static func drainTraceRuntimeForActionRouting() async {
+            do {
+                try await actionTraceQueueStore.drain()
+            } catch {
+                ghosttyLogger.warning("Ghostty action trace drain failed: \(error.localizedDescription)")
+            }
+        }
+
+        @MainActor
         static var runtimeRegistryForActionRouting: RuntimeRegistry {
             runtimeRegistryOverride
         }
@@ -661,8 +690,8 @@ extension Ghostty {
             }
 
             let surfaceViewObjectId = ObjectIdentifier(resolvedSurfaceView)
-            // Returning `true` here preserves Ghostty's synchronous "handled" contract
-            // while the actual runtime delivery completes on MainActor.
+            // Preserve Ghostty's synchronous handled contract while the actual runtime
+            // delivery completes on MainActor.
             Task { @MainActor [weak resolvedSurfaceView] in
                 if let resolvedSurfaceView {
                     updateSurfaceHostCache(
@@ -729,14 +758,41 @@ extension Ghostty {
             routingLookup: any GhosttyActionRoutingLookup
         ) -> Bool {
             guard let surfaceId = routingLookup.surfaceId(forViewObjectId: surfaceViewObjectId) else {
+                traceGhosttyAction(
+                    body: "ghostty.action.dropped",
+                    actionTag: actionTag,
+                    payload: payload,
+                    signalClass: .unhandled,
+                    routeResult: false,
+                    reason: "surface_not_registered"
+                )
                 ghosttyLogger.warning("Dropped action tag \(actionTag): surface not registered in SurfaceManager")
                 return false
             }
             guard let paneUUID = routingLookup.paneId(for: surfaceId) else {
+                traceGhosttyAction(
+                    body: "ghostty.action.dropped",
+                    actionTag: actionTag,
+                    payload: payload,
+                    surfaceId: surfaceId,
+                    signalClass: .unhandled,
+                    routeResult: false,
+                    reason: "pane_not_mapped"
+                )
                 ghosttyLogger.warning("Dropped action tag \(actionTag): no pane mapped for surface \(surfaceId)")
                 return false
             }
             guard UUIDv7.isV7(paneUUID) else {
+                traceGhosttyAction(
+                    body: "ghostty.action.dropped",
+                    actionTag: actionTag,
+                    payload: payload,
+                    paneId: paneUUID,
+                    surfaceId: surfaceId,
+                    signalClass: .unhandled,
+                    routeResult: false,
+                    reason: "pane_id_not_uuid_v7"
+                )
                 ghosttyLogger.warning(
                     "Dropped action tag \(actionTag): mapped pane id is not UUID v7 \(paneUUID.uuidString, privacy: .public)"
                 )
@@ -754,11 +810,33 @@ extension Ghostty {
             }
 
             guard let runtime else {
+                traceGhosttyAction(
+                    body: "ghostty.action.dropped",
+                    actionTag: actionTag,
+                    payload: payload,
+                    paneId: paneUUID,
+                    surfaceId: surfaceId,
+                    signalClass: .unhandled,
+                    routeResult: false,
+                    reason: "runtime_not_found"
+                )
                 ghosttyLogger.warning(
                     "Dropped action tag \(actionTag): terminal runtime not found for pane \(paneUUID)")
                 return false
             }
 
+            let event = GhosttyAdapter.shared.translate(actionTag: actionTag, payload: payload)
+            traceGhosttyAction(
+                body: "ghostty.action.translated",
+                actionTag: actionTag,
+                payload: payload,
+                event: event,
+                paneId: paneUUID,
+                surfaceId: surfaceId,
+                signalClass: signalClass(for: event, fallbackActionTag: actionTag),
+                routeResult: true,
+                reason: nil
+            )
             GhosttyAdapter.shared.route(
                 actionTag: actionTag,
                 payload: payload,

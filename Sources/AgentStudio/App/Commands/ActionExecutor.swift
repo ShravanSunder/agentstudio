@@ -88,8 +88,8 @@ final class ActionExecutor {
         coordinator.undoCloseTab()
     }
 
-    func restoreVisibleViewsForActiveTabIfNeeded() {
-        coordinator.restoreViewsForActiveTabIfNeeded()
+    func restoreVisibleViewsForActiveTabIfNeeded(forceWhenBoundsExist: Bool = false) {
+        coordinator.restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: forceWhenBoundsExist)
     }
 
     private func drawerParentByPaneId() -> [UUID: UUID] {

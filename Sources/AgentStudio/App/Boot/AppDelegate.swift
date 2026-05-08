@@ -22,6 +22,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var pendingPersistenceRecoveryEvents: [PersistenceRecoveryEvent] = []
     var hasLoadedInboxNotificationStore = false
     var terminalActivityRouter: TerminalActivityRouter!
+    var traceRuntime: AgentStudioTraceRuntime!
     var repoCacheStore: RepoCacheStore!
     var sidebarCacheStore: SidebarCacheStore!
     var uiStateStore: UIStateStore!
@@ -117,7 +118,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         )
         inboxNotificationAtom = InboxNotificationAtom()
         inboxNotificationPrefsAtom = InboxNotificationPrefsAtom()
-        paneInboxNotificationPresenter = PaneInboxNotificationPresenter()
+        traceRuntime = .fromEnvironment()
+        paneInboxNotificationPresenter = PaneInboxNotificationPresenter(traceRuntime: traceRuntime)
+        Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
         store.restore()
         managementLayerMonitor = ManagementLayerMonitor()
         appLifecycleStore = AppLifecycleAtom()

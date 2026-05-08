@@ -1,8 +1,14 @@
 import AppKit
 import SwiftUI
+import os.log
+
+private let selectablePopoverKeyboardBridgeLogger = Logger(
+    subsystem: "com.agentstudio",
+    category: "SelectablePopoverKeyboardBridge"
+)
 
 struct SelectablePopoverAuxiliaryAction<ItemID: Hashable> {
-    let key: String
+    let key: Character
     let perform: @MainActor (ItemID) -> Void
 }
 
@@ -27,7 +33,12 @@ struct SelectablePopoverKeyboardBridge<ItemID: Hashable>: NSViewRepresentable {
         // re-entering state observers while the representable is refreshing.
         Task { @MainActor [weak nsView] in
             guard let nsView, nsView.window?.firstResponder !== nsView else { return }
-            nsView.window?.makeFirstResponder(nsView)
+            guard nsView.window?.makeFirstResponder(nsView) == true else {
+                selectablePopoverKeyboardBridgeLogger.warning(
+                    "Selectable popover failed to become first responder"
+                )
+                return
+            }
         }
     }
 
