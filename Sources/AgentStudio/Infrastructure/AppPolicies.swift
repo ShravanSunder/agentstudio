@@ -2,8 +2,16 @@ import CoreGraphics
 import Foundation
 
 enum AppPolicies {
+    enum Diagnostics {
+        static let traceEventQueueBufferLimit: Int = 4096
+    }
+
     enum SelectablePopover {
         static let maxNumberedShortcuts: Int = 9
+    }
+
+    enum PaneInbox {
+        static let maxVisibleNotifications: Int = 25
     }
 
     enum WorkspaceFocus {

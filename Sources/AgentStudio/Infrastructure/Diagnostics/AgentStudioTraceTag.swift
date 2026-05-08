@@ -7,12 +7,18 @@ struct AgentStudioTraceTagSelection: Equatable, Sendable {
 
 enum AgentStudioTraceTag: String, CaseIterable, Codable, Sendable {
     case actions
+    case appFocus = "app.focus"
     case atoms
     case drag
     case eventbus
+    case inbox
+    case paneInbox
     case restore
     case runtime
     case surface
+    case terminalActivity = "terminal.activity"
+    case uiInteraction = "ui.interaction"
+    case uiSurface = "ui.surface"
 
     static func parseList(_ rawValue: String?) -> Set<Self> {
         parseSelection(rawValue).tags
@@ -53,8 +59,11 @@ enum AgentStudioTraceTag: String, CaseIterable, Codable, Sendable {
     private static func tags(matching selector: String) -> [Self] {
         if selector.hasSuffix(".*") {
             let prefix = selector.dropLast(2)
-            return Self.allCases.filter { $0.rawValue == prefix || $0.rawValue.hasPrefix("\(prefix).") }
+            return Self.allCases.filter {
+                let rawValue = $0.rawValue.lowercased()
+                return rawValue == prefix || rawValue.hasPrefix("\(prefix).")
+            }
         }
-        return Self.allCases.filter { $0.rawValue == selector }
+        return Self.allCases.filter { $0.rawValue.lowercased() == selector }
     }
 }

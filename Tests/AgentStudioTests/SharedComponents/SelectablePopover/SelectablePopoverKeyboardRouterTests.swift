@@ -159,7 +159,7 @@ struct SelectablePopoverKeyboardRouterTests {
     }
 
     @Test
-    func missingShortcutNumber_consumesDigit() {
+    func missingShortcutNumber_passthroughsDigit() {
         guard
             let event = makeKeyEvent(
                 characters: "9",
@@ -180,7 +180,65 @@ struct SelectablePopoverKeyboardRouterTests {
             matchesAdditionalDismissShortcut: { _ in false }
         )
 
-        #expect(action == .consume)
+        #expect(action == .passthrough)
+    }
+
+    @Test
+    func modifiedReturn_passthroughs() {
+        guard let event = makeKeyEvent(modifierFlags: .command, keyCode: 36) else {
+            Issue.record("Expected synthetic key event")
+            return
+        }
+
+        let action = SelectablePopoverKeyboardRouter.action(
+            for: event,
+            items: items,
+            selectedItemId: "first",
+            matchesAdditionalDismissShortcut: { _ in false }
+        )
+
+        #expect(action == .passthrough)
+    }
+
+    @Test
+    func modifiedShortcutNumber_passthroughs() {
+        guard
+            let event = makeKeyEvent(
+                modifierFlags: .command,
+                characters: "1",
+                charactersIgnoringModifiers: "1",
+                keyCode: 18
+            )
+        else {
+            Issue.record("Expected synthetic key event")
+            return
+        }
+
+        let action = SelectablePopoverKeyboardRouter.action(
+            for: event,
+            items: items,
+            selectedItemId: "first",
+            matchesAdditionalDismissShortcut: { _ in false }
+        )
+
+        #expect(action == .passthrough)
+    }
+
+    @Test
+    func modifiedArrow_passthroughs() {
+        guard let event = makeKeyEvent(modifierFlags: .shift, keyCode: 125) else {
+            Issue.record("Expected synthetic key event")
+            return
+        }
+
+        let action = SelectablePopoverKeyboardRouter.action(
+            for: event,
+            items: items,
+            selectedItemId: "first",
+            matchesAdditionalDismissShortcut: { _ in false }
+        )
+
+        #expect(action == .passthrough)
     }
 
     @Test

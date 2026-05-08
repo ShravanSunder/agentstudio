@@ -85,6 +85,7 @@ struct FlatTabStripContainer: View {
     var body: some View {
         GeometryReader { tabGeometry in
             let containerBounds = CGRect(origin: .zero, size: tabGeometry.size)
+            let isInactivePersistentTab = store.tabLayoutAtom.activeTabId != tabId
             let showMinimizedBars = managementLayer.isActive || atom(\.uiState).showMinimizedBars
             let effectiveCollapsedWidth: CGFloat = showMinimizedBars ? CollapsedPaneBar.barWidth : 0
             let expandedDrawerParentPaneId = DrawerDragOwnershipPolicy.expandedDrawerParentPaneId(
@@ -165,6 +166,7 @@ struct FlatTabStripContainer: View {
                         viewRegistry: viewRegistry,
                         coordinateSpaceName: "tabContainer",
                         useDrawerFramePreference: false,
+                        isInactivePersistentTab: isInactivePersistentTab,
                         paneInboxPresentation: paneInboxPresentation,
                         onOpenPaneGitHub: onOpenPaneGitHub
                     )

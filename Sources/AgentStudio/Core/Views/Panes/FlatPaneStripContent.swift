@@ -5,15 +5,19 @@ private let flatPaneStripLogger = Logger(subsystem: "com.agentstudio", category:
 
 enum PaneSegmentMissingHostDisposition: Equatable {
     case deferredInitialRestore
+    case deferredInactiveTabRestore
     case retiredTransition
     case unexpectedMissingHost
 
-    static func resolve(isRetired: Bool, isInitialRestorePending: Bool) -> Self {
+    static func resolve(isRetired: Bool, isInitialRestorePending: Bool, isInactivePersistentTab: Bool) -> Self {
         if isRetired {
             return .retiredTransition
         }
         if isInitialRestorePending {
             return .deferredInitialRestore
+        }
+        if isInactivePersistentTab {
+            return .deferredInactiveTabRestore
         }
         return .unexpectedMissingHost
     }
@@ -34,6 +38,7 @@ struct FlatPaneStripContent: View {
     let viewRegistry: ViewRegistry
     let coordinateSpaceName: String?
     let useDrawerFramePreference: Bool
+    let isInactivePersistentTab: Bool
     let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
     @State private var isSplitResizing = false
@@ -89,6 +94,7 @@ struct FlatPaneStripContent: View {
                             isSplitResizing: isSplitResizing,
                             coordinateSpaceName: coordinateSpaceName,
                             useDrawerFramePreference: useDrawerFramePreference,
+                            isInactivePersistentTab: isInactivePersistentTab,
                             paneInboxPresentation: paneInboxPresentation,
                             onOpenPaneGitHub: onOpenPaneGitHub,
                             viewRegistry: viewRegistry,
@@ -132,6 +138,7 @@ private struct PaneSegmentSlotView: View {
     let isSplitResizing: Bool
     let coordinateSpaceName: String?
     let useDrawerFramePreference: Bool
+    let isInactivePersistentTab: Bool
     let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
     let viewRegistry: ViewRegistry
@@ -171,9 +178,13 @@ private struct PaneSegmentSlotView: View {
         } else {
             switch PaneSegmentMissingHostDisposition.resolve(
                 isRetired: viewRegistry.isRetired(for: segment.paneId),
-                isInitialRestorePending: viewRegistry.isInitialRestorePending
+                isInitialRestorePending: viewRegistry.isInitialRestorePending,
+                isInactivePersistentTab: isInactivePersistentTab
             ) {
             case .deferredInitialRestore:
+                Color.clear
+
+            case .deferredInactiveTabRestore:
                 Color.clear
 
             case .retiredTransition:

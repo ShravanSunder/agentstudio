@@ -179,6 +179,7 @@ struct DrawerPanel: View {
             viewRegistry: viewRegistry,
             coordinateSpaceName: Self.drawerDropCoordinateSpace,
             useDrawerFramePreference: true,
+            isInactivePersistentTab: false,
             paneInboxPresentation: paneInboxPresentation,
             onOpenPaneGitHub: onOpenPaneGitHub
         )

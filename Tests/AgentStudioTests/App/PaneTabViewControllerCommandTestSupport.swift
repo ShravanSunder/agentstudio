@@ -98,7 +98,8 @@ func makePaneTabViewControllerCommandHarness(
             clearRequest: { request in
                 paneInboxPresenter.clearRequest(request)
             },
-            popoverContent: { _, _ in AnyView(EmptyView()) }
+            popoverContent: { _, _, _ in AnyView(EmptyView()) },
+            pruneFilterModes: { _ in }
         ),
         installedEditorTargetsProvider: { [.cursor, .vscode] },
         openEditorHandler: { editorId, path, _ in

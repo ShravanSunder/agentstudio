@@ -34,12 +34,56 @@ struct AgentStudioTraceConfigurationTests {
     }
 
     @Test
+    func notificationObservabilityConsumerTagsParseFromSmokeSelector() {
+        let configuration = AgentStudioTraceConfiguration.from(environment: [
+            "AGENTSTUDIO_TRACE_TAGS":
+                "app.focus,runtime,eventbus,terminal.activity,inbox,ui.surface,ui.interaction,paneInbox"
+        ])
+
+        #expect(configuration.unknownTagSelectors.isEmpty)
+        #expect(configuration.isEnabled(.appFocus))
+        #expect(configuration.isEnabled(.runtime))
+        #expect(configuration.isEnabled(.eventbus))
+        #expect(configuration.isEnabled(.terminalActivity))
+        #expect(configuration.isEnabled(.inbox))
+        #expect(configuration.isEnabled(.uiSurface))
+        #expect(configuration.isEnabled(.uiInteraction))
+        #expect(configuration.isEnabled(.paneInbox))
+    }
+
+    @Test
     func wildcardEnablesAllKnownTags() {
         let configuration = AgentStudioTraceConfiguration.from(environment: [
             "AGENTSTUDIO_TRACE_TAGS": "*"
         ])
 
         #expect(configuration.enabledTags == Set(AgentStudioTraceTag.allCases))
+    }
+
+    @Test
+    func tagSelectionTreatsNilEmptyAndOffAsDisabled() {
+        #expect(AgentStudioTraceTag.parseSelection(nil).tags.isEmpty)
+        #expect(AgentStudioTraceTag.parseSelection("").tags.isEmpty)
+        #expect(AgentStudioTraceTag.parseSelection("  off  ").tags.isEmpty)
+        #expect(AgentStudioTraceTag.parseSelection(nil).unknownSelectors.isEmpty)
+        #expect(AgentStudioTraceTag.parseSelection("").unknownSelectors.isEmpty)
+        #expect(AgentStudioTraceTag.parseSelection("  off  ").unknownSelectors.isEmpty)
+    }
+
+    @Test
+    func tagSelectionSupportsPrefixWildcards() {
+        let selection = AgentStudioTraceTag.parseSelection("terminal.*")
+
+        #expect(selection.tags == [.terminalActivity])
+        #expect(selection.unknownSelectors.isEmpty)
+    }
+
+    @Test
+    func tagSelectionKeepsMixedKnownAndUnknownSelectors() {
+        let selection = AgentStudioTraceTag.parseSelection(" Runtime, paneInbox, missing.tag ")
+
+        #expect(selection.tags == [.runtime, .paneInbox])
+        #expect(selection.unknownSelectors == ["missing.tag"])
     }
 
     @Test
