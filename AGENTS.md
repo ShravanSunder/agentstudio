@@ -142,10 +142,11 @@ Swift compile times are long. A wrong UX assumption wastes minutes per iteration
 
 ### Visual Verification
 
-Agents **must** visually verify all UI/UX changes using Peekaboo. **Never target apps by name** when testing debug builds — use PID targeting. **Never `pkill` AgentStudio** — it kills the user's running app. Each agent session builds to its own `.build-agent-$PPID/` directory; launch from there:
+Agents **must** visually verify all UI/UX changes using Peekaboo. **Never target apps by name** when testing debug builds — use PID targeting. **Never `pkill` AgentStudio** — it kills the user's running app. The build dir is auto-allocated by `mise run build` (see [Running Swift Commands — Detail](#running-swift-commands--detail)); locate the binary and launch from there:
 
 ```bash
-BUILD_PATH=".build-agent-$PPID"
+mise run build                              # claims a slot, prints "[swift-build-slot] using .build-agent-N"
+BUILD_PATH=$(ls -dt .build-agent-*/debug/AgentStudio 2>/dev/null | head -1 | xargs dirname | xargs dirname)
 "$BUILD_PATH/debug/AgentStudio" &
 PID=$!
 peekaboo see --app "PID:$PID" --json
@@ -379,23 +380,29 @@ See [EventBus Design — Swift 6.2 concurrency rules](docs/architecture/pane_run
 
 **Always use `mise run` for build and test.** Mise tasks handle the WebKit serialized test split, benchmark mode, and build path isolation.
 
-**For filtered test runs:**
+**For filtered test runs:** prefer mise (it allocates a slot for you):
 ```bash
-swift test --build-path ".build-agent-$PPID" --filter "CommandBarState" > /tmp/test-output.txt 2>&1 && echo "PASS" || echo "FAIL"
+mise run test -- --filter "CommandBarState"
+```
+If you must invoke `swift test` directly, source the slot helper first so you don't collide with another agent's build dir:
+```bash
+source scripts/swift-build-slot.sh debug
+swift test --build-path "$SWIFT_BUILD_DIR" --filter "CommandBarState"
 ```
 
 | Env Var | Default | Purpose |
 |---------|---------|---------|
-| `SWIFT_BUILD_DIR` | `.build-agent-$PPID` | Build path isolation — auto-derived from parent process ID, stable per agent session |
+| `SWIFT_BUILD_DIR` | auto-allocated `.build-agent-{1..4}` via `scripts/swift-build-slot.sh` | Helper claims the first slot whose `.slot-claim` dir doesn't exist (atomic `mkdir`). Pin to a specific slot to override (rare). |
 | `SWIFT_TEST_PARALLEL` | `1` (enabled) | Set to `0` to disable parallel workers |
 | `SWIFT_TEST_WORKERS` | `hw.ncpu / 2` (max 4) | Parallel test worker count |
 
-**Build dir: `$PPID` for main agent, `$$` (PID) for subagents.** Main agent and top-level bashes use the default `SWIFT_BUILD_DIR=.build-agent-$PPID`. Subagents and secondary bashes must override with `SWIFT_BUILD_DIR=".build-agent-$$" mise run …` so they don't share a lock with the parent.
+**Bounded 4-slot pool.** Every swift-running mise task sources `scripts/swift-build-slot.sh`. The helper iterates `.build-agent-{1..4}` and uses an atomic `mkdir <dir>/.slot-claim` to claim a slot; an EXIT trap on the calling shell removes the claim on normal exit. SwiftPM's own kernel-level flock handles serialization within a slot. Slots are reused by the next agent — disk usage is bounded by 4 × build size. Main agents and subagents share the pool; the helper handles allocation.
 
-**No parallel Swift commands in the same `SWIFT_BUILD_DIR`.** SwiftPM holds an exclusive lock per build dir — two concurrent swift processes on the same dir deadlock (up to 256s then fail). Different build dirs are fine.
-- NEVER use `run_in_background: true` for swift build/test commands in the main agent's dir
-- NEVER issue two parallel Bash calls that both invoke swift in the same dir
-- Within one build dir, run swift commands strictly sequentially
+**Concurrent agents land on different slots.** Atomic `mkdir` guarantees that 4 agents racing simultaneously each claim a distinct slot. Within one shell, sourcing the helper once gives you one slot held for the lifetime of that shell — repeated `mise run` invocations in the same shell reuse the same slot (warm cache).
+
+**If all 4 slots are busy** the helper aborts with `swift-build-slot: all 4 ... slots are busy`. This is rare; it means 4 other agents are actively building.
+
+**SIGKILL leaks.** If a calling shell is `kill -9`'d, the EXIT trap doesn't fire and `.slot-claim` is left behind. Run `mise run clean-agent-builds` to reap stale claims (it removes `.slot-claim` from any slot whose `lsof +D` shows no open file descriptors, so it's safe to run while other agents are working).
 
 **Timeouts are mandatory.** `60000` (60s) for test, `30000` (30s) for build. Tests complete in ~15s, builds in ~5s. Anything longer means lock contention.
 
