@@ -2227,7 +2227,23 @@ This must happen in the inbox router or a feature-owned helper, not in `InboxNot
 
 Because `markRead(id:)` updates the canonical read flag, observed-pane clearing also clears the global unread badge. Do not add a separate PaneInbox-only read state.
 
-- [ ] **Step 4: Do not clear drawer-child rows from parent focus alone**
+The `.terminal(.scrollbarChanged)` classifier must keep ignoring scrollbar callbacks for notification creation, but it must not return before running the observed-pane clear check. The intended flow is:
+
+```swift
+case .terminal(.scrollbarChanged):
+    clearObservedPaneInboxRowsIfNeeded(paneId: envelope.paneId.uuid)
+    return .ignore(reason: "activity_only_scrollbar")
+```
+
+This side effect is required for the common stuck-badge path: the pane is already focused while scrolled up, then the user scrolls back to bottom.
+
+- [ ] **Step 4: Preserve user-action-required events even when observed**
+
+Current `classifySecureInput(_:paneId:)` suppresses secure-input requests when the source pane is attended. Remove that attended-pane suppression for secure input.
+
+Secure input is user-action-required under the locked heuristics. If it fires while the source pane is attended and pinned to bottom, it should still append an unread row and light both unread affordances. The observed-pane auto-clear policy must return `.keep(reason: "requires_user_action")`.
+
+- [ ] **Step 5: Do not clear drawer-child rows from parent focus alone**
 
 PaneInbox scope includes the parent pane plus drawer children for visibility. Observation still belongs to the source pane.
 
@@ -2237,7 +2253,7 @@ Rules:
 - Parent pane attended does not clear drawer-child rows unless that drawer child pane itself becomes the attended/source pane and is pinned to bottom.
 - Drawer child notification activation still focuses the drawer child and then clears the row through the existing activation path.
 
-- [ ] **Step 5: Add tests for the exact bug**
+- [ ] **Step 6: Add tests for the exact bug**
 
 Add focused tests:
 
@@ -2252,6 +2268,12 @@ Add focused tests:
   - Same setup with `bottom < total`.
   - Assert count remains 1.
 
+- `attendedPaneScrollingBackToBottomClearsAutoClearablePaneInboxBadge`
+  - Create an unread auto-clearable row for an attended pane.
+  - First emit scrollbar state with `bottom < total`; assert count remains 1.
+  - Then emit scrollbar state with `bottom == total`; assert count becomes 0.
+  - This pins the side-effect-only `.scrollbarChanged` reevaluation path.
+
 - `unattendedPaneAtBottomKeepsPaneInboxBadge`
   - Same setup with bottom true but attended pane different or nil.
   - Assert count remains 1.
@@ -2260,13 +2282,20 @@ Add focused tests:
   - Use `.approvalRequested` or `.securityEvent`.
   - Assert count remains 1 even when focused and at bottom.
 
+- `observedSecureInputStillCreatesUnreadNotification`
+  - Source pane is attended and pinned to bottom before `.terminal(.secureInputChanged(true))`.
+  - Assert one `.terminalSecureInputRequested` row exists.
+  - Assert row is unread and not dismissed from PaneInbox.
+  - Assert `globalUnreadCount == 1`.
+  - Assert `visiblePaneInboxUnreadCount(forPaneIds: [paneId]) == 1`.
+
 - `parentFocusDoesNotClearDrawerChildPaneInboxBadge`
   - Parent and drawer child both in the PaneInbox scope.
   - Notification source is drawer child.
   - Parent is attended and at bottom.
   - Assert parent PaneInbox still shows the child row.
 
-- [ ] **Step 6: Add regression tests for event-time observed events**
+- [ ] **Step 7: Add regression tests for event-time observed events**
 
 If a terminal event arrives while its source pane is already attended and pinned to bottom:
 
@@ -2288,10 +2317,10 @@ Add tests:
 
 - `observedUserActionRequiredEventStillLightsUnreadBadges`
   - Source pane is attended and pinned to bottom before the event arrives.
-  - Event is approval/security/progress-error style.
+  - Event is approval/security/progress-error style, or secure input.
   - Assert row exists unread and visible in PaneInbox.
 
-- [ ] **Step 7: Run focused tests**
+- [ ] **Step 8: Run focused tests**
 
 ```bash
 BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$$}"
@@ -2300,7 +2329,7 @@ swift test --build-path "$BUILD_PATH" --filter "PaneInboxAutoClearPolicyTests|In
 
 Expected: PASS.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add Sources/AgentStudio/Features/InboxNotification/Models/PaneInboxAutoClearPolicy.swift \

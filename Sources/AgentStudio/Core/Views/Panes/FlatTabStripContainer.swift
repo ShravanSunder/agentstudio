@@ -23,6 +23,7 @@ struct FlatTabStripContainer: View {
     @State private var dropTargetMouseUpMonitor: Any?
     @State private var drawerPaneFramesInDrawer: [UUID: CGRect] = [:]
     @State private var drawerPanelFrameInTab: CGRect = .zero
+    @State private var drawerDismissCoordinateView: NSView?
     @State private var drawerDropTarget: DrawerRearrangeTarget?
     @State private var drawerDropTargetMouseUpMonitor: Any?
     /// Active drag's source pane id, published by either capture
@@ -189,6 +190,7 @@ struct FlatTabStripContainer: View {
                     paneInboxPresentation: paneInboxPresentation,
                     onOpenPaneGitHub: onOpenPaneGitHub,
                     drawerDropTarget: drawerDropTarget,
+                    dismissCoordinateView: drawerDismissCoordinateView,
                     dragSourcePaneId: activeDragSourcePaneId
                 )
 
@@ -219,6 +221,14 @@ struct FlatTabStripContainer: View {
 
                 tabLevelDrawerCapture(expandedDrawerParentPaneId: expandedDrawerParentPaneId)
             }
+            .background(
+                DrawerDismissCoordinateSpaceBridge { view in
+                    if drawerDismissCoordinateView !== view {
+                        drawerDismissCoordinateView = view
+                    }
+                }
+                .allowsHitTesting(false)
+            )
             .onPreferenceChange(PaneFramePreferenceKey.self) { paneFrames = $0 }
             .onPreferenceChange(DrawerIconBarFrameKey.self) { iconBarFrame = $0 }
             .onPreferenceChange(DrawerPaneFramePreferenceKey.self) { drawerPaneFramesInDrawer = $0 }

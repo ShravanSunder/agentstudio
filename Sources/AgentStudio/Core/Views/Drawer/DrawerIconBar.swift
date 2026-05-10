@@ -268,7 +268,7 @@ struct DrawerIconBar: View {
                 GeometryReader { geo in
                     Color.clear.preference(
                         key: DrawerIconBarFrameKey.self,
-                        value: geo.frame(in: .global)
+                        value: geo.frame(in: .named("tabContainer"))
                     )
                 }
             )
