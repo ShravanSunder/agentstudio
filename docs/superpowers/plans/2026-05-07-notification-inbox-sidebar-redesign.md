@@ -2,125 +2,648 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Make the notification inbox read like an Agent Studio sidebar surface: useful source context on every row, correct command durations, repo/sidebar-matching chrome, honest grouping labels, and no implementation IDs leaking into UI.
+**Goal:** Make the notification inbox read like an Agent Studio sidebar surface: every row shows useful source context, command durations are correct, global inbox and PaneInbox share row semantics, and the UI no longer leaks implementation IDs or mismatched chrome.
 
-**Architecture:** Keep notification domain state in `Features/InboxNotification/`, but promote reusable sidebar row/header chrome into `SharedComponents/`. Extend the denormalized notification source context at emit time with tab, pane, drawer, and runtime labels so old notifications remain readable after the source moves or closes. Grouping stays feature-owned, while visual shell, search, row hover, and section-header treatment follow the repo sidebar design system.
+**Architecture:** Keep notification domain state inside `Features/InboxNotification/`, denormalize human source labels at emit time, and route presentation through feature-owned display models. Promote only stateless, atom-free visual primitives into `SharedComponents/`; feature wrappers own hover, focus, selection, commands, filtering, and activation.
 
-**Tech Stack:** Swift 6.2, SwiftUI, AppKit-hosted sidebar, Swift Testing, `mise run build`, `mise run test`, `mise run lint`, Peekaboo visual smoke for native verification.
+**Tech Stack:** Swift 6.2, SwiftUI, AppKit-hosted sidebar, Swift Testing, `mise run build`, `mise run test`, `mise run lint`, Peekaboo PID-based visual verification.
 
 ---
 
+## Review Corrections Locked In
+
+This plan has been revised after Codex xhigh and Claude Opus 4.7 review. These are constraints, not suggestions:
+
+- Use current code symbols:
+  - `InboxNotification.PaneSource`, not `InboxNotification.Source.PaneSource`.
+  - `PaneContent.bridgePanel`, not `.bridge`.
+  - `BridgePanelKind` currently has `.diffViewer` only; no `displayTitle` exists.
+  - `AttendedPaneAtom` is derived-only. Do not add `setAttendedPaneId`.
+  - `PaneFocusTracker.stop()` is async and must be awaited in tests.
+  - The router test helper `addTerminalPane(_:to:repoId:worktreeId:)` returns a tab `UUID` and has no `title:` parameter.
+- Preserve green commits. Write failing tests and implementation in the same task, then commit only after the focused tests pass.
+- Commit steps are included because this branch workflow has been explicitly using commits as checkpoints. If execution happens without git-write permission, skip commit steps and keep the file changes staged/uncommitted for review.
+- Build directories:
+  - Main agent shell may use `.build-agent-$PPID`.
+  - Subagents must use `.build-agent-$$`.
+  - Every command below uses `BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$$}"` so a subagent does not lock the parent build directory.
+- Shared components are stateless. They take values and closures. They do not own `@State`, subscribe to atoms, import `Core/`, import `Features/`, or know about inbox/repo domain types.
+- Persistence is part of the design. Adding source display fields must not quarantine existing inbox files.
+
 ## Scope
 
-This plan covers the global sidebar inbox and the shared row primitives needed by the pane inbox. It does not change the LUNA-361 notification policy, raw terminal-output capture, or unseen-activity promotion rules.
+This plan covers the global sidebar inbox, PaneInbox row reuse, source display, duration correctness, grouping labels, active filter labels, shared sidebar chrome primitives, and visual smoke evidence.
+
+This plan does not change the LUNA-361 notification policy, raw terminal-output capture, unseen-activity promotion, or the later Unread/All product toggle.
+
+The original inbox spec treated broad SharedComponents extraction as out of scope. That is superseded by the later project rule in `AGENTS.md`: when two app surfaces need the same visual control and interaction semantics, extract a stateless primitive into `SharedComponents/`.
 
 ## Requirements
 
-- Source context must always show something useful: repo/worktree/branch when available, plus tab/pane/drawer placement when available, with quiet workspace/app fallback when not.
-- Repo and worktree display should match RepoExplorer semantics and visual rhythm.
-- Command-finished duration must be correct; Ghostty emits nanoseconds, not seconds.
-- `By tab` must not show UUID prefixes. If a tab has no useful name, use a stable human fallback such as `Tab 1`.
-- `By pane` must distinguish parent panes from drawer child panes.
-- Inbox sidebar background/chrome must match RepoExplorer.
-- Sort/grouping buttons must have clear icon semantics and help labels.
-- Global inbox and PaneInbox should share row rendering where their behavior contracts match.
-- Red unread dot/count affordances must remain visible when the sidebar is collapsed or expanded.
+- Rows must always show useful source context.
+  - Preferred: repo + worktree + branch.
+  - Also show placement: tab, main pane, drawer child when known.
+  - Fallbacks must be human labels, never `unknown source` or UUID prefixes.
+- Command-finished duration must interpret Ghostty duration as nanoseconds.
+- `By tab` grouping must use a stable human label:
+  - tab name when non-empty
+  - otherwise `Tab N` from current tab order at emit time
+  - otherwise `Untitled Tab`
+- `By pane` grouping must distinguish main panes from drawer child panes.
+- Active filter chips must not show `Repo <uuid>` or `Worktree <uuid>`.
+- Inbox sidebar background and row rhythm must match RepoExplorer.
+- Sort/group controls must use clear icons and tooltips.
+- Global inbox and PaneInbox must use the same row rendering component, with a row context that hides redundant placement in PaneInbox.
+- Sidebar unread affordance must remain visible in collapsed and expanded states.
 
 ## File Structure
 
 ### New Files
 
 - `Sources/AgentStudio/SharedComponents/SidebarRowShell.swift`
-  - Stateless shared row shell: compact sidebar padding, hover/focus/flash background, leading icon column, rounded row shape.
-  - Imports only SwiftUI and Infrastructure.
+  - Stateless shared row shell for sidebar-like list rows.
+  - Inputs: selected/flashing/hover state and content.
+  - Imports SwiftUI + Infrastructure only.
 
 - `Sources/AgentStudio/SharedComponents/SidebarSectionHeader.swift`
-  - Stateless shared collapsible section header: chevron, title, optional subtitle, trailing accessory/count.
-  - Used by RepoExplorer and Inbox where interaction semantics match.
+  - Stateless shared collapsible section header with optional trailing content.
+  - Used by inbox group headers and RepoExplorer group headers where semantics match.
 
 - `Sources/AgentStudio/Features/InboxNotification/Models/InboxNotificationSourceDisplay.swift`
-  - Feature-owned presentation model derived from `InboxNotification.Source`.
-  - Produces row source line, placement line, group labels, runtime fallback labels, and search text.
-
-- `Tests/AgentStudioTests/SharedComponents/SidebarRowShellTests.swift`
-  - Lightweight model/style tests for the shared row shell helpers.
-
-- `Tests/AgentStudioTests/SharedComponents/SidebarSectionHeaderTests.swift`
-  - Tests for header title/accessory behavior where pure logic exists.
+  - Feature-owned source display model.
+  - Produces source line, placement line, grouping labels, active filter labels, search text, and row-specific presentation.
 
 - `Tests/AgentStudioTests/Features/InboxNotification/Models/InboxNotificationSourceDisplayTests.swift`
-  - Source line, placement line, fallbacks, and grouping labels.
+  - Pins source/placement/group/filter labels and fallbacks.
+
+- `Tests/AgentStudioTests/SharedComponents/SidebarSectionHeaderTests.swift`
+  - Minimal compile/initialization coverage for the generic header helpers.
 
 ### Modified Files
 
 - `Sources/AgentStudio/Features/InboxNotification/Models/InboxNotification.swift`
-  - Extend `InboxNotification.Source.PaneSource` with denormalized tab/pane/drawer/runtime display fields.
+  - Extend `InboxNotification.PaneSource` with denormalized tab/pane/drawer/runtime fields.
+  - Add custom decode defaults for old stored notifications.
+
+- `Sources/AgentStudio/Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift`
+  - Bump payload schema to 2.
+  - Accept schema 1 and 2 on load.
+  - Save schema 2 on next flush.
 
 - `Sources/AgentStudio/Features/InboxNotification/Routing/InboxNotificationRouter.swift`
-  - Populate source display fields from `WorkspacePaneAtom` and `WorkspaceTabLayoutAtom`.
-  - Convert Ghostty command duration nanoseconds into display seconds.
+  - Populate denormalized source fields.
+  - Compare and format command duration as nanoseconds.
 
 - `Sources/AgentStudio/Features/InboxNotification/Models/InboxNotificationListModel.swift`
-  - Use `InboxNotificationSourceDisplay` for filtering and group labels.
-  - Stop exposing UUID prefixes as user-facing labels.
+  - Use `InboxNotificationSourceDisplay` for search and group labels.
 
 - `Sources/AgentStudio/Features/InboxNotification/Components/InboxRow.swift`
-  - Rebuild as compact sidebar-native row content using source display model.
+  - Render compact source-first row content.
+  - Accept a row context so global inbox and PaneInbox can share rendering without duplicating redundant placement.
+
+- `Sources/AgentStudio/Features/InboxNotification/Components/InboxNotificationGroupHeader.swift`
+  - Wrap `SidebarSectionHeader`.
 
 - `Sources/AgentStudio/Features/InboxNotification/Views/InboxSidebarComponents.swift`
-  - Use shared section header and row shell.
-  - Match RepoExplorer background/list chrome.
-  - Replace ambiguous sort/grouping controls.
+  - Use shared row shell.
+  - Match RepoExplorer chrome.
+  - Replace UUID active-filter labels.
+  - Clarify sort/group controls.
 
 - `Sources/AgentStudio/Features/InboxNotification/Views/PaneInboxNotificationPopover.swift`
-  - Reuse the same `InboxRow` content and shared row shell where appropriate.
+  - Use shared row shell and shared `InboxRow`.
 
 - `Sources/AgentStudio/Features/RepoExplorer/RepoExplorerGroupHeader.swift`
-  - Adopt `SidebarSectionHeader` if the fit is direct; keep feature-specific wrapper for repo labels.
-
-- `Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift`
-  - Optionally wrap existing content in `SidebarRowShell` if no visual regression.
+  - Adopt `SidebarSectionHeader` if exact current semantics are preserved.
 
 - `Sources/AgentStudio/Infrastructure/AppStyles.swift`
-  - Add named sidebar row/source/timestamp tokens if existing tokens are insufficient.
+  - Add style tokens only when existing sidebar tokens are insufficient.
 
 - `Sources/AgentStudio/Infrastructure/AppPolicies.swift`
-  - Add command duration display policy only if needed for maximum display cap. Do not put visual constants here.
+  - Add duration nanosecond policy.
 
-- `Tests/AgentStudioTests/Features/InboxNotification/Models/InboxNotificationListModelTests.swift`
-  - Pin grouping labels and filtering against source display strings.
-
-- `Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterTests.swift`
-  - Pin source context emission and duration conversion.
-
-- `Tests/AgentStudioTests/Features/InboxNotification/Views/InboxNotificationSidebarViewTests.swift`
-  - Pin header controls and activation behavior at model boundary.
-
-- `Tests/AgentStudioTests/Features/InboxNotification/Views/PaneInboxNotificationPopoverTests.swift`
-  - Pin shared row source display for pane-scoped rows.
+- Tests:
+  - `Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterTests.swift`
+  - `Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterDrawerChildTests.swift`
+  - `Tests/AgentStudioTests/Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStoreTests.swift`
+  - `Tests/AgentStudioTests/Features/InboxNotification/Models/InboxNotificationListModelTests.swift`
+  - `Tests/AgentStudioTests/Features/InboxNotification/Views/PaneInboxNotificationPopoverTests.swift`
+  - `Tests/AgentStudioTests/Features/InboxNotification/Views/InboxNotificationSidebarViewTests.swift`
 
 ---
 
-## Task 1: Pin Source Context And Duration Bugs With Tests
+## Task 1: Source Context Schema And Routing
 
 **Files:**
+- Modify: `Sources/AgentStudio/Features/InboxNotification/Models/InboxNotification.swift`
+- Modify: `Sources/AgentStudio/Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift`
+- Modify: `Sources/AgentStudio/Features/InboxNotification/Routing/InboxNotificationRouter.swift`
 - Modify: `Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterTests.swift`
-- Modify: `Tests/AgentStudioTests/Features/InboxNotification/Models/InboxNotificationListModelTests.swift`
+- Modify: `Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterDrawerChildTests.swift`
+- Modify: `Tests/AgentStudioTests/Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStoreTests.swift`
 
-- [ ] **Step 1: Add a failing routing test for command duration nanoseconds**
+- [ ] **Step 1: Add routing tests using the current fixture API**
 
-Add this test to `InboxNotificationRouterTests` near `commandFinishedGating`:
+Add this test to `InboxNotificationRouterTests`:
+
+```swift
+@Test("pane notification stores denormalized tab pane and runtime source context")
+func paneNotificationStoresSourceDisplayContext() async {
+    let fixture = await makeFixture()
+    let paneId = PaneId()
+    let tabId = addTerminalPane(paneId, to: fixture)
+    fixture.tabLayout.renameTab(tabId, name: "Work")
+    fixture.paneAtom.renamePane(paneId.uuid, title: "Claude")
+
+    _ = await fixture.bus.post(
+        makePaneEnvelope(
+            paneId: paneId,
+            event: .terminal(.desktopNotificationRequested(title: "Claude Code", body: "waiting"))
+        )
+    )
+
+    await waitForNotificationCount(
+        1,
+        in: fixture,
+        description: "desktop notification should capture source context"
+    )
+
+    let notification = fixture.inboxAtom.notifications[0]
+    guard case .pane(let source) = notification.source else {
+        Issue.record("Expected pane source")
+        await fixture.router.stop()
+        await fixture.tracker.stop()
+        fixture.attendedPane.stop()
+        return
+    }
+
+    #expect(source.tabId == tabId)
+    #expect(source.tabDisplayLabel == "Work")
+    #expect(source.paneDisplayLabel == "Claude")
+    #expect(source.paneRole == .main)
+    #expect(source.parentPaneId == nil)
+    #expect(source.runtimeDisplayLabel == "Terminal")
+    await fixture.router.stop()
+    await fixture.tracker.stop()
+    fixture.attendedPane.stop()
+}
+```
+
+Add this test to `InboxNotificationRouterDrawerChildTests`:
+
+```swift
+@Test("drawer child notification stores parent and drawer source context")
+func drawerChildNotificationStoresParentAndDrawerSourceContext() async throws {
+    let fixture = await makeFixture()
+    let parentPaneId = PaneId()
+    let tabId = addTerminalPane(parentPaneId, to: fixture)
+    fixture.tabLayout.renameTab(tabId, name: "Work")
+    fixture.paneAtom.renamePane(parentPaneId.uuid, title: "Claude")
+    let drawerPane = try #require(
+        fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+    )
+    fixture.paneAtom.renamePane(drawerPane.id, title: "Gemini")
+
+    _ = await fixture.bus.post(
+        makePaneEnvelope(
+            paneId: PaneId(uuid: drawerPane.id),
+            event: .terminal(.desktopNotificationRequested(title: "Gemini", body: "waiting"))
+        )
+    )
+
+    await waitForNotificationCount(
+        1,
+        in: fixture,
+        description: "drawer child desktop notification should capture source context"
+    )
+
+    let notification = fixture.inboxAtom.notifications[0]
+    guard case .pane(let source) = notification.source else {
+        Issue.record("Expected pane source")
+        await fixture.router.stop()
+        await fixture.tracker.stop()
+        fixture.attendedPane.stop()
+        return
+    }
+
+    #expect(source.tabId == tabId)
+    #expect(source.tabDisplayLabel == "Work")
+    #expect(source.paneDisplayLabel == "Gemini")
+    #expect(source.paneRole == .drawerChild)
+    #expect(source.parentPaneId == parentPaneId.uuid)
+    #expect(source.parentPaneDisplayLabel == "Claude")
+    #expect(source.drawerOrdinal == 1)
+    #expect(source.runtimeDisplayLabel == "Terminal")
+    await fixture.router.stop()
+    await fixture.tracker.stop()
+    fixture.attendedPane.stop()
+}
+```
+
+Add this test to `InboxNotificationRouterTests` to pin the tab fallback:
+
+```swift
+@Test("source context uses tab ordinal fallback when tab name is empty")
+func sourceContextUsesTabOrdinalFallbackWhenTabNameIsEmpty() async {
+    let fixture = await makeFixture()
+    let paneId = PaneId()
+    let tabId = addTerminalPane(paneId, to: fixture)
+    fixture.tabLayout.renameTab(tabId, name: " ")
+
+    _ = await fixture.bus.post(
+        makePaneEnvelope(
+            paneId: paneId,
+            event: .terminal(.desktopNotificationRequested(title: "Done", body: nil))
+        )
+    )
+
+    await waitForNotificationCount(
+        1,
+        in: fixture,
+        description: "notification should use a human tab fallback"
+    )
+
+    let source = try? #require(fixture.inboxAtom.notifications[0].paneContext)
+    #expect(source?.tabDisplayLabel == "Tab 1")
+    await fixture.router.stop()
+    await fixture.tracker.stop()
+    fixture.attendedPane.stop()
+}
+```
+
+- [ ] **Step 2: Extend `InboxNotification.PaneSource`**
+
+In `InboxNotification.swift`, add the pane role enum and fields directly under `PaneSource`:
+
+```swift
+struct PaneSource: Sendable, Codable, Equatable {
+    enum PaneRole: String, Sendable, Codable, Equatable {
+        case main
+        case drawerChild
+    }
+
+    let paneId: UUID
+    let tabId: UUID?
+    let tabDisplayLabel: String?
+    let repo: NamedSource?
+    let worktree: NamedSource?
+    let branchName: String?
+    let paneDisplayLabel: String?
+    let paneRole: PaneRole
+    let parentPaneId: UUID?
+    let parentPaneDisplayLabel: String?
+    let drawerOrdinal: Int?
+    let runtimeDisplayLabel: String?
+}
+```
+
+Update the initializer:
+
+```swift
+init(
+    paneId: UUID,
+    tabId: UUID? = nil,
+    tabDisplayLabel: String? = nil,
+    repoId: UUID? = nil,
+    repoName: String? = nil,
+    worktreeId: UUID? = nil,
+    worktreeName: String? = nil,
+    branchName: String? = nil,
+    paneDisplayLabel: String? = nil,
+    paneRole: PaneRole = .main,
+    parentPaneId: UUID? = nil,
+    parentPaneDisplayLabel: String? = nil,
+    drawerOrdinal: Int? = nil,
+    runtimeDisplayLabel: String? = nil
+) {
+    self.paneId = paneId
+    self.tabId = tabId
+    self.tabDisplayLabel = tabDisplayLabel.nilIfBlank
+    self.repo = NamedSource(id: repoId, name: repoName)
+    self.worktree = NamedSource(id: worktreeId, name: worktreeName)
+    self.branchName = branchName.nilIfBlank
+    self.paneDisplayLabel = paneDisplayLabel.nilIfBlank
+    self.paneRole = paneRole
+    self.parentPaneId = parentPaneId
+    self.parentPaneDisplayLabel = parentPaneDisplayLabel.nilIfBlank
+    self.drawerOrdinal = drawerOrdinal
+    self.runtimeDisplayLabel = runtimeDisplayLabel.nilIfBlank
+}
+```
+
+Add custom decode defaults so old notification entries decode:
+
+```swift
+private enum CodingKeys: String, CodingKey {
+    case paneId
+    case tabId
+    case tabDisplayLabel
+    case repo
+    case worktree
+    case branchName
+    case paneDisplayLabel
+    case paneRole
+    case parentPaneId
+    case parentPaneDisplayLabel
+    case drawerOrdinal
+    case runtimeDisplayLabel
+}
+
+init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.paneId = try container.decode(UUID.self, forKey: .paneId)
+    self.tabId = try container.decodeIfPresent(UUID.self, forKey: .tabId)
+    self.tabDisplayLabel = try container.decodeIfPresent(String.self, forKey: .tabDisplayLabel)?.nilIfBlank
+    self.repo = try container.decodeIfPresent(NamedSource.self, forKey: .repo)
+    self.worktree = try container.decodeIfPresent(NamedSource.self, forKey: .worktree)
+    self.branchName = try container.decodeIfPresent(String.self, forKey: .branchName)?.nilIfBlank
+    self.paneDisplayLabel = try container.decodeIfPresent(String.self, forKey: .paneDisplayLabel)?.nilIfBlank
+    self.paneRole = try container.decodeIfPresent(PaneRole.self, forKey: .paneRole) ?? .main
+    self.parentPaneId = try container.decodeIfPresent(UUID.self, forKey: .parentPaneId)
+    self.parentPaneDisplayLabel =
+        try container.decodeIfPresent(String.self, forKey: .parentPaneDisplayLabel)?.nilIfBlank
+    self.drawerOrdinal = try container.decodeIfPresent(Int.self, forKey: .drawerOrdinal)
+    self.runtimeDisplayLabel =
+        try container.decodeIfPresent(String.self, forKey: .runtimeDisplayLabel)?.nilIfBlank
+}
+```
+
+Keep synthesized encoding. Add this extension at file bottom if missing:
+
+```swift
+private extension Optional where Wrapped == String {
+    var nilIfBlank: String? {
+        guard let value = self else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+```
+
+Add computed accessors to `InboxNotification`:
+
+```swift
+var paneContext: PaneSource? {
+    guard case .pane(let paneSource) = source else { return nil }
+    return paneSource
+}
+
+var tabDisplayLabel: String? { paneContext?.tabDisplayLabel }
+var paneDisplayLabel: String? { paneContext?.paneDisplayLabel }
+var paneRole: PaneSource.PaneRole? { paneContext?.paneRole }
+var parentPaneId: UUID? { paneContext?.parentPaneId }
+var parentPaneDisplayLabel: String? { paneContext?.parentPaneDisplayLabel }
+var drawerOrdinal: Int? { paneContext?.drawerOrdinal }
+var runtimeDisplayLabel: String? { paneContext?.runtimeDisplayLabel }
+```
+
+- [ ] **Step 3: Add payload schema migration tests**
+
+Add tests to `InboxNotificationStoreTests`:
+
+```swift
+@Test("schema v1 inbox payload loads and defaults new pane source fields")
+func schemaV1PayloadLoadsAndDefaultsNewPaneSourceFields() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("agentstudio-inbox-v1-\(UUID().uuidString)", isDirectory: true)
+    let fileURL = directory.appendingPathComponent("inbox.json")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let paneId = UUID()
+    let payload = """
+    {
+      "schemaVersion": 1,
+      "notifications": [
+        {
+          "id": "11111111-1111-1111-1111-111111111111",
+          "timestamp": "2026-05-07T00:00:00Z",
+          "kind": "agentRpc",
+          "title": "Claude Code",
+          "body": "waiting",
+          "source": {
+            "pane": {
+              "_0": {
+                "paneId": "\(paneId.uuidString)",
+                "tabId": null,
+                "repo": null,
+                "worktree": null,
+                "branchName": null
+              }
+            }
+          },
+          "isRead": false,
+          "isDismissedFromPaneInbox": false
+        }
+      ],
+      "prefs": { "grouping": "none", "sort": "newestFirst", "bellEnabled": true }
+    }
+    """
+    try payload.write(to: fileURL, atomically: true, encoding: .utf8)
+    let inboxAtom = InboxNotificationAtom()
+    let prefsAtom = InboxNotificationPrefsAtom()
+    let store = InboxNotificationStore(
+        inboxAtom: inboxAtom,
+        prefsAtom: prefsAtom,
+        fileURL: fileURL,
+        debounceDuration: .milliseconds(1)
+    )
+
+    try store.load()
+
+    let notification = try #require(inboxAtom.notifications.first)
+    let source = try #require(notification.paneContext)
+    #expect(source.paneRole == .main)
+    #expect(source.tabDisplayLabel == nil)
+    #expect(source.paneDisplayLabel == nil)
+    #expect(source.runtimeDisplayLabel == nil)
+    #expect(prefsAtom.bellEnabled == true)
+}
+```
+
+If existing store tests already have fixture helpers, use them instead of duplicating temporary directory setup. The assertions must stay.
+
+- [ ] **Step 4: Update `InboxNotificationStore.Payload` schema handling**
+
+In `InboxNotificationStore.swift`:
+
+```swift
+private struct Payload: Codable {
+    static let currentSchemaVersion = 2
+    private static let supportedSchemaVersions: Set<Int> = [1, 2]
+```
+
+Change the initializer default so test-only construction also writes the current schema:
+
+```swift
+init(
+    schemaVersion: Int = Self.currentSchemaVersion,
+    notifications: [InboxNotification],
+    prefs: Prefs
+)
+```
+
+Replace the schema guard with:
+
+```swift
+guard Self.supportedSchemaVersions.contains(decodedSchemaVersion) else {
+    throw DecodingError.dataCorruptedError(
+        forKey: .schemaVersion,
+        in: container,
+        debugDescription: "Inbox notification schemaVersion \(decodedSchemaVersion) is unsupported"
+    )
+}
+self.schemaVersion = decodedSchemaVersion
+```
+
+Do not carry two runtime data models. Decoding v1 into the current `InboxNotification` model with defaults is the migration. `flush()` must still write `Payload.currentSchemaVersion`.
+
+- [ ] **Step 5: Populate source context in router**
+
+Replace the router's resolved context type with:
+
+```swift
+private struct ResolvedPaneContext {
+    let tabId: UUID?
+    let tabDisplayLabel: String?
+    let repoId: UUID?
+    let repoName: String?
+    let worktreeId: UUID?
+    let worktreeName: String?
+    let branchName: String?
+    let paneDisplayLabel: String?
+    let paneRole: InboxNotification.PaneSource.PaneRole
+    let parentPaneId: UUID?
+    let parentPaneDisplayLabel: String?
+    let drawerOrdinal: Int?
+    let runtimeDisplayLabel: String?
+}
+```
+
+Use current APIs in `resolveContext(for:)`:
+
+```swift
+private func resolveContext(for paneId: UUID) -> ResolvedPaneContext? {
+    guard let pane = paneAtom.pane(paneId) else { return nil }
+    let tab = tabLayout.tabContaining(paneId: paneId)
+    let tabDisplayLabel = tabDisplayLabel(for: tab)
+    let parentPaneId = pane.parentPaneId
+    let parentPane = parentPaneId.flatMap { paneAtom.pane($0) }
+    let drawerOrdinal = parentPane?.drawer?.paneIds.firstIndex(of: paneId).map { $0 + 1 }
+
+    return ResolvedPaneContext(
+        tabId: tab?.id,
+        tabDisplayLabel: tabDisplayLabel,
+        repoId: pane.repoId,
+        repoName: pane.metadata.repoName,
+        worktreeId: pane.worktreeId,
+        worktreeName: pane.metadata.worktreeName,
+        branchName: pane.metadata.checkoutRef,
+        paneDisplayLabel: pane.title,
+        paneRole: parentPaneId == nil ? .main : .drawerChild,
+        parentPaneId: parentPaneId,
+        parentPaneDisplayLabel: parentPane?.title,
+        drawerOrdinal: drawerOrdinal,
+        runtimeDisplayLabel: runtimeDisplayLabel(for: pane.content)
+    )
+}
+
+private func tabDisplayLabel(for tab: Tab?) -> String? {
+    guard let tab else { return nil }
+    let trimmedName = tab.name.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !trimmedName.isEmpty { return trimmedName }
+    if let index = tabLayout.tabs.firstIndex(where: { $0.id == tab.id }) {
+        return "Tab \(index + 1)"
+    }
+    return "Untitled Tab"
+}
+
+private func runtimeDisplayLabel(for content: PaneContent) -> String? {
+    switch content {
+    case .terminal:
+        return "Terminal"
+    case .webview:
+        return "Web"
+    case .bridgePanel(let state):
+        return bridgePanelDisplayLabel(for: state.panelKind)
+    case .codeViewer:
+        return "Code"
+    case .unsupported:
+        return nil
+    }
+}
+
+private func bridgePanelDisplayLabel(for kind: BridgePanelKind) -> String {
+    switch kind {
+    case .diffViewer:
+        return "Diff"
+    }
+}
+```
+
+Pass fields into `InboxNotification.PaneSource`:
+
+```swift
+source: .pane(
+    .init(
+        paneId: paneId,
+        tabId: resolvedContext?.tabId,
+        tabDisplayLabel: resolvedContext?.tabDisplayLabel,
+        repoId: resolvedContext?.repoId,
+        repoName: resolvedContext?.repoName,
+        worktreeId: resolvedContext?.worktreeId,
+        worktreeName: resolvedContext?.worktreeName,
+        branchName: resolvedContext?.branchName,
+        paneDisplayLabel: resolvedContext?.paneDisplayLabel,
+        paneRole: resolvedContext?.paneRole ?? .main,
+        parentPaneId: resolvedContext?.parentPaneId,
+        parentPaneDisplayLabel: resolvedContext?.parentPaneDisplayLabel,
+        drawerOrdinal: resolvedContext?.drawerOrdinal,
+        runtimeDisplayLabel: resolvedContext?.runtimeDisplayLabel
+    )
+)
+```
+
+- [ ] **Step 6: Run focused tests**
+
+```bash
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$$}"
+swift test --build-path "$BUILD_PATH" --filter "InboxNotificationRouterTests|InboxNotificationRouterDrawerChildTests|InboxNotificationStoreTests"
+```
+
+Expected: PASS.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add Sources/AgentStudio/Features/InboxNotification/Models/InboxNotification.swift \
+  Sources/AgentStudio/Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift \
+  Sources/AgentStudio/Features/InboxNotification/Routing/InboxNotificationRouter.swift \
+  Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterTests.swift \
+  Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterDrawerChildTests.swift \
+  Tests/AgentStudioTests/Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStoreTests.swift
+git commit -m $'feat: denormalize inbox source context\n\nCo-authored-by: Codex <noreply@openai.com>'
+```
+
+---
+
+## Task 2: Command Duration Nanoseconds
+
+**Files:**
+- Modify: `Sources/AgentStudio/Infrastructure/AppPolicies.swift`
+- Modify: `Sources/AgentStudio/Features/InboxNotification/Routing/InboxNotificationRouter.swift`
+- Modify: `Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterTests.swift`
+- Modify: `Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterDrawerChildTests.swift`
+
+- [ ] **Step 1: Add duration test**
+
+Add this test to `InboxNotificationRouterTests`:
 
 ```swift
 @Test("commandFinished duration from Ghostty nanoseconds renders as seconds")
 func commandFinishedDurationUsesGhosttyNanoseconds() async {
     let fixture = await makeFixture()
-    makeWindowKey(fixture.windowLifecycle)
 
     let paneId = PaneId()
     _ = addTerminalPane(paneId, to: fixture)
-    fixture.attendedPane.setAttendedPaneId(nil)
-    await Task.yield()
 
     _ = await fixture.bus.post(
         makePaneEnvelope(
@@ -137,396 +660,32 @@ func commandFinishedDurationUsesGhosttyNanoseconds() async {
 
     #expect(fixture.inboxAtom.notifications[0].body == "exit 0 · 18s")
     await fixture.router.stop()
-    fixture.tracker.stop()
+    await fixture.tracker.stop()
     fixture.attendedPane.stop()
 }
 ```
 
-- [ ] **Step 2: Add a failing routing test for tab/pane/drawer source fields**
+- [ ] **Step 2: Add nanosecond policy**
 
-Add this test to `InboxNotificationRouterDrawerChildTests.swift`:
-
-```swift
-@Test("drawer child notification stores parent and drawer source display context")
-func drawerChildNotificationStoresSourceDisplayContext() async throws {
-    let fixture = await makeFixture()
-    makeWindowKey(fixture.windowLifecycle)
-
-    let parentPaneId = PaneId()
-    let parentPane = addTerminalPane(parentPaneId, to: fixture, title: "Claude")
-    fixture.tabLayout.renameTab(try #require(fixture.tabLayout.tabs.first?.id), name: "Work")
-    let drawerPane = try #require(
-        fixture.paneAtom.addDrawerPane(
-            to: parentPane.id,
-            parentFallbackCWD: nil
-        )
-    )
-    fixture.paneAtom.renamePane(drawerPane.id, title: "Gemini")
-    fixture.attendedPane.setAttendedPaneId(parentPane.id)
-    await Task.yield()
-
-    _ = await fixture.bus.post(
-        makePaneEnvelope(
-            paneId: PaneId(drawerPane.id),
-            event: .terminal(.commandFinished(exitCode: 0, duration: 20_000_000_000))
-        )
-    )
-
-    await waitForNotificationCount(
-        1,
-        in: fixture,
-        description: "drawer child command should notify while parent is attended"
-    )
-
-    let notification = fixture.inboxAtom.notifications[0]
-    guard case .pane(let source) = notification.source else {
-        Issue.record("Expected pane notification source")
-        return
-    }
-    #expect(source.tabName == "Work")
-    #expect(source.paneTitle == "Gemini")
-    #expect(source.parentPaneId == parentPane.id)
-    #expect(source.parentPaneTitle == "Claude")
-    #expect(source.paneRole == .drawerChild)
-    await fixture.router.stop()
-    fixture.tracker.stop()
-    fixture.attendedPane.stop()
-}
-```
-
-If helper signatures differ, keep the assertions and adapt only the fixture construction.
-
-- [ ] **Step 3: Add failing model tests for user-facing grouping labels**
-
-Add these tests to `InboxNotificationListModelTests`:
+In `AppPolicies.InboxNotification`:
 
 ```swift
-@Test("byTab grouping uses tab names instead of UUID prefixes")
-func byTabGroupingUsesTabNames() {
-    let tabId = UUID()
-    let notification = makeInboxNotification(
-        timestamp: Date(timeIntervalSince1970: 100),
-        title: "Claude Code",
-        paneId: UUID(),
-        tabId: tabId,
-        tabName: "Work",
-        paneTitle: "Claude"
-    )
-
-    let model = InboxNotificationListModel(
-        notifications: [notification],
-        grouping: .byTab,
-        sort: .newestFirst,
-        searchText: ""
-    )
-
-    #expect(model.sections.map(\.label) == ["Work"])
-}
-
-@Test("byPane grouping distinguishes drawer child panes")
-func byPaneGroupingDistinguishesDrawerChildPanes() {
-    let parentPaneId = UUID()
-    let drawerPaneId = UUID()
-    let notification = makeInboxNotification(
-        timestamp: Date(timeIntervalSince1970: 100),
-        title: "Gemini",
-        paneId: drawerPaneId,
-        repoName: "askluna",
-        worktreeName: "askluna",
-        branchName: "main",
-        paneTitle: "Gemini",
-        paneRole: .drawerChild,
-        parentPaneId: parentPaneId,
-        parentPaneTitle: "Claude"
-    )
-
-    let model = InboxNotificationListModel(
-        notifications: [notification],
-        grouping: .byPane,
-        sort: .newestFirst,
-        searchText: ""
-    )
-
-    #expect(model.sections.map(\.label) == ["Claude / Drawer: Gemini"])
-}
+static let commandFinishedMinDurationSeconds: UInt64 = 10
+static let commandFinishedMinDurationNanoseconds: UInt64 =
+    commandFinishedMinDurationSeconds * 1_000_000_000
 ```
 
-Extend the local test helper in this file to accept:
+- [ ] **Step 3: Compare and format nanoseconds**
+
+In `InboxNotificationRouter`, compare the raw Ghostty duration against the nanosecond policy:
 
 ```swift
-tabName: String? = nil,
-paneTitle: String? = nil,
-paneRole: InboxNotification.Source.PaneRole = .main,
-parentPaneId: UUID? = nil,
-parentPaneTitle: String? = nil
-```
-
-- [ ] **Step 4: Run focused tests and verify failure**
-
-Run:
-
-```bash
-swift test --build-path ".build-agent-$PPID" --filter "InboxNotificationRouterTests|InboxNotificationRouterDrawerChildTests|InboxNotificationListModelTests"
-```
-
-Expected: FAIL because `PaneSource` lacks the new fields, command duration is treated as seconds, and group labels still use UUID prefixes / weak pane labels.
-
-- [ ] **Step 5: Commit failing tests**
-
-```bash
-git add Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterTests.swift \
-  Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterDrawerChildTests.swift \
-  Tests/AgentStudioTests/Features/InboxNotification/Models/InboxNotificationListModelTests.swift
-git commit -m $'test: pin notification inbox source display gaps\n\nCo-authored-by: Codex <noreply@openai.com>'
-```
-
----
-
-## Task 2: Extend Denormalized Notification Source Context
-
-**Files:**
-- Modify: `Sources/AgentStudio/Features/InboxNotification/Models/InboxNotification.swift`
-- Modify: `Sources/AgentStudio/Features/InboxNotification/Routing/InboxNotificationRouter.swift`
-- Modify: `Tests/AgentStudioTests/Features/InboxNotification/Models/InboxNotificationListModelTests.swift`
-
-- [ ] **Step 1: Add source role and display fields**
-
-In `InboxNotification.Source.PaneSource`, add:
-
-```swift
-enum PaneRole: String, Sendable, Codable, Equatable {
-    case main
-    case drawerChild
-}
-
-let tabName: String?
-let paneTitle: String?
-let paneRole: PaneRole
-let parentPaneId: UUID?
-let parentPaneTitle: String?
-let drawerOrdinal: Int?
-let runtimeLabel: String?
-```
-
-Update its initializer to:
-
-```swift
-init(
-    paneId: UUID,
-    tabId: UUID? = nil,
-    tabName: String? = nil,
-    repoId: UUID? = nil,
-    repoName: String? = nil,
-    worktreeId: UUID? = nil,
-    worktreeName: String? = nil,
-    branchName: String? = nil,
-    paneTitle: String? = nil,
-    paneRole: PaneRole = .main,
-    parentPaneId: UUID? = nil,
-    parentPaneTitle: String? = nil,
-    drawerOrdinal: Int? = nil,
-    runtimeLabel: String? = nil
-) {
-    self.paneId = paneId
-    self.tabId = tabId
-    self.tabName = tabName?.nilIfBlank
-    self.repo = NamedSource(id: repoId, name: repoName)
-    self.worktree = NamedSource(id: worktreeId, name: worktreeName)
-    self.branchName = branchName?.nilIfBlank
-    self.paneTitle = paneTitle?.nilIfBlank
-    self.paneRole = paneRole
-    self.parentPaneId = parentPaneId
-    self.parentPaneTitle = parentPaneTitle?.nilIfBlank
-    self.drawerOrdinal = drawerOrdinal
-    self.runtimeLabel = runtimeLabel?.nilIfBlank
+guard duration >= AppPolicies.InboxNotification.commandFinishedMinDurationNanoseconds else {
+    return .ignore(reason: "below_duration_threshold")
 }
 ```
 
-If `nilIfBlank` does not already exist, add this private extension at the bottom of the file:
-
-```swift
-private extension String {
-    var nilIfBlank: String? {
-        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-}
-```
-
-- [ ] **Step 2: Add computed accessors for display fields**
-
-Add these computed properties to `InboxNotification`:
-
-```swift
-var tabName: String? {
-    guard case .pane(let paneSource) = source else { return nil }
-    return paneSource.tabName
-}
-
-var paneTitle: String? {
-    guard case .pane(let paneSource) = source else { return nil }
-    return paneSource.paneTitle
-}
-
-var paneRole: Source.PaneSource.PaneRole? {
-    guard case .pane(let paneSource) = source else { return nil }
-    return paneSource.paneRole
-}
-
-var parentPaneId: UUID? {
-    guard case .pane(let paneSource) = source else { return nil }
-    return paneSource.parentPaneId
-}
-
-var parentPaneTitle: String? {
-    guard case .pane(let paneSource) = source else { return nil }
-    return paneSource.parentPaneTitle
-}
-
-var drawerOrdinal: Int? {
-    guard case .pane(let paneSource) = source else { return nil }
-    return paneSource.drawerOrdinal
-}
-
-var runtimeLabel: String? {
-    guard case .pane(let paneSource) = source else { return nil }
-    return paneSource.runtimeLabel
-}
-```
-
-- [ ] **Step 3: Populate source context in the router**
-
-Replace `ResolvedPaneContext` with:
-
-```swift
-private struct ResolvedPaneContext {
-    let tabId: UUID?
-    let tabName: String?
-    let repoId: UUID?
-    let repoName: String?
-    let worktreeId: UUID?
-    let worktreeName: String?
-    let branchName: String?
-    let paneTitle: String?
-    let paneRole: InboxNotification.Source.PaneSource.PaneRole
-    let parentPaneId: UUID?
-    let parentPaneTitle: String?
-    let drawerOrdinal: Int?
-    let runtimeLabel: String?
-}
-```
-
-Update `resolveContext(for:)` in `InboxNotificationRouter` to:
-
-```swift
-private func resolveContext(for paneId: UUID) -> ResolvedPaneContext? {
-    guard let pane = paneAtom.pane(paneId) else { return nil }
-    let tab = tabLayout.tabContaining(paneId: paneId)
-    let parentPaneId = pane.parentPaneId
-    let parentPane = parentPaneId.flatMap { paneAtom.pane($0) }
-    let drawerOrdinal = parentPane?.drawer?.paneIds.firstIndex(of: paneId).map { $0 + 1 }
-    let paneRole: InboxNotification.Source.PaneSource.PaneRole =
-        parentPaneId == nil ? .main : .drawerChild
-
-    return ResolvedPaneContext(
-        tabId: tab?.id,
-        tabName: tab?.name,
-        repoId: pane.repoId,
-        repoName: pane.metadata.repoName,
-        worktreeId: pane.worktreeId,
-        worktreeName: pane.metadata.worktreeName,
-        branchName: pane.metadata.checkoutRef,
-        paneTitle: pane.title,
-        paneRole: paneRole,
-        parentPaneId: parentPaneId,
-        parentPaneTitle: parentPane?.title,
-        drawerOrdinal: drawerOrdinal,
-        runtimeLabel: runtimeLabel(for: pane)
-    )
-}
-
-private func runtimeLabel(for pane: Pane) -> String? {
-    switch pane.content {
-    case .terminal:
-        return "Terminal"
-    case .webview:
-        return "Web"
-    case .bridge(let state):
-        return state.panelKind.displayTitle
-    }
-}
-```
-
-If `BridgePaneState.PanelKind.displayTitle` does not exist, add a private switch inside `runtimeLabel(for:)` using the existing cases.
-
-- [ ] **Step 4: Pass source fields into notification construction**
-
-Update the `.init(...)` call for `InboxNotification.Source.PaneSource`:
-
-```swift
-source: .pane(
-    .init(
-        paneId: paneId,
-        tabId: resolvedContext?.tabId,
-        tabName: resolvedContext?.tabName,
-        repoId: resolvedContext?.repoId,
-        repoName: resolvedContext?.repoName,
-        worktreeId: resolvedContext?.worktreeId,
-        worktreeName: resolvedContext?.worktreeName,
-        branchName: resolvedContext?.branchName,
-        paneTitle: resolvedContext?.paneTitle,
-        paneRole: resolvedContext?.paneRole ?? .main,
-        parentPaneId: resolvedContext?.parentPaneId,
-        parentPaneTitle: resolvedContext?.parentPaneTitle,
-        drawerOrdinal: resolvedContext?.drawerOrdinal,
-        runtimeLabel: resolvedContext?.runtimeLabel
-    )
-)
-```
-
-- [ ] **Step 5: Run focused tests**
-
-Run:
-
-```bash
-swift test --build-path ".build-agent-$PPID" --filter "InboxNotificationRouterDrawerChildTests|InboxNotificationListModelTests"
-```
-
-Expected: source-field tests now compile and pass, but duration test may still fail until Task 3.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add Sources/AgentStudio/Features/InboxNotification/Models/InboxNotification.swift \
-  Sources/AgentStudio/Features/InboxNotification/Routing/InboxNotificationRouter.swift \
-  Tests/AgentStudioTests/Features/InboxNotification/Models/InboxNotificationListModelTests.swift
-git commit -m $'feat: denormalize inbox source display context\n\nCo-authored-by: Codex <noreply@openai.com>'
-```
-
----
-
-## Task 3: Fix Command Duration Units And Formatting
-
-**Files:**
-- Modify: `Sources/AgentStudio/Features/InboxNotification/Routing/InboxNotificationRouter.swift`
-- Modify: `Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterTests.swift`
-
-- [ ] **Step 1: Replace seconds formatter with nanoseconds formatter**
-
-In `InboxNotificationRouter`, replace:
-
-```swift
-private func formattedDuration(_ seconds: UInt64) -> String {
-    let minutes = seconds / 60
-    let remainingSeconds = seconds % 60
-    if minutes > 0 {
-        return "\(minutes)m \(remainingSeconds)s"
-    }
-    return "\(remainingSeconds)s"
-}
-```
-
-with:
+Replace the formatter with:
 
 ```swift
 private func formattedDuration(_ nanoseconds: UInt64) -> String {
@@ -540,49 +699,9 @@ private func formattedDuration(_ nanoseconds: UInt64) -> String {
 }
 ```
 
-- [ ] **Step 2: Fix threshold comparison to use nanoseconds**
+- [ ] **Step 4: Update inbox router tests only**
 
-Replace:
-
-```swift
-guard duration >= AppPolicies.InboxNotification.commandFinishedMinDurationSeconds else {
-    return .ignore(reason: "below_duration_threshold")
-}
-```
-
-with:
-
-```swift
-guard duration >= AppPolicies.InboxNotification.commandFinishedMinDurationNanoseconds else {
-    return .ignore(reason: "below_duration_threshold")
-}
-```
-
-In `AppPolicies.InboxNotification`, replace:
-
-```swift
-static let commandFinishedMinDurationSeconds: UInt64 = 10
-```
-
-with:
-
-```swift
-static let commandFinishedMinDurationSeconds: UInt64 = 10
-static let commandFinishedMinDurationNanoseconds: UInt64 =
-    commandFinishedMinDurationSeconds * 1_000_000_000
-```
-
-- [ ] **Step 3: Update existing tests to pass nanosecond durations**
-
-In inbox router tests only, convert command-finished test inputs:
-
-```swift
-duration: 20
-duration: 15
-duration: 3
-```
-
-to:
+In inbox notification router tests, convert command-finished durations:
 
 ```swift
 duration: 20_000_000_000
@@ -590,38 +709,38 @@ duration: 15_000_000_000
 duration: 3_000_000_000
 ```
 
-Do not change Ghostty adapter tests that intentionally prove raw payload forwarding.
+Do not change Ghostty adapter/action router tests that prove raw payload forwarding.
 
-- [ ] **Step 4: Run focused tests**
-
-Run:
+- [ ] **Step 5: Run focused tests**
 
 ```bash
-swift test --build-path ".build-agent-$PPID" --filter "InboxNotificationRouterTests|InboxNotificationRouterDrawerChildTests|GhosttyActionRouterTests|GhosttyAdapterTests"
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$$}"
+swift test --build-path "$BUILD_PATH" --filter "InboxNotificationRouterTests|InboxNotificationRouterDrawerChildTests|GhosttyActionRouterTests|GhosttyAdapterTests"
 ```
 
-Expected: PASS. The new duration test must assert `exit 0 · 18s`.
+Expected: PASS. The new test must assert `exit 0 · 18s`.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add Sources/AgentStudio/Infrastructure/AppPolicies.swift \
   Sources/AgentStudio/Features/InboxNotification/Routing/InboxNotificationRouter.swift \
   Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterTests.swift \
   Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterDrawerChildTests.swift
-git commit -m $'fix: format inbox command durations from nanoseconds\n\nCo-authored-by: Codex <noreply@openai.com>'
+git commit -m $'fix: treat inbox command durations as nanoseconds\n\nCo-authored-by: Codex <noreply@openai.com>'
 ```
 
 ---
 
-## Task 4: Add Inbox Source Display Model
+## Task 3: Inbox Source Display Model
 
 **Files:**
 - Create: `Sources/AgentStudio/Features/InboxNotification/Models/InboxNotificationSourceDisplay.swift`
 - Create: `Tests/AgentStudioTests/Features/InboxNotification/Models/InboxNotificationSourceDisplayTests.swift`
 - Modify: `Sources/AgentStudio/Features/InboxNotification/Models/InboxNotificationListModel.swift`
+- Modify: `Tests/AgentStudioTests/Features/InboxNotification/Models/InboxNotificationListModelTests.swift`
 
-- [ ] **Step 1: Write source display tests**
+- [ ] **Step 1: Add display tests**
 
 Create `InboxNotificationSourceDisplayTests.swift`:
 
@@ -633,20 +752,20 @@ import Testing
 
 @Suite("InboxNotificationSourceDisplay")
 struct InboxNotificationSourceDisplayTests {
-    @Test("repo source line includes branch when branch differs from worktree")
+    @Test("repo source line includes worktree and distinct branch")
     func repoSourceLineIncludesDistinctBranch() {
         let notification = makeNotification(
             repoName: "askluna",
             worktreeName: "notification-system",
             branchName: "notification-system-5",
-            tabName: "Work",
-            paneTitle: "Claude"
+            tabDisplayLabel: "Work",
+            paneDisplayLabel: "Claude"
         )
 
-        let display = InboxNotificationSourceDisplay(notification: notification)
+        let display = InboxNotificationSourceDisplay(notification: notification, rowContext: .globalInbox)
 
         #expect(display.sourceLine == "askluna · notification-system / notification-system-5")
-        #expect(display.placementLine == "Tab: Work · Pane: Claude")
+        #expect(display.placementLine == "Tab Work · Pane Claude")
         #expect(display.groupLabel(for: .byRepo) == "askluna")
         #expect(display.groupLabel(for: .byTab) == "Work")
         #expect(display.groupLabel(for: .byPane) == "Claude")
@@ -658,49 +777,80 @@ struct InboxNotificationSourceDisplayTests {
             repoName: "askluna",
             worktreeName: "askluna",
             branchName: "askluna",
-            tabName: "Work",
-            paneTitle: "Gemini",
+            tabDisplayLabel: "Work",
+            paneDisplayLabel: "Gemini",
             paneRole: .drawerChild,
-            parentPaneTitle: "Claude",
+            parentPaneDisplayLabel: "Claude",
             drawerOrdinal: 2
         )
 
-        let display = InboxNotificationSourceDisplay(notification: notification)
+        let display = InboxNotificationSourceDisplay(notification: notification, rowContext: .globalInbox)
 
         #expect(display.sourceLine == "askluna · askluna")
-        #expect(display.placementLine == "Tab: Work · Pane: Claude · Drawer: Gemini")
-        #expect(display.groupLabel(for: .byPane) == "Claude / Drawer: Gemini")
+        #expect(display.placementLine == "Tab Work · Pane Claude · Drawer Gemini")
+        #expect(display.groupLabel(for: .byPane) == "Claude / Drawer Gemini")
     }
 
-    @Test("global source uses quiet workspace fallback")
-    func globalSourceUsesQuietFallback() {
-        let notification = InboxNotification(
-            id: UUID(),
-            timestamp: Date(timeIntervalSince1970: 100),
-            kind: .agentRpc,
-            title: "Notification",
-            body: "Body",
-            source: .global,
-            isRead: false,
-            isDismissedFromPaneInbox: false
+    @Test("pane inbox hides redundant parent placement")
+    func paneInboxHidesRedundantParentPlacement() {
+        let parentPaneId = UUID()
+        let notification = makeNotification(
+            parentPaneId: parentPaneId,
+            tabDisplayLabel: "Work",
+            paneDisplayLabel: "Gemini",
+            paneRole: .drawerChild,
+            parentPaneDisplayLabel: "Claude"
         )
 
-        let display = InboxNotificationSourceDisplay(notification: notification)
+        let display = InboxNotificationSourceDisplay(
+            notification: notification,
+            rowContext: .paneInbox(parentPaneId: parentPaneId)
+        )
 
-        #expect(display.sourceLine == "Workspace event")
-        #expect(display.placementLine == nil)
-        #expect(display.groupLabel(for: .byRepo) == "Workspace")
+        #expect(display.placementLine == "Drawer Gemini")
+    }
+
+    @Test("source display never emits unknown source")
+    func sourceDisplayNeverEmitsUnknownSource() {
+        let notification = makeNotification()
+
+        let display = InboxNotificationSourceDisplay(notification: notification, rowContext: .globalInbox)
+
+        #expect(display.sourceLine != "unknown source")
+        #expect(display.searchText.contains("unknown source") == false)
+        #expect(display.sourceLine == "Terminal")
+    }
+
+    @Test("filter labels never expose UUID prefixes")
+    func filterLabelsNeverExposeUUIDPrefixes() {
+        let repoId = UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!
+        let worktreeId = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
+        let notification = makeNotification(
+            repoId: repoId,
+            repoName: "askluna",
+            worktreeId: worktreeId,
+            worktreeName: "notification-system"
+        )
+
+        let display = InboxNotificationSourceDisplay(notification: notification, rowContext: .globalInbox)
+
+        #expect(display.filterLabel(for: .repo(id: repoId)) == "askluna")
+        #expect(display.filterLabel(for: .worktree(id: worktreeId)) == "notification-system")
     }
 
     private func makeNotification(
+        repoId: UUID? = nil,
         repoName: String? = nil,
+        worktreeId: UUID? = nil,
         worktreeName: String? = nil,
         branchName: String? = nil,
-        tabName: String? = nil,
-        paneTitle: String? = nil,
-        paneRole: InboxNotification.Source.PaneSource.PaneRole = .main,
-        parentPaneTitle: String? = nil,
-        drawerOrdinal: Int? = nil
+        parentPaneId: UUID? = nil,
+        tabDisplayLabel: String? = nil,
+        paneDisplayLabel: String? = nil,
+        paneRole: InboxNotification.PaneSource.PaneRole = .main,
+        parentPaneDisplayLabel: String? = nil,
+        drawerOrdinal: Int? = nil,
+        runtimeDisplayLabel: String? = "Terminal"
     ) -> InboxNotification {
         InboxNotification(
             id: UUID(),
@@ -712,15 +862,18 @@ struct InboxNotificationSourceDisplayTests {
                 .init(
                     paneId: UUID(),
                     tabId: UUID(),
-                    tabName: tabName,
+                    tabDisplayLabel: tabDisplayLabel,
+                    repoId: repoId,
                     repoName: repoName,
+                    worktreeId: worktreeId,
                     worktreeName: worktreeName,
                     branchName: branchName,
-                    paneTitle: paneTitle,
+                    paneDisplayLabel: paneDisplayLabel,
                     paneRole: paneRole,
-                    parentPaneTitle: parentPaneTitle,
+                    parentPaneId: parentPaneId,
+                    parentPaneDisplayLabel: parentPaneDisplayLabel,
                     drawerOrdinal: drawerOrdinal,
-                    runtimeLabel: "Terminal"
+                    runtimeDisplayLabel: runtimeDisplayLabel
                 )
             ),
             isRead: false,
@@ -730,24 +883,19 @@ struct InboxNotificationSourceDisplayTests {
 }
 ```
 
-- [ ] **Step 2: Run source display tests and verify failure**
+- [ ] **Step 2: Implement `InboxNotificationSourceDisplay`**
 
-Run:
-
-```bash
-swift test --build-path ".build-agent-$PPID" --filter "InboxNotificationSourceDisplayTests"
-```
-
-Expected: FAIL because `InboxNotificationSourceDisplay` does not exist.
-
-- [ ] **Step 3: Implement `InboxNotificationSourceDisplay`**
-
-Create `Sources/AgentStudio/Features/InboxNotification/Models/InboxNotificationSourceDisplay.swift`:
+Create `InboxNotificationSourceDisplay.swift`:
 
 ```swift
 import Foundation
 
 struct InboxNotificationSourceDisplay: Sendable, Equatable {
+    enum RowContext: Sendable, Equatable {
+        case globalInbox
+        case paneInbox(parentPaneId: UUID)
+    }
+
     let sourceLine: String
     let placementLine: String?
     let searchText: String
@@ -755,24 +903,27 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
     private let repoGroupLabel: String
     private let paneGroupLabel: String
     private let tabGroupLabel: String
+    private let filterLabels: [InboxFilter: String]
 
-    init(notification: InboxNotification) {
+    init(
+        notification: InboxNotification,
+        rowContext: RowContext = .globalInbox
+    ) {
         switch notification.source {
         case .global:
             self.sourceLine = "Workspace event"
             self.placementLine = nil
-            self.searchText = [
-                notification.title,
-                notification.body,
-                "Workspace event",
-            ].compactMap(\.self).joined(separator: " ")
+            self.searchText = [notification.title, notification.body, "Workspace event"]
+                .compactMap(\.self)
+                .joined(separator: " ")
             self.repoGroupLabel = "Workspace"
             self.paneGroupLabel = "Workspace"
             self.tabGroupLabel = "Workspace"
+            self.filterLabels = [:]
 
-        case .pane(let paneSource):
-            let sourceLine = Self.sourceLine(for: paneSource)
-            let placementLine = Self.placementLine(for: paneSource)
+        case .pane(let source):
+            let sourceLine = Self.sourceLine(for: source)
+            let placementLine = Self.placementLine(for: source, rowContext: rowContext)
             self.sourceLine = sourceLine
             self.placementLine = placementLine
             self.searchText = [
@@ -780,11 +931,12 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
                 notification.body,
                 sourceLine,
                 placementLine,
-                paneSource.runtimeLabel,
+                source.runtimeDisplayLabel,
             ].compactMap(\.self).joined(separator: " ")
-            self.repoGroupLabel = paneSource.repo?.name ?? "Workspace"
-            self.paneGroupLabel = Self.paneGroupLabel(for: paneSource)
-            self.tabGroupLabel = Self.nonBlank(paneSource.tabName) ?? "Current Tab"
+            self.repoGroupLabel = nonBlank(source.repo?.name) ?? "Workspace"
+            self.paneGroupLabel = Self.paneGroupLabel(for: source)
+            self.tabGroupLabel = nonBlank(source.tabDisplayLabel) ?? "Untitled Tab"
+            self.filterLabels = Self.filterLabels(for: source)
         }
     }
 
@@ -801,9 +953,13 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
         }
     }
 
-    private static func sourceLine(for source: InboxNotification.Source.PaneSource) -> String {
-        if let repoName = source.repo?.name {
-            if let worktreeName = source.worktree?.name {
+    func filterLabel(for filter: InboxFilter) -> String? {
+        filterLabels[filter]
+    }
+
+    private static func sourceLine(for source: InboxNotification.PaneSource) -> String {
+        if let repoName = nonBlank(source.repo?.name) {
+            if let worktreeName = nonBlank(source.worktree?.name) {
                 if let branchName = nonBlank(source.branchName), branchName != worktreeName {
                     return "\(repoName) · \(worktreeName) / \(branchName)"
                 }
@@ -812,7 +968,7 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
             return repoName
         }
 
-        if let worktreeName = source.worktree?.name {
+        if let worktreeName = nonBlank(source.worktree?.name) {
             if let branchName = nonBlank(source.branchName), branchName != worktreeName {
                 return "\(worktreeName) / \(branchName)"
             }
@@ -823,52 +979,86 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
             return branchName
         }
 
-        if let runtimeLabel = nonBlank(source.runtimeLabel) {
-            return runtimeLabel
+        if let runtimeDisplayLabel = nonBlank(source.runtimeDisplayLabel) {
+            return runtimeDisplayLabel
         }
 
         return "Workspace event"
     }
 
-    private static func placementLine(for source: InboxNotification.Source.PaneSource) -> String? {
+    private static func placementLine(
+        for source: InboxNotification.PaneSource,
+        rowContext: RowContext
+    ) -> String? {
         var parts: [String] = []
-        if let tabName = nonBlank(source.tabName) {
-            parts.append("Tab: \(tabName)")
-        }
+        switch rowContext {
+        case .globalInbox:
+            if let tabDisplayLabel = nonBlank(source.tabDisplayLabel) {
+                parts.append("Tab \(tabDisplayLabel)")
+            }
+            appendPanePlacement(for: source, to: &parts)
 
-        switch source.paneRole {
-        case .main:
-            if let paneTitle = nonBlank(source.paneTitle) {
-                parts.append("Pane: \(paneTitle)")
-            }
-        case .drawerChild:
-            if let parentPaneTitle = nonBlank(source.parentPaneTitle) {
-                parts.append("Pane: \(parentPaneTitle)")
-            }
-            if let paneTitle = nonBlank(source.paneTitle) {
-                parts.append("Drawer: \(paneTitle)")
-            } else if let drawerOrdinal = source.drawerOrdinal {
-                parts.append("Drawer: \(drawerOrdinal)")
+        case .paneInbox(let parentPaneId):
+            if source.paneRole == .drawerChild,
+                source.parentPaneId == parentPaneId,
+                let paneDisplayLabel = nonBlank(source.paneDisplayLabel)
+            {
+                parts.append("Drawer \(paneDisplayLabel)")
             }
         }
-
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    private static func paneGroupLabel(for source: InboxNotification.Source.PaneSource) -> String {
+    private static func appendPanePlacement(
+        for source: InboxNotification.PaneSource,
+        to parts: inout [String]
+    ) {
         switch source.paneRole {
         case .main:
-            return nonBlank(source.paneTitle) ?? nonBlank(source.runtimeLabel) ?? "Pane"
+            if let paneDisplayLabel = nonBlank(source.paneDisplayLabel) {
+                parts.append("Pane \(paneDisplayLabel)")
+            }
         case .drawerChild:
-            let parentTitle = nonBlank(source.parentPaneTitle) ?? "Pane"
-            if let paneTitle = nonBlank(source.paneTitle) {
-                return "\(parentTitle) / Drawer: \(paneTitle)"
+            if let parentPaneDisplayLabel = nonBlank(source.parentPaneDisplayLabel) {
+                parts.append("Pane \(parentPaneDisplayLabel)")
+            }
+            if let paneDisplayLabel = nonBlank(source.paneDisplayLabel) {
+                parts.append("Drawer \(paneDisplayLabel)")
+            } else if let drawerOrdinal = source.drawerOrdinal {
+                parts.append("Drawer \(drawerOrdinal)")
+            } else {
+                parts.append("Drawer")
+            }
+        }
+    }
+
+    private static func paneGroupLabel(for source: InboxNotification.PaneSource) -> String {
+        switch source.paneRole {
+        case .main:
+            return nonBlank(source.paneDisplayLabel)
+                ?? nonBlank(source.runtimeDisplayLabel)
+                ?? "Pane"
+        case .drawerChild:
+            let parentTitle = nonBlank(source.parentPaneDisplayLabel) ?? "Pane"
+            if let paneTitle = nonBlank(source.paneDisplayLabel) {
+                return "\(parentTitle) / Drawer \(paneTitle)"
             }
             if let drawerOrdinal = source.drawerOrdinal {
                 return "\(parentTitle) / Drawer \(drawerOrdinal)"
             }
             return "\(parentTitle) / Drawer"
         }
+    }
+
+    private static func filterLabels(for source: InboxNotification.PaneSource) -> [InboxFilter: String] {
+        var labels: [InboxFilter: String] = [:]
+        if let repoId = source.repo?.id {
+            labels[.repo(id: repoId)] = nonBlank(source.repo?.name) ?? "Filtered repo"
+        }
+        if let worktreeId = source.worktree?.id {
+            labels[.worktree(id: worktreeId)] = nonBlank(source.worktree?.name) ?? "Filtered worktree"
+        }
+        return labels
     }
 
     private static func nonBlank(_ value: String?) -> String? {
@@ -879,33 +1069,93 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
 }
 ```
 
-- [ ] **Step 4: Wire list model to display model**
+If `InboxFilter` uses different case names, adapt the two filter-label cases to the existing enum and keep the "no UUID label" test.
 
-In `InboxNotificationListModel.filterNotifications(searchText:)`, replace direct field checks with:
+- [ ] **Step 3: Wire list model search and grouping**
+
+In `InboxNotificationListModel`, use the display model:
 
 ```swift
-return notifications.filter { notification in
-    InboxNotificationSourceDisplay(notification: notification)
+private static func matchesSearch(
+    notification: InboxNotification,
+    searchText: String
+) -> Bool {
+    let trimmedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    guard !trimmedQuery.isEmpty else { return true }
+    return InboxNotificationSourceDisplay(notification: notification)
         .searchText
         .lowercased()
         .contains(trimmedQuery)
 }
 ```
 
-In `buildSections`, update labels:
+Use the same display model for section labels:
 
 ```swift
-label: { InboxNotificationSourceDisplay(notification: $0).groupLabel(for: .byRepo) ?? "Workspace" }
+let display = InboxNotificationSourceDisplay(notification: notification)
+let label = display.groupLabel(for: grouping)
 ```
 
-and equivalent for `.byPane` / `.byTab`.
+- [ ] **Step 4: Add list model UUID regression tests**
 
-- [ ] **Step 5: Run model tests**
+Add or update tests in `InboxNotificationListModelTests`:
 
-Run:
+```swift
+@Test("byTab grouping uses tab display label instead of UUID prefix")
+func byTabGroupingUsesTabDisplayLabel() {
+    let notification = makeInboxNotification(
+        timestamp: Date(timeIntervalSince1970: 100),
+        title: "Claude Code",
+        paneId: UUID(),
+        tabId: UUID(),
+        tabDisplayLabel: "Work",
+        paneDisplayLabel: "Claude"
+    )
+
+    let model = InboxNotificationListModel(
+        notifications: [notification],
+        grouping: .byTab,
+        sort: .newestFirst,
+        searchText: ""
+    )
+
+    #expect(model.sections.map(\.label) == ["Work"])
+}
+
+@Test("byPane grouping distinguishes drawer child panes")
+func byPaneGroupingDistinguishesDrawerChildPanes() {
+    let parentPaneId = UUID()
+    let notification = makeInboxNotification(
+        timestamp: Date(timeIntervalSince1970: 100),
+        title: "Gemini",
+        paneId: UUID(),
+        repoName: "askluna",
+        worktreeName: "askluna",
+        branchName: "main",
+        paneDisplayLabel: "Gemini",
+        paneRole: .drawerChild,
+        parentPaneId: parentPaneId,
+        parentPaneDisplayLabel: "Claude"
+    )
+
+    let model = InboxNotificationListModel(
+        notifications: [notification],
+        grouping: .byPane,
+        sort: .newestFirst,
+        searchText: ""
+    )
+
+    #expect(model.sections.map(\.label) == ["Claude / Drawer Gemini"])
+}
+```
+
+Extend the local helper to accept the new display fields. Use `InboxNotification.PaneSource.PaneRole`.
+
+- [ ] **Step 5: Run focused tests**
 
 ```bash
-swift test --build-path ".build-agent-$PPID" --filter "InboxNotificationSourceDisplayTests|InboxNotificationListModelTests"
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$$}"
+swift test --build-path "$BUILD_PATH" --filter "InboxNotificationSourceDisplayTests|InboxNotificationListModelTests"
 ```
 
 Expected: PASS.
@@ -922,33 +1172,36 @@ git commit -m $'feat: add inbox source display model\n\nCo-authored-by: Codex <n
 
 ---
 
-## Task 5: Extract Shared Sidebar Row And Section Header Primitives
+## Task 4: Shared Sidebar Primitives
 
 **Files:**
 - Create: `Sources/AgentStudio/SharedComponents/SidebarRowShell.swift`
 - Create: `Sources/AgentStudio/SharedComponents/SidebarSectionHeader.swift`
+- Create: `Tests/AgentStudioTests/SharedComponents/SidebarSectionHeaderTests.swift`
 - Modify: `Sources/AgentStudio/Infrastructure/AppStyles.swift`
-- Modify: `Sources/AgentStudio/Features/RepoExplorer/RepoExplorerGroupHeader.swift`
-- Modify: `Sources/AgentStudio/Features/RepoExplorer/RepoExplorerWorktreeRow.swift`
 - Modify: `Sources/AgentStudio/Features/InboxNotification/Components/InboxNotificationGroupHeader.swift`
+- Modify: `Sources/AgentStudio/Features/RepoExplorer/RepoExplorerGroupHeader.swift`
 
-- [ ] **Step 1: Add sidebar row style tokens**
+- [ ] **Step 1: Add style tokens only for shared sidebar chrome**
 
-In `AppStyles.Shell.Sidebar`, add:
+In `AppStyles.Shell.Sidebar`, add tokens if existing names are missing:
 
 ```swift
+static let rowHorizontalInset: CGFloat = 8
+static let rowCornerRadius: CGFloat = AppStyles.General.CornerRadius.bar
+static let rowContentSpacing: CGFloat = 3
+static let notificationRowUnreadDotSize: CGFloat = 6
 static let notificationRowTitleSize: CGFloat = AppStyles.General.Typography.textBase
 static let notificationRowSourceSize: CGFloat = AppStyles.General.Typography.textSm
 static let notificationRowDetailSize: CGFloat = AppStyles.General.Typography.textSm
 static let notificationRowTimestampSize: CGFloat = AppStyles.General.Typography.textSm
-static let notificationRowUnreadDotSize: CGFloat = 6
-static let rowHorizontalInset: CGFloat = 8
-static let rowCornerRadius: CGFloat = AppStyles.General.CornerRadius.bar
 ```
 
-- [ ] **Step 2: Create `SidebarRowShell`**
+Do not add behavioral limits here.
 
-Create:
+- [ ] **Step 2: Create stateless `SidebarRowShell`**
+
+Create `SidebarRowShell.swift`:
 
 ```swift
 import SwiftUI
@@ -956,17 +1209,18 @@ import SwiftUI
 struct SidebarRowShell<Content: View>: View {
     let isSelected: Bool
     let isFlashing: Bool
+    let isHovering: Bool
     let content: Content
-
-    @State private var isHovering = false
 
     init(
         isSelected: Bool = false,
         isFlashing: Bool = false,
+        isHovering: Bool = false,
         @ViewBuilder content: () -> Content
     ) {
         self.isSelected = isSelected
         self.isFlashing = isFlashing
+        self.isHovering = isHovering
         self.content = content()
     }
 
@@ -976,7 +1230,6 @@ struct SidebarRowShell<Content: View>: View {
             .padding(.horizontal, AppStyles.Shell.Sidebar.rowHorizontalInset)
             .background(rowBackground)
             .contentShape(Rectangle())
-            .onHover { isHovering = $0 }
     }
 
     private var rowBackground: some View {
@@ -999,9 +1252,11 @@ struct SidebarRowShell<Content: View>: View {
 }
 ```
 
-- [ ] **Step 3: Create `SidebarSectionHeader`**
+Feature row wrappers own `@State private var isHovering` and pass the value in.
 
-Create:
+- [ ] **Step 3: Create `SidebarSectionHeader` with explicit EmptyView overload**
+
+Create `SidebarSectionHeader.swift`:
 
 ```swift
 import SwiftUI
@@ -1018,7 +1273,7 @@ struct SidebarSectionHeader<TrailingContent: View>: View {
         subtitle: String? = nil,
         isExpanded: Bool,
         onToggle: @escaping () -> Void,
-        @ViewBuilder trailingContent: () -> TrailingContent = { EmptyView() }
+        @ViewBuilder trailingContent: () -> TrailingContent
     ) {
         self.title = title
         self.subtitle = subtitle
@@ -1058,11 +1313,29 @@ struct SidebarSectionHeader<TrailingContent: View>: View {
         .contentShape(Rectangle())
     }
 }
+
+extension SidebarSectionHeader where TrailingContent == EmptyView {
+    init(
+        title: String,
+        subtitle: String? = nil,
+        isExpanded: Bool,
+        onToggle: @escaping () -> Void
+    ) {
+        self.init(
+            title: title,
+            subtitle: subtitle,
+            isExpanded: isExpanded,
+            onToggle: onToggle
+        ) {
+            EmptyView()
+        }
+    }
+}
 ```
 
 - [ ] **Step 4: Replace inbox group header**
 
-Update `InboxNotificationGroupHeader` to call `SidebarSectionHeader`:
+Update `InboxNotificationGroupHeader` to wrap the shared header:
 
 ```swift
 struct InboxNotificationGroupHeader: View {
@@ -1093,426 +1366,336 @@ struct InboxNotificationGroupHeader: View {
 }
 ```
 
-- [ ] **Step 5: Run build**
+- [ ] **Step 5: Replace RepoExplorer group header only if output stays equivalent**
 
-Run:
+In `RepoExplorerGroupHeader.swift`, wrap the existing resolved group header content with `SidebarSectionHeader`. Preserve:
+
+- chevron direction
+- title text
+- organization subtitle if present
+- tap target
+- expanded/collapsed callback
+
+If the current header has RepoExplorer-specific layout that cannot be represented by `SidebarSectionHeader` without adding feature-specific parameters, stop and leave RepoExplorer unchanged; the inbox header is still covered by the shared primitive and this becomes a follow-up.
+
+- [ ] **Step 6: Add compile-oriented shared header test**
+
+Create `SidebarSectionHeaderTests.swift`:
+
+```swift
+import SwiftUI
+import Testing
+
+@testable import AgentStudio
+
+@Suite("SidebarSectionHeader")
+struct SidebarSectionHeaderTests {
+    @Test("empty trailing initializer builds")
+    func emptyTrailingInitializerBuilds() {
+        let header = SidebarSectionHeader(
+            title: "askluna",
+            isExpanded: true,
+            onToggle: {}
+        )
+
+        #expect(String(describing: type(of: header)).contains("SidebarSectionHeader"))
+    }
+}
+```
+
+- [ ] **Step 7: Run build and shared tests**
 
 ```bash
-mise run build
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$$}"
+swift test --build-path "$BUILD_PATH" --filter "SidebarSectionHeaderTests"
+SWIFT_BUILD_DIR="$BUILD_PATH" mise run build
 ```
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add Sources/AgentStudio/SharedComponents/SidebarRowShell.swift \
   Sources/AgentStudio/SharedComponents/SidebarSectionHeader.swift \
   Sources/AgentStudio/Infrastructure/AppStyles.swift \
-  Sources/AgentStudio/Features/InboxNotification/Components/InboxNotificationGroupHeader.swift
-git commit -m $'feat: add shared sidebar row primitives\n\nCo-authored-by: Codex <noreply@openai.com>'
+  Sources/AgentStudio/Features/InboxNotification/Components/InboxNotificationGroupHeader.swift \
+  Sources/AgentStudio/Features/RepoExplorer/RepoExplorerGroupHeader.swift \
+  Tests/AgentStudioTests/SharedComponents/SidebarSectionHeaderTests.swift
+git commit -m $'feat: add shared sidebar chrome primitives\n\nCo-authored-by: Codex <noreply@openai.com>'
 ```
 
 ---
 
-## Task 6: Redesign Inbox Row Content Around Source Context
+## Task 5: Redesign Inbox Rows And Sidebar Chrome
 
 **Files:**
 - Modify: `Sources/AgentStudio/Features/InboxNotification/Components/InboxRow.swift`
 - Modify: `Sources/AgentStudio/Features/InboxNotification/Views/InboxSidebarComponents.swift`
 - Modify: `Sources/AgentStudio/Features/InboxNotification/Views/PaneInboxNotificationPopover.swift`
+- Modify: `Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationSidebarView.swift`
 - Modify: `Tests/AgentStudioTests/Features/InboxNotification/Views/PaneInboxNotificationPopoverTests.swift`
+- Modify: `Tests/AgentStudioTests/Features/InboxNotification/Views/InboxNotificationSidebarViewTests.swift`
 
-- [ ] **Step 1: Replace `InboxRow` with source-first content**
+- [ ] **Step 1: Update `InboxRow` API**
 
-Replace `InboxRow` body with:
+Change `InboxRow` to accept a row context:
 
 ```swift
 struct InboxRow: View {
     let notification: InboxNotification
     let now: Date
+    let rowContext: InboxNotificationSourceDisplay.RowContext
 
     private var display: InboxNotificationSourceDisplay {
-        InboxNotificationSourceDisplay(notification: notification)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
-            HStack(spacing: AppStyles.General.Spacing.standard) {
-                unreadDot
-                notificationIcon
-
-                Text(notification.title)
-                    .font(.system(
-                        size: AppStyles.Shell.Sidebar.notificationRowTitleSize,
-                        weight: notification.isRead ? .regular : .semibold
-                    ))
-                    .foregroundStyle(notification.isRead ? .secondary : .primary)
-                    .lineLimit(1)
-                    .layoutPriority(1)
-
-                Spacer(minLength: AppStyles.General.Spacing.standard)
-
-                Text(relativeTime)
-                    .font(.system(size: AppStyles.Shell.Sidebar.notificationRowTimestampSize, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-
-            Text(display.sourceLine)
-                .font(.system(size: AppStyles.Shell.Sidebar.notificationRowSourceSize, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-            if let placementLine = display.placementLine {
-                Text(placementLine)
-                    .font(.system(size: AppStyles.Shell.Sidebar.notificationRowDetailSize))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-            }
-
-            if let body = notification.body, !body.isEmpty {
-                Text(body)
-                    .font(.system(size: AppStyles.Shell.Sidebar.notificationRowDetailSize))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var unreadDot: some View {
-        if notification.isRead {
-            Color.clear
-                .frame(
-                    width: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize,
-                    height: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize
-                )
-        } else {
-            Circle()
-                .fill(.red)
-                .frame(
-                    width: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize,
-                    height: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize
-                )
-        }
-    }
-
-    private var notificationIcon: some View {
-        Image(systemName: iconName)
-            .font(.system(size: AppStyles.Shell.Sidebar.worktreeIconSize, weight: .semibold))
-            .foregroundStyle(iconColor)
-            .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
-    }
-
-    private var iconName: String {
-        switch notification.kind {
-        case .agentDesktopNotification, .agentRpc:
-            return "terminal"
-        case .bellRang:
-            return "bell"
-        case .commandFinished:
-            return "checkmark.circle"
-        case .terminalSecureInputRequested:
-            return "keyboard"
-        case .terminalProgressError, .terminalRendererUnhealthy:
-            return "exclamationmark.triangle"
-        case .persistenceRecovery:
-            return "externaldrive.badge.exclamationmark"
-        case .approvalRequested:
-            return "checkmark.seal"
-        case .securityEvent:
-            return "lock.shield"
-        }
-    }
-
-    private var iconColor: Color {
-        switch notification.kind {
-        case .commandFinished:
-            return AppStyles.Shell.Sidebar.chipSuccessColor
-        case .terminalProgressError, .terminalRendererUnhealthy, .securityEvent:
-            return AppStyles.Shell.Sidebar.chipDangerColor
-        case .terminalSecureInputRequested, .approvalRequested:
-            return AppStyles.Shell.Sidebar.chipWarningColor
-        default:
-            return .secondary
-        }
+        InboxNotificationSourceDisplay(notification: notification, rowContext: rowContext)
     }
 }
 ```
 
-Keep the existing `relativeTime` property.
+Render the row in this order:
 
-- [ ] **Step 2: Wrap sidebar rows in `SidebarRowShell`**
+1. Title + relative age.
+2. Source line: repo/worktree/branch or runtime fallback.
+3. Placement line when it adds information.
+4. Body snippet when present.
 
-In `InboxSidebarNotificationRow.body`, replace:
+Use current `relativeTime`. Do not render `unknown source`.
+
+- [ ] **Step 2: Replace source rendering in `InboxRow`**
+
+Inside `body`, use:
 
 ```swift
-InboxRow(notification: notification, now: now)
-```
+VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
+    HStack(spacing: AppStyles.General.Spacing.standard) {
+        unreadDot
+        notificationIcon
 
-with:
+        Text(notification.title)
+            .font(.system(
+                size: AppStyles.Shell.Sidebar.notificationRowTitleSize,
+                weight: notification.isRead ? .regular : .semibold
+            ))
+            .foregroundStyle(notification.isRead ? .secondary : .primary)
+            .lineLimit(1)
+            .layoutPriority(1)
 
-```swift
-SidebarRowShell(isFlashing: isFlashing) {
-    InboxRow(notification: notification, now: now)
+        Spacer(minLength: AppStyles.General.Spacing.standard)
+
+        Text(relativeTime)
+            .font(.system(size: AppStyles.Shell.Sidebar.notificationRowTimestampSize, weight: .semibold))
+            .foregroundStyle(.secondary)
+    }
+
+    Text(display.sourceLine)
+        .font(.system(size: AppStyles.Shell.Sidebar.notificationRowSourceSize, weight: .medium))
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+
+    if let placementLine = display.placementLine {
+        Text(placementLine)
+            .font(.system(size: AppStyles.Shell.Sidebar.notificationRowDetailSize))
+            .foregroundStyle(.tertiary)
+            .lineLimit(1)
+    }
+
+    if let body = notification.body, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        Text(body)
+            .font(.system(size: AppStyles.Shell.Sidebar.notificationRowDetailSize))
+            .foregroundStyle(.tertiary)
+            .lineLimit(1)
+    }
 }
 ```
 
-Keep the existing focus, tap, and key handling modifiers on the shell.
+Keep or update the existing icon helpers; do not add new feature-specific colors to `SharedComponents`.
 
-- [ ] **Step 3: Wrap pane inbox rows in the same shell**
+- [ ] **Step 3: Wrap sidebar rows with hover owned by feature wrapper**
 
-In `PaneInboxNotificationPopover`, replace row background logic with:
+In `InboxSidebarNotificationRow`, keep hover state feature-local:
+
+```swift
+@State private var isHovering = false
+```
+
+Wrap:
+
+```swift
+SidebarRowShell(
+    isFlashing: isFlashing,
+    isHovering: isHovering
+) {
+    InboxRow(
+        notification: notification,
+        now: now,
+        rowContext: .globalInbox
+    )
+}
+.onHover { isHovering = $0 }
+```
+
+Keep the existing activation, focus, and keyboard modifiers on the shell.
+
+- [ ] **Step 4: Wrap PaneInbox rows with selected state**
+
+In `PaneInboxNotificationPopover`, replace custom `RoundedRectangle` row backgrounds with:
 
 ```swift
 SidebarRowShell(
     isSelected: selectedNotificationId == notification.id
 ) {
-    InboxRow(notification: notification, now: Date())
+    InboxRow(
+        notification: notification,
+        now: Date(),
+        rowContext: .paneInbox(parentPaneId: parentPaneId)
+    )
 }
 ```
 
-Remove the custom `RoundedRectangle(...).fill(...)` row background block.
+Do not call it DrawerInbox. The user-facing concept is PaneInbox.
 
-- [ ] **Step 4: Run view tests**
+- [ ] **Step 5: Match RepoExplorer sidebar chrome**
 
-Run:
-
-```bash
-swift test --build-path ".build-agent-$PPID" --filter "PaneInboxNotificationPopoverTests|InboxNotificationSidebarViewTests"
-```
-
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add Sources/AgentStudio/Features/InboxNotification/Components/InboxRow.swift \
-  Sources/AgentStudio/Features/InboxNotification/Views/InboxSidebarComponents.swift \
-  Sources/AgentStudio/Features/InboxNotification/Views/PaneInboxNotificationPopover.swift \
-  Tests/AgentStudioTests/Features/InboxNotification/Views/PaneInboxNotificationPopoverTests.swift
-git commit -m $'feat: redesign inbox rows around source context\n\nCo-authored-by: Codex <noreply@openai.com>'
-```
-
----
-
-## Task 7: Match Sidebar Background And Header Controls
-
-**Files:**
-- Modify: `Sources/AgentStudio/Features/InboxNotification/Views/InboxSidebarComponents.swift`
-- Modify: `Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationSidebarView.swift`
-- Modify: `Tests/AgentStudioTests/Features/InboxNotification/Views/InboxNotificationSidebarViewTests.swift`
-
-- [ ] **Step 1: Match RepoExplorer background**
-
-In `InboxSidebarRootContainer.baseChrome`, add the same background and minimum width as RepoExplorer:
+In the inbox root container, match RepoExplorer's sidebar base:
 
 ```swift
 .frame(minWidth: 200)
 .background(Color(nsColor: .windowBackgroundColor))
 ```
 
-The final body should look like:
+If RepoExplorer uses an AppStyles token for background by execution time, use the token instead of literal `windowBackgroundColor`.
+
+- [ ] **Step 6: Replace active filter UUID labels**
+
+In `InboxSidebarHeader.activeFilterLabel`, remove UUID-prefix fallbacks:
 
 ```swift
-private var baseChrome: some View {
-    VStack(spacing: 0) {
-        ...
+private var activeFilterLabel: String? {
+    guard let filter else { return nil }
+    return notifications
+        .lazy
+        .compactMap { InboxNotificationSourceDisplay(notification: $0).filterLabel(for: filter) }
+        .first ?? fallbackFilterLabel(for: filter)
+}
+
+private func fallbackFilterLabel(for filter: InboxFilter) -> String {
+    switch filter {
+    case .repo:
+        return "Filtered repo"
+    case .worktree:
+        return "Filtered worktree"
     }
-    .frame(minWidth: 200)
-    .background(Color(nsColor: .windowBackgroundColor))
 }
 ```
 
-- [ ] **Step 2: Give header controls clear icons and help**
+If the header does not currently receive notifications, pass the current filtered/unfiltered notification array into it. Do not store labels in Core atoms.
 
-In `InboxSidebarHeader`, replace:
+- [ ] **Step 7: Clarify sort and grouping buttons**
 
-```swift
-Image(systemName: sort == .newestFirst ? "arrow.down.to.line" : "arrow.up.to.line")
-```
-
-with:
+Use clear icons and help:
 
 ```swift
 Image(systemName: sort == .newestFirst ? "arrow.down" : "arrow.up")
+    .help(sort == .newestFirst ? "Newest notifications first" : "Oldest notifications first")
 ```
 
-Add help:
-
-```swift
-.help(sort == .newestFirst ? "Newest notifications first" : "Oldest notifications first")
-```
-
-For the grouping button, keep `line.3.horizontal.decrease.circle` or replace with:
+For grouping:
 
 ```swift
 Image(systemName: "rectangle.3.group")
+    .help("Group notifications")
 ```
 
-and add:
+- [ ] **Step 8: Add view/model regression tests**
+
+Add tests that assert:
+
+- `PaneInboxNotificationPopover` uses full keyboard item count and row context does not show the parent pane redundantly for parent-scoped rows.
+- The active filter label for a repo/worktree filter never contains the first eight UUID characters.
+- Sidebar group labels with `byTab` never contain a UUID prefix.
+
+Example assertion for filter labels:
 
 ```swift
-.help("Group notifications")
+#expect(label.contains(repoId.uuidString.prefix(8)) == false)
+#expect(label == "askluna")
 ```
 
-- [ ] **Step 3: Add Unread / All plan hook but do not implement behavior**
-
-Add no UI toggle in this task. Add a private placeholder-free note in the plan follow-up by updating this file's tests only if needed. The Unread / All toggle is a product decision and should be a separate task after the source-display reset lands.
-
-- [ ] **Step 4: Run build**
-
-Run:
+- [ ] **Step 9: Run focused tests**
 
 ```bash
-mise run build
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$$}"
+swift test --build-path "$BUILD_PATH" --filter "PaneInboxNotificationPopoverTests|InboxNotificationSidebarViewTests|InboxNotificationSourceDisplayTests|InboxNotificationListModelTests"
 ```
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
-git add Sources/AgentStudio/Features/InboxNotification/Views/InboxSidebarComponents.swift
-git commit -m $'fix: align inbox sidebar chrome with repo sidebar\n\nCo-authored-by: Codex <noreply@openai.com>'
+git add Sources/AgentStudio/Features/InboxNotification/Components/InboxRow.swift \
+  Sources/AgentStudio/Features/InboxNotification/Views/InboxSidebarComponents.swift \
+  Sources/AgentStudio/Features/InboxNotification/Views/PaneInboxNotificationPopover.swift \
+  Sources/AgentStudio/Features/InboxNotification/Views/InboxNotificationSidebarView.swift \
+  Tests/AgentStudioTests/Features/InboxNotification/Views/PaneInboxNotificationPopoverTests.swift \
+  Tests/AgentStudioTests/Features/InboxNotification/Views/InboxNotificationSidebarViewTests.swift
+git commit -m $'feat: redesign inbox rows around source context\n\nCo-authored-by: Codex <noreply@openai.com>'
 ```
 
 ---
 
-## Task 8: Protect Against UUID Labels And Unknown Source Regressions
-
-**Files:**
-- Modify: `Tests/AgentStudioTests/Features/InboxNotification/Models/InboxNotificationSourceDisplayTests.swift`
-- Modify: `Tests/AgentStudioTests/Features/InboxNotification/Models/InboxNotificationListModelTests.swift`
-
-- [ ] **Step 1: Add regression test for no UUID prefixes in labels**
-
-Add:
-
-```swift
-@Test("group labels do not expose UUID prefixes")
-func groupLabelsDoNotExposeUUIDPrefixes() {
-    let tabId = UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!
-    let paneId = UUID(uuidString: "11111111-2222-3333-4444-555555555555")!
-    let notification = makeInboxNotification(
-        timestamp: Date(timeIntervalSince1970: 100),
-        title: "Claude Code",
-        paneId: paneId,
-        tabId: tabId,
-        paneTitle: "Claude"
-    )
-
-    let tabModel = InboxNotificationListModel(
-        notifications: [notification],
-        grouping: .byTab,
-        sort: .newestFirst,
-        searchText: ""
-    )
-    let paneModel = InboxNotificationListModel(
-        notifications: [notification],
-        grouping: .byPane,
-        sort: .newestFirst,
-        searchText: ""
-    )
-
-    #expect(tabModel.sections[0].label?.contains("AAAAAAAA") == false)
-    #expect(paneModel.sections[0].label?.contains("11111111") == false)
-}
-```
-
-- [ ] **Step 2: Add regression test for no `unknown source` display**
-
-Add to `InboxNotificationSourceDisplayTests`:
-
-```swift
-@Test("source display never emits unknown source")
-func sourceDisplayNeverEmitsUnknownSource() {
-    let notification = InboxNotification(
-        id: UUID(),
-        timestamp: Date(timeIntervalSince1970: 100),
-        kind: .agentRpc,
-        title: "Notification",
-        body: nil,
-        source: .pane(.init(paneId: UUID())),
-        isRead: false,
-        isDismissedFromPaneInbox: false
-    )
-
-    let display = InboxNotificationSourceDisplay(notification: notification)
-
-    #expect(display.sourceLine != "unknown source")
-    #expect(display.searchText.contains("unknown source") == false)
-}
-```
-
-- [ ] **Step 3: Run tests**
-
-Run:
-
-```bash
-swift test --build-path ".build-agent-$PPID" --filter "InboxNotificationSourceDisplayTests|InboxNotificationListModelTests"
-```
-
-Expected: PASS.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add Tests/AgentStudioTests/Features/InboxNotification/Models/InboxNotificationSourceDisplayTests.swift \
-  Tests/AgentStudioTests/Features/InboxNotification/Models/InboxNotificationListModelTests.swift
-git commit -m $'test: guard inbox source labels against implementation leaks\n\nCo-authored-by: Codex <noreply@openai.com>'
-```
-
----
-
-## Task 9: Visual Smoke With Peekaboo
+## Task 6: Visual Smoke Data And Screenshots
 
 **Files:**
 - Create: `docs/wip/debugging/2026-05-07-notification-inbox-sidebar-redesign-smoke.md`
 
-- [ ] **Step 1: Build the app**
-
-Run:
+- [ ] **Step 1: Build**
 
 ```bash
-mise run build
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$$}"
+SWIFT_BUILD_DIR="$BUILD_PATH" mise run build
 ```
 
 Expected: PASS.
 
-- [ ] **Step 2: Launch with trace disabled for visual smoke**
-
-Run:
+- [ ] **Step 2: Launch debug build by PID**
 
 ```bash
-"$SWIFT_BUILD_DIR/debug/AgentStudio" &
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$$}"
+"$BUILD_PATH/debug/AgentStudio" &
 APP_PID=$!
 echo "$APP_PID"
 ```
 
-If `SWIFT_BUILD_DIR` is empty, use:
+Do not use `.build/debug/AgentStudio` unless the build command really produced that directory in this same shell.
+
+- [ ] **Step 3: Seed or collect representative notifications**
+
+Create or manually trigger at least:
+
+- command finished from a main pane
+- agent waiting/input notification from a main pane
+- notification from a drawer child
+- notification with repo/worktree/branch
+- notification with missing repo/worktree but known runtime
+- long body text that must truncate
+
+If no deterministic seed helper exists, use the manual smoke workflow and record that in the note.
+
+- [ ] **Step 4: Capture with Peekaboo**
 
 ```bash
-".build/debug/AgentStudio" &
-APP_PID=$!
-echo "$APP_PID"
+peekaboo see --app "PID:$APP_PID" --json > /tmp/agentstudio-inbox-redesign-sidebar.json
 ```
 
-- [ ] **Step 3: Capture RepoExplorer and Inbox screenshots**
-
-Run:
+Open PaneInbox for a parent pane that has drawer-child notifications, then capture:
 
 ```bash
-peekaboo see --app "PID:$APP_PID" --json > /tmp/agentstudio-inbox-redesign-initial.json
+peekaboo see --app "PID:$APP_PID" --json > /tmp/agentstudio-inbox-redesign-pane-inbox.json
 ```
 
-Manually switch to RepoExplorer and Inbox, then capture:
-
-```bash
-peekaboo see --app "PID:$APP_PID" --json > /tmp/agentstudio-inbox-redesign-after-switch.json
-```
-
-- [ ] **Step 4: Create smoke note**
+- [ ] **Step 5: Write smoke note**
 
 Create `docs/wip/debugging/2026-05-07-notification-inbox-sidebar-redesign-smoke.md`:
 
@@ -1524,21 +1707,23 @@ Create `docs/wip/debugging/2026-05-07-notification-inbox-sidebar-redesign-smoke.
 - RepoExplorer background and Inbox background match:
 - Inbox row source line shows repo/worktree/branch:
 - Inbox row placement line shows tab/pane/drawer context:
+- PaneInbox hides redundant parent placement and shows drawer context:
 - No row displays `unknown source`:
 - Command duration appears human-scale:
 - Sort icon no longer looks like download:
 - Group labels avoid UUID prefixes:
-- PaneInbox row content matches global inbox row content:
+- Active filter chip avoids UUID prefixes:
+- Collapsed/expanded unread affordance remains visible:
 
 ## Evidence
 
-- Initial capture: `/tmp/agentstudio-inbox-redesign-initial.json`
-- After switch capture: `/tmp/agentstudio-inbox-redesign-after-switch.json`
+- Sidebar capture: `/tmp/agentstudio-inbox-redesign-sidebar.json`
+- PaneInbox capture: `/tmp/agentstudio-inbox-redesign-pane-inbox.json`
 ```
 
-Fill each result line with `yes`, `no`, or `not exercised`.
+Fill every result line with `yes`, `no`, or `not exercised`.
 
-- [ ] **Step 5: Commit smoke note**
+- [ ] **Step 6: Commit smoke note**
 
 ```bash
 git add docs/wip/debugging/2026-05-07-notification-inbox-sidebar-redesign-smoke.md
@@ -1547,14 +1732,12 @@ git commit -m $'docs: add notification inbox redesign smoke note\n\nCo-authored-
 
 ---
 
-## Task 10: Full Verification
+## Task 7: Full Verification
 
 **Files:**
 - No source changes unless verification fails.
 
 - [ ] **Step 1: Format**
-
-Run:
 
 ```bash
 mise run format
@@ -1564,8 +1747,6 @@ Expected: exit 0.
 
 - [ ] **Step 2: Build**
 
-Run:
-
 ```bash
 mise run build
 ```
@@ -1573,8 +1754,6 @@ mise run build
 Expected: exit 0.
 
 - [ ] **Step 3: Full tests**
-
-Run:
 
 ```bash
 mise run test
@@ -1584,17 +1763,19 @@ Expected: all Swift Testing tests pass.
 
 - [ ] **Step 4: Lint**
 
-Run:
-
 ```bash
 mise run lint
 ```
 
 Expected: exit 0, zero swiftlint/swift-format/boundary errors.
 
-- [ ] **Step 5: Commit formatting or verification fixes**
+- [ ] **Step 5: Commit verification fixes only if needed**
 
-Only if files changed:
+```bash
+git status --short
+```
+
+If formatting or verification changed files:
 
 ```bash
 git add Sources Tests docs
@@ -1606,37 +1787,49 @@ git commit -m $'chore: finalize notification inbox sidebar redesign\n\nCo-author
 ## Out Of Scope / Follow-Up
 
 - Unread / All toggle for global inbox and PaneInbox.
-- Product decision on whether unseen activity becomes an inbox notification, a badge, or a separate indicator.
+- Product decision on whether unseen activity becomes an inbox notification, badge, or separate indicator.
 - Raw terminal-output parsing, file links, diagnostics, and structured agent updates.
-- Replacing the inbox grouping model with a fully nested outline if the simple section model still feels too flat after this redesign.
+- Replacing the inbox grouping model with a fully nested outline if simple sections still feel too flat after this redesign.
 - Accessibility-specific keyboard and VoiceOver pass.
+- RepoExplorer worktree row extraction into `SidebarRowShell` if it requires behavior changes beyond visual shell reuse.
 
 ## Self-Review
 
 ### Spec Coverage
 
-- Original inbox spec row anatomy is covered by Tasks 4 and 6.
-- Source context denormalization is covered by Task 2.
-- Repo/sidebar visual parity is covered by Tasks 5, 6, and 7.
-- Command-finished duration correctness is covered by Task 3.
-- Grouping label honesty is covered by Tasks 4 and 8.
-- PaneInbox naming and shared row content are covered by Task 6.
-- Visual verification is covered by Task 9.
+- Source context denormalization: Task 1.
+- Old inbox persistence compatibility: Task 1.
+- Command duration correctness: Task 2.
+- Row source, placement, group, filter labels: Task 3.
+- Shared components and AppStyles/AppPolicies discipline: Task 4.
+- Global inbox and PaneInbox row reuse: Task 5.
+- RepoExplorer chrome parity: Tasks 4 and 5.
+- Visual verification: Task 6.
 
 ### Placeholder Scan
 
-This plan avoids `TBD`, "write tests for the above", and "handle edge cases" placeholders. The only deferred items are explicitly listed in Out Of Scope with concrete follow-up names.
+This plan avoids `TBD`, "write tests for the above", and vague edge-case placeholders. Deferred work is named in Out Of Scope with concrete follow-up boundaries.
 
 ### Type Consistency
 
 New source context fields are consistently named:
 
-- `tabName`
-- `paneTitle`
+- `tabDisplayLabel`
+- `paneDisplayLabel`
 - `paneRole`
 - `parentPaneId`
-- `parentPaneTitle`
+- `parentPaneDisplayLabel`
 - `drawerOrdinal`
-- `runtimeLabel`
+- `runtimeDisplayLabel`
 
-The display type is consistently named `InboxNotificationSourceDisplay`, and grouping remains `InboxNotificationGrouping`.
+The display type is `InboxNotificationSourceDisplay`. The nested role type is `InboxNotification.PaneSource.PaneRole`. Grouping remains `InboxNotificationGrouping`.
+
+### Review Fixes Applied
+
+- No nonexistent `setAttendedPaneId` usage.
+- No nonexistent `.bridge` pane case or `displayTitle` API.
+- No failing-test commits.
+- No subagent build-dir collision via `.build-agent-$PPID`.
+- No `@State` inside `SharedComponents`.
+- No `Current Tab` fallback in the display model.
+- No UUID-prefix active filter labels.
