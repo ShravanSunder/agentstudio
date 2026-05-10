@@ -27,14 +27,17 @@ final class DrawerDismissMonitor {
         guard monitor == nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
             guard let self else { return event }
-            guard let topLeftTabPoint = self.topLeftTabPoint(for: event) else { return event }
+            let shouldConsumeEvent = MainActor.assumeIsolated {
+                guard let topLeftTabPoint = self.topLeftTabPoint(for: event) else { return false }
 
-            // Returning nil consumes the event so the same click cannot also
-            // make the underlying main pane firstResponder. Returning event
-            // would dismiss the drawer AND focus whatever NSView is below —
-            // a regression where outside clicks toggle drawer visibility but
-            // also activate the main pane content underneath.
-            return self.handleMouseDown(topLeftTabPoint: topLeftTabPoint) ? nil : event
+                // Returning nil consumes the event so the same click cannot also
+                // make the underlying main pane firstResponder. Returning event
+                // would dismiss the drawer AND focus whatever NSView is below —
+                // a regression where outside clicks toggle drawer visibility but
+                // also activate the main pane content underneath.
+                return self.handleMouseDown(topLeftTabPoint: topLeftTabPoint)
+            }
+            return shouldConsumeEvent ? nil : event
         }
     }
 
