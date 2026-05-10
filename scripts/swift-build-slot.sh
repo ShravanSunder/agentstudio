@@ -21,7 +21,13 @@ case "$_swift_build_slot_kind" in
   *) echo "swift-build-slot: unknown kind '$_swift_build_slot_kind'" >&2; return 1 2>/dev/null || exit 1 ;;
 esac
 
-unset SWIFT_BUILD_DIR
+# Honor a caller-provided SWIFT_BUILD_DIR (CI sets this; users can pin a slot).
+if [ -n "${SWIFT_BUILD_DIR:-}" ]; then
+  echo "[swift-build-slot] honoring SWIFT_BUILD_DIR=$SWIFT_BUILD_DIR"
+  unset _swift_build_slot_kind _swift_build_slot_prefix
+  return 0 2>/dev/null || exit 0
+fi
+
 for _swift_build_slot_n in 1 2 3 4; do
   _swift_build_slot_dir="${_swift_build_slot_prefix}-${_swift_build_slot_n}"
   mkdir -p "$_swift_build_slot_dir"
