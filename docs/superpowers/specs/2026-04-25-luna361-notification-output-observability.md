@@ -211,7 +211,7 @@ single AgentStudioTraceRuntime.fromEnvironment()
         |
         +-- TerminalActivityRouter
         +-- Ghostty action tracing adapter
-        +-- InboxNotificationRouter
+        +-- InboxPromoter / notification router
         +-- UI surface / PaneInbox trace emitters
         +-- EventBus trace observer
 ```
@@ -224,6 +224,19 @@ The smoke traces established a real missing feedback path: an unattended CLI can
 
 This is not raw stdout capture. Raw terminal text remains out of scope. The policy only uses event metadata such as pane identity, attention state, row growth, event count, timing, and existing semantic runtime events.
 
+### Current Trace Evidence Versus Target Product Facts
+
+The current trace vocabulary is JSONL evidence, not the product event API:
+
+| Current JSONL record | Meaning | Target product fact |
+| --- | --- | --- |
+| `terminal.activity.outputBurst` | Trace evidence that row growth crossed the burst threshold. | `PaneRuntimeEvent.terminalActivity(.unseenActivityBurst(...))` |
+| `terminal.activity.unseenWindowStarted` | Trace evidence that a short burst window opened. | `PaneRuntimeEvent.terminalActivity(.unseenActivityStarted(...))` |
+| `terminal.activity.unseenWindowExtended` | Trace evidence that more activity arrived in the same short burst window. | `PaneRuntimeEvent.terminalActivity(.unseenActivityUpdated(...))` |
+| `terminal.activity.unseenWindowClosed` | Trace evidence that the burst window settled. | `PaneRuntimeEvent.terminalActivity(.unseenActivityClosed(...))` |
+
+`PaneRuntimeEvent.terminal(...)` is reserved for `GhosttyEvent` FFI output. Derived product facts are not Ghostty actions, so the next branch should add a sibling namespace such as `PaneRuntimeEvent.terminalActivity(TerminalActivityEvent)`.
+
 ### Notification Matrix
 
 | Source | Confidence | Result |
@@ -233,9 +246,9 @@ This is not raw stdout capture. Raw terminal text remains out of scope. The poli
 | `bellRang` with bell preference enabled | semantic | Create or merge a bell notification. |
 | `commandFinished` above threshold while unattended | semantic | Create or merge a command-finished notification unless an explicit notification already owns the same session. |
 | Progress error, approval, security, renderer unhealthy | semantic | Create or merge the appropriate actionable notification. |
-| `terminal.activity.outputBurst` while unattended | inferred | Create or update an `unseenActivity` notification for the pane's current unseen-activity session. |
-| `terminal.activity.unseenWindowExtended` | inferred | Update the current unseen-activity session only; do not create another row. |
-| `terminal.activity.unseenWindowClosed` | inferred | Settle the burst window; do not create another row. |
+| `TerminalActivityEvent.unseenActivityBurst` while unattended | inferred | Create or update an `unseenActivity` notification for the pane's current unseen-activity session. |
+| `TerminalActivityEvent.unseenActivityUpdated` | inferred | Update the current unseen-activity session only; do not create another row. |
+| `TerminalActivityEvent.unseenActivityClosed` | inferred | Settle the burst window; do not create another row. |
 | `titleChanged`, `tabTitleChanged`, `cwdChanged`, `promptTitleRequested` | context | Improve source labels and grouping; do not notify by themselves. |
 | Raw `scrollbarChanged` callback | noisy | Never directly notifies; it can only feed the unseen-activity deriver. |
 
@@ -263,7 +276,18 @@ InboxPromoter
 InboxNotificationAtom
 ```
 
-Do not add a third `DerivedPaneActivityBus`. Derived activity is either a typed `PaneRuntimeEvent` on the existing `PaneRuntimeEventBus` or a product projection read by the single inbox promoter. Add a projection atom only when there is a second concrete product consumer beyond inbox promotion.
+Do not add a third `DerivedPaneActivityBus`. Derived activity for the next branch is a typed `PaneRuntimeEvent` on the existing `PaneRuntimeEventBus`. Add a projection atom only later, when there is a second concrete product consumer beyond inbox promotion.
+
+Initial typed derived event names:
+
+```
+PaneRuntimeEvent.terminalActivity(.unseenActivityStarted(...))
+PaneRuntimeEvent.terminalActivity(.unseenActivityBurst(...))
+PaneRuntimeEvent.terminalActivity(.unseenActivityUpdated(...))
+PaneRuntimeEvent.terminalActivity(.unseenActivityClosed(...))
+```
+
+These events are low-volume product facts. They are not raw scrollbar callbacks.
 
 ### Trace Is Not Product State
 
@@ -276,18 +300,20 @@ The implementation must remove any product detection dependency on `traceRuntime
 The design intentionally separates short debounce windows from inbox coalescing sessions:
 
 ```
-burst_window_id
+Burst window ID
   Scope: derivation internals and trace correlation.
   Lifetime: the short quiet debounce window, initially 750ms.
   Use: decide whether activity crossed the output-burst threshold.
   Inbox row identity: never.
+  Trace key: terminal.activity.burst_window.id
 
-unseen_activity_session_id
+Unseen activity session ID
   Scope: inbox coalescing.
   Lifetime: one unread streak for one source pane.
   Opens: first qualifying unattended output burst.
   Closes: read, dismiss, pane attended, pane closed, router stop, or a longer idle timeout.
   Inbox row identity: yes.
+  Trace key: terminal.activity.session.id
 ```
 
 When `commandId` exists, it tightens the session grouping. It is enrichment, not the spine. The dominant case for Gemini/Claude/Codex stdout is no command boundary, so the primary coalescing key is source pane plus current unseen-activity session.
@@ -363,8 +389,8 @@ agentstudio.inbox.kind=unseenActivity|...
 agentstudio.notification.id=...
 agentstudio.pane.id=<source pane id>
 agentstudio.pane.scope_ids=[...]
-terminal.activity.burst_window_id=...
-terminal.activity.session_id=...
+terminal.activity.burst_window.id=...
+terminal.activity.session.id=...
 terminal.activity.rows_added=...
 terminal.activity.event_count=...
 terminal.activity.source=scrollbar|progress|command-finished|url|unknown
@@ -502,11 +528,23 @@ terminal.activity.is_inferred=true|false
 agentstudio.runtime.event=...
 ```
 
-Every unseen activity window record must include:
+Current unseen activity window trace records include:
 
 ```
 terminal.activity.window_id=...
-terminal.activity.session_id=...
+terminal.activity.duration_ms=...
+terminal.activity.event_count=...
+terminal.activity.rows_added=...
+agentstudio.pane.attended=false
+terminal.activity.debounce_ms=750
+terminal.activity.threshold_rows=<TerminalActivityAtom output-burst threshold>
+```
+
+The derived-notification branch should hard-cut to these final keys for product facts and new trace records:
+
+```
+terminal.activity.burst_window.id=...
+terminal.activity.session.id=...
 terminal.activity.duration_ms=...
 terminal.activity.event_count=...
 terminal.activity.rows_added=...
@@ -550,7 +588,7 @@ agentstudio.inbox.decision=create|update|replace|merge|suppress
 agentstudio.inbox.reason=...
 agentstudio.inbox.kind=...
 agentstudio.notification.id=...
-terminal.activity.session_id=...
+terminal.activity.session.id=...
 ```
 
 Focus observation does not mark notifications read or dismiss them from Pane Inbox. Read/dismiss state
@@ -735,7 +773,7 @@ Do not paste raw command output unless explicitly needed and safe. Prefer counts
 - [x] Trace window start, extend, and close records.
 - [x] Trace progress/url/command-finished activity snapshots.
 - [x] Include `is_inferred` and `source` attributes.
-- [x] Add tests proving inferred activity does not automatically create inbox notifications.
+- [x] Add pre-policy tests proving inferred activity did not automatically create inbox notifications during the evidence branch.
 
 ### Task D: Instrument Runtime And EventBus Consumer Path
 
@@ -785,8 +823,8 @@ The next branch should hard-cut over the notification routing shape instead of a
 ### Task I: Productize Terminal Unseen Activity
 
 - [ ] Move unseen-activity derivation out of trace-only methods so it runs when tracing is disabled.
-- [ ] Separate `burst_window_id` from `unseen_activity_session_id`.
-- [ ] Emit typed product facts for unseen activity on the existing runtime event plane, or expose an equivalent product projection without adding a third event bus.
+- [ ] Separate burst window ID from unseen activity session ID.
+- [ ] Emit typed product facts for unseen activity on the existing runtime event plane.
 - [ ] Keep raw `scrollbarChanged` high-volume callbacks out of inbox promotion.
 - [ ] Add tests proving tracing disabled still creates derived unseen-activity notifications.
 

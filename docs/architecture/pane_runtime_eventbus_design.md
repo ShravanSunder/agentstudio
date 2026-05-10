@@ -43,7 +43,7 @@ Each contract (C1-C16) has a specific relationship to the EventBus:
 | C9 | Execution Backend | Config | @MainActor | Immutable config, no bus involvement |
 | C10 | Command Dispatch | Inbound | @MainActor → Runtime | Commands go OPPOSITE direction from events |
 | C11 | Registry | Lookup | @MainActor | Map, no direction |
-| C12 | Notification Inbox Promoter | Consumer | EventBus → @MainActor | Subscribes to bus, promotes explicit and derived notification facts, writes inbox state |
+| C12 | NotificationReducer | Consumer | EventBus → @MainActor | Subscribes to bus, classifies, delivers |
 | C12a | Visibility Tiers | Policy | @MainActor | Tier resolved from UI state on MainActor |
 | C13 | Workflow Engine | Consumer (deferred) | EventBus → @MainActor | Future bus subscriber |
 | C14 | Replay Buffer | Internal | @MainActor | Per-runtime, filled at emit time |
@@ -96,14 +96,16 @@ The app has two separate event buses. They serve different purposes and carry di
 
 | Bus | Type | Purpose | Producers | Consumers |
 |-----|------|---------|-----------|-----------|
-| `PaneRuntimeEventBus` | `EventBus<RuntimeEnvelope>` | Runtime facts: filesystem changes, git status, forge data, topology, terminal activity, notification-relevant pane facts | FilesystemActor, GitProjector, ForgeActor, AppDelegate (boot topology replay), pane runtimes, terminal activity derivers | WorkspaceCacheCoordinator, ForgeActor (fan-out), inbox promoter, pane coordinators |
+| `PaneRuntimeEventBus` | `EventBus<RuntimeEnvelope>` | Runtime facts: filesystem changes, git status, forge data, topology, terminal activity, notification-relevant pane facts | FilesystemActor, GitProjector, ForgeActor, AppDelegate (boot topology replay), pane runtimes, terminal activity derivers | WorkspaceCacheCoordinator, ForgeActor (fan-out), NotificationReducer, inbox feature consumers, pane coordinators |
 | `AppEventBus` | `EventBus<AppEvent>` | App-level notifications that are not commands | App shell coordinators, terminal/viewport notifications | AppDelegate and small app-shell consumers |
 
 **These are not redundant.** `AppEventBus` carries app-level notifications such as `.worktreeBellRang` (pre-LUNA-361; see note below) and other app-shell fan-out that is not itself a workspace command. `PaneRuntimeEventBus` carries system facts (`.repoDiscovered`, `.snapshotChanged`, `.pullRequestCountsChanged`). Workspace work does **not** route through `AppEventBus`; it uses `PaneActionCommand` and the validated coordinator pipeline directly. AppKit/macOS lifecycle ingress uses `ApplicationLifecycleMonitor` plus lifecycle stores, not either bus. A notification on `AppEventBus` may RESULT in a runtime fact on `PaneRuntimeEventBus`, but they are different events with different semantics.
 
-> **Note on `.worktreeBellRang` (post LUNA-361).** The notification inbox feature consumes `GhosttyEvent.bellRang` directly from `PaneRuntimeEventBus` via `InboxNotificationRouter`, not from `AppEventBus.worktreeBellRang`. Whether the existing `AppEventBus.worktreeBellRang` post in `PaneCoordinator` stays as a peer signal for other consumers or is removed is a follow-up decision; the notification inbox does not depend on it.
+> **Note on `.worktreeBellRang` (post LUNA-361).** The notification inbox feature consumes `GhosttyEvent.bellRang` directly from `PaneRuntimeEventBus` via the notification inbox promoter/router, not from `AppEventBus.worktreeBellRang`. Whether the existing `AppEventBus.worktreeBellRang` post in `PaneCoordinator` stays as a peer signal for other consumers or is removed is a follow-up decision; the notification inbox does not depend on it.
 
-> **Derived notification rule.** Inferred terminal activity such as unseen output bursts stays on the existing runtime event plane. Do not add a third derived-activity bus. A terminal activity deriver may translate high-volume runtime facts into typed, lower-volume activity facts, but the inbox promoter remains the single owner of promotion, coalescing, and `InboxNotificationAtom` writes. Trace records observe these product facts; tracing must never be the source of product notification behavior.
+> **Derived notification rule.** Inferred terminal activity such as unseen output bursts stays on the existing runtime event plane. Do not add a third derived-activity bus. A terminal activity deriver may translate high-volume runtime facts into typed, lower-volume product facts under a non-Ghostty namespace, such as `PaneRuntimeEvent.terminalActivity(TerminalActivityEvent)`. Feature-level inbox promotion remains the single owner of promotion, coalescing, and `InboxNotificationAtom` writes. Trace records observe these product facts; tracing must never be the source of product notification behavior.
+
+The feature-level inbox promoter is not Contract 12. C12 remains the runtime-plane `NotificationReducer` contract in [Pane Runtime Architecture](pane_runtime_architecture.md#contract-12-notificationreducer). The LUNA-361 inbox promoter is an additional feature consumer on the bus that translates notification-relevant runtime facts into `InboxNotificationAtom` mutations.
 
 All topology events (`.repoDiscovered`, `.repoRemoved`) and enrichment events (`.snapshotChanged`, `.branchChanged`) flow through `PaneRuntimeEventBus`. The coordinator's bus subscription is the single intake. AppDelegate posts `.repoDiscovered` on the bus for boot replay; `FilesystemActor` posts `.repoDiscovered` and `.repoRemoved` on the bus when diffing watched-folder refreshes.
 
@@ -360,7 +362,7 @@ actor EventBus<Envelope: Sendable> {
 **Why actor, not class with lock:** Swift actors are the standard concurrency primitive. The cooperative pool gives fair scheduling without dedicated thread overhead. `await bus.post()` is the consistent interface for all producers regardless of their isolation context.
 
 **Buffer policy:** `AsyncStream.makeStream()` defaults to unbounded buffering. Under burst conditions (agent dumps 500 lines → 500 events in quick succession), subscriber streams can grow unbounded. Policy per subscriber tier:
-- **Critical subscribers** (InboxPromoter/notification reducer, PaneCoordinator): unbounded. These must never drop events — correctness depends on completeness. They consume quickly on MainActor.
+- **Critical subscribers** (NotificationReducer, feature-level inbox promoters, PaneCoordinator): unbounded. These must never drop events — correctness depends on completeness. They consume quickly on MainActor.
 - **Lossy subscribers** (analytics, logging, future plugin sinks): use `.bufferingPolicy(.bufferingNewest(100))` on `makeStream()`. Dropping oldest events under burst is acceptable — these consumers don't need total recall.
 - **The bus itself does not enforce buffer policy** — it yields to every continuation unconditionally. Buffer policy is chosen at `subscribe()` time by the caller, not imposed by the bus. This keeps the bus dumb.
 
@@ -491,19 +493,19 @@ The command doesn't post to the bus directly — the reactive system handles fan
 
 ### `@MainActor` (existing, extended)
 
-All runtimes (`TerminalRuntime`, future `BridgeRuntime`, `WebviewRuntime`, `SwiftPaneRuntime`), all stores (`WorkspaceStore`, `RepoCacheAtom`, `UIStateAtom`, `SurfaceManager`, `SessionRuntime`), `PaneCoordinator`, `WorkspaceCacheCoordinator`, notification inbox promoters/reducers, views, `ViewRegistry`.
+All runtimes (`TerminalRuntime`, future `BridgeRuntime`, `WebviewRuntime`, `SwiftPaneRuntime`), all stores (`WorkspaceStore`, `RepoCacheAtom`, `UIStateAtom`, `SurfaceManager`, `SessionRuntime`), `PaneCoordinator`, `WorkspaceCacheCoordinator`, NotificationReducer, feature-level inbox promoters/routers, views, `ViewRegistry`.
 
 These consume from EventBus via `for await`:
 
 ```swift
 @MainActor
-final class InboxPromoter {
+final class NotificationReducer {
     private let bus: EventBus<RuntimeEnvelope>
 
     func startConsuming() {
         Task { @MainActor in
             for await envelope in await bus.subscribe() {
-                promote(envelope)
+                classify(envelope)
             }
         }
     }
