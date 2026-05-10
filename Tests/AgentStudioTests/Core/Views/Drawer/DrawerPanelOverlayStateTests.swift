@@ -78,6 +78,32 @@ struct DrawerPanelOverlayStateTests {
     }
 
     @Test
+    func drawerDismissMonitor_dismissesOnlyForPointsOutsideDrawerAndIconBar() {
+        let monitor = DrawerDismissMonitor()
+        monitor.drawerRectInTab = CGRect(x: 100, y: 100, width: 500, height: 220)
+        monitor.iconBarRectInTab = CGRect(x: 240, y: 330, width: 160, height: 28)
+
+        let cases: [(description: String, point: CGPoint, shouldDismiss: Bool)] = [
+            ("inside drawer top-left area", CGPoint(x: 120, y: 120), false),
+            ("inside drawer bottom-right area", CGPoint(x: 599, y: 319), false),
+            ("inside icon bar left side", CGPoint(x: 260, y: 340), false),
+            ("inside icon bar right side", CGPoint(x: 399, y: 357), false),
+            ("outside left of drawer", CGPoint(x: 99, y: 120), true),
+            ("outside right of drawer", CGPoint(x: 601, y: 120), true),
+            ("outside above drawer", CGPoint(x: 120, y: 99), true),
+            ("outside below drawer and away from icon bar", CGPoint(x: 120, y: 321), true),
+            ("outside below icon bar", CGPoint(x: 260, y: 359), true),
+        ]
+
+        for dismissCase in cases {
+            #expect(
+                monitor.shouldDismiss(topLeftTabPoint: dismissCase.point) == dismissCase.shouldDismiss,
+                "\(dismissCase.description) shouldDismiss=\(dismissCase.shouldDismiss)"
+            )
+        }
+    }
+
+    @Test
     func drawerDismissMonitor_outsideClickStillDismisses_afterStaleFrameZeroReset() {
         // Models the failure mode the empty-rect early-exit caused: if the
         // dismiss monitor's drawer rect is reset to .zero (which used to
