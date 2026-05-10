@@ -69,7 +69,7 @@ else
 fi
 
 if [ -d "$SHELL_INTEGRATION_DEV" ]; then
-  echo "shell-integration already exists, skipping copy (use mise run clean to force)"
+  echo "shell-integration already exists, skipping copy (use mise run refresh-vendors to force)"
 else
   mkdir -p "$(dirname "$SHELL_INTEGRATION_DEV")"
   cp -R "$SRC" "$SHELL_INTEGRATION_DEV"
@@ -80,7 +80,7 @@ fi
 TERMINFO_SRC="vendor/ghostty/zig-out/share/terminfo"
 TERMINFO_DEV="Sources/AgentStudio/Resources/terminfo"
 if [ -d "$TERMINFO_DEV/78" ] && [ -d "$TERMINFO_DEV/67" ]; then
-  echo "terminfo already exists, skipping copy (use mise run clean to force)"
+  echo "terminfo already exists, skipping copy (use mise run refresh-vendors to force)"
 elif [ -d "$TERMINFO_SRC" ]; then
   mkdir -p "$TERMINFO_DEV/78" "$TERMINFO_DEV/67"
   [ -f "$TERMINFO_SRC/78/xterm-ghostty" ] && cp "$TERMINFO_SRC/78/xterm-ghostty" "$TERMINFO_DEV/78/"
@@ -340,14 +340,27 @@ swift test --build-path "$BUILD_PATH" --filter "PushBenchmarkSupportTests" 2>&1 
 swift test --build-path "$BUILD_PATH" --filter "PushPerformanceBenchmarkTests" 2>&1 | $xcb_pipe
 """
 
-[tasks.clean]
-description = "Clean all build artifacts"
+[tasks.clean-artifacts]
+description = "Clean swift build dirs and app bundle (vendor and vendor-derived files preserved)"
 run = """
-rm -rf .build .build-agent-* .build-release-agent-* Frameworks/GhosttyKit.xcframework AgentStudio.app
-rm -rf Sources/AgentStudio/Resources/ghostty
-rm -rf vendor/ghostty/.zig-cache vendor/ghostty/zig-out vendor/ghostty/macos/build vendor/ghostty/macos/*.xcframework
-rm -rf vendor/zmx/.zig-cache vendor/zmx/zig-out
-echo "Cleaned all build artifacts"
+#!/usr/bin/env bash
+set -euo pipefail
+rm -rf "${PROJECT_ROOT}/.build" "${PROJECT_ROOT}"/.build-*
+rm -rf "${PROJECT_ROOT}/AgentStudio.app"
+echo "Cleaned swift build dirs and app bundle in ${PROJECT_ROOT}"
+"""
+
+[tasks.refresh-vendors]
+description = "Re-copy vendor-derived resources from vendor/ghostty (forces overwrite of GhosttyKit.xcframework, shell-integration, terminfo)"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+rm -rf "${PROJECT_ROOT}/Frameworks/GhosttyKit.xcframework"
+rm -rf "${PROJECT_ROOT}/Sources/AgentStudio/Resources/ghostty"
+rm -rf "${PROJECT_ROOT}/Sources/AgentStudio/Resources/terminfo"
+mise run copy-xcframework
+mise run setup-dev-resources
+echo "Refreshed vendor-derived resources"
 """
 
 [tasks.clean-agent-builds]
@@ -375,9 +388,8 @@ run = """
 #!/usr/bin/env bash
 set -e
 
-# Locate the freshest release artifact across slots (build-release ran first and
-# left its binary in one of .build-release-agent-{1..4}). Honors SWIFT_BUILD_DIR
-# if the caller pinned it.
+# Find the freshest release artifact across .build-release-agent-{1..4}.
+# Honors SWIFT_BUILD_DIR if the caller pinned it.
 if [ -n "${SWIFT_BUILD_DIR:-}" ] && [ -f "$SWIFT_BUILD_DIR/release/AgentStudio" ]; then
   BUILD_PATH="$SWIFT_BUILD_DIR"
 else

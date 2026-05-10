@@ -396,7 +396,7 @@ swift test --build-path "$SWIFT_BUILD_DIR" --filter "CommandBarState"
 | `SWIFT_TEST_PARALLEL` | `1` (enabled) | Set to `0` to disable parallel workers |
 | `SWIFT_TEST_WORKERS` | `hw.ncpu / 2` (max 4) | Parallel test worker count |
 
-**Bounded slot pool, not PID-keyed dirs.** Every swift-running mise task sources `scripts/swift-build-slot.sh`. The helper iterates `.build-agent-{1..4}` and uses an atomic `mkdir <dir>/.slot-claim` to claim a slot; an EXIT trap on the calling shell removes the claim on normal exit. SwiftPM's own kernel-level flock handles serialization within a slot. Slots are reused by the next agent — disk usage is bounded by 4 × build size, not unbounded by PID. There's no longer a `$PPID` / `$$` rule for main vs subagents; both share the pool and the helper handles allocation.
+**Bounded 4-slot pool.** Every swift-running mise task sources `scripts/swift-build-slot.sh`. The helper iterates `.build-agent-{1..4}` and uses an atomic `mkdir <dir>/.slot-claim` to claim a slot; an EXIT trap on the calling shell removes the claim on normal exit. SwiftPM's own kernel-level flock handles serialization within a slot. Slots are reused by the next agent — disk usage is bounded by 4 × build size. Main agents and subagents share the pool; the helper handles allocation.
 
 **Concurrent agents land on different slots.** Atomic `mkdir` guarantees that 4 agents racing simultaneously each claim a distinct slot. Within one shell, sourcing the helper once gives you one slot held for the lifetime of that shell — repeated `mise run` invocations in the same shell reuse the same slot (warm cache).
 
