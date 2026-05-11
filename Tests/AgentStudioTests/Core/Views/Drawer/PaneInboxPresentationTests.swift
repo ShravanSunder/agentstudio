@@ -82,6 +82,7 @@ struct PaneInboxPresentationTests {
         )
         let presentation = PaneInboxPresentation(
             unreadCount: { requestedPaneIds in requestedPaneIds == paneIds ? 1 : 0 },
+            clear: { _, _ in },
             open: { _, _ in },
             toggle: { parentPaneId, paneIds in
                 openedParentPaneId = parentPaneId

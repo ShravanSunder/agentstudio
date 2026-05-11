@@ -199,11 +199,18 @@ final class InboxNotificationRouter {
                 .init(
                     paneId: paneId,
                     tabId: resolvedContext?.tabId,
+                    tabDisplayLabel: resolvedContext?.tabDisplayLabel,
                     repoId: resolvedContext?.repoId,
                     repoName: resolvedContext?.repoName,
                     worktreeId: resolvedContext?.worktreeId,
                     worktreeName: resolvedContext?.worktreeName,
-                    branchName: resolvedContext?.branchName
+                    branchName: resolvedContext?.branchName,
+                    paneDisplayLabel: resolvedContext?.paneDisplayLabel,
+                    paneRole: resolvedContext?.paneRole ?? .main,
+                    parentPaneId: resolvedContext?.parentPaneId,
+                    parentPaneDisplayLabel: resolvedContext?.parentPaneDisplayLabel,
+                    drawerOrdinal: resolvedContext?.drawerOrdinal,
+                    runtimeDisplayLabel: resolvedContext?.runtimeDisplayLabel
                 )
             ),
             isRead: false,
@@ -617,22 +624,79 @@ final class InboxNotificationRouter {
 
     private func resolveContext(for paneId: UUID) -> ResolvedPaneContext? {
         guard let pane = paneAtom.pane(paneId) else { return nil }
+        let tab = tabLayout.tabContaining(paneId: paneId)
+        let parentPane = pane.parentPaneId.flatMap { paneAtom.pane($0) }
         return ResolvedPaneContext(
-            tabId: tabLayout.tabContaining(paneId: paneId)?.id,
+            tabId: tab?.id,
+            tabDisplayLabel: tab.flatMap(Self.displayLabel(for:)),
             repoId: pane.repoId,
             repoName: pane.metadata.repoName,
             worktreeId: pane.worktreeId,
             worktreeName: pane.metadata.worktreeName,
-            branchName: pane.metadata.checkoutRef
+            branchName: pane.metadata.checkoutRef,
+            paneDisplayLabel: Self.displayLabel(for: pane),
+            paneRole: pane.isDrawerChild ? .drawerChild : .main,
+            parentPaneId: pane.parentPaneId,
+            parentPaneDisplayLabel: parentPane.flatMap(Self.displayLabel(for:)),
+            drawerOrdinal: drawerOrdinal(for: paneId, parentPane: parentPane),
+            runtimeDisplayLabel: Self.runtimeDisplayLabel(for: pane)
         )
+    }
+
+    private func drawerOrdinal(for paneId: UUID, parentPane: Pane?) -> Int? {
+        guard let paneIds = parentPane?.drawer?.paneIds else { return nil }
+        guard let index = paneIds.firstIndex(of: paneId) else { return nil }
+        return index + 1
+    }
+
+    private static func displayLabel(for tab: Tab) -> String? {
+        nonBlank(Tab.normalizedName(tab.name))
+    }
+
+    private static func displayLabel(for pane: Pane) -> String? {
+        nonBlank(pane.metadata.title)
+            ?? nonBlank(pane.metadata.worktreeName)
+            ?? nonBlank(pane.metadata.checkoutRef)
+            ?? runtimeDisplayLabel(for: pane)
+    }
+
+    private static func runtimeDisplayLabel(for pane: Pane) -> String {
+        switch pane.content {
+        case .terminal:
+            return "Terminal"
+        case .webview:
+            return "Browser"
+        case .bridgePanel(let state):
+            switch state.panelKind {
+            case .diffViewer:
+                return "Diff"
+            }
+        case .codeViewer:
+            return "Code"
+        case .unsupported(let content):
+            return content.type.isEmpty ? "Pane" : content.type
+        }
+    }
+
+    private static func nonBlank(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else { return nil }
+        return trimmed
     }
 }
 
 private struct ResolvedPaneContext {
     let tabId: UUID?
+    let tabDisplayLabel: String?
     let repoId: UUID?
     let repoName: String?
     let worktreeId: UUID?
     let worktreeName: String?
     let branchName: String?
+    let paneDisplayLabel: String?
+    let paneRole: InboxNotification.PaneSource.PaneRole
+    let parentPaneId: UUID?
+    let parentPaneDisplayLabel: String?
+    let drawerOrdinal: Int?
+    let runtimeDisplayLabel: String?
 }

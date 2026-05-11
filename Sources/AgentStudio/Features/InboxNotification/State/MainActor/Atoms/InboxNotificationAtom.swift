@@ -115,6 +115,16 @@ final class InboxNotificationAtom {
         }
     }
 
+    func clearPaneInbox(paneIds: [UUID]) {
+        let paneIdSet = Set(paneIds)
+        for index in notifications.indices {
+            guard let paneId = notifications[index].paneId, paneIdSet.contains(paneId) else { continue }
+            notifications[index].isRead = true
+            notifications[index].isDismissedFromPaneInbox = true
+        }
+        recalculateGlobalUnreadCount()
+    }
+
     func toggleReadState(id: UUID) {
         _ = update(id: id) { $0.isRead.toggle() }
         recalculateGlobalUnreadCount()

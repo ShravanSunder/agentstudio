@@ -12,6 +12,7 @@ typealias Harness = PaneTabViewControllerCommandHarness
 final class PaneTabViewControllerCommandLaunchRecorder {
     var openedEditors: [(id: EditorTargetId, path: URL)] = []
     var revealedPaths: [URL] = []
+    var clearedPaneInboxRequests: [(parentPaneId: UUID, paneIds: [UUID])] = []
 }
 
 @MainActor
@@ -85,6 +86,9 @@ func makePaneTabViewControllerCommandHarness(
         viewRegistry: viewRegistry,
         paneInboxPresentation: PaneInboxPresentation(
             unreadCount: { _ in 0 },
+            clear: { parentPaneId, paneIds in
+                launchRecorder.clearedPaneInboxRequests.append((parentPaneId: parentPaneId, paneIds: paneIds))
+            },
             open: { parentPaneId, paneIds in
                 paneInboxPresenter.open(parentPaneId: parentPaneId, paneIds: paneIds)
             },

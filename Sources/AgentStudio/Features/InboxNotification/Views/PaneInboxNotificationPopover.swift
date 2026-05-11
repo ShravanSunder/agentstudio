@@ -89,10 +89,18 @@ struct PaneInboxNotificationPopover: View {
     }
 
     private var header: some View {
-        HStack(spacing: AppStyles.Components.PaneInbox.headerControlSpacing) {
+        let clearPaneInboxSpec = AppCommand.clearPaneInboxNotifications.definition
+        return HStack(spacing: AppStyles.Components.PaneInbox.headerControlSpacing) {
             Text("Pane inbox")
                 .font(.headline)
             Spacer()
+            Button(action: clearPaneInbox) {
+                clearPaneInboxSpec.icon.swiftUIImage()
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(clearPaneInboxSpec.label)
+            .help(clearPaneInboxSpec.controlToolTip)
+
             Button(action: toggleFilterMode) {
                 HStack(spacing: AppStyles.General.Spacing.tight) {
                     Image(systemName: filterMode.systemImageName)
@@ -149,19 +157,19 @@ struct PaneInboxNotificationPopover: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(relevantNotifications) { notification in
-                            InboxRow(notification: notification, now: Date())
-                                .contentShape(Rectangle())
-                                .background(
-                                    RoundedRectangle(cornerRadius: AppStyles.Components.PaneInbox.rowCornerRadius)
-                                        .fill(
-                                            selectedNotificationId == notification.id
-                                                ? Color.accentColor.opacity(AppStyles.General.Fill.selected)
-                                                : Color.clear
-                                        )
+                            SidebarRowShell(
+                                isSelected: selectedNotificationId == notification.id
+                            ) {
+                                InboxRow(
+                                    notification: notification,
+                                    now: Date(),
+                                    rowContext: .paneInbox(parentPaneId: parentPaneId)
                                 )
-                                .onTapGesture {
-                                    activate(notification)
-                                }
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                activate(notification)
+                            }
                         }
                     }
                 }
@@ -182,6 +190,11 @@ struct PaneInboxNotificationPopover: View {
 
     private func toggleFilterMode() {
         presentationAtom.toggleFilterMode(for: parentPaneId)
+        repairSelection()
+    }
+
+    private func clearPaneInbox() {
+        inboxAtom.clearPaneInbox(paneIds: paneIds)
         repairSelection()
     }
 

@@ -10,6 +10,26 @@
 
 ---
 
+## Current Execution State
+
+This branch has implemented the plan in two checkpoints:
+
+- `466c50a0 Fix pane inbox observed auto-clear`
+  - Adds observed-source PaneInbox clearing using attended-pane plus pinned-to-bottom state.
+  - Keeps user-action-required notifications sticky.
+  - Pins the focused/observed behavior with router and policy tests.
+- Current uncommitted checkpoint
+  - Adds source display fields on `InboxNotification.PaneSource`.
+  - Keeps notification inbox payload schema version 1 because the new display fields are additive and default-decoded.
+  - Introduces `SidebarRowShell`, `SidebarSectionHeader`, and `UnreadCountBadge`.
+  - Reuses `InboxRow` for global inbox and PaneInbox with row-specific context.
+  - Replaces the global fixed red dot with the shared unread badge.
+  - Adds command-backed clear-read handling for the global inbox and command-backed clear-scope handling for PaneInbox.
+
+RepoExplorer header extraction is intentionally not included in this checkpoint. Its current header has repo-specific icon/name/trailing metadata semantics that do not fit `SidebarSectionHeader` without adding feature-specific parameters to the shared primitive. The inbox header still uses the shared primitive; RepoExplorer adoption remains a follow-up when a second exact semantic match exists.
+
+---
+
 ## Review Corrections Locked In
 
 This plan has been revised after Codex xhigh and Claude Opus 4.7 review. These are constraints, not suggestions:
@@ -82,7 +102,7 @@ The original inbox spec treated broad SharedComponents extraction as out of scop
 - Sidebar unread affordance must remain visible in collapsed and expanded states.
 - The global inbox toolbar badge must match the PaneInbox badge treatment: red numeric capsule anchored to the bell's top-trailing corner. Do not use a loose fixed-position red dot.
 - Both inbox surfaces must expose a visible clear-notifications control:
-  - global sidebar inbox clears global notification history through a command-backed action
+  - global sidebar inbox clears read notification history through a command-backed action
   - PaneInbox clears the active pane scope through a command-backed action
   - controls must use command definitions for icon/help/tooltip labels, not local string drift
 - PaneInbox unread badges must represent unobserved source-pane activity, not historical rows the user is already looking at.
@@ -134,9 +154,9 @@ The original inbox spec treated broad SharedComponents extraction as out of scop
   - Add custom decode defaults for old stored notifications.
 
 - `Sources/AgentStudio/Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift`
-  - Bump payload schema to 2.
-  - Accept schema 1 and 2 on load.
-  - Save schema 2 on next flush.
+  - Keep payload schema at 1 for additive display fields.
+  - Accept schema 1 on load.
+  - Preserve older rows by default-decoding missing display fields.
 
 - `Sources/AgentStudio/Features/InboxNotification/Routing/InboxNotificationRouter.swift`
   - Populate denormalized source fields.
@@ -150,7 +170,10 @@ The original inbox spec treated broad SharedComponents extraction as out of scop
   - Add command specs for clear controls so visible buttons, command bar rows, and tooltips share labels/icons/help.
 
 - `Sources/AgentStudio/App/Boot/AppDelegate+InboxNotificationCommands.swift`
-  - Route global clear commands through the existing inbox command seam.
+  - Keep command-bar-only destructive all-history clearing through the existing inbox command seam.
+
+- `Sources/AgentStudio/App/Boot/AppDelegate+ShellCommandHandling.swift`
+  - Route the global clear-read command through the app command seam.
 
 - `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
   - Execute the active-pane clear command against the same PaneInbox target resolver used by the PaneInbox toggle command.
@@ -1958,6 +1981,7 @@ git commit -m $'feat: redesign inbox rows around source context\n\nCo-authored-b
 - Modify: `Sources/AgentStudio/App/Commands/AppCommand+Catalog.swift`
 - Modify: `Sources/AgentStudio/Core/Models/InboxNotificationCommands.swift`
 - Modify: `Sources/AgentStudio/App/Boot/AppDelegate+InboxNotificationCommands.swift`
+- Modify: `Sources/AgentStudio/App/Boot/AppDelegate+ShellCommandHandling.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Drawer/PaneInboxPresentation.swift`
 - Modify: `Sources/AgentStudio/App/Windows/MainSplitViewController.swift`
 - Modify: `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
@@ -1975,19 +1999,19 @@ git commit -m $'feat: redesign inbox rows around source context\n\nCo-authored-b
 In `AppCommand.swift`, add the commands near the existing inbox commands:
 
 ```swift
-case clearInboxNotifications
+case clearReadInboxNotifications
 case clearPaneInboxNotifications
 ```
 
 In `AppCommand+Catalog.swift`, add definitions:
 
 ```swift
-case .clearInboxNotifications:
+case .clearReadInboxNotifications:
     return CommandSpec(
         command: self,
-        label: "Clear Inbox",
+        label: "Clear Read Inbox Notifications",
         icon: .system(.trash),
-        helpText: "Clear all notification inbox history",
+        helpText: "Remove read notifications from the inbox history",
         commandBarGroupName: "Inbox",
         commandBarGroupPriority: CommandBarGroupPriority.window
     )
@@ -1996,7 +2020,7 @@ case .clearPaneInboxNotifications:
         command: self,
         label: "Clear Pane Inbox",
         icon: .system(.trash),
-        helpText: "Clear notifications for the active pane and its drawer children",
+        helpText: "Mark notifications for the active pane and its drawer children as read",
         appliesTo: [.pane],
         visibleWhen: [.hasActivePane],
         commandBarGroupName: "Pane",
@@ -2013,10 +2037,10 @@ In `AppCommandTests`, extend the inbox command coverage:
 ```swift
 @Test("notification clear commands have command specs")
 func notificationClearCommandsHaveCommandSpecs() {
-    let globalClear = CommandDispatcher.shared.definition(for: .clearInboxNotifications)
+    let globalClear = CommandDispatcher.shared.definition(for: .clearReadInboxNotifications)
     let paneClear = CommandDispatcher.shared.definition(for: .clearPaneInboxNotifications)
 
-    #expect(globalClear.label == "Clear Inbox")
+    #expect(globalClear.label == "Clear Read Inbox Notifications")
     #expect(globalClear.shortcut == nil)
     #expect(globalClear.icon == .system(.trash))
     #expect(paneClear.label == "Clear Pane Inbox")
@@ -2025,44 +2049,43 @@ func notificationClearCommandsHaveCommandSpecs() {
 }
 ```
 
-- [ ] **Step 3: Route global clear through the existing inbox command seam**
+- [ ] **Step 3: Route global clear-read through the app command seam**
 
-In `InboxNotificationCommands.Actions`, keep the existing `clearAll` callback. In `CommandBarDataSource+Inbox.swift`, use the command spec for the clear-all row instead of local strings:
+In `AppDelegate+ShellCommandHandling`, route `.clearReadInboxNotifications` to `inboxNotificationAtom.clearReadHistory()`.
+
+In `InboxNotificationCommands.Actions`, keep `clearReadHistory` and `clearAll`. In `CommandBarDataSource+Inbox.swift`, use the command spec for the clear-read row instead of local strings:
 
 ```swift
-let clearInboxSpec = AppCommand.clearInboxNotifications.definition
+let clearInboxSpec = AppCommand.clearReadInboxNotifications.definition
 items.append(
     CommandBarItem(
-        id: "inbox.clearAll",
+        id: "inbox.clearReadHistory",
         title: clearInboxSpec.label,
         icon: clearInboxSpec.icon,
         group: Group.inboxCommands,
         groupPriority: Priority.commands,
-        keywords: ["inbox", "notification", "clear", "delete"],
-        action: inboxCommandAction(actions.clearAll)
+        keywords: ["inbox", "notification", "clear"],
+        action: inboxCommandAction(actions.clearReadHistory)
     )
 )
 ```
 
-Keep `inbox.clearReadHistory` as a command-bar scoped utility. The visible sidebar button should use `clearInboxNotifications` and clear all inbox history.
+Keep `inbox.clearAll` as the destructive command-bar utility. The visible sidebar button should use `clearReadInboxNotifications` and remove read history only, matching the unread/read semantics used by PaneInbox.
 
 - [ ] **Step 4: Add PaneInbox clear execution seam**
 
 In `PaneInboxPresentation`, add:
 
 ```swift
-let clearNotifications: @MainActor (_ parentPaneId: UUID, _ paneIds: [UUID]) -> Void
+let clear: @MainActor (_ parentPaneId: UUID, _ paneIds: [UUID]) -> Void
 ```
 
 In `MainSplitViewController.makePaneInboxPresentation()`, wire it to the atom:
 
 ```swift
-clearNotifications: { parentPaneId, paneIds in
+clear: { parentPaneId, paneIds in
     _ = parentPaneId
-    for paneId in paneIds {
-        inbox.markRead(paneId: paneId)
-        inbox.dismissFromPaneInbox(paneId: paneId)
-    }
+    inbox.clearPaneInbox(paneIds: paneIds)
 }
 ```
 
@@ -2078,7 +2101,7 @@ case .showPaneInboxNotifications:
     paneInboxPresentation.toggle(parentPaneId: target.parentPaneId, paneIds: target.paneIds)
     return true
 case .clearPaneInboxNotifications:
-    paneInboxPresentation.clearNotifications(target.parentPaneId, target.paneIds)
+    paneInboxPresentation.clear(target.parentPaneId, target.paneIds)
     return true
 default:
     return false
@@ -2092,17 +2115,17 @@ Use the existing `activePaneInboxTarget()` resolver. Do not create a second targ
 In `InboxSidebarHeader`, add a clear button near sort/group controls:
 
 ```swift
-let clearDefinition = AppCommand.clearInboxNotifications.definition
-Button(action: actions.onClearAll) {
-    CommandIconView(icon: clearDefinition.icon)
+let clearDefinition = AppCommand.clearReadInboxNotifications.definition
+Button(action: actions.onClearReadHistory) {
+    clearDefinition.icon.swiftUIImage()
 }
 .buttonStyle(.plain)
 .help(clearDefinition.controlToolTip)
 ```
 
-If `CommandIconView` is not available in this slice, use the existing local command-icon rendering helper already used by sidebar buttons. Do not hard-code `"Clear"` or `"trash"` outside the command definition.
+Do not hard-code `"Clear"` or `"trash"` outside the command definition.
 
-Add `onClearAll: @MainActor @Sendable () -> Void` to `InboxSidebarActions`, and wire it in `InboxNotificationSidebarView` to `inboxAtom.clearAll()`.
+Use the existing `onClearReadHistory: @MainActor @Sendable () -> Void` action and wire it in `InboxNotificationSidebarView` to `inboxAtom.clearReadHistory()`.
 
 - [ ] **Step 7: Add visible clear button to PaneInbox popover**
 
@@ -2111,9 +2134,9 @@ In `PaneInboxNotificationPopover.headerControls`, add a clear button beside the 
 ```swift
 let clearDefinition = AppCommand.clearPaneInboxNotifications.definition
 Button {
-    presentation.clearNotifications(parentPaneId, paneIds)
+    clearPaneInbox()
 } label: {
-    CommandIconView(icon: clearDefinition.icon)
+    clearDefinition.icon.swiftUIImage()
 }
 .buttonStyle(.plain)
 .help(clearDefinition.controlToolTip)

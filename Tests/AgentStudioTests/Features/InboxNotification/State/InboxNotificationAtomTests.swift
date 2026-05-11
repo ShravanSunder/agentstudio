@@ -232,6 +232,23 @@ struct InboxNotificationAtomTests {
         #expect(atom.unreadCount(forPaneIds: [paneId]) == 2)
     }
 
+    @Test("clearPaneInbox marks matching pane notifications read and dismissed")
+    func clearPaneInboxMarksMatchingPaneNotificationsReadAndDismissed() {
+        let paneA = UUID()
+        let paneB = UUID()
+        let atom = InboxNotificationAtom()
+        atom.append(makeInboxNotification(paneId: paneA, isRead: false))
+        atom.append(makeInboxNotification(paneId: paneB, isRead: false))
+
+        atom.clearPaneInbox(paneIds: [paneA])
+
+        #expect(atom.notifications[0].isRead == true)
+        #expect(atom.notifications[0].isDismissedFromPaneInbox == true)
+        #expect(atom.notifications[1].isRead == false)
+        #expect(atom.notifications[1].isDismissedFromPaneInbox == false)
+        #expect(atom.globalUnreadCount == 1)
+    }
+
     @Test("globalUnreadCount counts all unread")
     func globalUnread() {
         let atom = InboxNotificationAtom()

@@ -1969,7 +1969,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             guard let activeTabId = store.tabLayoutAtom.activeTabId else { break }
             tabRenamePopoverState.present(for: activeTabId)
         case .watchFolder, .toggleSidebar, .filterSidebar,
-            .showInboxNotifications, .showPaneInboxNotifications, .showWorktreeSidebar,
+            .showInboxNotifications, .showPaneInboxNotifications, .clearPaneInboxNotifications, .showWorktreeSidebar,
             .signInGitHub, .signInGoogle:
             break
         case .enterDrawer:
@@ -2397,7 +2397,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return store.tabLayoutAtom.activeTabId != nil
         case .addDrawerPane, .toggleDrawer, .closeDrawerPane:
             return canExecuteContextualCommand(command)
-        case .showPaneInboxNotifications:
+        case .showPaneInboxNotifications, .clearPaneInboxNotifications:
             return paneInboxPresentation != nil && activePaneInboxTarget() != nil
         case .openPaneLocationInBookmarkedEditor,
             .openPaneLocationInFinder,
@@ -2466,10 +2466,17 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func handlePaneInboxCommand(_ command: AppCommand) -> Bool {
-        guard command == .showPaneInboxNotifications else { return false }
         guard let paneInboxPresentation, let target = activePaneInboxTarget() else { return false }
-        paneInboxPresentation.toggle(target.parentPaneId, target.paneIds)
-        return true
+        switch command {
+        case .showPaneInboxNotifications:
+            paneInboxPresentation.toggle(target.parentPaneId, target.paneIds)
+            return true
+        case .clearPaneInboxNotifications:
+            paneInboxPresentation.clear(target.parentPaneId, target.paneIds)
+            return true
+        default:
+            return false
+        }
     }
 
     private func activePaneInboxTarget() -> PaneInboxCommandTarget? {

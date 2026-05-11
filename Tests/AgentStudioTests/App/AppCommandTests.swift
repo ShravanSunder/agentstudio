@@ -325,11 +325,15 @@ final class AppCommandTests {
     @Test
     func test_sidebarAndPaneInboxDefinitions_areCommandBarVisibleWithShortcuts() {
         let sidebarInbox = CommandDispatcher.shared.definition(for: .showInboxNotifications)
+        let clearReadInbox = CommandDispatcher.shared.definition(for: .clearReadInboxNotifications)
         let paneInbox = CommandDispatcher.shared.definition(for: .showPaneInboxNotifications)
         let worktreeSidebar = CommandDispatcher.shared.definition(for: .showWorktreeSidebar)
 
         #expect(sidebarInbox.shortcut == .showInboxNotifications)
         #expect(!sidebarInbox.isHiddenInCommandBar)
+        #expect(clearReadInbox.label == "Clear Read Inbox Notifications")
+        #expect(clearReadInbox.commandBarGroupName == "Inbox")
+        #expect(!clearReadInbox.isHiddenInCommandBar)
         #expect(paneInbox.shortcut == .showPaneInboxNotifications)
         #expect(paneInbox.appliesTo == [.pane])
         #expect(paneInbox.visibleWhen == [.hasActivePane])

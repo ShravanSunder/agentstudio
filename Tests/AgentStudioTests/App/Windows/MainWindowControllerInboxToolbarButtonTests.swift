@@ -95,24 +95,36 @@ struct MainWindowControllerInboxToolbarButtonTests {
         }
     }
 
-    @Test("bell red dot tracks global unread count")
-    func bellRedDotTracksUnreadCount() async {
+    @Test("bell unread badge tracks global unread count")
+    func bellUnreadBadgeTracksUnreadCount() async {
         let inboxAtom = InboxNotificationAtom()
         await withMainWindowControllerHarness(inboxAtom: inboxAtom) { harness in
-            let dot = findDescendant(
+            let badge = findDescendant(
+                in: harness.window,
+                identifier: "inboxToolbarUnreadBadge"
+            )
+            let oldDot = findDescendant(
                 in: harness.window,
                 identifier: "inboxToolbarBellDot"
             )
 
-            #expect(dot != nil)
-            #expect(dot?.isHidden == true)
+            #expect(badge != nil)
+            #expect(oldDot == nil)
+            #expect(badge?.isHidden == true)
 
             inboxAtom.append(makeUnreadNotification())
 
-            await eventually("inbox bell dot should become visible") {
-                dot?.isHidden == false
+            await eventually("inbox bell badge should become visible") {
+                badge?.isHidden == false
             }
         }
+    }
+
+    @Test("bell unread badge text caps at ninety nine plus")
+    func bellUnreadBadgeTextCapsAtNinetyNinePlus() {
+        #expect(InboxToolbarUnreadBadgeText.text(for: 1) == "1")
+        #expect(InboxToolbarUnreadBadgeText.text(for: 99) == "99")
+        #expect(InboxToolbarUnreadBadgeText.text(for: 100) == "99+")
     }
 
     private func makeUnreadNotification() -> InboxNotification {

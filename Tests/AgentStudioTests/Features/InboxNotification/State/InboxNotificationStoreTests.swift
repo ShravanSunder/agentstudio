@@ -63,6 +63,83 @@ struct InboxNotificationStoreTests {
         #expect(prefs2.bellEnabled == true)
     }
 
+    @Test("save keeps schema version one for additive display fields")
+    func saveKeepsSchemaVersionOneForAdditiveDisplayFields() async throws {
+        let url = makeTempURL()
+        let atom = InboxNotificationAtom()
+        let prefs = InboxNotificationPrefsAtom()
+        let store = InboxNotificationStore(
+            inboxAtom: atom,
+            prefsAtom: prefs,
+            fileURL: url
+        )
+
+        try await store.save()
+
+        let data = try Data(contentsOf: url)
+        let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(payload["schemaVersion"] as? Int == 1)
+    }
+
+    @Test("load accepts schema one pane source without denormalized display fields")
+    func loadAcceptsSchemaOnePaneSourceWithoutDenormalizedDisplayFields() throws {
+        let url = makeTempURL()
+        let paneId = UUID()
+        let notificationId = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "notifications": [
+                    {
+                        "id": "\(notificationId.uuidString)",
+                        "timestamp": "2026-05-01T12:00:00Z",
+                        "kind": "agentRpc",
+                        "title": "Legacy",
+                        "body": null,
+                        "source": {
+                            "pane": {
+                                "_0": {
+                                    "paneId": "\(paneId.uuidString)"
+                                }
+                            }
+                        },
+                        "isRead": false,
+                        "isDismissedFromPaneInbox": false
+                    }
+                ],
+                "prefs": {
+                    "grouping": "none",
+                    "sort": "newestFirst",
+                    "bellEnabled": false
+                }
+            }
+            """
+        try Data(json.utf8).write(to: url, options: .atomic)
+        let atom = InboxNotificationAtom()
+        let prefs = InboxNotificationPrefsAtom()
+        let store = InboxNotificationStore(
+            inboxAtom: atom,
+            prefsAtom: prefs,
+            fileURL: url
+        )
+
+        try store.load()
+
+        let notification = try #require(atom.notifications.first)
+        #expect(notification.id == notificationId)
+        guard case .pane(let paneSource) = notification.source else {
+            Issue.record("Expected legacy notification to decode as pane source")
+            return
+        }
+        #expect(paneSource.paneId == paneId)
+        #expect(paneSource.paneRole == .main)
+        #expect(paneSource.tabDisplayLabel == nil)
+        #expect(paneSource.runtimeDisplayLabel == nil)
+        let display = InboxNotificationSourceDisplay(notification: notification)
+        #expect(display.sourceLine == "Pane event")
+        #expect(display.groupLabel(for: .byRepo) == "Pane")
+    }
+
     @Test("load from missing file uses defaults")
     func loadMissingFileUsesDefaults() throws {
         let url = FileManager.default.temporaryDirectory

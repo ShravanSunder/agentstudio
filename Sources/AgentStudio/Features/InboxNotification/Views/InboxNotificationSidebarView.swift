@@ -95,6 +95,7 @@ struct InboxNotificationSidebarView: View {
                 onEscape: handleEscape,
                 onToggleSort: toggleSort,
                 onClearFilter: clearFilter,
+                onClearReadHistory: { inboxAtom.clearReadHistory() },
                 onSelectGrouping: { prefsAtom.setGrouping($0) },
                 onToggleGroupCollapse: toggleGroupCollapse,
                 onMoveGroupBoundary: moveFocusToGroupBoundary,

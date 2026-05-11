@@ -95,7 +95,7 @@ final class InboxNotificationStore {
         }
 
         init(
-            schemaVersion: Int = 1,
+            schemaVersion: Int = currentSchemaVersion,
             notifications: [InboxNotification],
             prefs: Prefs
         ) {
