@@ -14,6 +14,12 @@ final class InboxNotificationRouter {
         let attributes: [String: AgentStudioTraceValue]
     }
 
+    private struct ObservedPaneClearOutcome: Sendable, Equatable {
+        let clearedCount: Int
+        let keepCount: Int
+        let reason: String?
+    }
+
     private enum ClassificationDecision: Sendable {
         case notify(InboxNotificationKind)
         case ignore(reason: String)
@@ -53,6 +59,8 @@ final class InboxNotificationRouter {
     private let tabLayout: WorkspaceTabLayoutAtom
     private let attendedPane: AttendedPaneAtom
     private let focusTracker: PaneFocusTracker
+    private let terminalActivity: TerminalActivityAtom?
+    private let autoClearPolicy: PaneInboxAutoClearPolicy
     private let traceRuntime: AgentStudioTraceRuntime?
 
     private var busTask: Task<Void, Never>?
@@ -63,6 +71,7 @@ final class InboxNotificationRouter {
     private var progressErrorWasActiveByPaneId: [UUID: Bool] = [:]
     private var rendererWasHealthyByPaneId: [UUID: Bool] = [:]
     private var secureInputWasActiveByPaneId: [UUID: Bool] = [:]
+    private var pinnedToBottomByPaneId: [UUID: Bool] = [:]
 
     init(
         bus: EventBus<RuntimeEnvelope>,
@@ -72,6 +81,8 @@ final class InboxNotificationRouter {
         tabLayout: WorkspaceTabLayoutAtom,
         attendedPane: AttendedPaneAtom,
         focusTracker: PaneFocusTracker,
+        terminalActivity: TerminalActivityAtom? = nil,
+        autoClearPolicy: PaneInboxAutoClearPolicy = .init(),
         traceRuntime: AgentStudioTraceRuntime? = nil
     ) {
         self.bus = bus
@@ -81,6 +92,8 @@ final class InboxNotificationRouter {
         self.tabLayout = tabLayout
         self.attendedPane = attendedPane
         self.focusTracker = focusTracker
+        self.terminalActivity = terminalActivity
+        self.autoClearPolicy = autoClearPolicy
         self.traceRuntime = traceRuntime
     }
 
@@ -105,6 +118,7 @@ final class InboxNotificationRouter {
         progressErrorWasActiveByPaneId.removeAll()
         rendererWasHealthyByPaneId.removeAll()
         secureInputWasActiveByPaneId.removeAll()
+        pinnedToBottomByPaneId.removeAll()
     }
 
     func start() async {
@@ -127,12 +141,15 @@ final class InboxNotificationRouter {
             for await paneId in self.focusTracker.focusGainedStream {
                 guard !Task.isCancelled else { return }
                 let unreadBefore = self.inboxAtom.unreadCount(forPaneId: paneId)
+                let clearOutcome = self.clearObservedPaneInboxRowsForActiveTabIfNeeded(focusedPaneId: paneId)
                 self.traceInboxMutation(
                     body: "inbox.focusGainedObservedPane",
                     paneId: paneId,
                     attributes: [
                         "agentstudio.inbox.unread_before": .int(unreadBefore),
                         "agentstudio.inbox.unread_after": .int(self.inboxAtom.unreadCount(forPaneId: paneId)),
+                        "agentstudio.pane_inbox.cleared_count": .int(clearOutcome.clearedCount),
+                        "agentstudio.pane_inbox.keep_count": .int(clearOutcome.keepCount),
                     ]
                 )
             }
@@ -144,6 +161,14 @@ final class InboxNotificationRouter {
 
     private func handle(_ envelope: RuntimeEnvelope) {
         guard case .pane(let paneEnvelope) = envelope else { return }
+        if case .terminal(.scrollbarChanged(let scrollbarState)) = paneEnvelope.event {
+            pinnedToBottomByPaneId[paneEnvelope.paneId.uuid] = scrollbarState.isPinnedToBottom
+            clearObservedPaneInboxRowsIfNeeded(
+                paneId: paneEnvelope.paneId.uuid,
+                scrollbarState: scrollbarState,
+                traceKeepOnly: false
+            )
+        }
         let decision = classify(paneEnvelope)
         traceEventBusDelivery(decision, envelope: paneEnvelope)
         traceClassificationDecision(decision, envelope: paneEnvelope)
@@ -164,7 +189,7 @@ final class InboxNotificationRouter {
                 ]
             )
         }
-        let notification = InboxNotification(
+        var notification = InboxNotification(
             id: UUID(),
             timestamp: Date(),
             kind: kind,
@@ -184,8 +209,16 @@ final class InboxNotificationRouter {
             isRead: false,
             isDismissedFromPaneInbox: false
         )
+        if autoClearPolicy.decision(
+            notification: notification,
+            isSourcePaneAttended: isSourcePaneObserved(paneId),
+            isSourcePanePinnedToBottom: isSourcePanePinnedToBottom(paneId)
+        ) == .clear {
+            notification.isRead = true
+            notification.isDismissedFromPaneInbox = true
+        }
         let globalUnreadBefore = inboxAtom.globalUnreadCount
-        inboxAtom.append(notification)
+        let retentionOutcome = inboxAtom.append(notification)
         traceInboxMutation(
             body: "inbox.notification.appended",
             paneId: paneId,
@@ -194,8 +227,11 @@ final class InboxNotificationRouter {
                 "agentstudio.inbox.notification.id": .string(notification.id.uuidString),
                 "agentstudio.inbox.global_unread_before": .int(globalUnreadBefore),
                 "agentstudio.inbox.global_unread_after": .int(inboxAtom.globalUnreadCount),
+                "agentstudio.pane_inbox.dismissed": .bool(notification.isDismissedFromPaneInbox),
+                "agentstudio.inbox.read": .bool(notification.isRead),
             ]
         )
+        traceRetentionOutcomeIfNeeded(retentionOutcome, paneId: paneId)
     }
 
     private func classify(_ envelope: PaneEnvelope) -> ClassificationDecision {
@@ -207,9 +243,7 @@ final class InboxNotificationRouter {
         case .terminal(.bellRang):
             return prefsAtom.bellEnabled ? .notify(.bellRang) : .ignore(reason: "bell_disabled")
         case .terminal(.commandFinished(_, let duration)):
-            // Skip the pane the user is actively attending; the inbox is for unattended work.
-            guard envelope.paneId.uuid != attendedPane.attendedPaneId else { return .ignore(reason: "attended_pane") }
-            guard duration >= AppPolicies.InboxNotification.commandFinishedMinDurationSeconds else {
+            guard duration >= AppPolicies.InboxNotification.commandFinishedMinDurationNanoseconds else {
                 return .ignore(reason: "below_duration_threshold")
             }
             return .notify(.commandFinished)
@@ -257,7 +291,6 @@ final class InboxNotificationRouter {
         let wasActive = secureInputWasActiveByPaneId[paneId, default: false]
         secureInputWasActiveByPaneId[paneId] = isActive
         guard isActive && !wasActive else { return .ignore(reason: "secure_input_no_new_edge") }
-        guard paneId != attendedPane.attendedPaneId else { return .ignore(reason: "attended_pane") }
         return .notify(.terminalSecureInputRequested)
     }
 
@@ -273,6 +306,7 @@ final class InboxNotificationRouter {
         progressErrorWasActiveByPaneId.removeValue(forKey: paneId)
         rendererWasHealthyByPaneId.removeValue(forKey: paneId)
         secureInputWasActiveByPaneId.removeValue(forKey: paneId)
+        pinnedToBottomByPaneId.removeValue(forKey: paneId)
     }
 
     private func traceClassificationDecision(_ decision: ClassificationDecision, envelope: PaneEnvelope) {
@@ -327,6 +361,110 @@ final class InboxNotificationRouter {
         var attributes = inboxTraceAttributes(paneId: paneId, event: nil)
         attributes.merge(extraAttributes) { current, _ in current }
         traceInboxRecord(body: body, attributes: attributes)
+    }
+
+    @discardableResult
+    private func clearObservedPaneInboxRowsIfNeeded(
+        paneId: UUID,
+        scrollbarState: ScrollbarState? = nil,
+        traceKeepOnly: Bool = true
+    ) -> ObservedPaneClearOutcome {
+        let isPinnedToBottom = scrollbarState?.isPinnedToBottom ?? isSourcePanePinnedToBottom(paneId)
+        var clearedCount = 0
+        var keepCount = 0
+        var keepReason: String?
+        for notification in inboxAtom.notifications where notification.paneId == paneId {
+            guard !notification.isRead || !notification.isDismissedFromPaneInbox else { continue }
+            let decision = autoClearPolicy.decision(
+                notification: notification,
+                isSourcePaneAttended: isSourcePaneObserved(paneId),
+                isSourcePanePinnedToBottom: isPinnedToBottom
+            )
+            guard decision == .clear else {
+                keepCount += 1
+                if case .keep(let reason) = decision, keepReason == nil {
+                    keepReason = reason
+                }
+                continue
+            }
+            let didMarkRead = inboxAtom.markRead(id: notification.id)
+            let didDismiss = inboxAtom.dismissFromPaneInbox(id: notification.id)
+            if didMarkRead || didDismiss {
+                clearedCount += 1
+            }
+        }
+        let outcome = ObservedPaneClearOutcome(
+            clearedCount: clearedCount,
+            keepCount: keepCount,
+            reason: keepReason
+        )
+        guard clearedCount > 0 || (traceKeepOnly && keepCount > 0) else { return outcome }
+        var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.pane_inbox.cleared_count": .int(clearedCount),
+            "agentstudio.pane_inbox.keep_count": .int(keepCount),
+            "agentstudio.pane.pinned_to_bottom": .bool(isPinnedToBottom),
+        ]
+        if let keepReason {
+            attributes["agentstudio.inbox.reason"] = .string(keepReason)
+        }
+        traceInboxMutation(
+            body: "inbox.observedPaneCleared",
+            paneId: paneId,
+            attributes: attributes
+        )
+        return outcome
+    }
+
+    private func clearObservedPaneInboxRowsForActiveTabIfNeeded(
+        focusedPaneId: UUID
+    ) -> ObservedPaneClearOutcome {
+        let activePaneIds = tabLayout.activeTab?.activePaneIds ?? []
+        var paneIds: [UUID] = [focusedPaneId]
+        for paneId in activePaneIds where !paneIds.contains(paneId) {
+            paneIds.append(paneId)
+        }
+
+        var clearedCount = 0
+        var keepCount = 0
+        var keepReason: String?
+        for paneId in paneIds {
+            let outcome = clearObservedPaneInboxRowsIfNeeded(paneId: paneId)
+            clearedCount += outcome.clearedCount
+            keepCount += outcome.keepCount
+            keepReason = keepReason ?? outcome.reason
+        }
+        return ObservedPaneClearOutcome(
+            clearedCount: clearedCount,
+            keepCount: keepCount,
+            reason: keepReason
+        )
+    }
+
+    private func isSourcePaneObserved(_ paneId: UUID) -> Bool {
+        if attendedPane.attendedPaneId == paneId { return true }
+        guard attendedPane.attendedPaneId != nil else { return false }
+        return tabLayout.activeTab?.activePaneIds.contains(paneId) == true
+    }
+
+    private func isSourcePanePinnedToBottom(_ paneId: UUID) -> Bool {
+        pinnedToBottomByPaneId[paneId] ?? terminalActivity?.snapshot(for: paneId)?.isPinnedToBottom == true
+    }
+
+    private func traceRetentionOutcomeIfNeeded(
+        _ outcome: InboxNotificationAtom.RetentionOutcome,
+        paneId: UUID
+    ) {
+        guard outcome.droppedCount > 0 else { return }
+        traceInboxMutation(
+            body: "inbox.retention.dropped",
+            paneId: paneId,
+            attributes: [
+                "agentstudio.inbox.dropped_count": .int(outcome.droppedCount),
+                "agentstudio.notification.dropped_ids": .stringArray(
+                    outcome.droppedNotificationIds.map(\.uuidString)
+                ),
+            ]
+        )
     }
 
     private func inboxTraceAttributes(
@@ -410,7 +548,7 @@ final class InboxNotificationRouter {
         case .terminal(.bellRang):
             return "Bell"
         case .terminal(.commandFinished(let exitCode, _)):
-            return exitCode == 0 ? "Command finished" : "Command failed (exit \(exitCode))"
+            return exitCode == 0 ? "Command finished" : "Command failed"
         case .terminal(.secureInputChanged):
             return "Secure input requested"
         case .terminal(.progressReportUpdated):
@@ -467,7 +605,8 @@ final class InboxNotificationRouter {
         }
     }
 
-    private func formattedDuration(_ seconds: UInt64) -> String {
+    private func formattedDuration(_ nanoseconds: UInt64) -> String {
+        let seconds = nanoseconds / 1_000_000_000
         let minutes = seconds / 60
         let remainingSeconds = seconds % 60
         if minutes > 0 {

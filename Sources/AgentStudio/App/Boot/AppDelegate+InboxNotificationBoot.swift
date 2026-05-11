@@ -35,6 +35,7 @@ extension AppDelegate {
             tabLayout: store.tabLayoutAtom,
             attendedPane: atomStore.attendedPane,
             focusTracker: inboxPaneFocusTracker,
+            terminalActivity: atomStore.terminalActivity,
             traceRuntime: traceRuntime
         )
         Task { @MainActor [weak self] in

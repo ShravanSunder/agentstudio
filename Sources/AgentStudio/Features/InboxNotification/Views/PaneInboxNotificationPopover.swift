@@ -190,6 +190,7 @@ struct PaneInboxNotificationPopover: View {
             paneInboxNotificationPopoverLogger.warning(
                 "Pane inbox activation dropped unknown notification id \(notificationId.uuidString, privacy: .public)"
             )
+            repairSelection()
             return
         }
 
@@ -198,8 +199,13 @@ struct PaneInboxNotificationPopover: View {
 
     private func activate(_ notification: InboxNotification) {
         onActivate(notification)
-        inboxAtom.markRead(id: notification.id)
-        inboxAtom.dismissFromPaneInbox(id: notification.id)
+        let didMarkRead = inboxAtom.markRead(id: notification.id)
+        let didDismiss = inboxAtom.dismissFromPaneInbox(id: notification.id)
+        if !didMarkRead || !didDismiss {
+            paneInboxNotificationPopoverLogger.warning(
+                "Pane inbox activation used stale notification id \(notification.id.uuidString, privacy: .public)"
+            )
+        }
         if let paneId = notification.paneId {
             dispatcher.dispatch(.focusPane, target: paneId, targetType: .pane)
         }

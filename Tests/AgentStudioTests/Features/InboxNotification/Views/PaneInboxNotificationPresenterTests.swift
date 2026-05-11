@@ -106,6 +106,27 @@ struct PaneInboxNotificationPresenterTests {
         #expect(presenter.request?.paneIds == [secondParentPaneId])
     }
 
+    @Test("clearRequest removes only the matching pending request")
+    func clearRequestRemovesOnlyMatchingPendingRequest() {
+        let presenter = PaneInboxNotificationPresenter()
+        let firstParentPaneId = UUID()
+        let secondParentPaneId = UUID()
+
+        presenter.open(parentPaneId: firstParentPaneId, paneIds: [firstParentPaneId])
+        let staleRequest = presenter.request
+        presenter.open(parentPaneId: secondParentPaneId, paneIds: [secondParentPaneId])
+
+        if let staleRequest {
+            presenter.clearRequest(staleRequest)
+        }
+
+        #expect(presenter.request?.parentPaneId == secondParentPaneId)
+        if let currentRequest = presenter.request {
+            presenter.clearRequest(currentRequest)
+        }
+        #expect(presenter.request == nil)
+    }
+
     @Test("pane inbox presenter traces low-volume request and presentation state changes")
     func paneInboxPresenterTracesLowVolumeRequestAndPresentationStateChanges() async throws {
         let traceRuntime = makeTraceRuntime(name: "pane-inbox-presenter", processIdentifier: 263)

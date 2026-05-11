@@ -262,7 +262,7 @@ struct InboxNotificationRouterTests {
         _ = await fixture.bus.post(
             makePaneEnvelope(
                 paneId: paneId,
-                event: .terminal(.commandFinished(exitCode: 0, duration: 3)),
+                event: .terminal(.commandFinished(exitCode: 0, duration: 3_000_000_000)),
                 seq: 2
             )
         )
@@ -442,56 +442,42 @@ struct InboxNotificationRouterTests {
         fixture.attendedPane.stop()
     }
 
-    @Test("commandFinished only notifies for unfocused long-running commands")
+    @Test("commandFinished notifies only above the duration threshold")
     func commandFinishedGating() async {
         let fixture = await makeFixture()
-        makeWindowKey(fixture.windowLifecycle)
 
-        let focusedPaneId = PaneId()
-        _ = addTerminalPane(focusedPaneId, to: fixture)
+        let paneId = PaneId()
+        _ = addTerminalPane(paneId, to: fixture)
         await Task.yield()
 
         _ = await fixture.bus.post(
             makePaneEnvelope(
-                paneId: focusedPaneId,
-                event: .terminal(.commandFinished(exitCode: 0, duration: 20))
+                paneId: paneId,
+                event: .terminal(.commandFinished(exitCode: 0, duration: 3_000_000_000))
             )
         )
 
-        let unfocusedPaneId = PaneId()
-        _ = addTerminalPane(unfocusedPaneId, to: fixture)
-        fixture.tabLayout.setActiveTab(fixture.tabLayout.tabs.first?.id)
-        await Task.yield()
-
         _ = await fixture.bus.post(
             makePaneEnvelope(
-                paneId: unfocusedPaneId,
-                event: .terminal(.commandFinished(exitCode: 0, duration: 3)),
+                paneId: paneId,
+                event: .terminal(.commandFinished(exitCode: 1, duration: 15_000_000_000)),
                 seq: 2
-            )
-        )
-
-        _ = await fixture.bus.post(
-            makePaneEnvelope(
-                paneId: unfocusedPaneId,
-                event: .terminal(.commandFinished(exitCode: 1, duration: 15)),
-                seq: 3
             )
         )
         await waitForNotificationCount(
             1,
             in: fixture,
-            description: "unattended long-running command should be routed once"
+            description: "long-running command should be routed once"
         )
         #expect(fixture.inboxAtom.notifications.count == 1)
         #expect(fixture.inboxAtom.notifications[0].kind == .commandFinished)
-        #expect(fixture.inboxAtom.notifications[0].paneId == unfocusedPaneId.uuid)
+        #expect(fixture.inboxAtom.notifications[0].paneId == paneId.uuid)
         await fixture.router.stop()
         await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
-    @Test("commandFinished uses attended pane instead of active tab for focus gating")
+    @Test("commandFinished routes active pane when no attended pane exists")
     func commandFinishedUsesAttendedPaneForFocusGating() async {
         let fixture = await makeFixture()
 
@@ -503,7 +489,7 @@ struct InboxNotificationRouterTests {
         _ = await fixture.bus.post(
             makePaneEnvelope(
                 paneId: paneId,
-                event: .terminal(.commandFinished(exitCode: 0, duration: 20))
+                event: .terminal(.commandFinished(exitCode: 0, duration: 20_000_000_000))
             )
         )
         await waitForNotificationCount(

@@ -715,7 +715,7 @@ git commit -m $'feat: denormalize inbox source context\n\nCo-authored-by: Codex 
 
 - [ ] **Step 1: Add duration test**
 
-Add this test to `InboxNotificationRouterTests`:
+Add these tests to `InboxNotificationRouterTests`:
 
 ```swift
 @Test("commandFinished duration from Ghostty nanoseconds renders as seconds")
@@ -745,14 +745,59 @@ func commandFinishedDurationUsesGhosttyNanoseconds() async {
 }
 ```
 
+Add exit-code title and minute-boundary coverage:
+
+```swift
+@Test("commandFinished title branches on exit code")
+func commandFinishedTitleBranchesOnExitCode() async {
+    let fixture = await makeFixture()
+    let paneId = PaneId()
+    _ = addTerminalPane(paneId, to: fixture)
+
+    _ = await fixture.bus.post(
+        makePaneEnvelope(
+            paneId: paneId,
+            event: .terminal(.commandFinished(exitCode: 1, duration: 18_000_000_000))
+        )
+    )
+
+    await waitForNotificationCount(1, in: fixture, description: "failed command should notify")
+
+    #expect(fixture.inboxAtom.notifications[0].title == "Command failed")
+    #expect(fixture.inboxAtom.notifications[0].body == "exit 1 · 18s")
+    await fixture.router.stop()
+    await fixture.tracker.stop()
+    fixture.attendedPane.stop()
+}
+
+@Test("commandFinished duration renders minute boundary")
+func commandFinishedDurationRendersMinuteBoundary() async {
+    let fixture = await makeFixture()
+    let paneId = PaneId()
+    _ = addTerminalPane(paneId, to: fixture)
+
+    _ = await fixture.bus.post(
+        makePaneEnvelope(
+            paneId: paneId,
+            event: .terminal(.commandFinished(exitCode: 0, duration: 60_000_000_000))
+        )
+    )
+
+    await waitForNotificationCount(1, in: fixture, description: "minute boundary should notify")
+
+    #expect(fixture.inboxAtom.notifications[0].body == "exit 0 · 1m 0s")
+    await fixture.router.stop()
+    await fixture.tracker.stop()
+    fixture.attendedPane.stop()
+}
+```
+
 - [ ] **Step 2: Add nanosecond policy**
 
 In `AppPolicies.InboxNotification`:
 
 ```swift
-static let commandFinishedMinDurationSeconds: UInt64 = 10
-static let commandFinishedMinDurationNanoseconds: UInt64 =
-    commandFinishedMinDurationSeconds * 1_000_000_000
+static let commandFinishedMinDurationNanoseconds: UInt64 = 10_000_000_000
 ```
 
 - [ ] **Step 3: Compare and format nanoseconds**
@@ -798,7 +843,7 @@ BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$$}"
 swift test --build-path "$BUILD_PATH" --filter "InboxNotificationRouterTests|InboxNotificationRouterDrawerChildTests|GhosttyActionRouterTests|GhosttyAdapterTests"
 ```
 
-Expected: PASS. The new test must assert `exit 0 · 18s`.
+Expected: PASS. The new tests must assert `exit 0 · 18s`, `exit 1 · 18s`, and `exit 0 · 1m 0s`.
 
 - [ ] **Step 6: Commit**
 
@@ -2343,7 +2388,133 @@ git commit -m $'fix: clear pane inbox badge for observed terminal activity\n\nCo
 
 ---
 
-## Task 8: Visual Smoke Data And Screenshots
+## Task 8: Notification State Hardening And Missing Contracts
+
+**Files:**
+- Modify: `Sources/AgentStudio/Features/InboxNotification/State/MainActor/Atoms/InboxNotificationAtom.swift`
+- Modify: `Sources/AgentStudio/Features/InboxNotification/Routing/InboxNotificationRouter.swift`
+- Modify: `Sources/AgentStudio/Features/InboxNotification/Views/PaneInboxNotificationPresenter.swift`
+- Modify: `Sources/AgentStudio/Features/InboxNotification/Models/PaneInboxNotificationFilterMode.swift`
+- Modify: `Tests/AgentStudioTests/Features/InboxNotification/State/InboxNotificationAtomTests.swift`
+- Modify: `Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterTests.swift`
+- Modify: `Tests/AgentStudioTests/Features/InboxNotification/Views/PaneInboxNotificationPresenterTests.swift`
+- Modify: `Tests/AgentStudioTests/Features/Terminal/Ghostty/GhosttyActionRouterTests.swift`
+
+- [ ] **Step 1: Surface retention drops through the JSONL trace pipeline**
+
+`InboxNotificationAtom.enforceRetentionCap()` currently logs with `os.Logger` only. That keeps the atom boundary clean, but operators reading JSONL do not see dropped notification rows.
+
+Keep the atom free of tracing. Change the mutation API to return a small outcome value instead:
+
+```swift
+struct InboxNotificationRetentionOutcome: Sendable, Equatable {
+    let droppedCount: Int
+    let droppedNotificationIds: [UUID]
+}
+
+@discardableResult
+func append(_ notification: InboxNotification) -> InboxNotificationRetentionOutcome
+```
+
+`InboxNotificationRouter` already owns the trace queue. After appending, if `droppedCount > 0`, emit:
+
+```text
+body = inbox.retention.dropped
+tag  = inbox
+agentstudio.inbox.dropped_count
+agentstudio.notification.dropped_ids
+agentstudio.inbox.global_unread_after
+```
+
+Do not make `InboxNotificationAtom` depend on `AgentStudioTraceRuntime`.
+
+- [ ] **Step 2: Add retention outcome tests**
+
+In `InboxNotificationAtomTests`, keep the existing retention-cap eviction test and add assertions that the append outcome reports:
+
+- the number of dropped rows
+- the dropped notification ids
+- `globalUnreadCount` after retention
+
+In `InboxNotificationRouterTests`, add a trace test proving `inbox.retention.dropped` appears in JSONL when a routed notification causes retention eviction.
+
+- [ ] **Step 3: Make stale notification activation visible**
+
+Clicking a notification that was already evicted by retention currently falls through to atom warnings only. Keep activation best-effort, but do not silently pretend the mutation happened.
+
+Change `markRead(id:)` and `dismissFromPaneInbox(id:)` to return `Bool` or a small mutation outcome. Use that outcome in global inbox and PaneInbox activation:
+
+- if the row still exists, mark/dismiss normally
+- if the row is stale, emit a trace or warning from the feature/controller boundary and still attempt source-pane focus from the denormalized notification source
+- repair the current selection after stale activation so the UI does not remain pointed at an evicted row
+
+Do not add tracing to the atom.
+
+- [ ] **Step 4: Add stale activation tests**
+
+Add focused tests:
+
+- global inbox activation with an evicted notification id does not crash, logs/traces stale activation, and attempts source focus when the denormalized source pane still exists
+- PaneInbox activation with an evicted notification id repairs selection and does not leave the popover on a stale selected id
+- atom mutation methods return `false` or `.missing` for unknown ids
+
+- [ ] **Step 5: Pin Ghostty trace classification contracts**
+
+`GhosttyActionRouterTests` already pins representative semantic/inferred/context/deferred buckets. Extend it to cover:
+
+- invalid raw action tag resolves to `.unhandled`
+- payload trace names never include associated payload contents such as notification title/body/url
+- long payload values are not serialized into `payloadTraceName`; only the stable case name is returned
+
+This is the real contract behind the "truncation" review note: trace names should be stable case names, not user payload strings.
+
+- [ ] **Step 6: Pin PaneInbox presenter stale-request behavior**
+
+Add `PaneInboxNotificationPresenterTests` coverage for `clearRequest(_:)`:
+
+- clearing the current request removes it
+- clearing a stale request leaves the newer request intact
+- stale clear does not emit a misleading close/presentation trace
+
+- [ ] **Step 7: Keep filter-mode toggling explicit**
+
+`PaneInboxNotificationFilterMode` is currently binary. Do not introduce a generic `next` property. Keep the API named for the current behavior (`toggled`) or replace it with an explicit policy method if a third mode is added.
+
+Add a test that iterates all current cases and asserts:
+
+```swift
+#expect(PaneInboxNotificationFilterMode.unread.toggled == .all)
+#expect(PaneInboxNotificationFilterMode.all.toggled == .unread)
+```
+
+If a third mode lands, this test should fail and force an intentional cycling policy instead of silently inheriting binary toggle behavior.
+
+- [ ] **Step 8: Run focused tests**
+
+```bash
+BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$$}"
+swift test --build-path "$BUILD_PATH" --filter "InboxNotificationAtomTests|InboxNotificationRouterTests|PaneInboxNotificationPresenterTests|GhosttyActionRouterTests"
+```
+
+Expected: PASS.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add Sources/AgentStudio/Features/InboxNotification/State/MainActor/Atoms/InboxNotificationAtom.swift \
+  Sources/AgentStudio/Features/InboxNotification/Routing/InboxNotificationRouter.swift \
+  Sources/AgentStudio/Features/InboxNotification/Views/PaneInboxNotificationPresenter.swift \
+  Sources/AgentStudio/Features/InboxNotification/Models/PaneInboxNotificationFilterMode.swift \
+  Tests/AgentStudioTests/Features/InboxNotification/State/InboxNotificationAtomTests.swift \
+  Tests/AgentStudioTests/Features/InboxNotification/Routing/InboxNotificationRouterTests.swift \
+  Tests/AgentStudioTests/Features/InboxNotification/Views/PaneInboxNotificationPresenterTests.swift \
+  Tests/AgentStudioTests/Features/Terminal/Ghostty/GhosttyActionRouterTests.swift
+git commit -m $'test: harden notification inbox edge contracts\n\nCo-authored-by: Codex <noreply@openai.com>'
+```
+
+---
+
+## Task 9: Visual Smoke Data And Screenshots
 
 **Files:**
 - Create: `docs/wip/debugging/2026-05-07-notification-inbox-sidebar-redesign-smoke.md`
@@ -2435,7 +2606,7 @@ git commit -m $'docs: add notification inbox redesign smoke note\n\nCo-authored-
 
 ---
 
-## Task 9: Full Verification
+## Task 10: Full Verification
 
 **Files:**
 - No source changes unless verification fails.
@@ -2509,8 +2680,9 @@ git commit -m $'chore: finalize notification inbox sidebar redesign\n\nCo-author
 - RepoExplorer chrome parity: Tasks 4 and 5.
 - Command-backed clear controls for sidebar inbox and PaneInbox: Task 6.
 - PaneInbox observed-source clear policy: Task 7.
-- PaneInbox/global inbox unread badge visual parity: Tasks 4, 5, and 8.
-- Visual verification: Task 8.
+- Notification state hardening and missing contracts: Task 8.
+- PaneInbox/global inbox unread badge visual parity: Tasks 4, 5, and 9.
+- Visual verification: Task 9.
 
 ### Placeholder Scan
 

@@ -370,7 +370,7 @@ Pane scope is for visibility and claim lookup only. Notification rows continue t
 Behavioral values belong in `AppPolicies.InboxNotification`, not in `AppStyles` and not as local magic numbers:
 
 ```
-commandFinishedMinDurationSeconds
+commandFinishedMinDurationNanoseconds
 unseenActivityBurstRowThreshold
 unseenActivityBurstDebounce
 unseenActivitySessionIdleTimeout

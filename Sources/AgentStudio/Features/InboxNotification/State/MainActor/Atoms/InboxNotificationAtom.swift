@@ -14,6 +14,13 @@ private let inboxNotificationAtomLogger = Logger(
 @MainActor
 @Observable
 final class InboxNotificationAtom {
+    struct RetentionOutcome: Sendable, Equatable {
+        static let empty = Self(droppedCount: 0, droppedNotificationIds: [])
+
+        let droppedCount: Int
+        let droppedNotificationIds: [UUID]
+    }
+
     private(set) var notifications: [InboxNotification] = []
     private(set) var globalUnreadCount = 0
 
@@ -55,27 +62,32 @@ final class InboxNotificationAtom {
         }
     }
 
-    func append(_ notification: InboxNotification) {
+    @discardableResult
+    func append(_ notification: InboxNotification) -> RetentionOutcome {
+        let outcome: RetentionOutcome
         if let index = notifications.firstIndex(where: { $0.id == notification.id }) {
             notifications[index] = notification
-            enforceRetentionCap()
+            outcome = enforceRetentionCap()
             recalculateGlobalUnreadCount()
-            return
+            return outcome
         }
         notifications.append(notification)
-        enforceRetentionCap()
+        outcome = enforceRetentionCap()
         recalculateGlobalUnreadCount()
+        return outcome
     }
 
     func replaceAll(_ replacement: [InboxNotification]) {
         notifications = replacement
-        enforceRetentionCap()
+        _ = enforceRetentionCap()
         recalculateGlobalUnreadCount()
     }
 
-    func markRead(id: UUID) {
-        update(id: id) { $0.isRead = true }
+    @discardableResult
+    func markRead(id: UUID) -> Bool {
+        let updated = update(id: id) { $0.isRead = true }
         recalculateGlobalUnreadCount()
+        return updated
     }
 
     func markRead(paneId: UUID) {
@@ -92,7 +104,8 @@ final class InboxNotificationAtom {
         recalculateGlobalUnreadCount()
     }
 
-    func dismissFromPaneInbox(id: UUID) {
+    @discardableResult
+    func dismissFromPaneInbox(id: UUID) -> Bool {
         update(id: id) { $0.isDismissedFromPaneInbox = true }
     }
 
@@ -103,7 +116,7 @@ final class InboxNotificationAtom {
     }
 
     func toggleReadState(id: UUID) {
-        update(id: id) { $0.isRead.toggle() }
+        _ = update(id: id) { $0.isRead.toggle() }
         recalculateGlobalUnreadCount()
     }
 
@@ -117,14 +130,15 @@ final class InboxNotificationAtom {
         recalculateGlobalUnreadCount()
     }
 
-    private func update(id: UUID, mutate: (inout InboxNotification) -> Void) {
+    private func update(id: UUID, mutate: (inout InboxNotification) -> Void) -> Bool {
         guard let index = notifications.firstIndex(where: { $0.id == id }) else {
             inboxNotificationAtomLogger.warning(
                 "Ignored inbox notification update for unknown id \(id.uuidString, privacy: .public)"
             )
-            return
+            return false
         }
         mutate(&notifications[index])
+        return true
     }
 
     private func unreadCount(
@@ -135,14 +149,19 @@ final class InboxNotificationAtom {
         }
     }
 
-    private func enforceRetentionCap() {
+    private func enforceRetentionCap() -> RetentionOutcome {
         let retentionCap = AppPolicies.InboxNotification.maxRetained
-        guard notifications.count > retentionCap else { return }
+        guard notifications.count > retentionCap else { return .empty }
         notifications.sort { $0.timestamp < $1.timestamp }
         let overflow = notifications.count - retentionCap
+        let droppedNotificationIds = notifications.prefix(overflow).map(\.id)
         notifications.removeFirst(overflow)
         inboxNotificationAtomLogger.warning(
             "Inbox notification retention cap dropped \(overflow, privacy: .public) oldest row(s)"
+        )
+        return RetentionOutcome(
+            droppedCount: overflow,
+            droppedNotificationIds: droppedNotificationIds
         )
     }
 

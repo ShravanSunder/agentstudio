@@ -94,8 +94,15 @@ struct InboxNotificationAtomTests {
         let notification = makeInboxNotification()
         atom.append(notification)
         #expect(atom.notifications[0].isRead == false)
-        atom.markRead(id: notification.id)
+        #expect(atom.markRead(id: notification.id) == true)
         #expect(atom.notifications[0].isRead == true)
+    }
+
+    @Test("markRead(id:) returns false for unknown id")
+    func markReadByUnknownIdReturnsFalse() {
+        let atom = InboxNotificationAtom()
+
+        #expect(atom.markRead(id: UUID()) == false)
     }
 
     @Test("markRead(paneId:) marks all notifications for that pane")
@@ -129,8 +136,15 @@ struct InboxNotificationAtomTests {
         let atom = InboxNotificationAtom()
         let notification = makeInboxNotification()
         atom.append(notification)
-        atom.dismissFromPaneInbox(id: notification.id)
+        #expect(atom.dismissFromPaneInbox(id: notification.id) == true)
         #expect(atom.notifications[0].isDismissedFromPaneInbox == true)
+    }
+
+    @Test("dismissFromPaneInbox(id:) returns false for unknown id")
+    func dismissFromPaneInboxByUnknownIdReturnsFalse() {
+        let atom = InboxNotificationAtom()
+
+        #expect(atom.dismissFromPaneInbox(id: UUID()) == false)
     }
 
     @Test("dismissFromPaneInbox(paneId:) sets flag true for every pane entry")
@@ -244,7 +258,7 @@ struct InboxNotificationAtomTests {
         #expect(atom.notifications.count == cap)
         let oldestId = atom.notifications.first?.id
 
-        atom.append(
+        let outcome = atom.append(
             makeInboxNotification(
                 timestamp: base.addingTimeInterval(TimeInterval(cap + 1))
             )
@@ -252,6 +266,9 @@ struct InboxNotificationAtomTests {
 
         #expect(atom.notifications.count == cap)
         #expect(atom.notifications.contains(where: { $0.id == oldestId }) == false)
+        #expect(outcome.droppedCount == 1)
+        #expect(outcome.droppedNotificationIds == [oldestId])
+        #expect(atom.globalUnreadCount == cap)
     }
 
     @Test("clearReadHistory removes read entries, keeps unread")
