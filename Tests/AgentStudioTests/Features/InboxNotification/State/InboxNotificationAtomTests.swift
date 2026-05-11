@@ -143,6 +143,43 @@ struct InboxNotificationAtomTests {
         #expect(atom.notifications.allSatisfy { $0.isDismissedFromPaneInbox })
     }
 
+    @Test("clearPaneInboxScope marks scoped rows read and dismisses them from pane inbox")
+    func clearPaneInboxScope() {
+        let parentPaneId = UUID()
+        let drawerPaneId = UUID()
+        let unrelatedPaneId = UUID()
+        let parentNotification = makeInboxNotification(paneId: parentPaneId)
+        let drawerNotification = makeInboxNotification(paneId: drawerPaneId)
+        let unrelatedNotification = makeInboxNotification(paneId: unrelatedPaneId)
+        let atom = InboxNotificationAtom()
+        atom.append(parentNotification)
+        atom.append(drawerNotification)
+        atom.append(unrelatedNotification)
+
+        atom.clearPaneInboxScope(paneIds: [parentPaneId, drawerPaneId])
+
+        #expect(
+            atom.notifications.map(\.id) == [
+                parentNotification.id,
+                drawerNotification.id,
+                unrelatedNotification.id,
+            ])
+        #expect(atom.notifications[0].isRead)
+        #expect(atom.notifications[0].isDismissedFromPaneInbox)
+        #expect(atom.notifications[1].isRead)
+        #expect(atom.notifications[1].isDismissedFromPaneInbox)
+        #expect(atom.notifications[2].isRead == false)
+        #expect(atom.notifications[2].isDismissedFromPaneInbox == false)
+        #expect(atom.visiblePaneInboxUnreadCount(forPaneIds: [parentPaneId, drawerPaneId]) == 0)
+        #expect(atom.globalUnreadCount == 1)
+        #expect(
+            PaneInboxNotificationPopover.relevantNotifications(
+                paneIds: [parentPaneId, drawerPaneId],
+                notifications: atom.notifications
+            ).isEmpty
+        )
+    }
+
     @Test("toggleReadState flips the value")
     func toggleReadState() {
         let atom = InboxNotificationAtom()

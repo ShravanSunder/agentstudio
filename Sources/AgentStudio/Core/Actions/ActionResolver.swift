@@ -121,7 +121,8 @@ enum WorkspaceCommandResolver {
     private static func isNonPaneCommand(_ command: AppCommand) -> Bool {
         switch command {
         case .watchFolder, .removeRepo,
-            .toggleSidebar, .showInboxNotifications, .showPaneInboxNotifications, .showWorktreeSidebar,
+            .toggleSidebar, .showInboxNotifications, .clearInboxNotifications,
+            .showPaneInboxNotifications, .clearPaneInboxNotifications, .showWorktreeSidebar,
             .newFloatingTerminal,
             .newTerminalInTab, .newTab, .undoCloseTab, .renameTab,
             .newWindow, .closeWindow,

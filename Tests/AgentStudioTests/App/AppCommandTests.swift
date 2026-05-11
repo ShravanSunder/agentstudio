@@ -327,6 +327,8 @@ final class AppCommandTests {
         let sidebarInbox = CommandDispatcher.shared.definition(for: .showInboxNotifications)
         let paneInbox = CommandDispatcher.shared.definition(for: .showPaneInboxNotifications)
         let worktreeSidebar = CommandDispatcher.shared.definition(for: .showWorktreeSidebar)
+        let clearInbox = CommandDispatcher.shared.definition(for: .clearInboxNotifications)
+        let clearPaneInbox = CommandDispatcher.shared.definition(for: .clearPaneInboxNotifications)
 
         #expect(sidebarInbox.shortcut == .showInboxNotifications)
         #expect(!sidebarInbox.isHiddenInCommandBar)
@@ -335,6 +337,14 @@ final class AppCommandTests {
         #expect(paneInbox.visibleWhen == [.hasActivePane])
         #expect(paneInbox.commandBarGroupName == "Pane")
         #expect(!paneInbox.isHiddenInCommandBar)
+        #expect(clearInbox.commandBarGroupName == "Inbox")
+        #expect(clearInbox.icon == .system(.trash))
+        #expect(!clearInbox.isHiddenInCommandBar)
+        #expect(clearPaneInbox.appliesTo == [.pane])
+        #expect(clearPaneInbox.visibleWhen == [.hasActivePane])
+        #expect(clearPaneInbox.commandBarGroupName == "Pane")
+        #expect(clearPaneInbox.icon == .system(.trash))
+        #expect(!clearPaneInbox.isHiddenInCommandBar)
         #expect(worktreeSidebar.shortcut == .showWorktreeSidebar)
         #expect(!worktreeSidebar.isHiddenInCommandBar)
     }

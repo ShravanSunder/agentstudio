@@ -92,6 +92,35 @@ struct InboxNotificationSidebarViewTests {
         #expect(InboxSidebarKeyboardRouter.rowAction(key: "x") == .ignored)
     }
 
+    @Test("clear action dispatches the inbox clear command")
+    func clearActionDispatchesInboxClearCommand() {
+        let previousRouter = CommandDispatcher.shared.appCommandRouter
+        let previousHandler = CommandDispatcher.shared.handler
+        defer {
+            CommandDispatcher.shared.appCommandRouter = previousRouter
+            CommandDispatcher.shared.handler = previousHandler
+        }
+
+        let router = MockAppCommandRouter()
+        router.appCommands = [.clearInboxNotifications]
+        CommandDispatcher.shared.appCommandRouter = router
+        CommandDispatcher.shared.handler = nil
+        let view = InboxNotificationSidebarView(
+            inboxAtom: InboxNotificationAtom(),
+            prefsAtom: InboxNotificationPrefsAtom(),
+            uiState: UIStateAtom(),
+            sidebarCache: SidebarCacheAtom(),
+            inboxFilterDraft: InboxFilterDraftAtom(),
+            workspacePaneAtom: WorkspacePaneAtom(),
+            dispatcher: .shared,
+            onRefocusActivePane: {}
+        )
+
+        view.clearAllNotifications()
+
+        #expect(router.handledCommands == [.clearInboxNotifications])
+    }
+
     @Test("focus bridge publishes sidebar focus and escape callback through mounted view")
     func focusBridgePublishesMountedViewEvents() async throws {
         let uiState = UIStateAtom()

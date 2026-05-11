@@ -7,19 +7,12 @@ struct InboxNotificationGroupHeader: View {
     let onToggle: () -> Void
 
     var body: some View {
-        Button(action: onToggle) {
-            HStack {
-                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 10)
-
-                Text(label)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
+        SidebarSectionHeader(
+            label: label,
+            isCollapsed: isCollapsed,
+            onToggle: onToggle
+        ) {
+            Group {
                 if unreadCount > 0 {
                     Text("\(unreadCount)")
                         .font(.system(size: 10, weight: .semibold))
@@ -27,8 +20,5 @@ struct InboxNotificationGroupHeader: View {
                 }
             }
         }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 2)
     }
 }

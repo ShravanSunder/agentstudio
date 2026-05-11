@@ -23,7 +23,9 @@ struct NotificationTests {
                     repoName: "agent-studio",
                     worktreeId: UUID(),
                     worktreeName: "drawer-improvements",
-                    branchName: "drawer-improvements"
+                    branchName: "drawer-improvements",
+                    paneDisplayLabel: "Claude",
+                    runtimeDisplayLabel: "Terminal"
                 )
             ),
             isRead: false,
@@ -44,6 +46,42 @@ struct NotificationTests {
         #expect(decoded.source == original.source)
         #expect(decoded.isRead == original.isRead)
         #expect(decoded.isDismissedFromPaneInbox == original.isDismissedFromPaneInbox)
+    }
+
+    @Test("legacy pane source JSON defaults new display context fields")
+    func legacyPaneSourceJSONDefaultsNewDisplayContextFields() throws {
+        let payload = """
+            {
+              "id": "00000000-0000-7000-8000-000000000001",
+              "timestamp": "2026-05-07T00:00:00Z",
+              "kind": "agentDesktopNotification",
+              "title": "Claude Code",
+              "body": "waiting",
+              "source": {
+                "pane": {
+                  "_0": {
+                    "paneId": "00000000-0000-7000-8000-000000000002",
+                    "tabId": null,
+                    "repo": null,
+                    "worktree": null,
+                    "branchName": null
+                  }
+                }
+              },
+              "isRead": false,
+              "isDismissedFromPaneInbox": false
+            }
+            """
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(InboxNotification.self, from: Data(payload.utf8))
+
+        #expect(decoded.title == "Claude Code")
+        #expect(decoded.paneContext?.paneRole == .main)
+        #expect(decoded.tabDisplayLabel == nil)
+        #expect(decoded.paneDisplayLabel == nil)
+        #expect(decoded.runtimeDisplayLabel == nil)
     }
 
     @Test("InboxNotificationKind enumerates expected cases")

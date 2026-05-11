@@ -329,6 +329,53 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.paneInboxPresenter.request == nil)
     }
 
+    @Test("clearPaneInboxNotifications clears active parent pane plus drawer children")
+    func executeClearPaneInboxNotifications_clearsActivePaneInboxScope() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let parentPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+
+        harness.controller.execute(.clearPaneInboxNotifications)
+
+        #expect(
+            harness.clearedPaneInboxScopes == [
+                .init(parentPaneId: parentPane.id, paneIds: [parentPane.id, drawerPane.id])
+            ])
+    }
+
+    @Test("targeted clearPaneInboxNotifications clears the requested pane scope")
+    func executeClearPaneInboxNotifications_targetedPaneClearsRequestedScope() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parentTab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(parentTab)
+        let unrelatedPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Other"))
+        let unrelatedTab = Tab(paneId: unrelatedPane.id)
+        harness.store.appendTab(unrelatedTab)
+        harness.store.setActiveTab(unrelatedTab.id)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+
+        #expect(harness.controller.canExecute(.clearPaneInboxNotifications, target: parentPane.id, targetType: .pane))
+        harness.controller.execute(.clearPaneInboxNotifications, target: parentPane.id, targetType: .pane)
+
+        #expect(
+            harness.clearedPaneInboxScopes == [
+                .init(parentPaneId: parentPane.id, paneIds: [parentPane.id, drawerPane.id])
+            ])
+    }
+
     @Test("targeted focusPane opens owning drawer and selects drawer child")
     func executeFocusPane_targetedDrawerChildOpensOwningDrawer() throws {
         let harness = makeHarness()

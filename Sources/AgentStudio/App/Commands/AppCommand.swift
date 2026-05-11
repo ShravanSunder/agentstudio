@@ -69,7 +69,9 @@ enum AppCommand: String, CaseIterable {
     // Workspace commands
     case toggleSidebar
     case showInboxNotifications
+    case clearInboxNotifications
     case showPaneInboxNotifications
+    case clearPaneInboxNotifications
     case showWorktreeSidebar
     case newFloatingTerminal
     // Window commands

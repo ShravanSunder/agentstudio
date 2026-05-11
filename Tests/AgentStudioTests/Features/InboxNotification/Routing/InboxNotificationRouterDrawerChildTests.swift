@@ -21,7 +21,7 @@ extension InboxNotificationRouterTests {
         _ = await fixture.bus.post(
             makePaneEnvelope(
                 paneId: PaneId(uuid: drawerPane.id),
-                event: .terminal(.commandFinished(exitCode: 0, duration: 20))
+                event: .terminal(.commandFinished(exitCode: 0, duration: 20_000_000_000))
             )
         )
 
@@ -32,6 +32,10 @@ extension InboxNotificationRouterTests {
         )
         #expect(fixture.inboxAtom.notifications[0].kind == .commandFinished)
         #expect(fixture.inboxAtom.notifications[0].paneId == drawerPane.id)
+        #expect(fixture.inboxAtom.notifications[0].paneRole == .drawerChild)
+        #expect(fixture.inboxAtom.notifications[0].parentPaneDisplayLabel == "Terminal")
+        #expect(fixture.inboxAtom.notifications[0].paneContext?.drawerOrdinal == 1)
+        #expect(fixture.inboxAtom.notifications[0].runtimeDisplayLabel == "Terminal")
         #expect(fixture.inboxAtom.notifications[0].isRead == false)
         #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false)
         await fixture.router.stop()
@@ -101,6 +105,13 @@ extension InboxNotificationRouterTests {
                 source: .pane(.init(paneId: drawerPane.id)),
                 isRead: false,
                 isDismissedFromPaneInbox: false
+            )
+        )
+        fixture.terminalActivityAtom.consume(
+            PaneEnvelope.test(
+                event: .terminal(.scrollbarChanged(ScrollbarState(top: 80, bottom: 100, total: 100))),
+                paneId: parentPaneId,
+                paneKind: .terminal
             )
         )
 

@@ -78,7 +78,7 @@ struct InboxNotificationSidebarView: View {
         InboxSidebarRootContainer(
             uiState: uiState,
             searchText: $searchText,
-            activeFilter: activeFilter,
+            activeFilterLabel: activeFilterLabel,
             sort: prefsAtom.sort,
             groupingMenuOpen: $groupingMenuOpen,
             grouping: prefsAtom.grouping,
@@ -88,6 +88,7 @@ struct InboxNotificationSidebarView: View {
             actions: .init(
                 onEscape: handleEscape,
                 onToggleSort: toggleSort,
+                onClearAll: clearAllNotifications,
                 onClearFilter: clearFilter,
                 onSelectGrouping: { prefsAtom.setGrouping($0) },
                 onToggleGroupCollapse: toggleGroupCollapse,
@@ -113,6 +114,12 @@ struct InboxNotificationSidebarView: View {
 
     private var listModel: InboxNotificationListModel {
         cachedListModel
+    }
+
+    private var activeFilterLabel: String? {
+        activeFilter.map {
+            InboxNotificationSourceDisplay.filterLabel(for: $0, notifications: inboxAtom.notifications)
+        }
     }
 
     private func refreshListModel() {
@@ -168,6 +175,10 @@ struct InboxNotificationSidebarView: View {
         let nextSort: InboxNotificationSort =
             prefsAtom.sort == .newestFirst ? .oldestFirst : .newestFirst
         prefsAtom.setSort(nextSort)
+    }
+
+    func clearAllNotifications() {
+        dispatcher.dispatch(.clearInboxNotifications)
     }
 
     private func clearFilter() {

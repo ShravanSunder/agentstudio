@@ -11,23 +11,43 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
     }
 
     struct PaneSource: Sendable, Codable, Equatable {
+        enum PaneRole: String, Sendable, Codable, Equatable {
+            case main
+            case drawerChild
+        }
+
         let paneId: UUID
         let tabId: UUID?
+        let tabDisplayLabel: String?
         let repo: NamedSource?
         let worktree: NamedSource?
         let branchName: String?
+        let paneDisplayLabel: String?
+        let paneRole: PaneRole
+        let parentPaneId: UUID?
+        let parentPaneDisplayLabel: String?
+        let drawerOrdinal: Int?
+        let runtimeDisplayLabel: String?
 
         init(
             paneId: UUID,
             tabId: UUID? = nil,
+            tabDisplayLabel: String? = nil,
             repoId: UUID? = nil,
             repoName: String? = nil,
             worktreeId: UUID? = nil,
             worktreeName: String? = nil,
-            branchName: String? = nil
+            branchName: String? = nil,
+            paneDisplayLabel: String? = nil,
+            paneRole: PaneRole = .main,
+            parentPaneId: UUID? = nil,
+            parentPaneDisplayLabel: String? = nil,
+            drawerOrdinal: Int? = nil,
+            runtimeDisplayLabel: String? = nil
         ) {
             self.paneId = paneId
             self.tabId = tabId
+            self.tabDisplayLabel = normalizedOptionalString(tabDisplayLabel)
             self.repo = NamedSource(
                 id: repoId,
                 name: repoName
@@ -36,7 +56,48 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
                 id: worktreeId,
                 name: worktreeName
             )
-            self.branchName = branchName
+            self.branchName = normalizedOptionalString(branchName)
+            self.paneDisplayLabel = normalizedOptionalString(paneDisplayLabel)
+            self.paneRole = paneRole
+            self.parentPaneId = parentPaneId
+            self.parentPaneDisplayLabel = normalizedOptionalString(parentPaneDisplayLabel)
+            self.drawerOrdinal = drawerOrdinal
+            self.runtimeDisplayLabel = normalizedOptionalString(runtimeDisplayLabel)
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            paneId = try container.decode(UUID.self, forKey: .paneId)
+            tabId = try container.decodeIfPresent(UUID.self, forKey: .tabId)
+            tabDisplayLabel = normalizedOptionalString(
+                try container.decodeIfPresent(String.self, forKey: .tabDisplayLabel))
+            repo = try container.decodeIfPresent(NamedSource.self, forKey: .repo)
+            worktree = try container.decodeIfPresent(NamedSource.self, forKey: .worktree)
+            branchName = normalizedOptionalString(try container.decodeIfPresent(String.self, forKey: .branchName))
+            paneDisplayLabel = normalizedOptionalString(
+                try container.decodeIfPresent(String.self, forKey: .paneDisplayLabel))
+            paneRole = try container.decodeIfPresent(PaneRole.self, forKey: .paneRole) ?? .main
+            parentPaneId = try container.decodeIfPresent(UUID.self, forKey: .parentPaneId)
+            parentPaneDisplayLabel =
+                normalizedOptionalString(try container.decodeIfPresent(String.self, forKey: .parentPaneDisplayLabel))
+            drawerOrdinal = try container.decodeIfPresent(Int.self, forKey: .drawerOrdinal)
+            runtimeDisplayLabel = normalizedOptionalString(
+                try container.decodeIfPresent(String.self, forKey: .runtimeDisplayLabel))
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case paneId
+            case tabId
+            case tabDisplayLabel
+            case repo
+            case worktree
+            case branchName
+            case paneDisplayLabel
+            case paneRole
+            case parentPaneId
+            case parentPaneDisplayLabel
+            case drawerOrdinal
+            case runtimeDisplayLabel
         }
     }
 
@@ -79,6 +140,11 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
         return paneSource.tabId
     }
 
+    var paneContext: PaneSource? {
+        guard case .pane(let paneSource) = source else { return nil }
+        return paneSource
+    }
+
     var repoId: UUID? {
         guard case .pane(let paneSource) = source else { return nil }
         return paneSource.repo?.id
@@ -103,6 +169,12 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
         guard case .pane(let paneSource) = source else { return nil }
         return paneSource.branchName
     }
+
+    var tabDisplayLabel: String? { paneContext?.tabDisplayLabel }
+    var paneDisplayLabel: String? { paneContext?.paneDisplayLabel }
+    var paneRole: PaneSource.PaneRole? { paneContext?.paneRole }
+    var parentPaneDisplayLabel: String? { paneContext?.parentPaneDisplayLabel }
+    var runtimeDisplayLabel: String? { paneContext?.runtimeDisplayLabel }
 }
 
 enum InboxNotificationKind: String, Sendable, Codable, Equatable {
@@ -116,4 +188,10 @@ enum InboxNotificationKind: String, Sendable, Codable, Equatable {
     case agentRpc
     case approvalRequested
     case securityEvent
+}
+
+private func normalizedOptionalString(_ value: String?) -> String? {
+    guard let value else { return nil }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
 }

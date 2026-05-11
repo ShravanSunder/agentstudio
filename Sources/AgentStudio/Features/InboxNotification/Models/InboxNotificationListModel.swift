@@ -157,11 +157,10 @@ struct InboxNotificationListModel: Equatable {
         guard !trimmedQuery.isEmpty else { return notifications }
 
         return notifications.filter { notification in
-            notification.title.lowercased().contains(trimmedQuery)
-                || (notification.body ?? "").lowercased().contains(trimmedQuery)
-                || (notification.repoName ?? "").lowercased().contains(trimmedQuery)
-                || (notification.worktreeName ?? "").lowercased().contains(trimmedQuery)
-                || (notification.branchName ?? "").lowercased().contains(trimmedQuery)
+            InboxNotificationSourceDisplay(notification: notification)
+                .searchText
+                .lowercased()
+                .contains(trimmedQuery)
         }
     }
 
@@ -189,7 +188,16 @@ struct InboxNotificationListModel: Equatable {
                     if let repoName = notification.repoName { return .repoName(repoName) }
                     return .noRepo
                 },
-                label: { $0.repoName ?? "Unknown Repo" },
+                label: { key, notifications in
+                    switch key {
+                    case .repoName(let name):
+                        return name
+                    case .noRepo:
+                        return "Other sources"
+                    default:
+                        return bestGroupLabel(for: notifications, grouping: .byRepo, placeholder: "Other sources")
+                    }
+                },
                 collapsedGroups: collapsedGroups
             )
         case .byPane:
@@ -199,7 +207,9 @@ struct InboxNotificationListModel: Equatable {
                     guard let paneId = notification.paneId else { return .noPane }
                     return .pane(id: paneId)
                 },
-                label: { $0.worktreeName ?? $0.branchName ?? "Unknown Pane" },
+                label: { _, notifications in
+                    bestGroupLabel(for: notifications, grouping: .byPane, placeholder: "Other panes")
+                },
                 collapsedGroups: collapsedGroups
             )
         case .byTab:
@@ -209,9 +219,8 @@ struct InboxNotificationListModel: Equatable {
                     guard let tabId = notification.tabId else { return .noTab }
                     return .tab(id: tabId)
                 },
-                label: { notification in
-                    guard let tabId = notification.tabId else { return "Unknown Tab" }
-                    return "Tab \(tabId.uuidString.prefix(8))"
+                label: { _, notifications in
+                    bestGroupLabel(for: notifications, grouping: .byTab, placeholder: "Untitled Tab")
                 },
                 collapsedGroups: collapsedGroups
             )
@@ -221,16 +230,15 @@ struct InboxNotificationListModel: Equatable {
     private static func buildGroupedSections(
         notifications: [InboxNotification],
         key: (InboxNotification) -> InboxNotificationSectionKey,
-        label: (InboxNotification) -> String,
+        label: (InboxNotificationSectionKey, [InboxNotification]) -> String,
         collapsedGroups: Set<InboxNotificationGroupKey>
     ) -> [InboxNotificationListSection] {
         let buckets = Dictionary(grouping: notifications, by: key)
         return buckets.map { groupKey, notifications in
-            let firstNotification = notifications[0]
             let groupId = groupKey.id
             return InboxNotificationListSection(
                 id: groupId,
-                label: label(firstNotification),
+                label: label(groupKey, notifications),
                 notifications: notifications,
                 isCollapsed: collapsedGroups.contains(InboxNotificationGroupKey(groupId))
             )
@@ -243,5 +251,17 @@ struct InboxNotificationListModel: Equatable {
             }
             return labelOrdering == .orderedAscending
         }
+    }
+
+    private static func bestGroupLabel(
+        for notifications: [InboxNotification],
+        grouping: InboxNotificationGrouping,
+        placeholder: String
+    ) -> String {
+        notifications
+            .sorted { $0.timestamp > $1.timestamp }
+            .lazy
+            .map { InboxNotificationSourceDisplay.groupLabel(for: $0, grouping: grouping) }
+            .first { !$0.isEmpty && $0 != placeholder } ?? placeholder
     }
 }

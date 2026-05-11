@@ -63,6 +63,54 @@ struct InboxNotificationStoreTests {
         #expect(prefs2.bellEnabled == true)
     }
 
+    @Test("save writes schema version two for source display context")
+    func saveWritesSchemaVersionTwo() async throws {
+        let url = makeTempURL()
+        let atom = InboxNotificationAtom()
+        let prefs = InboxNotificationPrefsAtom()
+        let store = InboxNotificationStore(
+            inboxAtom: atom,
+            prefsAtom: prefs,
+            fileURL: url
+        )
+
+        try await store.save()
+
+        let json = try String(contentsOf: url, encoding: .utf8)
+        #expect(json.contains(#""schemaVersion" : 2"#))
+    }
+
+    @Test("load accepts schema one payloads for existing inbox files")
+    func loadAcceptsSchemaOnePayloads() throws {
+        let url = makeTempURL()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "notifications": [],
+                "prefs": {
+                    "grouping": "byRepo",
+                    "sort": "oldestFirst",
+                    "bellEnabled": true
+                }
+            }
+            """
+        try Data(json.utf8).write(to: url, options: .atomic)
+        let atom = InboxNotificationAtom()
+        let prefs = InboxNotificationPrefsAtom()
+        let store = InboxNotificationStore(
+            inboxAtom: atom,
+            prefsAtom: prefs,
+            fileURL: url
+        )
+
+        try store.load()
+
+        #expect(atom.notifications.isEmpty)
+        #expect(prefs.grouping == .byRepo)
+        #expect(prefs.sort == .oldestFirst)
+        #expect(prefs.bellEnabled)
+    }
+
     @Test("load from missing file uses defaults")
     func loadMissingFileUsesDefaults() throws {
         let url = FileManager.default.temporaryDirectory

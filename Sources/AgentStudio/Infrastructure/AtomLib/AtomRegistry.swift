@@ -12,7 +12,6 @@ final class AtomRegistry {
     let sidebarCache: SidebarCacheAtom
     let terminalActivity: TerminalActivityAtom
     let editorChooser: EditorChooserAtom
-    let paneInboxPresentationState: PaneInboxPresentationAtom
     let uiState: UIStateAtom
     let inboxFilterDraft: InboxFilterDraftAtom
     let managementLayer: ManagementLayerAtom
@@ -32,7 +31,6 @@ final class AtomRegistry {
         sidebarCache: SidebarCacheAtom = .init(),
         terminalActivity: TerminalActivityAtom = .init(),
         editorChooser: EditorChooserAtom = .init(),
-        paneInboxPresentationState: PaneInboxPresentationAtom = .init(),
         uiState: UIStateAtom = .init(),
         inboxFilterDraft: InboxFilterDraftAtom = .init(),
         managementLayer: ManagementLayerAtom = .init(),
@@ -62,7 +60,6 @@ final class AtomRegistry {
         self.sidebarCache = sidebarCache
         self.terminalActivity = terminalActivity
         self.editorChooser = editorChooser
-        self.paneInboxPresentationState = paneInboxPresentationState
         self.uiState = uiState
         self.inboxFilterDraft = inboxFilterDraft
         self.managementLayer = managementLayer

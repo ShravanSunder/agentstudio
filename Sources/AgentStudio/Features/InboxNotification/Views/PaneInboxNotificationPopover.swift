@@ -11,7 +11,6 @@ struct PaneInboxNotificationPopover: View {
     let parentPaneId: UUID
     let paneIds: [UUID]
     let inboxAtom: InboxNotificationAtom
-    let presentationAtom: PaneInboxPresentationAtom
     let dispatcher: CommandDispatcher
     let onActivate: @MainActor (InboxNotification) -> Void
     let onClose: @MainActor @Sendable () -> Void
@@ -55,8 +54,7 @@ struct PaneInboxNotificationPopover: View {
 
     static func relevantNotifications(
         paneIds: [UUID],
-        notifications: [InboxNotification],
-        filterMode: PaneInboxNotificationFilterMode = .unread
+        notifications: [InboxNotification]
     ) -> [InboxNotification] {
         let paneIdSet = Set(paneIds)
         return
@@ -64,12 +62,7 @@ struct PaneInboxNotificationPopover: View {
             .filter { notification in
                 guard let paneId = notification.paneId else { return false }
                 guard paneIdSet.contains(paneId) else { return false }
-                switch filterMode {
-                case .unread:
-                    return !notification.isRead && !notification.isDismissedFromPaneInbox
-                case .all:
-                    return true
-                }
+                return !notification.isRead && !notification.isDismissedFromPaneInbox
             }
             .sorted { $0.timestamp > $1.timestamp }
             .prefix(AppPolicies.PaneInbox.maxVisibleNotifications)
@@ -93,26 +86,17 @@ struct PaneInboxNotificationPopover: View {
             Text("Pane inbox")
                 .font(.headline)
             Spacer()
-            Button(action: toggleFilterMode) {
-                HStack(spacing: AppStyles.General.Spacing.tight) {
-                    Image(systemName: filterMode.systemImageName)
-                    Text(filterMode.label)
-                }
-                .font(
-                    .system(
-                        size: AppStyles.Components.PaneInbox.filterButtonFontSize,
-                        weight: .medium
-                    )
+            Button(action: clearNotifications) {
+                AppCommand.clearPaneInboxNotifications.definition.icon.swiftUIImage(
+                    size: AppStyles.Components.PaneInbox.filterButtonFontSize
                 )
-                .padding(.horizontal, AppStyles.Components.PaneInbox.filterButtonHorizontalPadding)
-                .padding(.vertical, AppStyles.Components.PaneInbox.filterButtonVerticalPadding)
-                .background(
-                    RoundedRectangle(cornerRadius: AppStyles.Components.PaneInbox.filterButtonCornerRadius)
-                        .fill(Color.white.opacity(AppStyles.General.Fill.hover))
+                .frame(
+                    width: AppStyles.General.Button.compact,
+                    height: AppStyles.General.Button.compact
                 )
             }
             .buttonStyle(.borderless)
-            .help(filterMode.helpText)
+            .help(AppCommand.clearPaneInboxNotifications.definition.controlToolTip)
 
             Divider()
                 .frame(height: AppStyles.Components.PaneInbox.headerSeparatorHeight)
@@ -128,13 +112,8 @@ struct PaneInboxNotificationPopover: View {
     private var relevantNotifications: [InboxNotification] {
         Self.relevantNotifications(
             paneIds: paneIds,
-            notifications: inboxAtom.notifications,
-            filterMode: filterMode
+            notifications: inboxAtom.notifications
         )
-    }
-
-    private var filterMode: PaneInboxNotificationFilterMode {
-        presentationAtom.filterMode(for: parentPaneId)
     }
 
     private var relevantNotificationIds: [UUID] {
@@ -149,19 +128,13 @@ struct PaneInboxNotificationPopover: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(relevantNotifications) { notification in
-                            InboxRow(notification: notification, now: Date())
-                                .contentShape(Rectangle())
-                                .background(
-                                    RoundedRectangle(cornerRadius: AppStyles.Components.PaneInbox.rowCornerRadius)
-                                        .fill(
-                                            selectedNotificationId == notification.id
-                                                ? Color.accentColor.opacity(AppStyles.General.Fill.selected)
-                                                : Color.clear
-                                        )
-                                )
-                                .onTapGesture {
-                                    activate(notification)
-                                }
+                            PaneInboxNotificationRow(
+                                notification: notification,
+                                parentPaneId: parentPaneId,
+                                isSelected: selectedNotificationId == notification.id
+                            ) {
+                                activate(notification)
+                            }
                         }
                     }
                 }
@@ -180,8 +153,8 @@ struct PaneInboxNotificationPopover: View {
         )
     }
 
-    private func toggleFilterMode() {
-        presentationAtom.toggleFilterMode(for: parentPaneId)
+    func clearNotifications() {
+        dispatcher.dispatch(.clearPaneInboxNotifications, target: parentPaneId, targetType: .pane)
         repairSelection()
     }
 
@@ -204,5 +177,33 @@ struct PaneInboxNotificationPopover: View {
             dispatcher.dispatch(.focusPane, target: paneId, targetType: .pane)
         }
         onClose()
+    }
+}
+
+private struct PaneInboxNotificationRow: View {
+    let notification: InboxNotification
+    let parentPaneId: UUID
+    let isSelected: Bool
+    let onActivate: () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        SidebarRowShell(
+            isSelected: isSelected,
+            isFlashing: false,
+            isHovered: isHovered
+        ) {
+            InboxRow(
+                notification: notification,
+                now: Date(),
+                rowContext: .paneInbox(parentPaneId: parentPaneId)
+            )
+        }
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .onTapGesture(perform: onActivate)
     }
 }

@@ -30,8 +30,8 @@ enum AppPolicies {
         static let rpcPostRateLimitWindowSeconds: TimeInterval = 60
 
         /// Minimum command duration before an unfocused command-finished event
-        /// is promoted into inbox history.
-        static let commandFinishedMinDurationSeconds: UInt64 = 10
+        /// is promoted into inbox history. Ghostty reports command duration in nanoseconds.
+        static let commandFinishedMinDurationNanoseconds: UInt64 = 10_000_000_000
     }
 
     /// Drag-and-drop behavioral rules. These are decisions about HOW the

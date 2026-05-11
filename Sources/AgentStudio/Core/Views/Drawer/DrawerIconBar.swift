@@ -213,26 +213,10 @@ struct DrawerIconBar: View {
                                     )
                                     .overlay(alignment: .topTrailing) {
                                         if let inboxUnreadBadge = trailingActions.inboxUnreadBadge {
-                                            Text(inboxUnreadBadge.text)
-                                                .font(
-                                                    .system(
-                                                        size: AppStyles.Components.PaneInbox.unreadBadgeFontSize,
-                                                        weight: .semibold
-                                                    )
-                                                )
-                                                .padding(
-                                                    .horizontal,
-                                                    AppStyles.Components.PaneInbox.unreadBadgeHorizontalPadding
-                                                )
-                                                .padding(
-                                                    .vertical,
-                                                    AppStyles.Components.PaneInbox.unreadBadgeVerticalPadding
-                                                )
-                                                .background(Capsule().fill(.red))
-                                                .foregroundStyle(.white)
+                                            UnreadCountBadge(text: inboxUnreadBadge.text)
                                                 .offset(
-                                                    x: AppStyles.Components.PaneInbox.unreadBadgeOffset,
-                                                    y: -AppStyles.Components.PaneInbox.unreadBadgeOffset
+                                                    x: AppStyles.Components.NotificationBadge.offset,
+                                                    y: -AppStyles.Components.NotificationBadge.offset
                                                 )
                                         }
                                     }

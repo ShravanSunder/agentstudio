@@ -3,6 +3,21 @@ import SwiftUI
 struct InboxRow: View {
     let notification: InboxNotification
     let now: Date
+    let rowContext: InboxNotificationSourceDisplay.RowContext
+
+    private var display: InboxNotificationSourceDisplay {
+        InboxNotificationSourceDisplay(notification: notification, rowContext: rowContext)
+    }
+
+    init(
+        notification: InboxNotification,
+        now: Date,
+        rowContext: InboxNotificationSourceDisplay.RowContext = .globalInbox
+    ) {
+        self.notification = notification
+        self.now = now
+        self.rowContext = rowContext
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -13,7 +28,7 @@ struct InboxRow: View {
                         .frame(width: 6, height: 6)
                 }
 
-                Text(notification.title)
+                Text(display.primaryText)
                     .font(.system(size: 13, weight: notification.isRead ? .regular : .semibold))
                     .lineLimit(1)
 
@@ -24,15 +39,20 @@ struct InboxRow: View {
                     .foregroundStyle(.secondary)
             }
 
-            if let contextLine {
-                Text(contextLine)
+            Text(display.sourceLine)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            if let placementLine = display.placementLine {
+                Text(placementLine)
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
 
-            if let body = notification.body, !body.isEmpty {
-                Text(body)
+            if let detailText = display.detailText {
+                Text(detailText)
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
@@ -54,23 +74,5 @@ struct InboxRow: View {
             return "\(Int(delta / 3600))h"
         }
         return "\(Int(delta / 86_400))d"
-    }
-
-    private var contextLine: String? {
-        if let repoName = notification.repoName {
-            if let worktreeName = notification.worktreeName {
-                if let branchName = notification.branchName, branchName != worktreeName {
-                    return "\(repoName) · \(worktreeName) / \(branchName)"
-                }
-                return "\(repoName) · \(worktreeName)"
-            }
-            return repoName
-        }
-
-        if let branchName = notification.branchName {
-            return branchName
-        }
-
-        return "unknown source"
     }
 }

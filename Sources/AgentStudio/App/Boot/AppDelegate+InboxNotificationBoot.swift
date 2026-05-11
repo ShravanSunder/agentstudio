@@ -34,6 +34,9 @@ extension AppDelegate {
             paneAtom: store.paneAtom,
             tabLayout: store.tabLayoutAtom,
             attendedPane: atomStore.attendedPane,
+            isPanePinnedToBottom: { [weak self] paneId in
+                self?.atomStore.terminalActivity.snapshot(for: paneId)?.isPinnedToBottom == true
+            },
             focusTracker: inboxPaneFocusTracker,
             traceRuntime: traceRuntime
         )

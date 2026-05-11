@@ -31,4 +31,17 @@ extension AppDelegate {
             }
         )
     }
+
+    func executeClearInboxNotificationsCommand() -> Bool {
+        guard canExecuteClearInboxNotificationsCommand() else { return false }
+
+        makeInboxNotificationCommands().actions.clearAll()
+        return true
+    }
+
+    func canExecuteClearInboxNotificationsCommand() -> Bool {
+        inboxNotificationAtom != nil
+            && inboxNotificationPrefsAtom != nil
+            && atomStore != nil
+    }
 }

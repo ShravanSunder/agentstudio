@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import GhosttyKit
+import SwiftUI
 import Testing
 
 @testable import AgentStudio
@@ -95,22 +96,48 @@ struct MainWindowControllerInboxToolbarButtonTests {
         }
     }
 
-    @Test("bell red dot tracks global unread count")
-    func bellRedDotTracksUnreadCount() async {
+    @Test("bell badge tracks global unread count")
+    func bellBadgeTracksUnreadCount() async {
         let inboxAtom = InboxNotificationAtom()
         await withMainWindowControllerHarness(inboxAtom: inboxAtom) { harness in
-            let dot = findDescendant(
+            let badge = findDescendant(
+                in: harness.window,
+                identifier: "inboxToolbarUnreadBadge"
+            )
+            let oldDot = findDescendant(
                 in: harness.window,
                 identifier: "inboxToolbarBellDot"
             )
 
-            #expect(dot != nil)
-            #expect(dot?.isHidden == true)
+            #expect(badge != nil)
+            #expect(oldDot == nil)
+            #expect(badge?.isHidden == true)
 
             inboxAtom.append(makeUnreadNotification())
 
-            await eventually("inbox bell dot should become visible") {
-                dot?.isHidden == false
+            await eventually("inbox bell badge should become visible") {
+                badge?.isHidden == false
+            }
+        }
+    }
+
+    @Test("bell badge text uses uncapped global unread count")
+    func bellBadgeTextUsesUncappedGlobalUnreadCount() async throws {
+        let inboxAtom = InboxNotificationAtom()
+        try await withMainWindowControllerHarness(inboxAtom: inboxAtom) { harness in
+            let badge = try #require(
+                findDescendant(
+                    in: harness.window,
+                    identifier: "inboxToolbarUnreadBadge"
+                ) as? NSHostingView<UnreadCountBadge>
+            )
+
+            for _ in 0...(AppPolicies.PaneInbox.maxVisibleNotifications) {
+                inboxAtom.append(makeUnreadNotification())
+            }
+
+            await eventually("inbox bell badge should show uncapped global count") {
+                badge.rootView.text == "26"
             }
         }
     }

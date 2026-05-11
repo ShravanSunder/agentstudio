@@ -578,6 +578,15 @@ extension AppCommand {
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
+        case .clearInboxNotifications:
+            return CommandSpec(
+                command: self,
+                label: "Clear Inbox Notifications",
+                icon: .system(.trash),
+                helpText: "Clear all notification history from the sidebar inbox",
+                commandBarGroupName: "Inbox",
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
+            )
         case .showPaneInboxNotifications:
             return CommandSpec(
                 command: self,
@@ -585,6 +594,17 @@ extension AppCommand {
                 label: "Toggle Pane Inbox",
                 icon: .system(.bellBadge),
                 helpText: "Show notifications for the active pane and its drawer children",
+                appliesTo: [.pane],
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: CommandBarGroupPriority.pane
+            )
+        case .clearPaneInboxNotifications:
+            return CommandSpec(
+                command: self,
+                label: "Clear Pane Inbox Notifications",
+                icon: .system(.trash),
+                helpText: "Clear notifications for the active pane and its drawer children",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",

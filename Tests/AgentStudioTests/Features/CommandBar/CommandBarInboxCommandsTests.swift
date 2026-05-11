@@ -23,7 +23,7 @@ struct CommandBarInboxCommandsTests {
     }
 
     @Test("inbox scope exposes notification command callbacks")
-    func inboxScopeExposesCallbacks() async {
+    func inboxScopeExposesCallbacks() async throws {
         var didMarkAllRead = false
         var didClearReadHistory = false
         var didClearAll = false
@@ -74,8 +74,16 @@ struct CommandBarInboxCommandsTests {
                     "inbox.returnToWorktrees",
                 ]))
         #expect(items.contains { $0.title == "Enable bell notifications" })
+        let clearAllItem = try #require(items.first { $0.id == "inbox.clearAll" })
+        #expect(clearAllItem.command == .clearInboxNotifications)
+        if case .dispatch(.clearInboxNotifications) = clearAllItem.action {
+            didClearAll = true
+        } else {
+            Issue.record("Expected inbox.clearAll to dispatch clearInboxNotifications")
+        }
 
         for item in items {
+            guard item.id != "inbox.clearAll" else { continue }
             runCustomAction(item)
         }
 

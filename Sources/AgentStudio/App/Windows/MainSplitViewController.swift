@@ -237,7 +237,6 @@ class MainSplitViewController: NSSplitViewController {
     private func makePaneInboxPresentation() -> PaneInboxPresentation {
         let inbox = inboxAtom
         let presenter = paneInboxPresenter
-        let paneInboxState = atom(\.paneInboxPresentationState)
         return PaneInboxPresentation(
             unreadCount: { paneIds in
                 inbox.visiblePaneInboxUnreadCount(forPaneIds: paneIds)
@@ -247,6 +246,9 @@ class MainSplitViewController: NSSplitViewController {
             },
             toggle: { parentPaneId, paneIds in
                 presenter.toggle(parentPaneId: parentPaneId, paneIds: paneIds)
+            },
+            clearNotifications: { _, paneIds in
+                inbox.clearPaneInboxScope(paneIds: paneIds)
             },
             setPresented: { parentPaneId, paneIds, isPresented in
                 presenter.setPresented(parentPaneId: parentPaneId, paneIds: paneIds, isPresented: isPresented)
@@ -263,7 +265,6 @@ class MainSplitViewController: NSSplitViewController {
                         parentPaneId: parentPaneId,
                         paneIds: paneIds,
                         inboxAtom: inbox,
-                        presentationAtom: paneInboxState,
                         dispatcher: CommandDispatcher.shared,
                         onActivate: { notification in
                             presenter.recordRowActivation(notification: notification, paneIds: paneIds)
@@ -271,9 +272,6 @@ class MainSplitViewController: NSSplitViewController {
                         onClose: onClose
                     )
                 )
-            },
-            pruneFilterModes: { retainedParentPaneIds in
-                paneInboxState.prune(retainingParentPaneIds: retainedParentPaneIds)
             }
         )
     }

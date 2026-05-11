@@ -3,6 +3,7 @@ import SwiftUI
 struct InboxSidebarActions {
     let onEscape: @MainActor @Sendable () -> Void
     let onToggleSort: () -> Void
+    let onClearAll: () -> Void
     let onClearFilter: () -> Void
     let onSelectGrouping: (InboxNotificationGrouping) -> Void
     let onToggleGroupCollapse: (String) -> Void
@@ -15,7 +16,7 @@ struct InboxSidebarActions {
 struct InboxSidebarRootContainer: View {
     let uiState: UIStateAtom
     @Binding var searchText: String
-    let activeFilter: InboxFilter?
+    let activeFilterLabel: String?
     let sort: InboxNotificationSort
     @Binding var groupingMenuOpen: Bool
     let grouping: InboxNotificationGrouping
@@ -71,7 +72,7 @@ struct InboxSidebarRootContainer: View {
 
             InboxSidebarHeader(
                 searchText: $searchText,
-                activeFilter: activeFilter,
+                activeFilterLabel: activeFilterLabel,
                 sort: sort,
                 groupingMenuOpen: $groupingMenuOpen,
                 grouping: grouping,
@@ -88,12 +89,15 @@ struct InboxSidebarRootContainer: View {
                 actions: actions
             )
         }
+        .frame(minWidth: 200)
+        .background(Color(nsColor: .windowBackgroundColor))
+        .shadow(color: .black.opacity(0.2), radius: 4, x: 2, y: 0)
     }
 }
 
 struct InboxSidebarHeader: View {
     @Binding var searchText: String
-    let activeFilter: InboxFilter?
+    let activeFilterLabel: String?
     let sort: InboxNotificationSort
     @Binding var groupingMenuOpen: Bool
     let grouping: InboxNotificationGrouping
@@ -120,9 +124,22 @@ struct InboxSidebarHeader: View {
                 )
 
                 Button(action: actions.onToggleSort) {
-                    Image(systemName: sort == .newestFirst ? "arrow.down.to.line" : "arrow.up.to.line")
+                    Image(systemName: sort == .newestFirst ? "arrow.down" : "arrow.up")
                 }
                 .buttonStyle(.borderless)
+                .help(sort == .newestFirst ? "Newest notifications first" : "Oldest notifications first")
+
+                Button(action: actions.onClearAll) {
+                    AppCommand.clearInboxNotifications.definition.icon.swiftUIImage(
+                        size: AppStyles.General.Icon.compact
+                    )
+                    .frame(
+                        width: AppStyles.General.Button.compact,
+                        height: AppStyles.General.Button.compact
+                    )
+                }
+                .buttonStyle(.borderless)
+                .help(AppCommand.clearInboxNotifications.definition.controlToolTip)
 
                 Button {
                     groupingMenuOpen.toggle()
@@ -130,6 +147,7 @@ struct InboxSidebarHeader: View {
                     Image(systemName: "line.3.horizontal.decrease.circle")
                 }
                 .buttonStyle(.borderless)
+                .help("Group notifications")
                 .popover(isPresented: $groupingMenuOpen) {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(InboxNotificationGrouping.allCases, id: \.self) { candidate in
@@ -150,10 +168,10 @@ struct InboxSidebarHeader: View {
                 }
             }
 
-            if let activeFilter {
+            if let activeFilterLabel {
                 HStack(spacing: 6) {
                     Image(systemName: "line.3.horizontal.decrease.circle")
-                    Text(filterLabel(activeFilter))
+                    Text(activeFilterLabel)
                         .lineLimit(1)
                     Button(action: actions.onClearFilter) {
                         Image(systemName: "xmark.circle.fill")
@@ -180,14 +198,6 @@ struct InboxSidebarHeader: View {
         }
     }
 
-    private func filterLabel(_ filter: InboxFilter) -> String {
-        switch filter {
-        case .worktree(let id):
-            return "Worktree \(id.uuidString.prefix(8))"
-        case .repo(let id):
-            return "Repo \(id.uuidString.prefix(8))"
-        }
-    }
 }
 
 struct InboxSidebarContent: View {
@@ -237,23 +247,32 @@ struct InboxSidebarNotificationRow: View {
     let isFlashing: Bool
     let actions: InboxSidebarActions
 
+    @State private var isHovered = false
+
     var body: some View {
-        InboxRow(notification: notification, now: now)
-            .focused(focusedField, equals: .row(notification.id))
-            .contentShape(Rectangle())
-            .background(isFlashing ? Color.accentColor.opacity(0.18) : Color.clear)
-            .animation(.easeOut(duration: 0.25), value: isFlashing)
-            .onTapGesture {
-                actions.onActivate(notification)
-            }
-            .onKeyPress(.return) {
-                guard focusedField.wrappedValue == .row(notification.id) else { return .ignored }
-                return handleRowKey(.return)
-            }
-            .onKeyPress(.space) {
-                guard focusedField.wrappedValue == .row(notification.id) else { return .ignored }
-                return handleRowKey(.space)
-            }
+        SidebarRowShell(
+            isSelected: focusedField.wrappedValue == .row(notification.id),
+            isFlashing: isFlashing,
+            isHovered: isHovered
+        ) {
+            InboxRow(notification: notification, now: now)
+        }
+        .focused(focusedField, equals: .row(notification.id))
+        .contentShape(Rectangle())
+        .onHover { hovering in
+            isHovered = hovering
+        }
+        .onTapGesture {
+            actions.onActivate(notification)
+        }
+        .onKeyPress(.return) {
+            guard focusedField.wrappedValue == .row(notification.id) else { return .ignored }
+            return handleRowKey(.return)
+        }
+        .onKeyPress(.space) {
+            guard focusedField.wrappedValue == .row(notification.id) else { return .ignored }
+            return handleRowKey(.space)
+        }
     }
 
     private func handleRowKey(_ key: KeyEquivalent) -> KeyPress.Result {

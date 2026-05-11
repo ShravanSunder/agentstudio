@@ -260,6 +260,13 @@ enum AppStyles {
     }
 
     enum Components {
+        enum NotificationBadge {
+            static let fontSize: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeFontSize
+            static let horizontalPadding: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeHorizontalPadding
+            static let verticalPadding: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeVerticalPadding
+            static let offset: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeOffset
+        }
+
         enum EditorChooser {
             static let menuWidth: CGFloat = 220
             static let outerPadding: CGFloat = AppStyles.General.Spacing.standard

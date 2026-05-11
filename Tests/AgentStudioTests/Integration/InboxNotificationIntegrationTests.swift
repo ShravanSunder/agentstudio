@@ -20,6 +20,7 @@ struct InboxNotificationIntegrationTests {
         let windowLifecycle: WindowLifecycleAtom
         let managementLayer: ManagementLayerAtom
         let attendedPane: AttendedPaneAtom
+        let terminalActivityAtom: TerminalActivityAtom
         let tracker: PaneFocusTracker
         let router: InboxNotificationRouter
 
@@ -43,6 +44,7 @@ struct InboxNotificationIntegrationTests {
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer
         )
+        let terminalActivityAtom = TerminalActivityAtom()
         let tracker = PaneFocusTracker(attendedPane: attendedPane)
         let router = InboxNotificationRouter(
             bus: bus,
@@ -51,6 +53,9 @@ struct InboxNotificationIntegrationTests {
             paneAtom: paneAtom,
             tabLayout: tabLayout,
             attendedPane: attendedPane,
+            isPanePinnedToBottom: { paneId in
+                terminalActivityAtom.snapshot(for: paneId)?.isPinnedToBottom == true
+            },
             focusTracker: tracker
         )
         await router.start()
@@ -64,6 +69,7 @@ struct InboxNotificationIntegrationTests {
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer,
             attendedPane: attendedPane,
+            terminalActivityAtom: terminalActivityAtom,
             tracker: tracker,
             router: router
         )

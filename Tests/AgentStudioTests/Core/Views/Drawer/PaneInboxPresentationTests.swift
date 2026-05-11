@@ -87,11 +87,11 @@ struct PaneInboxPresentationTests {
                 openedParentPaneId = parentPaneId
                 openedPaneIds = paneIds
             },
+            clearNotifications: { _, _ in },
             setPresented: { _, _, _ in },
             pendingRequest: { nil },
             clearRequest: { _ in },
-            popoverContent: { _, _, _ in AnyView(EmptyView()) },
-            pruneFilterModes: { _ in }
+            popoverContent: { _, _, _ in AnyView(EmptyView()) }
         )
         var isPopoverPresented = false
 
@@ -121,13 +121,13 @@ struct PaneInboxPresentationTests {
         #expect(openedPaneIds == paneIds)
     }
 
-    @Test("pane inbox badge caps visible count instead of overstating the popover")
-    func paneInboxBadgeCapsVisibleCountInsteadOfOverstatingPopover() {
+    @Test("pane inbox badge uses shared notification badge cap")
+    func paneInboxBadgeUsesSharedNotificationBadgeCap() {
         let badge = PaneInboxUnreadBadge(
             unreadCount: AppPolicies.PaneInbox.maxVisibleNotifications + 5
         )
 
-        #expect(badge?.text == "\(AppPolicies.PaneInbox.maxVisibleNotifications)+")
+        #expect(badge?.text == "25+")
     }
 
     private func makePaneLookup(

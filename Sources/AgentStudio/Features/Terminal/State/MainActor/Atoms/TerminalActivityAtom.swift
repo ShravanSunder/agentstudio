@@ -42,6 +42,7 @@ struct TerminalActivitySnapshot: Equatable, Sendable {
     var secureInputActive: Bool
     var recentURLRequests: [TerminalURLRequest]
     var outputBurst: TerminalOutputBurstState
+    var isPinnedToBottom: Bool?
 
     init(paneId: UUID) {
         self.paneId = paneId
@@ -50,6 +51,7 @@ struct TerminalActivitySnapshot: Equatable, Sendable {
         self.secureInputActive = false
         self.recentURLRequests = []
         self.outputBurst = .unknown
+        self.isPinnedToBottom = nil
     }
 }
 
@@ -101,6 +103,7 @@ final class TerminalActivityAtom {
                 current: snapshot.outputBurst,
                 newTotal: state.total
             )
+            snapshot.isPinnedToBottom = state.isPinnedToBottom
         default:
             break
         }

@@ -20,10 +20,10 @@ struct PaneInboxUnreadBadge: Equatable {
     let text: String
 
     init?(
-        unreadCount: Int,
-        visibleLimit: Int = AppPolicies.PaneInbox.maxVisibleNotifications
+        unreadCount: Int
     ) {
         guard unreadCount > 0 else { return nil }
+        let visibleLimit = AppPolicies.PaneInbox.maxVisibleNotifications
         text = unreadCount > visibleLimit ? "\(visibleLimit)+" : "\(unreadCount)"
     }
 }
@@ -35,11 +35,11 @@ struct PaneInboxPresentation {
     let unreadCount: @MainActor ([UUID]) -> Int
     let open: @MainActor (UUID, [UUID]) -> Void
     let toggle: @MainActor (UUID, [UUID]) -> Void
+    let clearNotifications: @MainActor (UUID, [UUID]) -> Void
     let setPresented: @MainActor (UUID, [UUID], Bool) -> Void
     let pendingRequest: @MainActor () -> PaneInboxRequest?
     let clearRequest: @MainActor (PaneInboxRequest) -> Void
     let popoverContent: @MainActor (UUID, [UUID], @escaping @MainActor @Sendable () -> Void) -> AnyView
-    let pruneFilterModes: @MainActor (Set<UUID>) -> Void
 
     func trailingActions(
         parentPaneId: UUID,
