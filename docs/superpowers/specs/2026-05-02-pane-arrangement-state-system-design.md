@@ -550,7 +550,12 @@ Coordinator flow:
          arrangement.activePaneId = first unminimized remaining
        drop arrangement.drawerViews[anyDrawerOnPane.drawerId]
      remove paneId from source.allPaneIds
-     if source.allPaneIds.isEmpty: tab is closed (separate concern)
+     if source.allPaneIds.isEmpty:
+       auto-close source tab (Q2 decision)
+       emit arrangement.tab_close_committed with
+         cause = "cross_tab_move_drained"
+       set source_tab_auto_closed = true on the
+         cross_tab_move_committed record (step 6)
 4. DESTINATION TAB:
      append paneId to dest.allPaneIds
      for each arrangement in dest.arrangements:
@@ -625,9 +630,12 @@ EXISTING (contract preserved, internals change):
 ... (others unchanged)
 ```
 
-These all change semantics from "mutate Drawer struct" to "mutate
-active arrangement's drawerView" — but the command contract stays
-the same. Callers don't change.
+Most of these change internals from "mutate Drawer struct" to
+"mutate active arrangement's drawerView". Exception: `.toggleDrawer`
+still mutates `Drawer.isExpanded` because that field stays on
+Drawer (Q4 — global per drawer, not per-arrangement). For all of
+these, the command CONTRACT stays the same — callers don't
+change.
 
 NEW:
 
@@ -974,18 +982,34 @@ TabReorderTests
 
 ShowsMinimizedPanesTests
   ▸ per-arrangement toggle hides minimized panes from layout
-    rendering when false
+    rendering when false (via WorkspaceArrangementViewDerived)
   ▸ per-drawer toggle does the same for drawer panes
   ▸ derived visiblePaneIds matches the rule in §6.2
+  ▸ ships in PR 1
+
+ShowsMinimizedPanesUITests (PR 2)
+  ▸ UI toggle control in arrangement panel mutates active
+    arrangement's showsMinimizedPanes via PaneActionCommand
+    .setShowsMinimizedPanes
+  ▸ UI toggle control in drawer header mutates active
+    arrangement's drawerView via PaneActionCommand
+    .setShowsMinimizedDrawerPanes
+  ▸ ships in PR 2 (depends on PR 1's per-arrangement
+    persistence)
 
 VisiblePaneIdsDerivationTests
   ▸ given (layout, minimized, showsMinimized), derived
     visiblePaneIds matches §6.2 rule
 
 WorkspacePaneAtomDrawerStrippedTests
-  ▸ Drawer struct only carries identity + paneIds
-  ▸ moveDrawerPane / resizeDrawerPane / etc. are removed from
-    WorkspacePaneAtom (moved to TabArrangementAtom)
+  ▸ Drawer struct carries identity + paneIds + isExpanded only
+    (no layout / no activeChildId / no minimizedPaneIds — Q4)
+  ▸ Drawer VIEW mutators removed from WorkspacePaneAtom and
+    moved to WorkspaceTabArrangementAtom as *InActive methods:
+    moveDrawerPane, resizeDrawerPane, equalizeDrawerPanes,
+    minimizeDrawerPane, expandDrawerPane, setActiveDrawerPane
+  ▸ toggleDrawer + collapseAllDrawers STAY on WorkspacePaneAtom
+    (they mutate Drawer.isExpanded which is global per Q4)
   ▸ remaining DATA methods (addDrawerPane / removeDrawerPane /
     detachDrawerPane / restoreDrawerPane) work as before
 
@@ -997,25 +1021,36 @@ FreshStateDecodeTests
   ▸ default values applied correctly for fresh state
     (showsMinimizedPanes=true, drawerViews={}, etc.)
 
-ObservabilityTests
-  ▸ minimizePane emits arrangement.command_received +
-    arrangement.command_validated(decision=accepted) +
-    arrangement.view_op_committed
-  ▸ rejected commands emit .command_validated with decision=rejected
-    AND a recognized reason string (test against the enum of
-    allowed reason values — fail on unrecognized)
-  ▸ cross-tab move emits .cross_tab_move_started +
-    .cross_tab_move_committed with non-zero source/dest calibration
-    counts
-  ▸ adding a drawer pane emits .calibration_started +
-    .calibration_applied with affected_arrangement_count >= 1
-  ▸ correlation_id propagates from received → validated → committed
-    (assert via captured trace records that all share the same
-    agentstudio.correlation_id attribute)
-  ▸ invariant violation in DEBUG fires assertionFailure AND emits
-    arrangement.invariant_violation; in RELEASE only emits trace
-  ▸ tracing default-off: no records emitted unless
-    AGENTSTUDIO_TRACE_TAGS includes "arrangement" (or "*")
+ObservabilityTests (split across PR 1 and PR 2)
+
+  PR 1 — records wired in this PR
+    ▸ minimizePane emits arrangement.command_received +
+      arrangement.command_validated(decision=accepted) +
+      arrangement.view_op_committed
+    ▸ rejected commands emit .command_validated with
+      decision=rejected AND a recognized reason string (test
+      against the enum of allowed reason values — fail on
+      unrecognized)
+    ▸ adding a drawer pane emits .calibration_started +
+      .calibration_applied with affected_arrangement_count >= 1
+    ▸ correlation_id propagates from received → validated →
+      committed (assert via captured trace records that all share
+      the same agentstudio.correlation_id attribute)
+    ▸ invariant violation in DEBUG fires assertionFailure AND
+      emits arrangement.invariant_violation; in RELEASE only
+      emits trace
+    ▸ tracing default-off: no records emitted unless
+      AGENTSTUDIO_TRACE_TAGS includes "arrangement" (or "*")
+
+  PR 2 — records added in this PR
+    ▸ cross-tab move emits .cross_tab_move_started +
+      .cross_tab_move_committed with non-zero source/dest
+      calibration counts and the source_tab_auto_closed flag
+    ▸ tab close emits .tab_close_committed with a recognized
+      cause string ("user_close" | "cross_tab_move_drained" |
+      "workspace_close")
+    ▸ tab reorder emits the right view_op_committed without
+      triggering calibration
 ```
 
 ## 19. Implementation order — 2 PRs
