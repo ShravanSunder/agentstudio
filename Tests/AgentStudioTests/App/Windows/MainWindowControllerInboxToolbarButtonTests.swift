@@ -127,6 +127,47 @@ struct MainWindowControllerInboxToolbarButtonTests {
         #expect(InboxToolbarUnreadBadgeText.text(for: 100) == "99+")
     }
 
+    @Test("bell badge sits in the bell icon top trailing corner")
+    func bellBadgeSitsInBellIconTopTrailingCorner() async throws {
+        let inboxAtom = InboxNotificationAtom()
+        try await withMainWindowControllerHarness(inboxAtom: inboxAtom) { harness in
+            let bellButton = try #require(
+                findDescendant(
+                    in: harness.window,
+                    identifier: "inboxToolbarBell"
+                ) as? NSButton
+            )
+            let badge = try #require(
+                findDescendant(
+                    in: harness.window,
+                    identifier: "inboxToolbarUnreadBadge"
+                )
+            )
+            let badgeAnchor = try #require(
+                findDescendant(
+                    in: harness.window,
+                    identifier: "inboxToolbarBadgeAnchor"
+                )
+            )
+
+            inboxAtom.append(makeUnreadNotification())
+
+            await eventually("inbox bell badge should become visible") {
+                badge.isHidden == false
+            }
+
+            let badgeFrame = badge.convert(badge.bounds, to: badgeAnchor)
+            let anchorFrame = badgeAnchor.convert(badgeAnchor.bounds, to: bellButton)
+
+            #expect(anchorFrame.width == AppStyles.Shell.Sidebar.badgeHitboxSize)
+            #expect(anchorFrame.height == AppStyles.Shell.Sidebar.badgeHitboxSize)
+            #expect(badgeFrame.midX > badgeAnchor.bounds.midX)
+            #expect(badgeFrame.midY > badgeAnchor.bounds.midY)
+            #expect(badgeFrame.minX >= badgeAnchor.bounds.midX - 2)
+            #expect(badgeFrame.maxY <= badgeAnchor.bounds.maxY + AppStyles.Shell.Sidebar.badgeOffset + 8)
+        }
+    }
+
     private func makeUnreadNotification() -> InboxNotification {
         InboxNotification(
             id: UUID(),

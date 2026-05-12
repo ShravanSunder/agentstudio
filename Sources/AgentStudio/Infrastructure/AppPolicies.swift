@@ -12,6 +12,7 @@ enum AppPolicies {
 
     enum PaneInbox {
         static let maxVisibleNotifications: Int = 25
+        static let unreadBadgeDisplayLimit: Int = 9
     }
 
     enum WorkspaceFocus {

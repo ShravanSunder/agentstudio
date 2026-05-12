@@ -22,6 +22,12 @@ struct DrawerIconBarInboxSlotTests {
         #expect(didOpenInbox)
     }
 
+    @Test("pane inbox unread badge uses compact overflow text")
+    func paneInboxUnreadBadgeUsesCompactOverflowText() {
+        #expect(PaneInboxUnreadBadge(unreadCount: AppPolicies.PaneInbox.unreadBadgeDisplayLimit)?.text == "9")
+        #expect(PaneInboxUnreadBadge(unreadCount: 10)?.text == "9+")
+    }
+
     @Test("icon bar accepts trailing inbox action configuration")
     func iconBarAcceptsInboxConfiguration() {
         let actions = makeTrailingActions(inboxUnreadCount: 2, onOpenInbox: {})

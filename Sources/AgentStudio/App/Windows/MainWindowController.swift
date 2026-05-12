@@ -280,6 +280,11 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func installInboxUnreadBadge(on button: NSButton) {
+        let badgeAnchor = NSView()
+        badgeAnchor.identifier = NSUserInterfaceItemIdentifier("inboxToolbarBadgeAnchor")
+        badgeAnchor.translatesAutoresizingMaskIntoConstraints = false
+        button.addSubview(badgeAnchor)
+
         let badge = NSHostingView(rootView: UnreadCountBadge(text: "1"))
         badge.identifier = NSUserInterfaceItemIdentifier("inboxToolbarUnreadBadge")
         badge.translatesAutoresizingMaskIntoConstraints = false
@@ -288,13 +293,17 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         badge.setContentHuggingPriority(.required, for: .vertical)
         button.addSubview(badge)
         NSLayoutConstraint.activate([
+            badgeAnchor.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+            badgeAnchor.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+            badgeAnchor.widthAnchor.constraint(equalToConstant: AppStyles.Shell.Sidebar.badgeHitboxSize),
+            badgeAnchor.heightAnchor.constraint(equalToConstant: AppStyles.Shell.Sidebar.badgeHitboxSize),
             badge.topAnchor.constraint(
-                equalTo: button.topAnchor,
-                constant: -AppStyles.Components.NotificationBadge.offset
+                equalTo: badgeAnchor.topAnchor,
+                constant: -AppStyles.Shell.Sidebar.badgeOffset
             ),
             badge.trailingAnchor.constraint(
-                equalTo: button.trailingAnchor,
-                constant: AppStyles.Components.NotificationBadge.offset
+                equalTo: badgeAnchor.trailingAnchor,
+                constant: AppStyles.Shell.Sidebar.badgeOffset
             ),
         ])
         inboxToolbarBadgeHostingView = badge

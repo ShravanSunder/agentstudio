@@ -21,7 +21,7 @@ struct PaneInboxUnreadBadge: Equatable {
 
     init?(
         unreadCount: Int,
-        visibleLimit: Int = AppPolicies.PaneInbox.maxVisibleNotifications
+        visibleLimit: Int = AppPolicies.PaneInbox.unreadBadgeDisplayLimit
     ) {
         guard unreadCount > 0 else { return nil }
         text = unreadCount > visibleLimit ? "\(visibleLimit)+" : "\(unreadCount)"
