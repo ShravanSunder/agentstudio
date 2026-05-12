@@ -49,6 +49,7 @@ enum BuiltinSource: Hashable, Sendable, CustomStringConvertible {
     case gitWorkingDirectoryProjector
     case securityBackend
     case coordinator
+    case terminalActivityRouter
 
     var description: String {
         switch self {
@@ -60,6 +61,8 @@ enum BuiltinSource: Hashable, Sendable, CustomStringConvertible {
             return "securityBackend"
         case .coordinator:
             return "coordinator"
+        case .terminalActivityRouter:
+            return "terminalActivityRouter"
         }
     }
 }

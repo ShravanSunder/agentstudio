@@ -32,6 +32,9 @@ enum AppPolicies {
         /// Minimum command duration before a command-finished event
         /// is promoted into inbox history.
         static let commandFinishedMinDurationNanoseconds: UInt64 = 10_000_000_000
+        static let terminalActivityOutputBurstThresholdRows: Int = 30
+        static let terminalActivityQuietDebounceDuration: Duration = .milliseconds(750)
+        static let terminalActivitySessionIdleTimeoutDuration: Duration = .seconds(300)
     }
 
     /// Drag-and-drop behavioral rules. These are decisions about HOW the

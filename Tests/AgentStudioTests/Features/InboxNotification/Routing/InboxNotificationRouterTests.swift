@@ -89,6 +89,16 @@ struct InboxNotificationRouterTests {
         atom.recordWindowBecameKey(id)
     }
 
+    func waitForAttendedPane(
+        _ paneId: UUID,
+        in fixture: Fixture,
+        description: String = "focus gain should mark pane attended"
+    ) async {
+        await assertEventuallyMain(description) {
+            fixture.attendedPane.attendedPaneId == paneId
+        }
+    }
+
     func addTerminalPane(
         _ paneId: PaneId,
         to fixture: Fixture,

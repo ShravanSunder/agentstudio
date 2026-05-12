@@ -21,7 +21,11 @@ struct InboxNotificationRouterObservedPaneTests {
         let traceRuntime: AgentStudioTraceRuntime?
     }
 
-    func makeFixture(traceRuntime: AgentStudioTraceRuntime? = nil) async -> Fixture {
+    func makeFixture(
+        traceRuntime: AgentStudioTraceRuntime? = nil,
+        startRouter: Bool = true,
+        onPaneActivityObserved: @escaping @MainActor (UUID) -> Void = { _ in }
+    ) async -> Fixture {
         let bus = EventBus<RuntimeEnvelope>()
         let inboxAtom = InboxNotificationAtom()
         let prefsAtom = InboxNotificationPrefsAtom()
@@ -45,9 +49,12 @@ struct InboxNotificationRouterObservedPaneTests {
             attendedPane: attendedPane,
             focusTracker: tracker,
             terminalActivity: terminalActivity,
-            traceRuntime: traceRuntime
+            traceRuntime: traceRuntime,
+            onPaneActivityObserved: onPaneActivityObserved
         )
-        await router.start()
+        if startRouter {
+            await router.start()
+        }
 
         return Fixture(
             bus: bus,
@@ -63,6 +70,129 @@ struct InboxNotificationRouterObservedPaneTests {
             router: router,
             traceRuntime: traceRuntime
         )
+    }
+
+    @Test("startup clears existing observed bottom-pinned PaneInbox rows")
+    func startupClearsExistingObservedBottomPinnedPaneInboxRows() async {
+        let bus = EventBus<RuntimeEnvelope>()
+        let inboxAtom = InboxNotificationAtom()
+        let prefsAtom = InboxNotificationPrefsAtom()
+        let paneAtom = WorkspacePaneAtom()
+        let tabLayout = WorkspaceTabLayoutAtom()
+        let windowLifecycle = WindowLifecycleAtom()
+        let managementLayer = ManagementLayerAtom()
+        let terminalActivity = TerminalActivityAtom()
+        let paneId = PaneId()
+
+        let metadata = PaneMetadata(
+            paneId: paneId,
+            contentType: .terminal,
+            source: .floating(launchDirectory: nil, title: nil),
+            title: "Terminal"
+        )
+        let pane = Pane(
+            id: paneId.uuid,
+            content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
+            metadata: metadata
+        )
+        paneAtom.addPane(pane)
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: pane.id),
+            visiblePaneIds: [pane.id]
+        )
+        tabLayout.appendTab(
+            Tab(
+                name: "Tab",
+                panes: [pane.id],
+                arrangements: [arrangement],
+                activeArrangementId: arrangement.id,
+                activePaneId: pane.id
+            )
+        )
+        makeWindowKey(windowLifecycle)
+        terminalActivity.consume(
+            paneEnvelope(
+                paneId: paneId,
+                event: .terminal(.scrollbarChanged(ScrollbarState(top: 80, bottom: 100, total: 100)))
+            )
+        )
+        inboxAtom.append(makeNotification(kind: .agentDesktopNotification, paneId: paneId.uuid))
+        let attendedPane = AttendedPaneAtom(
+            tabLayout: tabLayout,
+            windowLifecycle: windowLifecycle,
+            managementLayer: managementLayer
+        )
+        #expect(attendedPane.attendedPaneId == paneId.uuid)
+        #expect(inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 1)
+        let tracker = PaneFocusTracker(attendedPane: attendedPane)
+        let router = InboxNotificationRouter(
+            bus: bus,
+            inboxAtom: inboxAtom,
+            prefsAtom: prefsAtom,
+            paneAtom: paneAtom,
+            tabLayout: tabLayout,
+            attendedPane: attendedPane,
+            focusTracker: tracker,
+            terminalActivity: terminalActivity
+        )
+
+        await router.start()
+
+        await assertEventuallyMain("router startup should clear already-observed pane inbox rows") {
+            inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 0
+        }
+        #expect(inboxAtom.notifications[0].isRead == true)
+        #expect(inboxAtom.notifications[0].isDismissedFromPaneInbox == true)
+        await router.stop()
+        await tracker.stop()
+        attendedPane.stop()
+    }
+
+    @Test("reading upgraded activity notification invalidates source activity window")
+    func readingUpgradedActivityNotificationInvalidatesSourceActivityWindow() async {
+        var observedPaneIds: [UUID] = []
+        let fixture = await makeFixture(onPaneActivityObserved: { paneId in
+            observedPaneIds.append(paneId)
+        })
+        let paneId = PaneId()
+        _ = addTerminalPane(paneId, to: fixture)
+        let sessionId = UUID()
+        fixture.inboxAtom.append(
+            InboxNotification(
+                id: UUID(),
+                timestamp: Date(timeIntervalSince1970: 100),
+                kind: .agentRpc,
+                title: "Claude is waiting for input",
+                body: nil,
+                source: .pane(.init(paneId: paneId.uuid)),
+                activityContext: .init(
+                    burstWindowId: UUID(),
+                    activitySessionId: sessionId,
+                    eventCount: 3,
+                    rowsAdded: 80,
+                    thresholdRows: 30,
+                    latestRows: 180
+                ),
+                claimKey: .init(
+                    paneId: paneId.uuid,
+                    lane: .actionNeeded,
+                    semantic: .inputRequired,
+                    sessionId: sessionId
+                ),
+                isRead: false,
+                isDismissedFromPaneInbox: false
+            )
+        )
+
+        #expect(fixture.inboxAtom.markRead(id: fixture.inboxAtom.notifications[0].id))
+        #expect(fixture.inboxAtom.dismissFromPaneInbox(id: fixture.inboxAtom.notifications[0].id))
+
+        await assertEventuallyMain("upgraded activity row observation should invalidate terminal activity") {
+            observedPaneIds.contains(paneId.uuid)
+        }
+        await stop(fixture)
     }
 
     @Test("focused pane at bottom clears auto-clearable PaneInbox badge")
@@ -285,6 +415,14 @@ struct InboxNotificationRouterObservedPaneTests {
         let paneId = PaneId()
         _ = addTerminalPane(paneId, to: fixture)
         makeWindowKey(fixture.windowLifecycle)
+        await assertEventuallyMain("pane should be attended before creating user-action notification") {
+            fixture.attendedPane.attendedPaneId == paneId.uuid
+        }
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        await assertEventuallyMain("focus gain trace should drain before scrollbar trace counting") {
+            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+                .contains("\"body\":\"inbox.focusGainedObservedPane\"") == true
+        }
 
         _ = await fixture.bus.post(
             runtimeEnvelope(
@@ -307,14 +445,23 @@ struct InboxNotificationRouterObservedPaneTests {
             )
         )
 
-        let outputFileURL = try #require(traceRuntime.outputFileURL)
         await assertEventuallyMain("secure input notification should be traced") {
             (try? String(contentsOf: outputFileURL, encoding: .utf8))?
                 .contains("\"body\":\"inbox.notification.appended\"") == true
         }
-        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
-        #expect(contents.contains("\"body\":\"inbox.observedPaneCleared\"") == false)
+        let beforeScrollbarContents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        let beforeScrollbarKeepTraceCount = Self.countOccurrences(
+            of: "\"body\":\"inbox.observedPaneCleared\"",
+            in: beforeScrollbarContents
+        )
         #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 1)
+        let afterScrollbarContents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(
+            Self.countOccurrences(
+                of: "\"body\":\"inbox.observedPaneCleared\"",
+                in: afterScrollbarContents
+            ) == beforeScrollbarKeepTraceCount
+        )
         await stop(fixture)
     }
 
@@ -402,6 +549,35 @@ struct InboxNotificationRouterObservedPaneTests {
         #expect(
             fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [parentPaneId.uuid, drawerPane.id]) == 1
         )
+        await stop(fixture)
+    }
+
+    @Test("opening drawer clears visible bottom-pinned drawer child PaneInbox badge")
+    func openingDrawerClearsVisibleBottomPinnedDrawerChildPaneInboxBadge() async throws {
+        let fixture = await makeFixture()
+        let parentPaneId = PaneId()
+        _ = addTerminalPane(parentPaneId, to: fixture)
+        let drawerPane = try #require(
+            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+        )
+        fixture.paneAtom.toggleDrawer(for: parentPaneId.uuid)
+        makeWindowKey(fixture.windowLifecycle)
+        _ = await fixture.bus.post(
+            runtimeEnvelope(
+                paneId: PaneId(uuid: drawerPane.id),
+                event: .terminal(.scrollbarChanged(ScrollbarState(top: 80, bottom: 100, total: 100)))
+            )
+        )
+        fixture.inboxAtom.append(makeNotification(kind: .agentDesktopNotification, paneId: drawerPane.id))
+        #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [drawerPane.id]) == 1)
+
+        fixture.paneAtom.toggleDrawer(for: parentPaneId.uuid)
+
+        await assertEventuallyMain("opening drawer should clear bottom-pinned child unread state") {
+            fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [drawerPane.id]) == 0
+        }
+        #expect(fixture.inboxAtom.notifications[0].isRead == true)
+        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == true)
         await stop(fixture)
     }
 
@@ -658,6 +834,10 @@ struct InboxNotificationRouterObservedPaneTests {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("agentstudio-inbox-observed-pane-trace-tests", isDirectory: true)
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    }
+
+    private static func countOccurrences(of needle: String, in haystack: String) -> Int {
+        haystack.components(separatedBy: needle).count - 1
     }
 
     private func stop(_ fixture: Fixture) async {

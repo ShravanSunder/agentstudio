@@ -70,7 +70,7 @@ final class TerminalActivityAtom {
     private let recentURLLimit: Int
 
     init(
-        outputBurstThreshold: Int = 30,
+        outputBurstThreshold: Int = AppPolicies.InboxNotification.terminalActivityOutputBurstThresholdRows,
         recentURLLimit: Int = 10
     ) {
         self.outputBurstThreshold = max(1, outputBurstThreshold)

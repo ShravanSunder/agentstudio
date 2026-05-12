@@ -36,7 +36,10 @@ extension AppDelegate {
             attendedPane: atomStore.attendedPane,
             focusTracker: inboxPaneFocusTracker,
             terminalActivity: atomStore.terminalActivity,
-            traceRuntime: traceRuntime
+            traceRuntime: traceRuntime,
+            onPaneActivityObserved: { [weak self] paneId in
+                self?.terminalActivityRouter.markUnseenActivityObserved(paneId: paneId)
+            }
         )
         Task { @MainActor [weak self] in
             await self?.inboxNotificationRouter.start()
@@ -48,7 +51,10 @@ extension AppDelegate {
             bus: bus,
             activityAtom: atomStore.terminalActivity,
             attendedPane: atomStore.attendedPane,
-            traceRuntime: traceRuntime
+            traceRuntime: traceRuntime,
+            isPaneCurrentlyAttended: { [weak self] paneId in
+                self?.isPaneCurrentlyAttendedForNotifications(paneId) ?? false
+            }
         )
         Task { @MainActor [weak self] in
             await self?.terminalActivityRouter.start()
@@ -87,4 +93,18 @@ extension AppDelegate {
         }
     }
 
+    private func isPaneCurrentlyAttendedForNotifications(_ paneId: UUID) -> Bool {
+        guard let attendedPaneId = atomStore.attendedPane.attendedPaneId else { return false }
+        if let drawer = store.paneAtom.pane(attendedPaneId)?.drawer,
+            drawer.isExpanded,
+            let activeChildId = drawer.activeChildId,
+            !drawer.minimizedPaneIds.contains(activeChildId)
+        {
+            return paneId == activeChildId
+        }
+        if store.paneAtom.pane(attendedPaneId)?.drawer?.isExpanded == true {
+            return false
+        }
+        return paneId == attendedPaneId
+    }
 }

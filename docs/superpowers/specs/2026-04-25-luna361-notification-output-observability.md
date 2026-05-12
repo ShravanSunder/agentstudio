@@ -230,12 +230,13 @@ The current trace vocabulary is JSONL evidence, not the product event API:
 
 | Current JSONL record | Meaning | Target product fact |
 | --- | --- | --- |
-| `terminal.activity.outputBurst` | Trace evidence that row growth crossed the burst threshold. | `PaneRuntimeEvent.terminalActivity(.unseenActivityBurst(...))` |
-| `terminal.activity.unseenWindowStarted` | Trace evidence that a short burst window opened. | `PaneRuntimeEvent.terminalActivity(.unseenActivityStarted(...))` |
-| `terminal.activity.unseenWindowExtended` | Trace evidence that more activity arrived in the same short burst window. | `PaneRuntimeEvent.terminalActivity(.unseenActivityUpdated(...))` |
-| `terminal.activity.unseenWindowClosed` | Trace evidence that the burst window settled. | `PaneRuntimeEvent.terminalActivity(.unseenActivityClosed(...))` |
+| `terminal.activity.outputBurst` | Trace evidence that row growth crossed the burst threshold. | Evidence feeding `PaneRuntimeEvent.terminalActivity(.unseenActivitySettled(...))`. |
+| `terminal.activity.unseenWindowStarted` | Trace evidence that a short burst window opened. | Trace-only for the first product slice. |
+| `terminal.activity.unseenWindowExtended` | Trace evidence that more activity arrived in the same short burst window. | Trace-only for the first product slice. |
+| `terminal.activity.unseenWindowClosed` | Trace evidence that the burst window settled. | Trace-only for the first product slice. |
 
-`PaneRuntimeEvent.terminal(...)` is reserved for `GhosttyEvent` FFI output. Derived product facts are not Ghostty actions, so the next branch should add a sibling namespace such as `PaneRuntimeEvent.terminalActivity(TerminalActivityEvent)`.
+`PaneRuntimeEvent.terminal(...)` is reserved for `GhosttyEvent` FFI output. Derived product facts are not Ghostty actions, so they live in the sibling namespace `PaneRuntimeEvent.terminalActivity(TerminalActivityEvent)`.
+Derived terminal activity facts use `EventSource.system(.builtin(.terminalActivityRouter))` with a router-local monotonic `seq`; they preserve causal links through `correlationId`/`causationId` instead of reusing the causal Ghostty event's `(source, seq)`. They remain pane envelopes, so visibility and pane-inbox routing use `PaneEnvelope.paneId`.
 
 ### Notification Matrix
 
@@ -246,9 +247,8 @@ The current trace vocabulary is JSONL evidence, not the product event API:
 | `bellRang` with bell preference enabled | semantic | Create or merge a bell notification. |
 | `commandFinished` above threshold while unattended | semantic | Create or merge a command-finished notification unless an explicit notification already owns the same session. |
 | Progress error, approval, security, renderer unhealthy | semantic | Create or merge the appropriate actionable notification. |
-| `TerminalActivityEvent.unseenActivityBurst` while unattended | inferred | Create or update an `unseenActivity` notification for the pane's current unseen-activity session. |
-| `TerminalActivityEvent.unseenActivityUpdated` | inferred | Update the current unseen-activity session only; do not create another row. |
-| `TerminalActivityEvent.unseenActivityClosed` | inferred | Settle the burst window; do not create another row. |
+| `TerminalActivityEvent.unseenActivitySettled` while unattended | inferred | Create or update an `unseenActivity` notification for the pane's current unseen-activity session after the quiet debounce. |
+| `terminal.activity.unseenWindowStarted/Extended/Closed` trace records | inferred evidence | Do not promote directly in the first product slice. They can become typed product facts later if another consumer needs them. |
 | `titleChanged`, `tabTitleChanged`, `cwdChanged`, `promptTitleRequested` | context | Improve source labels and grouping; do not notify by themselves. |
 | Raw `scrollbarChanged` callback | noisy | Never directly notifies; it can only feed the unseen-activity deriver. |
 
@@ -260,7 +260,7 @@ Runtime / Ghostty
         v
 RuntimeEnvelope on PaneRuntimeEventBus
         |
-        +-- TerminalUnseenActivityDeriver
+        +-- TerminalActivityRouter
         |       consumes high-volume terminal activity
         |       derives typed unseen-activity runtime facts
         |       always runs, even when tracing is disabled
@@ -278,16 +278,13 @@ InboxNotificationAtom
 
 Do not add a third `DerivedPaneActivityBus`. Derived activity for the next branch is a typed `PaneRuntimeEvent` on the existing `PaneRuntimeEventBus`. Add a projection atom only later, when there is a second concrete product consumer beyond inbox promotion.
 
-Initial typed derived event names:
+Initial typed derived event name:
 
 ```
-PaneRuntimeEvent.terminalActivity(.unseenActivityStarted(...))
-PaneRuntimeEvent.terminalActivity(.unseenActivityBurst(...))
-PaneRuntimeEvent.terminalActivity(.unseenActivityUpdated(...))
-PaneRuntimeEvent.terminalActivity(.unseenActivityClosed(...))
+PaneRuntimeEvent.terminalActivity(.unseenActivitySettled(...))
 ```
 
-These events are low-volume product facts. They are not raw scrollbar callbacks.
+This event is a low-volume product fact. It is not a raw scrollbar callback. Burst-window start, extension, and close records remain JSONL evidence until a second product consumer needs typed lifecycle facts.
 
 ### Trace Is Not Product State
 
@@ -361,8 +358,8 @@ Pane scope is for visibility and claim lookup only. Notification rows continue t
 | None | Derived burst, pane unattended | Create `unseenActivity`. |
 | Derived row in same session | More derived activity | Update counts and last-observed metadata; no new row. |
 | Derived row in same session | Explicit semantic notification | Replace/upgrade in place: same row id, explicit kind/title/body win, source pane id stays unchanged, `isRead` and `isDismissedFromPaneInbox` are preserved, activity counts are retained as enrichment. |
-| Explicit row in same session | Derived burst | Suppress or merge activity enrichment into the explicit row; no derived row. |
-| Explicit row was read/dismissed | Later derived burst | Create a new unseen-activity session and row. Do not resurrect the read explicit row. |
+| Explicit row in same session | Settled derived activity | Suppress or merge activity enrichment into the explicit row; no derived row. |
+| Explicit row was read/dismissed | Later settled derived activity | Create a new unseen-activity session and row. Do not resurrect the read explicit row. |
 | Pane closes mid-session | Any open derived session | Close/prune open claims; no orphan coalescing state. |
 
 ### Policy Constants
@@ -371,9 +368,9 @@ Behavioral values belong in `AppPolicies.InboxNotification`, not in `AppStyles` 
 
 ```
 commandFinishedMinDurationNanoseconds
-unseenActivityBurstRowThreshold
-unseenActivityBurstDebounce
-unseenActivitySessionIdleTimeout
+terminalActivityOutputBurstThresholdRows
+terminalActivityQuietDebounceDuration
+terminalActivitySessionIdleTimeoutDuration
 ```
 
 The initial row threshold should reuse the existing `TerminalActivityAtom` output-burst threshold until that value is promoted into a named policy constant. The session idle timeout is intentionally longer than the burst debounce; it prevents one chatty model run from creating a row per quiet gap.
@@ -822,11 +819,11 @@ The next branch should hard-cut over the notification routing shape instead of a
 
 ### Task I: Productize Terminal Unseen Activity
 
-- [ ] Move unseen-activity derivation out of trace-only methods so it runs when tracing is disabled.
+- [x] Move unseen-activity derivation out of trace-only methods so it runs when tracing is disabled.
 - [ ] Separate burst window ID from unseen activity session ID.
-- [ ] Emit typed product facts for unseen activity on the existing runtime event plane.
-- [ ] Keep raw `scrollbarChanged` high-volume callbacks out of inbox promotion.
-- [ ] Add tests proving tracing disabled still creates derived unseen-activity notifications.
+- [x] Emit typed product facts for unseen activity on the existing runtime event plane.
+- [x] Keep raw `scrollbarChanged` high-volume callbacks out of inbox promotion.
+- [x] Add tests proving tracing disabled still creates derived unseen-activity notifications.
 
 ### Task J: Introduce InboxPromoter
 
@@ -838,18 +835,18 @@ The next branch should hard-cut over the notification routing shape instead of a
 
 ### Task K: Add Unseen Activity Notification Policy
 
-- [ ] Add `InboxNotificationKind.unseenActivity`.
-- [ ] Implement the coalescing and merge table from this spec.
+- [x] Add `InboxNotificationKind.unseenActivity`.
+- [ ] Implement the full coalescing and merge table from this spec.
 - [ ] Put policy constants under `AppPolicies.InboxNotification`.
 - [ ] Ensure explicit notifications win deterministically over derived activity in both arrival orders.
 - [ ] Ensure derived rows preserve read/dismiss state when upgraded by explicit facts.
 
 ### Task L: Tests For Derived Promotion
 
-- [ ] Unattended output burst creates exactly one `unseenActivity` row.
-- [ ] Repeated bursts across multiple short debounce windows update one unread session.
-- [ ] Attended pane output suppresses derived notification.
-- [ ] Drawer child output writes source pane id and appears in the parent PaneInbox scope.
+- [x] Unattended output burst creates exactly one `unseenActivity` row.
+- [x] Repeated bursts across multiple short debounce windows update one unread session.
+- [x] Attended pane output suppresses derived notification.
+- [x] Drawer child output writes source pane id and appears in the parent PaneInbox scope.
 - [ ] Two drawer children under one parent create two rows, not one parent-coalesced row.
 - [ ] Explicit-before-derived and derived-before-explicit both produce one final row.
 - [ ] Pane close, router stop, read, dismiss, and attended transitions prune or close open sessions.

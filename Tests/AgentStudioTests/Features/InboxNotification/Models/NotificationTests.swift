@@ -46,6 +46,76 @@ struct NotificationTests {
         #expect(decoded.isDismissedFromPaneInbox == original.isDismissedFromPaneInbox)
     }
 
+    @Test("InboxNotification persists claim identity and split activity ids")
+    func persistsClaimIdentityAndSplitActivityIds() throws {
+        let paneId = UUID()
+        let sessionId = UUID()
+        let burstWindowId = UUID()
+        let original = InboxNotification(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 10),
+            kind: .unseenActivity,
+            title: "New terminal activity",
+            body: "Output appeared while you were away",
+            source: .pane(.init(paneId: paneId)),
+            activityContext: .init(
+                burstWindowId: burstWindowId,
+                activitySessionId: sessionId,
+                eventCount: 2,
+                rowsAdded: 90,
+                thresholdRows: 30,
+                latestRows: 190
+            ),
+            claimKey: .init(
+                paneId: paneId,
+                lane: .activity,
+                semantic: .unseenActivity,
+                sessionId: sessionId
+            ),
+            isRead: false,
+            isDismissedFromPaneInbox: false
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(original)
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(InboxNotification.self, from: data)
+
+        #expect(decoded.claimKey == original.claimKey)
+        #expect(decoded.activityContext?.burstWindowId == burstWindowId)
+        #expect(decoded.activityContext?.activitySessionId == sessionId)
+        #expect(decoded.activityContext?.eventCount == 2)
+    }
+
+    @Test("activity context coalesces event counts from both windows")
+    func activityContextCoalescesEventCountsFromBothWindows() {
+        let existing = InboxNotification.ActivityContext(
+            burstWindowId: UUID(),
+            activitySessionId: UUID(),
+            eventCount: 3,
+            rowsAdded: 40,
+            thresholdRows: 30,
+            latestRows: 140
+        )
+        let incoming = InboxNotification.ActivityContext(
+            burstWindowId: UUID(),
+            activitySessionId: existing.activitySessionId,
+            eventCount: 4,
+            rowsAdded: 90,
+            thresholdRows: 30,
+            latestRows: 230
+        )
+
+        let coalesced = existing.coalesced(with: incoming)
+
+        #expect(coalesced.eventCount == 7)
+        #expect(coalesced.rowsAdded == 90)
+        #expect(coalesced.latestRows == 230)
+    }
+
     @Test("InboxNotificationKind enumerates expected cases")
     func kindCases() {
         let _: InboxNotificationKind = .agentDesktopNotification

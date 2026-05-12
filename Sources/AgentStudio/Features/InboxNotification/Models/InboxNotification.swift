@@ -116,15 +116,98 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
         }
     }
 
+    struct ActivityContext: Sendable, Codable, Equatable {
+        let burstWindowId: UUID
+        let activitySessionId: UUID?
+        let eventCount: Int
+        let rowsAdded: Int
+        let thresholdRows: Int
+        let latestRows: Int
+
+        var windowId: UUID {
+            burstWindowId
+        }
+
+        init(
+            burstWindowId: UUID,
+            activitySessionId: UUID? = nil,
+            eventCount: Int,
+            rowsAdded: Int,
+            thresholdRows: Int,
+            latestRows: Int
+        ) {
+            self.burstWindowId = burstWindowId
+            self.activitySessionId = activitySessionId
+            self.eventCount = eventCount
+            self.rowsAdded = rowsAdded
+            self.thresholdRows = thresholdRows
+            self.latestRows = latestRows
+        }
+
+        init(
+            windowId: UUID,
+            eventCount: Int,
+            rowsAdded: Int,
+            thresholdRows: Int,
+            latestRows: Int
+        ) {
+            self.init(
+                burstWindowId: windowId,
+                activitySessionId: nil,
+                eventCount: eventCount,
+                rowsAdded: rowsAdded,
+                thresholdRows: thresholdRows,
+                latestRows: latestRows
+            )
+        }
+
+        func coalesced(with newerContext: Self) -> Self {
+            Self(
+                burstWindowId: newerContext.burstWindowId,
+                activitySessionId: newerContext.activitySessionId ?? activitySessionId,
+                eventCount: eventCount + newerContext.eventCount,
+                rowsAdded: max(rowsAdded, newerContext.rowsAdded),
+                thresholdRows: newerContext.thresholdRows,
+                latestRows: newerContext.latestRows
+            )
+        }
+    }
+
     let id: UUID
     let timestamp: Date
     let kind: InboxNotificationKind
     let title: String
     let body: String?
     let source: Source
+    var activityContext: ActivityContext?
+    let claimKey: InboxNotificationClaimKey?
 
     var isRead: Bool
     var isDismissedFromPaneInbox: Bool
+
+    init(
+        id: UUID,
+        timestamp: Date,
+        kind: InboxNotificationKind,
+        title: String,
+        body: String?,
+        source: Source,
+        activityContext: ActivityContext? = nil,
+        claimKey: InboxNotificationClaimKey? = nil,
+        isRead: Bool,
+        isDismissedFromPaneInbox: Bool
+    ) {
+        self.id = id
+        self.timestamp = timestamp
+        self.kind = kind
+        self.title = title
+        self.body = body
+        self.source = source
+        self.activityContext = activityContext
+        self.claimKey = claimKey
+        self.isRead = isRead
+        self.isDismissedFromPaneInbox = isDismissedFromPaneInbox
+    }
 
     var paneId: UUID? {
         guard case .pane(let paneSource) = source else { return nil }
@@ -171,6 +254,7 @@ enum InboxNotificationKind: String, Sendable, Codable, Equatable {
     case terminalRendererUnhealthy
     case persistenceRecovery
     case agentRpc
+    case unseenActivity
     case approvalRequested
     case securityEvent
 }

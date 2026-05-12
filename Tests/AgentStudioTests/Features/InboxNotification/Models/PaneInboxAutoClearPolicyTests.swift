@@ -55,6 +55,7 @@ struct PaneInboxAutoClearPolicyTests {
             .bellRang,
             .commandFinished,
             .agentRpc,
+            .unseenActivity,
         ]
     }
 
