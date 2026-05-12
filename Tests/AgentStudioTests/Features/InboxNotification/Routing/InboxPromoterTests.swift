@@ -72,8 +72,8 @@ struct InboxPromoterTests {
         #expect(fixture.atom.notifications[0].activityContext?.rowsAdded == 90)
     }
 
-    @Test("input required upgrades unseen activity claim instead of adding sibling row")
-    func inputRequiredUpgradesUnseenActivityClaimInsteadOfAddingSiblingRow() throws {
+    @Test("approval request upgrades unseen activity claim instead of adding sibling row")
+    func approvalRequestUpgradesUnseenActivityClaimInsteadOfAddingSiblingRow() throws {
         let fixture = Fixture()
         let paneId = UUID()
 
@@ -85,24 +85,24 @@ struct InboxPromoterTests {
         let sessionId = try #require(fixture.atom.notifications[0].claimKey?.sessionId)
         fixture.promoter.promoteExplicit(
             .init(
-                kind: .agentRpc,
-                title: "Gemini is waiting for your input",
-                body: "Input required",
-                semantic: .inputRequired,
+                kind: .approvalRequested,
+                title: "Approval requested",
+                body: "Allow command?",
+                semantic: .approvalRequested,
                 paneId: paneId,
                 sessionId: sessionId,
                 context: .init(paneId: paneId)
             ))
 
         #expect(fixture.atom.notifications.count == 1)
-        #expect(fixture.atom.notifications[0].kind == .agentRpc)
-        #expect(fixture.atom.notifications[0].title == "Gemini is waiting for your input")
+        #expect(fixture.atom.notifications[0].kind == .approvalRequested)
+        #expect(fixture.atom.notifications[0].title == "Approval requested")
         #expect(fixture.atom.notifications[0].claimKey?.lane == .actionNeeded)
         #expect(fixture.atom.notifications[0].activityContext?.rowsAdded == 40)
     }
 
-    @Test("input required upgrade preserves denormalized source labels")
-    func inputRequiredUpgradePreservesDenormalizedSourceLabels() throws {
+    @Test("approval request upgrade preserves denormalized source labels")
+    func approvalRequestUpgradePreservesDenormalizedSourceLabels() throws {
         let fixture = Fixture()
         let paneId = UUID()
         let repoId = UUID()
@@ -127,10 +127,10 @@ struct InboxPromoterTests {
         let sessionId = try #require(fixture.atom.notifications[0].claimKey?.sessionId)
         fixture.promoter.promoteExplicit(
             .init(
-                kind: .agentRpc,
-                title: "Claude is waiting for input",
+                kind: .approvalRequested,
+                title: "Approval requested",
                 body: nil,
-                semantic: .inputRequired,
+                semantic: .approvalRequested,
                 paneId: paneId,
                 sessionId: sessionId,
                 context: .init(paneId: paneId)
@@ -142,18 +142,18 @@ struct InboxPromoterTests {
         #expect(fixture.atom.notifications[0].branchName == "feature/luna")
     }
 
-    @Test("settled activity merges into existing input-required claim for same pane")
-    func settledActivityMergesIntoExistingInputRequiredClaimForSamePane() {
+    @Test("settled activity merges into existing approval claim for same pane")
+    func settledActivityMergesIntoExistingApprovalClaimForSamePane() {
         let fixture = Fixture()
         let paneId = UUID()
         let sessionId = UUID()
 
         fixture.promoter.promoteExplicit(
             .init(
-                kind: .agentRpc,
-                title: "Gemini is waiting for input",
+                kind: .approvalRequested,
+                title: "Approval requested",
                 body: nil,
-                semantic: .inputRequired,
+                semantic: .approvalRequested,
                 paneId: paneId,
                 sessionId: sessionId,
                 context: .init(paneId: paneId)
@@ -165,23 +165,23 @@ struct InboxPromoterTests {
         )
 
         #expect(fixture.atom.notifications.count == 1)
-        #expect(fixture.atom.notifications[0].kind == .agentRpc)
+        #expect(fixture.atom.notifications[0].kind == .approvalRequested)
         #expect(fixture.atom.notifications[0].claimKey?.lane == .actionNeeded)
         #expect(fixture.atom.notifications[0].claimKey?.sessionId == sessionId)
         #expect(fixture.atom.notifications[0].activityContext?.rowsAdded == 120)
     }
 
-    @Test("safety claim can coexist with input required claim")
-    func safetyClaimCanCoexistWithInputRequiredClaim() {
+    @Test("safety claim can coexist with approval claim")
+    func safetyClaimCanCoexistWithApprovalClaim() {
         let fixture = Fixture()
         let paneId = UUID()
 
         fixture.promoter.promoteExplicit(
             .init(
-                kind: .agentRpc,
-                title: "Claude is waiting for input",
+                kind: .approvalRequested,
+                title: "Approval requested",
                 body: nil,
-                semantic: .inputRequired,
+                semantic: .approvalRequested,
                 paneId: paneId,
                 sessionId: nil,
                 context: .init(paneId: paneId)

@@ -9,12 +9,6 @@ private let inboxNotificationRouterLogger = Logger(
 
 @MainActor
 final class InboxNotificationRouter {
-    private struct TraceRequest: Sendable {
-        let tag: AgentStudioTraceTag
-        let body: String
-        let attributes: [String: AgentStudioTraceValue]
-    }
-
     private struct ObservedPaneClearOutcome: Sendable, Equatable {
         let clearedCount: Int
         let keepCount: Int
@@ -68,12 +62,11 @@ final class InboxNotificationRouter {
     private let terminalActivity: TerminalActivityAtom?
     private let autoClearPolicy: PaneInboxAutoClearPolicy
     private let traceRuntime: AgentStudioTraceRuntime?
+    private let traceQueue: AgentStudioTraceEventQueue?
     private let onPaneActivityObserved: @MainActor (UUID) -> Void
 
     private var busTask: Task<Void, Never>?
     private var focusTask: Task<Void, Never>?
-    private var traceContinuation: AsyncStream<TraceRequest>.Continuation?
-    private var traceWorkerTask: Task<Void, Never>?
     private var isStarted = false
     private var attendedPaneIdSnapshot: UUID?
     private var observedPaneIdsSnapshot: Set<UUID> = []
@@ -115,14 +108,14 @@ final class InboxNotificationRouter {
         self.terminalActivity = terminalActivity
         self.autoClearPolicy = autoClearPolicy
         self.traceRuntime = traceRuntime
+        self.traceQueue = traceRuntime.map(AgentStudioTraceEventQueue.init(traceRuntime:))
         self.onPaneActivityObserved = onPaneActivityObserved
     }
 
     deinit {
         busTask?.cancel()
         focusTask?.cancel()
-        traceContinuation?.finish()
-        traceWorkerTask?.cancel()
+        traceQueue?.cancel()
     }
 
     func stop() async {
@@ -312,6 +305,7 @@ final class InboxNotificationRouter {
                     "agentstudio.runtime.event": .string(paneEnvelope.event.traceEventName),
                 ]
             )
+            return
         }
         let paneSource = paneSource(paneId: paneId, resolvedContext: resolvedContext)
         let globalUnreadBefore = inboxAtom.globalUnreadCount
@@ -581,42 +575,18 @@ final class InboxNotificationRouter {
     }
 
     private func currentAttendedPaneId() -> UUID? {
-        guard let attendedPaneId = attendedPane.attendedPaneId else { return nil }
-        if let drawer = paneAtom.pane(attendedPaneId)?.drawer, drawer.isExpanded {
-            guard let activeChildId = drawer.activeChildId,
-                !drawer.minimizedPaneIds.contains(activeChildId)
-            else {
-                return nil
-            }
-            return activeChildId
-        }
-        return attendedPaneId
+        PaneObservationResolver.currentAttendedPaneId(
+            attendedPaneId: attendedPane.attendedPaneId,
+            pane: { paneAtom.pane($0) }
+        )
     }
 
     private func currentObservedPaneIds() -> Set<UUID> {
-        guard let attendedPaneId = attendedPane.attendedPaneId else { return [] }
-        let activePaneIds = currentRenderedPaneIds(fallbackPaneId: attendedPaneId)
-        var observedPaneIds = Set<UUID>()
-        for paneId in activePaneIds {
-            if let drawer = paneAtom.pane(paneId)?.drawer, drawer.isExpanded {
-                if let activeChildId = drawer.activeChildId,
-                    !drawer.minimizedPaneIds.contains(activeChildId)
-                {
-                    observedPaneIds.insert(activeChildId)
-                }
-            } else {
-                observedPaneIds.insert(paneId)
-            }
-        }
-        return observedPaneIds
-    }
-
-    private func currentRenderedPaneIds(fallbackPaneId: UUID) -> [UUID] {
-        guard let activeTab = tabLayout.activeTab else { return [fallbackPaneId] }
-        if let zoomedPaneId = activeTab.zoomedPaneId {
-            return [zoomedPaneId]
-        }
-        return activeTab.activePaneIds.filter { !activeTab.activeMinimizedPaneIds.contains($0) }
+        PaneObservationResolver.currentObservedPaneIds(
+            attendedPaneId: attendedPane.attendedPaneId,
+            activeTab: tabLayout.activeTab,
+            pane: { paneAtom.pane($0) }
+        )
     }
 
     private func isSourcePanePinnedToBottom(_ paneId: UUID) -> Bool {
@@ -681,43 +651,12 @@ final class InboxNotificationRouter {
         body: String,
         attributes: [String: AgentStudioTraceValue]
     ) {
-        ensureTraceWorkerStarted()
-        traceContinuation?.yield(
-            .init(
-                tag: tag,
-                body: body,
-                attributes: attributes
-            )
-        )
-    }
-
-    private func ensureTraceWorkerStarted() {
-        guard traceWorkerTask == nil, let traceRuntime else { return }
-        let (stream, continuation) = AsyncStream.makeStream(
-            of: TraceRequest.self,
-            bufferingPolicy: .bufferingNewest(AppPolicies.Diagnostics.traceEventQueueBufferLimit)
-        )
-        traceContinuation = continuation
-        // swiftlint:disable:next no_task_detached
-        traceWorkerTask = Task.detached(priority: .utility) {
-            for await request in stream {
-                await traceRuntime.record(
-                    tag: request.tag,
-                    body: request.body,
-                    attributes: request.attributes
-                )
-            }
-        }
+        traceQueue?.record(tag: tag, body: body, attributes: attributes)
     }
 
     private func drainTraceRecords() async {
-        traceContinuation?.finish()
-        traceContinuation = nil
-        let workerTask = traceWorkerTask
-        traceWorkerTask = nil
-        await workerTask?.value
         do {
-            try await traceRuntime?.flush()
+            try await traceQueue?.drain()
         } catch {
             let diagnostics = await traceRuntime?.diagnostics() ?? .empty
             inboxNotificationRouterLogger.warning(
@@ -739,8 +678,6 @@ extension InboxNotificationRouter {
             return "Bell"
         case .terminal(.commandFinished(let exitCode, _)):
             return exitCode == 0 ? "Command finished" : "Command failed"
-        case .terminalActivity(.unseenActivitySettled):
-            return "New terminal activity"
         case .terminal(.secureInputChanged):
             return "Secure input requested"
         case .terminal(.progressReportUpdated):
@@ -772,8 +709,6 @@ extension InboxNotificationRouter {
             return body?.isEmpty == true ? nil : body
         case .terminal(.commandFinished(let exitCode, let duration)):
             return "exit \(exitCode) · \(formattedDuration(duration))"
-        case .terminalActivity(.unseenActivitySettled):
-            return "Output appeared while you were away"
         case .terminal(.secureInputChanged(let isActive)):
             return isActive ? "terminal is waiting for hidden input" : nil
         case .terminal(.progressReportUpdated(let progress)):
@@ -828,17 +763,6 @@ extension InboxNotificationRouter {
         default:
             return .agentRpc
         }
-    }
-
-    private func activityContext(for event: PaneRuntimeEvent) -> InboxNotification.ActivityContext? {
-        guard case .terminalActivity(.unseenActivitySettled(let activity)) = event else { return nil }
-        return InboxNotification.ActivityContext(
-            windowId: activity.burstWindowId,
-            eventCount: 1,
-            rowsAdded: activity.rowsAdded,
-            thresholdRows: activity.thresholdRows,
-            latestRows: activity.latestRows
-        )
     }
 
     private func paneSource(

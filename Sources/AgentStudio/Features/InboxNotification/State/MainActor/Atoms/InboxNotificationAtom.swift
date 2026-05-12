@@ -84,57 +84,6 @@ final class InboxNotificationAtom {
     }
 
     @discardableResult
-    func appendOrCoalesceUnseenActivity(_ notification: InboxNotification) -> MutationOutcome {
-        guard notification.kind == .unseenActivity, let paneId = notification.paneId else {
-            return MutationOutcome(
-                notificationId: notification.id,
-                didCoalesce: false,
-                retentionOutcome: append(notification)
-            )
-        }
-        if let index = notifications.firstIndex(where: { existingNotification in
-            existingNotification.kind == .unseenActivity
-                && existingNotification.paneId == paneId
-                && !existingNotification.isRead
-                && !existingNotification.isDismissedFromPaneInbox
-        }) {
-            let existingNotification = notifications[index]
-            let activityContext: InboxNotification.ActivityContext?
-            if let existingContext = existingNotification.activityContext,
-                let newerContext = notification.activityContext
-            {
-                activityContext = existingContext.coalesced(with: newerContext)
-            } else {
-                activityContext = notification.activityContext ?? existingNotification.activityContext
-            }
-            let replacement = InboxNotification(
-                id: existingNotification.id,
-                timestamp: notification.timestamp,
-                kind: notification.kind,
-                title: notification.title,
-                body: notification.body,
-                source: notification.source,
-                activityContext: activityContext,
-                claimKey: existingNotification.claimKey ?? notification.claimKey,
-                isRead: existingNotification.isRead,
-                isDismissedFromPaneInbox: existingNotification.isDismissedFromPaneInbox
-            )
-            notifications[index] = replacement
-            recalculateGlobalUnreadCount()
-            return MutationOutcome(
-                notificationId: replacement.id,
-                didCoalesce: true,
-                retentionOutcome: .empty
-            )
-        }
-        return MutationOutcome(
-            notificationId: notification.id,
-            didCoalesce: false,
-            retentionOutcome: append(notification)
-        )
-    }
-
-    @discardableResult
     func upsertByClaim(
         _ notification: InboxNotification,
         merge: (InboxNotification, InboxNotification) -> InboxNotification

@@ -245,7 +245,7 @@ final class InboxPromoter {
             return activeSessionId
         }
         switch semantic {
-        case .inputRequired, .agentRpc, .desktopNotification, .bell, .commandFinished:
+        case .agentRpc, .desktopNotification, .bell, .commandFinished:
             return UUID()
         case .approvalRequested, .secureInput, .progressError, .rendererUnhealthy, .persistenceRecovery,
             .securityEvent, .unseenActivity:
@@ -379,7 +379,7 @@ final class InboxPromoter {
 
     private func lane(for semantic: InboxNotificationClaimSemantic) -> InboxNotificationClaimLane {
         switch semantic {
-        case .inputRequired, .approvalRequested:
+        case .approvalRequested:
             return .actionNeeded
         case .secureInput, .progressError, .rendererUnhealthy, .persistenceRecovery, .securityEvent:
             return .safety

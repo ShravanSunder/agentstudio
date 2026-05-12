@@ -50,7 +50,7 @@ attention session for mergeable lanes.
 
 | Lane | Purpose | Merge behavior |
 | --- | --- | --- |
-| `actionNeeded` | Prompt/input/approval style attention | Can merge with activity for the same pane/session. |
+| `actionNeeded` | Approval or explicitly typed attention | Can merge with activity for the same pane/session. |
 | `activity` | Scrollback, command finished, bell, desktop/RPC notices | Can merge with action-needed for the same pane/session. |
 | `safety` | Security, renderer, secure input, persistence recovery | Does not merge with activity sessions. Repeated edges create separate rows. |
 
@@ -211,9 +211,9 @@ Coverage requirements:
 ## Follow-Ups
 
 Typed bridge notification intent is not part of this slice. Generic
-`inbox.post` remains `.agentRpc`. A future bridge payload can add an explicit
-intent such as `inputRequired`, but that should be a separate typed event/API
-change with compatibility-free call-site updates and tests.
+`inbox.post` remains `.agentRpc`. A future bridge payload can add explicit
+input-required intent, but that should be a separate typed event/API change
+with compatibility-free call-site updates and tests.
 
 Terminal content extraction is also out of scope. This slice uses scrollbar
 growth as the derived activity signal; it does not inspect prompt text or model

@@ -178,7 +178,7 @@ struct InboxNotificationRouterObservedPaneTests {
                 claimKey: .init(
                     paneId: paneId.uuid,
                     lane: .actionNeeded,
-                    semantic: .inputRequired,
+                    semantic: .approvalRequested,
                     sessionId: sessionId
                 ),
                 isRead: false,

@@ -7,8 +7,8 @@ private let terminalActivityRouterLogger = Logger(
 )
 
 @MainActor
-/// Leaf runtime-bus subscriber that projects high-churn terminal facts into
-/// `TerminalActivityAtom`; inbox-worthy promotion stays in the notification router.
+/// Subscribes to the runtime bus, projects high-churn terminal facts into
+/// `TerminalActivityAtom`, and emits settled terminal activity facts for inbox promotion.
 final class TerminalActivityRouter {
     private struct TraceRequest: Sendable {
         let tag: AgentStudioTraceTag
@@ -179,6 +179,7 @@ final class TerminalActivityRouter {
             bufferingPolicy: .bufferingNewest(AppPolicies.Diagnostics.traceEventQueueBufferLimit)
         )
         traceContinuation = continuation
+        // Detached worker avoids inheriting MainActor while trace I/O drains.
         // swiftlint:disable:next no_task_detached
         traceWorkerTask = Task.detached(priority: .utility) {
             for await request in stream {
@@ -346,7 +347,13 @@ final class TerminalActivityRouter {
             guard let self else { return }
             do {
                 try await unseenActivityClock.sleep(for: unseenActivityDebounceDuration)
+            } catch is CancellationError {
+                return
             } catch {
+                terminalActivityRouterLogger.error(
+                    "Unseen-activity debounce failed: \(error.localizedDescription, privacy: .public)"
+                )
+                await closeUnseenActivityWindow(paneId: paneId, generation: generation, reason: "quiet")
                 return
             }
             await closeUnseenActivityWindow(paneId: paneId, generation: generation, reason: "quiet")

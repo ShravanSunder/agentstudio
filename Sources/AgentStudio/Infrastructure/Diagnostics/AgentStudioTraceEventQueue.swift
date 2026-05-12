@@ -88,6 +88,7 @@ final class AgentStudioTraceEventQueue: @unchecked Sendable {
         )
         self.continuation = continuation
         let traceRuntime = traceRuntime
+        // Detached worker avoids inheriting MainActor while trace I/O drains.
         // swiftlint:disable:next no_task_detached
         workerTask = Task.detached(priority: .utility) {
             for await request in stream {

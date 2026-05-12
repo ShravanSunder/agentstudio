@@ -16,7 +16,6 @@ enum InboxNotificationClaimLane: String, Sendable, Codable, Equatable, Hashable 
 }
 
 enum InboxNotificationClaimSemantic: String, Sendable, Codable, Equatable, Hashable {
-    case inputRequired
     case approvalRequested
     case unseenActivity
     case commandFinished
@@ -35,14 +34,4 @@ struct InboxNotificationClaimKey: Sendable, Codable, Equatable, Hashable {
     let lane: InboxNotificationClaimLane
     let semantic: InboxNotificationClaimSemantic
     let sessionId: UUID?
-}
-
-enum InboxNotificationClaimInvalidationReason: String, Sendable, Codable, Equatable {
-    case paneObserved
-    case paneClosed
-    case notificationRead
-    case notificationDismissed
-    case paneInboxCleared
-    case supersededByExplicitSemanticEvent
-    case routerStopped
 }

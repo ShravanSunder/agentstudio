@@ -94,17 +94,10 @@ extension AppDelegate {
     }
 
     private func isPaneCurrentlyAttendedForNotifications(_ paneId: UUID) -> Bool {
-        guard let attendedPaneId = atomStore.attendedPane.attendedPaneId else { return false }
-        if let drawer = store.paneAtom.pane(attendedPaneId)?.drawer,
-            drawer.isExpanded,
-            let activeChildId = drawer.activeChildId,
-            !drawer.minimizedPaneIds.contains(activeChildId)
-        {
-            return paneId == activeChildId
-        }
-        if store.paneAtom.pane(attendedPaneId)?.drawer?.isExpanded == true {
-            return false
-        }
-        return paneId == attendedPaneId
+        PaneObservationResolver.isPaneCurrentlyAttended(
+            paneId: paneId,
+            attendedPaneId: atomStore.attendedPane.attendedPaneId,
+            pane: { store.paneAtom.pane($0) }
+        )
     }
 }

@@ -124,10 +124,6 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
         let thresholdRows: Int
         let latestRows: Int
 
-        var windowId: UUID {
-            burstWindowId
-        }
-
         init(
             burstWindowId: UUID,
             activitySessionId: UUID? = nil,
@@ -142,23 +138,6 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
             self.rowsAdded = rowsAdded
             self.thresholdRows = thresholdRows
             self.latestRows = latestRows
-        }
-
-        init(
-            windowId: UUID,
-            eventCount: Int,
-            rowsAdded: Int,
-            thresholdRows: Int,
-            latestRows: Int
-        ) {
-            self.init(
-                burstWindowId: windowId,
-                activitySessionId: nil,
-                eventCount: eventCount,
-                rowsAdded: rowsAdded,
-                thresholdRows: thresholdRows,
-                latestRows: latestRows
-            )
         }
 
         func coalesced(with newerContext: Self) -> Self {

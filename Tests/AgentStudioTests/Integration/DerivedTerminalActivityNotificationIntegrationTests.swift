@@ -676,7 +676,7 @@ struct DerivedActivityNotificationIntegrationTests {
             activityAtom: terminalActivity,
             attendedPane: attendedPane,
             isPaneCurrentlyAttended: {
-                Self.isPaneCurrentlyAttended(
+                PaneObservationResolver.isPaneCurrentlyAttended(
                     paneId: $0,
                     attendedPaneId: attendedPane.attendedPaneId,
                     pane: { paneAtom.pane($0) }
@@ -794,31 +794,12 @@ struct DerivedActivityNotificationIntegrationTests {
         description: String
     ) async {
         await assertEventuallyMain(description) {
-            Self.isPaneCurrentlyAttended(
+            PaneObservationResolver.isPaneCurrentlyAttended(
                 paneId: paneId,
                 attendedPaneId: fixture.attendedPane.attendedPaneId,
                 pane: { fixture.paneAtom.pane($0) }
             )
         }
-    }
-
-    private static func isPaneCurrentlyAttended(
-        paneId: UUID,
-        attendedPaneId: UUID?,
-        pane: (UUID) -> Pane?
-    ) -> Bool {
-        guard let attendedPaneId else { return false }
-        if let drawer = pane(attendedPaneId)?.drawer,
-            drawer.isExpanded,
-            let activeChildId = drawer.activeChildId,
-            !drawer.minimizedPaneIds.contains(activeChildId)
-        {
-            return paneId == activeChildId
-        }
-        if pane(attendedPaneId)?.drawer?.isExpanded == true {
-            return false
-        }
-        return paneId == attendedPaneId
     }
 
     private static func settledActivities(

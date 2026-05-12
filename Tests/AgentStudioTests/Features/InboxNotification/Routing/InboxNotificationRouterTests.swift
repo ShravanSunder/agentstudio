@@ -227,8 +227,8 @@ struct InboxNotificationRouterTests {
         fixture.attendedPane.stop()
     }
 
-    @Test("missing pane context emits unresolved context trace before appending notification")
-    func missingPaneContextEmitsUnresolvedContextTrace() async throws {
+    @Test("missing pane context emits unresolved context trace and skips notification")
+    func missingPaneContextEmitsUnresolvedContextTraceAndSkipsNotification() async throws {
         let traceRuntime = makeTraceRuntime(name: "inbox-context-unresolved", processIdentifier: 272)
         let fixture = await makeFixture(traceRuntime: traceRuntime)
         let paneId = PaneId()
@@ -240,12 +240,11 @@ struct InboxNotificationRouterTests {
             )
         )
 
-        await waitForNotificationCount(
-            1,
-            in: fixture,
-            description: "desktop notification should still append with unresolved context"
-        )
         let outputFileURL = try #require(traceRuntime.outputFileURL)
+        await assertEventuallyMain("unresolved context trace should be written") {
+            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+                .contains("\"body\":\"inbox.context.unresolved\"") == true
+        }
         await fixture.router.stop()
         await fixture.tracker.stop()
         fixture.attendedPane.stop()
@@ -257,8 +256,7 @@ struct InboxNotificationRouterTests {
             unresolvedRecord.attributes["agentstudio.runtime.event"]
                 == .string("terminal.desktopNotificationRequested")
         )
-        #expect(fixture.inboxAtom.notifications[0].tabId == nil)
-        #expect(fixture.inboxAtom.notifications[0].repoId == nil)
+        #expect(fixture.inboxAtom.notifications.isEmpty)
     }
 
     @Test("inbox tracing records notify decisions and suppression reasons")

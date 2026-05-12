@@ -39,14 +39,4 @@ struct InboxNotificationClaimTests {
         #expect(InboxNotificationClaimLane.safety.canMergeWithinActivitySession == false)
     }
 
-    @Test("claim invalidation reasons enumerate session-ending cases")
-    func invalidationReasonsEnumerateSessionEndingCases() {
-        let _: InboxNotificationClaimInvalidationReason = .paneObserved
-        let _: InboxNotificationClaimInvalidationReason = .paneClosed
-        let _: InboxNotificationClaimInvalidationReason = .notificationRead
-        let _: InboxNotificationClaimInvalidationReason = .notificationDismissed
-        let _: InboxNotificationClaimInvalidationReason = .paneInboxCleared
-        let _: InboxNotificationClaimInvalidationReason = .supersededByExplicitSemanticEvent
-        let _: InboxNotificationClaimInvalidationReason = .routerStopped
-    }
 }
