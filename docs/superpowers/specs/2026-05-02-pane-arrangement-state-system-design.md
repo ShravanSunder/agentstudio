@@ -19,7 +19,7 @@
 
 ## 1. Goal
 
-Make every pane arrangement a complete VIEW over a single source of DATA, with no asymmetry between main panes and drawer panes. Eliminate `visiblePaneIds` as stored state. Move all drawer behavioral state (layout, minimize, expand, active child) under `PaneArrangement` so switching arrangements correctly switches drawer state too. Add a per-arrangement `showsMinimizedPanes` toggle (and per-drawer equivalent).
+Make every pane arrangement a complete VIEW over a single source of DATA, with no asymmetry between main panes and drawer panes. Eliminate `visiblePaneIds` as stored state. Move per-arrangement drawer behavioral state (layout, minimize, active child) under `PaneArrangement` so switching arrangements correctly switches drawer state too. (Drawer.isExpanded stays GLOBAL per drawer — Q4.) Add a per-arrangement `showsMinimizedPanes` toggle (and per-drawer equivalent).
 
 ## 2. Motivation
 
@@ -46,12 +46,17 @@ DATA (lives once, owned by Tab / Drawer)
   ▸ which drawer panes exist inside each drawer
   ▸ pane content, identity, drawer attachment
 
-VIEW (per arrangement — many views over the same data)
-  ▸ position / order of those panes in the layout
+GLOBAL VIEW (lives once, owned by Drawer — NOT per arrangement)
+  ▸ Drawer.isExpanded — whether the drawer panel is open
+    (Q4 decision: simple, no per-arrangement memory of panel
+     expand state; toggleDrawer in arrangement A is visible
+     in arrangement B)
+
+PER-ARRANGEMENT VIEW (many views over the same data)
+  ▸ position / order of panes in the layout
   ▸ minimize state per pane (which panes are minimized)
   ▸ show-minimized toggle (whether minimized panes appear at all
     in this arrangement, or are hidden entirely)
-  ▸ drawer expand / collapse
   ▸ drawer active child
   ▸ active pane (per arrangement, not per tab)
 ```
@@ -69,12 +74,16 @@ DATA operations               affect Tab / Drawer + ALL arrangements
   ▸ remove drawer pane            → strip from every drawerView
   ▸ detach drawer pane (separate command, not drag)
 
-VIEW operations               affect only the active arrangement
+GLOBAL VIEW operations         affect Drawer struct directly
+  ▸ toggle drawer expand          → mutates Drawer.isExpanded
+  ▸ collapseAllDrawers            → mutates Drawer.isExpanded
+                                    for every drawer
+
+PER-ARRANGEMENT VIEW operations affect only the active arrangement
   ▸ rearrange (drag within tab)   → active arrangement layout only
   ▸ minimize / unminimize         → active arrangement
   ▸ toggle showsMinimizedPanes    → active arrangement
   ▸ resize divider                → active arrangement layout
-  ▸ expand / collapse drawer      → active arrangement drawerView
   ▸ set active pane               → active arrangement
   ▸ set active drawer child       → active arrangement drawerView
   ▸ create / rename / delete arrangement
@@ -177,6 +186,34 @@ applies the management-mode override.
 `WorkspaceArrangementViewDerived` (new) at
 `Core/State/MainActor/Atoms/WorkspaceArrangementViewDerived.swift`.
 
+**Relation to existing `ArrangementDerived`.** A separate
+`ArrangementDerived` type already exists
+(`Core/State/MainActor/Atoms/ArrangementDerived.swift`) and is
+exposed on `AtomRegistry` as `arrangement: ArrangementDerived`
+(`Infrastructure/AtomLib/AtomRegistry.swift:93`). That existing
+type owns ARRANGEMENT-PANEL display data (list of arrangements,
+which one is active, names) — it's about THE LIST of arrangements,
+not the VIEW state within one arrangement.
+
+`WorkspaceArrangementViewDerived` is the new sibling — it owns
+PER-ARRANGEMENT-VIEW derivation (visible panes, drawer views,
+effective show-toggle, focus). The two are independent and DO
+NOT overlap.
+
+Registry seam (added in PR 1):
+```swift
+extension AtomRegistry {
+    var arrangement: ArrangementDerived                  // existing
+    var arrangementView: WorkspaceArrangementViewDerived  // NEW
+}
+```
+
+Both names are intentional: `arrangement` = "the list of
+arrangements", `arrangementView` = "the per-arrangement view state".
+Future evolution: if these turn out to overlap, `ArrangementDerived`
+either absorbs `WorkspaceArrangementViewDerived` or composes with
+it explicitly. Not part of this spec.
+
 Reads from:
   ▸ `WorkspaceTabArrangementAtom` — arrangement state
   ▸ `WorkspacePaneAtom` — Pane / Drawer identity + paneIds
@@ -225,6 +262,27 @@ propagation works through the underlying atoms — when any source atom
 changes, callers re-read via the derived atom and see fresh values.
 Matches `WorkspaceTabDerived` (which assembles `Tab` from the
 shell + arrangement atoms).
+
+**Threading + management-mode override:** the derived struct is
+`@MainActor` (matches all underlying atoms). When
+`ManagementLayerAtom.isActive` flips, `@Observable` triggers a
+SwiftUI re-render of any view reading through the derived atom.
+Each view re-reads `effectiveShowsMinimizedPanes(...)` and the
+override takes effect in the SAME render pass — no stale cache,
+no separate invalidation step.
+
+The override is COMPUTED, not stored. Exiting management mode
+restores the user's per-arrangement preference automatically (the
+stored `arrangement.showsMinimizedPanes` is untouched throughout).
+
+Calling pattern for views:
+```swift
+let visible = atom(\.arrangementView).activeVisiblePaneIds(
+    forTab: tabId
+)
+// re-reads on any change to the underlying atoms, including
+// ManagementLayerAtom.isActive
+```
 
 ### 6.2 visiblePaneIds derivation rule
 
@@ -322,12 +380,15 @@ MOVED OUT (now in WorkspaceTabArrangementAtom, mutate active arrangement)
   ▸ equalizeDrawerPanes      → equalizeDrawerPanesInActive
   ▸ minimizeDrawerPane       → minimizeDrawerPaneInActive
   ▸ expandDrawerPane         → expandDrawerPaneInActive
-  ▸ collapseAllDrawers       → collapseAllDrawersInActive (also touches
-                                isExpanded on WorkspacePaneAtom — see §8.3)
   ▸ setActiveDrawerPane      → setActiveDrawerPaneInActive
 
-KEPT on WorkspacePaneAtom
-  ▸ toggleDrawer             → mutates Drawer.isExpanded (global)
+KEPT on WorkspacePaneAtom (mutate Drawer.isExpanded — global per Q4)
+  ▸ toggleDrawer             → flips Drawer.isExpanded for one drawer
+  ▸ collapseAllDrawers       → sets Drawer.isExpanded=false for every
+                                drawer (mutates only Drawer struct;
+                                does NOT touch any arrangement)
+
+KEPT on WorkspacePaneAtom (DATA mutations)
   ▸ addDrawerPane            → adds to Drawer.paneIds, then asks
                                 coordinator to calibrate every arrangement
   ▸ insertDrawerPane         → same, with positional hint for active
@@ -462,9 +523,21 @@ remove main pane from tab
     remove paneId from arrangement.layout
     remove paneId from arrangement.minimizedPaneIds
     if arrangement.activePaneId == paneId:
-      arrangement.activePaneId = first unminimized remaining pane
+      arrangement.activePaneId = chooseNewActivePaneId(arrangement)
     drop arrangement.drawerViews[paneId.drawer.drawerId] if any
   remove paneId from tab.allPaneIds
+
+  chooseNewActivePaneId(arr) selection rule (covers all edge cases):
+    1. if arr.layout.paneIds is empty:
+         return nil  (layout has no panes; tab is conceptually empty
+                      until next add; UI shows empty-tab state)
+    2. else if there is any pane in arr.layout.paneIds NOT in
+       arr.minimizedPaneIds:
+         return the first such pane (left-to-right in layout)
+    3. else (all remaining panes are minimized):
+         return arr.layout.paneIds.first
+         (still set activePaneId; UI focus may render against a
+          minimized pane — that's fine, user can unminimize)
 
 add drawer pane (parent has drawer; was empty OR already populated)
   Drawer.paneIds.append(drawerPaneId)
@@ -485,9 +558,11 @@ add drawer pane (parent has drawer; was empty OR already populated)
                                       sizingMode: .halveTarget)
       if arrangement is active: view.activeChildId = drawerPaneId
       arrangement.drawerViews[drawer.drawerId] = view
-  // Drawer.isExpanded (on Drawer struct) — set to true for the
-  // active drawer toggle path; calibration does NOT touch it
-  // (Q4 — isExpanded is global, controlled by toggleDrawer)
+  // Drawer.isExpanded — preserve today's UX: WorkspacePaneAtom
+  // .addDrawerPane sets drawer.isExpanded = true (open drawer on
+  // add). This is a DATA-side mutation on the Drawer struct, NOT
+  // part of per-arrangement calibration. isExpanded is global per
+  // Q4, so the new drawer pane is visible across all arrangements.
 
 remove drawer pane
   Drawer.paneIds.remove(drawerPaneId)
@@ -513,6 +588,17 @@ Empty-drawer rule (per Q4): a drawer with `paneIds.isEmpty` has
 NO entry in any arrangement's `drawerViews`. The drawer's
 `isExpanded` (on `Drawer` struct) still works — user can toggle
 the panel even with no children.
+
+**UI affordance for empty drawer (out of scope for state spec).**
+When `drawer.paneIds.isEmpty && drawer.isExpanded == true`, the
+drawer panel renders the existing empty-drawer placeholder UI
+(currently a "press P to add pane" hint — see
+`Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift`). Spec 1
+does NOT modify that placeholder; the drawer panel view layer
+owns it. The `WorkspaceArrangementViewDerived.drawerView(forParent:)`
+returns `nil` for empty drawers; the drawer panel reads
+`Drawer.isExpanded` directly from `WorkspacePaneAtom` for the
+panel visibility decision.
 
 ## 10. Cross-tab pane move
 
@@ -547,7 +633,8 @@ Coordinator flow:
        remove paneId from arrangement.layout
        remove paneId from arrangement.minimizedPaneIds
        if arrangement.activePaneId == paneId:
-         arrangement.activePaneId = first unminimized remaining
+         arrangement.activePaneId =
+           chooseNewActivePaneId(arrangement)  // see §9
        drop arrangement.drawerViews[anyDrawerOnPane.drawerId]
      remove paneId from source.allPaneIds
      if source.allPaneIds.isEmpty:
@@ -566,15 +653,39 @@ Coordinator flow:
        else:
          insert paneId into arrangement.layout at end (default)
          (activePaneId in non-active arrangement unchanged)
-       if pane has a drawer:
-         create fresh DrawerView entry for drawer.drawerId
-         seed view.layout with all drawer.paneIds (default arrangement)
+       if pane has a drawer AND drawer.paneIds is non-empty:
+         create fresh DrawerView entry for drawer.drawerId:
+           layout            = DrawerGridLayout.autoTiled(drawer.paneIds)
+           activeChildId     = drawer.paneIds.first
+           minimizedPaneIds  = []
+           showsMinimizedPanes = true
+       // empty drawers get no entry per Q4
 5. drawer pane snapshots stay attached to the parent — they
    travel with the pane (Pane + Drawer + child Panes)
 6. EventBus emits .paneMovedAcrossTabs
 ```
 
-Atomic: either the whole move succeeds or none of it does.
+**Atomicity mechanism.** Steps 2-5 execute within a single
+`WorkspaceMutationCoordinator` method invocation on `@MainActor`.
+Swift concurrency guarantees no other actor-reentrant mutation
+runs between steps. Because both atoms are `@MainActor`-bound,
+the partial-mutation window only exists if the coordinator method
+throws mid-flight — which we prevent by:
+
+- Validating ALL preconditions before any mutation (§10 step 1).
+- Building the destination layout in-memory before applying.
+- Treating drawer panes as snapshots captured upfront (step 2).
+- Each atom call is a synchronous, total function — no async
+  hops between steps 2-5.
+
+If any of steps 2-5 fails an internal invariant assertion in
+DEBUG, that's a bug (caught by tests). In RELEASE, the same path
+emits `arrangement.invariant_violation` via trace AND surfaces a
+log entry, but no rollback is performed — the move is structured
+so its individual mutations are independently valid (removal from
+source is valid; insertion into dest is valid; combined they
+preserve invariants). Best-effort partial-mutation visibility is
+acceptable for a path that's exercised by user drag (recoverable).
 
 ## 11. Tab drag rules
 
@@ -647,8 +758,27 @@ NEW:
 .setShowsMinimizedDrawerPanes(parentPaneId:, value:)
 ```
 
-REMOVED: none. (Subset-arrangement creation was the only feature
-killed by removing visiblePaneIds; see §16.)
+CHANGED SIGNATURE (subset arrangements removed):
+
+```
+.createArrangement(tabId:, name:, paneIds:)   ← BEFORE
+                  └──── subset of tab.allPaneIds
+
+.createArrangement(tabId:, name:)              ← AFTER
+                  └──── new arrangement always contains every pane
+                        in tab.allPaneIds; layout seeded by copying
+                        from active arrangement (Q3 inheritance);
+                        showsMinimizedPanes inherits from active too
+```
+
+The `paneIds` parameter is dropped in PR 1. Call sites passing
+`paneIds:` will stop compiling — fix them by removing the argument.
+`TabArrangementMutationRules.swift` (current filtering logic that
+applies the subset) is deleted in the same PR.
+
+REMOVED PaneActionCommand cases: none. (Subset-arrangement creation
+is the only feature killed by removing visiblePaneIds; the create
+command stays, just loses an argument — see §16.)
 
 ## 14. No migration (development stage)
 
@@ -680,6 +810,35 @@ Developer workflow: blow away `~/.agentstudio/workspaces/*/
 workspace.state.json` on first run under the new schema. Document
 this in the PR description, not in code.
 
+**Decode error recovery path (explicit):**
+
+```
+WorkspacePersistor.load() reads workspace.state.json
+   ↓
+JSONDecoder fails on old-shape fields (e.g. PaneArrangement
+expects "drawerViews" but old file has "visiblePaneIds")
+   ↓
+WorkspacePersistor catches DecodingError at the top level
+   ↓
+emits trace: arrangement.decode_failed (cause: "schema_mismatch")
+   ↓
+returns nil from load()
+   ↓
+WorkspaceStore.init falls back to empty workspace:
+  - empty allPaneIds
+  - one default PaneArrangement with empty layout
+  - no panes
+   ↓
+user sees empty workspace on launch (no crash, no error dialog —
+this is dev-stage, expected behavior)
+```
+
+In production (post-launch) we'd add a one-shot migration path or
+user-facing notification. For now, dev workflow handles it.
+
+Tests in `FreshStateDecodeTests` (§18) cover the failure path:
+old-shape JSON → load() returns nil → init produces empty workspace.
+
 ## 15. Storage location
 
 All persisted state continues to live in `WorkspaceStore` (the
@@ -698,8 +857,11 @@ WorkspaceMutationCoordinator
   in-process orchestrator only — no persistence
 ```
 
-No new store, no new persistence file. The schema version on
-`WorkspaceStore` increments to indicate the new shape.
+No new store, no new persistence file. No schema-version bump
+either (per §14 no-migration policy — old persisted state simply
+fails to decode under the new shape; `currentSchemaVersion` stays
+at its current value because we're not adding back-compat
+branches that key off it).
 
 ### 15.1 Persistence tier alignment
 
@@ -777,15 +939,38 @@ arrangement.command_received
 arrangement.command_validated
   arrangement.command_name = ...
   arrangement.decision = "accepted" | "rejected"
-  arrangement.reason = "ok" | "drawer_to_main_blocked" |
-                       "main_to_drawer_blocked" |
-                       "tab_into_tab_blocked" |
-                       "default_arrangement_undeletable" |
-                       "cross_tab_pane_not_found" |
-                       "drawer_pane_cannot_cross_tabs" | ...
-                       (string enum, must be one of the recognized
-                        values — fail tests on unrecognized reason)
+  arrangement.reason = one of the EXHAUSTIVE set below
 ```
+
+The `reason` value MUST be exactly one of these strings (a closed
+enum). Tests assert this — any unrecognized value fails the test
+and indicates a missing case in the validator or a typo in trace
+wiring.
+
+```
+"ok"                                  (decision == "accepted")
+"drawer_pane_cannot_cross_tabs"       (V3: cross-tab move
+                                       rejected; drawer pane)
+"cross_tab_pane_not_found"            (V3: paneId not in source
+                                       allPaneIds)
+"cross_tab_same_tab"                  (V3: sourceTabId == destTabId)
+"cross_tab_target_not_found"          (V3: targetPaneId not in
+                                       dest allPaneIds)
+"cross_tab_dest_not_found"            (V3: destTabId does not exist)
+"tab_reorder_index_out_of_range"      (V4)
+"tab_reorder_tab_not_found"           (V4)
+"tab_into_tab_blocked"                (V7)
+"main_to_drawer_blocked"              (V6)
+"drawer_to_main_blocked"              (V5)
+"default_arrangement_undeletable"     (V1)
+"arrangement_not_found"               (V2 + V9)
+"pane_already_in_another_tab"         (V8)
+"pane_not_in_arrangement"             (V9)
+```
+
+15 reason values total. Each corresponds to a validator rule from
+§12 or §11. If a new rule is added without a reason value here,
+the test suite fails — forcing the enum to stay closed.
 
 For ACCEPTED commands, the mutation pipeline emits result records:
 
@@ -1134,6 +1319,16 @@ PR 2 — New user behaviors enabled by PR 1
     ▸ Drawer panes travel with parent pane
     ▸ Trace: arrangement.cross_tab_move_started / _committed
       with source_tab_auto_closed flag
+
+    Retire the existing hidden cross-tab path:
+      ▸ ActionResolver currently routes single-pane cross-tab
+        drops via .insertPaneRequest(.existingPane(...))
+        (Core/Actions/ActionResolver.swift:176).
+      ▸ PaneCoordinator+ActionExecution executes that as a
+        non-atomic remove-then-insert sequence
+        (App/Coordination/PaneCoordinator+ActionExecution.swift:831).
+      ▸ Delete (or redirect to .movePaneAcrossTabs) in this PR.
+        The new path is the only cross-tab path going forward.
 
   Tab drag rules
     ▸ Add PaneActionCommand.reorderTab(...)
