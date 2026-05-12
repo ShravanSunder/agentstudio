@@ -642,51 +642,35 @@ NEW:
 REMOVED: none. (Subset-arrangement creation was the only feature
 killed by removing visiblePaneIds; see §16.)
 
-## 14. Migration — decoding existing user workspaces
+## 14. No migration (development stage)
 
-On decode of old persisted state:
+**Decision (2026-05-12):** No migration logic. Pre-launch, no
+production users to preserve. Existing persisted workspaces will
+not decode under the new schema — that's acceptable.
 
-```
-PaneArrangement old → new
-  layout              → layout (unchanged)
-  minimizedPaneIds    → minimizedPaneIds (unchanged)
-  visiblePaneIds      → DISCARDED (derived now)
-  showsMinimizedPanes → true  (default preserves today's behavior:
-                              minimized panes shown as collapsed bars.
-                              Q1 fix — earlier draft had `false` which
-                              would break by hiding minimized panes.)
-  activePaneId        → seeded from old TabArrangementState
-                        .activePaneId for the active arrangement;
-                        nil for others
-  drawerViews         → seeded from each parent pane's old Drawer:
-                          for each pane in arrangement.layout where
-                          pane.drawer != nil AND pane.drawer.paneIds
-                          is non-empty:
-                            drawerViews[pane.drawer.drawerId] =
-                              DrawerView(
-                                layout: pane.drawer.layout (old),
-                                activeChildId: pane.drawer.activeChildId,
-                                minimizedPaneIds: [],  // was transient
-                                showsMinimizedPanes: true   // Q1
-                              )
-                          // empty drawers get NO entry (Q4)
+What this means in practice:
 
-Drawer old → new
-  paneIds             → paneIds (unchanged)
-  layout              → DROPPED (moved to drawerViews per arrangement)
-  activeChildId       → DROPPED (moved to drawerViews)
-  minimizedPaneIds    → DROPPED (was transient anyway)
-  isExpanded          → KEPT on Drawer (Q4 — global, not per-
-                        arrangement)
+- `Codable` for `Pane`, `Drawer`, `PaneArrangement`,
+  `TabArrangementState` uses the NEW shape only.
+- No `decodeIfPresent` fallbacks for old field names. No backward-
+  compat branches in `init(from:)`.
+- On launch, if an old `workspace.state.json` exists, it fails to
+  decode → workspace defaults to empty state (same recovery path
+  as a fresh install or a corrupt file).
+- No schema version bump. The format is just "the new format".
+- Defaults for fresh state:
+    - `showsMinimizedPanes: true` (matches what migration would
+      have preserved)
+    - `activePaneId: nil` (set when first pane is added)
+    - `drawerViews: [:]` (populated by calibration when drawer
+      panes get added)
+    - `Drawer.drawerId: UUID()` (fresh on creation)
+    - `Drawer.parentPaneId: <owning pane id>` (set on creation)
+    - `Drawer.isExpanded: false` (default until user opens it)
 
-Drawer (new) gains
-  drawerId            → seeded with a fresh UUID on first decode;
-                        persisted afterwards
-  parentPaneId        → seeded from owning Pane's id
-```
-
-Migration runs once on first decode under the new schema. After
-that, the new shape is canonical. No backward-compat shim.
+Developer workflow: blow away `~/.agentstudio/workspaces/*/
+workspace.state.json` on first run under the new schema. Document
+this in the PR description, not in code.
 
 ## 15. Storage location
 
@@ -724,10 +708,9 @@ NEVER read from or write to arrangement state. Tier B holds repo
 enrichment derived from the event bus; Tier C holds presentation
 preferences and sidebar composition state.
 
-Schema version on `WorkspaceStore` increments. **Hard cutover, no
-back-compat shim** (per CLAUDE.md "hard cutover, no backward
-compatibility"). Migration runs once on first decode of the new
-schema (§14).
+**Hard cutover.** No back-compat shim, no schema version bump.
+Old persisted state simply fails to decode → empty workspace
+(see §14).
 
 ## 16. Removed feature: subset arrangements
 
@@ -1006,13 +989,13 @@ WorkspacePaneAtomDrawerStrippedTests
   ▸ remaining DATA methods (addDrawerPane / removeDrawerPane /
     detachDrawerPane / restoreDrawerPane) work as before
 
-MigrationTests
-  ▸ old persisted state with subset arrangements decodes:
-      visiblePaneIds dropped, layout retained
-  ▸ old Drawer.layout/activeChildId/isExpanded migrated into
-    DrawerView in default arrangement
-  ▸ old transient minimizedPaneIds (drawer) starts empty (no change)
-  ▸ schema version bumped, old version unsupported
+FreshStateDecodeTests
+  ▸ new schema decodes round-trip cleanly (encode → decode →
+    equal)
+  ▸ workspace.state.json with old shape fails to decode →
+    initializer returns empty workspace (no crash)
+  ▸ default values applied correctly for fresh state
+    (showsMinimizedPanes=true, drawerViews={}, etc.)
 
 ObservabilityTests
   ▸ minimizePane emits arrangement.command_received +
@@ -1035,93 +1018,125 @@ ObservabilityTests
     AGENTSTUDIO_TRACE_TAGS includes "arrangement" (or "*")
 ```
 
-## 19. Implementation order
+## 19. Implementation order — 2 PRs
 
-Suggested phasing (one-PR-each-phase to keep diffs reviewable):
+User decision (2026-05-12): no migration logic, no schema phasing.
+Compact the work into 2 PRs. PR 1 is the state-shape refactor +
+internal plumbing; PR 2 is the new user-facing behaviors enabled
+by the shape change.
 
 ```
-Phase 1: schema-only changes + trace tag wiring (types, no behavior)
-  ▸ add Drawer.drawerId, Drawer.parentPaneId
-  ▸ add PaneArrangement.showsMinimizedPanes, .activePaneId,
-    .drawerViews
-  ▸ add DrawerView struct
-  ▸ add AgentStudioTraceTag case `arrangement` (raw value
-    "arrangement")
-  ▸ Codable forward (read old, write new)
-  ▸ migration on decode (emit arrangement.calibration_applied
-    with cause="migration_decode" so first-run migrations are
-    diagnosable)
-  ▸ NO behavior changes yet — old code paths still work
-  ▸ tests: migration + invariant assertions + trace records on
-    migration path
+PR 1 — State shape refactor + derived atom + calibration
+       (the foundation; no new user-visible commands)
 
-Phase 2: WorkspaceArrangementViewDerived + HARD cutover of visiblePaneIds
-  ▸ create WorkspaceArrangementViewDerived atom (§6.1)
-  ▸ replace every read of arrangement.visiblePaneIds with
-    derived atom calls
-  ▸ DELETE the visiblePaneIds field entirely (Q5 — hard cutover,
-    no soft transitional phase)
-  ▸ delete ALL writes to visiblePaneIds in same PR
-  ▸ wire ManagementLayerAtom into the derived atom for the
-    showsMinimized override (Q1 derived/computed approach)
-  ▸ tests: derivation correctness + management override behavior
+  Schema (hard cutover, no migration)
+    ▸ Drawer shrinks to {drawerId, parentPaneId, paneIds,
+      isExpanded}. Old fields removed entirely.
+    ▸ PaneArrangement gains showsMinimizedPanes, activePaneId,
+      drawerViews. visiblePaneIds REMOVED.
+    ▸ DrawerView struct added.
+    ▸ TabArrangementState loses activePaneId (moved to
+      PaneArrangement).
+    ▸ Codable uses new shape only — no decodeIfPresent fallback.
 
-Phase 3: move drawer VIEW state mutators atom-to-atom
-  ▸ implement *InActive methods on WorkspaceTabArrangementAtom
-    (NOT toggleDrawer — that stays on WorkspacePaneAtom per Q4)
-  ▸ rewire PaneCoordinator+ActionExecution.swift to call new
-    methods
-  ▸ leave Drawer struct fields in place but unused for VIEW
-  ▸ wire arrangement.command_received / .command_validated /
-    .view_op_committed records at the resolver / validator /
-    coordinator boundaries
-  ▸ wire ServiceContext.agentStudioCorrelationID at command
-    resolver entry point
-  ▸ tests: switching arrangements correctly switches drawer
-    state + trace assertions on view ops
+  Derived atom
+    ▸ WorkspaceArrangementViewDerived created
+      (Core/State/MainActor/Atoms/).
+    ▸ Reads WorkspaceTabArrangementAtom + WorkspacePaneAtom +
+      ManagementLayerAtom.
+    ▸ Provides activeVisiblePaneIds, drawerView, drawerVisible-
+      PaneIds, effectiveShowsMinimizedPanes (with management
+      override), etc.
 
-Phase 4: shrink Drawer struct, calibration coordinator
-  ▸ remove Drawer.layout / .activeChildId / .minimizedPaneIds
-    (KEEP Drawer.isExpanded — Q4)
-  ▸ implement WorkspaceMutationCoordinator calibration
-  ▸ rewire DATA mutators (addDrawerPane / removeDrawerPane)
-    to call calibration
-  ▸ delete activePaneId from TabArrangementState
-    (NOTE: visiblePaneIds was already deleted in Phase 2)
-  ▸ wire arrangement.calibration_started / .calibration_applied
-    records around every calibration cycle (single record per
-    cycle, NOT per arrangement — see §16.5.4)
-  ▸ wire arrangement.tab_close_committed for tab close paths
-    (cause: "user_close" or "cross_tab_move_drained")
-  ▸ tests: full system test — DATA + VIEW operations end-to-end +
-    calibration trace assertions (record count = 1 per cycle,
-    affected_arrangement_count matches actual mutations)
+  Mutator moves
+    ▸ Drawer VIEW mutators move from WorkspacePaneAtom to
+      WorkspaceTabArrangementAtom as *InActive methods
+      (moveDrawerPaneInActive, resizeDrawerPaneInActive,
+      minimizeDrawerPaneInActive, expandDrawerPaneInActive,
+      setActiveDrawerPaneInActive, equalizeDrawerPanesInActive,
+      setActivePaneInActive, plus the two setShowsMinimized*
+      methods).
+    ▸ toggleDrawer + collapseAllDrawers STAY on
+      WorkspacePaneAtom (mutate Drawer.isExpanded — global).
+    ▸ PaneCoordinator+ActionExecution.swift rewired to call
+      new methods.
+    ▸ Existing PaneActionCommand contracts preserved — only
+      internals change. Callers don't change.
 
-Phase 5: cross-tab pane move + tab drag rules + auto-close
-  ▸ add movePaneAcrossTabs command
-  ▸ add reorderTab command
-  ▸ implement validator rules V1-V9
-  ▸ wire drag layer
-  ▸ wire source-tab auto-close when last pane moves out (Q2)
-  ▸ wire arrangement.cross_tab_move_started / _committed records
-    (with source_tab_auto_closed flag)
-  ▸ tests: cross-tab + tab drag scenarios + cross-tab trace
-    assertions (source_arrangements_calibrated,
-    dest_arrangements_calibrated, and source_tab_auto_closed flag)
+  Calibration
+    ▸ WorkspaceMutationCoordinator gains calibration for
+      add/remove drawer pane.
+    ▸ Empty drawers get no DrawerView entry; first pane add
+      creates entries in every arrangement; last pane removal
+      drops entries.
 
-Phase 6: showsMinimizedPanes UI
-  ▸ add toggle in arrangement panel UI
-  ▸ persist per-arrangement
-  ▸ tests: UI interaction
+  Observability (in same PR — wire from the start)
+    ▸ AgentStudioTraceTag case `arrangement` added.
+    ▸ Records wired: command_received, command_validated,
+      view_op_committed, calibration_started/applied,
+      invariant_violation.
+    ▸ ServiceContext.agentStudioCorrelationID propagated.
+
+  Tests in same PR
+    ▸ PaneArrangementInvariantTests (I1-I10)
+    ▸ DrawerStatePerArrangementTests (isExpanded shared, empty
+      drawer behavior)
+    ▸ ManagementModeOverrideTests
+    ▸ ShowsMinimizedPanesTests (per-arrangement behavior)
+    ▸ VisiblePaneIdsDerivationTests
+    ▸ WorkspacePaneAtomDrawerStrippedTests
+    ▸ FreshStateDecodeTests (round-trip; old shape fails decode)
+    ▸ ObservabilityTests (records emitted, correlation
+      propagated, reasons enum complete)
+
+PR 2 — New user behaviors enabled by PR 1
+
+  Cross-tab pane move
+    ▸ Add PaneActionCommand.movePaneAcrossTabs(...)
+    ▸ Validator rules V1-V9 (reject drawer pane, reject same-
+      tab, reject if dest doesn't exist, etc.)
+    ▸ Source-tab auto-close when last pane drains (Q2)
+    ▸ Drawer panes travel with parent pane
+    ▸ Trace: arrangement.cross_tab_move_started / _committed
+      with source_tab_auto_closed flag
+
+  Tab drag rules
+    ▸ Add PaneActionCommand.reorderTab(...)
+    ▸ Tab-into-tab blocked at drag source-filter (validator
+      catches if it leaks through)
+    ▸ Trace: arrangement.tab_close_committed for the auto-close
+      path AND for explicit tab close (cause enum)
+
+  showsMinimizedPanes UI toggle
+    ▸ Add toggle control in arrangement panel UI
+    ▸ Per-arrangement persistence (already wired in PR 1)
+    ▸ Per-drawer toggle in drawer header UI
+
+  Drag layer wiring
+    ▸ Cross-tab drag handling in drag coordinator
+    ▸ Source-filter rejects forbidden cross-container moves
+
+  Tests in same PR
+    ▸ CrossTabPaneMoveTests
+    ▸ TabReorderTests
+    ▸ ShowsMinimizedPanesUITests (toggle in UI)
+    ▸ Trace assertions for cross-tab + tab close paths
 ```
 
-Phases 1-4 ship the state-shape change. Phases 5-6 ship the
-new behaviors that the new shape enables.
+PR 1 is invisible to the user (existing commands behave
+identically; only internals change). PR 2 ships the actual new
+capabilities. This split keeps each diff scoped to one concern.
+
+If the user wants a single PR instead, collapse PR 1 + PR 2 into
+one — there's no technical dependency that forces the split. The
+2-PR split is a review-friendliness preference.
 
 ## 20. Open questions / future work
 
-None blocking. All design decisions made above. Spec 2 will pick
-this up as foundation.
+None blocking. All design decisions made above. The new grid
+layout / sizing matrix work (Spec 2/3 stub at
+`2026-05-10-drawer-grid-layout-redesign-design.md`) picks this up
+as foundation.
 
 ---
 
@@ -1134,19 +1149,21 @@ this up as foundation.
       dance) — derived atom reads ManagementLayerAtom.isActive
 - [ ] Invariants (§7) are complete and correct
 - [ ] visiblePaneIds removal (§16) is acceptable (subset
-      arrangements feature loss); HARD cutover in Phase 2
-- [ ] showsMinimizedPanes default = true on migration (preserves
-      today's behavior)
+      arrangements feature loss); hard cutover via PR 1
+- [ ] showsMinimizedPanes default = true for fresh state
+      (matches today's "show minimized as collapsed bars" behavior)
 - [ ] WorkspaceArrangementViewDerived (§6.1) — new derived atom
       placement matches existing pattern (WorkspaceFocusDerived,
       etc.)
 - [ ] Cross-tab move (§10) auto-closes source tab if it drains
       to zero panes (Q2)
-- [ ] Migration strategy (§14) safely handles existing user state
+- [ ] No-migration approach (§14) acceptable for development stage
+      — old persisted state fails to decode and defaults to empty
 - [ ] Persistence tier alignment (§15.1) — Tier A canonical is
       the right home (vs Tier B cache or Tier C UI)
 - [ ] Observability (§16.5) — trace tag, records (incl.
       tab_close_committed), correlation, and performance approach
       are right; reasons enum is complete
-- [ ] Phased implementation (§19) is the right granularity
+- [ ] PR split (§19) — PR 1 internal refactor, PR 2 new user
+      behaviors — right granularity, or do you want a single PR
 - [ ] Test surface (§18) covers the right scenarios
