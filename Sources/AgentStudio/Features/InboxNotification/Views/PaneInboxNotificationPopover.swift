@@ -97,6 +97,17 @@ struct PaneInboxNotificationPopover: View {
             }
             .buttonStyle(.borderless)
             .help(AppCommand.clearPaneInboxNotifications.definition.controlToolTip)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(AppCommand.clearPaneInboxNotifications.definition.label)
+            .accessibilityIdentifier("paneInboxClearButton")
+            .accessibilityHidden(true)
+            .background(
+                AccessibilityPressBridge(
+                    identifier: "paneInboxClearButton",
+                    label: AppCommand.clearPaneInboxNotifications.definition.label,
+                    action: clearNotifications
+                )
+            )
 
             Divider()
                 .frame(height: AppStyles.Components.PaneInbox.headerSeparatorHeight)

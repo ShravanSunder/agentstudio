@@ -233,6 +233,7 @@ final class InboxNotificationRouter {
                     worktreeName: resolvedContext?.worktreeName,
                     branchName: resolvedContext?.branchName,
                     paneDisplayLabel: resolvedContext?.paneDisplayLabel,
+                    paneOrdinal: resolvedContext?.paneOrdinal,
                     paneRole: resolvedContext?.paneRole ?? .main,
                     parentPaneId: resolvedContext?.parentPaneId,
                     parentPaneDisplayLabel: resolvedContext?.parentPaneDisplayLabel,
@@ -545,6 +546,10 @@ final class InboxNotificationRouter {
         let tab = tabLayout.tabContaining(paneId: paneId)
         let parentPaneId = pane.parentPaneId
         let parentPane = parentPaneId.flatMap { paneAtom.pane($0) }
+        let paneOrdinal = tab.flatMap { tab in
+            let ordinalPaneId = parentPaneId ?? paneId
+            return tab.activePaneIds.firstIndex(of: ordinalPaneId).map { $0 + 1 }
+        }
         let drawerOrdinal = parentPane?.drawer?.paneIds.firstIndex(of: paneId).map { $0 + 1 }
         return ResolvedPaneContext(
             tabId: tab?.id,
@@ -555,9 +560,10 @@ final class InboxNotificationRouter {
             worktreeName: pane.metadata.worktreeName,
             branchName: pane.metadata.checkoutRef,
             paneDisplayLabel: paneDisplayLabel(for: pane),
+            paneOrdinal: paneOrdinal,
             paneRole: pane.isDrawerChild ? .drawerChild : .main,
             parentPaneId: parentPaneId,
-            parentPaneDisplayLabel: parentPane.map(paneDisplayLabel),
+            parentPaneDisplayLabel: parentPane.flatMap(paneDisplayLabel),
             drawerOrdinal: drawerOrdinal,
             runtimeDisplayLabel: runtimeDisplayLabel(for: pane)
         )
@@ -574,8 +580,10 @@ final class InboxNotificationRouter {
         return "Tab \(tabIndex + 1)"
     }
 
-    private func paneDisplayLabel(for pane: Pane) -> String {
-        normalizedString(pane.title) ?? runtimeDisplayLabel(for: pane)
+    private func paneDisplayLabel(for pane: Pane) -> String? {
+        guard let paneTitle = normalizedString(pane.title) else { return nil }
+        guard paneTitle != runtimeDisplayLabel(for: pane) else { return nil }
+        return paneTitle
     }
 
     private func runtimeDisplayLabel(for pane: Pane) -> String {
@@ -606,6 +614,7 @@ private struct ResolvedPaneContext {
     let worktreeName: String?
     let branchName: String?
     let paneDisplayLabel: String?
+    let paneOrdinal: Int?
     let paneRole: InboxNotification.PaneSource.PaneRole
     let parentPaneId: UUID?
     let parentPaneDisplayLabel: String?

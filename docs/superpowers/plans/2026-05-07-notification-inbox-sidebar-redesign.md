@@ -12,16 +12,12 @@
 
 ## Current Completion Status
 
-Status as of 2026-05-10 on branch `notification-inbox-redesign`:
+Status as of 2026-05-12 on branch `notification-inbox-redesign`:
 
-- Implementation steps are complete in the working tree.
-- Focused final regression suite passed: 14 tests in 4 suites after the last badge/plan corrections.
-- Full `mise run test` passed with exit 0. Project-default opt-in E2E and Zmx E2E suites were skipped because `SWIFT_TEST_INCLUDE_E2E=0` and `SWIFT_TEST_INCLUDE_ZMX_E2E=0`.
-- `mise run lint` passed with exit 0: swift-format OK, swiftlint found 0 violations in 788 files, and the Core boundary import check passed.
-- `mise run build` passed with exit 0.
-- Codex xhigh review completed after the final code/test/doc corrections. All valid P2 findings were addressed.
-- Peekaboo visual verification is recorded in `docs/wip/debugging/2026-05-07-notification-inbox-sidebar-redesign-smoke.md`. The current final build launches and exposes windows, but Peekaboo capture for PID/window targeting returns `INTERNAL_SWIFT_ERROR`, and fallback screen capture is black in this environment. Treat visual verification as tool-blocked for the final build, not as a product pass.
-- Commit steps are marked complete as process-handled, not executed. This pass leaves changes uncommitted pending an explicit git-write instruction for this worktree.
+- Code implementation and automated verification were previously green, but that did not mean product visual acceptance was complete.
+- Product visual acceptance is still tracked separately. See `docs/wip/communications/2026-05-11-notification-inbox-visual-feedback-ledger.md`.
+- The follow-up plan `docs/superpowers/plans/2026-05-11-notification-inbox-sidebar-style-convergence.md` owns the missing visual/style/test pieces.
+- Treat this redesign as incomplete until the visual ledger is either checked off with screenshot evidence or explicitly split into named follow-up work with user approval.
 
 ---
 

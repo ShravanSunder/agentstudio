@@ -20,46 +20,59 @@ struct InboxRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 6) {
-                if !notification.isRead {
-                    Circle()
-                        .fill(.red)
-                        .frame(width: 6, height: 6)
-                }
+        VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
+            HStack(spacing: AppStyles.General.Spacing.tight) {
+                unreadDot
+                    .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
 
                 Text(display.primaryText)
-                    .font(.system(size: 13, weight: notification.isRead ? .regular : .semibold))
+                    .font(
+                        .system(
+                            size: AppStyles.General.Typography.textBase,
+                            weight: notification.isRead ? .regular : .semibold)
+                    )
                     .lineLimit(1)
-
-                Spacer(minLength: 8)
+                    .truncationMode(.tail)
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 Text(relativeTime)
-                    .font(.system(size: 11))
+                    .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))
                     .foregroundStyle(.secondary)
             }
 
-            Text(display.sourceLine)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            SidebarMetadataLine(
+                text: display.sourceLine,
+                prominence: .secondary
+            )
 
             if let placementLine = display.placementLine {
-                Text(placementLine)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                SidebarMetadataLine(
+                    iconSystemName: "terminal",
+                    text: placementLine,
+                    prominence: .secondary
+                )
             }
 
             if let detailText = display.detailText {
-                Text(detailText)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
+                SidebarMetadataLine(
+                    text: detailText,
+                    prominence: .tertiary
+                )
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private var unreadDot: some View {
+        if notification.isRead {
+            Color.clear
+                .frame(width: 6, height: 6)
+        } else {
+            Circle()
+                .fill(.red)
+                .frame(width: 6, height: 6)
+        }
     }
 
     private var relativeTime: String {

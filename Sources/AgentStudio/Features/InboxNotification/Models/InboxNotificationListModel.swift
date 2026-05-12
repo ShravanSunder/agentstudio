@@ -10,11 +10,25 @@ enum InboxNotificationListEndpoint {
     case last
 }
 
+struct InboxNotificationListSectionHeader: Equatable {
+    enum Style: Equatable {
+        case plain
+        case repo(organizationName: String?)
+    }
+
+    let label: String?
+    let style: Style
+}
+
 struct InboxNotificationListSection: Identifiable, Equatable {
     let id: String
-    let label: String?
+    let header: InboxNotificationListSectionHeader?
     let notifications: [InboxNotification]
     let isCollapsed: Bool
+
+    var label: String? {
+        header?.label
+    }
 
     var unreadCount: Int {
         notifications.reduce(0) { count, notification in
@@ -175,7 +189,7 @@ struct InboxNotificationListModel: Equatable {
             return [
                 InboxNotificationListSection(
                     id: ungroupedKey,
-                    label: nil,
+                    header: nil,
                     notifications: notifications,
                     isCollapsed: collapsedGroups.contains(InboxNotificationGroupKey(ungroupedKey))
                 )
@@ -188,14 +202,21 @@ struct InboxNotificationListModel: Equatable {
                     if let repoName = notification.repoName { return .repoName(repoName) }
                     return .noRepo
                 },
-                label: { key, notifications in
+                header: { key, notifications in
                     switch key {
                     case .repoName(let name):
-                        return name
+                        return .repo(label: name, organizationName: nil)
                     case .noRepo:
-                        return "Other sources"
+                        return .plain(label: "Other sources")
                     default:
-                        return bestGroupLabel(for: notifications, grouping: .byRepo, placeholder: "Other sources")
+                        return .repo(
+                            label: bestGroupLabel(
+                                for: notifications,
+                                grouping: .byRepo,
+                                placeholder: "Other sources"
+                            ),
+                            organizationName: nil
+                        )
                     }
                 },
                 collapsedGroups: collapsedGroups
@@ -207,8 +228,8 @@ struct InboxNotificationListModel: Equatable {
                     guard let paneId = notification.paneId else { return .noPane }
                     return .pane(id: paneId)
                 },
-                label: { _, notifications in
-                    bestGroupLabel(for: notifications, grouping: .byPane, placeholder: "Other panes")
+                header: { _, notifications in
+                    .plain(label: bestGroupLabel(for: notifications, grouping: .byPane, placeholder: "Other panes"))
                 },
                 collapsedGroups: collapsedGroups
             )
@@ -219,8 +240,8 @@ struct InboxNotificationListModel: Equatable {
                     guard let tabId = notification.tabId else { return .noTab }
                     return .tab(id: tabId)
                 },
-                label: { _, notifications in
-                    bestGroupLabel(for: notifications, grouping: .byTab, placeholder: "Untitled Tab")
+                header: { _, notifications in
+                    .plain(label: bestGroupLabel(for: notifications, grouping: .byTab, placeholder: "Untitled Tab"))
                 },
                 collapsedGroups: collapsedGroups
             )
@@ -230,7 +251,7 @@ struct InboxNotificationListModel: Equatable {
     private static func buildGroupedSections(
         notifications: [InboxNotification],
         key: (InboxNotification) -> InboxNotificationSectionKey,
-        label: (InboxNotificationSectionKey, [InboxNotification]) -> String,
+        header: (InboxNotificationSectionKey, [InboxNotification]) -> InboxNotificationListSectionHeader,
         collapsedGroups: Set<InboxNotificationGroupKey>
     ) -> [InboxNotificationListSection] {
         let buckets = Dictionary(grouping: notifications, by: key)
@@ -238,7 +259,7 @@ struct InboxNotificationListModel: Equatable {
             let groupId = groupKey.id
             return InboxNotificationListSection(
                 id: groupId,
-                label: label(groupKey, notifications),
+                header: header(groupKey, notifications),
                 notifications: notifications,
                 isCollapsed: collapsedGroups.contains(InboxNotificationGroupKey(groupId))
             )
@@ -263,5 +284,15 @@ struct InboxNotificationListModel: Equatable {
             .lazy
             .map { InboxNotificationSourceDisplay.groupLabel(for: $0, grouping: grouping) }
             .first { !$0.isEmpty && $0 != placeholder } ?? placeholder
+    }
+}
+
+extension InboxNotificationListSectionHeader {
+    static func plain(label: String) -> Self {
+        Self(label: label, style: .plain)
+    }
+
+    static func repo(label: String, organizationName: String?) -> Self {
+        Self(label: label, style: .repo(organizationName: organizationName))
     }
 }

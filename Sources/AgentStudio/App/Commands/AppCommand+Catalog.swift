@@ -584,8 +584,8 @@ extension AppCommand {
                 label: "Clear Inbox Notifications",
                 icon: .system(.trash),
                 helpText: "Clear all notification history from the sidebar inbox",
-                commandBarGroupName: "Inbox",
-                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
+                commandBarGroupName: "Window",
+                commandBarGroupPriority: CommandBarGroupPriority.window
             )
         case .showPaneInboxNotifications:
             return CommandSpec(

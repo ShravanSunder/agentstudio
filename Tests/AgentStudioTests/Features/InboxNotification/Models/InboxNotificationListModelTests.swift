@@ -15,6 +15,7 @@ struct InboxNotificationListModelTests {
         var worktreeName: String?
         var branchName: String?
         var paneDisplayLabel: String?
+        var paneOrdinal: Int?
         var paneRole: InboxNotification.PaneSource.PaneRole = .main
         var parentPaneId: UUID?
         var parentPaneDisplayLabel: String?
@@ -36,6 +37,7 @@ struct InboxNotificationListModelTests {
         worktreeName: String? = nil,
         branchName: String? = nil,
         paneDisplayLabel: String? = nil,
+        paneOrdinal: Int? = nil,
         paneRole: InboxNotification.PaneSource.PaneRole = .main,
         parentPaneId: UUID? = nil,
         parentPaneDisplayLabel: String? = nil,
@@ -60,6 +62,7 @@ struct InboxNotificationListModelTests {
                     worktreeName: worktreeName,
                     branchName: branchName,
                     paneDisplayLabel: paneDisplayLabel,
+                    paneOrdinal: paneOrdinal,
                     paneRole: paneRole,
                     parentPaneId: parentPaneId,
                     parentPaneDisplayLabel: parentPaneDisplayLabel,
@@ -78,6 +81,7 @@ struct InboxNotificationListModelTests {
                 || context.repoName != nil || context.worktreeId != nil
                 || context.worktreeName != nil || context.branchName != nil
                 || context.tabDisplayLabel != nil || context.paneDisplayLabel != nil
+                || context.paneOrdinal != nil
                 || context.parentPaneDisplayLabel != nil || context.runtimeDisplayLabel != nil
         else {
             return .global
@@ -93,6 +97,7 @@ struct InboxNotificationListModelTests {
                 worktreeName: context.worktreeName,
                 branchName: context.branchName,
                 paneDisplayLabel: context.paneDisplayLabel,
+                paneOrdinal: context.paneOrdinal,
                 paneRole: context.paneRole,
                 parentPaneId: context.parentPaneId,
                 parentPaneDisplayLabel: context.parentPaneDisplayLabel,
@@ -264,7 +269,7 @@ struct InboxNotificationListModelTests {
 
         #expect(display.primaryText == "Claude Code")
         #expect(display.sourceLine == "agent-studio · notification-system / notification-inbox-redesign")
-        #expect(display.placementLine == "Main drawer 1: Gemini · Terminal")
+        #expect(display.placementLine == "Parent Main · Drawer 1: Gemini · Terminal")
         #expect(display.detailText == "waiting")
         #expect(display.searchText.contains("Gemini"))
     }
@@ -302,8 +307,8 @@ struct InboxNotificationListModelTests {
             rowContext: .paneInbox(parentPaneId: parentPaneId)
         )
 
-        #expect(parentDisplay.placementLine == "Terminal")
-        #expect(drawerDisplay.placementLine == "Drawer 2: Gemini · Terminal")
+        #expect(parentDisplay.placementLine == "Work · Terminal")
+        #expect(drawerDisplay.placementLine == "Work · Parent Claude · Drawer 2: Gemini · Terminal")
     }
 
     @Test("filter labels use denormalized names without uuid prefixes")
@@ -447,7 +452,135 @@ struct InboxNotificationListModelTests {
         )
 
         #expect(tabModel.sections.map(\.label) == ["Build"])
-        #expect(paneModel.sections.map(\.label) == ["Main drawer 1: Gemini"])
+        #expect(paneModel.sections.map(\.label) == ["Parent Main · Drawer 1: Gemini"])
+    }
+
+    @Test("repo grouping carries repo header presentation")
+    func repoGroupingCarriesRepoHeaderPresentation() {
+        let notification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Repo row",
+            repoName: "agent-studio",
+            worktreeName: "notification-system"
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [notification],
+            grouping: .byRepo,
+            sort: .oldestFirst,
+            searchText: ""
+        )
+
+        #expect(model.sections.map(\.label) == ["agent-studio"])
+        #expect(model.sections.first?.header?.style == .repo(organizationName: nil))
+    }
+
+    @Test("source display exposes tab pane drawer and runtime placement parts")
+    func sourceDisplayExposesPlacementParts() {
+        let parentPaneId = UUID()
+        let drawerPaneId = UUID()
+        let notification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Claude Code",
+            body: "Waiting for input",
+            paneId: drawerPaneId,
+            tabDisplayLabel: "Tab 2",
+            repoName: "agent-studio",
+            worktreeName: "notification-system",
+            paneDisplayLabel: "Gemini",
+            paneRole: .drawerChild,
+            parentPaneId: parentPaneId,
+            parentPaneDisplayLabel: "Main",
+            drawerOrdinal: 1,
+            runtimeDisplayLabel: "Terminal"
+        )
+
+        let display = InboxNotificationSourceDisplay(notification: notification)
+
+        #expect(display.sourceLine == "agent-studio · notification-system")
+        #expect(display.placementParts == ["Tab 2", "Parent Main · Drawer 1: Gemini", "Terminal"])
+        #expect(display.placementLine == "Tab 2 · Parent Main · Drawer 1: Gemini · Terminal")
+    }
+
+    @Test("source display includes pane number fallback when pane label is blank")
+    func sourceDisplayIncludesPaneNumberFallback() {
+        let notification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Claude Code",
+            tabDisplayLabel: "Tab 2",
+            paneDisplayLabel: nil,
+            paneOrdinal: 3,
+            paneRole: .main,
+            runtimeDisplayLabel: "Terminal"
+        )
+
+        let display = InboxNotificationSourceDisplay(notification: notification)
+
+        #expect(display.placementParts == ["Tab 2", "Pane 3", "Terminal"])
+    }
+
+    @Test("source display uses a single locator for untitled drawer children")
+    func sourceDisplayUsesSingleLocatorForUntitledDrawerChildren() {
+        let parentPaneId = UUID()
+        let notification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Claude Code",
+            tabDisplayLabel: "Tab 1",
+            paneDisplayLabel: nil,
+            paneOrdinal: 2,
+            paneRole: .drawerChild,
+            parentPaneId: parentPaneId,
+            parentPaneDisplayLabel: "Terminal",
+            drawerOrdinal: 1,
+            runtimeDisplayLabel: "Terminal"
+        )
+
+        let display = InboxNotificationSourceDisplay(notification: notification)
+
+        #expect(display.placementParts == ["Tab 1", "Pane 2 · Drawer 1", "Terminal"])
+        #expect(display.placementLine == "Tab 1 · Pane 2 · Drawer 1 · Terminal")
+        #expect(display.placementLine?.contains("Pane 2: Terminal") == false)
+        #expect(display.placementLine?.contains("Terminal · Terminal") == false)
+    }
+
+    @Test("pane inbox suppresses only redundant active parent pane self-placement")
+    func paneInboxSuppressesOnlyRedundantActiveParentPaneSelfPlacement() {
+        let parentPaneId = UUID()
+        let drawerPaneId = UUID()
+        let parent = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Parent",
+            paneId: parentPaneId,
+            tabDisplayLabel: "Tab 2",
+            paneDisplayLabel: "Main",
+            paneOrdinal: 1,
+            paneRole: .main,
+            runtimeDisplayLabel: "Terminal"
+        )
+        let drawer = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 200),
+            title: "Drawer",
+            paneId: drawerPaneId,
+            tabDisplayLabel: "Tab 2",
+            paneDisplayLabel: "Gemini",
+            paneRole: .drawerChild,
+            parentPaneId: parentPaneId,
+            parentPaneDisplayLabel: "Main",
+            drawerOrdinal: 1,
+            runtimeDisplayLabel: "Terminal"
+        )
+
+        let parentDisplay = InboxNotificationSourceDisplay(
+            notification: parent,
+            rowContext: .paneInbox(parentPaneId: parentPaneId)
+        )
+        let drawerDisplay = InboxNotificationSourceDisplay(
+            notification: drawer,
+            rowContext: .paneInbox(parentPaneId: parentPaneId)
+        )
+
+        #expect(parentDisplay.placementParts == ["Tab 2", "Terminal"])
+        #expect(drawerDisplay.placementParts == ["Tab 2", "Parent Main · Drawer 1: Gemini", "Terminal"])
     }
 
     @Test("collapsed grouped sections keep unread counts but hide rows")
@@ -619,19 +752,19 @@ struct InboxNotificationListModelTests {
             timestamp: Date(timeIntervalSince1970: 100),
             title: "First",
             paneId: firstPane,
-            worktreeName: "A"
+            paneDisplayLabel: "A"
         )
         let collapsed = makeInboxNotification(
             timestamp: Date(timeIntervalSince1970: 200),
             title: "Collapsed",
             paneId: collapsedPane,
-            worktreeName: "B"
+            paneDisplayLabel: "B"
         )
         let third = makeInboxNotification(
             timestamp: Date(timeIntervalSince1970: 300),
             title: "Third",
             paneId: thirdPane,
-            worktreeName: "C"
+            paneDisplayLabel: "C"
         )
         let model = InboxNotificationListModel(
             notifications: [first, collapsed, third],

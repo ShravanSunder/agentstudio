@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import AgentStudio
@@ -194,6 +196,53 @@ struct PaneInboxNotificationPopoverTests {
         #expect(commandHandler.executedCommands.first?.2 == .pane)
     }
 
+    @Test("mounted pane inbox clear button dispatches targeted clear command")
+    func mountedPaneInboxClearButtonDispatchesTargetedClearCommand() async throws {
+        let previousRouter = CommandDispatcher.shared.appCommandRouter
+        let previousHandler = CommandDispatcher.shared.handler
+        defer {
+            CommandDispatcher.shared.appCommandRouter = previousRouter
+            CommandDispatcher.shared.handler = previousHandler
+        }
+
+        let parentPaneId = UUID()
+        let commandHandler = MockCommandHandler()
+        commandHandler.targetedCanExecuteResult = true
+        CommandDispatcher.shared.appCommandRouter = nil
+        CommandDispatcher.shared.handler = commandHandler
+        let hostingView = NSHostingView(
+            rootView: PaneInboxNotificationPopover(
+                parentPaneId: parentPaneId,
+                paneIds: [parentPaneId],
+                inboxAtom: InboxNotificationAtom(),
+                dispatcher: .shared,
+                onActivate: { _ in },
+                onClose: {}
+            )
+        )
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 520, height: 360),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        hostingView.layoutSubtreeIfNeeded()
+
+        let clearButton = try #require(
+            findAccessibleElement(in: hostingView, identifier: "paneInboxClearButton")
+        )
+
+        #expect(accessibleElementCount(in: hostingView, identifier: "paneInboxClearButton") == 1)
+        pressAccessibleElement(clearButton)
+        #expect(commandHandler.executedCommands.count == 1)
+        #expect(commandHandler.executedCommands.first?.0 == .clearPaneInboxNotifications)
+        #expect(commandHandler.executedCommands.first?.1 == parentPaneId)
+        #expect(commandHandler.executedCommands.first?.2 == .pane)
+    }
+
     @Test("pane inbox rows participate in shared hover behavior")
     func paneInboxRowsParticipateInSharedHoverBehavior() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
@@ -258,4 +307,81 @@ struct PaneInboxNotificationPopoverTests {
             drawerPane.id: drawerPane,
         ]
     }
+}
+
+@MainActor
+private func findAccessibleElement(in root: AnyObject, identifier: String) -> AnyObject? {
+    var visited: Set<ObjectIdentifier> = []
+    return findAccessibleElement(in: root, identifier: identifier, visited: &visited)
+}
+
+@MainActor
+private func findAccessibleElement(
+    in element: AnyObject,
+    identifier: String,
+    visited: inout Set<ObjectIdentifier>
+) -> AnyObject? {
+    let objectIdentifier = ObjectIdentifier(element)
+    guard visited.insert(objectIdentifier).inserted else { return nil }
+
+    if accessibilityIdentifier(of: element) == identifier {
+        return element
+    }
+
+    for child in accessibilityChildren(of: element) {
+        if let match = findAccessibleElement(in: child, identifier: identifier, visited: &visited) {
+            return match
+        }
+    }
+
+    for subview in (element as? NSView)?.subviews ?? [] {
+        if let match = findAccessibleElement(in: subview, identifier: identifier, visited: &visited) {
+            return match
+        }
+    }
+
+    return nil
+}
+
+private func accessibilityIdentifier(of element: AnyObject) -> String? {
+    let selector = NSSelectorFromString("accessibilityIdentifier")
+    guard element.responds(to: selector) else { return nil }
+    return element.perform(selector)?.takeUnretainedValue() as? String
+}
+
+private func accessibilityChildren(of element: AnyObject) -> [AnyObject] {
+    let selector = NSSelectorFromString("accessibilityChildren")
+    guard element.responds(to: selector) else { return [] }
+    return element.perform(selector)?.takeUnretainedValue() as? [AnyObject] ?? []
+}
+
+private func pressAccessibleElement(_ element: AnyObject) {
+    let selector = NSSelectorFromString("accessibilityPerformPress")
+    guard element.responds(to: selector) else { return }
+    _ = element.perform(selector)
+}
+
+@MainActor
+private func accessibleElementCount(in root: AnyObject, identifier: String) -> Int {
+    var visited: Set<ObjectIdentifier> = []
+    return accessibleElementCount(in: root, identifier: identifier, visited: &visited)
+}
+
+@MainActor
+private func accessibleElementCount(
+    in element: AnyObject,
+    identifier: String,
+    visited: inout Set<ObjectIdentifier>
+) -> Int {
+    let objectIdentifier = ObjectIdentifier(element)
+    guard visited.insert(objectIdentifier).inserted else { return 0 }
+
+    let currentCount = accessibilityIdentifier(of: element) == identifier ? 1 : 0
+    let childCount = accessibilityChildren(of: element).reduce(0) { count, child in
+        count + accessibleElementCount(in: child, identifier: identifier, visited: &visited)
+    }
+    let subviewCount = ((element as? NSView)?.subviews ?? []).reduce(0) { count, subview in
+        count + accessibleElementCount(in: subview, identifier: identifier, visited: &visited)
+    }
+    return currentCount + childCount + subviewCount
 }

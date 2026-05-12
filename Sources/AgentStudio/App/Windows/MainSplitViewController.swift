@@ -234,7 +234,7 @@ class MainSplitViewController: NSSplitViewController {
         return width
     }
 
-    private func makePaneInboxPresentation() -> PaneInboxPresentation {
+    func makePaneInboxPresentation() -> PaneInboxPresentation {
         let inbox = inboxAtom
         let presenter = paneInboxPresenter
         return PaneInboxPresentation(

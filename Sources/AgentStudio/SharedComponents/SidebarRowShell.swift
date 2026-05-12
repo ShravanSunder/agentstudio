@@ -30,7 +30,7 @@ struct SidebarRowShell<Content: View>: View {
         isHovered: Bool
     ) -> Color {
         if isFlashing || isSelected {
-            return Color.accentColor.opacity(AppStyles.General.Fill.selected)
+            return Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowSelectedOpacity)
         }
         if isHovered {
             return Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity)

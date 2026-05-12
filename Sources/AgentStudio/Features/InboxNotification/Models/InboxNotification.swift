@@ -23,6 +23,7 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
         let worktree: NamedSource?
         let branchName: String?
         let paneDisplayLabel: String?
+        let paneOrdinal: Int?
         let paneRole: PaneRole
         let parentPaneId: UUID?
         let parentPaneDisplayLabel: String?
@@ -39,6 +40,7 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
             worktreeName: String? = nil,
             branchName: String? = nil,
             paneDisplayLabel: String? = nil,
+            paneOrdinal: Int? = nil,
             paneRole: PaneRole = .main,
             parentPaneId: UUID? = nil,
             parentPaneDisplayLabel: String? = nil,
@@ -58,6 +60,7 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
             )
             self.branchName = normalizedOptionalString(branchName)
             self.paneDisplayLabel = normalizedOptionalString(paneDisplayLabel)
+            self.paneOrdinal = paneOrdinal
             self.paneRole = paneRole
             self.parentPaneId = parentPaneId
             self.parentPaneDisplayLabel = normalizedOptionalString(parentPaneDisplayLabel)
@@ -76,6 +79,7 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
             branchName = normalizedOptionalString(try container.decodeIfPresent(String.self, forKey: .branchName))
             paneDisplayLabel = normalizedOptionalString(
                 try container.decodeIfPresent(String.self, forKey: .paneDisplayLabel))
+            paneOrdinal = try container.decodeIfPresent(Int.self, forKey: .paneOrdinal)
             paneRole = try container.decodeIfPresent(PaneRole.self, forKey: .paneRole) ?? .main
             parentPaneId = try container.decodeIfPresent(UUID.self, forKey: .parentPaneId)
             parentPaneDisplayLabel =
@@ -93,6 +97,7 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
             case worktree
             case branchName
             case paneDisplayLabel
+            case paneOrdinal
             case paneRole
             case parentPaneId
             case parentPaneDisplayLabel
@@ -172,6 +177,7 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
 
     var tabDisplayLabel: String? { paneContext?.tabDisplayLabel }
     var paneDisplayLabel: String? { paneContext?.paneDisplayLabel }
+    var paneOrdinal: Int? { paneContext?.paneOrdinal }
     var paneRole: PaneSource.PaneRole? { paneContext?.paneRole }
     var parentPaneDisplayLabel: String? { paneContext?.parentPaneDisplayLabel }
     var runtimeDisplayLabel: String? { paneContext?.runtimeDisplayLabel }

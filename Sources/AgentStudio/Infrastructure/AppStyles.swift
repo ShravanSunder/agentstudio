@@ -111,7 +111,10 @@ enum AppStyles {
             static let chipBorderOpacity: CGFloat = AppStyles.General.Fill.muted
             static let chipForegroundOpacity: CGFloat = 0.82
             static let chipMuteOverlayOpacity: CGFloat = 0.16
+            static let rowSelectedOpacity: CGFloat = AppStyles.General.Fill.selected
             static let rowHoverOpacity: CGFloat = AppStyles.General.Fill.pressed
+            static let badgeOffset: CGFloat = 4
+            static let badgeHitboxSize: CGFloat = AppStyles.General.Button.compact
 
             enum SearchField {
                 static let contentSpacing: CGFloat = AppStyles.General.Spacing.standard

@@ -33,7 +33,7 @@ extension InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].kind == .commandFinished)
         #expect(fixture.inboxAtom.notifications[0].paneId == drawerPane.id)
         #expect(fixture.inboxAtom.notifications[0].paneRole == .drawerChild)
-        #expect(fixture.inboxAtom.notifications[0].parentPaneDisplayLabel == "Terminal")
+        #expect(fixture.inboxAtom.notifications[0].parentPaneDisplayLabel == nil)
         #expect(fixture.inboxAtom.notifications[0].paneContext?.drawerOrdinal == 1)
         #expect(fixture.inboxAtom.notifications[0].runtimeDisplayLabel == "Terminal")
         #expect(fixture.inboxAtom.notifications[0].isRead == false)

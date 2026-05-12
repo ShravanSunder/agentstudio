@@ -3,7 +3,7 @@ import SwiftUI
 struct InboxSidebarActions {
     let onEscape: @MainActor @Sendable () -> Void
     let onToggleSort: () -> Void
-    let onClearAll: () -> Void
+    let onClearAll: @MainActor @Sendable () -> Void
     let onClearFilter: () -> Void
     let onSelectGrouping: (InboxNotificationGrouping) -> Void
     let onToggleGroupCollapse: (String) -> Void
@@ -96,6 +96,10 @@ struct InboxSidebarRootContainer: View {
 }
 
 struct InboxSidebarHeader: View {
+    private let sortIconName = "arrow.up.arrow.down.circle"
+    private let groupIconName = "square.stack.3d.up"
+    private let filterIconName = "line.3.horizontal.decrease.circle"
+
     @Binding var searchText: String
     let activeFilterLabel: String?
     let sort: InboxNotificationSort
@@ -124,10 +128,10 @@ struct InboxSidebarHeader: View {
                 )
 
                 Button(action: actions.onToggleSort) {
-                    Image(systemName: sort == .newestFirst ? "arrow.down" : "arrow.up")
+                    Image(systemName: sortIconName)
                 }
                 .buttonStyle(.borderless)
-                .help(sort == .newestFirst ? "Newest notifications first" : "Oldest notifications first")
+                .help("Sort notifications")
 
                 Button(action: actions.onClearAll) {
                     AppCommand.clearInboxNotifications.definition.icon.swiftUIImage(
@@ -140,14 +144,27 @@ struct InboxSidebarHeader: View {
                 }
                 .buttonStyle(.borderless)
                 .help(AppCommand.clearInboxNotifications.definition.controlToolTip)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(AppCommand.clearInboxNotifications.definition.label)
+                .accessibilityIdentifier("inboxSidebarClearButton")
+                .accessibilityHidden(true)
+                .background(
+                    AccessibilityPressBridge(
+                        identifier: "inboxSidebarClearButton",
+                        label: AppCommand.clearInboxNotifications.definition.label,
+                        action: actions.onClearAll
+                    )
+                )
 
                 Button {
                     groupingMenuOpen.toggle()
                 } label: {
-                    Image(systemName: "line.3.horizontal.decrease.circle")
+                    Image(systemName: groupIconName)
                 }
                 .buttonStyle(.borderless)
                 .help("Group notifications")
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Group notifications")
                 .popover(isPresented: $groupingMenuOpen) {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(InboxNotificationGrouping.allCases, id: \.self) { candidate in
@@ -170,7 +187,7 @@ struct InboxSidebarHeader: View {
 
             if let activeFilterLabel {
                 HStack(spacing: 6) {
-                    Image(systemName: "line.3.horizontal.decrease.circle")
+                    Image(systemName: filterIconName)
                     Text(activeFilterLabel)
                         .lineLimit(1)
                     Button(action: actions.onClearFilter) {
@@ -214,22 +231,33 @@ struct InboxSidebarContent: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(sections) { section in
-                            if let label = section.label {
+                            if let header = section.header {
                                 InboxNotificationGroupHeader(
-                                    label: label,
+                                    header: header,
                                     unreadCount: section.unreadCount,
                                     isCollapsed: section.isCollapsed,
                                     onToggle: { actions.onToggleGroupCollapse(section.id) }
                                 )
                             }
                             ForEach(section.visibleNotifications) { notification in
-                                InboxSidebarNotificationRow(
-                                    notification: notification,
-                                    now: context.date,
-                                    focusedField: focusedField,
-                                    isFlashing: flashingRowIds.contains(notification.id),
-                                    actions: actions
-                                )
+                                if section.label == nil {
+                                    InboxSidebarNotificationRow(
+                                        notification: notification,
+                                        now: context.date,
+                                        focusedField: focusedField,
+                                        isFlashing: flashingRowIds.contains(notification.id),
+                                        actions: actions
+                                    )
+                                } else {
+                                    InboxSidebarNotificationRow(
+                                        notification: notification,
+                                        now: context.date,
+                                        focusedField: focusedField,
+                                        isFlashing: flashingRowIds.contains(notification.id),
+                                        actions: actions
+                                    )
+                                    .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
+                                }
                             }
                         }
                     }

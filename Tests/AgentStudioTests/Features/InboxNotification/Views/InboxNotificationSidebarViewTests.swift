@@ -121,6 +121,97 @@ struct InboxNotificationSidebarViewTests {
         #expect(router.handledCommands == [.clearInboxNotifications])
     }
 
+    @Test("mounted inbox sidebar clear button dispatches clear command")
+    func mountedInboxSidebarClearButtonDispatchesClearCommand() async throws {
+        let previousRouter = CommandDispatcher.shared.appCommandRouter
+        let previousHandler = CommandDispatcher.shared.handler
+        defer {
+            CommandDispatcher.shared.appCommandRouter = previousRouter
+            CommandDispatcher.shared.handler = previousHandler
+        }
+
+        let router = MockAppCommandRouter()
+        router.appCommands = [.clearInboxNotifications]
+        CommandDispatcher.shared.appCommandRouter = router
+        CommandDispatcher.shared.handler = nil
+        let hostingView = NSHostingView(
+            rootView: InboxNotificationSidebarView(
+                inboxAtom: InboxNotificationAtom(),
+                prefsAtom: InboxNotificationPrefsAtom(),
+                uiState: UIStateAtom(),
+                sidebarCache: SidebarCacheAtom(),
+                inboxFilterDraft: InboxFilterDraftAtom(),
+                workspacePaneAtom: WorkspacePaneAtom(),
+                dispatcher: .shared,
+                onRefocusActivePane: {}
+            )
+            .frame(width: 360, height: 420)
+        )
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 360, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        hostingView.layoutSubtreeIfNeeded()
+
+        let clearButton = try #require(
+            findAccessibleElement(in: hostingView, identifier: "inboxSidebarClearButton")
+        )
+
+        #expect(accessibleElementCount(in: hostingView, identifier: "inboxSidebarClearButton") == 1)
+        pressAccessibleElement(clearButton)
+        #expect(router.handledCommands == [.clearInboxNotifications])
+    }
+
+    @Test("inbox header controls use distinct symbols and grouped row indentation")
+    func inboxHeaderControlsUseDistinctSymbolsAndGroupedRowIndentation() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let source = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/InboxNotification/Views/InboxSidebarComponents.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(source.contains("\"arrow.up.arrow.down.circle\""))
+        #expect(source.contains("\"square.stack.3d.up\""))
+        #expect(source.contains("\"line.3.horizontal.decrease.circle\""))
+        #expect(source.contains("sort == .newestFirst ? \"arrow.down\" : \"arrow.up\"") == false)
+        #expect(source.contains("\"rectangle.3.group\"") == false)
+        #expect(source.contains(".padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)"))
+    }
+
+    @Test("repo grouped inbox and repo explorer use shared repo header chrome")
+    func repoGroupedInboxAndRepoExplorerUseSharedRepoHeaderChrome() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let inboxHeaderSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/InboxNotification/Components/InboxNotificationGroupHeader.swift"
+            ),
+            encoding: .utf8
+        )
+        let repoExplorerSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"
+            ),
+            encoding: .utf8
+        )
+        let sharedHeaderSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/SharedComponents/SidebarRepoGroupHeader.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(inboxHeaderSource.contains("SidebarRepoGroupHeader("))
+        #expect(repoExplorerSource.contains("SidebarRepoGroupHeader("))
+        #expect(sharedHeaderSource.contains("AppStyles.Shell.Sidebar.listRowLeadingInset"))
+    }
+
     @Test("focus bridge publishes sidebar focus and escape callback through mounted view")
     func focusBridgePublishesMountedViewEvents() async throws {
         let uiState = UIStateAtom()
@@ -293,4 +384,81 @@ private func findDescendant(in view: NSView, identifier: String) -> NSView? {
     }
 
     return nil
+}
+
+@MainActor
+private func findAccessibleElement(in root: AnyObject, identifier: String) -> AnyObject? {
+    var visited: Set<ObjectIdentifier> = []
+    return findAccessibleElement(in: root, identifier: identifier, visited: &visited)
+}
+
+@MainActor
+private func findAccessibleElement(
+    in element: AnyObject,
+    identifier: String,
+    visited: inout Set<ObjectIdentifier>
+) -> AnyObject? {
+    let objectIdentifier = ObjectIdentifier(element)
+    guard visited.insert(objectIdentifier).inserted else { return nil }
+
+    if accessibilityIdentifier(of: element) == identifier {
+        return element
+    }
+
+    for child in accessibilityChildren(of: element) {
+        if let match = findAccessibleElement(in: child, identifier: identifier, visited: &visited) {
+            return match
+        }
+    }
+
+    for subview in (element as? NSView)?.subviews ?? [] {
+        if let match = findAccessibleElement(in: subview, identifier: identifier, visited: &visited) {
+            return match
+        }
+    }
+
+    return nil
+}
+
+private func accessibilityIdentifier(of element: AnyObject) -> String? {
+    let selector = NSSelectorFromString("accessibilityIdentifier")
+    guard element.responds(to: selector) else { return nil }
+    return element.perform(selector)?.takeUnretainedValue() as? String
+}
+
+private func accessibilityChildren(of element: AnyObject) -> [AnyObject] {
+    let selector = NSSelectorFromString("accessibilityChildren")
+    guard element.responds(to: selector) else { return [] }
+    return element.perform(selector)?.takeUnretainedValue() as? [AnyObject] ?? []
+}
+
+private func pressAccessibleElement(_ element: AnyObject) {
+    let selector = NSSelectorFromString("accessibilityPerformPress")
+    guard element.responds(to: selector) else { return }
+    _ = element.perform(selector)
+}
+
+@MainActor
+private func accessibleElementCount(in root: AnyObject, identifier: String) -> Int {
+    var visited: Set<ObjectIdentifier> = []
+    return accessibleElementCount(in: root, identifier: identifier, visited: &visited)
+}
+
+@MainActor
+private func accessibleElementCount(
+    in element: AnyObject,
+    identifier: String,
+    visited: inout Set<ObjectIdentifier>
+) -> Int {
+    let objectIdentifier = ObjectIdentifier(element)
+    guard visited.insert(objectIdentifier).inserted else { return 0 }
+
+    let currentCount = accessibilityIdentifier(of: element) == identifier ? 1 : 0
+    let childCount = accessibilityChildren(of: element).reduce(0) { count, child in
+        count + accessibleElementCount(in: child, identifier: identifier, visited: &visited)
+    }
+    let subviewCount = ((element as? NSView)?.subviews ?? []).reduce(0) { count, subview in
+        count + accessibleElementCount(in: subview, identifier: identifier, visited: &visited)
+    }
+    return currentCount + childCount + subviewCount
 }

@@ -219,7 +219,7 @@ struct InboxNotificationRouterTests {
         #expect(fixture.inboxAtom.notifications[0].body == "exit 0")
         #expect(fixture.inboxAtom.notifications[0].paneId == paneId.uuid)
         #expect(fixture.inboxAtom.notifications[0].tabDisplayLabel == "Tab 1")
-        #expect(fixture.inboxAtom.notifications[0].paneDisplayLabel == "Terminal")
+        #expect(fixture.inboxAtom.notifications[0].paneDisplayLabel == nil)
         #expect(fixture.inboxAtom.notifications[0].paneRole == .main)
         #expect(fixture.inboxAtom.notifications[0].runtimeDisplayLabel == "Terminal")
         await fixture.router.stop()

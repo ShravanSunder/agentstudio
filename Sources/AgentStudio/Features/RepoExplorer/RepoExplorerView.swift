@@ -207,21 +207,16 @@ struct RepoExplorerView: View {
             ForEach(resolvedListEntries) { entry in
                 switch entry {
                 case .resolvedGroupHeader(let group):
-                    Button {
-                        toggleGroupExpansion(group.id)
-                    } label: {
-                        RepoExplorerResolvedGroupHeaderRow(
-                            isExpanded: isGroupExpanded(group.id),
-                            repoTitle: group.repoTitle,
-                            organizationName: group.organizationName
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .contentShape(Rectangle())
+                    SidebarRepoGroupHeader(
+                        isCollapsed: !isGroupExpanded(group.id),
+                        repoTitle: group.repoTitle,
+                        organizationName: group.organizationName,
+                        onToggle: { toggleGroupExpansion(group.id) }
+                    )
                     .listRowInsets(
                         EdgeInsets(
                             top: 0,
-                            leading: AppStyles.Shell.Sidebar.listRowLeadingInset,
+                            leading: 0,
                             bottom: 0,
                             trailing: 0
                         )

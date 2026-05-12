@@ -21,6 +21,7 @@ typealias MainSplitViewControllerTestSidebarBuilder =
 @MainActor
 private func makeMainSplitViewControllerHarness(
     withRepos: Bool,
+    inboxAtom: InboxNotificationAtom,
     configureUIState: @MainActor (UIStateAtom) -> Void,
     configureWorkspaceMetadata: @MainActor (WorkspaceMetadataAtom) -> Void,
     sidebarRootViewBuilder: @escaping MainSplitViewControllerTestSidebarBuilder
@@ -70,7 +71,7 @@ private func makeMainSplitViewControllerHarness(
         appLifecycleStore: appLifecycleStore,
         tabBarAdapter: tabBarAdapter,
         viewRegistry: viewRegistry,
-        inboxAtom: InboxNotificationAtom(),
+        inboxAtom: inboxAtom,
         inboxPrefsAtom: InboxNotificationPrefsAtom(),
         paneInboxPresenter: PaneInboxNotificationPresenter(),
         sidebarRootViewBuilder: { dependencies in
@@ -97,6 +98,7 @@ private func makeMainSplitViewControllerHarness(
 @MainActor
 func withMainSplitViewControllerHarness<T>(
     withRepos: Bool = true,
+    inboxAtom: InboxNotificationAtom = InboxNotificationAtom(),
     configureUIState: @MainActor (UIStateAtom) -> Void = { _ in },
     configureWorkspaceMetadata: @MainActor (WorkspaceMetadataAtom) -> Void = { _ in },
     sidebarRootViewBuilder: @escaping MainSplitViewControllerTestSidebarBuilder = { uiState, onEscape in
@@ -106,6 +108,7 @@ func withMainSplitViewControllerHarness<T>(
 ) async rethrows -> T {
     let harness = makeMainSplitViewControllerHarness(
         withRepos: withRepos,
+        inboxAtom: inboxAtom,
         configureUIState: configureUIState,
         configureWorkspaceMetadata: configureWorkspaceMetadata,
         sidebarRootViewBuilder: sidebarRootViewBuilder
@@ -130,6 +133,7 @@ func withMainSplitViewControllerHarness<T>(
 @MainActor
 func withUnloadedMainSplitViewControllerHarness<T>(
     withRepos: Bool = true,
+    inboxAtom: InboxNotificationAtom = InboxNotificationAtom(),
     configureUIState: @MainActor (UIStateAtom) -> Void = { _ in },
     configureWorkspaceMetadata: @MainActor (WorkspaceMetadataAtom) -> Void = { _ in },
     sidebarRootViewBuilder: @escaping MainSplitViewControllerTestSidebarBuilder = { uiState, onEscape in
@@ -139,6 +143,7 @@ func withUnloadedMainSplitViewControllerHarness<T>(
 ) async rethrows -> T {
     let harness = makeMainSplitViewControllerHarness(
         withRepos: withRepos,
+        inboxAtom: inboxAtom,
         configureUIState: configureUIState,
         configureWorkspaceMetadata: configureWorkspaceMetadata,
         sidebarRootViewBuilder: sidebarRootViewBuilder
