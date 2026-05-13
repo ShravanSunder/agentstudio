@@ -7,8 +7,8 @@ private let terminalActivityRouterLogger = Logger(
 )
 
 @MainActor
-/// Leaf runtime-bus subscriber that projects high-churn terminal facts into
-/// `TerminalActivityAtom`; inbox-worthy promotion stays in the notification router.
+/// Subscribes to the runtime bus, projects high-churn terminal facts into
+/// `TerminalActivityAtom`, and emits settled terminal activity facts for inbox promotion.
 final class TerminalActivityRouter {
     private struct TraceRequest: Sendable {
         let tag: AgentStudioTraceTag
@@ -29,11 +29,15 @@ final class TerminalActivityRouter {
         var rowsAdded: Int
         var baselineRows: Int
         var latestRows: Int
+        var latestIsPinnedToBottom: Bool
         var didEmitExtended: Bool
+        var didEmitInitialActivity: Bool
         var didEmitBurst: Bool
         var generation: Int
+        var lastEnvelopeTimestamp: ContinuousClock.Instant
         var lastCorrelationId: UUID?
         var lastCausationId: UUID?
+        var lastCommandId: UUID?
     }
 
     private let bus: EventBus<RuntimeEnvelope>
@@ -44,19 +48,22 @@ final class TerminalActivityRouter {
     private let unseenActivityDebounceMilliseconds: Int
     private let unseenActivityClock: any Clock<Duration>
     private let nowMilliseconds: @Sendable () -> Int64
+    private let isPaneCurrentlyAttended: @MainActor (UUID) -> Bool
 
     private var busTask: Task<Void, Never>?
     private var traceContinuation: AsyncStream<TraceRequest>.Continuation?
     private var traceWorkerTask: Task<Void, Never>?
     private var unseenActivityWindows: [UUID: UnseenActivityWindow] = [:]
     private var unseenActivityCloseTasksByPaneId: [UUID: Task<Void, Never>] = [:]
+    private var derivedActivitySequence: UInt64 = 0
 
     init(
         bus: EventBus<RuntimeEnvelope>,
         activityAtom: TerminalActivityAtom,
         attendedPane: AttendedPaneAtom? = nil,
         traceRuntime: AgentStudioTraceRuntime? = nil,
-        unseenActivityDebounceDuration: Duration = .milliseconds(750),
+        isPaneCurrentlyAttended: (@MainActor (UUID) -> Bool)? = nil,
+        unseenActivityDebounceDuration: Duration = AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration,
         unseenActivityClock: any Clock<Duration> = ContinuousClock(),
         nowMilliseconds: @escaping @Sendable () -> Int64 = {
             Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
@@ -70,6 +77,11 @@ final class TerminalActivityRouter {
         self.unseenActivityDebounceMilliseconds = Self.milliseconds(from: unseenActivityDebounceDuration)
         self.unseenActivityClock = unseenActivityClock
         self.nowMilliseconds = nowMilliseconds
+        self.isPaneCurrentlyAttended =
+            isPaneCurrentlyAttended
+            ?? { [weak attendedPane] paneId in
+                attendedPane?.attendedPaneId == paneId
+            }
     }
 
     deinit {
@@ -89,7 +101,7 @@ final class TerminalActivityRouter {
             for await envelope in stream {
                 guard !Task.isCancelled else { return }
                 guard let self, !Task.isCancelled else { return }
-                self.consume(envelope)
+                await self.consume(envelope)
             }
             if !Task.isCancelled {
                 terminalActivityRouterLogger.warning(
@@ -107,22 +119,26 @@ final class TerminalActivityRouter {
         await drainTraceRecords()
     }
 
-    private func consume(_ envelope: RuntimeEnvelope) {
+    func markUnseenActivityObserved(paneId: UUID) {
+        closeUnseenActivityWindowWithoutSettling(paneId: paneId, reason: "inbox.observed")
+    }
+
+    private func consume(_ envelope: RuntimeEnvelope) async {
         guard case .pane(let paneEnvelope) = envelope else { return }
         activityAtom.consume(paneEnvelope)
         if case .lifecycle(.paneClosed) = paneEnvelope.event {
-            closeUnseenActivityWindow(paneId: paneEnvelope.paneId.uuid, reason: "pane.closed")
+            closeUnseenActivityWindowWithoutSettling(paneId: paneEnvelope.paneId.uuid, reason: "pane.closed")
         }
-        traceTerminalActivity(paneEnvelope)
+        await traceTerminalActivity(paneEnvelope)
     }
 
-    private func traceTerminalActivity(_ envelope: PaneEnvelope) {
+    private func traceTerminalActivity(_ envelope: PaneEnvelope) async {
         guard case .terminal(let event) = envelope.event else { return }
-        guard traceRuntime != nil else { return }
         if case .scrollbarChanged(let state) = event {
-            traceUnseenActivityIfNeeded(envelope, scrollbarState: state)
+            await traceUnseenActivityIfNeeded(envelope, scrollbarState: state)
             return
         }
+        guard traceRuntime != nil else { return }
         guard !RuntimeEnvelopeTraceSummary.isHighVolumeActivityOnly(envelope.event) else { return }
         ensureTraceWorkerStarted()
         traceEventBusDelivery(envelope)
@@ -163,6 +179,7 @@ final class TerminalActivityRouter {
             bufferingPolicy: .bufferingNewest(AppPolicies.Diagnostics.traceEventQueueBufferLimit)
         )
         traceContinuation = continuation
+        // Detached worker avoids inheriting MainActor while trace I/O drains.
         // swiftlint:disable:next no_task_detached
         traceWorkerTask = Task.detached(priority: .utility) {
             for await request in stream {
@@ -197,8 +214,9 @@ final class TerminalActivityRouter {
     private func traceUnseenActivityIfNeeded(
         _ envelope: PaneEnvelope,
         scrollbarState: ScrollbarState
-    ) {
-        if let attendedPaneId = attendedPane?.attendedPaneId, envelope.paneId.uuid == attendedPaneId {
+    ) async {
+        if isPaneCurrentlyAttended(envelope.paneId.uuid) {
+            closeUnseenActivityWindowWithoutSettling(paneId: envelope.paneId.uuid, reason: "pane.attended")
             return
         }
 
@@ -217,20 +235,27 @@ final class TerminalActivityRouter {
                 rowsAdded: 0,
                 baselineRows: scrollbarState.total,
                 latestRows: scrollbarState.total,
+                latestIsPinnedToBottom: scrollbarState.isPinnedToBottom,
                 didEmitExtended: false,
+                didEmitInitialActivity: false,
                 didEmitBurst: false,
                 generation: 0,
+                lastEnvelopeTimestamp: envelope.timestamp,
                 lastCorrelationId: nil,
-                lastCausationId: nil
+                lastCausationId: nil,
+                lastCommandId: nil
             )
         let isNewWindow = window.eventCount == 0
         window.eventCount += 1
         window.lastObservedAtMilliseconds = observedAtMilliseconds
         window.latestRows = scrollbarState.total
+        window.latestIsPinnedToBottom = scrollbarState.isPinnedToBottom
         window.rowsAdded = max(window.rowsAdded, max(0, scrollbarState.total - window.baselineRows))
         window.generation += 1
+        window.lastEnvelopeTimestamp = envelope.timestamp
         window.lastCorrelationId = envelope.correlationId
         window.lastCausationId = envelope.causationId
+        window.lastCommandId = envelope.commandId
         unseenActivityCloseTasksByPaneId[paneId]?.cancel()
         let generation = window.generation
         unseenActivityWindows[paneId] = window
@@ -250,7 +275,20 @@ final class TerminalActivityRouter {
                 envelope: envelope
             )
         }
-        if !window.didEmitBurst, window.rowsAdded >= window.thresholdRows {
+        if !window.didEmitInitialActivity, window.rowsAdded > 0 {
+            window.didEmitInitialActivity = true
+            if window.rowsAdded >= window.thresholdRows {
+                window.didEmitBurst = true
+            }
+            unseenActivityWindows[paneId] = window
+            traceUnseenActivityWindow(
+                body: window.rowsAdded >= window.thresholdRows
+                    ? "terminal.activity.outputBurst"
+                    : "terminal.activity.outputStarted",
+                window: window,
+                envelope: envelope
+            )
+        } else if !window.didEmitBurst, window.rowsAdded >= window.thresholdRows {
             window.didEmitBurst = true
             unseenActivityWindows[paneId] = window
             traceUnseenActivityWindow(
@@ -262,23 +300,73 @@ final class TerminalActivityRouter {
         scheduleUnseenActivityClose(paneId: paneId, generation: generation)
     }
 
+    private func postSettledUnseenActivity(
+        window: UnseenActivityWindow
+    ) async {
+        guard window.rowsAdded > 0 else { return }
+        let activity = TerminalSettledActivity(
+            burstWindowId: window.id,
+            thresholdRows: window.thresholdRows,
+            debounceMilliseconds: window.debounceMilliseconds,
+            startedAtMilliseconds: window.startedAtMilliseconds,
+            settledAtMilliseconds: window.lastObservedAtMilliseconds + Int64(window.debounceMilliseconds),
+            eventCount: window.eventCount,
+            rowsAdded: window.rowsAdded,
+            baselineRows: window.baselineRows,
+            latestRows: window.latestRows,
+            isPinnedToBottom: window.latestIsPinnedToBottom
+        )
+        _ = await bus.post(
+            .pane(
+                PaneEnvelope(
+                    source: .system(.builtin(.terminalActivityRouter)),
+                    seq: nextDerivedActivitySequence(),
+                    timestamp: window.lastEnvelopeTimestamp,
+                    correlationId: window.lastCorrelationId,
+                    causationId: window.lastCausationId,
+                    commandId: window.lastCommandId,
+                    paneId: PaneId(uuid: window.paneId),
+                    paneKind: .terminal,
+                    event: .terminalActivity(.unseenActivitySettled(activity))
+                )
+            )
+        )
+    }
+
+    private func nextDerivedActivitySequence() -> UInt64 {
+        if derivedActivitySequence == .max {
+            terminalActivityRouterLogger.warning("Derived terminal activity sequence overflow; restarting at 1")
+            derivedActivitySequence = 0
+        }
+        derivedActivitySequence += 1
+        return derivedActivitySequence
+    }
+
     private func scheduleUnseenActivityClose(paneId: UUID, generation: Int) {
         unseenActivityCloseTasksByPaneId[paneId] = Task { @MainActor [weak self] in
             guard let self else { return }
             do {
                 try await unseenActivityClock.sleep(for: unseenActivityDebounceDuration)
+            } catch is CancellationError {
+                return
             } catch {
+                terminalActivityRouterLogger.error(
+                    "Unseen-activity debounce failed: \(error.localizedDescription, privacy: .public)"
+                )
+                await closeUnseenActivityWindow(paneId: paneId, generation: generation, reason: "quiet")
                 return
             }
-            closeUnseenActivityWindow(paneId: paneId, generation: generation, reason: "quiet")
+            await closeUnseenActivityWindow(paneId: paneId, generation: generation, reason: "quiet")
         }
     }
 
-    private func closeUnseenActivityWindow(paneId: UUID, generation: Int, reason: String) {
+    private func closeUnseenActivityWindow(paneId: UUID, generation: Int, reason: String) async {
         guard let window = unseenActivityWindows[paneId], window.generation == generation else { return }
-        unseenActivityCloseTasksByPaneId[paneId]?.cancel()
         unseenActivityCloseTasksByPaneId[paneId] = nil
         unseenActivityWindows[paneId] = nil
+        if reason == "quiet" {
+            await postSettledUnseenActivity(window: window)
+        }
         traceUnseenActivityWindow(
             body: "terminal.activity.unseenWindowClosed",
             window: window,
@@ -287,7 +375,7 @@ final class TerminalActivityRouter {
         )
     }
 
-    private func closeUnseenActivityWindow(paneId: UUID, reason: String) {
+    private func closeUnseenActivityWindowWithoutSettling(paneId: UUID, reason: String) {
         guard let window = unseenActivityWindows[paneId] else { return }
         unseenActivityCloseTasksByPaneId[paneId]?.cancel()
         unseenActivityCloseTasksByPaneId[paneId] = nil
@@ -335,6 +423,7 @@ final class TerminalActivityRouter {
             ),
             "terminal.activity.event_count": .int(window.eventCount),
             "terminal.activity.is_inferred": .bool(true),
+            "terminal.activity.is_pinned_to_bottom": .bool(window.latestIsPinnedToBottom),
             "terminal.activity.latest_rows": .int(window.latestRows),
             "terminal.activity.rows_added": .int(window.rowsAdded),
             "terminal.activity.source": .string("scrollbar"),

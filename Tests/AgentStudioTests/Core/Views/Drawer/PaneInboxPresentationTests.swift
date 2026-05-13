@@ -82,6 +82,7 @@ struct PaneInboxPresentationTests {
         )
         let presentation = PaneInboxPresentation(
             unreadCount: { requestedPaneIds in requestedPaneIds == paneIds ? 1 : 0 },
+            clear: { _, _ in },
             open: { _, _ in },
             toggle: { parentPaneId, paneIds in
                 openedParentPaneId = parentPaneId
@@ -121,13 +122,13 @@ struct PaneInboxPresentationTests {
         #expect(openedPaneIds == paneIds)
     }
 
-    @Test("pane inbox badge caps visible count instead of overstating the popover")
-    func paneInboxBadgeCapsVisibleCountInsteadOfOverstatingPopover() {
+    @Test("pane inbox badge caps at nine plus")
+    func paneInboxBadgeCapsAtNinePlus() {
         let badge = PaneInboxUnreadBadge(
-            unreadCount: AppPolicies.PaneInbox.maxVisibleNotifications + 5
+            unreadCount: 10
         )
 
-        #expect(badge?.text == "\(AppPolicies.PaneInbox.maxVisibleNotifications)+")
+        #expect(badge?.text == "9+")
     }
 
     private func makePaneLookup(

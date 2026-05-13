@@ -89,6 +89,16 @@ struct InboxNotificationRouterTests {
         atom.recordWindowBecameKey(id)
     }
 
+    func waitForAttendedPane(
+        _ paneId: UUID,
+        in fixture: Fixture,
+        description: String = "focus gain should mark pane attended"
+    ) async {
+        await assertEventuallyMain(description) {
+            fixture.attendedPane.attendedPaneId == paneId
+        }
+    }
+
     func addTerminalPane(
         _ paneId: PaneId,
         to fixture: Fixture,
@@ -217,8 +227,8 @@ struct InboxNotificationRouterTests {
         fixture.attendedPane.stop()
     }
 
-    @Test("missing pane context emits unresolved context trace before appending notification")
-    func missingPaneContextEmitsUnresolvedContextTrace() async throws {
+    @Test("missing pane context emits unresolved context trace and skips notification")
+    func missingPaneContextEmitsUnresolvedContextTraceAndSkipsNotification() async throws {
         let traceRuntime = makeTraceRuntime(name: "inbox-context-unresolved", processIdentifier: 272)
         let fixture = await makeFixture(traceRuntime: traceRuntime)
         let paneId = PaneId()
@@ -229,12 +239,21 @@ struct InboxNotificationRouterTests {
                 event: .terminal(.desktopNotificationRequested(title: "Done", body: "exit 0"))
             )
         )
-
+        let sentinelPaneId = PaneId()
+        _ = addTerminalPane(sentinelPaneId, to: fixture)
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: sentinelPaneId,
+                event: .agentNotificationRequested(title: "Sentinel", body: nil),
+                seq: 2
+            )
+        )
         await waitForNotificationCount(
             1,
             in: fixture,
-            description: "desktop notification should still append with unresolved context"
+            description: "sentinel event should prove missing-context event drained first"
         )
+
         let outputFileURL = try #require(traceRuntime.outputFileURL)
         await fixture.router.stop()
         await fixture.tracker.stop()
@@ -247,8 +266,7 @@ struct InboxNotificationRouterTests {
             unresolvedRecord.attributes["agentstudio.runtime.event"]
                 == .string("terminal.desktopNotificationRequested")
         )
-        #expect(fixture.inboxAtom.notifications[0].tabId == nil)
-        #expect(fixture.inboxAtom.notifications[0].repoId == nil)
+        #expect(fixture.inboxAtom.notifications.map(\.title) == ["Sentinel"])
     }
 
     @Test("inbox tracing records notify decisions and suppression reasons")
@@ -262,7 +280,7 @@ struct InboxNotificationRouterTests {
         _ = await fixture.bus.post(
             makePaneEnvelope(
                 paneId: paneId,
-                event: .terminal(.commandFinished(exitCode: 0, duration: 3)),
+                event: .terminal(.commandFinished(exitCode: 0, duration: 3_000_000_000)),
                 seq: 2
             )
         )
@@ -442,56 +460,42 @@ struct InboxNotificationRouterTests {
         fixture.attendedPane.stop()
     }
 
-    @Test("commandFinished only notifies for unfocused long-running commands")
+    @Test("commandFinished notifies only above the duration threshold")
     func commandFinishedGating() async {
         let fixture = await makeFixture()
-        makeWindowKey(fixture.windowLifecycle)
 
-        let focusedPaneId = PaneId()
-        _ = addTerminalPane(focusedPaneId, to: fixture)
+        let paneId = PaneId()
+        _ = addTerminalPane(paneId, to: fixture)
         await Task.yield()
 
         _ = await fixture.bus.post(
             makePaneEnvelope(
-                paneId: focusedPaneId,
-                event: .terminal(.commandFinished(exitCode: 0, duration: 20))
+                paneId: paneId,
+                event: .terminal(.commandFinished(exitCode: 0, duration: 3_000_000_000))
             )
         )
 
-        let unfocusedPaneId = PaneId()
-        _ = addTerminalPane(unfocusedPaneId, to: fixture)
-        fixture.tabLayout.setActiveTab(fixture.tabLayout.tabs.first?.id)
-        await Task.yield()
-
         _ = await fixture.bus.post(
             makePaneEnvelope(
-                paneId: unfocusedPaneId,
-                event: .terminal(.commandFinished(exitCode: 0, duration: 3)),
+                paneId: paneId,
+                event: .terminal(.commandFinished(exitCode: 1, duration: 15_000_000_000)),
                 seq: 2
-            )
-        )
-
-        _ = await fixture.bus.post(
-            makePaneEnvelope(
-                paneId: unfocusedPaneId,
-                event: .terminal(.commandFinished(exitCode: 1, duration: 15)),
-                seq: 3
             )
         )
         await waitForNotificationCount(
             1,
             in: fixture,
-            description: "unattended long-running command should be routed once"
+            description: "long-running command should be routed once"
         )
         #expect(fixture.inboxAtom.notifications.count == 1)
         #expect(fixture.inboxAtom.notifications[0].kind == .commandFinished)
-        #expect(fixture.inboxAtom.notifications[0].paneId == unfocusedPaneId.uuid)
+        #expect(fixture.inboxAtom.notifications[0].paneId == paneId.uuid)
         await fixture.router.stop()
         await fixture.tracker.stop()
         fixture.attendedPane.stop()
     }
 
-    @Test("commandFinished uses attended pane instead of active tab for focus gating")
+    @Test("commandFinished routes active pane when no attended pane exists")
     func commandFinishedUsesAttendedPaneForFocusGating() async {
         let fixture = await makeFixture()
 
@@ -503,7 +507,7 @@ struct InboxNotificationRouterTests {
         _ = await fixture.bus.post(
             makePaneEnvelope(
                 paneId: paneId,
-                event: .terminal(.commandFinished(exitCode: 0, duration: 20))
+                event: .terminal(.commandFinished(exitCode: 0, duration: 20_000_000_000))
             )
         )
         await waitForNotificationCount(

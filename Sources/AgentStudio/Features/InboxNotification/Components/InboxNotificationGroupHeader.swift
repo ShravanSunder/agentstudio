@@ -7,28 +7,22 @@ struct InboxNotificationGroupHeader: View {
     let onToggle: () -> Void
 
     var body: some View {
-        Button(action: onToggle) {
-            HStack {
-                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+        SidebarSectionHeader(
+            title: label,
+            isExpanded: !isCollapsed,
+            onToggle: onToggle
+        ) {
+            if unreadCount > 0 {
+                Text("\(unreadCount)")
+                    .font(.system(size: AppStyles.Shell.Sidebar.chipFontSize, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .frame(width: 10)
-
-                Text(label)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                if unreadCount > 0 {
-                    Text("\(unreadCount)")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.red)
-                }
+                    .padding(.horizontal, AppStyles.Shell.Sidebar.countBadgeHorizontalPadding)
+                    .padding(.vertical, AppStyles.Shell.Sidebar.countBadgeVerticalPadding)
+                    .background(
+                        Capsule()
+                            .fill(Color.accentColor.opacity(AppStyles.Shell.Sidebar.countBadgeBackgroundOpacity))
+                    )
             }
         }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 2)
     }
 }

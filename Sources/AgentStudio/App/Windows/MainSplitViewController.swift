@@ -242,6 +242,9 @@ class MainSplitViewController: NSSplitViewController {
             unreadCount: { paneIds in
                 inbox.visiblePaneInboxUnreadCount(forPaneIds: paneIds)
             },
+            clear: { _, paneIds in
+                inbox.clearPaneInbox(paneIds: paneIds)
+            },
             open: { parentPaneId, paneIds in
                 presenter.open(parentPaneId: parentPaneId, paneIds: paneIds)
             },

@@ -437,8 +437,8 @@ final class WorkspacePaneAtom {
     }
 
     func setActiveDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) {
-        guard panes[parentPaneId] != nil,
-            let drawer = panes[parentPaneId]!.drawer,
+        guard var parentPane = panes[parentPaneId],
+            let drawer = parentPane.drawer,
             drawer.paneIds.contains(drawerPaneId)
         else {
             workspacePaneLogger.warning(
@@ -446,7 +446,8 @@ final class WorkspacePaneAtom {
             )
             return
         }
-        panes[parentPaneId]!.withDrawer { $0.activeChildId = drawerPaneId }
+        parentPane.withDrawer { $0.activeChildId = drawerPaneId }
+        panes[parentPaneId] = parentPane
     }
 
     func resizeDrawerPane(parentPaneId: UUID, splitId: UUID, ratio: Double) {

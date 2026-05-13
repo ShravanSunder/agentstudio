@@ -138,6 +138,31 @@ struct TerminalActivityAtomTests {
         #expect(atom.snapshot(for: paneId.uuid)?.outputBurst.thresholdReached == true)
     }
 
+    @Test("scrollbar state records pinned-to-bottom observation")
+    func scrollbarStateRecordsPinnedToBottomObservation() {
+        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
+        let paneId = PaneId()
+
+        atom.consume(
+            paneEnvelope(
+                paneId: paneId,
+                event: .scrollbarChanged(ScrollbarState(top: 40, bottom: 80, total: 100))
+            )
+        )
+        #expect(atom.snapshot(for: paneId.uuid)?.scrollbarState?.isPinnedToBottom == false)
+        #expect(atom.snapshot(for: paneId.uuid)?.isPinnedToBottom == false)
+
+        atom.consume(
+            paneEnvelope(
+                paneId: paneId,
+                event: .scrollbarChanged(ScrollbarState(top: 80, bottom: 100, total: 100)),
+                seq: 2
+            )
+        )
+        #expect(atom.snapshot(for: paneId.uuid)?.scrollbarState?.isPinnedToBottom == true)
+        #expect(atom.snapshot(for: paneId.uuid)?.isPinnedToBottom == true)
+    }
+
     @Test("clear removes per-pane terminal activity")
     func clearRemovesPerPaneTerminalActivity() {
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)

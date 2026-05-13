@@ -14,14 +14,16 @@ extension InboxNotificationRouterTests {
         let drawerPane = try #require(
             fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
         )
+        fixture.paneAtom.toggleDrawer(for: parentPaneId.uuid)
         makeWindowKey(fixture.windowLifecycle)
         await Task.yield()
         #expect(fixture.attendedPane.attendedPaneId == parentPaneId.uuid)
+        #expect(fixture.paneAtom.pane(parentPaneId.uuid)?.drawer?.isExpanded == false)
 
         _ = await fixture.bus.post(
             makePaneEnvelope(
                 paneId: PaneId(uuid: drawerPane.id),
-                event: .terminal(.commandFinished(exitCode: 0, duration: 20))
+                event: .terminal(.commandFinished(exitCode: 0, duration: 20_000_000_000))
             )
         )
 
@@ -77,6 +79,41 @@ extension InboxNotificationRouterTests {
         #expect(visiblePaneInboxNotifications.map(\.title) == ["Gemini"])
         #expect(visiblePaneInboxNotifications.first?.isRead == false)
         #expect(visiblePaneInboxNotifications.first?.isDismissedFromPaneInbox == false)
+        await fixture.router.stop()
+        await fixture.tracker.stop()
+        fixture.attendedPane.stop()
+    }
+
+    @Test("desktop notification from focused drawer child appends read history")
+    func focusedDrawerChildDesktopNotificationAppendsReadHistory() async throws {
+        let fixture = await makeFixture()
+
+        let parentPaneId = PaneId()
+        _ = addTerminalPane(parentPaneId, to: fixture)
+        let drawerPane = try #require(
+            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+        )
+        makeWindowKey(fixture.windowLifecycle)
+        await Task.yield()
+        #expect(fixture.attendedPane.attendedPaneId == parentPaneId.uuid)
+
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: PaneId(uuid: drawerPane.id),
+                event: .terminal(.desktopNotificationRequested(title: "Gemini", body: "waiting for input"))
+            )
+        )
+
+        await waitForNotificationCount(
+            1,
+            in: fixture,
+            description: "focused drawer child desktop notification should append read history"
+        )
+        #expect(fixture.inboxAtom.notifications[0].kind == .agentDesktopNotification)
+        #expect(fixture.inboxAtom.notifications[0].paneId == drawerPane.id)
+        #expect(fixture.inboxAtom.notifications[0].isRead == true)
+        #expect(fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == true)
+        #expect(fixture.inboxAtom.globalUnreadCount == 0)
         await fixture.router.stop()
         await fixture.tracker.stop()
         fixture.attendedPane.stop()

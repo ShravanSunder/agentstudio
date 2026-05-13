@@ -203,6 +203,9 @@ fi
 echo "--- WebView serialized tests (serial) ---"
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgePaneControllerTests"
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgeSchemeHandlerSpikeTests"
+# Keep content-world probing in its own process; WebKit can crash when a
+# second WebPage follows this probe in the same swift-test process.
+run_webkit_suite_with_retry "WebKitSerializedTests/BridgeContentWorldIsolationTests"
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgeTransportIntegrationTests"
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgeWebKitSpikeTests"
 echo "--- E2E serialized tests (serial) ---"
@@ -262,6 +265,9 @@ fi
 echo "--- WebView serialized tests (serial, coverage) ---"
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgePaneControllerTests"
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgeSchemeHandlerSpikeTests"
+# Keep content-world probing in its own process; WebKit can crash when a
+# second WebPage follows this probe in the same swift-test process.
+run_webkit_suite_with_retry "WebKitSerializedTests/BridgeContentWorldIsolationTests"
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgeTransportIntegrationTests"
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgeWebKitSpikeTests"
 

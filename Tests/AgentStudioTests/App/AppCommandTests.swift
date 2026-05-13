@@ -325,16 +325,25 @@ final class AppCommandTests {
     @Test
     func test_sidebarAndPaneInboxDefinitions_areCommandBarVisibleWithShortcuts() {
         let sidebarInbox = CommandDispatcher.shared.definition(for: .showInboxNotifications)
+        let clearReadInbox = CommandDispatcher.shared.definition(for: .clearReadInboxNotifications)
         let paneInbox = CommandDispatcher.shared.definition(for: .showPaneInboxNotifications)
+        let clearPaneInbox = CommandDispatcher.shared.definition(for: .clearPaneInboxNotifications)
         let worktreeSidebar = CommandDispatcher.shared.definition(for: .showWorktreeSidebar)
 
         #expect(sidebarInbox.shortcut == .showInboxNotifications)
         #expect(!sidebarInbox.isHiddenInCommandBar)
+        #expect(clearReadInbox.label == "Clear Read Inbox Notifications")
+        #expect(clearReadInbox.icon == .system(.trash))
+        #expect(clearReadInbox.commandBarGroupName == "Inbox")
+        #expect(!clearReadInbox.isHiddenInCommandBar)
         #expect(paneInbox.shortcut == .showPaneInboxNotifications)
         #expect(paneInbox.appliesTo == [.pane])
         #expect(paneInbox.visibleWhen == [.hasActivePane])
         #expect(paneInbox.commandBarGroupName == "Pane")
         #expect(!paneInbox.isHiddenInCommandBar)
+        #expect(clearPaneInbox.label == "Mark Pane Inbox Seen")
+        #expect(clearPaneInbox.icon == .system(.eye))
+        #expect(clearPaneInbox.helpText.contains("seen"))
         #expect(worktreeSidebar.shortcut == .showWorktreeSidebar)
         #expect(!worktreeSidebar.isHiddenInCommandBar)
     }

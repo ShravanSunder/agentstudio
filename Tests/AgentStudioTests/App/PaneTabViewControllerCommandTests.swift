@@ -329,6 +329,24 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.paneInboxPresenter.request == nil)
     }
 
+    @Test("clearPaneInboxNotifications clears active parent pane scope")
+    func executeClearPaneInboxNotificationsClearsActiveParentPaneScope() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+
+        harness.controller.execute(.clearPaneInboxNotifications)
+
+        #expect(harness.launchRecorder.clearedPaneInboxRequests.count == 1)
+        #expect(harness.launchRecorder.clearedPaneInboxRequests.first?.parentPaneId == parentPane.id)
+        #expect(harness.launchRecorder.clearedPaneInboxRequests.first?.paneIds == [parentPane.id, drawerPane.id])
+    }
+
     @Test("targeted focusPane opens owning drawer and selects drawer child")
     func executeFocusPane_targetedDrawerChildOpensOwningDrawer() throws {
         let harness = makeHarness()

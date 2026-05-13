@@ -62,8 +62,10 @@ final class PaneInboxNotificationPresenter {
     func setPresented(parentPaneId: UUID, paneIds: [UUID], isPresented: Bool) {
         let target = PaneInboxTarget(parentPaneId: parentPaneId, paneIds: paneIds)
         if isPresented {
+            guard presentedTarget != target else { return }
             presentedTarget = target
-        } else if presentedTarget == target {
+        } else {
+            guard presentedTarget == target else { return }
             presentedTarget = nil
         }
         tracePaneInboxInteraction(

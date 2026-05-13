@@ -27,6 +27,81 @@ struct TerminalActivityRouterTests {
         }
     }
 
+    private final class SecondSleepFailsClock: Clock, @unchecked Sendable {
+        struct Instant: Sendable, Comparable, Hashable, InstantProtocol {
+            fileprivate let nanoseconds: Int64
+
+            func advanced(by duration: Duration) -> Self {
+                let components = duration.components
+                return .init(
+                    nanoseconds: nanoseconds
+                        + components.seconds * 1_000_000_000
+                        + components.attoseconds / 1_000_000_000
+                )
+            }
+
+            func duration(to other: Self) -> Duration {
+                .nanoseconds(other.nanoseconds - nanoseconds)
+            }
+
+            static func < (lhs: Self, rhs: Self) -> Bool {
+                lhs.nanoseconds < rhs.nanoseconds
+            }
+        }
+
+        private enum SleepFailure: Error {
+            case injected
+        }
+
+        private let lock = NSLock()
+        private var sleepCount = 0
+        private var pendingContinuations: [Int: UnsafeContinuation<Void, Error>] = [:]
+
+        var now: Instant { .init(nanoseconds: 0) }
+        var minimumResolution: Duration { .zero }
+
+        var startedSleepCount: Int {
+            lock.lock()
+            defer { lock.unlock() }
+            return sleepCount
+        }
+
+        func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
+            let generation = nextSleepGeneration()
+            if generation == 2 {
+                throw SleepFailure.injected
+            }
+
+            try await withTaskCancellationHandler {
+                try await withUnsafeThrowingContinuation { continuation in
+                    storeContinuation(continuation, for: generation)
+                }
+            } onCancel: {
+                cancel(generation)
+            }
+        }
+
+        private func nextSleepGeneration() -> Int {
+            lock.lock()
+            defer { lock.unlock() }
+            sleepCount += 1
+            return sleepCount
+        }
+
+        private func storeContinuation(_ continuation: UnsafeContinuation<Void, Error>, for generation: Int) {
+            lock.lock()
+            pendingContinuations[generation] = continuation
+            lock.unlock()
+        }
+
+        private func cancel(_ generation: Int) {
+            lock.lock()
+            let continuation = pendingContinuations.removeValue(forKey: generation)
+            lock.unlock()
+            continuation?.resume(throwing: CancellationError())
+        }
+    }
+
     private struct TraceRecordFixture: Decodable {
         let body: String
         let traceID: String?
@@ -433,6 +508,73 @@ struct TerminalActivityRouterTests {
         )
         #expect(closeRecord.traceID == correlationId.uuidString)
         #expect(closeRecord.attributes["terminal.activity.close_reason"] == .string("router.stop"))
+    }
+
+    @Test("non-cancellation debounce failure settles unseen activity instead of stranding it")
+    func nonCancellationDebounceFailureSettlesUnseenActivityInsteadOfStrandingIt() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let atom = TerminalActivityAtom(outputBurstThreshold: 30)
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let clock = SecondSleepFailsClock()
+        let nowMilliseconds = MillisecondBox(2000)
+        let traceRuntime = AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_FLUSH": "immediate",
+                "AGENTSTUDIO_TRACE_NAME": "terminal-activity-debounce-failure",
+                "AGENTSTUDIO_TRACE_TAGS": "terminal.activity",
+            ]),
+            processIdentifier: 255,
+            sessionID: "terminal-session",
+            timeUnixNano: { 1004 }
+        )
+        let router = TerminalActivityRouter(
+            bus: bus,
+            activityAtom: atom,
+            traceRuntime: traceRuntime,
+            unseenActivityDebounceDuration: .milliseconds(750),
+            unseenActivityClock: clock,
+            nowMilliseconds: { nowMilliseconds.get() }
+        )
+        let paneId = PaneId()
+
+        await router.start()
+        _ = await bus.post(
+            .pane(
+                .test(
+                    event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: 100))),
+                    paneId: paneId,
+                    paneKind: .terminal
+                )
+            )
+        )
+        await assertEventuallyMain("first debounce sleep should be scheduled") {
+            clock.startedSleepCount == 1
+        }
+
+        nowMilliseconds.set(2300)
+        _ = await bus.post(
+            .pane(
+                .test(
+                    event: .terminal(.scrollbarChanged(ScrollbarState(top: 0, bottom: 10, total: 140))),
+                    paneId: paneId,
+                    paneKind: .terminal
+                )
+            )
+        )
+        await assertEventuallyMain("second debounce sleep should be attempted") {
+            clock.startedSleepCount == 2
+        }
+
+        await router.stop()
+
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let closeRecords = try traceRecords(in: outputFileURL)
+            .filter { $0.body == "terminal.activity.unseenWindowClosed" }
+        let closeRecord = try #require(closeRecords.first)
+        #expect(closeRecords.count == 1)
+        #expect(closeRecord.attributes["terminal.activity.close_reason"] == .string("quiet"))
+        #expect(closeRecord.attributes["terminal.activity.rows_added"] == .int(40))
     }
 
     @Test("pane close prunes unseen activity window immediately")

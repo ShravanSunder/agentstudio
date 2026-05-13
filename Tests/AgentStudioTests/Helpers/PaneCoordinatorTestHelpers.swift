@@ -3,6 +3,17 @@ import Testing
 
 @testable import AgentStudio
 
+func makeTestPaneRuntimeEventBus() -> EventBus<RuntimeEnvelope> {
+    EventBus(
+        replayConfiguration: .init(
+            capacityPerSource: 256,
+            sourceKey: { envelope in
+                envelope.source.description
+            }
+        )
+    )
+}
+
 @MainActor
 func makeTestPaneCoordinator(
     store: WorkspaceStore,
@@ -10,6 +21,7 @@ func makeTestPaneCoordinator(
     runtime: SessionRuntime,
     surfaceManager: PaneCoordinatorSurfaceManaging,
     runtimeRegistry: RuntimeRegistry,
+    paneEventBus: EventBus<RuntimeEnvelope> = makeTestPaneRuntimeEventBus(),
     windowLifecycleStore: WindowLifecycleAtom = WindowLifecycleAtom()
 ) -> PaneCoordinator {
     PaneCoordinator(
@@ -18,6 +30,7 @@ func makeTestPaneCoordinator(
         runtime: runtime,
         surfaceManager: surfaceManager,
         runtimeRegistry: runtimeRegistry,
+        paneEventBus: paneEventBus,
         windowLifecycleStore: windowLifecycleStore
     )
 }

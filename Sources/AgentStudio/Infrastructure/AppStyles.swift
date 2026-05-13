@@ -94,10 +94,17 @@ enum AppStyles {
             static let worktreeIconSize: CGFloat = 11
             static let branchIconSize: CGFloat = 10
             static let branchFontSize: CGFloat = AppStyles.General.Typography.textSm
+            static let rowHorizontalInset: CGFloat = 8
+            static let rowCornerRadius: CGFloat = AppStyles.General.CornerRadius.panel
             static let groupRowVerticalPadding: CGFloat = 2
             static let countBadgeHorizontalPadding: CGFloat = 6
             static let countBadgeVerticalPadding: CGFloat = 2
             static let countBadgeBackgroundOpacity: CGFloat = 0.15
+            static let notificationRowUnreadDotSize: CGFloat = 6
+            static let notificationRowTitleSize: CGFloat = AppStyles.General.Typography.textBase
+            static let notificationRowSourceSize: CGFloat = AppStyles.General.Typography.textSm
+            static let notificationRowDetailSize: CGFloat = AppStyles.General.Typography.textSm
+            static let notificationRowTimestampSize: CGFloat = AppStyles.General.Typography.textSm
             static let chipRowSpacing: CGFloat = 4
             static let chipContentSpacing: CGFloat = 2
             static let syncClusterSpacing: CGFloat = 1
@@ -112,6 +119,8 @@ enum AppStyles {
             static let chipForegroundOpacity: CGFloat = 0.82
             static let chipMuteOverlayOpacity: CGFloat = 0.16
             static let rowHoverOpacity: CGFloat = AppStyles.General.Fill.pressed
+            static let badgeOffset: CGFloat = 4
+            static let badgeHitboxSize: CGFloat = AppStyles.General.Button.compact
 
             enum SearchField {
                 static let contentSpacing: CGFloat = AppStyles.General.Spacing.standard
@@ -301,6 +310,13 @@ enum AppStyles {
             static let unreadBadgeHorizontalPadding: CGFloat = 4
             static let unreadBadgeVerticalPadding: CGFloat = 1
             static let unreadBadgeOffset: CGFloat = 4
+        }
+
+        enum NotificationBadge {
+            static let fontSize: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeFontSize
+            static let horizontalPadding: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeHorizontalPadding
+            static let verticalPadding: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeVerticalPadding
+            static let offset: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeOffset
         }
     }
 
