@@ -179,7 +179,6 @@ struct TerminalActivityDerivedEventTests {
                 )
             )
         )
-        await waitForLatestRows(140, paneId: paneId, atom: atom)
         await clock.waitForPendingSleepCount(exactly: 0)
 
         clock.advance(by: .milliseconds(750))
@@ -298,11 +297,6 @@ struct TerminalActivityDerivedEventTests {
         eventCount: Int
     ) async {
         let latestPendingGeneration = initialGeneration + eventCount - 1
-        await assertEventuallyAsync(
-            "terminal activity router should schedule latest quiet debounce",
-            maxTurns: 2000
-        ) {
-            clock.pendingSleepGenerations.contains(latestPendingGeneration)
-        }
+        await clock.waitForPendingSleepGeneration(latestPendingGeneration)
     }
 }
