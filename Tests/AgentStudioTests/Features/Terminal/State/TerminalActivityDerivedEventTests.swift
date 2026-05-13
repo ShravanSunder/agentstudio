@@ -179,6 +179,9 @@ struct TerminalActivityDerivedEventTests {
                 )
             )
         )
+        await waitForLatestRows(140, paneId: paneId, atom: atom)
+        await clock.waitForPendingSleepCount(exactly: 0)
+
         clock.advance(by: .milliseconds(750))
 
         #expect(await derivedActivities(from: subscriber).isEmpty)
