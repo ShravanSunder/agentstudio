@@ -316,9 +316,22 @@ final class PushPerformanceBenchmarkTests {
     func test_rapid_mutations_coalesce_with_cold_debounce() async throws {
         let diffState = DiffState()
         let transport = TimestampingTransport()
-        // Use .cold level (32ms debounce) matching production configuration
-        let plan = makeDiffPlan(
-            state: diffState, transport: transport, clock: RevisionClock(), level: .cold)
+        let debounceClock = TestPushClock()
+        let plan = PushPlan(
+            state: diffState,
+            transport: transport,
+            revisions: RevisionClock(),
+            epoch: { diffState.epoch },
+            slices: {
+                EntitySlice(
+                    "diffFiles", store: .diff, level: .cold,
+                    capture: { (state: DiffState) in state.files },
+                    version: { file in file.version },
+                    keyToString: { $0 }
+                )
+                .erased(debounceClock: debounceClock)
+            }
+        )
         defer { plan.stop() }
 
         plan.start()
@@ -343,10 +356,9 @@ final class PushPerformanceBenchmarkTests {
             )
         }
 
-        let observed = await waitForPushCount(
-            transport,
-            targetCount: baselinePushCount + 1,
-            timeout: .seconds(2)
+        let observed = await advanceClock(
+            debounceClock,
+            until: { transport.pushCount >= baselinePushCount + 1 }
         )
         #expect(observed, "Rapid mutation burst should trigger at least one debounced push")
 
@@ -360,6 +372,20 @@ final class PushPerformanceBenchmarkTests {
         )
         #expect(pushCount > 0, "At least one push should have fired after debounce")
         #expect(diffState.files.count == 20)
+    }
+
+    private func advanceClock(
+        _ clock: TestPushClock,
+        until condition: @escaping @MainActor () -> Bool,
+        maxSteps: Int = 40,
+        step: Duration = .milliseconds(5)
+    ) async -> Bool {
+        for _ in 0..<maxSteps {
+            if condition() { return true }
+            clock.advance(by: step)
+            await Task.yield()
+        }
+        return condition()
     }
 
     // MARK: - Epoch reset worst case (new PR loaded)
