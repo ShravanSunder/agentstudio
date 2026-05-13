@@ -11,7 +11,6 @@ import WebKit
 ///
 /// 1. Bridge.ready handshake gating — `isBridgeReady` transitions and idempotency (§4.5)
 /// 2. Scheme handler serves HTML — `loadApp()` loads content from `agentstudio://app/index.html`
-/// 3. Content world isolation — page world cannot see `window.__bridgeInternal`
 ///
 /// Unlike the spike tests which exercise raw WebKit APIs, these tests exercise
 /// the fully-assembled BridgePaneController and its real dependencies.

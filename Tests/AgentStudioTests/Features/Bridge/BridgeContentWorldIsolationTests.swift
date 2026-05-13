@@ -16,7 +16,9 @@ extension WebKitSerializedTests {
         func test_pageWorld_cannotAccessBridgeInternal() async throws {
             let bridgeWorld = WKContentWorld.world(name: "agentStudioBridgeIsolationTest")
             let pageProbe = ContentWorldIsolationMessageHandler()
-            let config = WebPageTestHarness.makeConfiguration()
+            var config = WebPageTestHarness.makeConfiguration()
+            let scheme = try #require(URLScheme("agentstudio-isolation"))
+            config.urlSchemeHandlers[scheme] = ContentWorldIsolationBlankPageSchemeHandler()
 
             let messageHandler = RPCMessageHandler()
             config.userContentController.add(
@@ -33,6 +35,11 @@ extension WebKitSerializedTests {
             )
             config.userContentController.addUserScript(bootstrapScript)
             config.userContentController.add(pageProbe, contentWorld: .page, name: "pageProbe")
+            defer {
+                config.userContentController.removeScriptMessageHandler(forName: "rpc", contentWorld: bridgeWorld)
+                config.userContentController.removeScriptMessageHandler(forName: "pageProbe", contentWorld: .page)
+                config.userContentController.removeAllUserScripts()
+            }
 
             try await WebPageTestHarness.withManagedPage(
                 WebPage(
@@ -41,7 +48,7 @@ extension WebKitSerializedTests {
                     dialogPresenter: WebviewDialogHandler()
                 )
             ) { page in
-                _ = page.load(URL(string: "about:blank")!)
+                _ = page.load(URL(string: "agentstudio-isolation://app/blank.html")!)
                 try await waitForPageLoad(page)
 
                 _ = try await page.callJavaScript(
@@ -83,6 +90,29 @@ extension WebKitSerializedTests {
             for _ in 0..<turns {
                 await Task.yield()
             }
+        }
+    }
+}
+
+private struct ContentWorldIsolationBlankPageSchemeHandler: URLSchemeHandler {
+    func reply(for request: URLRequest) -> some AsyncSequence<URLSchemeTaskResult, any Error> {
+        AsyncThrowingStream<URLSchemeTaskResult, any Error> { continuation in
+            let html = "<html><head><title>Bridge Isolation</title></head><body></body></html>"
+            let data = Data(html.utf8)
+            guard let url = request.url else {
+                continuation.finish()
+                return
+            }
+            continuation.yield(
+                .response(
+                    URLResponse(
+                        url: url,
+                        mimeType: "text/html",
+                        expectedContentLength: data.count,
+                        textEncodingName: "utf-8"
+                    )))
+            continuation.yield(.data(data))
+            continuation.finish()
         }
     }
 }
