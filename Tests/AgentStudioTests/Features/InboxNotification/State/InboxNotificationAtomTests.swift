@@ -94,8 +94,15 @@ struct InboxNotificationAtomTests {
         let notification = makeInboxNotification()
         atom.append(notification)
         #expect(atom.notifications[0].isRead == false)
-        atom.markRead(id: notification.id)
+        #expect(atom.markRead(id: notification.id) == true)
         #expect(atom.notifications[0].isRead == true)
+    }
+
+    @Test("markRead(id:) returns false for unknown id")
+    func markReadByUnknownIdReturnsFalse() {
+        let atom = InboxNotificationAtom()
+
+        #expect(atom.markRead(id: UUID()) == false)
     }
 
     @Test("markRead(paneId:) marks all notifications for that pane")
@@ -129,8 +136,15 @@ struct InboxNotificationAtomTests {
         let atom = InboxNotificationAtom()
         let notification = makeInboxNotification()
         atom.append(notification)
-        atom.dismissFromPaneInbox(id: notification.id)
+        #expect(atom.dismissFromPaneInbox(id: notification.id) == true)
         #expect(atom.notifications[0].isDismissedFromPaneInbox == true)
+    }
+
+    @Test("dismissFromPaneInbox(id:) returns false for unknown id")
+    func dismissFromPaneInboxByUnknownIdReturnsFalse() {
+        let atom = InboxNotificationAtom()
+
+        #expect(atom.dismissFromPaneInbox(id: UUID()) == false)
     }
 
     @Test("dismissFromPaneInbox(paneId:) sets flag true for every pane entry")
@@ -141,43 +155,6 @@ struct InboxNotificationAtomTests {
         atom.append(makeInboxNotification(paneId: paneA))
         atom.dismissFromPaneInbox(paneId: paneA)
         #expect(atom.notifications.allSatisfy { $0.isDismissedFromPaneInbox })
-    }
-
-    @Test("clearPaneInboxScope marks scoped rows read and dismisses them from pane inbox")
-    func clearPaneInboxScope() {
-        let parentPaneId = UUID()
-        let drawerPaneId = UUID()
-        let unrelatedPaneId = UUID()
-        let parentNotification = makeInboxNotification(paneId: parentPaneId)
-        let drawerNotification = makeInboxNotification(paneId: drawerPaneId)
-        let unrelatedNotification = makeInboxNotification(paneId: unrelatedPaneId)
-        let atom = InboxNotificationAtom()
-        atom.append(parentNotification)
-        atom.append(drawerNotification)
-        atom.append(unrelatedNotification)
-
-        atom.clearPaneInboxScope(paneIds: [parentPaneId, drawerPaneId])
-
-        #expect(
-            atom.notifications.map(\.id) == [
-                parentNotification.id,
-                drawerNotification.id,
-                unrelatedNotification.id,
-            ])
-        #expect(atom.notifications[0].isRead)
-        #expect(atom.notifications[0].isDismissedFromPaneInbox)
-        #expect(atom.notifications[1].isRead)
-        #expect(atom.notifications[1].isDismissedFromPaneInbox)
-        #expect(atom.notifications[2].isRead == false)
-        #expect(atom.notifications[2].isDismissedFromPaneInbox == false)
-        #expect(atom.visiblePaneInboxUnreadCount(forPaneIds: [parentPaneId, drawerPaneId]) == 0)
-        #expect(atom.globalUnreadCount == 1)
-        #expect(
-            PaneInboxNotificationPopover.relevantNotifications(
-                paneIds: [parentPaneId, drawerPaneId],
-                notifications: atom.notifications
-            ).isEmpty
-        )
     }
 
     @Test("toggleReadState flips the value")
@@ -255,6 +232,23 @@ struct InboxNotificationAtomTests {
         #expect(atom.unreadCount(forPaneIds: [paneId]) == 2)
     }
 
+    @Test("clearPaneInbox marks matching pane notifications read and dismissed")
+    func clearPaneInboxMarksMatchingPaneNotificationsReadAndDismissed() {
+        let paneA = UUID()
+        let paneB = UUID()
+        let atom = InboxNotificationAtom()
+        atom.append(makeInboxNotification(paneId: paneA, isRead: false))
+        atom.append(makeInboxNotification(paneId: paneB, isRead: false))
+
+        atom.clearPaneInbox(paneIds: [paneA])
+
+        #expect(atom.notifications[0].isRead == true)
+        #expect(atom.notifications[0].isDismissedFromPaneInbox == true)
+        #expect(atom.notifications[1].isRead == false)
+        #expect(atom.notifications[1].isDismissedFromPaneInbox == false)
+        #expect(atom.globalUnreadCount == 1)
+    }
+
     @Test("globalUnreadCount counts all unread")
     func globalUnread() {
         let atom = InboxNotificationAtom()
@@ -281,7 +275,7 @@ struct InboxNotificationAtomTests {
         #expect(atom.notifications.count == cap)
         let oldestId = atom.notifications.first?.id
 
-        atom.append(
+        let outcome = atom.append(
             makeInboxNotification(
                 timestamp: base.addingTimeInterval(TimeInterval(cap + 1))
             )
@@ -289,6 +283,9 @@ struct InboxNotificationAtomTests {
 
         #expect(atom.notifications.count == cap)
         #expect(atom.notifications.contains(where: { $0.id == oldestId }) == false)
+        #expect(outcome.droppedCount == 1)
+        #expect(outcome.droppedNotificationIds == [oldestId])
+        #expect(atom.globalUnreadCount == cap)
     }
 
     @Test("clearReadHistory removes read entries, keeps unread")

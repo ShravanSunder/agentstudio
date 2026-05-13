@@ -209,9 +209,17 @@ struct DrawerIconBar: View {
                                         icon: .system(name: "bell.fill"),
                                         helpText: inboxToolTip,
                                         isHovered: isInboxHovered,
-                                        action: onOpenInbox,
-                                        badgeText: trailingActions.inboxUnreadBadge?.text
+                                        action: onOpenInbox
                                     )
+                                    .overlay(alignment: .topTrailing) {
+                                        if let inboxUnreadBadge = trailingActions.inboxUnreadBadge {
+                                            UnreadCountBadge(text: inboxUnreadBadge.text)
+                                                .offset(
+                                                    x: AppStyles.Components.NotificationBadge.offset,
+                                                    y: -AppStyles.Components.NotificationBadge.offset
+                                                )
+                                        }
+                                    }
                                     .onHover { hovering in
                                         withAnimation(.easeInOut(duration: AppStyles.General.Animation.fast)) {
                                             isInboxHovered = hovering
@@ -302,8 +310,7 @@ struct DrawerIconBar: View {
         icon: TrailingActionIcon,
         helpText: String,
         isHovered: Bool,
-        action: @escaping () -> Void,
-        badgeText: String? = nil
+        action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
             Group {
@@ -315,7 +322,7 @@ struct DrawerIconBar: View {
                     OcticonImage(name: octiconName, size: AppStyles.General.Icon.compact)
                 }
             }
-            .sidebarBadgeOverlay(text: badgeText)
+            .frame(width: DrawerLayout.iconButtonSize, height: DrawerLayout.iconButtonSize)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

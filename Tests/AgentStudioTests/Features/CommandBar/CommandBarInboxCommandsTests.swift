@@ -75,18 +75,18 @@ struct CommandBarInboxCommandsTests {
                 ]))
         #expect(items.contains { $0.title == "Enable bell notifications" })
         let clearReadHistoryItem = try #require(items.first { $0.id == "inbox.clearReadHistory" })
+        #expect(clearReadHistoryItem.command == .clearReadInboxNotifications)
         #expect(clearReadHistoryItem.icon == .system(.deleteLeft))
-        let clearAllItem = try #require(items.first { $0.id == "inbox.clearAll" })
-        #expect(clearAllItem.command == .clearInboxNotifications)
-        #expect(clearAllItem.icon == .system(.deleteLeft))
-        if case .dispatch(.clearInboxNotifications) = clearAllItem.action {
-            didClearAll = true
+        if case .dispatch(.clearReadInboxNotifications) = clearReadHistoryItem.action {
+            didClearReadHistory = true
         } else {
-            Issue.record("Expected inbox.clearAll to dispatch clearInboxNotifications")
+            Issue.record("Expected inbox.clearReadHistory to dispatch clearReadInboxNotifications")
         }
+        let clearAllItem = try #require(items.first { $0.id == "inbox.clearAll" })
+        #expect(clearAllItem.icon == .system(.deleteLeft))
 
         for item in items {
-            guard item.id != "inbox.clearAll" else { continue }
+            guard item.id != "inbox.clearReadHistory" else { continue }
             runCustomAction(item)
         }
 

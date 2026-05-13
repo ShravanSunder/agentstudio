@@ -92,8 +92,8 @@ struct InboxNotificationSidebarViewTests {
         #expect(InboxSidebarKeyboardRouter.rowAction(key: "x") == .ignored)
     }
 
-    @Test("clear action dispatches the inbox clear command")
-    func clearActionDispatchesInboxClearCommand() {
+    @Test("clear action dispatches the clear read inbox command")
+    func clearActionDispatchesClearReadInboxCommand() {
         let previousRouter = CommandDispatcher.shared.appCommandRouter
         let previousHandler = CommandDispatcher.shared.handler
         defer {
@@ -102,7 +102,7 @@ struct InboxNotificationSidebarViewTests {
         }
 
         let router = MockAppCommandRouter()
-        router.appCommands = [.clearInboxNotifications]
+        router.appCommands = [.clearReadInboxNotifications]
         CommandDispatcher.shared.appCommandRouter = router
         CommandDispatcher.shared.handler = nil
         let view = InboxNotificationSidebarView(
@@ -116,13 +116,13 @@ struct InboxNotificationSidebarViewTests {
             onRefocusActivePane: {}
         )
 
-        view.clearAllNotifications()
+        view.clearReadInboxNotifications()
 
-        #expect(router.handledCommands == [.clearInboxNotifications])
+        #expect(router.handledCommands == [.clearReadInboxNotifications])
     }
 
-    @Test("mounted inbox sidebar clear button dispatches clear command")
-    func mountedInboxSidebarClearButtonDispatchesClearCommand() async throws {
+    @Test("mounted inbox sidebar clear button dispatches clear read command")
+    func mountedInboxSidebarClearButtonDispatchesClearReadCommand() async throws {
         let previousRouter = CommandDispatcher.shared.appCommandRouter
         let previousHandler = CommandDispatcher.shared.handler
         defer {
@@ -131,7 +131,7 @@ struct InboxNotificationSidebarViewTests {
         }
 
         let router = MockAppCommandRouter()
-        router.appCommands = [.clearInboxNotifications]
+        router.appCommands = [.clearReadInboxNotifications]
         CommandDispatcher.shared.appCommandRouter = router
         CommandDispatcher.shared.handler = nil
         let hostingView = NSHostingView(
@@ -164,7 +164,7 @@ struct InboxNotificationSidebarViewTests {
 
         #expect(accessibleElementCount(in: hostingView, identifier: "inboxSidebarClearButton") == 1)
         pressAccessibleElement(clearButton)
-        #expect(router.handledCommands == [.clearInboxNotifications])
+        #expect(router.handledCommands == [.clearReadInboxNotifications])
     }
 
     @Test("inbox header controls use distinct symbols and grouped row indentation")

@@ -193,6 +193,8 @@ final class EventReplayBuffer {
             return 24
         case .terminal(let terminalEvent):
             return estimateSize(of: terminalEvent)
+        case .terminalActivity(let activityEvent):
+            return estimateSize(of: activityEvent)
         case .browser(let browserEvent):
             return estimateSize(of: browserEvent)
         case .diff(let diffEvent):
@@ -213,6 +215,13 @@ final class EventReplayBuffer {
             return estimateSize(of: securityEvent)
         case .error(let errorEvent):
             return 24 + String(describing: errorEvent).utf8.count
+        }
+    }
+
+    private static func estimateSize(of event: TerminalActivityEvent) -> Int {
+        switch event {
+        case .unseenActivitySettled:
+            return 88
         }
     }
 

@@ -1,28 +1,85 @@
+import Foundation
 import Testing
 
 @testable import AgentStudio
 
 @Suite("PaneInboxAutoClearPolicy")
 struct PaneInboxAutoClearPolicyTests {
-    @Test("auto-clears passive activity notifications")
-    func autoClearsPassiveActivityNotifications() {
-        let policy = PaneInboxAutoClearPolicy()
+    private let policy = PaneInboxAutoClearPolicy()
 
-        #expect(policy.canAutoClear(kind: .agentDesktopNotification))
-        #expect(policy.canAutoClear(kind: .bellRang))
-        #expect(policy.canAutoClear(kind: .commandFinished))
-        #expect(policy.canAutoClear(kind: .agentRpc))
+    @Test("auto-clearable kinds clear only when source pane is observed")
+    func autoClearableKindsClearOnlyWhenSourcePaneIsObserved() {
+        for kind in autoClearableKinds {
+            let notification = makeNotification(kind: kind)
+
+            #expect(
+                policy.decision(
+                    notification: notification,
+                    isSourcePaneAttended: true,
+                    isSourcePanePinnedToBottom: true
+                ) == .clear
+            )
+            #expect(
+                policy.decision(
+                    notification: notification,
+                    isSourcePaneAttended: false,
+                    isSourcePanePinnedToBottom: true
+                ) == .keep(reason: "source_pane_unattended")
+            )
+            #expect(
+                policy.decision(
+                    notification: notification,
+                    isSourcePaneAttended: true,
+                    isSourcePanePinnedToBottom: false
+                ) == .keep(reason: "source_pane_not_at_bottom")
+            )
+        }
     }
 
-    @Test("keeps user-action and failure notifications visible")
-    func keepsUserActionAndFailureNotificationsVisible() {
-        let policy = PaneInboxAutoClearPolicy()
+    @Test("user-action-required kinds remain unread even when source pane is observed")
+    func userActionRequiredKindsRemainUnreadWhenObserved() {
+        for kind in userActionRequiredKinds {
+            #expect(
+                policy.decision(
+                    notification: makeNotification(kind: kind),
+                    isSourcePaneAttended: true,
+                    isSourcePanePinnedToBottom: true
+                ) == .keep(reason: "requires_user_action")
+            )
+        }
+    }
 
-        #expect(policy.canAutoClear(kind: .approvalRequested) == false)
-        #expect(policy.canAutoClear(kind: .securityEvent) == false)
-        #expect(policy.canAutoClear(kind: .persistenceRecovery) == false)
-        #expect(policy.canAutoClear(kind: .terminalProgressError) == false)
-        #expect(policy.canAutoClear(kind: .terminalRendererUnhealthy) == false)
-        #expect(policy.canAutoClear(kind: .terminalSecureInputRequested) == false)
+    private var autoClearableKinds: [InboxNotificationKind] {
+        [
+            .agentDesktopNotification,
+            .bellRang,
+            .commandFinished,
+            .agentRpc,
+            .unseenActivity,
+        ]
+    }
+
+    private var userActionRequiredKinds: [InboxNotificationKind] {
+        [
+            .terminalSecureInputRequested,
+            .terminalProgressError,
+            .terminalRendererUnhealthy,
+            .persistenceRecovery,
+            .approvalRequested,
+            .securityEvent,
+        ]
+    }
+
+    private func makeNotification(kind: InboxNotificationKind) -> InboxNotification {
+        InboxNotification(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 100),
+            kind: kind,
+            title: "Notification",
+            body: nil,
+            source: .pane(.init(paneId: UUID())),
+            isRead: false,
+            isDismissedFromPaneInbox: false
+        )
     }
 }

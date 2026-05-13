@@ -3,8 +3,8 @@ import SwiftUI
 struct InboxSidebarActions {
     let onEscape: @MainActor @Sendable () -> Void
     let onToggleSort: () -> Void
-    let onClearAll: @MainActor @Sendable () -> Void
     let onClearFilter: () -> Void
+    let onClearReadHistory: @MainActor @Sendable () -> Void
     let onSelectGrouping: (InboxNotificationGrouping) -> Void
     let onToggleGroupCollapse: (String) -> Void
     let onMoveGroupBoundary: (InboxNotificationListNavigationDirection) -> Bool
@@ -16,7 +16,7 @@ struct InboxSidebarActions {
 struct InboxSidebarRootContainer: View {
     let uiState: UIStateAtom
     @Binding var searchText: String
-    let activeFilterLabel: String?
+    let activeFilter: InboxFilter?
     let sort: InboxNotificationSort
     @Binding var groupingMenuOpen: Bool
     let grouping: InboxNotificationGrouping
@@ -72,6 +72,7 @@ struct InboxSidebarRootContainer: View {
 
             InboxSidebarHeader(
                 searchText: $searchText,
+                activeFilter: activeFilter,
                 activeFilterLabel: activeFilterLabel,
                 sort: sort,
                 groupingMenuOpen: $groupingMenuOpen,
@@ -89,24 +90,42 @@ struct InboxSidebarRootContainer: View {
                 actions: actions
             )
         }
-        .frame(minWidth: 200)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .shadow(color: .black.opacity(0.2), radius: 4, x: 2, y: 0)
+    }
+
+    private var activeFilterLabel: String? {
+        guard let activeFilter else { return nil }
+        return sections
+            .lazy
+            .flatMap(\.notifications)
+            .compactMap { notification in
+                InboxNotificationSourceDisplay(notification: notification).filterLabel(for: activeFilter)
+            }
+            .first ?? fallbackFilterLabel(for: activeFilter)
+    }
+
+    private func fallbackFilterLabel(for filter: InboxFilter) -> String {
+        switch filter {
+        case .worktree:
+            return "Filtered worktree"
+        case .repo:
+            return "Filtered repo"
+        }
     }
 }
 
 struct InboxSidebarHeader: View {
-    private let sortIconName = "arrow.up.arrow.down.circle"
-    private let groupIconName = "square.stack.3d.up"
-    private let filterIconName = "line.3.horizontal.decrease.circle"
-
     @Binding var searchText: String
+    let activeFilter: InboxFilter?
     let activeFilterLabel: String?
     let sort: InboxNotificationSort
     @Binding var groupingMenuOpen: Bool
     let grouping: InboxNotificationGrouping
     let focusedField: FocusState<InboxFocus?>.Binding
     let actions: InboxSidebarActions
+    private let sortIconName = "arrow.up.arrow.down.circle"
+    private let groupIconName = "square.stack.3d.up"
+    private let filterIconName = "line.3.horizontal.decrease.circle"
+    private let clearReadInboxSpec = AppCommand.clearReadInboxNotifications.definition
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -131,30 +150,7 @@ struct InboxSidebarHeader: View {
                     Image(systemName: sortIconName)
                 }
                 .buttonStyle(.borderless)
-                .help("Sort notifications")
-
-                Button(action: actions.onClearAll) {
-                    AppCommand.clearInboxNotifications.definition.icon.swiftUIImage(
-                        size: AppStyles.General.Icon.compact
-                    )
-                    .frame(
-                        width: AppStyles.General.Button.compact,
-                        height: AppStyles.General.Button.compact
-                    )
-                }
-                .buttonStyle(.borderless)
-                .help(AppCommand.clearInboxNotifications.definition.controlToolTip)
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel(AppCommand.clearInboxNotifications.definition.label)
-                .accessibilityIdentifier("inboxSidebarClearButton")
-                .accessibilityHidden(true)
-                .background(
-                    AccessibilityPressBridge(
-                        identifier: "inboxSidebarClearButton",
-                        label: AppCommand.clearInboxNotifications.definition.label,
-                        action: actions.onClearAll
-                    )
-                )
+                .help("Toggle inbox sort")
 
                 Button {
                     groupingMenuOpen.toggle()
@@ -162,9 +158,7 @@ struct InboxSidebarHeader: View {
                     Image(systemName: groupIconName)
                 }
                 .buttonStyle(.borderless)
-                .help("Group notifications")
-                .accessibilityElement(children: .ignore)
-                .accessibilityLabel("Group notifications")
+                .help("Group inbox notifications")
                 .popover(isPresented: $groupingMenuOpen) {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(InboxNotificationGrouping.allCases, id: \.self) { candidate in
@@ -183,12 +177,29 @@ struct InboxSidebarHeader: View {
                     }
                     .padding(8)
                 }
+
+                Button(action: actions.onClearReadHistory) {
+                    clearReadInboxSpec.icon.swiftUIImage()
+                }
+                .buttonStyle(.borderless)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(clearReadInboxSpec.label)
+                .accessibilityIdentifier("inboxSidebarClearButton")
+                .accessibilityHidden(true)
+                .help(clearReadInboxSpec.controlToolTip)
+                .background(
+                    AccessibilityPressBridge(
+                        identifier: "inboxSidebarClearButton",
+                        label: clearReadInboxSpec.label,
+                        action: actions.onClearReadHistory
+                    )
+                )
             }
 
-            if let activeFilterLabel {
+            if let activeFilter {
                 HStack(spacing: 6) {
                     Image(systemName: filterIconName)
-                    Text(activeFilterLabel)
+                    Text(activeFilterLabel ?? fallbackFilterLabel(activeFilter))
                         .lineLimit(1)
                     Button(action: actions.onClearFilter) {
                         Image(systemName: "xmark.circle.fill")
@@ -215,6 +226,14 @@ struct InboxSidebarHeader: View {
         }
     }
 
+    private func fallbackFilterLabel(_ filter: InboxFilter) -> String {
+        switch filter {
+        case .worktree:
+            return "Filtered worktree"
+        case .repo:
+            return "Filtered repo"
+        }
+    }
 }
 
 struct InboxSidebarContent: View {
@@ -274,22 +293,22 @@ struct InboxSidebarNotificationRow: View {
     let focusedField: FocusState<InboxFocus?>.Binding
     let isFlashing: Bool
     let actions: InboxSidebarActions
-
-    @State private var isHovered = false
+    @State private var isHovering = false
 
     var body: some View {
         SidebarRowShell(
-            isSelected: focusedField.wrappedValue == .row(notification.id),
             isFlashing: isFlashing,
-            isHovered: isHovered
+            isHovering: isHovering
         ) {
-            InboxRow(notification: notification, now: now)
+            InboxRow(
+                notification: notification,
+                now: now,
+                rowContext: .globalInbox
+            )
         }
         .focused(focusedField, equals: .row(notification.id))
-        .contentShape(Rectangle())
-        .onHover { hovering in
-            isHovered = hovering
-        }
+        .animation(.easeOut(duration: 0.25), value: isFlashing)
+        .onHover { isHovering = $0 }
         .onTapGesture {
             actions.onActivate(notification)
         }

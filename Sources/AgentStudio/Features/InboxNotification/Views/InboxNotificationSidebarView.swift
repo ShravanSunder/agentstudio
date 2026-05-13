@@ -1,5 +1,11 @@
 import Foundation
 import SwiftUI
+import os.log
+
+private let inboxNotificationSidebarLogger = Logger(
+    subsystem: "com.agentstudio",
+    category: "InboxNotificationSidebarView"
+)
 
 private struct InboxNotificationListModelKey: Equatable {
     let notifications: [InboxNotification]
@@ -78,7 +84,7 @@ struct InboxNotificationSidebarView: View {
         InboxSidebarRootContainer(
             uiState: uiState,
             searchText: $searchText,
-            activeFilterLabel: activeFilterLabel,
+            activeFilter: activeFilter,
             sort: prefsAtom.sort,
             groupingMenuOpen: $groupingMenuOpen,
             grouping: prefsAtom.grouping,
@@ -88,8 +94,8 @@ struct InboxNotificationSidebarView: View {
             actions: .init(
                 onEscape: handleEscape,
                 onToggleSort: toggleSort,
-                onClearAll: clearAllNotifications,
                 onClearFilter: clearFilter,
+                onClearReadHistory: clearReadInboxNotifications,
                 onSelectGrouping: { prefsAtom.setGrouping($0) },
                 onToggleGroupCollapse: toggleGroupCollapse,
                 onMoveGroupBoundary: moveFocusToGroupBoundary,
@@ -117,8 +123,21 @@ struct InboxNotificationSidebarView: View {
     }
 
     private var activeFilterLabel: String? {
-        activeFilter.map {
-            InboxNotificationSourceDisplay.filterLabel(for: $0, notifications: inboxAtom.notifications)
+        guard let activeFilter else { return nil }
+        return inboxAtom.notifications
+            .lazy
+            .compactMap { notification in
+                InboxNotificationSourceDisplay(notification: notification).filterLabel(for: activeFilter)
+            }
+            .first ?? fallbackFilterLabel(for: activeFilter)
+    }
+
+    private func fallbackFilterLabel(for filter: InboxFilter) -> String {
+        switch filter {
+        case .worktree:
+            return "Filtered worktree"
+        case .repo:
+            return "Filtered repo"
         }
     }
 
@@ -177,8 +196,8 @@ struct InboxNotificationSidebarView: View {
         prefsAtom.setSort(nextSort)
     }
 
-    func clearAllNotifications() {
-        dispatcher.dispatch(.clearInboxNotifications)
+    func clearReadInboxNotifications() {
+        dispatcher.dispatch(.clearReadInboxNotifications)
     }
 
     private func clearFilter() {
@@ -211,8 +230,13 @@ struct InboxNotificationSidebarView: View {
     }
 
     private func activate(_ notification: InboxNotification) {
-        inboxAtom.markRead(id: notification.id)
-        inboxAtom.dismissFromPaneInbox(id: notification.id)
+        let didMarkRead = inboxAtom.markRead(id: notification.id)
+        let didDismiss = inboxAtom.dismissFromPaneInbox(id: notification.id)
+        if !didMarkRead || !didDismiss {
+            inboxNotificationSidebarLogger.warning(
+                "Inbox activation used stale notification id \(notification.id.uuidString, privacy: .public)"
+            )
+        }
 
         switch InboxSidebarActivationResolver.resolve(
             notification: notification,

@@ -1,19 +1,34 @@
 import Foundation
 
+enum PaneInboxAutoClearDecision: Sendable, Equatable {
+    case clear
+    case keep(reason: String)
+}
+
 struct PaneInboxAutoClearPolicy: Sendable {
-    func canAutoClear(kind: InboxNotificationKind) -> Bool {
+    func decision(
+        notification: InboxNotification,
+        isSourcePaneAttended: Bool,
+        isSourcePanePinnedToBottom: Bool
+    ) -> PaneInboxAutoClearDecision {
+        guard isAutoClearable(notification.kind) else {
+            return .keep(reason: "requires_user_action")
+        }
+        guard isSourcePaneAttended else {
+            return .keep(reason: "source_pane_unattended")
+        }
+        guard isSourcePanePinnedToBottom else {
+            return .keep(reason: "source_pane_not_at_bottom")
+        }
+        return .clear
+    }
+
+    private func isAutoClearable(_ kind: InboxNotificationKind) -> Bool {
         switch kind {
-        case .agentDesktopNotification,
-            .bellRang,
-            .commandFinished,
-            .agentRpc:
+        case .agentDesktopNotification, .bellRang, .commandFinished, .agentRpc, .unseenActivity:
             return true
-        case .approvalRequested,
-            .securityEvent,
-            .persistenceRecovery,
-            .terminalProgressError,
-            .terminalRendererUnhealthy,
-            .terminalSecureInputRequested:
+        case .terminalSecureInputRequested, .terminalProgressError, .terminalRendererUnhealthy,
+            .persistenceRecovery, .approvalRequested, .securityEvent:
             return false
         }
     }

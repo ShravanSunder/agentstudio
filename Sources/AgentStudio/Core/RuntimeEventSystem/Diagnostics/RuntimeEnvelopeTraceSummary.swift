@@ -187,6 +187,8 @@ extension PaneRuntimeEvent {
         switch self {
         case .terminal(let event):
             return event.traceEventName
+        case .terminalActivity(let event):
+            return event.traceEventName
         case .browser(let event):
             return event.traceEventName
         case .diff(let event):
@@ -209,6 +211,15 @@ extension PaneRuntimeEvent {
             return event.traceName
         case .error(let event):
             return event.traceName
+        }
+    }
+}
+
+extension TerminalActivityEvent {
+    var traceEventName: String {
+        switch self {
+        case .unseenActivitySettled:
+            return "terminalActivity.unseenActivitySettled"
         }
     }
 }

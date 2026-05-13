@@ -1,7 +1,6 @@
 import AppKit
 import Foundation
 import GhosttyKit
-import SwiftUI
 import Testing
 
 @testable import AgentStudio
@@ -96,8 +95,8 @@ struct MainWindowControllerInboxToolbarButtonTests {
         }
     }
 
-    @Test("bell badge tracks global unread count")
-    func bellBadgeTracksUnreadCount() async {
+    @Test("bell unread badge tracks global unread count")
+    func bellUnreadBadgeTracksUnreadCount() async {
         let inboxAtom = InboxNotificationAtom()
         await withMainWindowControllerHarness(inboxAtom: inboxAtom) { harness in
             let badge = findDescendant(
@@ -121,25 +120,11 @@ struct MainWindowControllerInboxToolbarButtonTests {
         }
     }
 
-    @Test("bell badge text uses uncapped global unread count")
-    func bellBadgeTextUsesUncappedGlobalUnreadCount() async throws {
-        let inboxAtom = InboxNotificationAtom()
-        try await withMainWindowControllerHarness(inboxAtom: inboxAtom) { harness in
-            let badge = try #require(
-                findDescendant(
-                    in: harness.window,
-                    identifier: "inboxToolbarUnreadBadge"
-                ) as? NSHostingView<UnreadCountBadge>
-            )
-
-            for _ in 0...(AppPolicies.PaneInbox.maxVisibleNotifications) {
-                inboxAtom.append(makeUnreadNotification())
-            }
-
-            await eventually("inbox bell badge should show uncapped global count") {
-                badge.rootView.text == "26"
-            }
-        }
+    @Test("bell unread badge text caps at ninety nine plus")
+    func bellUnreadBadgeTextCapsAtNinetyNinePlus() {
+        #expect(InboxToolbarUnreadBadgeText.text(for: 1) == "1")
+        #expect(InboxToolbarUnreadBadgeText.text(for: 99) == "99")
+        #expect(InboxToolbarUnreadBadgeText.text(for: 100) == "99+")
     }
 
     @Test("bell badge sits in the bell icon top trailing corner")

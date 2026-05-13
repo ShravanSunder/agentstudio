@@ -39,7 +39,7 @@ final class InboxNotificationStore {
 
     private struct Payload: Codable {
         static let currentSchemaVersion = 2
-        private static let supportedSchemaVersions = 1...currentSchemaVersion
+        static let supportedSchemaVersions = 1...currentSchemaVersion
 
         var schemaVersion: Int = currentSchemaVersion
         var notifications: [InboxNotification]

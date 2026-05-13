@@ -6,6 +6,12 @@ final class SidebarToolbarButton: NSButton {
     var currentSymbolName = ""
 }
 
+enum InboxToolbarUnreadBadgeText {
+    static func text(for unreadCount: Int) -> String {
+        unreadCount > 99 ? "99+" : "\(unreadCount)"
+    }
+}
+
 /// Main window controller for AgentStudio
 class MainWindowController: NSWindowController, NSWindowDelegate {
     private var splitViewController: MainSplitViewController?
@@ -14,7 +20,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private var uiState: UIStateAtom?
     private weak var worktreeToolbarButton: SidebarToolbarButton?
     private weak var inboxToolbarButton: SidebarToolbarButton?
-    private weak var inboxToolbarBadgeHostingView: NSHostingView<UnreadCountBadge>?
+    private var inboxToolbarBadgeHostingView: NSHostingView<UnreadCountBadge>?
     private var isObservingInboxUnread = false
     private var isObservingSidebarSurface = false
     private var awaitsLaunchRestoreResize = false
@@ -311,9 +317,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             inboxToolbarBadgeHostingView?.isHidden = true
             return
         }
-
         inboxToolbarBadgeHostingView?.rootView = UnreadCountBadge(
-            text: "\(unreadCount)"
+            text: InboxToolbarUnreadBadgeText.text(for: unreadCount)
         )
         inboxToolbarBadgeHostingView?.isHidden = false
     }

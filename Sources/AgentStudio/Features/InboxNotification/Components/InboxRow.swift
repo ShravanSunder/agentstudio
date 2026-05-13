@@ -5,74 +5,64 @@ struct InboxRow: View {
     let now: Date
     let rowContext: InboxNotificationSourceDisplay.RowContext
 
-    private var display: InboxNotificationSourceDisplay {
-        InboxNotificationSourceDisplay(notification: notification, rowContext: rowContext)
-    }
-
-    init(
-        notification: InboxNotification,
-        now: Date,
-        rowContext: InboxNotificationSourceDisplay.RowContext = .globalInbox
-    ) {
-        self.notification = notification
-        self.now = now
-        self.rowContext = rowContext
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
-            HStack(spacing: AppStyles.General.Spacing.tight) {
-                unreadDot
-                    .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
+            HStack(spacing: AppStyles.General.Spacing.standard) {
+                if !notification.isRead {
+                    Circle()
+                        .fill(.red)
+                        .frame(
+                            width: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize,
+                            height: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize
+                        )
+                }
 
                 Text(display.primaryText)
                     .font(
                         .system(
-                            size: AppStyles.General.Typography.textBase,
-                            weight: notification.isRead ? .regular : .semibold)
+                            size: AppStyles.Shell.Sidebar.notificationRowTitleSize,
+                            weight: notification.isRead ? .regular : .semibold
+                        )
                     )
+                    .foregroundStyle(notification.isRead ? .secondary : .primary)
                     .lineLimit(1)
-                    .truncationMode(.tail)
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .layoutPriority(1)
+
+                Spacer(minLength: AppStyles.General.Spacing.standard)
 
                 Text(relativeTime)
-                    .font(.system(size: AppStyles.Shell.Sidebar.branchFontSize, weight: .medium))
+                    .font(
+                        .system(
+                            size: AppStyles.Shell.Sidebar.notificationRowTimestampSize,
+                            weight: .semibold
+                        )
+                    )
                     .foregroundStyle(.secondary)
             }
 
-            SidebarMetadataLine(
-                text: display.sourceLine,
-                prominence: .secondary
-            )
+            Text(display.sourceLine)
+                .font(.system(size: AppStyles.Shell.Sidebar.notificationRowSourceSize, weight: .medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
 
             if let placementLine = display.placementLine {
-                SidebarMetadataLine(
-                    iconSystemName: "terminal",
-                    text: placementLine,
-                    prominence: .secondary
-                )
+                Text(placementLine)
+                    .font(.system(size: AppStyles.Shell.Sidebar.notificationRowDetailSize))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
 
             if let detailText = display.detailText {
-                SidebarMetadataLine(
-                    text: detailText,
-                    prominence: .tertiary
-                )
+                Text(detailText)
+                    .font(.system(size: AppStyles.Shell.Sidebar.notificationRowDetailSize))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
             }
         }
     }
 
-    @ViewBuilder
-    private var unreadDot: some View {
-        if notification.isRead {
-            Color.clear
-                .frame(width: 6, height: 6)
-        } else {
-            Circle()
-                .fill(.red)
-                .frame(width: 6, height: 6)
-        }
+    private var display: InboxNotificationSourceDisplay {
+        InboxNotificationSourceDisplay(notification: notification, rowContext: rowContext)
     }
 
     private var relativeTime: String {
@@ -88,4 +78,5 @@ struct InboxRow: View {
         }
         return "\(Int(delta / 86_400))d"
     }
+
 }

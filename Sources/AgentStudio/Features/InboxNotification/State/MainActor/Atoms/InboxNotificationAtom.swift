@@ -14,6 +14,19 @@ private let inboxNotificationAtomLogger = Logger(
 @MainActor
 @Observable
 final class InboxNotificationAtom {
+    struct RetentionOutcome: Sendable, Equatable {
+        static let empty = Self(droppedCount: 0, droppedNotificationIds: [])
+
+        let droppedCount: Int
+        let droppedNotificationIds: [UUID]
+    }
+
+    struct MutationOutcome: Sendable, Equatable {
+        let notificationId: UUID
+        let didCoalesce: Bool
+        let retentionOutcome: RetentionOutcome
+    }
+
     private(set) var notifications: [InboxNotification] = []
     private(set) var globalUnreadCount = 0
 
@@ -55,27 +68,104 @@ final class InboxNotificationAtom {
         }
     }
 
-    func append(_ notification: InboxNotification) {
+    @discardableResult
+    func append(_ notification: InboxNotification) -> RetentionOutcome {
+        let outcome: RetentionOutcome
         if let index = notifications.firstIndex(where: { $0.id == notification.id }) {
             notifications[index] = notification
-            enforceRetentionCap()
+            outcome = enforceRetentionCap()
             recalculateGlobalUnreadCount()
-            return
+            return outcome
         }
         notifications.append(notification)
-        enforceRetentionCap()
+        outcome = enforceRetentionCap()
         recalculateGlobalUnreadCount()
+        return outcome
+    }
+
+    @discardableResult
+    func upsertByClaim(
+        _ notification: InboxNotification,
+        merge: (InboxNotification, InboxNotification) -> InboxNotification
+    ) -> MutationOutcome {
+        guard let claimKey = notification.claimKey else {
+            return MutationOutcome(
+                notificationId: notification.id,
+                didCoalesce: false,
+                retentionOutcome: append(notification)
+            )
+        }
+
+        if let index = notifications.firstIndex(where: { existing in
+            existing.claimKey == claimKey
+                && claimKey.lane.canMergeWithinActivitySession
+                && canCoalesceClaim(existing: existing, incoming: notification)
+        }) {
+            let replacement = merge(notifications[index], notification)
+            notifications[index] = replacement
+            recalculateGlobalUnreadCount()
+            return MutationOutcome(
+                notificationId: replacement.id,
+                didCoalesce: true,
+                retentionOutcome: .empty
+            )
+        }
+
+        if let sessionId = claimKey.sessionId,
+            let index = notifications.firstIndex(where: { existing in
+                guard
+                    let existingClaimKey = existing.claimKey,
+                    existingClaimKey.paneId == claimKey.paneId,
+                    existingClaimKey.sessionId == sessionId,
+                    canCoalesceClaim(existing: existing, incoming: notification)
+                else {
+                    return false
+                }
+                return existingClaimKey.lane.canMergeWithinActivitySession
+                    && claimKey.lane.canMergeWithinActivitySession
+            })
+        {
+            let replacement = merge(notifications[index], notification)
+            notifications[index] = replacement
+            recalculateGlobalUnreadCount()
+            return MutationOutcome(
+                notificationId: replacement.id,
+                didCoalesce: true,
+                retentionOutcome: .empty
+            )
+        }
+
+        return MutationOutcome(
+            notificationId: notification.id,
+            didCoalesce: false,
+            retentionOutcome: append(notification)
+        )
+    }
+
+    private func canCoalesceClaim(
+        existing: InboxNotification,
+        incoming: InboxNotification
+    ) -> Bool {
+        if !existing.isRead && !existing.isDismissedFromPaneInbox {
+            return true
+        }
+        return existing.isRead
+            && existing.isDismissedFromPaneInbox
+            && incoming.isRead
+            && incoming.isDismissedFromPaneInbox
     }
 
     func replaceAll(_ replacement: [InboxNotification]) {
         notifications = replacement
-        enforceRetentionCap()
+        _ = enforceRetentionCap()
         recalculateGlobalUnreadCount()
     }
 
-    func markRead(id: UUID) {
-        update(id: id) { $0.isRead = true }
+    @discardableResult
+    func markRead(id: UUID) -> Bool {
+        let updated = update(id: id) { $0.isRead = true }
         recalculateGlobalUnreadCount()
+        return updated
     }
 
     func markRead(paneId: UUID) {
@@ -92,7 +182,8 @@ final class InboxNotificationAtom {
         recalculateGlobalUnreadCount()
     }
 
-    func dismissFromPaneInbox(id: UUID) {
+    @discardableResult
+    func dismissFromPaneInbox(id: UUID) -> Bool {
         update(id: id) { $0.isDismissedFromPaneInbox = true }
     }
 
@@ -102,38 +193,18 @@ final class InboxNotificationAtom {
         }
     }
 
-    func clearPaneInboxScope(paneIds: [UUID]) {
+    func clearPaneInbox(paneIds: [UUID]) {
         let paneIdSet = Set(paneIds)
-        guard !paneIdSet.isEmpty else { return }
-
         for index in notifications.indices {
-            guard
-                let paneId = notifications[index].paneId,
-                paneIdSet.contains(paneId)
-            else { continue }
+            guard let paneId = notifications[index].paneId, paneIdSet.contains(paneId) else { continue }
             notifications[index].isRead = true
             notifications[index].isDismissedFromPaneInbox = true
         }
         recalculateGlobalUnreadCount()
-    }
-
-    @discardableResult
-    func autoClearPaneInbox(paneId: UUID, canAutoClear: (InboxNotificationKind) -> Bool) -> Int {
-        var clearedCount = 0
-        for index in notifications.indices
-        where notifications[index].paneId == paneId && canAutoClear(notifications[index].kind) {
-            if !notifications[index].isRead || !notifications[index].isDismissedFromPaneInbox {
-                clearedCount += 1
-            }
-            notifications[index].isRead = true
-            notifications[index].isDismissedFromPaneInbox = true
-        }
-        recalculateGlobalUnreadCount()
-        return clearedCount
     }
 
     func toggleReadState(id: UUID) {
-        update(id: id) { $0.isRead.toggle() }
+        _ = update(id: id) { $0.isRead.toggle() }
         recalculateGlobalUnreadCount()
     }
 
@@ -147,14 +218,15 @@ final class InboxNotificationAtom {
         recalculateGlobalUnreadCount()
     }
 
-    private func update(id: UUID, mutate: (inout InboxNotification) -> Void) {
+    private func update(id: UUID, mutate: (inout InboxNotification) -> Void) -> Bool {
         guard let index = notifications.firstIndex(where: { $0.id == id }) else {
             inboxNotificationAtomLogger.warning(
                 "Ignored inbox notification update for unknown id \(id.uuidString, privacy: .public)"
             )
-            return
+            return false
         }
         mutate(&notifications[index])
+        return true
     }
 
     private func unreadCount(
@@ -165,14 +237,19 @@ final class InboxNotificationAtom {
         }
     }
 
-    private func enforceRetentionCap() {
+    private func enforceRetentionCap() -> RetentionOutcome {
         let retentionCap = AppPolicies.InboxNotification.maxRetained
-        guard notifications.count > retentionCap else { return }
+        guard notifications.count > retentionCap else { return .empty }
         notifications.sort { $0.timestamp < $1.timestamp }
         let overflow = notifications.count - retentionCap
+        let droppedNotificationIds = notifications.prefix(overflow).map(\.id)
         notifications.removeFirst(overflow)
         inboxNotificationAtomLogger.warning(
             "Inbox notification retention cap dropped \(overflow, privacy: .public) oldest row(s)"
+        )
+        return RetentionOutcome(
+            droppedCount: overflow,
+            droppedNotificationIds: droppedNotificationIds
         )
     }
 

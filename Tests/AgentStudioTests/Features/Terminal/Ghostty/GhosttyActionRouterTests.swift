@@ -59,6 +59,9 @@ struct GhosttyActionRouterTests {
         #expect(Ghostty.ActionRouter.signalClass(for: .setTitle) == .context)
         #expect(Ghostty.ActionRouter.signalClass(for: .newWindow) == .deferred)
         #expect(Ghostty.ActionRouter.signalClass(for: .render) == .deferred)
+        #expect(
+            Ghostty.ActionRouter.signalClass(for: .unhandled(tag: UInt32.max), fallbackActionTag: UInt32.max)
+                == .unhandled)
     }
 
     @Test("Ghostty payload trace names use stable case names")
@@ -71,6 +74,11 @@ struct GhosttyActionRouterTests {
         #expect(
             Ghostty.ActionRouter.payloadTraceName(.commandFinished(exitCode: 0, duration: 12))
                 == "commandFinished"
+        )
+        #expect(
+            Ghostty.ActionRouter.payloadTraceName(
+                .openURL(url: "https://example.com/private/token", kindRawValue: 1)
+            ) == "openURL"
         )
         #expect(Ghostty.ActionRouter.payloadTraceName(.noPayload) == "noPayload")
     }

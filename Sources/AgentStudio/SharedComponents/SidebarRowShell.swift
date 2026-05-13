@@ -3,41 +3,57 @@ import SwiftUI
 struct SidebarRowShell<Content: View>: View {
     let isSelected: Bool
     let isFlashing: Bool
-    let isHovered: Bool
-    @ViewBuilder let content: () -> Content
+    let isHovering: Bool
+    let content: Content
 
-    var body: some View {
-        content()
-            .padding(.vertical, Self.contentVerticalInset)
-            .padding(.horizontal, Self.contentHorizontalInset)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background {
-                RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.bar)
-                    .fill(backgroundColor)
-                    .padding(.horizontal, AppStyles.General.Spacing.tight / 2)
-            }
-            .contentShape(Rectangle())
-            .animation(.easeOut(duration: AppStyles.General.Animation.standard), value: isFlashing)
-            .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: isHovered)
-            .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: isSelected)
+    init(
+        isSelected: Bool = false,
+        isFlashing: Bool = false,
+        isHovering: Bool = false,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.isSelected = isSelected
+        self.isFlashing = isFlashing
+        self.isHovering = isHovering
+        self.content = content()
     }
 
-    private var backgroundColor: Color {
-        Self.backgroundColor(isSelected: isSelected, isFlashing: isFlashing, isHovered: isHovered)
+    var body: some View {
+        content
+            .padding(.vertical, Self.contentVerticalInset)
+            .padding(.horizontal, Self.contentHorizontalInset)
+            .background(rowBackground)
+            .contentShape(Rectangle())
+    }
+
+    private var rowBackground: some View {
+        RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.rowCornerRadius)
+            .fill(rowFill)
+    }
+
+    private var rowFill: Color {
+        Self.backgroundColor(
+            isSelected: isSelected,
+            isFlashing: isFlashing,
+            isHovering: isHovering
+        )
     }
 
     static func backgroundColor(
         isSelected: Bool,
         isFlashing: Bool,
-        isHovered: Bool
+        isHovering: Bool
     ) -> Color {
-        if isFlashing || isSelected {
-            return Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowSelectedOpacity)
+        if isFlashing {
+            return Color.accentColor.opacity(AppStyles.General.Fill.selected)
         }
-        if isHovered {
+        if isSelected {
+            return Color.accentColor.opacity(AppStyles.General.Fill.active)
+        }
+        if isHovering {
             return Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity)
         }
-        return .clear
+        return Color.clear
     }
 
     static var contentVerticalInset: CGFloat {
@@ -45,6 +61,6 @@ struct SidebarRowShell<Content: View>: View {
     }
 
     static var contentHorizontalInset: CGFloat {
-        AppStyles.General.Spacing.tight / 2
+        AppStyles.Shell.Sidebar.rowHorizontalInset
     }
 }

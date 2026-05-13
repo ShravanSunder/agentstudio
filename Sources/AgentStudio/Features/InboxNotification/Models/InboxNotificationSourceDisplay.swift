@@ -1,231 +1,191 @@
 import Foundation
 
-struct InboxNotificationSourceDisplay: Equatable, Sendable {
-    enum RowContext: Equatable, Sendable {
+struct InboxNotificationSourceDisplay: Sendable, Equatable {
+    enum RowContext: Sendable, Equatable {
         case globalInbox
         case paneInbox(parentPaneId: UUID)
     }
 
     let primaryText: String
     let sourceLine: String
-    let placementParts: [String]
     let placementLine: String?
     let detailText: String?
     let searchText: String
+
+    private let repoGroupLabel: String
+    private let paneGroupLabel: String
+    private let tabGroupLabel: String
+    private let filterLabels: [InboxFilter: String]
 
     init(
         notification: InboxNotification,
         rowContext: RowContext = .globalInbox
     ) {
-        let title = normalizedOptionalString(notification.title)
-        let body = normalizedOptionalString(notification.body)
-        let primaryText = title ?? body ?? Self.kindLabel(notification.kind)
-        let sourceLine = Self.sourceLine(for: notification)
-        let placementParts = Self.placementParts(for: notification, rowContext: rowContext)
-        let placementLine = placementParts.isEmpty ? nil : placementParts.joined(separator: " · ")
-        let detailText =
-            title == nil
-            ? nil
-            : Self.detailText(
-                body: body,
-                kind: notification.kind
-            )
-
-        self.primaryText = primaryText
-        self.sourceLine = sourceLine
-        self.placementParts = placementParts
-        self.placementLine = placementLine
-        self.detailText = detailText
-        self.searchText = [
-            primaryText,
-            sourceLine,
-            placementLine,
-            notification.paneDisplayLabel,
-            notification.parentPaneDisplayLabel,
-            detailText,
-        ]
-        .compactMap { normalizedOptionalString($0) }
-        .joined(separator: " ")
+        let title = notification.title.trimmedNonEmpty
+        let body = notification.body.trimmedNonEmpty
+        self.primaryText = title ?? body ?? Self.kindLabel(notification.kind)
+        self.detailText = title == nil ? nil : body
+        switch notification.source {
+        case .global:
+            self.sourceLine = "Workspace event"
+            self.placementLine = nil
+            self.searchText = Self.joinSearchTerms([
+                primaryText,
+                detailText,
+                "Workspace event",
+            ])
+            self.repoGroupLabel = "Workspace"
+            self.paneGroupLabel = "Workspace"
+            self.tabGroupLabel = "Workspace"
+            self.filterLabels = [:]
+        case .pane(let source):
+            let sourceLine = Self.sourceLine(for: source)
+            let placementLine = Self.placementLine(for: source, rowContext: rowContext)
+            self.sourceLine = sourceLine
+            self.placementLine = placementLine
+            self.searchText = Self.joinSearchTerms([
+                primaryText,
+                detailText,
+                sourceLine,
+                placementLine,
+                source.runtimeDisplayLabel,
+                source.tabDisplayLabel,
+                source.paneDisplayLabel,
+                source.parentPaneDisplayLabel,
+            ])
+            self.repoGroupLabel = (source.repo?.name).trimmedNonEmpty ?? "Pane"
+            self.paneGroupLabel = Self.paneGroupLabel(for: source)
+            self.tabGroupLabel = source.tabDisplayLabel.trimmedNonEmpty ?? "Pane"
+            self.filterLabels = Self.filterLabels(for: source)
+        }
     }
 
-    static func groupLabel(
-        for notification: InboxNotification,
-        grouping: InboxNotificationGrouping
-    ) -> String {
+    func groupLabel(for grouping: InboxNotificationGrouping) -> String? {
         switch grouping {
         case .none:
-            return ""
+            return nil
         case .byRepo:
-            return notification.repoName ?? "Other sources"
+            return repoGroupLabel
         case .byPane:
-            return panePlacementLabel(for: notification.paneContext, includeParent: true) ?? "Other panes"
+            return paneGroupLabel
         case .byTab:
-            return notification.tabDisplayLabel ?? "Untitled Tab"
+            return tabGroupLabel
         }
     }
 
-    static func filterLabel(
-        for filter: InboxFilter,
-        notifications: [InboxNotification]
-    ) -> String {
-        switch filter {
-        case .repo(let repoId):
-            return newestDisplayLabel(in: notifications) { notification in
-                notification.repoId == repoId ? notification.repoName : nil
-            } ?? "Filtered repo"
-        case .worktree(let worktreeId):
-            return newestDisplayLabel(in: notifications) { notification in
-                notification.worktreeId == worktreeId ? notification.worktreeName : nil
-            } ?? "Filtered worktree"
-        }
+    func filterLabel(for filter: InboxFilter) -> String? {
+        filterLabels[filter]
     }
 
-    private static func newestDisplayLabel(
-        in notifications: [InboxNotification],
-        label: (InboxNotification) -> String?
-    ) -> String? {
-        for notification in notifications.sorted(by: { $0.timestamp > $1.timestamp }) {
-            if let label = normalizedOptionalString(label(notification)) {
-                return label
-            }
-        }
-        return nil
-    }
-
-    private static func sourceLine(for notification: InboxNotification) -> String {
-        if let repoName = notification.repoName {
-            if let worktreeName = notification.worktreeName {
-                if let branchName = notification.branchName, branchName != worktreeName {
+    private static func sourceLine(for source: InboxNotification.PaneSource) -> String {
+        if let repoName = (source.repo?.name).trimmedNonEmpty {
+            if let worktreeName = (source.worktree?.name).trimmedNonEmpty {
+                if let branchName = source.branchName.trimmedNonEmpty, branchName != worktreeName {
                     return "\(repoName) · \(worktreeName) / \(branchName)"
                 }
                 return "\(repoName) · \(worktreeName)"
             }
-            if let branchName = notification.branchName, branchName != repoName {
-                return "\(repoName) · \(branchName)"
-            }
             return repoName
         }
 
-        if let worktreeName = notification.worktreeName {
-            if let branchName = notification.branchName, branchName != worktreeName {
+        if let worktreeName = (source.worktree?.name).trimmedNonEmpty {
+            if let branchName = source.branchName.trimmedNonEmpty, branchName != worktreeName {
                 return "\(worktreeName) / \(branchName)"
             }
             return worktreeName
         }
 
-        if let branchName = notification.branchName {
+        if let branchName = source.branchName.trimmedNonEmpty {
             return branchName
         }
 
-        if case .global = notification.source {
-            return "Agent Studio"
+        if let runtimeDisplayLabel = source.runtimeDisplayLabel.trimmedNonEmpty {
+            return runtimeDisplayLabel
         }
 
-        return notification.runtimeDisplayLabel ?? "Terminal"
+        return "Pane event"
     }
 
-    private static func placementParts(
-        for notification: InboxNotification,
+    private static func placementLine(
+        for source: InboxNotification.PaneSource,
         rowContext: RowContext
-    ) -> [String] {
-        guard let paneContext = notification.paneContext else {
-            return orderedUnique([notification.runtimeDisplayLabel].compactMap { normalizedOptionalString($0) })
-        }
-
+    ) -> String? {
         var parts: [String] = []
-        if let tabDisplayLabel = normalizedOptionalString(paneContext.tabDisplayLabel) {
-            parts.append(tabDisplayLabel)
-        }
-
         switch rowContext {
         case .globalInbox:
-            if let panePlacementLabel = panePlacementLabel(for: paneContext, includeParent: true) {
-                parts.append(panePlacementLabel)
+            if let tabDisplayLabel = source.tabDisplayLabel.trimmedNonEmpty {
+                parts.append("Tab \(tabDisplayLabel)")
             }
+            appendPanePlacement(for: source, to: &parts)
         case .paneInbox(let parentPaneId):
-            if !(paneContext.paneId == parentPaneId && paneContext.paneRole == .main),
-                let panePlacementLabel = panePlacementLabel(for: paneContext, includeParent: true)
+            if source.paneRole == .drawerChild,
+                source.parentPaneId == parentPaneId,
+                let paneDisplayLabel = source.paneDisplayLabel.trimmedNonEmpty
             {
-                parts.append(panePlacementLabel)
+                parts.append("Drawer \(paneDisplayLabel)")
             }
         }
-
-        if let runtimeDisplayLabel = normalizedOptionalString(paneContext.runtimeDisplayLabel) {
-            parts.append(runtimeDisplayLabel)
-        }
-
-        return orderedUnique(parts)
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    private static func panePlacementLabel(
-        for paneContext: InboxNotification.PaneSource?,
-        includeParent: Bool
-    ) -> String? {
-        guard let paneContext else { return nil }
-        switch paneContext.paneRole {
+    private static func appendPanePlacement(
+        for source: InboxNotification.PaneSource,
+        to parts: inout [String]
+    ) {
+        switch source.paneRole {
         case .main:
-            return mainPaneLabel(for: paneContext)
+            if let paneDisplayLabel = source.paneDisplayLabel.trimmedNonEmpty {
+                parts.append("Pane \(paneDisplayLabel)")
+            }
         case .drawerChild:
-            return drawerPlacementLabel(for: paneContext, includeParent: includeParent)
+            if let parentPaneDisplayLabel = source.parentPaneDisplayLabel.trimmedNonEmpty {
+                parts.append("Pane \(parentPaneDisplayLabel)")
+            }
+            if let paneDisplayLabel = source.paneDisplayLabel.trimmedNonEmpty {
+                parts.append("Drawer \(paneDisplayLabel)")
+            } else if let drawerOrdinal = source.drawerOrdinal {
+                parts.append("Drawer \(drawerOrdinal)")
+            } else {
+                parts.append("Drawer")
+            }
         }
     }
 
-    private static func mainPaneLabel(for paneContext: InboxNotification.PaneSource) -> String {
-        let prefix = paneContext.paneOrdinal.map { "Pane \($0)" } ?? "Main pane"
-        let runtimeDisplayLabel = normalizedOptionalString(paneContext.runtimeDisplayLabel)
-        if let paneDisplayLabel = normalizedOptionalString(paneContext.paneDisplayLabel) {
-            guard paneDisplayLabel != runtimeDisplayLabel else { return prefix }
-            return "\(prefix): \(paneDisplayLabel)"
+    private static func paneGroupLabel(for source: InboxNotification.PaneSource) -> String {
+        switch source.paneRole {
+        case .main:
+            return source.paneDisplayLabel.trimmedNonEmpty
+                ?? (source.worktree?.name).trimmedNonEmpty
+                ?? source.branchName.trimmedNonEmpty
+                ?? source.runtimeDisplayLabel.trimmedNonEmpty
+                ?? "Pane"
+        case .drawerChild:
+            let parentTitle = source.parentPaneDisplayLabel.trimmedNonEmpty ?? "Pane"
+            if let paneTitle = source.paneDisplayLabel.trimmedNonEmpty {
+                return "\(parentTitle) / Drawer \(paneTitle)"
+            }
+            if let drawerOrdinal = source.drawerOrdinal {
+                return "\(parentTitle) / Drawer \(drawerOrdinal)"
+            }
+            return "\(parentTitle) / Drawer"
         }
-        return prefix
     }
 
-    private static func drawerPlacementLabel(
-        for paneContext: InboxNotification.PaneSource,
-        includeParent: Bool
-    ) -> String {
-        let drawerPrefix: String
-        if let drawerOrdinal = paneContext.drawerOrdinal {
-            drawerPrefix = "Drawer \(drawerOrdinal)"
-        } else {
-            drawerPrefix = "Drawer"
+    private static func filterLabels(for source: InboxNotification.PaneSource) -> [InboxFilter: String] {
+        var labels: [InboxFilter: String] = [:]
+        if let repoId = source.repo?.id {
+            labels[.repo(id: repoId)] = (source.repo?.name).trimmedNonEmpty ?? "Filtered repo"
         }
-
-        let drawerLabel: String
-        let paneDisplayLabel = normalizedOptionalString(paneContext.paneDisplayLabel)
-        let runtimeDisplayLabel = normalizedOptionalString(paneContext.runtimeDisplayLabel)
-        if let paneDisplayLabel, paneDisplayLabel != runtimeDisplayLabel {
-            drawerLabel = "\(drawerPrefix): \(paneDisplayLabel)"
-        } else {
-            drawerLabel = drawerPrefix
+        if let worktreeId = source.worktree?.id {
+            labels[.worktree(id: worktreeId)] = (source.worktree?.name).trimmedNonEmpty ?? "Filtered worktree"
         }
-
-        return includeParent
-            ? drawerPlacementLabel(drawerLabel: drawerLabel, paneContext: paneContext)
-            : drawerLabel
+        return labels
     }
 
-    private static func drawerPlacementLabel(
-        drawerLabel: String,
-        paneContext: InboxNotification.PaneSource
-    ) -> String {
-        let runtimeDisplayLabel = normalizedOptionalString(paneContext.runtimeDisplayLabel)
-        if let parentPaneDisplayLabel = normalizedOptionalString(paneContext.parentPaneDisplayLabel),
-            parentPaneDisplayLabel != runtimeDisplayLabel
-        {
-            return "Parent \(parentPaneDisplayLabel) · \(drawerLabel)"
-        }
-        if let paneOrdinal = paneContext.paneOrdinal {
-            return "Pane \(paneOrdinal) · \(drawerLabel)"
-        }
-        return drawerLabel
-    }
-
-    private static func orderedUnique(_ labels: [String]) -> [String] {
-        var seen: Set<String> = []
-        return labels.filter { label in
-            seen.insert(label).inserted
-        }
+    private static func joinSearchTerms(_ terms: [String?]) -> String {
+        terms
+            .compactMap { $0.trimmedNonEmpty }
+            .joined(separator: " ")
     }
 
     private static func kindLabel(_ kind: InboxNotificationKind) -> String {
@@ -246,36 +206,12 @@ struct InboxNotificationSourceDisplay: Equatable, Sendable {
             return "Persistence recovery"
         case .agentRpc:
             return "Agent notification"
+        case .unseenActivity:
+            return "New terminal activity"
         case .approvalRequested:
             return "Approval requested"
         case .securityEvent:
             return "Security event"
         }
     }
-
-    private static func detailText(
-        body: String?,
-        kind: InboxNotificationKind
-    ) -> String? {
-        guard kind == .commandFinished else { return body }
-        guard let body else { return nil }
-        guard let separatorRange = body.range(of: " · ") else { return body }
-
-        let suffix = body[separatorRange.upperBound...]
-        guard let minutes = legacyDurationMinutes(from: String(suffix)) else { return body }
-        guard minutes > 7 * 24 * 60 else { return body }
-
-        return normalizedOptionalString(String(body[..<separatorRange.lowerBound]))
-    }
-
-    private static func legacyDurationMinutes(from value: String) -> Int? {
-        guard let minuteMarker = value.range(of: "m ") else { return nil }
-        return Int(value[..<minuteMarker.lowerBound])
-    }
-}
-
-private func normalizedOptionalString(_ value: String?) -> String? {
-    guard let value else { return nil }
-    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty ? nil : trimmed
 }

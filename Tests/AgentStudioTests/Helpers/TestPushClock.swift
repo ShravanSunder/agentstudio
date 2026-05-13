@@ -49,13 +49,16 @@ struct TestPushClock: Clock {
     enum PendingSleepWaiterCondition {
         case atLeast(Int)
         case exactly(Int)
+        case generation(Int)
 
-        func isSatisfied(by count: Int) -> Bool {
+        func isSatisfied(by state: State) -> Bool {
             switch self {
             case .atLeast(let minimumCount):
-                count >= minimumCount
+                state.pending.count >= minimumCount
             case .exactly(let expectedCount):
-                count == expectedCount
+                state.pending.count == expectedCount
+            case .generation(let expectedGeneration):
+                state.pending.contains { $0.generation == expectedGeneration }
             }
         }
     }
@@ -150,6 +153,14 @@ struct TestPushClock: Clock {
         state.withCriticalRegion { $0.pending.count }
     }
 
+    var scheduledSleepGeneration: Int {
+        state.withCriticalRegion { $0.generation }
+    }
+
+    var pendingSleepGenerations: Set<Int> {
+        state.withCriticalRegion { Set($0.pending.map(\.generation)) }
+    }
+
     func waitForPendingSleepCount(atLeast count: Int = 1) async {
         await waitForPendingSleepCount(matching: .atLeast(count))
     }
@@ -158,9 +169,13 @@ struct TestPushClock: Clock {
         await waitForPendingSleepCount(matching: .exactly(count))
     }
 
+    func waitForPendingSleepGeneration(_ generation: Int) async {
+        await waitForPendingSleepCount(matching: .generation(generation))
+    }
+
     private func waitForPendingSleepCount(matching condition: PendingSleepWaiterCondition) async {
         let shouldResumeImmediately = state.withCriticalRegion { st in
-            condition.isSatisfied(by: st.pending.count)
+            condition.isSatisfied(by: st)
         }
         if shouldResumeImmediately {
             return
@@ -168,7 +183,7 @@ struct TestPushClock: Clock {
 
         await withUnsafeContinuation { (continuation: UnsafeContinuation<Void, Never>) in
             let shouldResume = state.withCriticalRegion { st in
-                if condition.isSatisfied(by: st.pending.count) {
+                if condition.isSatisfied(by: st) {
                     return true
                 }
 
@@ -208,9 +223,8 @@ struct TestPushClock: Clock {
         var remainingWaiters: [PendingSleepWaiter] = []
         var resumedWaiters: [UnsafeContinuation<Void, Never>] = []
 
-        let pendingCount = state.pending.count
         for waiter in state.pendingSleepWaiters {
-            if waiter.condition.isSatisfied(by: pendingCount) {
+            if waiter.condition.isSatisfied(by: state) {
                 resumedWaiters.append(waiter.continuation)
             } else {
                 remainingWaiters.append(waiter)

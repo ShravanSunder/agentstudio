@@ -5,9 +5,10 @@ import Testing
 
 @Suite("UnreadCountBadge")
 struct UnreadCountBadgeTests {
-    @Test("badge is a shared value-rendered view")
-    func badgeIsSharedValueRenderedView() {
-        let badge = UnreadCountBadge(text: "9+")
+    @Test("badge builds with count text")
+    @MainActor
+    func badgeBuildsWithCountText() {
+        let badge = UnreadCountBadge(text: "1")
 
         #expect(String(describing: type(of: badge)).contains("UnreadCountBadge"))
     }

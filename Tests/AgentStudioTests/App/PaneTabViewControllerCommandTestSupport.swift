@@ -12,16 +12,7 @@ typealias Harness = PaneTabViewControllerCommandHarness
 final class PaneTabViewControllerCommandLaunchRecorder {
     var openedEditors: [(id: EditorTargetId, path: URL)] = []
     var revealedPaths: [URL] = []
-}
-
-struct PaneInboxClearedScope: Equatable {
-    let parentPaneId: UUID
-    let paneIds: [UUID]
-}
-
-@MainActor
-final class PaneInboxClearRecorder {
-    var scopes: [PaneInboxClearedScope] = []
+    var clearedPaneInboxRequests: [(parentPaneId: UUID, paneIds: [UUID])] = []
 }
 
 @MainActor
@@ -38,12 +29,7 @@ struct PaneTabViewControllerCommandHarness {
     let tabRenamePopoverState: TabRenamePopoverState
     let arrangementInlineRenameState: ArrangementInlineRenameState
     let paneInboxPresenter: PaneInboxNotificationPresenter
-    let paneInboxClearRecorder: PaneInboxClearRecorder
     let launchRecorder: PaneTabViewControllerCommandLaunchRecorder
-
-    var clearedPaneInboxScopes: [PaneInboxClearedScope] {
-        paneInboxClearRecorder.scopes
-    }
 }
 
 @MainActor
@@ -75,7 +61,6 @@ func makePaneTabViewControllerCommandHarness(
     let tabRenamePopoverState = TabRenamePopoverState()
     let arrangementInlineRenameState = ArrangementInlineRenameState()
     let paneInboxPresenter = PaneInboxNotificationPresenter()
-    let paneInboxClearRecorder = PaneInboxClearRecorder()
     let launchRecorder = PaneTabViewControllerCommandLaunchRecorder()
     let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
         appLifecycleStore: appLifecycleStore,
@@ -101,16 +86,14 @@ func makePaneTabViewControllerCommandHarness(
         viewRegistry: viewRegistry,
         paneInboxPresentation: PaneInboxPresentation(
             unreadCount: { _ in 0 },
+            clear: { parentPaneId, paneIds in
+                launchRecorder.clearedPaneInboxRequests.append((parentPaneId: parentPaneId, paneIds: paneIds))
+            },
             open: { parentPaneId, paneIds in
                 paneInboxPresenter.open(parentPaneId: parentPaneId, paneIds: paneIds)
             },
             toggle: { parentPaneId, paneIds in
                 paneInboxPresenter.toggle(parentPaneId: parentPaneId, paneIds: paneIds)
-            },
-            clearNotifications: { parentPaneId, paneIds in
-                paneInboxClearRecorder.scopes.append(
-                    PaneInboxClearedScope(parentPaneId: parentPaneId, paneIds: paneIds)
-                )
             },
             setPresented: { parentPaneId, paneIds, isPresented in
                 paneInboxPresenter.setPresented(parentPaneId: parentPaneId, paneIds: paneIds, isPresented: isPresented)
@@ -119,7 +102,8 @@ func makePaneTabViewControllerCommandHarness(
             clearRequest: { request in
                 paneInboxPresenter.clearRequest(request)
             },
-            popoverContent: { _, _, _ in AnyView(EmptyView()) }
+            popoverContent: { _, _, _ in AnyView(EmptyView()) },
+            pruneFilterModes: { _ in }
         ),
         installedEditorTargetsProvider: { [.cursor, .vscode] },
         openEditorHandler: { editorId, path, _ in
@@ -147,7 +131,6 @@ func makePaneTabViewControllerCommandHarness(
         tabRenamePopoverState: tabRenamePopoverState,
         arrangementInlineRenameState: arrangementInlineRenameState,
         paneInboxPresenter: paneInboxPresenter,
-        paneInboxClearRecorder: paneInboxClearRecorder,
         launchRecorder: launchRecorder
     )
 }

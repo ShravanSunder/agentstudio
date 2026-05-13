@@ -16,6 +16,7 @@ extension CommandBarDataSource {
 
         let actions = commands.actions
         let snapshot = commands.snapshot()
+        let clearReadInboxSpec = AppCommand.clearReadInboxNotifications.definition
         var items: [CommandBarItem] = []
         items.append(
             CommandBarItem(
@@ -31,25 +32,24 @@ extension CommandBarDataSource {
         items.append(
             CommandBarItem(
                 id: "inbox.clearReadHistory",
-                title: "Clear read history",
-                icon: .system(.deleteLeft),
+                title: clearReadInboxSpec.label,
+                icon: clearReadInboxSpec.icon,
                 group: Group.inboxCommands,
                 groupPriority: Priority.commands,
                 keywords: ["inbox", "notification", "clear"],
-                action: inboxCommandAction(actions.clearReadHistory)
+                action: .dispatch(.clearReadInboxNotifications),
+                command: .clearReadInboxNotifications
             )
         )
-        let clearAllDefinition = AppCommand.clearInboxNotifications.definition
         items.append(
             CommandBarItem(
                 id: "inbox.clearAll",
-                title: clearAllDefinition.label,
-                icon: clearAllDefinition.icon,
+                title: "Clear all notifications",
+                icon: .system(.deleteLeft),
                 group: Group.inboxCommands,
                 groupPriority: Priority.commands,
                 keywords: ["inbox", "notification", "clear", "delete"],
-                action: .dispatch(.clearInboxNotifications),
-                command: .clearInboxNotifications
+                action: inboxCommandAction(actions.clearAll)
             )
         )
 

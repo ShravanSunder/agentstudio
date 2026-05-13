@@ -1,6 +1,4 @@
-import AppKit
 import Foundation
-import SwiftUI
 import Testing
 
 @testable import AgentStudio
@@ -29,8 +27,8 @@ struct PaneInboxNotificationPopoverTests {
         #expect(relevant.map(\.title) == ["Parent", "Child"])
     }
 
-    @Test("popover hides read and pane-dismissed notifications before capping")
-    func popoverFiltersUnreadActivePaneNotificationsBeforeCapping() {
+    @Test("unread mode hides read and pane-dismissed notifications before capping")
+    func unreadModeFiltersUnreadActivePaneNotificationsBeforeCapping() {
         let paneId = UUID()
         let newestRead = makeNotification(
             paneId: paneId,
@@ -54,13 +52,54 @@ struct PaneInboxNotificationPopoverTests {
 
         let relevant = PaneInboxNotificationPopover.relevantNotifications(
             paneIds: [paneId],
-            notifications: [newestRead, newestDismissed] + unreadNotifications
+            notifications: [newestRead, newestDismissed] + unreadNotifications,
+            filterMode: .unread
         )
 
         #expect(relevant.count == AppPolicies.PaneInbox.maxVisibleNotifications)
         #expect(relevant.allSatisfy { !$0.isRead && !$0.isDismissedFromPaneInbox })
         #expect(relevant.first?.title == "Unread 0")
         #expect(relevant.last?.title == "Unread 24")
+    }
+
+    @Test("all mode includes read and pane-dismissed notifications before capping")
+    func allModeIncludesReadAndPaneDismissedNotificationsBeforeCapping() {
+        let paneId = UUID()
+        let read = makeNotification(
+            paneId: paneId,
+            title: "Read",
+            timestamp: Date(timeIntervalSince1970: 300),
+            isRead: true
+        )
+        let dismissed = makeNotification(
+            paneId: paneId,
+            title: "Dismissed",
+            timestamp: Date(timeIntervalSince1970: 290),
+            isDismissedFromPaneInbox: true
+        )
+        let scopedNotifications = (0..<30).map { index in
+            makeNotification(
+                paneId: paneId,
+                title: "Scoped \(index)",
+                timestamp: Date(timeIntervalSince1970: TimeInterval(100 - index))
+            )
+        }
+        let unrelated = makeNotification(
+            paneId: UUID(),
+            title: "Other",
+            timestamp: Date(timeIntervalSince1970: 400)
+        )
+
+        let relevant = PaneInboxNotificationPopover.relevantNotifications(
+            paneIds: [paneId],
+            notifications: [unrelated, read, dismissed] + scopedNotifications,
+            filterMode: .all
+        )
+
+        #expect(relevant.count == AppPolicies.PaneInbox.maxVisibleNotifications)
+        #expect(relevant.map(\.title).prefix(2) == ["Read", "Dismissed"])
+        #expect(relevant.contains { $0.title == "Other" } == false)
+        #expect(relevant.last?.title == "Scoped 22")
     }
 
     @Test("popover includes drawer child notification from resolved parent pane scope")
@@ -145,6 +184,7 @@ struct PaneInboxNotificationPopoverTests {
         let parentPaneId = UUID()
         let notification = makeNotification(paneId: parentPaneId, title: "Passive")
         let inboxAtom = InboxNotificationAtom()
+        let presentationAtom = PaneInboxPresentationAtom()
         var didClose = false
         inboxAtom.append(notification)
 
@@ -152,6 +192,7 @@ struct PaneInboxNotificationPopoverTests {
             parentPaneId: parentPaneId,
             paneIds: [parentPaneId],
             inboxAtom: inboxAtom,
+            presentationAtom: presentationAtom,
             dispatcher: CommandDispatcher.shared,
             onActivate: { _ in },
             onClose: { didClose = true }
@@ -163,99 +204,6 @@ struct PaneInboxNotificationPopoverTests {
         #expect(didClose)
         #expect(inboxAtom.notifications.first?.isRead == false)
         #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == false)
-    }
-
-    @Test("clearNotifications dispatches targeted pane inbox clear command")
-    func clearNotificationsDispatchesTargetedPaneInboxClearCommand() {
-        let previousRouter = CommandDispatcher.shared.appCommandRouter
-        let previousHandler = CommandDispatcher.shared.handler
-        defer {
-            CommandDispatcher.shared.appCommandRouter = previousRouter
-            CommandDispatcher.shared.handler = previousHandler
-        }
-
-        let parentPaneId = UUID()
-        let commandHandler = MockCommandHandler()
-        commandHandler.targetedCanExecuteResult = true
-        CommandDispatcher.shared.appCommandRouter = nil
-        CommandDispatcher.shared.handler = commandHandler
-        let popover = PaneInboxNotificationPopover(
-            parentPaneId: parentPaneId,
-            paneIds: [parentPaneId, UUID()],
-            inboxAtom: InboxNotificationAtom(),
-            dispatcher: .shared,
-            onActivate: { _ in },
-            onClose: {}
-        )
-
-        popover.clearNotifications()
-
-        #expect(commandHandler.executedCommands.count == 1)
-        #expect(commandHandler.executedCommands.first?.0 == .clearPaneInboxNotifications)
-        #expect(commandHandler.executedCommands.first?.1 == parentPaneId)
-        #expect(commandHandler.executedCommands.first?.2 == .pane)
-    }
-
-    @Test("mounted pane inbox clear button dispatches targeted clear command")
-    func mountedPaneInboxClearButtonDispatchesTargetedClearCommand() async throws {
-        let previousRouter = CommandDispatcher.shared.appCommandRouter
-        let previousHandler = CommandDispatcher.shared.handler
-        defer {
-            CommandDispatcher.shared.appCommandRouter = previousRouter
-            CommandDispatcher.shared.handler = previousHandler
-        }
-
-        let parentPaneId = UUID()
-        let commandHandler = MockCommandHandler()
-        commandHandler.targetedCanExecuteResult = true
-        CommandDispatcher.shared.appCommandRouter = nil
-        CommandDispatcher.shared.handler = commandHandler
-        let hostingView = NSHostingView(
-            rootView: PaneInboxNotificationPopover(
-                parentPaneId: parentPaneId,
-                paneIds: [parentPaneId],
-                inboxAtom: InboxNotificationAtom(),
-                dispatcher: .shared,
-                onActivate: { _ in },
-                onClose: {}
-            )
-        )
-        let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 520, height: 360),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = hostingView
-        window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
-        hostingView.layoutSubtreeIfNeeded()
-
-        let clearButton = try #require(
-            findAccessibleElement(in: hostingView, identifier: "paneInboxClearButton")
-        )
-
-        #expect(accessibleElementCount(in: hostingView, identifier: "paneInboxClearButton") == 1)
-        pressAccessibleElement(clearButton)
-        #expect(commandHandler.executedCommands.count == 1)
-        #expect(commandHandler.executedCommands.first?.0 == .clearPaneInboxNotifications)
-        #expect(commandHandler.executedCommands.first?.1 == parentPaneId)
-        #expect(commandHandler.executedCommands.first?.2 == .pane)
-    }
-
-    @Test("pane inbox rows participate in shared hover behavior")
-    func paneInboxRowsParticipateInSharedHoverBehavior() throws {
-        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let source = try String(
-            contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/Features/InboxNotification/Views/PaneInboxNotificationPopover.swift"
-            ),
-            encoding: .utf8
-        )
-
-        #expect(source.contains("PaneInboxNotificationRow("))
-        #expect(source.contains(".onHover { hovering in"))
-        #expect(source.contains("isHovered: false") == false)
     }
 
     private func makeNotification(
@@ -307,81 +255,4 @@ struct PaneInboxNotificationPopoverTests {
             drawerPane.id: drawerPane,
         ]
     }
-}
-
-@MainActor
-private func findAccessibleElement(in root: AnyObject, identifier: String) -> AnyObject? {
-    var visited: Set<ObjectIdentifier> = []
-    return findAccessibleElement(in: root, identifier: identifier, visited: &visited)
-}
-
-@MainActor
-private func findAccessibleElement(
-    in element: AnyObject,
-    identifier: String,
-    visited: inout Set<ObjectIdentifier>
-) -> AnyObject? {
-    let objectIdentifier = ObjectIdentifier(element)
-    guard visited.insert(objectIdentifier).inserted else { return nil }
-
-    if accessibilityIdentifier(of: element) == identifier {
-        return element
-    }
-
-    for child in accessibilityChildren(of: element) {
-        if let match = findAccessibleElement(in: child, identifier: identifier, visited: &visited) {
-            return match
-        }
-    }
-
-    for subview in (element as? NSView)?.subviews ?? [] {
-        if let match = findAccessibleElement(in: subview, identifier: identifier, visited: &visited) {
-            return match
-        }
-    }
-
-    return nil
-}
-
-private func accessibilityIdentifier(of element: AnyObject) -> String? {
-    let selector = NSSelectorFromString("accessibilityIdentifier")
-    guard element.responds(to: selector) else { return nil }
-    return element.perform(selector)?.takeUnretainedValue() as? String
-}
-
-private func accessibilityChildren(of element: AnyObject) -> [AnyObject] {
-    let selector = NSSelectorFromString("accessibilityChildren")
-    guard element.responds(to: selector) else { return [] }
-    return element.perform(selector)?.takeUnretainedValue() as? [AnyObject] ?? []
-}
-
-private func pressAccessibleElement(_ element: AnyObject) {
-    let selector = NSSelectorFromString("accessibilityPerformPress")
-    guard element.responds(to: selector) else { return }
-    _ = element.perform(selector)
-}
-
-@MainActor
-private func accessibleElementCount(in root: AnyObject, identifier: String) -> Int {
-    var visited: Set<ObjectIdentifier> = []
-    return accessibleElementCount(in: root, identifier: identifier, visited: &visited)
-}
-
-@MainActor
-private func accessibleElementCount(
-    in element: AnyObject,
-    identifier: String,
-    visited: inout Set<ObjectIdentifier>
-) -> Int {
-    let objectIdentifier = ObjectIdentifier(element)
-    guard visited.insert(objectIdentifier).inserted else { return 0 }
-
-    let currentCount = accessibilityIdentifier(of: element) == identifier ? 1 : 0
-    let childCount = accessibilityChildren(of: element).reduce(0) { count, child in
-        count + accessibleElementCount(in: child, identifier: identifier, visited: &visited)
-    }
-    let subviewCount = ((element as? NSView)?.subviews ?? []).reduce(0) { count, subview in
-        count + accessibleElementCount(in: subview, identifier: identifier, visited: &visited)
-    }
-    return currentCount + childCount + subviewCount
 }

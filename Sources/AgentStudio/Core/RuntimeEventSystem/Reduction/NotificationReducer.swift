@@ -138,16 +138,18 @@ final class NotificationReducer {
     }
 
     private func tier(for envelope: RuntimeEnvelope) -> VisibilityTier {
-        if case .system = envelope.source {
-            // Contract 12a: system events are always highest visibility priority.
+        switch envelope {
+        case .system:
+            // Contract 12a: system envelopes are always highest visibility priority.
             return .p0Visible
-        }
-        guard
-            let resolver = tierResolver,
-            case .pane(let paneId) = envelope.source
-        else {
+        case .pane(let paneEnvelope):
+            guard let resolver = tierResolver else { return .p1Hidden }
+            return resolver.tier(for: paneEnvelope.paneId)
+        case .worktree:
+            if case .system = envelope.source {
+                return .p0Visible
+            }
             return .p1Hidden
         }
-        return resolver.tier(for: paneId)
     }
 }

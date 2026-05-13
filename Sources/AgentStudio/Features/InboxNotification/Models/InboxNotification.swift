@@ -23,12 +23,26 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
         let worktree: NamedSource?
         let branchName: String?
         let paneDisplayLabel: String?
-        let paneOrdinal: Int?
         let paneRole: PaneRole
         let parentPaneId: UUID?
         let parentPaneDisplayLabel: String?
         let drawerOrdinal: Int?
         let runtimeDisplayLabel: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case paneId
+            case tabId
+            case tabDisplayLabel
+            case repo
+            case worktree
+            case branchName
+            case paneDisplayLabel
+            case paneRole
+            case parentPaneId
+            case parentPaneDisplayLabel
+            case drawerOrdinal
+            case runtimeDisplayLabel
+        }
 
         init(
             paneId: UUID,
@@ -40,7 +54,6 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
             worktreeName: String? = nil,
             branchName: String? = nil,
             paneDisplayLabel: String? = nil,
-            paneOrdinal: Int? = nil,
             paneRole: PaneRole = .main,
             parentPaneId: UUID? = nil,
             parentPaneDisplayLabel: String? = nil,
@@ -49,7 +62,7 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
         ) {
             self.paneId = paneId
             self.tabId = tabId
-            self.tabDisplayLabel = normalizedOptionalString(tabDisplayLabel)
+            self.tabDisplayLabel = tabDisplayLabel
             self.repo = NamedSource(
                 id: repoId,
                 name: repoName
@@ -58,51 +71,29 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
                 id: worktreeId,
                 name: worktreeName
             )
-            self.branchName = normalizedOptionalString(branchName)
-            self.paneDisplayLabel = normalizedOptionalString(paneDisplayLabel)
-            self.paneOrdinal = paneOrdinal
+            self.branchName = branchName
+            self.paneDisplayLabel = paneDisplayLabel
             self.paneRole = paneRole
             self.parentPaneId = parentPaneId
-            self.parentPaneDisplayLabel = normalizedOptionalString(parentPaneDisplayLabel)
+            self.parentPaneDisplayLabel = parentPaneDisplayLabel
             self.drawerOrdinal = drawerOrdinal
-            self.runtimeDisplayLabel = normalizedOptionalString(runtimeDisplayLabel)
+            self.runtimeDisplayLabel = runtimeDisplayLabel
         }
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            paneId = try container.decode(UUID.self, forKey: .paneId)
-            tabId = try container.decodeIfPresent(UUID.self, forKey: .tabId)
-            tabDisplayLabel = normalizedOptionalString(
-                try container.decodeIfPresent(String.self, forKey: .tabDisplayLabel))
-            repo = try container.decodeIfPresent(NamedSource.self, forKey: .repo)
-            worktree = try container.decodeIfPresent(NamedSource.self, forKey: .worktree)
-            branchName = normalizedOptionalString(try container.decodeIfPresent(String.self, forKey: .branchName))
-            paneDisplayLabel = normalizedOptionalString(
-                try container.decodeIfPresent(String.self, forKey: .paneDisplayLabel))
-            paneOrdinal = try container.decodeIfPresent(Int.self, forKey: .paneOrdinal)
-            paneRole = try container.decodeIfPresent(PaneRole.self, forKey: .paneRole) ?? .main
-            parentPaneId = try container.decodeIfPresent(UUID.self, forKey: .parentPaneId)
-            parentPaneDisplayLabel =
-                normalizedOptionalString(try container.decodeIfPresent(String.self, forKey: .parentPaneDisplayLabel))
-            drawerOrdinal = try container.decodeIfPresent(Int.self, forKey: .drawerOrdinal)
-            runtimeDisplayLabel = normalizedOptionalString(
-                try container.decodeIfPresent(String.self, forKey: .runtimeDisplayLabel))
-        }
-
-        private enum CodingKeys: String, CodingKey {
-            case paneId
-            case tabId
-            case tabDisplayLabel
-            case repo
-            case worktree
-            case branchName
-            case paneDisplayLabel
-            case paneOrdinal
-            case paneRole
-            case parentPaneId
-            case parentPaneDisplayLabel
-            case drawerOrdinal
-            case runtimeDisplayLabel
+            self.paneId = try container.decode(UUID.self, forKey: .paneId)
+            self.tabId = try container.decodeIfPresent(UUID.self, forKey: .tabId)
+            self.tabDisplayLabel = try container.decodeIfPresent(String.self, forKey: .tabDisplayLabel)
+            self.repo = try container.decodeIfPresent(NamedSource.self, forKey: .repo)
+            self.worktree = try container.decodeIfPresent(NamedSource.self, forKey: .worktree)
+            self.branchName = try container.decodeIfPresent(String.self, forKey: .branchName)
+            self.paneDisplayLabel = try container.decodeIfPresent(String.self, forKey: .paneDisplayLabel)
+            self.paneRole = try container.decodeIfPresent(PaneRole.self, forKey: .paneRole) ?? .main
+            self.parentPaneId = try container.decodeIfPresent(UUID.self, forKey: .parentPaneId)
+            self.parentPaneDisplayLabel = try container.decodeIfPresent(String.self, forKey: .parentPaneDisplayLabel)
+            self.drawerOrdinal = try container.decodeIfPresent(Int.self, forKey: .drawerOrdinal)
+            self.runtimeDisplayLabel = try container.decodeIfPresent(String.self, forKey: .runtimeDisplayLabel)
         }
     }
 
@@ -125,15 +116,77 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
         }
     }
 
+    struct ActivityContext: Sendable, Codable, Equatable {
+        let burstWindowId: UUID
+        let activitySessionId: UUID?
+        let eventCount: Int
+        let rowsAdded: Int
+        let thresholdRows: Int
+        let latestRows: Int
+
+        init(
+            burstWindowId: UUID,
+            activitySessionId: UUID? = nil,
+            eventCount: Int,
+            rowsAdded: Int,
+            thresholdRows: Int,
+            latestRows: Int
+        ) {
+            self.burstWindowId = burstWindowId
+            self.activitySessionId = activitySessionId
+            self.eventCount = eventCount
+            self.rowsAdded = rowsAdded
+            self.thresholdRows = thresholdRows
+            self.latestRows = latestRows
+        }
+
+        func coalesced(with newerContext: Self) -> Self {
+            Self(
+                burstWindowId: newerContext.burstWindowId,
+                activitySessionId: newerContext.activitySessionId ?? activitySessionId,
+                eventCount: eventCount + newerContext.eventCount,
+                rowsAdded: max(rowsAdded, newerContext.rowsAdded),
+                thresholdRows: newerContext.thresholdRows,
+                latestRows: newerContext.latestRows
+            )
+        }
+    }
+
     let id: UUID
     let timestamp: Date
     let kind: InboxNotificationKind
     let title: String
     let body: String?
     let source: Source
+    var activityContext: ActivityContext?
+    let claimKey: InboxNotificationClaimKey?
 
     var isRead: Bool
     var isDismissedFromPaneInbox: Bool
+
+    init(
+        id: UUID,
+        timestamp: Date,
+        kind: InboxNotificationKind,
+        title: String,
+        body: String?,
+        source: Source,
+        activityContext: ActivityContext? = nil,
+        claimKey: InboxNotificationClaimKey? = nil,
+        isRead: Bool,
+        isDismissedFromPaneInbox: Bool
+    ) {
+        self.id = id
+        self.timestamp = timestamp
+        self.kind = kind
+        self.title = title
+        self.body = body
+        self.source = source
+        self.activityContext = activityContext
+        self.claimKey = claimKey
+        self.isRead = isRead
+        self.isDismissedFromPaneInbox = isDismissedFromPaneInbox
+    }
 
     var paneId: UUID? {
         guard case .pane(let paneSource) = source else { return nil }
@@ -143,11 +196,6 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
     var tabId: UUID? {
         guard case .pane(let paneSource) = source else { return nil }
         return paneSource.tabId
-    }
-
-    var paneContext: PaneSource? {
-        guard case .pane(let paneSource) = source else { return nil }
-        return paneSource
     }
 
     var repoId: UUID? {
@@ -174,13 +222,6 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
         guard case .pane(let paneSource) = source else { return nil }
         return paneSource.branchName
     }
-
-    var tabDisplayLabel: String? { paneContext?.tabDisplayLabel }
-    var paneDisplayLabel: String? { paneContext?.paneDisplayLabel }
-    var paneOrdinal: Int? { paneContext?.paneOrdinal }
-    var paneRole: PaneSource.PaneRole? { paneContext?.paneRole }
-    var parentPaneDisplayLabel: String? { paneContext?.parentPaneDisplayLabel }
-    var runtimeDisplayLabel: String? { paneContext?.runtimeDisplayLabel }
 }
 
 enum InboxNotificationKind: String, Sendable, Codable, Equatable {
@@ -192,12 +233,7 @@ enum InboxNotificationKind: String, Sendable, Codable, Equatable {
     case terminalRendererUnhealthy
     case persistenceRecovery
     case agentRpc
+    case unseenActivity
     case approvalRequested
     case securityEvent
-}
-
-private func normalizedOptionalString(_ value: String?) -> String? {
-    guard let value else { return nil }
-    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-    return trimmed.isEmpty ? nil : trimmed
 }

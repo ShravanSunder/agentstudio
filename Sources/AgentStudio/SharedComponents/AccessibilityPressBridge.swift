@@ -4,7 +4,7 @@ import SwiftUI
 struct AccessibilityPressBridge: NSViewRepresentable {
     let identifier: String
     let label: String
-    let action: @MainActor @Sendable () -> Void
+    let action: @MainActor () -> Void
 
     func makeNSView(context _: Context) -> AccessibilityPressBridgeView {
         let view = AccessibilityPressBridgeView()
@@ -24,7 +24,7 @@ struct AccessibilityPressBridge: NSViewRepresentable {
 @MainActor
 final class AccessibilityPressBridgeView: NSView {
     var label = ""
-    var action: @MainActor @Sendable () -> Void = {}
+    var action: @MainActor () -> Void = {}
 
     override func isAccessibilityElement() -> Bool {
         true

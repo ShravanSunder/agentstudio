@@ -8,13 +8,13 @@ struct SidebarRowShellTests {
     @Test("row shell builds with selected hover and flashing states")
     @MainActor
     func rowShellBuildsWithAllVisualStates() {
-        let normal = SidebarRowShell(isSelected: false, isFlashing: false, isHovered: false) {
+        let normal = SidebarRowShell(isSelected: false, isFlashing: false, isHovering: false) {
             Text("Normal")
         }
-        let selected = SidebarRowShell(isSelected: true, isFlashing: false, isHovered: false) {
+        let selected = SidebarRowShell(isSelected: true, isFlashing: false, isHovering: false) {
             Text("Selected")
         }
-        let flashing = SidebarRowShell(isSelected: false, isFlashing: true, isHovered: false) {
+        let flashing = SidebarRowShell(isSelected: false, isFlashing: true, isHovering: false) {
             Text("Flashing")
         }
 
@@ -29,16 +29,16 @@ struct SidebarRowShellTests {
         let selectedFill = SidebarRowShell<Text>.backgroundColor(
             isSelected: true,
             isFlashing: false,
-            isHovered: false
+            isHovering: false
         )
         let flashingFill = SidebarRowShell<Text>.backgroundColor(
             isSelected: false,
             isFlashing: true,
-            isHovered: false
+            isHovering: false
         )
 
-        #expect(selectedFill == Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowSelectedOpacity))
-        #expect(flashingFill == Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowSelectedOpacity))
+        #expect(selectedFill == Color.accentColor.opacity(AppStyles.General.Fill.active))
+        #expect(flashingFill == Color.accentColor.opacity(AppStyles.General.Fill.selected))
     }
 
     @Test("hover fill matches RepoExplorer accent hover policy")
@@ -47,7 +47,7 @@ struct SidebarRowShellTests {
         let hoverFill = SidebarRowShell<Text>.backgroundColor(
             isSelected: false,
             isFlashing: false,
-            isHovered: true
+            isHovering: true
         )
 
         #expect(hoverFill == Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity))
@@ -57,6 +57,6 @@ struct SidebarRowShellTests {
     @MainActor
     func contentPaddingMatchesRepoExplorerRowInsetPolicy() {
         #expect(SidebarRowShell<Text>.contentVerticalInset == AppStyles.Shell.Sidebar.rowVerticalInset)
-        #expect(SidebarRowShell<Text>.contentHorizontalInset == AppStyles.General.Spacing.tight / 2)
+        #expect(SidebarRowShell<Text>.contentHorizontalInset == AppStyles.Shell.Sidebar.rowHorizontalInset)
     }
 }

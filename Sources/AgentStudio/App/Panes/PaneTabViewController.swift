@@ -477,6 +477,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         updateVisibleTabHost()
         rebuildEmptyStateView()
         updateEmptyState()
+        prunePaneInboxPresentationState()
 
         let isManagementLayerActive = atom(\.managementLayer).isActive
         let didExitManagementLayer = lastManagementLayerActive && !isManagementLayerActive
@@ -525,6 +526,16 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         if didExitManagementLayer {
             requestPaneRefocus(.managementLayerExited)
         }
+    }
+
+    private func prunePaneInboxPresentationState() {
+        guard let paneInboxPresentation else { return }
+        let retainedParentPaneIds = Set(
+            store.paneAtom.panes.values.compactMap { pane in
+                pane.isDrawerChild ? nil : pane.id
+            }
+        )
+        paneInboxPresentation.pruneFilterModes(retainedParentPaneIds)
     }
 
     private func preferredVisibleFocusPaneId() -> UUID? {
@@ -1958,8 +1969,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             guard let activeTabId = store.tabLayoutAtom.activeTabId else { break }
             tabRenamePopoverState.present(for: activeTabId)
         case .watchFolder, .toggleSidebar, .filterSidebar,
-            .showInboxNotifications, .showPaneInboxNotifications, .clearPaneInboxNotifications,
-            .showWorktreeSidebar, .signInGitHub, .signInGoogle:
+            .showInboxNotifications, .showPaneInboxNotifications, .clearPaneInboxNotifications, .showWorktreeSidebar,
+            .signInGitHub, .signInGoogle:
             break
         case .enterDrawer:
             enterDrawerFromActivePane()
@@ -2044,12 +2055,6 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
         if command == .selectTab, targetType == .tab {
             handlePaneFocusTrigger(.command(.selectTab(target)))
-            return
-        }
-
-        if command == .clearPaneInboxNotifications, targetType == .pane {
-            guard let paneInboxPresentation, let paneInboxTarget = paneInboxTarget(anchorPaneId: target) else { return }
-            paneInboxPresentation.clearNotifications(paneInboxTarget.parentPaneId, paneInboxTarget.paneIds)
             return
         }
 
@@ -2327,10 +2332,6 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
-        if command == .clearPaneInboxNotifications, targetType == .pane {
-            return paneInboxPresentation != nil && paneInboxTarget(anchorPaneId: target) != nil
-        }
-
         if let action = targetedAction(command: command, target: target, targetType: targetType) {
             let snapshot = WorkspaceCommandResolver.snapshot(
                 from: store.tabLayoutAtom.tabs,
@@ -2396,8 +2397,6 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return store.tabLayoutAtom.activeTabId != nil
         case .addDrawerPane, .toggleDrawer, .closeDrawerPane:
             return canExecuteContextualCommand(command)
-        case .clearInboxNotifications:
-            return false
         case .showPaneInboxNotifications, .clearPaneInboxNotifications:
             return paneInboxPresentation != nil && activePaneInboxTarget() != nil
         case .openPaneLocationInBookmarkedEditor,
@@ -2467,28 +2466,23 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     private func handlePaneInboxCommand(_ command: AppCommand) -> Bool {
-        guard command == .showPaneInboxNotifications || command == .clearPaneInboxNotifications else { return false }
         guard let paneInboxPresentation, let target = activePaneInboxTarget() else { return false }
         switch command {
         case .showPaneInboxNotifications:
             paneInboxPresentation.toggle(target.parentPaneId, target.paneIds)
+            return true
         case .clearPaneInboxNotifications:
-            paneInboxPresentation.clearNotifications(target.parentPaneId, target.paneIds)
+            paneInboxPresentation.clear(target.parentPaneId, target.paneIds)
+            return true
         default:
             return false
         }
-        return true
     }
 
     private func activePaneInboxTarget() -> PaneInboxCommandTarget? {
         guard let parentPaneId = activePaneInboxParentPaneId() else { return nil }
-        return paneInboxTarget(anchorPaneId: parentPaneId)
-    }
-
-    private func paneInboxTarget(anchorPaneId: UUID) -> PaneInboxCommandTarget? {
-        guard store.paneAtom.pane(anchorPaneId) != nil else { return nil }
         let scope = PaneInboxScopeResolver.resolve(
-            anchorPaneId: anchorPaneId,
+            anchorPaneId: parentPaneId,
             pane: { store.paneAtom.pane($0) }
         )
         return PaneInboxCommandTarget(parentPaneId: scope.parentPaneId, paneIds: scope.paneIds)

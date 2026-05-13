@@ -3,10 +3,8 @@ import Foundation
 extension AppDelegate: ShellCommandHandling {
     func canExecute(_ command: AppCommand) -> Bool {
         switch command {
-        case .clearInboxNotifications:
-            canExecuteClearInboxNotificationsCommand()
         case .watchFolder, .toggleSidebar, .filterSidebar,
-            .showInboxNotifications, .showWorktreeSidebar,
+            .showInboxNotifications, .clearReadInboxNotifications, .showWorktreeSidebar,
             .signInGitHub, .signInGoogle, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
             true
@@ -28,8 +26,9 @@ extension AppDelegate: ShellCommandHandling {
         case .showInboxNotifications:
             mainWindowController?.showInboxNotifications(commandBarIsKey: commandBarController.isKeyWindow)
             return true
-        case .clearInboxNotifications:
-            return executeClearInboxNotificationsCommand()
+        case .clearReadInboxNotifications:
+            inboxNotificationAtom?.clearReadHistory()
+            return true
         case .showWorktreeSidebar:
             mainWindowController?.showWorktreeSidebar()
             return true

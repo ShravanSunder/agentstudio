@@ -10,16 +10,6 @@ enum InboxNotificationListEndpoint {
     case last
 }
 
-struct InboxNotificationListSectionHeader: Equatable {
-    enum Style: Equatable {
-        case plain
-        case repo(organizationName: String?)
-    }
-
-    let label: String?
-    let style: Style
-}
-
 struct InboxNotificationListSection: Identifiable, Equatable {
     let id: String
     let header: InboxNotificationListSectionHeader?
@@ -39,6 +29,16 @@ struct InboxNotificationListSection: Identifiable, Equatable {
     var visibleNotifications: [InboxNotification] {
         isCollapsed ? [] : notifications
     }
+}
+
+struct InboxNotificationListSectionHeader: Equatable {
+    enum Style: Equatable {
+        case plain
+        case repo(organizationName: String?)
+    }
+
+    let label: String?
+    let style: Style
 }
 
 private enum InboxNotificationSectionKey: Hashable {
@@ -202,14 +202,14 @@ struct InboxNotificationListModel: Equatable {
                     if let repoName = notification.repoName { return .repoName(repoName) }
                     return .noRepo
                 },
-                header: { key, notifications in
-                    switch key {
+                header: { groupKey, notifications in
+                    switch groupKey {
                     case .repoName(let name):
-                        return .repo(label: name, organizationName: nil)
+                        .repo(label: name, organizationName: nil)
                     case .noRepo:
-                        return .plain(label: "Other sources")
+                        .plain(label: "Other sources")
                     default:
-                        return .repo(
+                        .repo(
                             label: bestGroupLabel(
                                 for: notifications,
                                 grouping: .byRepo,
@@ -282,7 +282,7 @@ struct InboxNotificationListModel: Equatable {
         notifications
             .sorted { $0.timestamp > $1.timestamp }
             .lazy
-            .map { InboxNotificationSourceDisplay.groupLabel(for: $0, grouping: grouping) }
+            .compactMap { InboxNotificationSourceDisplay(notification: $0).groupLabel(for: grouping) }
             .first { !$0.isEmpty && $0 != placeholder } ?? placeholder
     }
 }

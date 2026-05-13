@@ -138,17 +138,18 @@ struct TerminalActivityAtomTests {
         #expect(atom.snapshot(for: paneId.uuid)?.outputBurst.thresholdReached == true)
     }
 
-    @Test("scrollbar state tracks whether pane is pinned to bottom")
-    func scrollbarStateTracksWhetherPaneIsPinnedToBottom() {
+    @Test("scrollbar state records pinned-to-bottom observation")
+    func scrollbarStateRecordsPinnedToBottomObservation() {
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let paneId = PaneId()
 
         atom.consume(
             paneEnvelope(
                 paneId: paneId,
-                event: .scrollbarChanged(ScrollbarState(top: 50, bottom: 80, total: 100))
+                event: .scrollbarChanged(ScrollbarState(top: 40, bottom: 80, total: 100))
             )
         )
+        #expect(atom.snapshot(for: paneId.uuid)?.scrollbarState?.isPinnedToBottom == false)
         #expect(atom.snapshot(for: paneId.uuid)?.isPinnedToBottom == false)
 
         atom.consume(
@@ -158,6 +159,7 @@ struct TerminalActivityAtomTests {
                 seq: 2
             )
         )
+        #expect(atom.snapshot(for: paneId.uuid)?.scrollbarState?.isPinnedToBottom == true)
         #expect(atom.snapshot(for: paneId.uuid)?.isPinnedToBottom == true)
     }
 

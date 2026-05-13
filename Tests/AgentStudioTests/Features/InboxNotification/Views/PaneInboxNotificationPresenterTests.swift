@@ -106,6 +106,27 @@ struct PaneInboxNotificationPresenterTests {
         #expect(presenter.request?.paneIds == [secondParentPaneId])
     }
 
+    @Test("clearRequest removes only the matching pending request")
+    func clearRequestRemovesOnlyMatchingPendingRequest() {
+        let presenter = PaneInboxNotificationPresenter()
+        let firstParentPaneId = UUID()
+        let secondParentPaneId = UUID()
+
+        presenter.open(parentPaneId: firstParentPaneId, paneIds: [firstParentPaneId])
+        let staleRequest = presenter.request
+        presenter.open(parentPaneId: secondParentPaneId, paneIds: [secondParentPaneId])
+
+        if let staleRequest {
+            presenter.clearRequest(staleRequest)
+        }
+
+        #expect(presenter.request?.parentPaneId == secondParentPaneId)
+        if let currentRequest = presenter.request {
+            presenter.clearRequest(currentRequest)
+        }
+        #expect(presenter.request == nil)
+    }
+
     @Test("pane inbox presenter traces low-volume request and presentation state changes")
     func paneInboxPresenterTracesLowVolumeRequestAndPresentationStateChanges() async throws {
         let traceRuntime = makeTraceRuntime(name: "pane-inbox-presenter", processIdentifier: 263)
@@ -129,6 +150,25 @@ struct PaneInboxNotificationPresenterTests {
         #expect(contents.contains("\"agentstudio.pane_inbox.presented\":true"))
         #expect(contents.contains("\"agentstudio.pane.parent_id\":\"\(parentPaneId.uuidString)\""))
         #expect(contents.contains("\"agentstudio.pane.scope_count\":2"))
+    }
+
+    @Test("presentation trace is emitted only when presented state changes")
+    func presentationTraceIsEmittedOnlyWhenPresentedStateChanges() async throws {
+        let traceRuntime = makeTraceRuntime(name: "pane-inbox-presenter-dedup", processIdentifier: 265)
+        let presenter = PaneInboxNotificationPresenter(traceRuntime: traceRuntime)
+        let parentPaneId = UUID()
+        let paneIds = [parentPaneId]
+
+        presenter.setPresented(parentPaneId: parentPaneId, paneIds: paneIds, isPresented: true)
+        presenter.setPresented(parentPaneId: parentPaneId, paneIds: paneIds, isPresented: true)
+        presenter.setPresented(parentPaneId: parentPaneId, paneIds: paneIds, isPresented: false)
+        presenter.setPresented(parentPaneId: parentPaneId, paneIds: paneIds, isPresented: false)
+
+        await presenter.drainTraceRecords()
+        let outputFileURL = try #require(traceRuntime.outputFileURL)
+        let records = try decodeTraceRecords(at: outputFileURL)
+        let presentationTraceCount = records.count { $0.body == "paneInbox.presentationChanged" }
+        #expect(presentationTraceCount == 2)
     }
 
     @Test("pane inbox presenter traces row activation target")
@@ -164,4 +204,17 @@ struct PaneInboxNotificationPresenterTests {
         #expect(contents.contains("\"agentstudio.pane.parent_id\":\"\(parentPaneId.uuidString)\""))
         #expect(contents.contains("\"agentstudio.pane.scope_count\":2"))
     }
+
+    private func decodeTraceRecords(at url: URL) throws -> [TraceRecordBody] {
+        let decoder = JSONDecoder()
+        return try String(contentsOf: url, encoding: .utf8)
+            .split(separator: "\n")
+            .map { line in
+                try decoder.decode(TraceRecordBody.self, from: Data(line.utf8))
+            }
+    }
+}
+
+private struct TraceRecordBody: Decodable {
+    let body: String
 }

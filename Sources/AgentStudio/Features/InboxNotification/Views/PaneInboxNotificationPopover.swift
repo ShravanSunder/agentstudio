@@ -11,6 +11,7 @@ struct PaneInboxNotificationPopover: View {
     let parentPaneId: UUID
     let paneIds: [UUID]
     let inboxAtom: InboxNotificationAtom
+    let presentationAtom: PaneInboxPresentationAtom
     let dispatcher: CommandDispatcher
     let onActivate: @MainActor (InboxNotification) -> Void
     let onClose: @MainActor @Sendable () -> Void
@@ -54,7 +55,8 @@ struct PaneInboxNotificationPopover: View {
 
     static func relevantNotifications(
         paneIds: [UUID],
-        notifications: [InboxNotification]
+        notifications: [InboxNotification],
+        filterMode: PaneInboxNotificationFilterMode = .unread
     ) -> [InboxNotification] {
         let paneIdSet = Set(paneIds)
         return
@@ -62,7 +64,12 @@ struct PaneInboxNotificationPopover: View {
             .filter { notification in
                 guard let paneId = notification.paneId else { return false }
                 guard paneIdSet.contains(paneId) else { return false }
-                return !notification.isRead && !notification.isDismissedFromPaneInbox
+                switch filterMode {
+                case .unread:
+                    return !notification.isRead && !notification.isDismissedFromPaneInbox
+                case .all:
+                    return true
+                }
             }
             .sorted { $0.timestamp > $1.timestamp }
             .prefix(AppPolicies.PaneInbox.maxVisibleNotifications)
@@ -82,32 +89,38 @@ struct PaneInboxNotificationPopover: View {
     }
 
     private var header: some View {
-        HStack(spacing: AppStyles.Components.PaneInbox.headerControlSpacing) {
+        let clearPaneInboxSpec = AppCommand.clearPaneInboxNotifications.definition
+        return HStack(spacing: AppStyles.Components.PaneInbox.headerControlSpacing) {
             Text("Pane inbox")
                 .font(.headline)
             Spacer()
-            Button(action: clearNotifications) {
-                AppCommand.clearPaneInboxNotifications.definition.icon.swiftUIImage(
-                    size: AppStyles.Components.PaneInbox.filterButtonFontSize
+            Button(action: clearPaneInbox) {
+                clearPaneInboxSpec.icon.swiftUIImage()
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(clearPaneInboxSpec.label)
+            .help(clearPaneInboxSpec.controlToolTip)
+
+            Button(action: toggleFilterMode) {
+                HStack(spacing: AppStyles.General.Spacing.tight) {
+                    Image(systemName: filterMode.systemImageName)
+                    Text(filterMode.label)
+                }
+                .font(
+                    .system(
+                        size: AppStyles.Components.PaneInbox.filterButtonFontSize,
+                        weight: .medium
+                    )
                 )
-                .frame(
-                    width: AppStyles.General.Button.compact,
-                    height: AppStyles.General.Button.compact
+                .padding(.horizontal, AppStyles.Components.PaneInbox.filterButtonHorizontalPadding)
+                .padding(.vertical, AppStyles.Components.PaneInbox.filterButtonVerticalPadding)
+                .background(
+                    RoundedRectangle(cornerRadius: AppStyles.Components.PaneInbox.filterButtonCornerRadius)
+                        .fill(Color.white.opacity(AppStyles.General.Fill.hover))
                 )
             }
             .buttonStyle(.borderless)
-            .help(AppCommand.clearPaneInboxNotifications.definition.controlToolTip)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(AppCommand.clearPaneInboxNotifications.definition.label)
-            .accessibilityIdentifier("paneInboxClearButton")
-            .accessibilityHidden(true)
-            .background(
-                AccessibilityPressBridge(
-                    identifier: "paneInboxClearButton",
-                    label: AppCommand.clearPaneInboxNotifications.definition.label,
-                    action: clearNotifications
-                )
-            )
+            .help(filterMode.helpText)
 
             Divider()
                 .frame(height: AppStyles.Components.PaneInbox.headerSeparatorHeight)
@@ -123,8 +136,13 @@ struct PaneInboxNotificationPopover: View {
     private var relevantNotifications: [InboxNotification] {
         Self.relevantNotifications(
             paneIds: paneIds,
-            notifications: inboxAtom.notifications
+            notifications: inboxAtom.notifications,
+            filterMode: filterMode
         )
+    }
+
+    private var filterMode: PaneInboxNotificationFilterMode {
+        presentationAtom.filterMode(for: parentPaneId)
     }
 
     private var relevantNotificationIds: [UUID] {
@@ -139,11 +157,17 @@ struct PaneInboxNotificationPopover: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(relevantNotifications) { notification in
-                            PaneInboxNotificationRow(
-                                notification: notification,
-                                parentPaneId: parentPaneId,
+                            SidebarRowShell(
                                 isSelected: selectedNotificationId == notification.id
                             ) {
+                                InboxRow(
+                                    notification: notification,
+                                    now: Date(),
+                                    rowContext: .paneInbox(parentPaneId: parentPaneId)
+                                )
+                            }
+                            .contentShape(Rectangle())
+                            .onTapGesture {
                                 activate(notification)
                             }
                         }
@@ -164,8 +188,13 @@ struct PaneInboxNotificationPopover: View {
         )
     }
 
-    func clearNotifications() {
-        dispatcher.dispatch(.clearPaneInboxNotifications, target: parentPaneId, targetType: .pane)
+    private func toggleFilterMode() {
+        presentationAtom.toggleFilterMode(for: parentPaneId)
+        repairSelection()
+    }
+
+    private func clearPaneInbox() {
+        inboxAtom.clearPaneInbox(paneIds: paneIds)
         repairSelection()
     }
 
@@ -174,6 +203,7 @@ struct PaneInboxNotificationPopover: View {
             paneInboxNotificationPopoverLogger.warning(
                 "Pane inbox activation dropped unknown notification id \(notificationId.uuidString, privacy: .public)"
             )
+            repairSelection()
             return
         }
 
@@ -182,39 +212,16 @@ struct PaneInboxNotificationPopover: View {
 
     private func activate(_ notification: InboxNotification) {
         onActivate(notification)
-        inboxAtom.markRead(id: notification.id)
-        inboxAtom.dismissFromPaneInbox(id: notification.id)
+        let didMarkRead = inboxAtom.markRead(id: notification.id)
+        let didDismiss = inboxAtom.dismissFromPaneInbox(id: notification.id)
+        if !didMarkRead || !didDismiss {
+            paneInboxNotificationPopoverLogger.warning(
+                "Pane inbox activation used stale notification id \(notification.id.uuidString, privacy: .public)"
+            )
+        }
         if let paneId = notification.paneId {
             dispatcher.dispatch(.focusPane, target: paneId, targetType: .pane)
         }
         onClose()
-    }
-}
-
-private struct PaneInboxNotificationRow: View {
-    let notification: InboxNotification
-    let parentPaneId: UUID
-    let isSelected: Bool
-    let onActivate: () -> Void
-
-    @State private var isHovered = false
-
-    var body: some View {
-        SidebarRowShell(
-            isSelected: isSelected,
-            isFlashing: false,
-            isHovered: isHovered
-        ) {
-            InboxRow(
-                notification: notification,
-                now: Date(),
-                rowContext: .paneInbox(parentPaneId: parentPaneId)
-            )
-        }
-        .contentShape(Rectangle())
-        .onHover { hovering in
-            isHovered = hovering
-        }
-        .onTapGesture(perform: onActivate)
     }
 }

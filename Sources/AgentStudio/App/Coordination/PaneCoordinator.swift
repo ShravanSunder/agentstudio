@@ -346,7 +346,7 @@ final class PaneCoordinator {
                 Self.logger.warning(
                     "Runtime error event received from pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: errorEvent), privacy: .public)"
                 )
-            case .lifecycle, .browser, .diff, .editor, .agentNotificationRequested, .plugin,
+            case .lifecycle, .terminalActivity, .browser, .diff, .editor, .agentNotificationRequested, .plugin,
                 .paneFilesystemContext, .artifact, .security, .filesystem:
                 Self.logger.debug(
                     "Runtime event family ignored by coordinator for pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: paneEnvelope.event), privacy: .public)"

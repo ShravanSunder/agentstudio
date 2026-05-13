@@ -69,7 +69,7 @@ enum AppCommand: String, CaseIterable {
     // Workspace commands
     case toggleSidebar
     case showInboxNotifications
-    case clearInboxNotifications
+    case clearReadInboxNotifications
     case showPaneInboxNotifications
     case clearPaneInboxNotifications
     case showWorktreeSidebar

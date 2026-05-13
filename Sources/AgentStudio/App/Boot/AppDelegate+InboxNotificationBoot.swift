@@ -34,11 +34,12 @@ extension AppDelegate {
             paneAtom: store.paneAtom,
             tabLayout: store.tabLayoutAtom,
             attendedPane: atomStore.attendedPane,
-            isPanePinnedToBottom: { [weak self] paneId in
-                self?.atomStore.terminalActivity.snapshot(for: paneId)?.isPinnedToBottom == true
-            },
             focusTracker: inboxPaneFocusTracker,
-            traceRuntime: traceRuntime
+            terminalActivity: atomStore.terminalActivity,
+            traceRuntime: traceRuntime,
+            onPaneActivityObserved: { [weak self] paneId in
+                self?.terminalActivityRouter.markUnseenActivityObserved(paneId: paneId)
+            }
         )
         Task { @MainActor [weak self] in
             await self?.inboxNotificationRouter.start()
@@ -50,7 +51,10 @@ extension AppDelegate {
             bus: bus,
             activityAtom: atomStore.terminalActivity,
             attendedPane: atomStore.attendedPane,
-            traceRuntime: traceRuntime
+            traceRuntime: traceRuntime,
+            isPaneCurrentlyAttended: { [weak self] paneId in
+                self?.isPaneCurrentlyAttendedForNotifications(paneId) ?? false
+            }
         )
         Task { @MainActor [weak self] in
             await self?.terminalActivityRouter.start()
@@ -89,4 +93,11 @@ extension AppDelegate {
         }
     }
 
+    private func isPaneCurrentlyAttendedForNotifications(_ paneId: UUID) -> Bool {
+        PaneObservationResolver.isPaneCurrentlyAttended(
+            paneId: paneId,
+            attendedPaneId: atomStore.attendedPane.attendedPaneId,
+            pane: { store.paneAtom.pane($0) }
+        )
+    }
 }
