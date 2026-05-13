@@ -52,4 +52,11 @@ struct SidebarRowShellTests {
 
         #expect(hoverFill == Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity))
     }
+
+    @Test("content padding matches RepoExplorer row inset policy")
+    @MainActor
+    func contentPaddingMatchesRepoExplorerRowInsetPolicy() {
+        #expect(SidebarRowShell<Text>.contentVerticalInset == AppStyles.Shell.Sidebar.rowVerticalInset)
+        #expect(SidebarRowShell<Text>.contentHorizontalInset == AppStyles.General.Spacing.tight / 2)
+    }
 }

@@ -25,6 +25,7 @@ enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
     case chevronRight = "chevron.right"
     case chevronUpChevronDown = "chevron.up.chevron.down"
     case command = "command"
+    case deleteLeft = "delete.left"
     case docOnClipboard = "doc.on.clipboard"
     case docText = "doc.text"
     case ellipsisCircle = "ellipsis.circle"

@@ -582,7 +582,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Clear Inbox Notifications",
-                icon: .system(.trash),
+                icon: .system(.deleteLeft),
                 helpText: "Clear all notification history from the sidebar inbox",
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window
@@ -603,7 +603,7 @@ extension AppCommand {
             return CommandSpec(
                 command: self,
                 label: "Clear Pane Inbox Notifications",
-                icon: .system(.trash),
+                icon: .system(.deleteLeft),
                 helpText: "Clear notifications for the active pane and its drawer children",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane],

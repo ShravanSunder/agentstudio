@@ -8,6 +8,8 @@ struct SidebarRowShell<Content: View>: View {
 
     var body: some View {
         content()
+            .padding(.vertical, Self.contentVerticalInset)
+            .padding(.horizontal, Self.contentHorizontalInset)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.bar)
@@ -36,5 +38,13 @@ struct SidebarRowShell<Content: View>: View {
             return Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity)
         }
         return .clear
+    }
+
+    static var contentVerticalInset: CGFloat {
+        AppStyles.Shell.Sidebar.rowVerticalInset
+    }
+
+    static var contentHorizontalInset: CGFloat {
+        AppStyles.General.Spacing.tight / 2
     }
 }

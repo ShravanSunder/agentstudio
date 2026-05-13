@@ -32,7 +32,7 @@ extension CommandBarDataSource {
             CommandBarItem(
                 id: "inbox.clearReadHistory",
                 title: "Clear read history",
-                icon: .system(.trash),
+                icon: .system(.deleteLeft),
                 group: Group.inboxCommands,
                 groupPriority: Priority.commands,
                 keywords: ["inbox", "notification", "clear"],

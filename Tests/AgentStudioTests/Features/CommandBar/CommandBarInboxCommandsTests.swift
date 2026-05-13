@@ -74,8 +74,11 @@ struct CommandBarInboxCommandsTests {
                     "inbox.returnToWorktrees",
                 ]))
         #expect(items.contains { $0.title == "Enable bell notifications" })
+        let clearReadHistoryItem = try #require(items.first { $0.id == "inbox.clearReadHistory" })
+        #expect(clearReadHistoryItem.icon == .system(.deleteLeft))
         let clearAllItem = try #require(items.first { $0.id == "inbox.clearAll" })
         #expect(clearAllItem.command == .clearInboxNotifications)
+        #expect(clearAllItem.icon == .system(.deleteLeft))
         if case .dispatch(.clearInboxNotifications) = clearAllItem.action {
             didClearAll = true
         } else {
