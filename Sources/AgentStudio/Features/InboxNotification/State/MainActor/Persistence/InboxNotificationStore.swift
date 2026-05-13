@@ -38,7 +38,8 @@ final class InboxNotificationStore {
     }
 
     private struct Payload: Codable {
-        static let currentSchemaVersion = 1
+        static let currentSchemaVersion = 2
+        static let supportedSchemaVersions = 1...currentSchemaVersion
 
         var schemaVersion: Int = currentSchemaVersion
         var notifications: [InboxNotification]
@@ -107,7 +108,7 @@ final class InboxNotificationStore {
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             let decodedSchemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
-            guard decodedSchemaVersion == Self.currentSchemaVersion else {
+            guard Self.supportedSchemaVersions.contains(decodedSchemaVersion) else {
                 throw DecodingError.dataCorruptedError(
                     forKey: .schemaVersion,
                     in: container,

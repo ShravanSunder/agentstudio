@@ -23,10 +23,12 @@ struct InboxPromoterTests {
         #expect(fixture.atom.globalUnreadCount == 1)
     }
 
-    @Test("repeated settled activity with different burst windows updates one unread session")
-    func repeatedSettledActivityWithDifferentBurstWindowsUpdatesOneUnreadSession() {
-        let fixture = Fixture()
+    @Test("repeated unread settled activity refreshes timestamp and sidebar sort")
+    func repeatedUnreadSettledActivityRefreshesTimestampAndSidebarSort() {
+        var now = Date(timeIntervalSince1970: 1000)
+        let fixture = Fixture(now: { now })
         let paneId = UUID()
+        let otherPaneId = UUID()
 
         fixture.promoter.promoteSettledActivity(
             makeSettledActivity(burstWindowId: UUID(), eventCount: 3, rowsAdded: 40),
@@ -34,16 +36,35 @@ struct InboxPromoterTests {
             context: .init(paneId: paneId)
         )
         let firstSessionId = fixture.atom.notifications[0].claimKey?.sessionId
+        fixture.promoter.promoteExplicit(
+            .init(
+                kind: .agentRpc,
+                title: "Other pane",
+                body: nil,
+                semantic: .agentRpc,
+                paneId: otherPaneId,
+                sessionId: nil,
+                context: .init(paneId: otherPaneId)
+            ))
+        now = Date(timeIntervalSince1970: 25_200)
         fixture.promoter.promoteSettledActivity(
             makeSettledActivity(burstWindowId: UUID(), eventCount: 4, rowsAdded: 90),
             paneId: paneId,
             context: .init(paneId: paneId)
         )
 
-        #expect(fixture.atom.notifications.count == 1)
+        #expect(fixture.atom.notifications.count == 2)
         #expect(fixture.atom.notifications[0].claimKey?.sessionId == firstSessionId)
+        #expect(fixture.atom.notifications[0].timestamp == now)
         #expect(fixture.atom.notifications[0].activityContext?.eventCount == 7)
         #expect(fixture.atom.notifications[0].activityContext?.rowsAdded == 90)
+        let listModel = InboxNotificationListModel(
+            notifications: fixture.atom.notifications,
+            grouping: .none,
+            sort: .newestFirst,
+            searchText: ""
+        )
+        #expect(listModel.sections.first?.notifications.first?.id == fixture.atom.notifications[0].id)
     }
 
     @Test("observed pinned repeated activity updates one read history session")
@@ -70,6 +91,37 @@ struct InboxPromoterTests {
         #expect(fixture.atom.notifications[0].isRead == true)
         #expect(fixture.atom.notifications[0].isDismissedFromPaneInbox == true)
         #expect(fixture.atom.notifications[0].activityContext?.rowsAdded == 90)
+    }
+
+    @Test("focused explicit activity clears existing unread session")
+    func focusedExplicitActivityClearsExistingUnreadSession() {
+        let paneId = UUID()
+        let fixture = Fixture(
+            policySnapshot: .init(attendedPaneId: paneId, observedPaneIds: [paneId])
+        )
+
+        fixture.promoter.promoteSettledActivity(
+            makeSettledActivity(rowsAdded: 60),
+            paneId: paneId,
+            context: .init(paneId: paneId)
+        )
+        let notificationId = fixture.atom.notifications[0].id
+        fixture.promoter.promoteExplicit(
+            .init(
+                kind: .agentRpc,
+                title: "Claude needs input",
+                body: nil,
+                semantic: .agentRpc,
+                paneId: paneId,
+                sessionId: nil,
+                context: .init(paneId: paneId)
+            ))
+
+        #expect(fixture.atom.notifications.count == 1)
+        #expect(fixture.atom.notifications[0].id == notificationId)
+        #expect(fixture.atom.notifications[0].isRead == true)
+        #expect(fixture.atom.notifications[0].isDismissedFromPaneInbox == true)
+        #expect(fixture.atom.globalUnreadCount == 0)
     }
 
     @Test("approval request upgrades unseen activity claim instead of adding sibling row")
@@ -227,11 +279,14 @@ struct InboxPromoterTests {
         #expect(fixture.atom.notifications[1].isRead == false)
     }
 
-    @Test("stale activity session does not absorb future settled activity")
-    func staleActivitySessionDoesNotAbsorbFutureSettledActivity() {
+    @Test("stale observed history session does not absorb future settled activity")
+    func staleObservedHistorySessionDoesNotAbsorbFutureSettledActivity() {
         var now = Date(timeIntervalSince1970: 1000)
-        let fixture = Fixture(now: { now })
         let paneId = UUID()
+        let fixture = Fixture(
+            policySnapshot: .init(observedPaneIds: [paneId], pinnedToBottomByPaneId: [paneId: true]),
+            now: { now }
+        )
 
         fixture.promoter.promoteSettledActivity(
             makeSettledActivity(rowsAdded: 40),

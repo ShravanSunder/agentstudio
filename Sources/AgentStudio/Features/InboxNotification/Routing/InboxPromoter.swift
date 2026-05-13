@@ -259,8 +259,7 @@ final class InboxPromoter {
             guard
                 let claimKey = notification.claimKey,
                 claimKey.paneId == paneId,
-                claimKey.lane.canMergeWithinActivitySession,
-                notification.timestamp >= sessionActivityCutoff
+                claimKey.lane.canMergeWithinActivitySession
             else {
                 return false
             }
@@ -272,6 +271,7 @@ final class InboxPromoter {
                 notification.isRead
                 && notification.isDismissedFromPaneInbox
                 && isObservedAtBottom
+                && notification.timestamp >= sessionActivityCutoff
             guard isUnreadActiveClaim || isObservedHistoryClaim else { return false }
             return claimKey.sessionId != nil
         }?.claimKey?.sessionId
@@ -295,8 +295,8 @@ final class InboxPromoter {
             ),
             activityContext: mergedActivityContext(existing.activityContext, incoming.activityContext),
             claimKey: strongerClaimKey(existing: existing.claimKey, incoming: incoming.claimKey),
-            isRead: existing.isRead,
-            isDismissedFromPaneInbox: existing.isDismissedFromPaneInbox
+            isRead: existing.isRead || incoming.isRead,
+            isDismissedFromPaneInbox: existing.isDismissedFromPaneInbox || incoming.isDismissedFromPaneInbox
         )
     }
 

@@ -6,8 +6,10 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
         case paneInbox(parentPaneId: UUID)
     }
 
+    let primaryText: String
     let sourceLine: String
     let placementLine: String?
+    let detailText: String?
     let searchText: String
 
     private let repoGroupLabel: String
@@ -19,13 +21,17 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
         notification: InboxNotification,
         rowContext: RowContext = .globalInbox
     ) {
+        let title = Self.nonBlank(notification.title)
+        let body = Self.nonBlank(notification.body)
+        self.primaryText = title ?? body ?? Self.kindLabel(notification.kind)
+        self.detailText = title == nil ? nil : body
         switch notification.source {
         case .global:
             self.sourceLine = "Workspace event"
             self.placementLine = nil
             self.searchText = Self.joinSearchTerms([
-                notification.title,
-                notification.body,
+                primaryText,
+                detailText,
                 "Workspace event",
             ])
             self.repoGroupLabel = "Workspace"
@@ -38,8 +44,8 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
             self.sourceLine = sourceLine
             self.placementLine = placementLine
             self.searchText = Self.joinSearchTerms([
-                notification.title,
-                notification.body,
+                primaryText,
+                detailText,
                 sourceLine,
                 placementLine,
                 source.runtimeDisplayLabel,
@@ -186,5 +192,32 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
         let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let trimmed, !trimmed.isEmpty else { return nil }
         return trimmed
+    }
+
+    private static func kindLabel(_ kind: InboxNotificationKind) -> String {
+        switch kind {
+        case .agentDesktopNotification:
+            return "Desktop notification"
+        case .bellRang:
+            return "Bell"
+        case .commandFinished:
+            return "Command finished"
+        case .terminalSecureInputRequested:
+            return "Secure input requested"
+        case .terminalProgressError:
+            return "Terminal progress error"
+        case .terminalRendererUnhealthy:
+            return "Terminal renderer unhealthy"
+        case .persistenceRecovery:
+            return "Persistence recovery"
+        case .agentRpc:
+            return "Agent notification"
+        case .unseenActivity:
+            return "New terminal activity"
+        case .approvalRequested:
+            return "Approval requested"
+        case .securityEvent:
+            return "Security event"
+        }
     }
 }

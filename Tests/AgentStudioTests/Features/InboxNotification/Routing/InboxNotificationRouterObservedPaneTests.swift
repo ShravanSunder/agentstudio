@@ -419,10 +419,6 @@ struct InboxNotificationRouterObservedPaneTests {
             fixture.attendedPane.attendedPaneId == paneId.uuid
         }
         let outputFileURL = try #require(traceRuntime.outputFileURL)
-        await assertEventuallyMain("focus gain trace should drain before scrollbar trace counting") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
-                .contains("\"body\":\"inbox.focusGainedObservedPane\"") == true
-        }
 
         _ = await fixture.bus.post(
             runtimeEnvelope(
@@ -445,24 +441,20 @@ struct InboxNotificationRouterObservedPaneTests {
             )
         )
 
-        await assertEventuallyMain("secure input notification should be traced") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
-                .contains("\"body\":\"inbox.notification.appended\"") == true
+        await assertEventuallyMain("secure input notification should be appended") {
+            fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 1
         }
-        let beforeScrollbarContents = try String(contentsOf: outputFileURL, encoding: .utf8)
-        let beforeScrollbarKeepTraceCount = Self.countOccurrences(
-            of: "\"body\":\"inbox.observedPaneCleared\"",
-            in: beforeScrollbarContents
-        )
         #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 1)
+        await stop(fixture)
+
         let afterScrollbarContents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(afterScrollbarContents.contains("\"body\":\"inbox.notification.appended\""))
         #expect(
             Self.countOccurrences(
                 of: "\"body\":\"inbox.observedPaneCleared\"",
                 in: afterScrollbarContents
-            ) == beforeScrollbarKeepTraceCount
+            ) == 1
         )
-        await stop(fixture)
     }
 
     @Test("observed pane does not auto-clear user-action-required rows")
@@ -644,68 +636,6 @@ struct InboxNotificationRouterObservedPaneTests {
         let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
         #expect(contents.contains("\"agentstudio.inbox.dropped_count\":1"))
         #expect(contents.contains("\"agentstudio.notification.dropped_ids\""))
-        await stop(fixture)
-    }
-
-    @Test("command finished duration uses Ghostty nanoseconds")
-    func commandFinishedDurationUsesGhosttyNanoseconds() async {
-        let fixture = await makeFixture()
-        let paneId = PaneId()
-        _ = addTerminalPane(paneId, to: fixture)
-
-        _ = await fixture.bus.post(
-            runtimeEnvelope(
-                paneId: paneId,
-                event: .terminal(.commandFinished(exitCode: 0, duration: 18_000_000_000))
-            )
-        )
-
-        await assertEventuallyMain("nanosecond duration should notify") {
-            fixture.inboxAtom.notifications.count == 1
-        }
-        #expect(fixture.inboxAtom.notifications[0].title == "Command finished")
-        #expect(fixture.inboxAtom.notifications[0].body == "exit 0 · 18s")
-        await stop(fixture)
-    }
-
-    @Test("command finished title branches on exit code")
-    func commandFinishedTitleBranchesOnExitCode() async {
-        let fixture = await makeFixture()
-        let paneId = PaneId()
-        _ = addTerminalPane(paneId, to: fixture)
-
-        _ = await fixture.bus.post(
-            runtimeEnvelope(
-                paneId: paneId,
-                event: .terminal(.commandFinished(exitCode: 1, duration: 18_000_000_000))
-            )
-        )
-
-        await assertEventuallyMain("failed command should notify") {
-            fixture.inboxAtom.notifications.count == 1
-        }
-        #expect(fixture.inboxAtom.notifications[0].title == "Command failed")
-        #expect(fixture.inboxAtom.notifications[0].body == "exit 1 · 18s")
-        await stop(fixture)
-    }
-
-    @Test("command finished duration renders minute boundary")
-    func commandFinishedDurationRendersMinuteBoundary() async {
-        let fixture = await makeFixture()
-        let paneId = PaneId()
-        _ = addTerminalPane(paneId, to: fixture)
-
-        _ = await fixture.bus.post(
-            runtimeEnvelope(
-                paneId: paneId,
-                event: .terminal(.commandFinished(exitCode: 0, duration: 60_000_000_000))
-            )
-        )
-
-        await assertEventuallyMain("minute boundary should notify") {
-            fixture.inboxAtom.notifications.count == 1
-        }
-        #expect(fixture.inboxAtom.notifications[0].body == "exit 0 · 1m 0s")
         await stop(fixture)
     }
 

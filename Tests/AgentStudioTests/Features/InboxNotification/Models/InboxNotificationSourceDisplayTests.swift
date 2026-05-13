@@ -74,6 +74,20 @@ struct InboxNotificationSourceDisplayTests {
         #expect(display.sourceLine == "Terminal")
     }
 
+    @Test("blank notification title promotes body as primary display text")
+    func blankNotificationTitlePromotesBodyAsPrimaryDisplayText() {
+        let notification = makeNotification(
+            title: "   ",
+            body: "Agent output changed while you were away"
+        )
+
+        let display = InboxNotificationSourceDisplay(notification: notification, rowContext: .globalInbox)
+
+        #expect(display.primaryText == "Agent output changed while you were away")
+        #expect(display.detailText == nil)
+        #expect(display.searchText.contains("Agent output changed while you were away"))
+    }
+
     @Test("legacy pane display falls back to pane-scoped labels")
     func legacyPaneDisplayFallsBackToPaneScopedLabels() {
         let notification = makeNotification(runtimeDisplayLabel: nil)
@@ -104,6 +118,8 @@ struct InboxNotificationSourceDisplayTests {
     }
 
     private func makeNotification(
+        title: String = "Claude Code",
+        body: String? = "Claude is waiting for your input",
         repoId: UUID? = nil,
         repoName: String? = nil,
         worktreeId: UUID? = nil,
@@ -121,8 +137,8 @@ struct InboxNotificationSourceDisplayTests {
             id: UUID(),
             timestamp: Date(timeIntervalSince1970: 100),
             kind: .agentRpc,
-            title: "Claude Code",
-            body: "Claude is waiting for your input",
+            title: title,
+            body: body,
             source: .pane(
                 .init(
                     paneId: UUID(),

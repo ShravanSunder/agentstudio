@@ -33,6 +33,8 @@ enum AppPolicies {
         /// Minimum command duration before a command-finished event
         /// is promoted into inbox history.
         static let commandFinishedMinDurationNanoseconds: UInt64 = 10_000_000_000
+        /// Durations beyond one week are treated as corrupt runtime payloads.
+        static let commandFinishedMaxTrustedDurationNanoseconds: UInt64 = 604_800_000_000_000
         static let terminalActivityOutputBurstThresholdRows: Int = 30
         static let terminalActivityQuietDebounceDuration: Duration = .milliseconds(750)
         static let terminalActivitySessionIdleTimeoutDuration: Duration = .seconds(300)

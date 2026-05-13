@@ -17,7 +17,7 @@ struct InboxRow: View {
                         )
                 }
 
-                Text(notification.title)
+                Text(display.primaryText)
                     .font(
                         .system(
                             size: AppStyles.Shell.Sidebar.notificationRowTitleSize,
@@ -52,8 +52,8 @@ struct InboxRow: View {
                     .lineLimit(1)
             }
 
-            if let body = notification.body?.trimmingCharacters(in: .whitespacesAndNewlines), !body.isEmpty {
-                Text(body)
+            if let detailText = display.detailText {
+                Text(detailText)
                     .font(.system(size: AppStyles.Shell.Sidebar.notificationRowDetailSize))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)

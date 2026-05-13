@@ -20,6 +20,11 @@ final class InboxNotificationRouter {
         let paneId: UUID
     }
 
+    private struct NotificationText: Sendable, Equatable {
+        let title: String
+        let body: String?
+    }
+
     private enum ClassificationDecision: Sendable {
         case notify(InboxNotificationKind)
         case ignore(reason: String)
@@ -330,11 +335,12 @@ final class InboxNotificationRouter {
             traceRetentionOutcomeIfNeeded(mutationOutcome.retentionOutcome, paneId: paneId)
             return
         }
+        let notificationText = notificationText(for: paneEnvelope.event)
         let promotionOutcome = promoter.promoteExplicit(
             .init(
                 kind: kind,
-                title: title(for: paneEnvelope.event),
-                body: body(for: paneEnvelope.event),
+                title: notificationText.title,
+                body: notificationText.body,
                 semantic: claimSemantic(for: paneEnvelope.event),
                 paneId: paneId,
                 sessionId: nil,
@@ -369,6 +375,9 @@ final class InboxNotificationRouter {
         case .terminal(.commandFinished(_, let duration)):
             guard duration >= AppPolicies.InboxNotification.commandFinishedMinDurationNanoseconds else {
                 return .ignore(reason: "below_duration_threshold")
+            }
+            guard duration <= AppPolicies.InboxNotification.commandFinishedMaxTrustedDurationNanoseconds else {
+                return .ignore(reason: "implausible_duration")
             }
             return .notify(.commandFinished)
         case .terminal(.progressReportUpdated(let progress)):
@@ -668,57 +677,88 @@ final class InboxNotificationRouter {
 }
 
 extension InboxNotificationRouter {
-    private func title(for event: PaneRuntimeEvent) -> String {
+    private func notificationText(for event: PaneRuntimeEvent) -> NotificationText {
         switch event {
-        case .terminal(.desktopNotificationRequested(let title, _)):
-            return title
-        case .agentNotificationRequested(let title, _):
-            return title
+        case .terminal(.desktopNotificationRequested(let title, let body)):
+            return notificationText(
+                title: title,
+                body: body,
+                fallbackTitle: "Desktop notification"
+            )
+        case .agentNotificationRequested(let title, let body):
+            return notificationText(
+                title: title,
+                body: body,
+                fallbackTitle: "Agent notification"
+            )
         case .terminal(.bellRang):
-            return "Bell"
-        case .terminal(.commandFinished(let exitCode, _)):
-            return exitCode == 0 ? "Command finished" : "Command failed"
+            return .init(title: "Bell", body: nil)
+        case .terminal(.commandFinished(let exitCode, let duration)):
+            let title = exitCode == 0 ? "Command finished" : "Command failed"
+            return .init(title: title, body: "exit \(exitCode) · \(formattedDuration(duration))")
         case .terminal(.secureInputChanged):
-            return "Secure input requested"
+            return .init(title: "Secure input requested", body: secureInputBody(for: event))
         case .terminal(.progressReportUpdated):
-            return "Terminal progress error"
+            return .init(title: "Terminal progress error", body: progressBody(for: event))
         case .terminal(.rendererHealthChanged):
-            return "Terminal renderer unhealthy"
+            return .init(title: "Terminal renderer unhealthy", body: rendererHealthBody(for: event))
         case .artifact(.approvalRequested):
-            return "Approval requested"
+            return .init(title: "Approval requested", body: approvalBody(for: event))
         case .security(.networkEgressBlocked):
-            return "Network egress blocked"
+            return .init(title: "Network egress blocked", body: securityBody(for: event))
         case .security(.filesystemAccessDenied):
-            return "Filesystem access denied"
+            return .init(title: "Filesystem access denied", body: securityBody(for: event))
         case .security(.secretAccessed):
-            return "Secret accessed"
+            return .init(title: "Secret accessed", body: securityBody(for: event))
         case .security(.processSpawnBlocked):
-            return "Process spawn blocked"
+            return .init(title: "Process spawn blocked", body: securityBody(for: event))
         case .security(.sandboxHealthChanged):
-            return "Sandbox unhealthy"
+            return .init(title: "Sandbox unhealthy", body: securityBody(for: event))
         default:
-            return "Notification"
+            return .init(title: "Notification", body: nil)
         }
     }
 
-    private func body(for event: PaneRuntimeEvent) -> String? {
+    private func notificationText(
+        title: String,
+        body: String?,
+        fallbackTitle: String
+    ) -> NotificationText {
+        let normalizedTitle = Self.nonBlank(title)
+        let normalizedBody = Self.nonBlank(body)
+        if let normalizedTitle {
+            return .init(title: Self.limitedTitle(normalizedTitle), body: Self.limitedBody(normalizedBody))
+        }
+        if let normalizedBody {
+            return .init(title: Self.limitedTitle(normalizedBody), body: nil)
+        }
+        return .init(title: fallbackTitle, body: nil)
+    }
+
+    private func secureInputBody(for event: PaneRuntimeEvent) -> String? {
+        guard case .terminal(.secureInputChanged(let isActive)) = event else { return nil }
+        return isActive ? "terminal is waiting for hidden input" : nil
+    }
+
+    private func progressBody(for event: PaneRuntimeEvent) -> String? {
+        guard case .terminal(.progressReportUpdated(let progress)) = event else { return nil }
+        guard let progress else { return nil }
+        guard let percent = progress.percent else { return "progress error" }
+        return "progress \(percent)%"
+    }
+
+    private func rendererHealthBody(for event: PaneRuntimeEvent) -> String? {
+        guard case .terminal(.rendererHealthChanged(let healthy)) = event else { return nil }
+        return healthy ? nil : "renderer health transitioned to unhealthy"
+    }
+
+    private func approvalBody(for event: PaneRuntimeEvent) -> String? {
+        guard case .artifact(.approvalRequested(let request)) = event else { return nil }
+        return request.summary
+    }
+
+    private func securityBody(for event: PaneRuntimeEvent) -> String? {
         switch event {
-        case .terminal(.desktopNotificationRequested(_, let body)):
-            return body.isEmpty ? nil : body
-        case .agentNotificationRequested(_, let body):
-            return body?.isEmpty == true ? nil : body
-        case .terminal(.commandFinished(let exitCode, let duration)):
-            return "exit \(exitCode) · \(formattedDuration(duration))"
-        case .terminal(.secureInputChanged(let isActive)):
-            return isActive ? "terminal is waiting for hidden input" : nil
-        case .terminal(.progressReportUpdated(let progress)):
-            guard let progress else { return nil }
-            guard let percent = progress.percent else { return "progress error" }
-            return "progress \(percent)%"
-        case .terminal(.rendererHealthChanged(let healthy)):
-            return healthy ? nil : "renderer health transitioned to unhealthy"
-        case .artifact(.approvalRequested(let request)):
-            return request.summary
         case .security(.networkEgressBlocked(let destination, let rule)):
             return "\(destination) · \(rule)"
         case .security(.filesystemAccessDenied(let path, let operation)):
@@ -732,6 +772,19 @@ extension InboxNotificationRouter {
         default:
             return nil
         }
+    }
+
+    private static func limitedTitle(_ title: String) -> String {
+        limited(title, to: AppPolicies.InboxNotification.maxTitleCharacters)
+    }
+
+    private static func limitedBody(_ body: String?) -> String? {
+        body.map { limited($0, to: AppPolicies.InboxNotification.maxBodyCharacters) }
+    }
+
+    private static func limited(_ value: String, to maxCharacters: Int) -> String {
+        guard value.count > maxCharacters else { return value }
+        return String(value.prefix(maxCharacters))
     }
 
     private func claimSemantic(for event: PaneRuntimeEvent) -> InboxNotificationClaimSemantic {

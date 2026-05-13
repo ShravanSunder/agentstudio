@@ -239,12 +239,22 @@ struct InboxNotificationRouterTests {
                 event: .terminal(.desktopNotificationRequested(title: "Done", body: "exit 0"))
             )
         )
+        let sentinelPaneId = PaneId()
+        _ = addTerminalPane(sentinelPaneId, to: fixture)
+        _ = await fixture.bus.post(
+            makePaneEnvelope(
+                paneId: sentinelPaneId,
+                event: .agentNotificationRequested(title: "Sentinel", body: nil),
+                seq: 2
+            )
+        )
+        await waitForNotificationCount(
+            1,
+            in: fixture,
+            description: "sentinel event should prove missing-context event drained first"
+        )
 
         let outputFileURL = try #require(traceRuntime.outputFileURL)
-        await assertEventuallyMain("unresolved context trace should be written") {
-            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
-                .contains("\"body\":\"inbox.context.unresolved\"") == true
-        }
         await fixture.router.stop()
         await fixture.tracker.stop()
         fixture.attendedPane.stop()
@@ -256,7 +266,7 @@ struct InboxNotificationRouterTests {
             unresolvedRecord.attributes["agentstudio.runtime.event"]
                 == .string("terminal.desktopNotificationRequested")
         )
-        #expect(fixture.inboxAtom.notifications.isEmpty)
+        #expect(fixture.inboxAtom.notifications.map(\.title) == ["Sentinel"])
     }
 
     @Test("inbox tracing records notify decisions and suppression reasons")

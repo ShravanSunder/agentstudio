@@ -63,8 +63,8 @@ struct InboxNotificationStoreTests {
         #expect(prefs2.bellEnabled == true)
     }
 
-    @Test("save keeps schema version one for additive display fields")
-    func saveKeepsSchemaVersionOneForAdditiveDisplayFields() async throws {
+    @Test("save writes schema version two for inbox display fields")
+    func saveWritesSchemaVersionTwoForInboxDisplayFields() async throws {
         let url = makeTempURL()
         let atom = InboxNotificationAtom()
         let prefs = InboxNotificationPrefsAtom()
@@ -78,7 +78,7 @@ struct InboxNotificationStoreTests {
 
         let data = try Data(contentsOf: url)
         let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(payload["schemaVersion"] as? Int == 1)
+        #expect(payload["schemaVersion"] as? Int == 2)
     }
 
     @Test("load accepts schema one pane source without denormalized display fields")
@@ -226,6 +226,51 @@ struct InboxNotificationStoreTests {
         #expect(prefs.bellEnabled == false)
         #expect(reportedRecovery?.store == .notificationInbox)
         #expect(reportedRecovery?.recovery == .quarantinedAndReset)
+    }
+
+    @Test("load accepts schema two payloads from sibling inbox builds")
+    func loadAcceptsSchemaTwoPayloadsFromSiblingInboxBuilds() throws {
+        let url = makeTempURL()
+        let notificationId = UUID()
+        let json = """
+            {
+                "schemaVersion": 2,
+                "notifications": [
+                    {
+                        "id": "\(notificationId.uuidString)",
+                        "timestamp": "2026-05-12T10:21:49Z",
+                        "kind": "persistenceRecovery",
+                        "title": "Notification inbox reset",
+                        "body": "The saved file could not be loaded, so it was moved aside and defaults were used.",
+                        "source": { "global": {} },
+                        "isRead": true,
+                        "isDismissedFromPaneInbox": true
+                    }
+                ],
+                "prefs": {
+                    "grouping": "none",
+                    "sort": "newestFirst",
+                    "bellEnabled": false
+                }
+            }
+            """
+        try Data(json.utf8).write(to: url, options: .atomic)
+        let atom = InboxNotificationAtom()
+        let prefs = InboxNotificationPrefsAtom()
+        var reportedRecovery: PersistenceRecoveryEvent?
+        let store = InboxNotificationStore(
+            inboxAtom: atom,
+            prefsAtom: prefs,
+            fileURL: url,
+            recoveryReporter: { reportedRecovery = $0 }
+        )
+
+        try store.load()
+
+        #expect(FileManager.default.fileExists(atPath: url.path))
+        #expect(atom.notifications.map(\.id) == [notificationId])
+        #expect(atom.notifications.first?.kind == .persistenceRecovery)
+        #expect(reportedRecovery == nil)
     }
 
     @Test("load quarantines bad notification slice")
