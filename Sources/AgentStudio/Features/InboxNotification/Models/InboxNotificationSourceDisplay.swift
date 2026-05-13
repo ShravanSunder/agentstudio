@@ -21,8 +21,8 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
         notification: InboxNotification,
         rowContext: RowContext = .globalInbox
     ) {
-        let title = Self.nonBlank(notification.title)
-        let body = Self.nonBlank(notification.body)
+        let title = notification.title.trimmedNonEmpty
+        let body = notification.body.trimmedNonEmpty
         self.primaryText = title ?? body ?? Self.kindLabel(notification.kind)
         self.detailText = title == nil ? nil : body
         switch notification.source {
@@ -53,9 +53,9 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
                 source.paneDisplayLabel,
                 source.parentPaneDisplayLabel,
             ])
-            self.repoGroupLabel = Self.nonBlank(source.repo?.name) ?? "Pane"
+            self.repoGroupLabel = (source.repo?.name).trimmedNonEmpty ?? "Pane"
             self.paneGroupLabel = Self.paneGroupLabel(for: source)
-            self.tabGroupLabel = Self.nonBlank(source.tabDisplayLabel) ?? "Pane"
+            self.tabGroupLabel = source.tabDisplayLabel.trimmedNonEmpty ?? "Pane"
             self.filterLabels = Self.filterLabels(for: source)
         }
     }
@@ -78,9 +78,9 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
     }
 
     private static func sourceLine(for source: InboxNotification.PaneSource) -> String {
-        if let repoName = nonBlank(source.repo?.name) {
-            if let worktreeName = nonBlank(source.worktree?.name) {
-                if let branchName = nonBlank(source.branchName), branchName != worktreeName {
+        if let repoName = (source.repo?.name).trimmedNonEmpty {
+            if let worktreeName = (source.worktree?.name).trimmedNonEmpty {
+                if let branchName = source.branchName.trimmedNonEmpty, branchName != worktreeName {
                     return "\(repoName) · \(worktreeName) / \(branchName)"
                 }
                 return "\(repoName) · \(worktreeName)"
@@ -88,18 +88,18 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
             return repoName
         }
 
-        if let worktreeName = nonBlank(source.worktree?.name) {
-            if let branchName = nonBlank(source.branchName), branchName != worktreeName {
+        if let worktreeName = (source.worktree?.name).trimmedNonEmpty {
+            if let branchName = source.branchName.trimmedNonEmpty, branchName != worktreeName {
                 return "\(worktreeName) / \(branchName)"
             }
             return worktreeName
         }
 
-        if let branchName = nonBlank(source.branchName) {
+        if let branchName = source.branchName.trimmedNonEmpty {
             return branchName
         }
 
-        if let runtimeDisplayLabel = nonBlank(source.runtimeDisplayLabel) {
+        if let runtimeDisplayLabel = source.runtimeDisplayLabel.trimmedNonEmpty {
             return runtimeDisplayLabel
         }
 
@@ -113,14 +113,14 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
         var parts: [String] = []
         switch rowContext {
         case .globalInbox:
-            if let tabDisplayLabel = nonBlank(source.tabDisplayLabel) {
+            if let tabDisplayLabel = source.tabDisplayLabel.trimmedNonEmpty {
                 parts.append("Tab \(tabDisplayLabel)")
             }
             appendPanePlacement(for: source, to: &parts)
         case .paneInbox(let parentPaneId):
             if source.paneRole == .drawerChild,
                 source.parentPaneId == parentPaneId,
-                let paneDisplayLabel = nonBlank(source.paneDisplayLabel)
+                let paneDisplayLabel = source.paneDisplayLabel.trimmedNonEmpty
             {
                 parts.append("Drawer \(paneDisplayLabel)")
             }
@@ -134,14 +134,14 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
     ) {
         switch source.paneRole {
         case .main:
-            if let paneDisplayLabel = nonBlank(source.paneDisplayLabel) {
+            if let paneDisplayLabel = source.paneDisplayLabel.trimmedNonEmpty {
                 parts.append("Pane \(paneDisplayLabel)")
             }
         case .drawerChild:
-            if let parentPaneDisplayLabel = nonBlank(source.parentPaneDisplayLabel) {
+            if let parentPaneDisplayLabel = source.parentPaneDisplayLabel.trimmedNonEmpty {
                 parts.append("Pane \(parentPaneDisplayLabel)")
             }
-            if let paneDisplayLabel = nonBlank(source.paneDisplayLabel) {
+            if let paneDisplayLabel = source.paneDisplayLabel.trimmedNonEmpty {
                 parts.append("Drawer \(paneDisplayLabel)")
             } else if let drawerOrdinal = source.drawerOrdinal {
                 parts.append("Drawer \(drawerOrdinal)")
@@ -154,14 +154,14 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
     private static func paneGroupLabel(for source: InboxNotification.PaneSource) -> String {
         switch source.paneRole {
         case .main:
-            return nonBlank(source.paneDisplayLabel)
-                ?? nonBlank(source.worktree?.name)
-                ?? nonBlank(source.branchName)
-                ?? nonBlank(source.runtimeDisplayLabel)
+            return source.paneDisplayLabel.trimmedNonEmpty
+                ?? (source.worktree?.name).trimmedNonEmpty
+                ?? source.branchName.trimmedNonEmpty
+                ?? source.runtimeDisplayLabel.trimmedNonEmpty
                 ?? "Pane"
         case .drawerChild:
-            let parentTitle = nonBlank(source.parentPaneDisplayLabel) ?? "Pane"
-            if let paneTitle = nonBlank(source.paneDisplayLabel) {
+            let parentTitle = source.parentPaneDisplayLabel.trimmedNonEmpty ?? "Pane"
+            if let paneTitle = source.paneDisplayLabel.trimmedNonEmpty {
                 return "\(parentTitle) / Drawer \(paneTitle)"
             }
             if let drawerOrdinal = source.drawerOrdinal {
@@ -174,24 +174,18 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
     private static func filterLabels(for source: InboxNotification.PaneSource) -> [InboxFilter: String] {
         var labels: [InboxFilter: String] = [:]
         if let repoId = source.repo?.id {
-            labels[.repo(id: repoId)] = nonBlank(source.repo?.name) ?? "Filtered repo"
+            labels[.repo(id: repoId)] = (source.repo?.name).trimmedNonEmpty ?? "Filtered repo"
         }
         if let worktreeId = source.worktree?.id {
-            labels[.worktree(id: worktreeId)] = nonBlank(source.worktree?.name) ?? "Filtered worktree"
+            labels[.worktree(id: worktreeId)] = (source.worktree?.name).trimmedNonEmpty ?? "Filtered worktree"
         }
         return labels
     }
 
     private static func joinSearchTerms(_ terms: [String?]) -> String {
         terms
-            .compactMap(nonBlank)
+            .compactMap { $0.trimmedNonEmpty }
             .joined(separator: " ")
-    }
-
-    private static func nonBlank(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let trimmed, !trimmed.isEmpty else { return nil }
-        return trimmed
     }
 
     private static func kindLabel(_ kind: InboxNotificationKind) -> String {

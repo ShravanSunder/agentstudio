@@ -724,8 +724,8 @@ extension InboxNotificationRouter {
         body: String?,
         fallbackTitle: String
     ) -> NotificationText {
-        let normalizedTitle = Self.nonBlank(title)
-        let normalizedBody = Self.nonBlank(body)
+        let normalizedTitle = title.trimmedNonEmpty
+        let normalizedBody = body.trimmedNonEmpty
         if let normalizedTitle {
             return .init(title: Self.limitedTitle(normalizedTitle), body: Self.limitedBody(normalizedBody))
         }
@@ -878,13 +878,13 @@ extension InboxNotificationRouter {
     }
 
     private static func displayLabel(for tab: Tab) -> String? {
-        nonBlank(Tab.normalizedName(tab.name))
+        Tab.normalizedName(tab.name).trimmedNonEmpty
     }
 
     private static func displayLabel(for pane: Pane) -> String? {
-        nonBlank(pane.metadata.title)
-            ?? nonBlank(pane.metadata.worktreeName)
-            ?? nonBlank(pane.metadata.checkoutRef)
+        pane.metadata.title.trimmedNonEmpty
+            ?? pane.metadata.worktreeName.trimmedNonEmpty
+            ?? pane.metadata.checkoutRef.trimmedNonEmpty
             ?? runtimeDisplayLabel(for: pane)
     }
 
@@ -904,12 +904,6 @@ extension InboxNotificationRouter {
         case .unsupported(let content):
             return content.type.isEmpty ? "Pane" : content.type
         }
-    }
-
-    private static func nonBlank(_ value: String?) -> String? {
-        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let trimmed, !trimmed.isEmpty else { return nil }
-        return trimmed
     }
 }
 
