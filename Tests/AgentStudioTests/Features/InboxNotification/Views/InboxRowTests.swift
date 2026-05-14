@@ -15,7 +15,7 @@ struct InboxRowTests {
     func rowRendersMetadataWithSharedSidebarLinePrimitive() {
         let sourceLine = InboxRow.metadataLine(text: "askluna · askluna")
         let placementLine = InboxRow.metadataLine(
-            iconSystemName: "terminal",
+            iconSystemName: InboxRow.placementMetadataIconSystemName,
             text: "Tab Terminal · Pane project-dev",
             prominence: .secondary
         )
@@ -25,10 +25,16 @@ struct InboxRowTests {
         #expect(sourceLine.iconSystemName == nil)
         #expect(sourceLine.text == "askluna · askluna")
         #expect(sourceLine.prominence == .secondary)
-        #expect(placementLine.iconSystemName == "terminal")
+        #expect(placementLine.iconSystemName == nil)
         #expect(placementLine.text == "Tab Terminal · Pane project-dev")
         #expect(placementLine.prominence == .secondary)
         #expect(detailLine.text == "Output appeared while you were away")
         #expect(detailLine.prominence == .tertiary)
+    }
+
+    @Test("placement metadata keeps reserved title column without terminal leading icon")
+    func placementMetadataKeepsReservedTitleColumnWithoutTerminalLeadingIcon() {
+        #expect(InboxRow.placementMetadataIconSystemName == nil)
+        #expect(InboxRow.usesReservedMetadataIconColumn)
     }
 }

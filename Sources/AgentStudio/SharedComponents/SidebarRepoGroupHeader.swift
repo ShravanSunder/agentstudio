@@ -2,44 +2,60 @@ import SwiftUI
 
 struct SidebarRepoGroupHeader<TrailingContent: View>: View {
     let isCollapsed: Bool
+    let icon: SidebarSourceGroupIcon
     let repoTitle: String
     let organizationName: String?
     let onToggle: () -> Void
     @ViewBuilder let trailingContent: () -> TrailingContent
 
     static var chromePolicy: SidebarHeaderChromePolicy {
-        .repoGroupHeader
+        SidebarSourceGroupHeader<TrailingContent>.chromePolicy
     }
 
     static var leadingInset: CGFloat {
-        AppStyles.Shell.Sidebar.listRowLeadingInset
+        SidebarSourceGroupHeader<TrailingContent>.leadingInset
+    }
+
+    init(
+        isCollapsed: Bool,
+        icon: SidebarSourceGroupIcon = .repo,
+        repoTitle: String,
+        organizationName: String?,
+        onToggle: @escaping () -> Void,
+        @ViewBuilder trailingContent: @escaping () -> TrailingContent
+    ) {
+        self.isCollapsed = isCollapsed
+        self.icon = icon
+        self.repoTitle = repoTitle
+        self.organizationName = organizationName
+        self.onToggle = onToggle
+        self.trailingContent = trailingContent
     }
 
     var body: some View {
-        Button(action: onToggle) {
-            SidebarSectionHeaderRow(isCollapsed: isCollapsed) {
-                SidebarGroupRow(
-                    repoTitle: repoTitle,
-                    organizationName: organizationName
-                )
-            } trailingContent: {
-                trailingContent()
-            }
-            .padding(.leading, Self.leadingInset)
-            .contentShape(Rectangle())
+        SidebarSourceGroupHeader(
+            isCollapsed: isCollapsed,
+            icon: icon,
+            title: repoTitle,
+            secondaryTitle: organizationName,
+            accessibilityIdentifier: nil,
+            onToggle: onToggle
+        ) {
+            trailingContent()
         }
-        .buttonStyle(.plain)
     }
 }
 
 extension SidebarRepoGroupHeader where TrailingContent == EmptyView {
     init(
         isCollapsed: Bool,
+        icon: SidebarSourceGroupIcon = .repo,
         repoTitle: String,
         organizationName: String?,
         onToggle: @escaping () -> Void
     ) {
         self.isCollapsed = isCollapsed
+        self.icon = icon
         self.repoTitle = repoTitle
         self.organizationName = organizationName
         self.onToggle = onToggle

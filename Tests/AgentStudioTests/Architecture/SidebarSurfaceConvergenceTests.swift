@@ -22,4 +22,13 @@ struct SidebarSurfaceConvergenceTests {
         #expect(InboxSidebarNotificationRow.rowChromePolicy == .sidebarRowShell)
         #expect(PaneInboxNotificationPopover.rowChromePolicy == .sidebarRowShell)
     }
+
+    @Test("repo and inbox grouped headers share source group header chrome")
+    @MainActor
+    func repoAndInboxGroupedHeadersShareSourceGroupHeaderChrome() {
+        #expect(SidebarSourceGroupHeader<EmptyView>.chromePolicy == .sourceGroupHeader)
+        #expect(SidebarRepoGroupHeader<EmptyView>.chromePolicy == .sourceGroupHeader)
+        #expect(RepoExplorerView.groupHeaderChromePolicy == .sourceGroupHeader)
+        #expect(InboxNotificationGroupHeader.chromePolicy(for: .sourceGroup) == .sourceGroupHeader)
+    }
 }

@@ -208,6 +208,7 @@ struct RepoExplorerView: View {
                 case .resolvedGroupHeader(let group):
                     SidebarRepoGroupHeader(
                         isCollapsed: !isGroupExpanded(group.id),
+                        icon: iconForGroup(group),
                         repoTitle: group.repoTitle,
                         organizationName: group.organizationName,
                         onToggle: { toggleGroupExpansion(group.id) }
@@ -330,6 +331,13 @@ struct RepoExplorerView: View {
             for: repo, in: group, checkoutColorOverrides: checkoutColorOverrides
         )
         return Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
+    }
+
+    private func iconForGroup(_ group: RepoPresentationGroup) -> SidebarSourceGroupIcon {
+        Self.sourceGroupIcon(
+            for: group,
+            checkoutColorOverrides: checkoutColorOverrides
+        )
     }
 
     private func isGroupExpanded(_ groupId: String) -> Bool {
@@ -499,6 +507,23 @@ extension RepoExplorerView {
         )
     }
 
+    static func sourceGroupIcon(
+        for group: RepoPresentationGroup,
+        checkoutColorOverrides: [String: String] = [:]
+    ) -> SidebarSourceGroupIcon {
+        guard
+            let colorHex = RepoPresentationColoring.sourceGroupColorHex(
+                for: group,
+                checkoutColorOverrides: checkoutColorOverrides
+            )
+        else {
+            return .repo
+        }
+        return .coloredRepo(
+            colorHex: colorHex
+        )
+    }
+
     static func buildRepoMetadata(
         repos: [RepoPresentationItem],
         repoEnrichmentByRepoId: [UUID: RepoEnrichment]
@@ -628,25 +653,7 @@ extension RepoExplorerView {
     }
 
     static func primaryRepoForGroup(_ group: RepoPresentationGroup) -> RepoPresentationItem? {
-        group.repos.max { lhs, rhs in
-            let lhsScore = primaryRepoScore(lhs)
-            let rhsScore = primaryRepoScore(rhs)
-            if lhsScore != rhsScore {
-                return lhsScore < rhsScore
-            }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedDescending
-        }
-    }
-
-    private static func primaryRepoScore(_ repo: RepoPresentationItem) -> Int {
-        let normalizedRepoPath = repo.repoPath.standardizedFileURL.path
-        if repo.worktrees.contains(where: { $0.path.standardizedFileURL.path == normalizedRepoPath }) {
-            return 2
-        }
-        if repo.worktrees.contains(where: \.isMainWorktree) {
-            return 1
-        }
-        return 0
+        RepoPresentationColoring.primaryRepoForSourceGroup(group)
     }
 
     static func mergeBranchStatuses(

@@ -12,6 +12,7 @@ struct SidebarSurfaceHost: View {
     let inboxFilterDraft: InboxFilterDraftAtom
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
+    let repoCache: RepoCacheAtom
     let onRefocusActivePane: () -> Void
     let onDismissInbox: @MainActor @Sendable () -> Void
 
@@ -51,6 +52,8 @@ struct SidebarSurfaceHost: View {
                 sidebarCache: sidebarCache,
                 inboxFilterDraft: inboxFilterDraft,
                 workspacePaneAtom: store.paneAtom,
+                workspaceRepositoryTopologyAtom: store.repositoryTopologyAtom,
+                repoCache: repoCache,
                 dispatcher: .shared,
                 onRefocusActivePane: onDismissInbox
             )

@@ -40,6 +40,7 @@ enum SidebarRowChromePolicy: Equatable {
 enum SidebarHeaderChromePolicy: Equatable {
     case plainSectionHeader
     case repoGroupHeader
+    case sourceGroupHeader
 }
 
 struct SidebarSurfaceChrome<Content: View>: View {

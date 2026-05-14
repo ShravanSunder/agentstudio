@@ -317,6 +317,150 @@ struct InboxNotificationListModelTests {
             ])
     }
 
+    @Test("repo pane tab and fallback groups all produce source group headers")
+    func allGroupedSectionsProduceSourceGroupHeaders() {
+        let repoId = UUID()
+        let paneId = UUID()
+        let tabId = UUID()
+        let repoNotification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Repo event",
+            paneId: paneId,
+            tabId: tabId,
+            repoId: repoId,
+            repoName: "agent-studio",
+            worktreeName: "notification-inbox-redesign",
+            tabDisplayLabel: "Tab 2",
+            paneDisplayLabel: "Pane 1"
+        )
+        let globalNotification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 120),
+            title: "Workspace event"
+        )
+
+        let byRepo = InboxNotificationListModel(
+            notifications: [repoNotification, globalNotification],
+            grouping: .byRepo,
+            sort: .newestFirst,
+            searchText: ""
+        )
+        let byPane = InboxNotificationListModel(
+            notifications: [repoNotification],
+            grouping: .byPane,
+            sort: .newestFirst,
+            searchText: ""
+        )
+        let byTab = InboxNotificationListModel(
+            notifications: [repoNotification],
+            grouping: .byTab,
+            sort: .newestFirst,
+            searchText: ""
+        )
+
+        #expect(byRepo.sections.allSatisfy { $0.header?.style == .sourceGroup })
+        #expect(byPane.sections.allSatisfy { $0.header?.style == .sourceGroup })
+        #expect(byTab.sections.allSatisfy { $0.header?.style == .sourceGroup })
+        #expect(byRepo.sections.contains { $0.header?.title == "Other sources" })
+        #expect(byRepo.sections.contains { $0.header?.sourceKind == .otherSources })
+        #expect(byPane.sections.first?.header?.sourceKind == .pane)
+        #expect(byTab.sections.first?.header?.sourceKind == .tab)
+    }
+
+    @Test("repo groups default to neutral source presentation without repo resolver")
+    func repoGroupsDefaultToNeutralSourcePresentation() {
+        let repoId = UUID()
+        let notification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Repo event",
+            repoId: repoId,
+            repoName: "agent-studio"
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [notification],
+            grouping: .byRepo,
+            sort: .oldestFirst,
+            searchText: ""
+        )
+
+        #expect(model.sections.first?.header?.title == "agent-studio")
+        #expect(model.sections.first?.header?.secondaryTitle == nil)
+        #expect(model.sections.first?.header?.sourceKind == .repo(organizationName: nil))
+        #expect(model.sections.first?.header?.accentColorHex == nil)
+    }
+
+    @Test("repo resolver supplies source group title owner and accent color")
+    func repoResolverSuppliesSourceGroupTitleOwnerAndAccentColor() {
+        let repoId = UUID()
+        let notification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Repo event",
+            repoId: repoId,
+            repoName: "filesystem-name"
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [notification],
+            grouping: .byRepo,
+            sort: .oldestFirst,
+            searchText: "",
+            repoPresentation: { requestedRepoId in
+                guard requestedRepoId == repoId else { return nil }
+                return InboxNotificationRepoGroupPresentation(
+                    title: "agent-studio",
+                    organizationName: "ShravanSunder",
+                    accentColorHex: "#EAC54F"
+                )
+            }
+        )
+
+        #expect(model.sections.first?.header?.title == "agent-studio")
+        #expect(model.sections.first?.header?.secondaryTitle == "ShravanSunder")
+        #expect(model.sections.first?.header?.sourceKind == .repo(organizationName: "ShravanSunder"))
+        #expect(model.sections.first?.header?.accentColorHex == "#EAC54F")
+    }
+
+    @Test("repo resolver group id collapses repo buckets into one source group")
+    func repoResolverGroupIdCollapsesRepoBucketsIntoOneSourceGroup() {
+        let firstRepoId = UUID()
+        let secondRepoId = UUID()
+        let firstNotification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "First repo event",
+            repoId: firstRepoId,
+            repoName: "filesystem-a"
+        )
+        let secondNotification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 200),
+            title: "Second repo event",
+            repoId: secondRepoId,
+            repoName: "filesystem-b"
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [firstNotification, secondNotification],
+            grouping: .byRepo,
+            sort: .oldestFirst,
+            searchText: "",
+            repoPresentation: { repoId in
+                guard repoId == firstRepoId || repoId == secondRepoId else { return nil }
+                return InboxNotificationRepoGroupPresentation(
+                    groupId: "remote:ShravanSunder/agent-studio",
+                    title: "agent-studio",
+                    organizationName: "ShravanSunder",
+                    accentColorHex: "#EAC54F"
+                )
+            }
+        )
+
+        #expect(model.sections.count == 1)
+        #expect(model.sections.first?.id == "repoGroup:remote:ShravanSunder/agent-studio")
+        #expect(model.sections.first?.header?.title == "agent-studio")
+        #expect(model.sections.first?.header?.secondaryTitle == "ShravanSunder")
+        #expect(model.sections.first?.header?.accentColorHex == "#EAC54F")
+        #expect(model.sections.first?.notifications.map(\.id) == [firstNotification.id, secondNotification.id])
+    }
+
     @Test("finds group boundary target from focused row")
     func findsGroupBoundaryTargetFromFocusedRow() {
         let firstPane = UUID()

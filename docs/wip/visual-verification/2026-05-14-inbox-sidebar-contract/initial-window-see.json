@@ -1,0 +1,18 @@
+{
+  "error" : {
+    "code" : "INTERNAL_SWIFT_ERROR",
+    "message" : "The operation couldn’t be completed. (PeekabooBridge.PeekabooBridgeErrorEnvelope error 1.)"
+  },
+  "debug_logs" : [
+    "[2026-05-14T11:52:47.057Z] DEBUG: Runtime host: remote gui via \/Users\/shravansunder\/Library\/Application Support\/Peekaboo\/bridge.sock (build 3.0.0-beta3 (1))",
+    "[2026-05-14T11:52:47.057Z] VERBOSE [Operation]: Starting operation {menubar=false, annotate=false, hasAnalyzePrompt=false, app=none, mode=auto, operation=see_command}",
+    "[2026-05-14T11:52:47.057Z] VERBOSE [Performance]: Starting timer 'see_command'",
+    "[2026-05-14T11:52:47.611Z] VERBOSE [Capture]: Starting capture and detection phase",
+    "[2026-05-14T11:52:47.611Z] VERBOSE [Capture]: Using desktop observation pipeline {target=window-id:179009}",
+    "[2026-05-14T11:52:47.611Z] VERBOSE [Operation]: Starting operation {mode=window, operation=capture_phase}",
+    "[2026-05-14T11:52:47.611Z] VERBOSE [Performance]: Starting timer 'capture_phase'",
+    "[2026-05-14T11:52:48.230Z] VERBOSE [Operation]: Operation completed {success=false, error=The operation couldn’t be completed. (PeekabooBridge.PeekabooBridgeErrorEnvelope error 1.), operation=see_command}",
+    "[2026-05-14T11:52:48.231Z] VERBOSE [Performance]: Timer 'see_command' completed {duration_ms=1173}"
+  ],
+  "success" : false
+}

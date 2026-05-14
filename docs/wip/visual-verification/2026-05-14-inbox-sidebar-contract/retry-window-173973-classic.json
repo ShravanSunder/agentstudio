@@ -1,0 +1,12 @@
+{
+  "debug_logs" : [
+    "[2026-05-14T12:51:00.572Z] DEBUG: Runtime host: local (in-process)",
+    "[2026-05-14T12:51:00.572Z] VERBOSE [Operation]: Starting operation {hasAnalyzePrompt=false, operation=image_command, mode=auto, pid=0, app=none}",
+    "[2026-05-14T12:51:00.572Z] VERBOSE [Performance]: Starting timer 'image_command'"
+  ],
+  "error" : {
+    "message" : "Capture failed: Window 173973 is not on any available display",
+    "code" : "CAPTURE_FAILED"
+  },
+  "success" : false
+}

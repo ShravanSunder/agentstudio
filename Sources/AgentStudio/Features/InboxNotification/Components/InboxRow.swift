@@ -9,6 +9,9 @@ struct InboxRow: View {
         AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth
     }
 
+    static let placementMetadataIconSystemName: String? = nil
+    static let usesReservedMetadataIconColumn = true
+
     static func metadataLine(
         iconSystemName: String? = nil,
         text: String,
@@ -50,7 +53,7 @@ struct InboxRow: View {
 
             if let placementLine = display.placementLine {
                 Self.metadataLine(
-                    iconSystemName: "terminal",
+                    iconSystemName: Self.placementMetadataIconSystemName,
                     text: placementLine,
                     prominence: .secondary
                 )

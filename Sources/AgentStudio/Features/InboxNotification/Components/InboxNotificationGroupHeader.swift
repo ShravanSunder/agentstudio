@@ -7,38 +7,61 @@ struct InboxNotificationGroupHeader: View {
     var showsUnreadCount = true
     let onToggle: () -> Void
 
-    static func chromePolicy(for style: InboxNotificationListSectionHeader.Style) -> SidebarHeaderChromePolicy {
-        switch style {
-        case .plain:
-            return SidebarSectionHeader<SidebarSectionHeaderTextLabel, EmptyView>.chromePolicy
+    static func chromePolicy(for _: InboxNotificationListSectionHeader.Style) -> SidebarHeaderChromePolicy {
+        SidebarSourceGroupHeader<EmptyView>.chromePolicy
+    }
+
+    static func icon(
+        for sourceKind: InboxNotificationListSectionHeader.SourceKind,
+        accentColorHex: String?
+    ) -> SidebarSourceGroupIcon {
+        switch sourceKind {
         case .repo:
-            return SidebarRepoGroupHeader<EmptyView>.chromePolicy
+            if let accentColorHex {
+                return .coloredRepo(colorHex: accentColorHex)
+            }
+            return .repo
+        case .pane:
+            return .pane
+        case .tab:
+            return .tab
+        case .workspace:
+            return .workspace
+        case .otherSources:
+            return .otherSources
         }
     }
 
+    static func icon(for sourceKind: InboxNotificationListSectionHeader.SourceKind) -> SidebarSourceGroupIcon {
+        icon(for: sourceKind, accentColorHex: nil)
+    }
+
     var body: some View {
-        switch header.style {
-        case .plain:
-            SidebarSectionHeader(
-                isCollapsed: isCollapsed,
-                onToggle: onToggle,
-                label: {
-                    SidebarSectionHeaderTextLabel(label: header.label ?? "")
-                },
-                trailingContent: {
-                    unreadBadge()
-                }
-            )
-        case .repo(let organizationName):
-            SidebarRepoGroupHeader(
-                isCollapsed: isCollapsed,
-                repoTitle: header.label ?? "Other sources",
-                organizationName: organizationName,
-                onToggle: onToggle
-            ) {
-                unreadBadge()
-            }
+        SidebarSourceGroupHeader(
+            isCollapsed: isCollapsed,
+            icon: Self.icon(for: header.sourceKind, accentColorHex: header.accentColorHex),
+            title: header.title,
+            secondaryTitle: header.secondaryTitle,
+            accessibilityIdentifier: nil,
+            onToggle: onToggle
+        ) {
+            unreadBadge()
         }
+        .accessibilityHidden(true)
+        .background(
+            AccessibilityPressBridge(
+                identifier: "inboxSourceGroupHeader",
+                label: accessibilityLabel,
+                action: { onToggle() }
+            )
+        )
+    }
+
+    private var accessibilityLabel: String {
+        guard let secondaryTitle = header.secondaryTitle, !secondaryTitle.isEmpty else {
+            return header.title
+        }
+        return "\(header.title), \(secondaryTitle)"
     }
 
     @ViewBuilder

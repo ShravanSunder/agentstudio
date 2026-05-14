@@ -32,17 +32,54 @@ struct InboxNotificationListSection: Identifiable, Equatable {
 }
 
 struct InboxNotificationListSectionHeader: Equatable {
-    enum Style: Equatable {
-        case plain
+    enum SourceKind: Equatable {
         case repo(organizationName: String?)
+        case pane
+        case tab
+        case workspace
+        case otherSources
     }
 
-    let label: String?
-    let style: Style
+    enum Style: Equatable {
+        case sourceGroup
+    }
+
+    let title: String
+    let secondaryTitle: String?
+    let sourceKind: SourceKind
+    let accentColorHex: String?
+
+    var label: String? {
+        title
+    }
+
+    var style: Style {
+        .sourceGroup
+    }
+}
+
+struct InboxNotificationRepoGroupPresentation: Equatable {
+    let groupId: String?
+    let title: String
+    let organizationName: String?
+    let accentColorHex: String?
+
+    init(
+        groupId: String? = nil,
+        title: String,
+        organizationName: String?,
+        accentColorHex: String?
+    ) {
+        self.groupId = groupId
+        self.title = title
+        self.organizationName = organizationName
+        self.accentColorHex = accentColorHex
+    }
 }
 
 private enum InboxNotificationSectionKey: Hashable {
     case ungrouped
+    case repoGroup(id: String)
     case repo(id: UUID)
     case repoName(String)
     case noRepo
@@ -55,6 +92,8 @@ private enum InboxNotificationSectionKey: Hashable {
         switch self {
         case .ungrouped:
             "__ungrouped__"
+        case .repoGroup(let id):
+            "repoGroup:\(id)"
         case .repo(let id):
             "repo:\(id.uuidString)"
         case .repoName(let name):
@@ -95,7 +134,8 @@ struct InboxNotificationListModel: Equatable {
         sort: InboxNotificationSort,
         searchText: String,
         filter: InboxFilter? = nil,
-        collapsedGroups: Set<InboxNotificationGroupKey> = []
+        collapsedGroups: Set<InboxNotificationGroupKey> = [],
+        repoPresentation: (UUID?) -> InboxNotificationRepoGroupPresentation? = { _ in nil }
     ) {
         let sortedNotifications = Self.sortNotifications(notifications, sort: sort)
         let sourceFilteredNotifications = Self.filterNotifications(
@@ -110,7 +150,8 @@ struct InboxNotificationListModel: Equatable {
         self.sections = Self.buildSections(
             items: textFilteredItems,
             grouping: grouping,
-            collapsedGroups: collapsedGroups
+            collapsedGroups: collapsedGroups,
+            repoPresentation: repoPresentation
         )
     }
 
@@ -192,7 +233,8 @@ struct InboxNotificationListModel: Equatable {
     private static func buildSections(
         items: [InboxNotificationListItem],
         grouping: InboxNotificationGrouping,
-        collapsedGroups: Set<InboxNotificationGroupKey>
+        collapsedGroups: Set<InboxNotificationGroupKey>,
+        repoPresentation: (UUID?) -> InboxNotificationRepoGroupPresentation?
     ) -> [InboxNotificationListSection] {
         switch grouping {
         case .none:
@@ -210,24 +252,45 @@ struct InboxNotificationListModel: Equatable {
                 items: items,
                 key: { item in
                     let notification = item.notification
-                    if let repoId = notification.repoId { return .repo(id: repoId) }
+                    if let repoId = notification.repoId {
+                        if let groupId = repoPresentation(repoId)?.groupId {
+                            return .repoGroup(id: groupId)
+                        }
+                        return .repo(id: repoId)
+                    }
                     if let repoName = notification.repoName { return .repoName(repoName) }
                     return .noRepo
                 },
                 header: { groupKey, items in
+                    let resolvedRepoPresentation = repoPresentation(items.first?.notification.repoId)
                     switch groupKey {
                     case .repoName(let name):
-                        .repo(label: name, organizationName: nil)
+                        return InboxNotificationListSectionHeader.sourceGroup(
+                            title: name,
+                            secondaryTitle: nil,
+                            sourceKind: .repo(organizationName: nil),
+                            accentColorHex: resolvedRepoPresentation?.accentColorHex
+                        )
                     case .noRepo:
-                        .plain(label: "Other sources")
+                        return InboxNotificationListSectionHeader.sourceGroup(
+                            title: "Other sources",
+                            secondaryTitle: nil,
+                            sourceKind: .otherSources,
+                            accentColorHex: nil
+                        )
                     default:
-                        .repo(
-                            label: bestGroupLabel(
-                                for: items,
-                                grouping: .byRepo,
-                                placeholder: "Other sources"
+                        return InboxNotificationListSectionHeader.sourceGroup(
+                            title: resolvedRepoPresentation?.title
+                                ?? bestGroupLabel(
+                                    for: items,
+                                    grouping: .byRepo,
+                                    placeholder: "Other sources"
+                                ),
+                            secondaryTitle: resolvedRepoPresentation?.organizationName,
+                            sourceKind: .repo(
+                                organizationName: resolvedRepoPresentation?.organizationName
                             ),
-                            organizationName: nil
+                            accentColorHex: resolvedRepoPresentation?.accentColorHex
                         )
                     }
                 },
@@ -240,7 +303,12 @@ struct InboxNotificationListModel: Equatable {
                     paneGroupingKey(for: item.notification)
                 },
                 header: { _, items in
-                    .plain(label: bestGroupLabel(for: items, grouping: .byPane, placeholder: "Other panes"))
+                    .sourceGroup(
+                        title: bestGroupLabel(for: items, grouping: .byPane, placeholder: "Other panes"),
+                        secondaryTitle: nil,
+                        sourceKind: .pane,
+                        accentColorHex: nil
+                    )
                 },
                 collapsedGroups: collapsedGroups
             )
@@ -253,7 +321,12 @@ struct InboxNotificationListModel: Equatable {
                     return .tab(id: tabId)
                 },
                 header: { _, items in
-                    .plain(label: bestGroupLabel(for: items, grouping: .byTab, placeholder: "Untitled Tab"))
+                    .sourceGroup(
+                        title: bestGroupLabel(for: items, grouping: .byTab, placeholder: "Untitled Tab"),
+                        secondaryTitle: nil,
+                        sourceKind: .tab,
+                        accentColorHex: nil
+                    )
                 },
                 collapsedGroups: collapsedGroups
             )
@@ -317,11 +390,17 @@ struct InboxNotificationListModel: Equatable {
 }
 
 extension InboxNotificationListSectionHeader {
-    static func plain(label: String) -> Self {
-        Self(label: label, style: .plain)
-    }
-
-    static func repo(label: String, organizationName: String?) -> Self {
-        Self(label: label, style: .repo(organizationName: organizationName))
+    static func sourceGroup(
+        title: String,
+        secondaryTitle: String?,
+        sourceKind: SourceKind,
+        accentColorHex: String? = nil
+    ) -> Self {
+        Self(
+            title: title,
+            secondaryTitle: secondaryTitle,
+            sourceKind: sourceKind,
+            accentColorHex: accentColorHex
+        )
     }
 }

@@ -8,6 +8,7 @@ struct SidebarRootViewDependencies {
     let inboxFilterDraft: InboxFilterDraftAtom
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
+    let repoCache: RepoCacheAtom
     let onRefocusActivePane: () -> Void
     let onDismissInbox: @MainActor @Sendable () -> Void
 }
@@ -29,6 +30,7 @@ class MainSplitViewController: NSSplitViewController {
                 inboxFilterDraft: dependencies.inboxFilterDraft,
                 inboxAtom: dependencies.inboxAtom,
                 prefsAtom: dependencies.prefsAtom,
+                repoCache: dependencies.repoCache,
                 onRefocusActivePane: dependencies.onRefocusActivePane,
                 onDismissInbox: dependencies.onDismissInbox
             )
@@ -128,6 +130,7 @@ class MainSplitViewController: NSSplitViewController {
                 inboxFilterDraft: atom(\.inboxFilterDraft),
                 inboxAtom: inboxAtom,
                 prefsAtom: inboxPrefsAtom,
+                repoCache: repoCache,
                 onRefocusActivePane: { [weak paneTabVC] in
                     paneTabVC?.refocusActivePane()
                 },

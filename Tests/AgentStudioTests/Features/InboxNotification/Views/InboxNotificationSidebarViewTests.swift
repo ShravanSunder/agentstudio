@@ -19,6 +19,8 @@ struct InboxNotificationSidebarViewTests {
                 sidebarCache: SidebarCacheAtom(),
                 inboxFilterDraft: inboxFilterDraft,
                 workspacePaneAtom: WorkspacePaneAtom(),
+                workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
+                repoCache: RepoCacheAtom(),
                 dispatcher: CommandDispatcher.shared,
                 onRefocusActivePane: {}
             )
@@ -109,6 +111,8 @@ struct InboxNotificationSidebarViewTests {
                     sidebarCache: SidebarCacheAtom(),
                     inboxFilterDraft: InboxFilterDraftAtom(),
                     workspacePaneAtom: WorkspacePaneAtom(),
+                    workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
+                    repoCache: RepoCacheAtom(),
                     dispatcher: .shared,
                     onRefocusActivePane: {}
                 )
@@ -138,6 +142,8 @@ struct InboxNotificationSidebarViewTests {
                         sidebarCache: SidebarCacheAtom(),
                         inboxFilterDraft: InboxFilterDraftAtom(),
                         workspacePaneAtom: WorkspacePaneAtom(),
+                        workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
+                        repoCache: RepoCacheAtom(),
                         dispatcher: .shared,
                         onRefocusActivePane: {}
                     )
@@ -155,11 +161,11 @@ struct InboxNotificationSidebarViewTests {
                 hostingView.layoutSubtreeIfNeeded()
 
                 let clearButton = try #require(
-                    findAccessibleElement(in: hostingView, identifier: "inboxSidebarClearButton")
+                    inboxSidebarAccessibleElement(in: hostingView, identifier: "inboxSidebarClearButton")
                 )
 
-                #expect(accessibleElementCount(in: hostingView, identifier: "inboxSidebarClearButton") == 1)
-                pressAccessibleElement(clearButton)
+                #expect(inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarClearButton") == 1)
+                pressInboxSidebarAccessibleElement(clearButton)
                 #expect(router.handledCommands == [.clearReadInboxNotifications])
             }
         )
@@ -257,12 +263,12 @@ struct InboxNotificationSidebarViewTests {
         hostingView.layoutSubtreeIfNeeded()
 
         let chip = try #require(
-            findAccessibleElement(in: hostingView, identifier: "inboxSidebarActiveFilterChip")
+            inboxSidebarAccessibleElement(in: hostingView, identifier: "inboxSidebarActiveFilterChip")
         )
 
-        #expect(accessibleElementCount(in: hostingView, identifier: "inboxSidebarActiveFilterChip") == 1)
-        #expect(accessibleElementCount(in: hostingView, identifier: "inboxSidebarClearFilterButton") == 1)
-        #expect(accessibilityLabel(of: chip) == "askluna")
+        #expect(inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarActiveFilterChip") == 1)
+        #expect(inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarClearFilterButton") == 1)
+        #expect(inboxSidebarAccessibilityLabel(of: chip) == "askluna")
     }
 
     @Test("mounted root hides unread count badges for by-pane grouping")
@@ -301,21 +307,382 @@ struct InboxNotificationSidebarViewTests {
         defer { window.orderOut(nil) }
         hostingView.layoutSubtreeIfNeeded()
 
-        #expect(accessibleElementCount(in: hostingView, identifier: "inboxGroupUnreadBadge") == 0)
+        #expect(inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxGroupUnreadBadge") == 0)
     }
 
-    @Test("repo grouped inbox and repo explorer use shared repo header chrome")
+    @Test("all grouped inbox section headers use source group header chrome")
     @MainActor
-    func repoGroupedInboxAndRepoExplorerUseSharedRepoHeaderChrome() {
-        #expect(
-            InboxNotificationGroupHeader.chromePolicy(for: .repo(organizationName: "askluna"))
-                == .repoGroupHeader
-        )
-        #expect(InboxNotificationGroupHeader.chromePolicy(for: .plain) == .plainSectionHeader)
-        #expect(RepoExplorerView.groupHeaderChromePolicy == .repoGroupHeader)
-        #expect(SidebarRepoGroupHeader<EmptyView>.chromePolicy == .repoGroupHeader)
-        #expect(SidebarRepoGroupHeader<EmptyView>.leadingInset == AppStyles.Shell.Sidebar.listRowLeadingInset)
+    func groupedInboxHeadersUseSourceGroupHeaderChrome() {
+        #expect(InboxNotificationGroupHeader.chromePolicy(for: .sourceGroup) == .sourceGroupHeader)
+        #expect(RepoExplorerView.groupHeaderChromePolicy == .sourceGroupHeader)
+        #expect(SidebarSourceGroupHeader<EmptyView>.chromePolicy == .sourceGroupHeader)
+        #expect(SidebarRepoGroupHeader<EmptyView>.chromePolicy == .sourceGroupHeader)
+        #expect(SidebarSourceGroupHeader<EmptyView>.leadingInset == AppStyles.Shell.Sidebar.listRowLeadingInset)
     }
+}
+
+@MainActor
+@Suite("InboxNotificationSidebarView source groups", .serialized)
+struct InboxNotificationSidebarViewSourceGroupTests {
+
+    @Test("inbox group header maps every source kind to a fixed icon slot")
+    @MainActor
+    func inboxGroupHeaderMapsEverySourceKindToFixedIconSlot() {
+        #expect(InboxNotificationGroupHeader.icon(for: .repo(organizationName: nil)) == .repo)
+        #expect(InboxNotificationGroupHeader.icon(for: .pane) == .pane)
+        #expect(InboxNotificationGroupHeader.icon(for: .tab) == .tab)
+        #expect(InboxNotificationGroupHeader.icon(for: .workspace) == .workspace)
+        #expect(InboxNotificationGroupHeader.icon(for: .otherSources) == .otherSources)
+    }
+
+    @Test("repo source group can carry checkout accent color")
+    @MainActor
+    func repoSourceGroupCanCarryCheckoutAccentColor() {
+        let icon = InboxNotificationGroupHeader.icon(
+            for: .repo(organizationName: "askluna"),
+            accentColorHex: "#EAC54F"
+        )
+
+        if case .coloredRepo(let colorHex) = icon {
+            #expect(colorHex == "#EAC54F")
+        } else {
+            Issue.record("Expected colored repo source icon for repo group with accent color")
+        }
+    }
+
+    @Test("source group header accessibility target is the actionable toggle")
+    func sourceGroupHeaderAccessibilityTargetIsActionableToggle() throws {
+        var didToggle = false
+        let hostingView = NSHostingView(
+            rootView: InboxNotificationGroupHeader(
+                header: InboxNotificationListSectionHeader(
+                    title: "agent-studio",
+                    secondaryTitle: "ShravanSunder",
+                    sourceKind: .repo(organizationName: "ShravanSunder"),
+                    accentColorHex: "#EAC54F"
+                ),
+                unreadCount: 0,
+                isCollapsed: false,
+                onToggle: { didToggle = true }
+            )
+            .frame(width: 320, height: 56)
+        )
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 320, height: 56),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        hostingView.layoutSubtreeIfNeeded()
+
+        let header = try #require(
+            inboxSidebarAccessibleElement(in: hostingView, identifier: "inboxSourceGroupHeader")
+        )
+        #expect(inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSourceGroupHeader") == 1)
+        #expect(inboxSidebarAccessibilityLabel(of: header) == "agent-studio, ShravanSunder")
+        pressInboxSidebarAccessibleElement(header)
+
+        #expect(didToggle)
+    }
+
+    @Test("mounted grouped roots render source group headers for repo pane and tab")
+    func mountedGroupedRootsRenderSourceGroupHeaders() {
+        let repoId = UUID()
+        let paneId = UUID()
+        let notification = makeSourceNotification(
+            paneId: paneId,
+            repoId: repoId,
+            repoName: "agent-studio",
+            paneDisplayLabel: "project-dev",
+            tabDisplayLabel: "Tab agent-studio"
+        )
+
+        for grouping in [InboxNotificationGrouping.byRepo, .byPane, .byTab] {
+            let sections = InboxNotificationListModel(
+                notifications: [notification],
+                grouping: grouping,
+                sort: .newestFirst,
+                searchText: "",
+                filter: nil,
+                collapsedGroups: [],
+                repoPresentation: { requestedRepoId in
+                    guard requestedRepoId == repoId else { return nil }
+                    return InboxNotificationRepoGroupPresentation(
+                        title: "agent-studio",
+                        organizationName: "ShravanSunder",
+                        accentColorHex: "#EAC54F"
+                    )
+                }
+            ).sections
+            let hostingView = NSHostingView(
+                rootView: InboxSidebarRootHarness(
+                    activeFilter: nil,
+                    activeFilterLabel: nil,
+                    grouping: grouping,
+                    sections: sections
+                )
+                .frame(width: 360, height: 420)
+            )
+            let window = NSWindow(
+                contentRect: CGRect(x: 0, y: 0, width: 360, height: 420),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            window.contentView = hostingView
+            window.makeKeyAndOrderFront(nil)
+            defer { window.orderOut(nil) }
+            hostingView.layoutSubtreeIfNeeded()
+
+            #expect(inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSourceGroupHeader") == 1)
+        }
+    }
+
+    @Test("mounted by-repo grouping renders repo and other sources through source group headers")
+    func mountedByRepoGroupingRendersRepoAndOtherSourcesHeaders() throws {
+        let repoId = UUID()
+        let repoNotification = makeSourceNotification(
+            paneId: UUID(),
+            repoId: repoId,
+            repoName: "agent-studio",
+            paneDisplayLabel: "project-dev"
+        )
+        let globalNotification = InboxNotification(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 120),
+            kind: .agentRpc,
+            title: "Workspace event",
+            body: nil,
+            source: .global,
+            isRead: false,
+            isDismissedFromPaneInbox: false
+        )
+        let sections = InboxNotificationListModel(
+            notifications: [repoNotification, globalNotification],
+            grouping: .byRepo,
+            sort: .newestFirst,
+            searchText: "",
+            filter: nil,
+            collapsedGroups: [],
+            repoPresentation: { requestedRepoId in
+                guard requestedRepoId == repoId else { return nil }
+                return InboxNotificationRepoGroupPresentation(
+                    title: "agent-studio",
+                    organizationName: "ShravanSunder",
+                    accentColorHex: "#EAC54F"
+                )
+            }
+        ).sections
+
+        let hostingView = NSHostingView(
+            rootView: InboxSidebarRootHarness(
+                activeFilter: nil,
+                activeFilterLabel: nil,
+                grouping: .byRepo,
+                sections: sections
+            )
+            .frame(width: 360, height: 420)
+        )
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 360, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        hostingView.layoutSubtreeIfNeeded()
+
+        let headerLabels = inboxSidebarAccessibleElementLabels(in: hostingView, identifier: "inboxSourceGroupHeader")
+
+        #expect(headerLabels.count == 2)
+        #expect(headerLabels.contains("agent-studio, ShravanSunder"))
+        #expect(headerLabels.contains("Other sources"))
+    }
+
+    @Test("mounted inbox sidebar uses repo presentation atoms for grouped header")
+    func mountedInboxSidebarUsesRepoPresentationAtomsForGroupedHeader() throws {
+        let repoId = UUID()
+        let paneId = UUID()
+        let inboxAtom = InboxNotificationAtom()
+        let prefsAtom = InboxNotificationPrefsAtom()
+        let repositoryTopologyAtom = WorkspaceRepositoryTopologyAtom()
+        let repoCache = RepoCacheAtom()
+        let worktree = Worktree(
+            id: UUID(),
+            repoId: repoId,
+            name: "notification-inbox-redesign",
+            path: URL(fileURLWithPath: "/tmp/agent-studio.notification-inbox-redesign"),
+            isMainWorktree: false
+        )
+        let repo = Repo(
+            id: repoId,
+            name: "agent-studio.notification-inbox-redesign",
+            repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+            worktrees: [worktree]
+        )
+        repositoryTopologyAtom.hydrate(
+            runtimeRepos: [repo],
+            watchedPaths: [],
+            unavailableRepoIds: []
+        )
+        repoCache.setRepoEnrichment(
+            .resolvedRemote(
+                repoId: repoId,
+                raw: RawRepoOrigin(
+                    origin: "git@github.com:ShravanSunder/agent-studio.git",
+                    upstream: nil
+                ),
+                identity: RepoIdentity(
+                    groupKey: "github:ShravanSunder/agent-studio",
+                    remoteSlug: "ShravanSunder/agent-studio",
+                    organizationName: "ShravanSunder",
+                    displayName: "agent-studio"
+                ),
+                updatedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+        prefsAtom.setGrouping(.byRepo)
+        inboxAtom.append(
+            makeSourceNotification(
+                paneId: paneId,
+                repoId: repoId,
+                repoName: "filesystem-name",
+                paneDisplayLabel: "project-dev"
+            )
+        )
+
+        let hostingView = NSHostingView(
+            rootView: InboxNotificationSidebarView(
+                inboxAtom: inboxAtom,
+                prefsAtom: prefsAtom,
+                uiState: UIStateAtom(),
+                sidebarCache: SidebarCacheAtom(),
+                inboxFilterDraft: InboxFilterDraftAtom(),
+                workspacePaneAtom: WorkspacePaneAtom(),
+                workspaceRepositoryTopologyAtom: repositoryTopologyAtom,
+                repoCache: repoCache,
+                dispatcher: .shared,
+                onRefocusActivePane: {}
+            )
+            .frame(width: 360, height: 420)
+        )
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 360, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        hostingView.layoutSubtreeIfNeeded()
+
+        let header = try #require(
+            inboxSidebarAccessibleElement(in: hostingView, identifier: "inboxSourceGroupHeader")
+        )
+        #expect(inboxSidebarAccessibilityLabel(of: header) == "agent-studio, ShravanSunder")
+    }
+
+    @Test("mounted inbox sidebar refreshes repo presentation after atom changes")
+    func mountedInboxSidebarRefreshesRepoPresentationAfterAtomChanges() async throws {
+        let repoId = UUID()
+        let paneId = UUID()
+        let inboxAtom = InboxNotificationAtom()
+        let prefsAtom = InboxNotificationPrefsAtom()
+        let repositoryTopologyAtom = WorkspaceRepositoryTopologyAtom()
+        let repoCache = RepoCacheAtom()
+        let worktree = Worktree(
+            id: UUID(),
+            repoId: repoId,
+            name: "notification-inbox-redesign",
+            path: URL(fileURLWithPath: "/tmp/agent-studio.notification-inbox-redesign"),
+            isMainWorktree: false
+        )
+        let repo = Repo(
+            id: repoId,
+            name: "agent-studio.notification-inbox-redesign",
+            repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+            worktrees: [worktree]
+        )
+        repositoryTopologyAtom.hydrate(
+            runtimeRepos: [repo],
+            watchedPaths: [],
+            unavailableRepoIds: []
+        )
+        prefsAtom.setGrouping(.byRepo)
+        inboxAtom.append(
+            makeSourceNotification(
+                paneId: paneId,
+                repoId: repoId,
+                repoName: "filesystem-name",
+                paneDisplayLabel: "project-dev"
+            )
+        )
+
+        let hostingView = NSHostingView(
+            rootView: InboxNotificationSidebarView(
+                inboxAtom: inboxAtom,
+                prefsAtom: prefsAtom,
+                uiState: UIStateAtom(),
+                sidebarCache: SidebarCacheAtom(),
+                inboxFilterDraft: InboxFilterDraftAtom(),
+                workspacePaneAtom: WorkspacePaneAtom(),
+                workspaceRepositoryTopologyAtom: repositoryTopologyAtom,
+                repoCache: repoCache,
+                dispatcher: .shared,
+                onRefocusActivePane: {}
+            )
+            .frame(width: 360, height: 420)
+        )
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 360, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        hostingView.layoutSubtreeIfNeeded()
+
+        let initialHeader = try #require(
+            inboxSidebarAccessibleElement(in: hostingView, identifier: "inboxSourceGroupHeader")
+        )
+        #expect(inboxSidebarAccessibilityLabel(of: initialHeader) == "agent-studio.notification-inbox-redesign")
+
+        repoCache.setRepoEnrichment(
+            .resolvedRemote(
+                repoId: repoId,
+                raw: RawRepoOrigin(
+                    origin: "git@github.com:ShravanSunder/agent-studio.git",
+                    upstream: nil
+                ),
+                identity: RepoIdentity(
+                    groupKey: "github:ShravanSunder/agent-studio",
+                    remoteSlug: "ShravanSunder/agent-studio",
+                    organizationName: "ShravanSunder",
+                    displayName: "agent-studio"
+                ),
+                updatedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+        hostingView.layoutSubtreeIfNeeded()
+
+        await assertEventuallyMain("repo presentation should refresh after cache mutation") {
+            inboxSidebarAccessibleElementLabels(in: hostingView, identifier: "inboxSourceGroupHeader")
+                .contains("agent-studio, ShravanSunder")
+        }
+    }
+}
+
+@MainActor
+@Suite("InboxNotificationSidebarView focus and activation", .serialized)
+struct InboxSidebarFocusActivationTests {
 
     @Test("focus bridge publishes sidebar focus and escape callback through mounted view")
     func focusBridgePublishesMountedViewEvents() async throws {
@@ -330,6 +697,8 @@ struct InboxNotificationSidebarViewTests {
                 sidebarCache: SidebarCacheAtom(),
                 inboxFilterDraft: InboxFilterDraftAtom(),
                 workspacePaneAtom: workspacePaneAtom,
+                workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
+                repoCache: RepoCacheAtom(),
                 dispatcher: CommandDispatcher.shared,
                 onRefocusActivePane: { didRefocusActivePane = true }
             )
@@ -346,7 +715,7 @@ struct InboxNotificationSidebarViewTests {
         hostingView.layoutSubtreeIfNeeded()
 
         let focusBridge = try #require(
-            findDescendant(
+            inboxSidebarDescendant(
                 in: hostingView,
                 identifier: InboxNotificationSidebarView.focusTargetIdentifier.rawValue
             )
@@ -514,129 +883,4 @@ private struct InboxSidebarRootHarness: View {
             )
         )
     }
-}
-
-private func makeSourceNotification(
-    paneId: UUID = UUID(),
-    repoId: UUID? = nil,
-    repoName: String? = nil,
-    worktreeName: String? = nil,
-    paneDisplayLabel: String? = nil
-) -> InboxNotification {
-    InboxNotification(
-        id: UUID(),
-        timestamp: Date(timeIntervalSince1970: 100),
-        kind: .agentRpc,
-        title: "Done",
-        body: nil,
-        source: .pane(
-            .init(
-                paneId: paneId,
-                repoId: repoId,
-                repoName: repoName,
-                worktreeName: worktreeName,
-                paneDisplayLabel: paneDisplayLabel
-            )
-        ),
-        isRead: false,
-        isDismissedFromPaneInbox: false
-    )
-}
-
-@MainActor
-private func findDescendant(in view: NSView, identifier: String) -> NSView? {
-    if view.identifier?.rawValue == identifier {
-        return view
-    }
-
-    for subview in view.subviews {
-        if let match = findDescendant(in: subview, identifier: identifier) {
-            return match
-        }
-    }
-
-    return nil
-}
-
-@MainActor
-private func findAccessibleElement(in root: AnyObject, identifier: String) -> AnyObject? {
-    var visited: Set<ObjectIdentifier> = []
-    return findAccessibleElement(in: root, identifier: identifier, visited: &visited)
-}
-
-@MainActor
-private func findAccessibleElement(
-    in element: AnyObject,
-    identifier: String,
-    visited: inout Set<ObjectIdentifier>
-) -> AnyObject? {
-    let objectIdentifier = ObjectIdentifier(element)
-    guard visited.insert(objectIdentifier).inserted else { return nil }
-
-    if accessibilityIdentifier(of: element) == identifier {
-        return element
-    }
-
-    for child in accessibilityChildren(of: element) {
-        if let match = findAccessibleElement(in: child, identifier: identifier, visited: &visited) {
-            return match
-        }
-    }
-
-    for subview in (element as? NSView)?.subviews ?? [] {
-        if let match = findAccessibleElement(in: subview, identifier: identifier, visited: &visited) {
-            return match
-        }
-    }
-
-    return nil
-}
-
-private func accessibilityIdentifier(of element: AnyObject) -> String? {
-    let selector = NSSelectorFromString("accessibilityIdentifier")
-    guard element.responds(to: selector) else { return nil }
-    return element.perform(selector)?.takeUnretainedValue() as? String
-}
-
-private func accessibilityLabel(of element: AnyObject) -> String? {
-    let selector = NSSelectorFromString("accessibilityLabel")
-    guard element.responds(to: selector) else { return nil }
-    return element.perform(selector)?.takeUnretainedValue() as? String
-}
-
-private func accessibilityChildren(of element: AnyObject) -> [AnyObject] {
-    let selector = NSSelectorFromString("accessibilityChildren")
-    guard element.responds(to: selector) else { return [] }
-    return element.perform(selector)?.takeUnretainedValue() as? [AnyObject] ?? []
-}
-
-private func pressAccessibleElement(_ element: AnyObject) {
-    let selector = NSSelectorFromString("accessibilityPerformPress")
-    guard element.responds(to: selector) else { return }
-    _ = element.perform(selector)
-}
-
-@MainActor
-private func accessibleElementCount(in root: AnyObject, identifier: String) -> Int {
-    var visited: Set<ObjectIdentifier> = []
-    return accessibleElementCount(in: root, identifier: identifier, visited: &visited)
-}
-
-@MainActor
-private func accessibleElementCount(
-    in element: AnyObject,
-    identifier: String,
-    visited: inout Set<ObjectIdentifier>
-) -> Int {
-    let objectIdentifier = ObjectIdentifier(element)
-    guard visited.insert(objectIdentifier).inserted else { return 0 }
-
-    let currentCount = accessibilityIdentifier(of: element) == identifier ? 1 : 0
-    let childCount = accessibilityChildren(of: element).reduce(0) { count, child in
-        count + accessibleElementCount(in: child, identifier: identifier, visited: &visited)
-    }
-    let subviewCount = ((element as? NSView)?.subviews ?? []).reduce(0) { count, subview in
-        count + accessibleElementCount(in: subview, identifier: identifier, visited: &visited)
-    }
-    return currentCount + childCount + subviewCount
 }
