@@ -92,7 +92,16 @@ PER-ARRANGEMENT VIEW operations affect only the active arrangement
 
 The validator gates every command against this classification.
 
-## 4. Current state shape (as of 2026-05-02)
+> **Atom-naming note.** `WorkspaceTabLayoutAtom` is the public seam
+> referenced in CLAUDE.md — it COMPOSES `WorkspaceTabShellAtom`
+> (tab list, activeTabId) and `WorkspaceTabArrangementAtom`
+> (arrangement state). When this spec talks about the data atom
+> for arrangements, it means `WorkspaceTabArrangementAtom` (the
+> internal data atom). New derived atoms / consumers should reach
+> in via `WorkspaceTabLayoutAtom` per the canonical seam pattern,
+> matching `AttendedPaneAtom`'s usage.
+
+## 4. Current state shape (as of 2026-05-14)
 
 ```
 WorkspacePaneAtom (Atoms/WorkspacePaneAtom.swift)
@@ -190,10 +199,28 @@ applies the management-mode override.
 `ArrangementDerived` type already exists
 (`Core/State/MainActor/Atoms/ArrangementDerived.swift`) and is
 exposed on `AtomRegistry` as `arrangement: ArrangementDerived`
-(`Infrastructure/AtomLib/AtomRegistry.swift:93`). That existing
+(`Infrastructure/AtomLib/AtomRegistry.swift:96`). That existing
 type owns ARRANGEMENT-PANEL display data (list of arrangements,
 which one is active, names) — it's about THE LIST of arrangements,
 not the VIEW state within one arrangement.
+
+**Precedent for the pattern.** Several existing atoms follow this
+exact "derived `@MainActor @Observable` over multiple source atoms"
+shape:
+- `WorkspaceFocusDerived`, `KeyboardOwnerDerived`,
+  `WorkspacePaneFocusDerived`, `WorkspaceLookupDerived`,
+  `TabDisplayDerived` (struct-style derivations recomputed each access)
+- `AttendedPaneAtom` (new in main 2026-05-13) — `@Observable` class
+  that republishes `attendedPaneId` only when window is key AND
+  management layer inactive. Combines `WorkspaceTabLayoutAtom +
+  WindowLifecycleAtom + ManagementLayerAtom`. Same shape this spec
+  proposes for `WorkspaceArrangementViewDerived`.
+
+The spec follows the struct-style precedent (cheap to recompute,
+no stored state, no fan-out subscription needed for the call sites
+we expect). If a feature ever needs the `@Observable class +
+AsyncStream<UUID?>` shape (like `AttendedPaneAtom`), the derived
+atom can graduate later — Pareto-style.
 
 `WorkspaceArrangementViewDerived` is the new sibling — it owns
 PER-ARRANGEMENT-VIEW derivation (visible panes, drawer views,
@@ -215,7 +242,8 @@ either absorbs `WorkspaceArrangementViewDerived` or composes with
 it explicitly. Not part of this spec.
 
 Reads from:
-  ▸ `WorkspaceTabArrangementAtom` — arrangement state
+  ▸ `WorkspaceTabLayoutAtom` — composed shell+arrangement public
+    seam (matches `AttendedPaneAtom`'s pattern)
   ▸ `WorkspacePaneAtom` — Pane / Drawer identity + paneIds
   ▸ `ManagementLayerAtom` — `isActive` for the showsMinimized
     override
@@ -223,7 +251,7 @@ Reads from:
 ```swift
 @MainActor
 struct WorkspaceArrangementViewDerived {
-    let tabArrangementAtom: WorkspaceTabArrangementAtom
+    let tabLayoutAtom: WorkspaceTabLayoutAtom
     let paneAtom: WorkspacePaneAtom
     let managementLayerAtom: ManagementLayerAtom
 
@@ -1322,13 +1350,19 @@ PR 2 — New user behaviors enabled by PR 1
 
     Retire the existing hidden cross-tab path:
       ▸ ActionResolver currently routes single-pane cross-tab
-        drops via .insertPaneRequest(.existingPane(...))
-        (Core/Actions/ActionResolver.swift:176).
+        drops via .insertPane(source: .existingPane(...))
+        (Core/Actions/ActionResolver.swift around line 176-182
+         — `.existingPane(paneId:, sourceTabId:)` case).
       ▸ PaneCoordinator+ActionExecution executes that as a
         non-atomic remove-then-insert sequence
-        (App/Coordination/PaneCoordinator+ActionExecution.swift:831).
+        (App/Coordination/PaneCoordinator+ActionExecution.swift
+         around line 818-840 — `.existingPane` case in the
+         insertPane handler).
       ▸ Delete (or redirect to .movePaneAcrossTabs) in this PR.
         The new path is the only cross-tab path going forward.
+      ▸ The InsertPaneSource.existingPane enum case stays for now
+        (no harm — it has other uses) but the routing to it from
+        cross-tab drag is removed.
 
   Tab drag rules
     ▸ Add PaneActionCommand.reorderTab(...)
