@@ -19,8 +19,9 @@ final class CommandBarPanelController {
     // MARK: - Dependencies
 
     private let store: WorkspaceStore
-    private let repoCache: WorkspaceRepoCache
+    private let repoCache: RepoCacheAtom
     private let dispatcher: CommandDispatcher
+    private let notificationInboxCommands: InboxNotificationCommands?
 
     // MARK: - Panel
 
@@ -30,42 +31,77 @@ final class CommandBarPanelController {
     /// The parent window the command bar is attached to.
     private weak var parentWindow: NSWindow?
 
+    var isKeyWindow: Bool {
+        panel?.isKeyWindow == true
+    }
+
     // MARK: - Initialization
 
     init(
         store: WorkspaceStore,
-        repoCache: WorkspaceRepoCache = WorkspaceRepoCache(),
-        dispatcher: CommandDispatcher
+        repoCache: RepoCacheAtom,
+        dispatcher: CommandDispatcher,
+        notificationInboxCommands: InboxNotificationCommands? = nil
     ) {
         self.store = store
         self.repoCache = repoCache
         self.dispatcher = dispatcher
+        self.notificationInboxCommands = notificationInboxCommands
         state.loadRecents()
     }
 
     // MARK: - Show / Dismiss
 
     /// Show the command bar. If already visible with a different prefix, switch in-place.
-    /// If already visible with the same prefix (or no prefix), dismiss (toggle behavior).
-    func show(prefix: String? = nil, parentWindow: NSWindow) {
+    /// If already visible with the same prefix (or no prefix), preserve current state.
+    func show(parentWindow: NSWindow) {
+        show(mode: .defaultScope(.everything), parentWindow: parentWindow)
+    }
+
+    func show(prefix: String, parentWindow: NSWindow) {
+        show(mode: .prefix(prefix), parentWindow: parentWindow)
+    }
+
+    func show(defaultRootScope: CommandBarScope, parentWindow: NSWindow) {
+        show(mode: .defaultScope(defaultRootScope), parentWindow: parentWindow)
+    }
+
+    private func show(
+        mode: CommandBarState.OpenMode,
+        parentWindow: NSWindow
+    ) {
         self.parentWindow = parentWindow
 
         if state.isVisible {
-            // Toggle: same prefix → dismiss; different prefix → switch in-place
-            let currentPrefix = state.activePrefix
-            let requestedPrefix = prefix
+            let currentPrefix = normalizedPrefix(for: state.currentScope)
+            let normalizedRequestedPrefix: String? =
+                switch mode {
+                case .prefix(let prefix):
+                    normalizedPrefix(for: prefix)
+                case .defaultScope:
+                    nil
+                }
 
-            if currentPrefix == requestedPrefix {
-                dismiss()
+            if currentPrefix == normalizedRequestedPrefix {
                 return
             } else {
-                state.switchPrefix(requestedPrefix ?? "")
+                switch mode {
+                case .prefix(let prefix):
+                    state.switchPrefix(prefix)
+                case .defaultScope:
+                    state.show(defaultScope: defaultRootScope(for: mode))
+                }
                 return
             }
         }
 
         // Create panel and backdrop
-        state.show(prefix: prefix)
+        switch mode {
+        case .prefix(let prefix):
+            state.show(prefix: prefix)
+        case .defaultScope(let defaultRootScope):
+            state.show(defaultScope: defaultRootScope)
+        }
         presentPanel(parentWindow: parentWindow)
     }
 
@@ -87,6 +123,14 @@ final class CommandBarPanelController {
         panel.onDismiss = { [weak self] in
             self?.dismiss()
         }
+        // The panel is the primary shortcut ingress because performKeyEquivalent
+        // fires before menu handling while the command bar is key. The view/text
+        // field also receives this closure as a fallback for selector-driven
+        // NSTextField command paths like modified Enter.
+        panel.onShortcutTrigger = { [weak self] trigger in
+            guard let self else { return false }
+            return self.handleShortcutTrigger(trigger)
+        }
 
         // Set SwiftUI content
         let contentView = CommandBarView(
@@ -94,8 +138,12 @@ final class CommandBarPanelController {
             store: store,
             repoCache: repoCache,
             dispatcher: dispatcher,
-            onDismiss: { [weak self] in
-                self?.dismiss()
+            notificationInboxCommands: notificationInboxCommands,
+            onShortcutTrigger: { [weak self] trigger in
+                self?.handleShortcutTrigger(trigger) ?? false
+            },
+            onExecuteItem: { [weak self] item, modifier in
+                self?.executeItem(item, modifier: modifier)
             }
         )
         panel.setContent(contentView)
@@ -125,6 +173,159 @@ final class CommandBarPanelController {
         controllerLogger.debug("Command bar panel presented")
     }
 
+    private var currentContext: WorkspacePaneFocus {
+        let workspaceTab = WorkspaceTabDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
+        return atom(\.workspacePaneFocus).currentFocus(
+            workspaceTab: workspaceTab,
+            workspacePane: store.paneAtom,
+            workspaceFocusOwner: atom(\.workspaceFocusOwner)
+        )
+    }
+
+    private var allItems: [CommandBarItem] {
+        if let level = state.currentLevel {
+            return level.items
+        }
+        return CommandBarDataSource.items(
+            scope: state.activeScope,
+            store: store,
+            repoCache: repoCache,
+            dispatcher: dispatcher,
+            focus: currentContext,
+            notificationInboxCommands: notificationInboxCommands
+        )
+    }
+
+    private var filteredItems: [CommandBarItem] {
+        CommandBarSearch.filter(
+            items: allItems,
+            query: state.searchQuery,
+            recentIds: state.recentItemIds
+        )
+    }
+
+    private var groups: [CommandBarItemGroup] {
+        CommandBarDataSource.grouped(filteredItems)
+    }
+
+    private var displayedItems: [CommandBarItem] {
+        CommandBarDataSource.displayItems(from: groups)
+    }
+
+    private var selectedItem: CommandBarItem? {
+        guard state.selectedIndex >= 0, state.selectedIndex < displayedItems.count else { return nil }
+        return displayedItems[state.selectedIndex]
+    }
+
+    private var canOpenWorktreeInCurrentTab: Bool {
+        let workspaceTab = WorkspaceTabDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
+        guard
+            let activeTabId = store.tabShellAtom.activeTabId,
+            let activeTab = workspaceTab.tab(activeTabId),
+            activeTab.activePaneId != nil
+        else {
+            return false
+        }
+        return true
+    }
+
+    private func handleShortcutTrigger(_ trigger: ShortcutTrigger) -> Bool {
+        switch CommandBarShortcutRouter.route(
+            trigger: trigger,
+            selectedItem: selectedItem,
+            displayedItems: displayedItems
+        ) {
+        case .dismiss:
+            dismiss()
+            return true
+        case .showPrefix(let prefix):
+            guard let parentWindow else { return false }
+            if let prefix {
+                show(prefix: prefix, parentWindow: parentWindow)
+            } else {
+                show(parentWindow: parentWindow)
+            }
+            return true
+        case .executeRow(let item):
+            executeItem(item)
+            return true
+        case .executeSelected(let modifier):
+            guard let selectedItem else { return false }
+            executeItem(selectedItem, modifier: modifier)
+            return true
+        case .unhandled:
+            return false
+        }
+    }
+
+    private func defaultRootScope(for mode: CommandBarState.OpenMode) -> CommandBarScope {
+        switch mode {
+        case .prefix:
+            return .everything
+        case .defaultScope(let scope):
+            return scope
+        }
+    }
+
+    private func executeItem(_ item: CommandBarItem, modifier: EnterModifier = .plain) {
+        if let command = item.command, !dispatcher.canDispatch(command) {
+            return
+        }
+
+        switch item.action {
+        case .dispatch(let command):
+            state.recordRecent(itemId: item.id)
+            dismiss()
+            dispatcher.dispatch(command)
+        case .dispatchTargeted(let command, let target, let targetType):
+            state.recordRecent(itemId: item.id)
+            dismiss()
+            dispatcher.dispatch(command, target: target, targetType: targetType)
+        case .navigate(let level):
+            state.pushLevel(level)
+        case .custom(let closure):
+            state.recordRecent(itemId: item.id)
+            dismiss()
+            closure()
+        case .worktreeAction(let presence):
+            executeResolvedWorktreeAction(
+                resolution: CommandBarWorktreeActionResolver.resolve(
+                    presence: presence,
+                    modifier: modifier,
+                    canOpenInCurrentTab: canOpenWorktreeInCurrentTab
+                ),
+                presence: presence,
+                itemId: item.id
+            )
+        }
+    }
+
+    private func executeResolvedWorktreeAction(
+        resolution: CommandBarWorktreeActionResolution,
+        presence: WorktreePresence,
+        itemId: String
+    ) {
+        switch resolution {
+        case .dispatch(let command, let target, let targetType):
+            state.recordRecent(itemId: itemId)
+            dismiss()
+            dispatcher.dispatch(command, target: target, targetType: targetType)
+        case .showActionsMenu:
+            state.pushLevel(
+                CommandBarDataSource.buildWorktreeActionsLevel(
+                    presence: presence,
+                    canOpenInCurrentTab: canOpenWorktreeInCurrentTab
+                )
+            )
+        }
+    }
+
     private func dismissPanel() {
         guard let panel else { return }
 
@@ -151,6 +352,28 @@ final class CommandBarPanelController {
 
         // Return focus to parent window
         parentWindow?.makeKeyAndOrderFront(nil)
+    }
+
+    private func normalizedPrefix(for prefix: String?) -> String? {
+        if let prefix, [">", "$", "#"].contains(prefix) {
+            return prefix + " "
+        }
+        return prefix
+    }
+
+    private func normalizedPrefix(for scope: CommandBarScope) -> String? {
+        switch scope {
+        case .everything:
+            return nil
+        case .commands:
+            return "> "
+        case .panes:
+            return "$ "
+        case .repos:
+            return "# "
+        case .inbox:
+            return nil
+        }
     }
 
     // MARK: - Backdrop
@@ -216,5 +439,13 @@ final class CommandBarBackdropView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         onDismiss()
+    }
+
+    // The backdrop lives in the parent window, but the command bar panel is
+    // key while open. Without this, a click outside the panel would first
+    // promote the parent window to key and swallow the event — requiring a
+    // second click to actually dismiss.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        true
     }
 }

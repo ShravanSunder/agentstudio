@@ -218,7 +218,7 @@ struct SwiftPaneRuntimeTests {
         let metadata = PaneMetadata(
             paneId: paneId,
             contentType: .codeViewer,
-            source: .floating(workingDirectory: fileDirectory, title: "Code"),
+            source: .floating(launchDirectory: fileDirectory, title: "Code"),
             title: "Code"
         )
         return SwiftPaneRuntime(

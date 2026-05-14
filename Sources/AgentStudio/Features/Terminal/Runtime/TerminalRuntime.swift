@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Observation
 import os.log
@@ -10,6 +11,16 @@ final class TerminalRuntime: BusPostingPaneRuntime {
     let paneId: PaneId
     private(set) var metadata: PaneMetadata
     private(set) var lifecycle: PaneRuntimeLifecycle
+    private(set) var commandProgress: ProgressState?
+    private(set) var isReadOnly: Bool = false
+    private(set) var isSecureInput: Bool = false
+    private(set) var rendererHealthy: Bool = true
+    private(set) var cellSize: NSSize = .zero
+    private(set) var sizeConstraints: TerminalSizeConstraints?
+    private(set) var scrollbarState: ScrollbarState?
+    private(set) var searchState: TerminalSearchState?
+    private(set) var mouseShape: TerminalMouseShape?
+    private(set) var isMouseVisible: Bool = true
     let capabilities: Set<PaneCapability>
 
     private let eventChannel: PaneRuntimeEventChannel
@@ -24,6 +35,10 @@ final class TerminalRuntime: BusPostingPaneRuntime {
         self.paneId = paneId
         self.metadata = metadata
         self.lifecycle = .created
+        self.commandProgress = nil
+        self.scrollbarState = nil
+        self.searchState = nil
+        self.mouseShape = nil
         self.capabilities = [.input, .resize, .search]
         self.eventChannel = PaneRuntimeEventChannel(
             clock: clock,
@@ -121,18 +136,202 @@ final class TerminalRuntime: BusPostingPaneRuntime {
             return
         }
 
+        if handleGhosttyStructuralEvent(event, commandId: commandId, correlationId: correlationId) { return }
+        if handleGhosttyStateEvent(event, commandId: commandId, correlationId: correlationId) { return }
+        if handleGhosttyConfigurationEvent(event, commandId: commandId, correlationId: correlationId) { return }
+        if handleGhosttySearchEvent(event, commandId: commandId, correlationId: correlationId) { return }
+        if handleGhosttyRequestEvent(event, commandId: commandId, correlationId: correlationId) { return }
+
+        Self.logger.warning(
+            "Unhandled terminal runtime event for pane \(self.paneId.uuid.uuidString, privacy: .public): \(String(describing: event), privacy: .public)"
+        )
+    }
+
+    private func handleGhosttyStructuralEvent(
+        _ event: GhosttyEvent,
+        commandId: UUID?,
+        correlationId: UUID?
+    ) -> Bool {
         switch event {
         case .newTab, .closeTab, .gotoTab, .moveTab, .newSplit, .gotoSplit, .resizeSplit, .equalizeSplits,
             .toggleSplitZoom:
-            break
-        case .titleChanged(let title):
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
+            return true
+        case .titleChanged(let title), .tabTitleChanged(let title):
             metadata.updateTitle(title)
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
         case .cwdChanged(let cwdPath):
             metadata.updateCWD(URL(fileURLWithPath: cwdPath))
-        case .commandFinished, .bellRang, .scrollbarChanged, .unhandled:
-            break
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        case .commandFinished, .bellRang, .unhandled:
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        default:
+            return false
         }
+    }
 
+    private func handleGhosttyStateEvent(
+        _ event: GhosttyEvent,
+        commandId: UUID?,
+        correlationId: UUID?
+    ) -> Bool {
+        switch event {
+        case .scrollbarChanged(let scrollbarState):
+            self.scrollbarState = scrollbarState
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        case .progressReportUpdated(let progressState):
+            commandProgress = progressState
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        case .readOnlyChanged(let isReadOnly):
+            self.isReadOnly = isReadOnly
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        case .secureInputRequested(let mode):
+            let resolvedValue = resolvedSecureInputValue(for: mode)
+            isSecureInput = resolvedValue
+            emit(
+                .secureInputChanged(resolvedValue),
+                commandId: commandId,
+                correlationId: correlationId,
+                persistForReplay: true
+            )
+            return true
+        case .secureInputChanged:
+            return true
+        case .rendererHealthChanged(let healthy):
+            rendererHealthy = healthy
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        case .cellSizeChanged(let size):
+            cellSize = size
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        case .initialSizeChanged:
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
+            return true
+        case .sizeLimitChanged(let constraints):
+            sizeConstraints = constraints
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func handleGhosttyConfigurationEvent(
+        _ event: GhosttyEvent,
+        commandId: UUID?,
+        correlationId: UUID?
+    ) -> Bool {
+        switch event {
+        case .mouseShapeChanged(let shape):
+            mouseShape = shape
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
+            return true
+        case .mouseVisibilityChanged(let isVisible):
+            isMouseVisible = isVisible
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
+            return true
+        case .mouseLinkHovered, .keySequenceChanged, .keyTableChanged:
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
+            return true
+        case .colorChanged, .configChanged:
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        case .configReloadRequested:
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func handleGhosttySearchEvent(
+        _ event: GhosttyEvent,
+        commandId: UUID?,
+        correlationId: UUID?
+    ) -> Bool {
+        switch event {
+        case .searchStarted(let query):
+            searchState = TerminalSearchState(query: query ?? "", totalMatches: nil, selectedMatchIndex: nil)
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        case .searchEnded:
+            searchState = nil
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        case .searchMatchesUpdated(let totalMatches):
+            if searchState == nil {
+                Self.logger.debug(
+                    "Synthesizing terminal search state from searchMatchesUpdated without prior searchStarted for pane \(self.paneId.uuid.uuidString, privacy: .public)"
+                )
+                searchState = TerminalSearchState(query: "", totalMatches: totalMatches, selectedMatchIndex: nil)
+            } else {
+                searchState?.totalMatches = totalMatches
+            }
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        case .searchSelectionChanged(let selectedMatchIndex):
+            if searchState == nil {
+                Self.logger.debug(
+                    "Synthesizing terminal search state from searchSelectionChanged without prior searchStarted for pane \(self.paneId.uuid.uuidString, privacy: .public)"
+                )
+                searchState = TerminalSearchState(
+                    query: "",
+                    totalMatches: nil,
+                    selectedMatchIndex: selectedMatchIndex
+                )
+            } else {
+                searchState?.selectedMatchIndex = selectedMatchIndex
+            }
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: true)
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func handleGhosttyRequestEvent(
+        _ event: GhosttyEvent,
+        commandId: UUID?,
+        correlationId: UUID?
+    ) -> Bool {
+        switch event {
+        case .promptTitleRequested, .desktopNotificationRequested:
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
+            return true
+        case .openURLRequested, .undoRequested, .redoRequested, .copyTitleToClipboardRequested:
+            emit(event, commandId: commandId, correlationId: correlationId, persistForReplay: false)
+            return true
+        case .deferred:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func resolvedSecureInputValue(for mode: SecureInputMode) -> Bool {
+        switch mode {
+        case .on:
+            return true
+        case .off:
+            return false
+        case .toggle:
+            return !isSecureInput
+        }
+    }
+
+    private func emit(
+        _ event: GhosttyEvent,
+        commandId: UUID?,
+        correlationId: UUID?,
+        persistForReplay: Bool
+    ) {
         eventChannel.emit(
             paneId: paneId,
             metadata: metadata,
@@ -140,24 +339,16 @@ final class TerminalRuntime: BusPostingPaneRuntime {
             commandId: commandId,
             correlationId: correlationId,
             event: .terminal(event),
-            persistForReplay: shouldPersistForReplay(event)
+            persistForReplay: persistForReplay
         )
-    }
-
-    private func shouldPersistForReplay(_ event: GhosttyEvent) -> Bool {
-        switch event {
-        case .newTab, .closeTab, .gotoTab, .moveTab, .newSplit, .gotoSplit, .resizeSplit, .equalizeSplits,
-            .toggleSplitZoom:
-            return false
-        case .titleChanged, .cwdChanged, .commandFinished, .bellRang, .scrollbarChanged, .unhandled:
-            return true
-        }
     }
 
     private func requiredCapability(for command: TerminalCommand) -> PaneCapability? {
         switch command {
         case .sendInput, .clearScrollback:
             return .input
+        case .scrollToBottom:
+            return nil
         case .resize:
             return .resize
         }
@@ -170,6 +361,9 @@ final class TerminalRuntime: BusPostingPaneRuntime {
             return mapSurfaceDispatchResult(dispatchResult, commandId: commandId, command: command)
         case .clearScrollback:
             let dispatchResult = SurfaceManager.shared.clearScrollback(forPaneId: paneId.uuid)
+            return mapSurfaceDispatchResult(dispatchResult, commandId: commandId, command: command)
+        case .scrollToBottom:
+            let dispatchResult = SurfaceManager.shared.scrollToBottom(forPaneId: paneId.uuid)
             return mapSurfaceDispatchResult(dispatchResult, commandId: commandId, command: command)
         case .resize(let cols, let rows):
             Self.logger.warning(

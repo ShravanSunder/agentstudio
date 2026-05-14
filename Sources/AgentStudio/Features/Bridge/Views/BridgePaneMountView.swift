@@ -1,0 +1,57 @@
+import AppKit
+import SwiftUI
+
+/// Bridge pane embedding a BridgePaneController's WebPage via SwiftUI WebView.
+///
+/// Ownership: BridgePaneMountView (NSView mounted under `PaneHostView`) holds a strong reference to
+/// `BridgePaneController` and its `BridgeRuntime` (@Observable @MainActor). An `NSHostingView` wraps
+/// the SwiftUI `BridgePaneContentView` which observes the controller.
+/// Controller lifetime is tied to this NSView's lifetime in the AppKit layout hierarchy.
+///
+/// Follows the same pattern as `WebviewPaneMountView`.
+final class BridgePaneMountView: NSView, PaneMountedContent {
+    let paneId: UUID
+    let controller: BridgePaneController
+    let runtime: BridgeRuntime
+    private var hostingView: NSHostingView<BridgePaneContentView>?
+
+    init(paneId: UUID, controller: BridgePaneController) {
+        self.paneId = paneId
+        self.controller = controller
+        self.runtime = controller.runtime
+        super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
+        setupHostingView()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) not supported")
+    }
+
+    override var acceptsFirstResponder: Bool { true }
+
+    // MARK: - Content Interaction
+
+    /// Delegates management layer interaction suppression to the controller's
+    /// persistent user-script pipeline (current document + future navigations).
+    func setContentInteractionEnabled(_ enabled: Bool) {
+        controller.setWebContentInteractionEnabled(enabled)
+    }
+
+    // MARK: - Setup
+
+    private func setupHostingView() {
+        let contentView = BridgePaneContentView(controller: controller)
+        let hosting = NSHostingView(rootView: contentView)
+        hosting.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(hosting)
+
+        NSLayoutConstraint.activate([
+            hosting.topAnchor.constraint(equalTo: topAnchor),
+            hosting.leadingAnchor.constraint(equalTo: leadingAnchor),
+            hosting.trailingAnchor.constraint(equalTo: trailingAnchor),
+            hosting.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+
+        self.hostingView = hosting
+    }
+}

@@ -17,7 +17,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
     @Test("repoRemoved marks panes orphaned and prunes cache while preserving canonical identities")
     func repoRemovedOrphansPanesAndPreservesRepoIdentity() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -37,7 +37,11 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         let persistedMainWorktreeId = workspaceStore.repos[0].worktrees[0].id
 
         let pane = workspaceStore.createPane(
-            source: .worktree(worktreeId: persistedMainWorktreeId, repoId: repo.id)
+            source: .worktree(
+                worktreeId: persistedMainWorktreeId,
+                repoId: repo.id,
+                launchDirectory: repoPath
+            )
         )
 
         repoCache.setRepoEnrichment(
@@ -83,7 +87,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
     @Test("re-association preserves UUID links and restores orphaned pane residency")
     func relocateRepoPreservesIdentity() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -103,7 +107,11 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         let previousWorktreeId = workspaceStore.repos[0].worktrees[0].id
 
         let pane = workspaceStore.createPane(
-            source: .worktree(worktreeId: previousWorktreeId, repoId: repo.id)
+            source: .worktree(
+                worktreeId: previousWorktreeId,
+                repoId: repo.id,
+                launchDirectory: oldRepoPath
+            )
         )
         workspaceStore.appendTab(Tab(paneId: pane.id))
 
@@ -140,7 +148,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
     @Test("repo rediscovery at same path clears unavailable state and restores orphaned panes")
     func rediscoveryAtSamePathRestoresRepoAvailability() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -159,7 +167,13 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         workspaceStore.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
         let worktreeId = workspaceStore.repos[0].worktrees[0].id
 
-        let pane = workspaceStore.createPane(source: .worktree(worktreeId: worktreeId, repoId: repo.id))
+        let pane = workspaceStore.createPane(
+            source: .worktree(
+                worktreeId: worktreeId,
+                repoId: repo.id,
+                launchDirectory: repoPath
+            )
+        )
         workspaceStore.appendTab(Tab(paneId: pane.id))
 
         coordinator.handleTopology(
@@ -183,7 +197,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
     @Test("re-association restores non-layout orphaned panes as backgrounded")
     func reassociationRestoresBackgroundedResidencyForNonLayoutPanes() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -203,7 +217,11 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         let worktreeId = workspaceStore.repos[0].worktrees[0].id
 
         let pane = workspaceStore.createPane(
-            source: .worktree(worktreeId: worktreeId, repoId: repo.id)
+            source: .worktree(
+                worktreeId: worktreeId,
+                repoId: repo.id,
+                launchDirectory: oldRepoPath
+            )
         )
         let tab = Tab(paneId: pane.id)
         workspaceStore.appendTab(tab)
@@ -237,7 +255,7 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
     @Test("repoRemoved does not overwrite pendingUndo residency")
     func repoRemovedPreservesPendingUndoResidency() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -256,7 +274,13 @@ struct WorkspaceCacheCoordinatorRepoMoveTests {
         workspaceStore.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
         let worktreeId = workspaceStore.repos[0].worktrees[0].id
 
-        let pane = workspaceStore.createPane(source: .worktree(worktreeId: worktreeId, repoId: repo.id))
+        let pane = workspaceStore.createPane(
+            source: .worktree(
+                worktreeId: worktreeId,
+                repoId: repo.id,
+                launchDirectory: repoPath
+            )
+        )
         workspaceStore.setResidency(
             .pendingUndo(expiresAt: Date(timeIntervalSinceNow: 300)),
             for: pane.id

@@ -28,6 +28,12 @@ Agent Studio follows an **AppKit-main** architecture. This decision was made to 
 
 ## Core Hosting Patterns
 
+Host surfaces such as pane toolbars, drawer chrome, window chrome, and tab shells remain App-owned assembly points. When those surfaces embed capability-specific UI, keep the shell and placement logic in `App/` while the reusable capability content lives in its owning `Features/<Capability>/` slice.
+
+Example:
+- `App/Panes/DrawerEditorChooser/` owns the drawer toolbar button, anchoring, divider, and pane wiring
+- `SharedComponents/EditorChooser/` owns the numbered editor chooser menu rows and bookmark UI
+
 ### NSHostingController
 Use for full-screen components, sidebars, or major view controller containment.
 ```swift
@@ -72,7 +78,7 @@ Each AppKit controller that hosts SwiftUI creates NSHostingView(s) **once** at s
 | NSHostingView | SwiftUI Root | Purpose |
 |---|---|---|
 | `tabBarHostingView` | `CustomTabBar` | Tab bar (top strip) |
-| `splitHostingView` | `ActiveTabContent` → `TerminalSplitContainer` | Main content area — renders the active tab's split tree via `PaneLeafContainer` leaves |
+| `PersistentTabHostView.hostingView` | `SingleTabContent` | Main content area — one persistent hosting view per tab, shown/hidden by AppKit while all tabs stay alive |
 | `arrangementButtonHostingView` | `ArrangementFloatingButton` | Floating arrangement button |
 | _(pure AppKit)_ | `emptyStateView` | Empty state when no tabs exist |
 
@@ -92,16 +98,96 @@ Services are created in `AppDelegate.applicationDidFinishLaunching()` in depende
 
 ```
 AppDelegate
-├── WorkspaceStore      ← @Observable, restore from disk
-├── SessionRuntime      ← runtime health tracking
-├── ViewRegistry        ← paneId → NSView mapping (not @Observable)
-├── PaneCoordinator     ← action dispatch + model↔view↔surface orchestration
-├── TabBarAdapter       ← bridges @Observable store via withObservationTracking
-├── CommandBarPanelController ← command bar lifecycle (⌘P/⌘⇧P/⌘⌥P)
+├── AtomRegistry                  ← composition root for all shared atoms
+├── WorkspaceStore             ← persistence wrapper, restore from disk
+├── RepoCacheStore             ← persistence wrapper for RepoCacheAtom
+├── UIStateStore               ← persistence wrapper for UIStateAtom
+├── AppLifecycleAtom          ← app active/terminating state (in-memory)
+├── WindowLifecycleAtom       ← key/focused window identity (in-memory)
+├── SessionRuntime             ← runtime health tracking
+├── WorkspaceCacheCoordinator  ← event bus consumer, updates stores
+├── ApplicationLifecycleMonitor ← AppKit lifecycle ingress → lifecycle stores
+├── ManagementLayerMonitor      ← management layer state tracking
+├── ViewRegistry               ← paneId → PaneViewSlot mapping (@Observable per-pane slots)
+├── PaneCoordinator            ← action dispatch + model↔view↔surface orchestration
+├── ActionExecutor             ← validated action execution
+├── TabBarAdapter              ← bridges @Observable store via withObservationTracking
+├── CommandBarPanelController  ← command bar lifecycle (⌘P/⌘⇧P/⌘⌥P)
 └── MainWindowController
     └── MainSplitViewController
         └── PaneTabViewController
 ```
+
+### Embedded Ghostty Host Boundary
+
+The embedded terminal host keeps one subsystem entry seam:
+
+```text
+callers
+  │
+  ▼
+Ghostty.shared
+  │
+  ▼
+thin Ghostty.App
+  ├── Ghostty.AppHandle
+  ├── Ghostty.CallbackRouter
+  ├── Ghostty.ActionRouter
+  └── Ghostty.AppFocusSynchronizer
+```
+
+- `Ghostty.shared` is the only host entrypoint other app code should use.
+- `Ghostty.App` is composition-only. It does not own callback logic, the action switch, or lifecycle observation directly.
+- `Ghostty.CallbackRouter` stays at the C boundary and captures stable identity before any async hop.
+- `Ghostty.ActionRouter` is the only place Ghostty action routing should expand in future terminal work.
+- `Ghostty.AppFocusSynchronizer` keeps app-level focus separate from per-surface focus in `GhosttySurfaceView` / `GhosttyMountView`.
+
+### Per-Tab Persistent Hosting
+
+The main pane area keeps one persistent AppKit content host per tab.
+
+- `PaneTabViewController` owns the tab-host lifecycle
+- each tab host contains one `NSHostingView<SingleTabContent>`
+- inactive tabs are hidden at the AppKit level, not removed from the SwiftUI tree
+- pane actions and drop routing flow through stable dispatcher references instead of fresh closures in the visible tab subtree
+
+This replaces the older single-host `ActiveTabContent` pattern, which rendered only the active tab and caused `NSViewRepresentable` teardown on tab switch.
+
+### ViewRegistry Slot Model
+
+`ViewRegistry` provides per-pane `@Observable PaneViewSlot` objects for scoped SwiftUI invalidation. Each slot holds an optional `host: PaneHostView?`. SwiftUI views read `slot(for: paneId).host` and get automatic, pane-scoped re-render when the host changes — no global invalidation.
+
+**Slot lifecycle:**
+
+| Method | When | Effect |
+|--------|------|--------|
+| `ensureSlot(for:)` | Pane enters workspace structure (create, restore) | Creates slot proactively. Idempotent. |
+| `register(view, for:)` | Host view created | Sets `slot.host` — triggers SwiftUI observation |
+| `unregister(paneId)` | Close/undo teardown | Clears `slot.host = nil` — slot object survives |
+| `removeSlot(for:)` | Pane permanently removed | Deletes the slot entirely |
+
+Slots have **pane-lifetime identity**, not host-lifetime identity. This ensures SwiftUI observers survive across unregister/re-register cycles (repair, undo). The old `viewRevision` global invalidation bridge has been removed.
+
+**Slot seeding on restore:** `AppDelegate.seedSlotsForRestoredPanes()` calls `ensureSlot` for every restored pane *before* `PersistentTabHostView` creation. `PaneCoordinator.restoreAllViews()` also seeds slots for all layout and drawer panes before the first `createViewForContent` call, because SwiftUI body evaluation may run before restore completes.
+
+### PaneHostView Identity
+
+`PaneHostView.hostIdentity` returns `ObjectIdentifier(self)` — a stable identity for the specific host instance. `PaneLeafContainer` applies `.id(paneHost.hostIdentity)` on `PaneViewRepresentable`. When the host is replaced (repair, placeholder retry), the identity changes, forcing SwiftUI to dismantle the old representable and create a new one. Without this, `updateNSView` is a no-op and stale views stay mounted.
+
+### PaneActionDispatching Protocol
+
+`PaneActionDispatching` extracts the action dispatch and drop handling interface from scattered closure parameters. `PaneTabActionDispatcher` implements it with stable references (`dispatch`, `shouldAcceptDrop`, `handleDrop`) passed through the per-tab SwiftUI subtree. This replaced fresh closure captures that caused unnecessary re-renders.
+
+### Terminal Exit Hardening
+
+Terminal process termination routes through `PaneTabViewController.handleTerminalProcessTerminated`:
+- **Drawer children**: dispatches `removeDrawerPane` to parent
+- **Arrangement-visible panes**: normal validated `closePane`/`closeTab`
+- **Arrangement-hidden panes**: uses `executor.executeTrusted()` to bypass arrangement validation, since the pane is hidden by the active arrangement but still exists in the tab's canonical model
+
+### Close Transitions
+
+`PaneCloseTransitionCoordinator` provides fast visual feedback on pane close. It marks a pane as "closing" (opacity 0.58, scale 0.985) then dispatches the actual close action after a short delay. `PaneLeafContainer` reads `closingPaneIds` and applies the transition. The pane is non-interactive during the transition.
 
 See [Component Architecture — Service Layer](component_architecture.md#3-service-layer) for detailed descriptions of each service.
 
@@ -111,8 +197,8 @@ Management-mode split insertion is coordinated at the tab container level:
 
 - `PaneLeafContainer` renders pane content and controls uniformly for all pane kinds.
 - `PaneFramePreferenceKey` reports pane frames in `tabContainer` coordinates.
-- `SplitContainerDropDelegate` resolves drag location using `PaneDragCoordinator` and submits validated drop actions through existing `PaneActionCommand` flow.
-- `PaneDropTargetOverlay` renders the active destination marker from `PaneDropTarget` + `DropZone`.
+- `SplitContainerDropCaptureOverlay` resolves drag location using `PaneDragCoordinator` and submits validated drop actions through existing `PaneActionCommand` flow.
+- `PaneDropTargetOverlay` renders the active destination marker from `PaneDropTarget` + `DropZoneSide`.
 
 This keeps split targeting pane-type-agnostic (terminal/webview/bridge/future panes).
 
@@ -128,6 +214,7 @@ Swift 6.2 toolchain, `.swiftLanguageMode(.v6)`, macOS 26. Data-race safety is en
 - **`isolated deinit` for `@MainActor` classes** (SE-0371, Swift 6.2). Access stored properties, cancel Tasks, finish continuations directly.
 - **`AsyncStream.makeStream(of:)` for new code** (SE-0388, Swift 5.9+). Returns `(stream, continuation)` tuple.
 - **`@preconcurrency import`** for frameworks that haven't fully adopted Sendable.
+- **C callback routers capture stable identity before hopping**. Embedded Ghostty callback trampolines should convert raw pointers to stable IDs synchronously, then `Task { @MainActor ... }` before touching AppKit or stores.
 
 **Don't:**
 
@@ -299,23 +386,25 @@ MainWindow
     ├── NSVisualEffectView (.sidebar material)
     └── NSHostingView
         └── CommandBarView (SwiftUI)
-            ├── CommandBarScopePill
-            ├── CommandBarSearchField
+            ├── CommandBarStatusStrip
+            ├── CommandBarSearchField (contains CommandBarScopePill)
+            ├── CommandBarBackRow (when nested)
             ├── CommandBarResultsList
             └── CommandBarFooter
 ```
 
 ### Keyboard Shortcuts
 
-Three shortcuts open the same command bar with different prefix scoping:
+Four scopes open the same command bar with different prefix scoping:
 
 | Shortcut | Prefix | Scope |
 |----------|--------|-------|
 | `⌘P` | _(none)_ | Everything — tabs, panes, commands, worktrees |
-| `⌘⇧P` | `>` | Commands only, grouped by category |
-| `⌘⌥P` | `@` | Panes and tabs, grouped by parent tab |
+| `⌘⇧P` | `> ` | Commands only, grouped by category |
+| `⌘⌥P` | `$ ` | Panes and tabs, grouped by parent tab |
+| _(programmatic)_ | `# ` | Repos and worktrees for opening |
 
-Shortcuts are registered as menu items in `AppDelegate` (responder chain routing). Pressing the same shortcut again while the bar is open toggles it closed. Pressing a different shortcut while open switches the prefix in-place.
+The first three shortcuts are registered as menu items in `AppDelegate` (responder chain routing). The repos scope (`# `) is triggered programmatically via `showCommandBarRepos()` (e.g., from the tab bar's "Open Repo/Worktree" button). Pressing the same shortcut again while the bar is open toggles it closed. Pressing a different shortcut while open switches the prefix in-place.
 
 ### Keyboard Interception
 
@@ -343,6 +432,7 @@ CommandBarView.executeItem()
   ├── .dispatch(command)         → CommandDispatcher.dispatch() → full pipeline
   ├── .dispatchTargeted(cmd,id)  → CommandDispatcher.dispatch(_:target:targetType:)
   ├── .navigate(level)           → state.pushLevel() (nested drill-in)
+  ├── .worktreeAction(presence)  → CommandBarWorktreeActionResolver → dispatch/navigate/choice
   └── .custom(closure)           → Direct execution (e.g., tab switching via Notification)
 ```
 
@@ -350,14 +440,36 @@ CommandBarView.executeItem()
 
 | Component | Role |
 |-----------|------|
-| `CommandBarPanelController` | Lifecycle: show/dismiss/toggle, backdrop, animation, state ownership |
-| `CommandBarState` | Observable state: visibility, prefix parsing, navigation stack, selection, recents |
-| `CommandBarDataSource` | Builds `CommandBarItem` arrays from `WorkspaceStore` + `CommandDispatcher` |
+| `CommandBarPanelController` | Lifecycle: show/dismiss/toggle, backdrop, animation, state ownership. Depends on `WorkspaceStore` and `repoCache: RepoCacheAtom` |
+| `CommandBarState` | Observable state: visibility, prefix parsing (`> `, `$ `, `# `), navigation stack, selection, recents |
+| `CommandBarDataSource` | Builds `CommandBarItem` arrays from `WorkspaceStore`, `atom(\\.workspaceFocusContext).currentFocus`, and `CommandDispatcher` metadata |
+| `CommandBarWorktreeActionResolver` | Resolves worktree selection into dispatch/navigate/choice based on presence state and modifier keys |
 | `CommandBarSearch` | Custom fuzzy matching with score + character match ranges for highlighting |
 | `CommandBarPanel` | `NSPanel` subclass with `NSVisualEffectView` and `NSHostingView` |
-| `CommandBarView` | Root SwiftUI view composing search, results, scope pill, footer |
+| `CommandBarView` | Root SwiftUI view composing search, results, shared focus context, and footer |
 
-> **Files:** `CommandBar/CommandBarPanelController.swift`, `CommandBar/CommandBarState.swift`, `CommandBar/CommandBarPanel.swift`, `CommandBar/CommandBarDataSource.swift`, `CommandBar/CommandBarSearch.swift`, `CommandBar/CommandBarItem.swift`, `CommandBar/Views/*.swift`
+Notable views: `CommandBarBackRow` (nested back navigation), `CommandBarScopePill` (scope indicator), `CommandBarStatusStrip` (app mode display), `CommandBarSearchField` (search input with pill), `CommandBarFooter` (contextual keyboard hints).
+
+The command bar no longer owns its own hidden-command or grouping switches. `AppCommand` remains
+the authoritative command ID, `CommandSpec` carries the authoritative metadata for dispatchable
+commands, and `atom(\.workspaceFocus).currentFocus(...)` provides the shared app-wide focus context.
+The command bar consumes those shared models; it does not define commands itself.
+
+> **Files:** `CommandBar/CommandBarPanelController.swift`, `CommandBar/CommandBarState.swift`, `CommandBar/CommandBarPanel.swift`, `CommandBar/CommandBarDataSource.swift`, `CommandBar/CommandBarWorktreeActionResolver.swift`, `CommandBar/CommandBarSearch.swift`, `CommandBar/CommandBarItem.swift`, `CommandBar/Views/*.swift`
+
+---
+
+## Management Layer
+
+Management layer enables split insertion and pane rearrangement. Three components coordinate the feature:
+
+| Component | Location | Role |
+|-----------|----------|------|
+| `ManagementLayerAtom` | `Core/State/MainActor/Atoms/ManagementLayerAtom.swift` | Canonical active/inactive state |
+| `ManagementLayerMonitor` | `App/Lifecycle/ManagementLayerMonitor.swift` | Observes atom state changes, drives side effects |
+| `ManagementLayerToolbarButton` | `App/Lifecycle/ManagementLayerToolbarButton.swift` | Toolbar integration for toggling management layer |
+
+Toggled via the command pipeline or the toolbar button. The command bar's `CommandBarStatusStrip` also reflects the current mode.
 
 ---
 

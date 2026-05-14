@@ -1,0 +1,438 @@
+import CoreGraphics
+import Foundation
+import Testing
+
+@testable import AgentStudio
+
+@Suite(.serialized)
+final class PaneDragCoordinatorTests {
+
+    @Test
+    func test_resolveTarget_insideLeftSideZone_returnsLeftSlot() {
+        // Pane at x=100..500, side zone width = max(width/4=100, floor 24) = 100.
+        // Left side zone = [100, 200). Cursor at x=150 is in the left
+        // side zone → slot 0 (insert before the only pane in row).
+        let paneId = UUID()
+        let paneFrames = [paneId: CGRect(x: 100, y: 200, width: 400, height: 300)]
+        let location = CGPoint(x: 150, y: 300)
+
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
+
+        #expect(
+            result == PaneDropTarget(paneId: paneId, zone: .left, sizingTarget: .paneSlot(row: .main, index: 0))
+        )
+    }
+
+    @Test
+    func test_resolveTarget_insideRightSideZone_returnsRightSlot() {
+        // Right side zone = [400, 500). Cursor at x=450 → slot 1
+        // (insert after the only pane in row).
+        let paneId = UUID()
+        let paneFrames = [paneId: CGRect(x: 100, y: 200, width: 400, height: 300)]
+        let location = CGPoint(x: 450, y: 300)
+
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
+
+        #expect(
+            result
+                == PaneDropTarget(paneId: paneId, zone: .right, sizingTarget: .paneSlot(row: .main, index: 1)))
+    }
+
+    @Test
+    func test_resolveTarget_usesLocalPointWhenCalculatingZone() {
+        // location.x = 525 appears "right" in absolute terms, but local
+        // x = 25 of width 200. Side zone = max(50, 24) = 50, so left
+        // side = [500, 550). 525 in left side → slot 0.
+        let paneId = UUID()
+        let paneFrames = [paneId: CGRect(x: 500, y: 200, width: 200, height: 200)]
+        let location = CGPoint(x: 525, y: 250)
+
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
+
+        #expect(
+            result == PaneDropTarget(paneId: paneId, zone: .left, sizingTarget: .paneSlot(row: .main, index: 0))
+        )
+    }
+
+    @Test
+    func test_resolveTarget_outsideAllPaneFrames_returnsNil() {
+        // Arrange
+        let paneId = UUID()
+        let paneFrames = [paneId: CGRect(x: 100, y: 200, width: 400, height: 300)]
+        let location = CGPoint(x: 10, y: 10)
+
+        // Act
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
+
+        // Assert
+        #expect(result == nil)
+    }
+
+    @Test
+    func test_target_leftOfLeftmostPane_returnsLeftZoneOfLeftmostPane() {
+        // Arrange
+        let leftmostPaneId = UUID()
+        let middlePaneId = UUID()
+        let paneFrames: [UUID: CGRect] = [
+            leftmostPaneId: CGRect(x: 100, y: 200, width: 200, height: 200),
+            middlePaneId: CGRect(x: 320, y: 200, width: 200, height: 200),
+        ]
+        let location = CGPoint(x: 99, y: 250)
+
+        // Act
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
+
+        // Assert — corridor resolves to slot 0 (insert before leftmost pane).
+        #expect(
+            result
+                == PaneDropTarget(
+                    paneId: leftmostPaneId, zone: .left, sizingTarget: .paneSlot(row: .main, index: 0)))
+    }
+
+    @Test
+    func test_resolveTarget_insidePanePreservesPaneSplitSizingTarget() throws {
+        // Arrange. Pane at x=100..500. Center zone [200, 400). Cursor
+        // at x=250 is in the center, left of midX (300) → split-left.
+        // (Was x=150 under the old whole-pane-split model; that lands
+        // in the left 1/4 zone now → between-slot sizing instead.)
+        let paneId = UUID()
+        let paneFrames = [paneId: CGRect(x: 100, y: 200, width: 400, height: 300)]
+        let location = CGPoint(x: 250, y: 300)
+
+        // Act
+        let result = try #require(
+            PaneDragCoordinator.resolveTarget(
+                location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
+        )
+
+        // Assert
+        #expect(
+            result == PaneDropTarget(paneId: paneId, zone: .left, sizingTarget: .paneSplit(paneId: paneId, side: .left))
+        )
+        #expect(DropSizingModeResolver.mode(for: result.sizingTarget, isShiftHeld: false) == .halveTarget)
+    }
+
+    @Test
+    func test_resolveTarget_edgeCorridorPreservesPaneSlotSizingTarget() throws {
+        // Arrange
+        let leftmostPaneId = UUID()
+        let middlePaneId = UUID()
+        let paneFrames: [UUID: CGRect] = [
+            leftmostPaneId: CGRect(x: 100, y: 200, width: 200, height: 200),
+            middlePaneId: CGRect(x: 320, y: 200, width: 200, height: 200),
+        ]
+        let location = CGPoint(x: 99, y: 250)
+
+        // Act
+        let result = try #require(
+            PaneDragCoordinator.resolveTarget(
+                location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
+        )
+
+        // Assert — corridor produces a slot target (proportional sizing).
+        #expect(
+            result
+                == PaneDropTarget(
+                    paneId: leftmostPaneId, zone: .left, sizingTarget: .paneSlot(row: .main, index: 0)))
+        #expect(DropSizingModeResolver.mode(for: result.sizingTarget, isShiftHeld: false) == .proportional)
+    }
+
+    @Test
+    func test_target_rightOfRightmostPane_returnsRightZoneOfRightmostPane() {
+        // Arrange
+        let leftPaneId = UUID()
+        let rightmostPaneId = UUID()
+        let paneFrames: [UUID: CGRect] = [
+            leftPaneId: CGRect(x: 100, y: 200, width: 200, height: 200),
+            rightmostPaneId: CGRect(x: 320, y: 200, width: 200, height: 200),
+        ]
+        let location = CGPoint(x: 521, y: 250)
+
+        // Act
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
+
+        // Assert — right-of-rightmost lands in corridor → slot 2 (after both panes).
+        #expect(
+            result
+                == PaneDropTarget(
+                    paneId: rightmostPaneId, zone: .right,
+                    sizingTarget: .paneSlot(row: .main, index: 2)))
+    }
+
+    @Test
+    func test_target_insideLeftContainerGap_resolvesToLeftmostPaneWhenContainerBoundsProvided() {
+        // Arrange
+        let leftmostPaneId = UUID()
+        let rightPaneId = UUID()
+        let paneFrames: [UUID: CGRect] = [
+            leftmostPaneId: CGRect(x: 8, y: 80, width: 240, height: 300),
+            rightPaneId: CGRect(x: 264, y: 80, width: 240, height: 300),
+        ]
+        let containerBounds = CGRect(x: 0, y: 0, width: 520, height: 400)
+        let location = CGPoint(x: 4, y: 200)
+
+        // Act
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location,
+            paneFrames: paneFrames,
+            containerBounds: containerBounds,
+            minimizedPaneIds: []
+        )
+
+        // Assert — gap inside container bounds resolves via corridor → slot 0.
+        #expect(
+            result
+                == PaneDropTarget(
+                    paneId: leftmostPaneId, zone: .left, sizingTarget: .paneSlot(row: .main, index: 0)))
+    }
+
+    @Test
+    func test_target_insideRightContainerGap_resolvesToRightmostPaneWhenContainerBoundsProvided() {
+        // Arrange
+        let leftPaneId = UUID()
+        let rightmostPaneId = UUID()
+        let paneFrames: [UUID: CGRect] = [
+            leftPaneId: CGRect(x: 16, y: 40, width: 220, height: 280),
+            rightmostPaneId: CGRect(x: 252, y: 40, width: 260, height: 280),
+        ]
+        let containerBounds = CGRect(x: 0, y: 0, width: 520, height: 360)
+        let location = CGPoint(x: 516, y: 180)
+
+        // Act
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location,
+            paneFrames: paneFrames,
+            containerBounds: containerBounds,
+            minimizedPaneIds: []
+        )
+
+        // Assert — corridor right of rightmost → slot 2.
+        #expect(
+            result
+                == PaneDropTarget(
+                    paneId: rightmostPaneId, zone: .right,
+                    sizingTarget: .paneSlot(row: .main, index: 2)))
+    }
+
+    @Test
+    func test_resolveTarget_overlappingFrames_prefersSmallerAreaFrame() {
+        // Arrange
+        let largerPaneId = UUID()
+        let smallerPaneId = UUID()
+        let paneFrames: [UUID: CGRect] = [
+            largerPaneId: CGRect(x: 100, y: 100, width: 300, height: 260),
+            smallerPaneId: CGRect(x: 180, y: 130, width: 160, height: 180),
+        ]
+        let location = CGPoint(x: 220, y: 220)
+
+        // Act
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
+
+        // Assert
+        #expect(result?.paneId == smallerPaneId)
+    }
+
+    @Test
+    func test_target_leftCorridor_usesCombinedVerticalBounds() {
+        // Arrange
+        let leftmostPaneId = UUID()
+        let rightPaneId = UUID()
+        let paneFrames: [UUID: CGRect] = [
+            leftmostPaneId: CGRect(x: 100, y: 220, width: 200, height: 120),
+            rightPaneId: CGRect(x: 320, y: 80, width: 200, height: 340),
+        ]
+        let location = CGPoint(x: 90, y: 380)
+
+        // Act
+        let result = PaneDragCoordinator.resolveTarget(
+            location: location, paneFrames: paneFrames, containerBounds: nil, minimizedPaneIds: [])
+
+        // Assert — corridor with combined vertical bounds → slot 0.
+        #expect(
+            result
+                == PaneDropTarget(
+                    paneId: leftmostPaneId, zone: .left, sizingTarget: .paneSlot(row: .main, index: 0)))
+    }
+
+    @Test
+    func test_resolveLatchedTarget_keepsCurrentTarget_whenLocationTemporarilyInvalid() {
+        // Arrange
+        let paneId = UUID()
+        let currentTarget = PaneDropTarget(
+            paneId: paneId, zone: .left, sizingTarget: .paneSplit(paneId: paneId, side: .left))
+        let paneFrames: [UUID: CGRect] = [
+            paneId: CGRect(x: 100, y: 100, width: 200, height: 200)
+        ]
+        let gapLocation = CGPoint(x: 350, y: 150)
+
+        // Act
+        let result = PaneDragCoordinator.resolveLatchedTarget(
+            location: gapLocation,
+            paneFrames: paneFrames,
+            containerBounds: nil,
+            minimizedPaneIds: [],
+            currentTarget: currentTarget,
+            isShiftHeld: false,
+            shouldAcceptDrop: { _, _, _ in true }
+        )
+
+        // Assert
+        #expect(result == currentTarget)
+    }
+
+    @Test
+    func test_resolveLatchedTarget_switchesToNewTarget_whenValidTargetAppears() {
+        // Arrange
+        let firstPaneId = UUID()
+        let secondPaneId = UUID()
+        let currentTarget = PaneDropTarget(
+            paneId: firstPaneId, zone: .left, sizingTarget: .paneSplit(paneId: firstPaneId, side: .left))
+        let paneFrames: [UUID: CGRect] = [
+            firstPaneId: CGRect(x: 100, y: 100, width: 200, height: 200),
+            secondPaneId: CGRect(x: 320, y: 100, width: 200, height: 200),
+        ]
+        let newLocation = CGPoint(x: 470, y: 150)
+
+        // Act
+        let result = PaneDragCoordinator.resolveLatchedTarget(
+            location: newLocation,
+            paneFrames: paneFrames,
+            containerBounds: nil,
+            minimizedPaneIds: [],
+            currentTarget: currentTarget,
+            isShiftHeld: false,
+            shouldAcceptDrop: { _, _, _ in true }
+        )
+
+        // Assert — newLocation lands in second pane's right side zone → slot 2.
+        #expect(
+            result
+                == PaneDropTarget(
+                    paneId: secondPaneId, zone: .right, sizingTarget: .paneSlot(row: .main, index: 2)))
+    }
+
+    @Test
+    func test_resolveLatchedTarget_clearsWhenCurrentTargetRejected() {
+        // Arrange
+        let paneId = UUID()
+        let currentTarget = PaneDropTarget(
+            paneId: paneId, zone: .left, sizingTarget: .paneSplit(paneId: paneId, side: .left))
+        let paneFrames: [UUID: CGRect] = [
+            paneId: CGRect(x: 100, y: 100, width: 200, height: 200)
+        ]
+        let gapLocation = CGPoint(x: 10, y: 10)
+
+        // Act
+        let result = PaneDragCoordinator.resolveLatchedTarget(
+            location: gapLocation,
+            paneFrames: paneFrames,
+            containerBounds: nil,
+            minimizedPaneIds: [],
+            currentTarget: currentTarget,
+            isShiftHeld: false,
+            shouldAcceptDrop: { _, _, _ in false }
+        )
+
+        // Assert
+        #expect(result == nil)
+    }
+
+    @Test
+    func test_edgeCorridor_respectsProvidedContainerBounds() {
+        // Arrange
+        let leftPaneId = UUID()
+        let rightPaneId = UUID()
+        let paneFrames: [UUID: CGRect] = [
+            leftPaneId: CGRect(x: 40, y: 120, width: 200, height: 200),
+            rightPaneId: CGRect(x: 260, y: 120, width: 200, height: 200),
+        ]
+        let fullPanelBounds = CGRect(x: 0, y: 0, width: 600, height: 420)
+        let paneUnionBounds = CGRect(x: 40, y: 120, width: 420, height: 200)
+        let pointInPanelButOutsidePaneUnion = CGPoint(x: 20, y: 160)
+
+        // Act
+        let targetWithFullBounds = PaneDragCoordinator.resolveTarget(
+            location: pointInPanelButOutsidePaneUnion,
+            paneFrames: paneFrames,
+            containerBounds: fullPanelBounds,
+            minimizedPaneIds: []
+        )
+        let targetWithPaneUnionBounds = PaneDragCoordinator.resolveTarget(
+            location: pointInPanelButOutsidePaneUnion,
+            paneFrames: paneFrames,
+            containerBounds: paneUnionBounds,
+            minimizedPaneIds: []
+        )
+
+        // Assert
+        #expect(targetWithFullBounds != nil)
+        #expect(targetWithPaneUnionBounds == nil)
+    }
+
+    @Test
+    func test_visual_paneSplitLeft_isLeftHalfRegion() throws {
+        // Arrange
+        let leftPaneId = UUID()
+        let rightPaneId = UUID()
+        let paneFrames: [UUID: CGRect] = [
+            leftPaneId: CGRect(x: 0, y: 0, width: 100, height: 100),
+            rightPaneId: CGRect(x: 100, y: 0, width: 100, height: 100),
+        ]
+        let target = PaneDropTarget(
+            paneId: leftPaneId,
+            zone: .left,
+            sizingTarget: .paneSplit(paneId: leftPaneId, side: .left)
+        )
+
+        // Act
+        let visual = try #require(
+            PaneDragCoordinator.visual(
+                for: target,
+                paneFrames: paneFrames,
+                containerBounds: CGRect(x: 0, y: 0, width: 200, height: 100),
+                minimizedPaneIds: []
+            )
+        )
+
+        // Assert: split visual is the left half of paneA, no marker.
+        #expect(visual.region == CGRect(x: 0, y: 0, width: 50, height: 100))
+        #expect(visual.insertionMarker == nil)
+    }
+
+    @Test
+    func test_visual_paneSplitRight_isRightHalfRegion() throws {
+        // Arrange
+        let leftPaneId = UUID()
+        let rightPaneId = UUID()
+        let paneFrames: [UUID: CGRect] = [
+            leftPaneId: CGRect(x: 0, y: 0, width: 100, height: 100),
+            rightPaneId: CGRect(x: 100, y: 0, width: 100, height: 100),
+        ]
+        let target = PaneDropTarget(
+            paneId: rightPaneId,
+            zone: .right,
+            sizingTarget: .paneSplit(paneId: rightPaneId, side: .right)
+        )
+
+        // Act
+        let visual = try #require(
+            PaneDragCoordinator.visual(
+                for: target,
+                paneFrames: paneFrames,
+                containerBounds: CGRect(x: 0, y: 0, width: 200, height: 100),
+                minimizedPaneIds: []
+            )
+        )
+
+        // Assert: split visual is the right half of paneB, no marker.
+        #expect(visual.region == CGRect(x: 150, y: 0, width: 50, height: 100))
+        #expect(visual.insertionMarker == nil)
+    }
+}

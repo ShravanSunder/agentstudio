@@ -8,28 +8,45 @@ struct CommandBarSearchField: View {
     @Bindable var state: CommandBarState
     let onArrowUp: () -> Void
     let onArrowDown: () -> Void
-    let onEnter: () -> Void
+    let onEnter: (EnterModifier) -> Void
+    let onShortcutTrigger: (ShortcutTrigger) -> Bool
     let onBackspaceOnEmpty: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
-            // Scope icon
-            Image(systemName: state.scopeIcon)
-                .font(.system(size: AppStyle.textBase, weight: .medium))
-                .foregroundStyle(.primary.opacity(0.35))
-                .frame(width: 16, height: 16)
+            if state.isNested, let pillLabel = state.scopePillLabel {
+                CommandBarScopePill(
+                    label: pillLabel,
+                    onDismiss: { state.popToRoot() }
+                )
+            } else {
+                scopeIconView
+            }
 
-            // Text input with keyboard interception
             CommandBarTextField(
                 text: $state.rawInput,
                 placeholder: state.placeholder,
                 onArrowUp: onArrowUp,
                 onArrowDown: onArrowDown,
                 onEnter: onEnter,
+                onShortcutTrigger: onShortcutTrigger,
                 onBackspaceOnEmpty: onBackspaceOnEmpty
             )
         }
         .padding(.horizontal, 12)
         .frame(height: 44)
+    }
+
+    @ViewBuilder
+    private var scopeIconView: some View {
+        if state.scopeIconIsOcticon {
+            OcticonImage(name: state.scopeIcon, size: 16)
+                .foregroundStyle(.primary.opacity(0.35))
+        } else {
+            Image(systemName: state.scopeIcon)
+                .font(.system(size: AppStyles.General.Typography.textBase, weight: .medium))
+                .foregroundStyle(.primary.opacity(0.35))
+                .frame(width: 16, height: 16)
+        }
     }
 }

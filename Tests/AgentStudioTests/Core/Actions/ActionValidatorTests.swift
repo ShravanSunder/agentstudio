@@ -4,31 +4,45 @@ import Testing
 @testable import AgentStudio
 
 @Suite(.serialized)
-final class ActionValidatorTests {
+final class WorkspaceCommandValidatorTests {
 
     // MARK: - Test Helpers
 
     private func makeSnapshot(
         tabs: [TabSnapshot] = [],
         activeTabId: UUID? = nil,
-        isManagementModeActive: Bool = false
+        isManagementLayerActive: Bool = false,
+        drawerParentByPaneId: [UUID: UUID] = [:],
+        drawerLayoutByParentPaneId: [UUID: DrawerGridLayout] = [:]
     ) -> ActionStateSnapshot {
         ActionStateSnapshot(
             tabs: tabs,
             activeTabId: activeTabId,
-            isManagementModeActive: isManagementModeActive
+            isManagementLayerActive: isManagementLayerActive,
+            drawerParentByPaneId: drawerParentByPaneId,
+            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId
         )
     }
 
     private func makeSinglePaneTab(tabId: UUID = UUID(), paneId: UUID = UUIDv7.generate()) -> (TabSnapshot, UUID, UUID)
     {
-        let tab = TabSnapshot(id: tabId, paneIds: [paneId], activePaneId: paneId)
+        let tab = TabSnapshot(
+            id: tabId,
+            visiblePaneIds: [paneId],
+            ownedPaneIds: [paneId],
+            activePaneId: paneId
+        )
         return (tab, tabId, paneId)
     }
 
     private func makeMultiPaneTab(tabId: UUID = UUID(), paneIds: [UUID]? = nil) -> (TabSnapshot, UUID, [UUID]) {
         let ids = paneIds ?? [UUIDv7.generate(), UUIDv7.generate()]
-        let tab = TabSnapshot(id: tabId, paneIds: ids, activePaneId: ids.first)
+        let tab = TabSnapshot(
+            id: tabId,
+            visiblePaneIds: ids,
+            ownedPaneIds: ids,
+            activePaneId: ids.first
+        )
         return (tab, tabId, ids)
     }
 
@@ -39,10 +53,12 @@ final class ActionValidatorTests {
     func test_selectTab_existingTab_succeeds() {
         // Arrange
         let tabId = UUID()
-        let snapshot = makeSnapshot(tabs: [TabSnapshot(id: tabId, paneIds: [UUID()], activePaneId: nil)])
+        let snapshot = makeSnapshot(
+            tabs: [TabSnapshot(id: tabId, visiblePaneIds: [UUID()], ownedPaneIds: [UUID()], activePaneId: nil)]
+        )
 
         // Act
-        let result = ActionValidator.validate(.selectTab(tabId: tabId), state: snapshot)
+        let result = WorkspaceCommandValidator.validate(.selectTab(tabId: tabId), state: snapshot)
 
         // Assert
         #expect((try? result.get()) != nil)
@@ -55,7 +71,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot()
 
         // Act
-        let result = ActionValidator.validate(.selectTab(tabId: UUID()), state: snapshot)
+        let result = WorkspaceCommandValidator.validate(.selectTab(tabId: UUID()), state: snapshot)
 
         // Assert
         if case .failure(let error) = result {
@@ -71,10 +87,12 @@ final class ActionValidatorTests {
     func test_closeTab_existingTab_succeeds() {
         // Arrange
         let tabId = UUID()
-        let snapshot = makeSnapshot(tabs: [TabSnapshot(id: tabId, paneIds: [UUID()], activePaneId: nil)])
+        let snapshot = makeSnapshot(
+            tabs: [TabSnapshot(id: tabId, visiblePaneIds: [UUID()], ownedPaneIds: [UUID()], activePaneId: nil)]
+        )
 
         // Act
-        let result = ActionValidator.validate(.closeTab(tabId: tabId), state: snapshot)
+        let result = WorkspaceCommandValidator.validate(.closeTab(tabId: tabId), state: snapshot)
 
         // Assert
         #expect((try? result.get()) != nil)
@@ -87,7 +105,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot()
 
         // Act
-        let result = ActionValidator.validate(.closeTab(tabId: UUID()), state: snapshot)
+        let result = WorkspaceCommandValidator.validate(.closeTab(tabId: UUID()), state: snapshot)
 
         // Assert
         if case .failure(.tabNotFound) = result { return }
@@ -104,7 +122,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(.breakUpTab(tabId: tabId), state: snapshot)
+        let result = WorkspaceCommandValidator.validate(.breakUpTab(tabId: tabId), state: snapshot)
 
         // Assert
         #expect((try? result.get()) != nil)
@@ -118,7 +136,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(.breakUpTab(tabId: tabId), state: snapshot)
+        let result = WorkspaceCommandValidator.validate(.breakUpTab(tabId: tabId), state: snapshot)
 
         // Assert
         if case .failure(.tabNotSplit) = result { return }
@@ -132,11 +150,78 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot()
 
         // Act
-        let result = ActionValidator.validate(.breakUpTab(tabId: UUID()), state: snapshot)
+        let result = WorkspaceCommandValidator.validate(.breakUpTab(tabId: UUID()), state: snapshot)
 
         // Assert
         if case .failure(.tabNotFound) = result { return }
         Issue.record("Expected tabNotFound error")
+    }
+
+    // MARK: - renameTab
+
+    @Test
+    func test_renameTab_existingTab_trimsAndSucceeds() {
+        let tabId = UUID()
+        let snapshot = makeSnapshot(
+            tabs: [TabSnapshot(id: tabId, visiblePaneIds: [UUID()], ownedPaneIds: [UUID()], activePaneId: nil)]
+        )
+
+        let result = WorkspaceCommandValidator.validate(
+            .renameTab(tabId: tabId, name: "  Review Queue  "),
+            state: snapshot
+        )
+
+        guard case .success(let validated) = result else {
+            Issue.record("Expected success")
+            return
+        }
+        #expect(validated.action == .renameTab(tabId: tabId, name: "Review Queue"))
+    }
+
+    @Test
+    func test_renameTab_multilineName_normalizesToSingleLine() {
+        let tabId = UUID()
+        let snapshot = makeSnapshot(
+            tabs: [TabSnapshot(id: tabId, visiblePaneIds: [UUID()], ownedPaneIds: [UUID()], activePaneId: nil)]
+        )
+
+        let result = WorkspaceCommandValidator.validate(
+            .renameTab(tabId: tabId, name: "  Review Queue\nFor Launch  "),
+            state: snapshot
+        )
+
+        guard case .success(let validated) = result else {
+            Issue.record("Expected success")
+            return
+        }
+        #expect(validated.action == .renameTab(tabId: tabId, name: "Review Queue For Launch"))
+    }
+
+    @Test
+    func test_renameTab_missingTab_fails() {
+        let result = WorkspaceCommandValidator.validate(
+            .renameTab(tabId: UUID(), name: "Review Queue"),
+            state: makeSnapshot()
+        )
+
+        if case .failure(.tabNotFound) = result { return }
+        Issue.record("Expected tabNotFound error")
+    }
+
+    @Test
+    func test_renameTab_emptyName_fails() {
+        let tabId = UUID()
+        let snapshot = makeSnapshot(
+            tabs: [TabSnapshot(id: tabId, visiblePaneIds: [UUID()], ownedPaneIds: [UUID()], activePaneId: nil)]
+        )
+
+        let result = WorkspaceCommandValidator.validate(
+            .renameTab(tabId: tabId, name: "   "),
+            state: snapshot
+        )
+
+        if case .failure(.emptyName) = result { return }
+        Issue.record("Expected emptyName error")
     }
 
     // MARK: - closePane
@@ -149,7 +234,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .closePane(tabId: tabId, paneId: paneIds[0]),
             state: snapshot
         )
@@ -160,13 +245,13 @@ final class ActionValidatorTests {
 
     @Test
 
-    func test_closePane_singlePaneTab_canonicalizesToCloseTab() {
-        // Arrange — single-pane close is canonicalized to closeTab during validation
+    func test_closePane_singlePaneTab_staysClosePane() {
+        // Arrange
         let (tab, tabId, paneId) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .closePane(tabId: tabId, paneId: paneId),
             state: snapshot
         )
@@ -176,7 +261,103 @@ final class ActionValidatorTests {
             Issue.record("Expected success")
             return
         }
-        #expect(validated.action == .closeTab(tabId: tabId))
+        #expect(validated.action == .closePane(tabId: tabId, paneId: paneId))
+    }
+
+    @Test
+    func test_focusDrawerPaneLeft_wrongParentFails() {
+        let parentPaneId = UUIDv7.generate()
+        let otherParentPaneId = UUIDv7.generate()
+        let drawerPaneId = UUIDv7.generate()
+
+        let snapshot = makeSnapshot(
+            tabs: [
+                TabSnapshot(
+                    id: UUID(),
+                    visiblePaneIds: [parentPaneId, otherParentPaneId],
+                    ownedPaneIds: [parentPaneId, otherParentPaneId, drawerPaneId],
+                    activePaneId: parentPaneId
+                )
+            ],
+            drawerParentByPaneId: [drawerPaneId: otherParentPaneId]
+        )
+
+        let result = WorkspaceCommandValidator.validate(
+            .focusDrawerPaneLeft(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId),
+            state: snapshot
+        )
+
+        if case .failure(.paneNotFound) = result { return }
+        Issue.record("Expected paneNotFound for wrong-parent drawer membership")
+    }
+
+    @Test
+    func test_detachDrawerPane_requiresRealDrawerChild() {
+        let parentPaneId = UUIDv7.generate()
+        let drawerPaneId = UUIDv7.generate()
+        let snapshot = makeSnapshot(
+            tabs: [
+                TabSnapshot(
+                    id: UUID(),
+                    visiblePaneIds: [parentPaneId],
+                    ownedPaneIds: [parentPaneId],
+                    activePaneId: parentPaneId
+                )
+            ]
+        )
+
+        let result = WorkspaceCommandValidator.validate(
+            .detachDrawerPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId),
+            state: snapshot
+        )
+
+        if case .failure(.paneNotFound) = result { return }
+        Issue.record("Expected paneNotFound when detach targets a non-drawer child")
+    }
+
+    @Test
+    func test_insertDrawerPane_thirdRowFailsAtValidatorBoundary() {
+        let parentPaneId = UUIDv7.generate()
+        let topPaneId = UUIDv7.generate()
+        let bottomPaneId = UUIDv7.generate()
+        let snapshot = makeSnapshot(
+            tabs: [
+                TabSnapshot(
+                    id: UUID(),
+                    visiblePaneIds: [parentPaneId],
+                    ownedPaneIds: [parentPaneId, topPaneId, bottomPaneId],
+                    activePaneId: parentPaneId
+                )
+            ],
+            isManagementLayerActive: true,
+            drawerParentByPaneId: [
+                topPaneId: parentPaneId,
+                bottomPaneId: parentPaneId,
+            ],
+            drawerLayoutByParentPaneId: [
+                parentPaneId: DrawerGridLayout(
+                    topRow: Layout.autoTiled([topPaneId]),
+                    bottomRow: Layout.autoTiled([bottomPaneId])
+                )
+            ]
+        )
+
+        let result = WorkspaceCommandValidator.validate(
+            .insertDrawerPane(
+                parentPaneId: parentPaneId,
+                targetDrawerPaneId: bottomPaneId,
+                direction: .down,
+                sizingMode: .halveTarget
+            ),
+            state: snapshot
+        )
+
+        if case .failure(
+            .invalidDrawerLayout(parentPaneId: parentPaneId, reason: .insertionTargetRejected(bottomPaneId))
+        ) = result {
+            return
+        }
+        Issue.record("Expected invalidDrawerLayout when insert would create a third row")
     }
 
     @Test
@@ -187,7 +368,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .closePane(tabId: tabId, paneId: UUID()),
             state: snapshot
         )
@@ -204,7 +385,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot()
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .closePane(tabId: UUID(), paneId: UUID()),
             state: snapshot
         )
@@ -212,6 +393,41 @@ final class ActionValidatorTests {
         // Assert
         if case .failure(.tabNotFound) = result { return }
         Issue.record("Expected tabNotFound error")
+    }
+
+    @Test
+
+    func test_scrollToBottom_existingPane_succeeds() {
+        // Arrange
+        let (tab, tabId, paneIds) = makeMultiPaneTab()
+        let snapshot = makeSnapshot(tabs: [tab])
+
+        // Act
+        let result = WorkspaceCommandValidator.validate(
+            .scrollToBottom(tabId: tabId, paneId: paneIds[0]),
+            state: snapshot
+        )
+
+        // Assert
+        #expect((try? result.get()) != nil)
+    }
+
+    @Test
+
+    func test_scrollToBottom_missingPane_fails() {
+        // Arrange
+        let (tab, tabId, _) = makeMultiPaneTab()
+        let snapshot = makeSnapshot(tabs: [tab])
+
+        // Act
+        let result = WorkspaceCommandValidator.validate(
+            .scrollToBottom(tabId: tabId, paneId: UUID()),
+            state: snapshot
+        )
+
+        // Assert
+        if case .failure(.paneNotFound) = result { return }
+        Issue.record("Expected paneNotFound error")
     }
 
     // MARK: - extractPaneToTab
@@ -224,7 +440,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .extractPaneToTab(tabId: tabId, paneId: paneIds[0]),
             state: snapshot
         )
@@ -241,7 +457,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .extractPaneToTab(tabId: tabId, paneId: paneId),
             state: snapshot
         )
@@ -249,45 +465,6 @@ final class ActionValidatorTests {
         // Assert
         if case .failure(.singlePaneTab) = result { return }
         Issue.record("Expected singlePaneTab error")
-    }
-
-    // MARK: - focusPane
-
-    @Test
-
-    func test_focusPane_validPane_succeeds() {
-        // Arrange
-        let paneId = UUID()
-        let tabId = UUID()
-        let tab = TabSnapshot(id: tabId, paneIds: [paneId], activePaneId: paneId)
-        let snapshot = makeSnapshot(tabs: [tab])
-
-        // Act
-        let result = ActionValidator.validate(
-            .focusPane(tabId: tabId, paneId: paneId),
-            state: snapshot
-        )
-
-        // Assert
-        #expect((try? result.get()) != nil)
-    }
-
-    @Test
-
-    func test_focusPane_paneNotInTab_fails() {
-        // Arrange
-        let (tab, tabId, _) = makeSinglePaneTab()
-        let snapshot = makeSnapshot(tabs: [tab])
-
-        // Act
-        let result = ActionValidator.validate(
-            .focusPane(tabId: tabId, paneId: UUID()),
-            state: snapshot
-        )
-
-        // Assert
-        if case .failure(.paneNotFound) = result { return }
-        Issue.record("Expected paneNotFound error")
     }
 
     // MARK: - insertPane (self-insertion bug fix)
@@ -298,17 +475,18 @@ final class ActionValidatorTests {
         // Arrange — THE BUG: dragging a pane onto itself
         let paneId = UUID()
         let tabId = UUID()
-        let tab = TabSnapshot(id: tabId, paneIds: [paneId], activePaneId: paneId)
+        let tab = TabSnapshot(id: tabId, visiblePaneIds: [paneId], ownedPaneIds: [paneId], activePaneId: paneId)
         let snapshot = makeSnapshot(tabs: [tab])
         let action = PaneActionCommand.insertPane(
             source: .existingPane(paneId: paneId, sourceTabId: tabId),
             targetTabId: tabId,
             targetPaneId: paneId,
-            direction: .right
+            direction: .right,
+            sizingMode: .halveTarget
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         if case .failure(.selfPaneInsertion(let id)) = result {
@@ -326,18 +504,29 @@ final class ActionValidatorTests {
         let targetPaneId = UUID()
         let sourceTabId = UUID()
         let targetTabId = UUID()
-        let sourceTab = TabSnapshot(id: sourceTabId, paneIds: [sourcePaneId], activePaneId: sourcePaneId)
-        let targetTab = TabSnapshot(id: targetTabId, paneIds: [targetPaneId], activePaneId: targetPaneId)
+        let sourceTab = TabSnapshot(
+            id: sourceTabId,
+            visiblePaneIds: [sourcePaneId],
+            ownedPaneIds: [sourcePaneId],
+            activePaneId: sourcePaneId
+        )
+        let targetTab = TabSnapshot(
+            id: targetTabId,
+            visiblePaneIds: [targetPaneId],
+            ownedPaneIds: [targetPaneId],
+            activePaneId: targetPaneId
+        )
         let snapshot = makeSnapshot(tabs: [sourceTab, targetTab])
         let action = PaneActionCommand.insertPane(
             source: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
             targetTabId: targetTabId,
             targetPaneId: targetPaneId,
-            direction: .right
+            direction: .right,
+            sizingMode: .halveTarget
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         #expect((try? result.get()) != nil)
@@ -353,11 +542,12 @@ final class ActionValidatorTests {
             source: .newTerminal,
             targetTabId: tabId,
             targetPaneId: paneId,
-            direction: .down
+            direction: .down,
+            sizingMode: .halveTarget
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         #expect((try? result.get()) != nil)
@@ -372,11 +562,12 @@ final class ActionValidatorTests {
             source: .newTerminal,
             targetTabId: UUID(),
             targetPaneId: UUID(),
-            direction: .right
+            direction: .right,
+            sizingMode: .halveTarget
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         if case .failure(.tabNotFound) = result { return }
@@ -393,11 +584,12 @@ final class ActionValidatorTests {
             source: .newTerminal,
             targetTabId: tabId,
             targetPaneId: UUID(),
-            direction: .right
+            direction: .right,
+            sizingMode: .halveTarget
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         if case .failure(.paneNotFound) = result { return }
@@ -414,11 +606,12 @@ final class ActionValidatorTests {
             source: .existingPane(paneId: UUID(), sourceTabId: UUID()),
             targetTabId: tabId,
             targetPaneId: paneId,
-            direction: .right
+            direction: .right,
+            sizingMode: .halveTarget
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         if case .failure(.sourcePaneNotFound) = result { return }
@@ -436,7 +629,7 @@ final class ActionValidatorTests {
         let splitId = UUID()
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .resizePane(tabId: tabId, splitId: splitId, ratio: 0.5),
             state: snapshot
         )
@@ -454,7 +647,7 @@ final class ActionValidatorTests {
         let splitId = UUID()
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .resizePane(tabId: tabId, splitId: splitId, ratio: 0.05),
             state: snapshot
         )
@@ -473,7 +666,7 @@ final class ActionValidatorTests {
         let splitId = UUID()
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .resizePane(tabId: tabId, splitId: splitId, ratio: 0.95),
             state: snapshot
         )
@@ -492,7 +685,7 @@ final class ActionValidatorTests {
         let splitId = UUID()
 
         // Act
-        let result = ActionValidator.validate(
+        let result = WorkspaceCommandValidator.validate(
             .resizePane(tabId: tabId, splitId: splitId, ratio: 0.5),
             state: snapshot
         )
@@ -512,7 +705,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(.equalizePanes(tabId: tabId), state: snapshot)
+        let result = WorkspaceCommandValidator.validate(.equalizePanes(tabId: tabId), state: snapshot)
 
         // Assert
         #expect((try? result.get()) != nil)
@@ -526,7 +719,7 @@ final class ActionValidatorTests {
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validate(.equalizePanes(tabId: tabId), state: snapshot)
+        let result = WorkspaceCommandValidator.validate(.equalizePanes(tabId: tabId), state: snapshot)
 
         // Assert
         if case .failure(.tabNotSplit) = result { return }
@@ -550,7 +743,7 @@ final class ActionValidatorTests {
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         #expect((try? result.get()) != nil)
@@ -570,7 +763,7 @@ final class ActionValidatorTests {
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         if case .failure(.tabNotFound) = result { return }
@@ -591,7 +784,7 @@ final class ActionValidatorTests {
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         if case .failure(.tabNotFound) = result { return }
@@ -613,7 +806,7 @@ final class ActionValidatorTests {
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         if case .failure(.paneNotFound) = result { return }
@@ -634,7 +827,7 @@ final class ActionValidatorTests {
         )
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         if case .failure(.selfTabMerge) = result { return }
@@ -651,7 +844,7 @@ final class ActionValidatorTests {
         let action = PaneActionCommand.expireUndoEntry(paneId: UUID())
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         #expect((try? result.get()) != nil)
@@ -665,7 +858,7 @@ final class ActionValidatorTests {
         let action = PaneActionCommand.repair(.recreateSurface(paneId: UUID()))
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         #expect((try? result.get()) != nil)
@@ -679,11 +872,16 @@ final class ActionValidatorTests {
         // Arrange
         let existingPaneId = UUID()
         let newPaneId = UUID()
-        let tab = TabSnapshot(id: UUID(), paneIds: [existingPaneId], activePaneId: existingPaneId)
+        let tab = TabSnapshot(
+            id: UUID(),
+            visiblePaneIds: [existingPaneId],
+            ownedPaneIds: [existingPaneId],
+            activePaneId: existingPaneId
+        )
         let snapshot = makeSnapshot(tabs: [tab])
 
         // Act
-        let result = ActionValidator.validatePaneCardinality(
+        let result = WorkspaceCommandValidator.validatePaneCardinality(
             paneId: newPaneId, state: snapshot
         )
 
@@ -693,95 +891,17 @@ final class ActionValidatorTests {
 
     @Test
 
-    func test_paneCardinality_duplicatePane_fails() {
-        // Arrange
-        let paneId = UUID()
-        let tab = TabSnapshot(id: UUID(), paneIds: [paneId], activePaneId: paneId)
-        let snapshot = makeSnapshot(tabs: [tab])
-
-        // Act
-        let result = ActionValidator.validatePaneCardinality(
-            paneId: paneId, state: snapshot
-        )
-
-        // Assert
-        if case .failure(.paneAlreadyInLayout(let id)) = result {
-            #expect(id == paneId)
-            return
-        }
-        Issue.record("Expected paneAlreadyInLayout error")
-    }
-
-    @Test
-
     func test_paneCardinality_emptyState_succeeds() {
         // Arrange
         let snapshot = makeSnapshot()
 
         // Act
-        let result = ActionValidator.validatePaneCardinality(
+        let result = WorkspaceCommandValidator.validatePaneCardinality(
             paneId: UUID(), state: snapshot
         )
 
         // Assert
         #expect((try? result.get()) != nil)
-    }
-
-    // MARK: - duplicatePane
-
-    @Test
-
-    func test_duplicatePane_validPane_succeeds() {
-        // Arrange
-        let paneId = UUIDv7.generate()
-        let tabId = UUID()
-        let tab = TabSnapshot(id: tabId, paneIds: [paneId], activePaneId: paneId)
-        let snapshot = makeSnapshot(tabs: [tab])
-
-        // Act
-        let result = ActionValidator.validate(
-            .duplicatePane(tabId: tabId, paneId: PaneId(uuid: paneId), direction: .right),
-            state: snapshot
-        )
-
-        // Assert
-        #expect((try? result.get()) != nil)
-    }
-
-    @Test
-
-    func test_duplicatePane_paneNotInTab_fails() {
-        // Arrange
-        let (tab, tabId, _) = makeSinglePaneTab()
-        let snapshot = makeSnapshot(tabs: [tab])
-        let orphanPaneId = PaneId()
-
-        // Act
-        let result = ActionValidator.validate(
-            .duplicatePane(tabId: tabId, paneId: orphanPaneId, direction: .right),
-            state: snapshot
-        )
-
-        // Assert
-        if case .failure(.paneNotFound) = result { return }
-        Issue.record("Expected paneNotFound error")
-    }
-
-    @Test
-
-    func test_duplicatePane_missingTab_fails() {
-        // Arrange
-        let snapshot = makeSnapshot()
-
-        // Act
-        let result = ActionValidator.validate(
-            .duplicatePane(tabId: UUID(), paneId: PaneId(), direction: .left),
-            state: snapshot
-        )
-
-        // Assert
-        if case .failure(.tabNotFound) = result { return }
-        Issue.record("Expected tabNotFound error")
     }
 
     // MARK: - ValidatedAction preserves action
@@ -791,11 +911,13 @@ final class ActionValidatorTests {
     func test_validatedAction_preservesOriginalAction() {
         // Arrange
         let tabId = UUID()
-        let snapshot = makeSnapshot(tabs: [TabSnapshot(id: tabId, paneIds: [UUID()], activePaneId: nil)])
+        let snapshot = makeSnapshot(
+            tabs: [TabSnapshot(id: tabId, visiblePaneIds: [UUID()], ownedPaneIds: [UUID()], activePaneId: nil)]
+        )
         let action = PaneActionCommand.selectTab(tabId: tabId)
 
         // Act
-        let result = ActionValidator.validate(action, state: snapshot)
+        let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
         if case .success(let validated) = result {

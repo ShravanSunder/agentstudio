@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import AgentStudio
@@ -68,6 +69,23 @@ struct CommandBarItemTests {
     }
 
     @Test
+    func test_shortcutKey_fromTrigger_allModifiersOrderedBeforeKey() {
+        let trigger = ShortcutTrigger(
+            key: .enter,
+            modifiers: [.command, .shift, .option, .control]
+        )
+
+        let keys = ShortcutKey.from(trigger: trigger)
+
+        #expect(keys.count == 5)
+        #expect(keys[0].symbol == "⌘")
+        #expect(keys[1].symbol == "⇧")
+        #expect(keys[2].symbol == "⌥")
+        #expect(keys[3].symbol == "⌃")
+        #expect(keys[4].symbol == "↵")
+    }
+
+    @Test
     func test_shortcutKey_hashable_sameSymbolNotEqual() {
         // Arrange — two ShortcutKeys with same symbol get different UUIDs
         let key1 = ShortcutKey(symbol: "⌘")
@@ -75,6 +93,69 @@ struct CommandBarItemTests {
 
         // Assert — they are not equal because id (UUID) differs
         #expect(key1 != key2)
+    }
+
+    @Test
+    func test_itemKind_worktreeAction_isWorktree() {
+        let item = makeCommandBarItem(worktreePresence: makeWorktreePresence(paneCount: 0))
+
+        #expect(item.kind == .worktree)
+    }
+
+    @Test
+    func test_itemKind_dispatch_isCommand() {
+        let item = makeCommandBarItem(action: .dispatch(.toggleSidebar))
+
+        #expect(item.kind == .command)
+    }
+
+    @Test
+    func test_itemKind_navigateWithoutCommand_isOther() {
+        let item = makeCommandBarItem(action: .navigate(makeCommandBarLevel()))
+
+        #expect(item.kind == .other)
+    }
+
+    @Test
+    func test_itemKind_navigateWithCommand_isCommand() {
+        let item = CommandBarItem(
+            id: "cmd-nav",
+            title: "Navigate",
+            group: "Commands",
+            groupPriority: 0,
+            hasChildren: true,
+            action: .navigate(makeCommandBarLevel()),
+            command: .renameTab
+        )
+
+        #expect(item.kind == .command)
+    }
+
+    @Test
+    func test_itemKind_dispatchTargetedSelectTab_isTab() {
+        let item = makeCommandBarItem(
+            action: .dispatchTargeted(.selectTab, target: UUID(), targetType: .tab)
+        )
+
+        #expect(item.kind == .tab)
+    }
+
+    @Test
+    func test_itemKind_dispatchTargetedFocusPane_isPane() {
+        let item = makeCommandBarItem(
+            action: .dispatchTargeted(.focusPane, target: UUID(), targetType: .pane)
+        )
+
+        #expect(item.kind == .pane)
+    }
+
+    @Test
+    func test_itemKind_dispatchTargetedOtherCommand_isCommand() {
+        let item = makeCommandBarItem(
+            action: .dispatchTargeted(.openWorktreeInPane, target: UUID(), targetType: .worktree)
+        )
+
+        #expect(item.kind == .command)
     }
 
     // MARK: - CommandBarItem Init
@@ -88,13 +169,31 @@ struct CommandBarItemTests {
         #expect(item.id == "test-item")
         #expect(item.title == "Test Item")
         #expect(item.subtitle == nil)
-        #expect(item.icon == "terminal")
+        #expect(item.icon == .system(.terminal))
         #expect(item.iconColor == nil)
         #expect(item.shortcutKeys == nil)
         #expect(item.group == "Commands")
         #expect(item.groupPriority == 3)
         #expect(item.keywords.isEmpty)
         #expect(!item.hasChildren)
+        #expect(item.worktreeOpenState == nil)
+    }
+
+    @Test
+    func test_item_init_derivesShortcutKeysFromTrigger() {
+        let trigger = ShortcutTrigger(key: .enter, modifiers: [.command])
+
+        let item = CommandBarItem(
+            id: "new-tab",
+            title: "New pane in new tab",
+            shortcutTrigger: trigger,
+            group: "Open",
+            groupPriority: 0,
+            action: .dispatch(.newTab)
+        )
+
+        #expect(item.shortcutTrigger == trigger)
+        #expect(item.shortcutKeys?.map(\.symbol) == ["⌘", "↵"])
     }
 
     @Test
@@ -107,7 +206,7 @@ struct CommandBarItemTests {
             id: "close-tab",
             title: "Close Tab",
             subtitle: "Tab 1",
-            icon: "xmark",
+            icon: .system(.xmark),
             iconColor: .red,
             shortcutKeys: keys,
             group: "Tab",
@@ -121,13 +220,14 @@ struct CommandBarItemTests {
         #expect(item.id == "close-tab")
         #expect(item.title == "Close Tab")
         #expect(item.subtitle == "Tab 1")
-        #expect(item.icon == "xmark")
-        #expect(item.iconColor == .red)
+        #expect(item.icon == .system(.xmark))
+        #expect(item.iconColor == Color.red)
         #expect(item.shortcutKeys?.count == 2)
         #expect(item.group == "Tab")
         #expect(item.groupPriority == 1)
         #expect(item.keywords == ["close", "remove"])
         #expect(item.hasChildren)
+        #expect(item.worktreeOpenState == nil)
     }
 
     // MARK: - CommandBarLevel Init
@@ -205,6 +305,25 @@ struct CommandBarItemTests {
         } else {
             Issue.record("Expected .navigate action")
         }
+    }
+
+    @Test
+    func test_item_action_worktreeAction_storesPresence() {
+        let worktreeId = UUID()
+        let presence = makeWorktreePresence(paneCount: 0, worktreeId: worktreeId)
+
+        let item = makeCommandBarItem(
+            action: .worktreeAction(presence: presence)
+        )
+
+        guard case .worktreeAction(let resolvedPresence) = item.action else {
+            Issue.record("Expected .worktreeAction action")
+            return
+        }
+
+        #expect(resolvedPresence.worktreeId == worktreeId)
+        #expect(resolvedPresence.openState == .notOpen)
+        #expect(item.worktreeOpenState == .notOpen)
     }
 
     // MARK: - CommandBarItemGroup

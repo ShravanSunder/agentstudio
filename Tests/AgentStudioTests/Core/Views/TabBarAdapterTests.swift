@@ -8,11 +8,12 @@ import Testing
 final class TabBarAdapterTests {
 
     private var store: WorkspaceStore!
-    private var repoCache: WorkspaceRepoCache!
+    private var repoCache: RepoCacheAtom!
     private var adapter: TabBarAdapter!
     private var tempDir: URL!
 
     init() {
+        installTestAtomRegistryIfNeeded()
         resetFixture()
     }
 
@@ -32,7 +33,7 @@ final class TabBarAdapterTests {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         store = WorkspaceStore(persistor: persistor)
         store.restore()
-        repoCache = WorkspaceRepoCache()
+        repoCache = RepoCacheAtom()
         adapter = TabBarAdapter(store: store, repoCache: repoCache)
     }
 
@@ -56,10 +57,10 @@ final class TabBarAdapterTests {
 
         // Arrange
         let pane = store.createPane(
-            source: .floating(workingDirectory: nil, title: "MyTerminal"),
+            source: .floating(launchDirectory: nil, title: "MyTerminal"),
             title: "MyTerminal"
         )
-        let tab = Tab(paneId: pane.id)
+        let tab = Tab(paneId: pane.id, name: "MyTerminal")
         store.appendTab(tab)
 
         // Act — wait for the async observation pipeline to process
@@ -82,14 +83,14 @@ final class TabBarAdapterTests {
 
         // Arrange
         let s1 = store.createPane(
-            source: .floating(workingDirectory: nil, title: "Left"),
+            source: .floating(launchDirectory: nil, title: "Left"),
             title: "Left"
         )
         let s2 = store.createPane(
-            source: .floating(workingDirectory: nil, title: "Right"),
+            source: .floating(launchDirectory: nil, title: "Right"),
             title: "Right"
         )
-        let tab = makeTab(paneIds: [s1.id, s2.id], activePaneId: s1.id)
+        let tab = makeTab(paneIds: [s1.id, s2.id], activePaneId: s1.id, name: "Left · Right")
         store.appendTab(tab)
 
         // Wait for async refresh
@@ -99,8 +100,8 @@ final class TabBarAdapterTests {
         #expect(adapter.tabs.count == 1)
         let derivedTab = try #require(adapter.tabs.first)
         #expect(derivedTab.isSplit)
-        #expect(derivedTab.displayTitle == "Left | Right")
-        #expect(derivedTab.title == "Left")
+        #expect(derivedTab.displayTitle == "Left · Right")
+        #expect(derivedTab.title == "Left · Right")
     }
 
     @Test
@@ -110,11 +111,11 @@ final class TabBarAdapterTests {
 
         // Arrange
         let s1 = store.createPane(
-            source: .floating(workingDirectory: nil, title: "Tab1"),
+            source: .floating(launchDirectory: nil, title: "Tab1"),
             title: "Tab1"
         )
         let s2 = store.createPane(
-            source: .floating(workingDirectory: nil, title: "Tab2"),
+            source: .floating(launchDirectory: nil, title: "Tab2"),
             title: "Tab2"
         )
         let tab1 = Tab(paneId: s1.id)
@@ -139,8 +140,8 @@ final class TabBarAdapterTests {
         resetFixture()
 
         // Arrange
-        let s1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let s2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let s1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let s2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab1 = Tab(paneId: s1.id)
         let tab2 = Tab(paneId: s2.id)
         store.appendTab(tab1)
@@ -155,13 +156,103 @@ final class TabBarAdapterTests {
     }
 
     @Test
+    func test_activeArrangementBadgeNumber_hiddenForDefaultArrangement() async throws {
+        resetFixture()
+
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+
+        await waitForAdapterRefresh()
+
+        let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
+        #expect(tabItem.activeArrangementBadgeNumber == nil)
+    }
+
+    @Test
+    func test_activeArrangementBadgeNumber_isOneForFirstCustomArrangement() async throws {
+        resetFixture()
+
+        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = makeTab(paneIds: [firstPane.id, secondPane.id], activePaneId: firstPane.id)
+        store.appendTab(tab)
+        let arrangementId = try #require(
+            store.createArrangement(name: "#1", paneIds: [firstPane.id], inTab: tab.id),
+            "Expected arrangement to be created"
+        )
+        store.switchArrangement(to: arrangementId, inTab: tab.id)
+
+        await waitForAdapterRefresh()
+
+        let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
+        #expect(tabItem.activeArrangementBadgeNumber == 1)
+    }
+
+    @Test
+    func test_activeArrangementBadgeNumber_usesCustomArrangementOrder() async throws {
+        resetFixture()
+
+        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = makeTab(paneIds: [firstPane.id, secondPane.id], activePaneId: firstPane.id)
+        store.appendTab(tab)
+        _ = store.createArrangement(name: "#1", paneIds: [firstPane.id], inTab: tab.id)
+        let secondArrangementId = try #require(
+            store.createArrangement(name: "#2", paneIds: [secondPane.id], inTab: tab.id),
+            "Expected second arrangement to be created"
+        )
+        store.switchArrangement(to: secondArrangementId, inTab: tab.id)
+
+        await waitForAdapterRefresh()
+
+        let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
+        #expect(tabItem.activeArrangementBadgeNumber == 2)
+    }
+
+    @Test
+    func test_activeArrangementName_populatedForCustomActive() async throws {
+        resetFixture()
+
+        let firstPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = makeTab(paneIds: [firstPane.id, secondPane.id], activePaneId: firstPane.id)
+        store.appendTab(tab)
+        let arrangementId = try #require(
+            store.createArrangement(name: "coding", paneIds: [firstPane.id], inTab: tab.id),
+            "Expected arrangement to be created"
+        )
+        store.switchArrangement(to: arrangementId, inTab: tab.id)
+
+        await waitForAdapterRefresh()
+
+        let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
+        #expect(tabItem.activeArrangementName == "coding")
+        #expect(tabItem.activeArrangementBadgeNumber == 1)
+    }
+
+    @Test
+    func test_activeArrangementName_nilForDefaultArrangement() async throws {
+        resetFixture()
+
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+
+        await waitForAdapterRefresh()
+
+        let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
+        #expect(tabItem.activeArrangementName == nil)
+    }
+
+    @Test
 
     func test_tabRemoved_adapterUpdates() async throws {
         resetFixture()
 
         // Arrange
-        let s1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let s2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let s1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let s2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab1 = Tab(paneId: s1.id)
         let tab2 = Tab(paneId: s2.id)
         store.appendTab(tab1)
@@ -190,9 +281,9 @@ final class TabBarAdapterTests {
 
         // Arrange
         let pane = store.createPane(
-            source: .floating(workingDirectory: nil, title: nil)
+            source: .floating(launchDirectory: nil, title: nil)
         )
-        let tab = Tab(paneId: pane.id)
+        let tab = Tab(paneId: pane.id, name: "Terminal")
         store.appendTab(tab)
 
         // Wait for refresh
@@ -207,15 +298,33 @@ final class TabBarAdapterTests {
     func test_genericTerminalTitle_usesCwdFolderNameWhenAvailable() async throws {
         resetFixture()
 
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         store.updatePaneCWD(pane.id, cwd: URL(filePath: "/tmp/askluna-finance"))
-        store.appendTab(Tab(paneId: pane.id))
+        store.appendTab(Tab(paneId: pane.id, name: "askluna-finance"))
 
         await waitForAdapterRefresh()
 
         let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
         #expect(tabItem.title == "askluna-finance")
         #expect(tabItem.displayTitle == "askluna-finance")
+    }
+
+    @Test
+    func test_customTabName_overridesDerivedDisplayTitle() async throws {
+        resetFixture()
+
+        let pane = store.createPane(
+            source: .floating(launchDirectory: nil, title: "MyTerminal"),
+            title: "MyTerminal"
+        )
+        let tab = Tab(paneId: pane.id, name: "Review Queue")
+        store.appendTab(tab)
+
+        await waitForAdapterRefresh()
+
+        let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
+        #expect(tabItem.title == "Review Queue")
+        #expect(tabItem.displayTitle == "Review Queue")
     }
 
     @Test
@@ -229,28 +338,66 @@ final class TabBarAdapterTests {
             path: URL(filePath: "/tmp/agent-studio/feature-name")
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        let storedWorktree = try #require(store.repos.first?.worktrees.first, "Expected stored worktree")
         repoCache.setWorktreeEnrichment(
-            WorktreeEnrichment(worktreeId: worktree.id, repoId: repo.id, branch: "feature/pane-labels")
+            WorktreeEnrichment(worktreeId: storedWorktree.id, repoId: repo.id, branch: "feature/pane-labels")
         )
 
         let pane = store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: storedWorktree.id, repoId: repo.id, launchDirectory: storedWorktree.path),
             title: "Ephemeral shell title",
             facets: PaneContextFacets(
                 repoId: repo.id,
                 repoName: repo.name,
-                worktreeId: worktree.id,
-                worktreeName: worktree.name,
-                cwd: worktree.path
+                worktreeId: storedWorktree.id,
+                worktreeName: storedWorktree.name,
+                cwd: storedWorktree.path
             )
         )
-        store.appendTab(Tab(paneId: pane.id))
+        store.appendTab(Tab(paneId: pane.id, name: "feature-name · feature/pane-labels"))
 
         await waitForAdapterRefresh()
 
         let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
-        #expect(tabItem.title == "agent-studio | feature/pane-labels | feature-name")
-        #expect(tabItem.displayTitle == "agent-studio | feature/pane-labels | feature-name")
+        #expect(tabItem.title == "feature-name · feature/pane-labels")
+        #expect(tabItem.displayTitle == "feature-name · feature/pane-labels")
+    }
+
+    @Test
+    func test_placeholderTabName_fallsBackToDerivedDisplayTitle() async throws {
+        resetFixture()
+
+        let repo = store.addRepo(at: URL(filePath: "/tmp/adapter-placeholder"))
+        let worktree = Worktree(
+            repoId: repo.id,
+            name: "feature-name",
+            path: URL(filePath: "/tmp/adapter-placeholder/feature-name")
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+        let storedWorktree = try #require(store.repos.first?.worktrees.first, "Expected stored worktree")
+        repoCache.setWorktreeEnrichment(
+            WorktreeEnrichment(worktreeId: storedWorktree.id, repoId: repo.id, branch: "feature/pane-labels")
+        )
+
+        let pane = store.createPane(
+            source: .worktree(worktreeId: storedWorktree.id, repoId: repo.id, launchDirectory: storedWorktree.path),
+            title: "Ignored",
+            facets: PaneContextFacets(
+                repoId: repo.id,
+                repoName: repo.name,
+                worktreeId: storedWorktree.id,
+                worktreeName: storedWorktree.name,
+                cwd: storedWorktree.path
+            )
+        )
+        let tab = Tab(paneId: pane.id, name: "Tab")
+        store.appendTab(tab)
+
+        await waitForAdapterRefresh()
+
+        let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
+        #expect(tabItem.title == "feature-name · feature/pane-labels")
+        #expect(tabItem.displayTitle == "feature-name · feature/pane-labels")
     }
 
     // MARK: - Transient State
@@ -312,7 +459,7 @@ final class TabBarAdapterTests {
 
         // Arrange — 2 tabs: 2×220 + 1×4 + 16 = 460px < 600px
         for _ in 0..<2 {
-            let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+            let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
             store.appendTab(Tab(paneId: pane.id))
         }
 
@@ -335,7 +482,7 @@ final class TabBarAdapterTests {
 
         // Arrange — 8 tabs: 8×220 + 7×4 + 16 = 1804px > 600px
         for _ in 0..<8 {
-            let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+            let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
             store.appendTab(Tab(paneId: pane.id))
         }
 
@@ -357,7 +504,7 @@ final class TabBarAdapterTests {
         resetFixture()
 
         // Arrange — layout not ready (width = 0)
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         store.appendTab(Tab(paneId: pane.id))
 
         await waitForAdapterRefresh()
@@ -372,7 +519,7 @@ final class TabBarAdapterTests {
         resetFixture()
 
         // Arrange — 1 tab, set both availableWidth and viewportWidth
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         store.appendTab(Tab(paneId: pane.id))
         adapter.availableWidth = 800  // outer container
         adapter.viewportWidth = 600  // actual scroll viewport (smaller)
@@ -390,7 +537,7 @@ final class TabBarAdapterTests {
         resetFixture()
 
         // Arrange — 1 tab so tabs.count > 0
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         store.appendTab(Tab(paneId: pane.id))
         adapter.availableWidth = 600
 
@@ -412,7 +559,7 @@ final class TabBarAdapterTests {
         resetFixture()
 
         // Arrange — trigger overflow via content width
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         store.appendTab(Tab(paneId: pane.id))
         adapter.availableWidth = 600
         adapter.contentWidth = 700
@@ -436,7 +583,7 @@ final class TabBarAdapterTests {
         resetFixture()
 
         // Arrange — trigger overflow via content width
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         store.appendTab(Tab(paneId: pane.id))
         adapter.availableWidth = 600
         adapter.contentWidth = 700
@@ -461,7 +608,7 @@ final class TabBarAdapterTests {
         // Arrange — start with 4 tabs in 600px: 4×220 + 3×4 + 16 = 908px > 600px → overflow
         var panes: [Pane] = []
         for _ in 0..<4 {
-            let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+            let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
             store.appendTab(Tab(paneId: pane.id))
             panes.append(pane)
         }

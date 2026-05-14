@@ -8,7 +8,7 @@ struct HiddenSurfaceReadinessTests {
     @Test
     func restoredSurface_usesExplicitInitialGeometry_beforeProcessLaunch() {
         let config = Ghostty.SurfaceConfiguration(
-            workingDirectory: "/tmp",
+            launchDirectory: "/tmp",
             startupStrategy: .surfaceCommand("/usr/local/bin/zmx attach session /bin/zsh -i -l"),
             initialFrame: NSRect(x: 0, y: 0, width: 1200, height: 700)
         )

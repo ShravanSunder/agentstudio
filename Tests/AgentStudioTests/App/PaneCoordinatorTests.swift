@@ -7,6 +7,10 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct PaneCoordinatorTests {
+    init() {
+        installTestAtomRegistryIfNeeded()
+    }
+
     private struct PaneCoordinatorHarness {
         let store: WorkspaceStore
         let viewRegistry: ViewRegistry
@@ -23,7 +27,10 @@ struct PaneCoordinatorTests {
         store.restore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
-        let coordinator = PaneCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
+        let coordinator = PaneCoordinator(
+            store: store, viewRegistry: viewRegistry, runtime: runtime,
+            windowLifecycleStore: WindowLifecycleAtom()
+        )
         return PaneCoordinatorHarness(
             store: store,
             viewRegistry: viewRegistry,
@@ -37,8 +44,44 @@ struct PaneCoordinatorTests {
         let url = URL(string: "https://example.com/\(UUID().uuidString)")!
         return store.createPane(
             content: .webview(WebviewState(url: url, showNavigation: true)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: title), title: title)
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: title), title: title)
         )
+    }
+
+    private func makeFilesystemSyncCoordinator(
+        store: WorkspaceStore,
+        filesystemSource: some PaneCoordinatorFilesystemSourceManaging,
+        paneEventBus: EventBus<RuntimeEnvelope>
+    ) -> PaneCoordinator {
+        PaneCoordinator(
+            store: store,
+            viewRegistry: ViewRegistry(),
+            runtime: SessionRuntime(store: store),
+            surfaceManager: MockPaneCoordinatorSurfaceManager(),
+            runtimeRegistry: RuntimeRegistry(),
+            paneEventBus: paneEventBus,
+            filesystemSource: filesystemSource,
+            paneFilesystemProjectionStore: PaneFilesystemProjectionAtom(),
+            windowLifecycleStore: WindowLifecycleAtom()
+        )
+    }
+
+    private func reconciledWorktree(
+        in store: WorkspaceStore,
+        repoId: UUID,
+        path: URL
+    ) throws -> Worktree {
+        try #require(store.repo(repoId)?.worktrees.first(where: { $0.path == path }))
+    }
+
+    private func appendAndActivateSingleTab(
+        for paneId: UUID,
+        in store: WorkspaceStore
+    ) -> Tab {
+        let tab = Tab(paneId: paneId)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+        return tab
     }
 
     @Test
@@ -92,7 +135,7 @@ struct PaneCoordinatorTests {
             inTab: tab.id,
             at: paneA.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
 
         coordinator.execute(.closePane(tabId: tab.id, paneId: paneB.id))
@@ -112,8 +155,8 @@ struct PaneCoordinatorTests {
         #expect(Set(afterUndo.paneIds) == Set([paneA.id, paneB.id]))
     }
 
-    @Test("close-pane on a single-pane tab canonicalizes to close-tab before coordinator execution")
-    func closePane_singlePaneTabCanonicalizesToCloseTab() {
+    @Test("closePane on the last pane in an active tab produces a TabCloseSnapshot")
+    func closePane_lastPaneActive_producesTabSnapshot() {
         let harness = makeHarnessCoordinator()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
         let store = harness.store
@@ -122,26 +165,14 @@ struct PaneCoordinatorTests {
         let pane = makeWebviewPane(store, title: "Solo")
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
+        store.setActiveTab(tab.id)
 
-        let snapshot = ActionResolver.snapshot(
-            from: store.tabs,
-            activeTabId: store.activeTabId,
-            isManagementModeActive: false
-        )
-        let validated = try? ActionValidator.validate(
-            .closePane(tabId: tab.id, paneId: pane.id),
-            state: snapshot
-        ).get()
-        guard let validated else {
-            Issue.record("Expected closePane to validate")
-            return
-        }
-
-        coordinator.execute(validated.action)
+        coordinator.execute(.closePane(tabId: tab.id, paneId: pane.id))
 
         #expect(store.tab(tab.id) == nil)
+        #expect(store.pane(pane.id) == nil)
         guard let entry = coordinator.undoStack.last else {
-            Issue.record("Expected undo entry after closePane escalation")
+            Issue.record("Expected undo entry after last-pane close")
             return
         }
         switch entry {
@@ -150,6 +181,112 @@ struct PaneCoordinatorTests {
         case .pane:
             Issue.record("Expected tab snapshot when closing the last pane")
         }
+    }
+
+    @Test("closePane on the last pane in a background tab still produces a TabCloseSnapshot")
+    func closePane_lastPaneBackground_stillProducesTabSnapshot() {
+        let harness = makeHarnessCoordinator()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let store = harness.store
+        let coordinator = harness.coordinator
+
+        let activePane = makeWebviewPane(store, title: "Active")
+        let activeTab = Tab(paneId: activePane.id)
+        store.appendTab(activeTab)
+        store.setActiveTab(activeTab.id)
+
+        let backgroundPane = makeWebviewPane(store, title: "Background")
+        let backgroundTab = Tab(paneId: backgroundPane.id)
+        store.appendTab(backgroundTab)
+
+        coordinator.execute(.closePane(tabId: backgroundTab.id, paneId: backgroundPane.id))
+
+        #expect(store.tab(backgroundTab.id) == nil)
+        guard case .tab(let snapshot)? = coordinator.undoStack.last else {
+            Issue.record("Expected TabCloseSnapshot for background last-pane close")
+            return
+        }
+        #expect(snapshot.tab.id == backgroundTab.id)
+    }
+
+    @Test("closePane on a non-last pane in an active tab produces a PaneCloseSnapshot")
+    func closePane_nonLastPaneActive_producesPaneSnapshot() {
+        let harness = makeHarnessCoordinator()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        let store = harness.store
+        let coordinator = harness.coordinator
+
+        let paneA = makeWebviewPane(store, title: "A")
+        let paneB = makeWebviewPane(store, title: "B")
+        let tab = Tab(paneId: paneA.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+        store.insertPane(
+            paneB.id,
+            inTab: tab.id,
+            at: paneA.id,
+            direction: .horizontal,
+            position: .after,
+            sizingMode: .halveTarget
+        )
+
+        coordinator.execute(.closePane(tabId: tab.id, paneId: paneB.id))
+
+        #expect(store.tab(tab.id) != nil)
+        guard case .pane(let snapshot)? = coordinator.undoStack.last else {
+            Issue.record("Expected PaneCloseSnapshot")
+            return
+        }
+        #expect(snapshot.pane.id == paneB.id)
+    }
+
+    @Test("view lifecycle registers and unregisters pane filesystem context for worktree-backed panes")
+    func viewLifecycle_registersAndUnregistersPaneFilesystemContext() {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-pane-filesystem-lifecycle-\(UUID().uuidString)")
+        let persistor = WorkspacePersistor(workspacesDir: tempDir)
+        let store = WorkspaceStore(persistor: persistor)
+        store.restore()
+        let paneFilesystemProjectionStore = PaneFilesystemProjectionAtom()
+        let coordinator = PaneCoordinator(
+            store: store,
+            viewRegistry: ViewRegistry(),
+            runtime: SessionRuntime(store: store),
+            surfaceManager: MockPaneCoordinatorSurfaceManager(),
+            runtimeRegistry: RuntimeRegistry(),
+            paneEventBus: EventBus<RuntimeEnvelope>(),
+            filesystemSource: RecordingFilesystemSourceHarness(),
+            paneFilesystemProjectionStore: paneFilesystemProjectionStore,
+            windowLifecycleStore: WindowLifecycleAtom()
+        )
+
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let repoPath = tempDir.appending(path: "repo")
+        let repo = store.addRepo(at: repoPath)
+        let worktree = Worktree(
+            id: UUID(),
+            repoId: repo.id,
+            name: "repo",
+            path: repoPath,
+            isMainWorktree: true
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+
+        let pane = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com")!, showNavigation: true)),
+            metadata: PaneMetadata(
+                source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: repoPath),
+                title: "Browser"
+            )
+        )
+
+        _ = coordinator.createViewForContent(pane: pane)
+        #expect(paneFilesystemProjectionStore.context(for: pane.id)?.repoId == repo.id)
+        #expect(paneFilesystemProjectionStore.context(for: pane.id)?.worktreeId == worktree.id)
+
+        coordinator.teardownView(for: pane.id)
+        #expect(paneFilesystemProjectionStore.context(for: pane.id) == nil)
     }
 
     @Test("closing tab with drawer children snapshots all panes for undo")
@@ -211,7 +348,7 @@ struct PaneCoordinatorTests {
         let metadata = PaneMetadata(
             paneId: runtimePaneId,
             contentType: .browser,
-            source: .floating(workingDirectory: nil, title: "Runtime Teardown"),
+            source: .floating(launchDirectory: nil, title: "Runtime Teardown"),
             title: "Runtime Teardown"
         )
         let runtime = WebviewRuntime(
@@ -242,15 +379,15 @@ struct PaneCoordinatorTests {
             inTab: tab.id,
             at: paneA.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
 
         coordinator.execute(.minimizePane(tabId: tab.id, paneId: paneB.id))
-        #expect(store.tab(tab.id)?.minimizedPaneIds.contains(paneB.id) == true)
+        #expect(store.tab(tab.id)?.activeMinimizedPaneIds.contains(paneB.id) == true)
 
-        coordinator.execute(.focusPane(tabId: tab.id, paneId: paneB.id))
+        coordinator.execute(.expandPane(tabId: tab.id, paneId: paneB.id))
 
-        #expect(store.tab(tab.id)?.minimizedPaneIds.contains(paneB.id) == false)
+        #expect(store.tab(tab.id)?.activeMinimizedPaneIds.contains(paneB.id) == false)
         #expect(store.tab(tab.id)?.activePaneId == paneB.id)
     }
 
@@ -270,7 +407,7 @@ struct PaneCoordinatorTests {
             inTab: tab.id,
             at: paneA.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
 
         coordinator.execute(.closePane(tabId: tab.id, paneId: paneB.id))
@@ -301,7 +438,7 @@ struct PaneCoordinatorTests {
     }
 
     @Test("syncRootsAndActivity")
-    func syncRootsAndActivity() async {
+    func syncRootsAndActivity() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-sync-roots-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -321,39 +458,37 @@ struct PaneCoordinatorTests {
             path: repo.repoPath.appending(path: "feature-a")
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [primaryWorktree, secondaryWorktree])
+        let reconciledSecondaryWorktree = try reconciledWorktree(
+            in: store,
+            repoId: repo.id,
+            path: secondaryWorktree.path
+        )
 
         let primaryPane = store.createPane(
-            source: .worktree(worktreeId: primaryWorktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: primaryWorktree.id, repoId: repo.id, launchDirectory: primaryWorktree.path),
             facets: PaneContextFacets(
                 repoId: repo.id,
                 worktreeId: primaryWorktree.id,
                 cwd: primaryWorktree.path
             )
         )
-        let primaryTab = Tab(paneId: primaryPane.id)
-        store.appendTab(primaryTab)
-        store.setActiveTab(primaryTab.id)
+        _ = appendAndActivateSingleTab(for: primaryPane.id, in: store)
 
         let filesystemSource = RecordingFilesystemSource()
         let paneEventBus = EventBus<RuntimeEnvelope>()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeFilesystemSyncCoordinator(
             store: store,
-            viewRegistry: ViewRegistry(),
-            runtime: SessionRuntime(store: store),
-            surfaceManager: MockPaneCoordinatorSurfaceManager(),
-            runtimeRegistry: RuntimeRegistry(),
-            paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            paneFilesystemProjectionStore: PaneFilesystemProjectionStore()
+            paneEventBus: paneEventBus
         )
 
         await waitUntilFilesystemState(
             source: filesystemSource,
             timeout: .milliseconds(600)
         ) { snapshot in
-            Set(snapshot.registeredRoots.keys) == Set([primaryWorktree.id, secondaryWorktree.id])
+            Set(snapshot.registeredRoots.keys) == Set([primaryWorktree.id, reconciledSecondaryWorktree.id])
                 && snapshot.activityByWorktreeId[primaryWorktree.id] == true
-                && snapshot.activityByWorktreeId[secondaryWorktree.id] == false
+                && snapshot.activityByWorktreeId[reconciledSecondaryWorktree.id] == false
                 && snapshot.activePaneWorktreeId == primaryWorktree.id
         }
 
@@ -363,17 +498,21 @@ struct PaneCoordinatorTests {
             path: repo.repoPath.appending(path: "feature-b")
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [primaryWorktree, tertiaryWorktree])
-        await paneEventBus.post(
-            .system(
-                SystemEnvelope.test(
-                    event: .topology(
-                        .worktreeRegistered(
-                            worktreeId: tertiaryWorktree.id,
-                            repoId: repo.id,
-                            rootPath: tertiaryWorktree.path
-                        )
-                    )
-                )
+        let reconciledTertiaryWorktree = try reconciledWorktree(
+            in: store,
+            repoId: repo.id,
+            path: tertiaryWorktree.path
+        )
+        coordinator.topologyDidChange(
+            WorktreeTopologyDelta(
+                repoId: repo.id,
+                addedWorktreeIds: [reconciledTertiaryWorktree.id],
+                removedWorktrees: [
+                    RemovedWorktreeEntry(id: reconciledSecondaryWorktree.id, path: reconciledSecondaryWorktree.path)
+                ],
+                preservedWorktreeIds: [primaryWorktree.id],
+                didChange: true,
+                traceId: nil
             )
         )
 
@@ -381,18 +520,20 @@ struct PaneCoordinatorTests {
             source: filesystemSource,
             timeout: .milliseconds(600)
         ) { snapshot in
-            Set(snapshot.registeredRoots.keys) == Set([primaryWorktree.id, tertiaryWorktree.id])
+            Set(snapshot.registeredRoots.keys) == Set([primaryWorktree.id, reconciledTertiaryWorktree.id])
                 && snapshot.activityByWorktreeId[primaryWorktree.id] == true
-                && snapshot.activityByWorktreeId[tertiaryWorktree.id] == false
+                && snapshot.activityByWorktreeId[reconciledTertiaryWorktree.id] == false
                 && snapshot.activePaneWorktreeId == primaryWorktree.id
         }
 
         let tertiaryPane = store.createPane(
-            source: .worktree(worktreeId: tertiaryWorktree.id, repoId: repo.id),
+            source: .worktree(
+                worktreeId: reconciledTertiaryWorktree.id, repoId: repo.id,
+                launchDirectory: reconciledTertiaryWorktree.path),
             facets: PaneContextFacets(
                 repoId: repo.id,
-                worktreeId: tertiaryWorktree.id,
-                cwd: tertiaryWorktree.path
+                worktreeId: reconciledTertiaryWorktree.id,
+                cwd: reconciledTertiaryWorktree.path
             )
         )
         let tertiaryTab = Tab(paneId: tertiaryPane.id)
@@ -403,11 +544,9 @@ struct PaneCoordinatorTests {
             source: filesystemSource,
             timeout: .milliseconds(600)
         ) { snapshot in
-            snapshot.activityByWorktreeId[tertiaryWorktree.id] == true
-                && snapshot.activePaneWorktreeId == tertiaryWorktree.id
+            snapshot.activityByWorktreeId[reconciledTertiaryWorktree.id] == true
+                && snapshot.activePaneWorktreeId == reconciledTertiaryWorktree.id
         }
-
-        _ = coordinator
     }
 
     @Test("syncRootsAndActivity excludes unavailable repos from filesystem registration")
@@ -433,7 +572,8 @@ struct PaneCoordinatorTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            paneFilesystemProjectionStore: PaneFilesystemProjectionStore()
+            paneFilesystemProjectionStore: PaneFilesystemProjectionAtom(),
+            windowLifecycleStore: WindowLifecycleAtom()
         )
 
         await waitUntilFilesystemState(
@@ -449,7 +589,7 @@ struct PaneCoordinatorTests {
     }
 
     @Test("filesystem sync converges to latest roots when updates arrive during an in-flight pass")
-    func syncRootsAndActivityConvergesUnderInFlightUpdates() async {
+    func syncRootsAndActivityConvergesUnderInFlightUpdates() async throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appending(path: "agentstudio-pane-coordinator-sync-converge-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: tempDir) }
@@ -469,9 +609,12 @@ struct PaneCoordinatorTests {
             path: repo.repoPath.appending(path: "stale-branch")
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, staleWorktree])
+        let reconciledStaleWorktree = try #require(
+            store.repo(repo.id)?.worktrees.first(where: { $0.path == staleWorktree.path })
+        )
 
         let primaryPane = store.createPane(
-            source: .worktree(worktreeId: mainWorktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: mainWorktree.id, repoId: repo.id, launchDirectory: mainWorktree.path),
             facets: PaneContextFacets(
                 repoId: repo.id,
                 worktreeId: mainWorktree.id,
@@ -492,7 +635,8 @@ struct PaneCoordinatorTests {
             runtimeRegistry: RuntimeRegistry(),
             paneEventBus: paneEventBus,
             filesystemSource: filesystemSource,
-            paneFilesystemProjectionStore: PaneFilesystemProjectionStore()
+            paneFilesystemProjectionStore: PaneFilesystemProjectionAtom(),
+            windowLifecycleStore: WindowLifecycleAtom()
         )
         _ = coordinator
 
@@ -503,17 +647,16 @@ struct PaneCoordinatorTests {
             path: repo.repoPath.appending(path: "latest-branch")
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, latestWorktree])
-        await paneEventBus.post(
-            .system(
-                SystemEnvelope.test(
-                    event: .topology(
-                        .worktreeRegistered(
-                            worktreeId: latestWorktree.id,
-                            repoId: repo.id,
-                            rootPath: latestWorktree.path
-                        )
-                    )
-                )
+        coordinator.topologyDidChange(
+            WorktreeTopologyDelta(
+                repoId: repo.id,
+                addedWorktreeIds: [latestWorktree.id],
+                removedWorktrees: [
+                    RemovedWorktreeEntry(id: reconciledStaleWorktree.id, path: reconciledStaleWorktree.path)
+                ],
+                preservedWorktreeIds: [mainWorktree.id],
+                didChange: true,
+                traceId: nil
             )
         )
 
@@ -522,11 +665,77 @@ struct PaneCoordinatorTests {
             timeout: .seconds(2)
         ) { snapshot in
             Set(snapshot.registeredRoots.keys) == Set([mainWorktree.id, latestWorktree.id])
-                && snapshot.registeredRoots[staleWorktree.id] == nil
+                && snapshot.registeredRoots[reconciledStaleWorktree.id] == nil
                 && snapshot.activityByWorktreeId[mainWorktree.id] == true
                 && snapshot.activityByWorktreeId[latestWorktree.id] == false
                 && snapshot.activePaneWorktreeId == mainWorktree.id
         }
+    }
+
+    @Test("topology effect handler with no removed worktrees still syncs roots and does not orphan panes")
+    func topologyEffectHandlerWithoutRemovedWorktreesStillSyncsRoots() async throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "agentstudio-pane-coordinator-empty-delta-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let persistor = WorkspacePersistor(workspacesDir: tempDir)
+        let store = WorkspaceStore(persistor: persistor)
+        store.restore()
+
+        let repo = store.addRepo(at: URL(fileURLWithPath: "/tmp/repo-empty-delta-\(UUID().uuidString)"))
+        guard let mainWorktree = store.repo(repo.id)?.worktrees.first(where: \.isMainWorktree) else {
+            Issue.record("Expected addRepo to create main worktree")
+            return
+        }
+
+        let pane = store.createPane(
+            source: .worktree(worktreeId: mainWorktree.id, repoId: repo.id, launchDirectory: mainWorktree.path),
+            facets: PaneContextFacets(repoId: repo.id, worktreeId: mainWorktree.id, cwd: mainWorktree.path)
+        )
+        let tab = Tab(paneId: pane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let filesystemSource = RecordingFilesystemSource()
+        let coordinator = makeFilesystemSyncCoordinator(
+            store: store,
+            filesystemSource: filesystemSource,
+            paneEventBus: EventBus<RuntimeEnvelope>()
+        )
+        _ = coordinator
+
+        let newWorktree = Worktree(
+            repoId: repo.id,
+            name: "feature-added",
+            path: repo.repoPath.appending(path: "feature-added")
+        )
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [mainWorktree, newWorktree])
+        let reconciledNewWorktree = try reconciledWorktree(
+            in: store,
+            repoId: repo.id,
+            path: newWorktree.path
+        )
+
+        coordinator.topologyDidChange(
+            WorktreeTopologyDelta(
+                repoId: repo.id,
+                addedWorktreeIds: [reconciledNewWorktree.id],
+                removedWorktrees: [],
+                preservedWorktreeIds: [mainWorktree.id],
+                didChange: true,
+                traceId: nil
+            )
+        )
+
+        await waitUntilFilesystemState(
+            source: filesystemSource,
+            timeout: .milliseconds(600)
+        ) { snapshot in
+            Set(snapshot.registeredRoots.keys) == Set([mainWorktree.id, reconciledNewWorktree.id])
+        }
+
+        let updatedPane = try #require(store.pane(pane.id))
+        #expect(updatedPane.residency == .active)
     }
 
     private func waitUntilFilesystemState(

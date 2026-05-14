@@ -7,6 +7,10 @@ extension WebKitSerializedTests {
     @MainActor
     @Suite(.serialized)
     struct BridgePaneControllerTests {
+        init() {
+            installTestAtomRegistryIfNeeded()
+        }
+
         private struct DiffRequestFileContentsMethod: RPCMethod {
             struct Params: Decodable {
                 let fileId: String

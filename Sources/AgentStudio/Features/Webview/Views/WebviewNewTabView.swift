@@ -66,7 +66,7 @@ struct WebviewNewTabView: View {
     private var searchBar: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: AppStyle.textSm))
+                .font(.system(size: AppStyles.General.Typography.textSm))
                 .foregroundStyle(.secondary)
 
             SelectAllTextField(
@@ -150,7 +150,7 @@ struct WebviewNewTabView: View {
         let results = fuzzyResults
         if results.isEmpty {
             Text("No results")
-                .font(.system(size: AppStyle.textSm))
+                .font(.system(size: AppStyles.General.Typography.textSm))
                 .foregroundStyle(.tertiary)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.top, 32)
@@ -172,7 +172,7 @@ struct WebviewNewTabView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: AppStyle.textXs, weight: .semibold))
+            .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
             .foregroundStyle(.secondary)
             .textCase(.uppercase)
     }
@@ -210,7 +210,7 @@ private struct FavoriteCard: View {
             FaviconView(url: entry.url, size: 36)
 
             Text(entry.title)
-                .font(.system(size: AppStyle.textXs))
+                .font(.system(size: AppStyles.General.Typography.textXs))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .foregroundStyle(.primary)
@@ -224,7 +224,7 @@ private struct FavoriteCard: View {
             if isHovered {
                 Button(action: onRemove) {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: AppStyle.textSm))
+                        .font(.system(size: AppStyles.General.Typography.textSm))
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -245,7 +245,7 @@ private struct RecentSiteRow: View {
     @State private var isHovered = false
 
     private var rowBackground: Color {
-        if isSelected { return Color.accentColor.opacity(0.15) }
+        if isSelected { return Color.accentColor.opacity(AppStyles.General.Fill.selected) }
         if isHovered { return Color.primary.opacity(0.04) }
         return .clear
     }
@@ -256,12 +256,12 @@ private struct RecentSiteRow: View {
                 FaviconView(url: entry.url, size: 16)
 
                 Text(entry.title)
-                    .font(.system(size: AppStyle.textSm))
+                    .font(.system(size: AppStyles.General.Typography.textSm))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
                 Text(entry.url.host() ?? entry.url.absoluteString)
-                    .font(.system(size: AppStyle.textXs))
+                    .font(.system(size: AppStyles.General.Typography.textXs))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
                     .truncationMode(.middle)

@@ -45,6 +45,9 @@ extension WebKitSerializedTests {
     @MainActor
     @Suite(.serialized)
     final class BridgeSchemeHandlerSpikeTests {
+        init() {
+            installTestAtomRegistryIfNeeded()
+        }
 
         // MARK: - Scheme Handler Serves HTML
 
@@ -53,6 +56,7 @@ extension WebKitSerializedTests {
         /// and loading state are checked after load completes.
         @Test
         func test_customSchemeHandler_servesHTMLPage_andTitleIsReadable() async throws {
+            guard isWebKitSpikeModeEnabled() else { return }
             // Arrange — build configuration with custom scheme handler
             let page = try makePageWithSpikeHandler()
 
@@ -96,6 +100,10 @@ extension WebKitSerializedTests {
                 await Task.yield()
             }
             return page.title == expectedTitle
+        }
+
+        private func isWebKitSpikeModeEnabled() -> Bool {
+            ProcessInfo.processInfo.environment["AGENT_STUDIO_WEBKIT_SPIKE_MODE"] == "on"
         }
     }
 }

@@ -19,16 +19,16 @@ final class WorkspaceStoreArrangementTests {
 
     /// Create a tab with N panes and return (tab, paneIds).
     private func createTabWithPanes(_ count: Int) -> (Tab, [UUID]) {
-        let first = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let first = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: first.id)
         store.appendTab(tab)
 
         var paneIds = [first.id]
         for _ in 1..<count {
-            let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+            let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
             store.insertPane(
                 pane.id, inTab: tab.id, at: paneIds.last!,
-                direction: .horizontal, position: .after
+                direction: .horizontal, position: .after, sizingMode: .halveTarget
             )
             paneIds.append(pane.id)
         }
@@ -138,6 +138,21 @@ final class WorkspaceStoreArrangementTests {
         #expect(store.isDirty)
     }
 
+    @Test
+    func test_createArrangement_inheritsMinimizedStateForIncludedPanes() {
+        let (tab, paneIds) = createTabWithPanes(3)
+        _ = store.minimizePane(paneIds[1], inTab: tab.id)
+
+        let arrId = store.createArrangement(
+            name: "#1",
+            paneIds: Set([paneIds[0], paneIds[1]]),
+            inTab: tab.id
+        )!
+
+        let custom = store.tab(tab.id)!.arrangements.first { $0.id == arrId }!
+        #expect(custom.minimizedPaneIds == Set([paneIds[1]]))
+    }
+
     // MARK: - switchArrangement
 
     @Test
@@ -217,6 +232,44 @@ final class WorkspaceStoreArrangementTests {
     }
 
     @Test
+    func test_switchArrangement_replacesActivePaneWhenTargetMarksItMinimized() {
+        let (tab, paneIds) = createTabWithPanes(3)
+        let arrId = store.createArrangement(
+            name: "#1",
+            paneIds: Set([paneIds[0], paneIds[1]]),
+            inTab: tab.id
+        )!
+        store.renameArrangement(arrId, name: "#1", inTab: tab.id)
+        store.switchArrangement(to: arrId, inTab: tab.id)
+        _ = store.minimizePane(paneIds[1], inTab: tab.id)
+        store.switchArrangement(to: tab.defaultArrangement.id, inTab: tab.id)
+        store.setActivePane(paneIds[1], inTab: tab.id)
+
+        store.switchArrangement(to: arrId, inTab: tab.id)
+
+        #expect(store.tab(tab.id)!.activePaneId == paneIds[0])
+    }
+
+    @Test
+    func test_switchArrangement_allTargetPanesMinimized_setsActivePaneIdNil() {
+        let (tab, paneIds) = createTabWithPanes(3)
+        let arrId = store.createArrangement(
+            name: "#1",
+            paneIds: Set([paneIds[0], paneIds[1]]),
+            inTab: tab.id
+        )!
+
+        store.switchArrangement(to: arrId, inTab: tab.id)
+        _ = store.minimizePane(paneIds[0], inTab: tab.id)
+        _ = store.minimizePane(paneIds[1], inTab: tab.id)
+        store.switchArrangement(to: tab.defaultArrangement.id, inTab: tab.id)
+
+        store.switchArrangement(to: arrId, inTab: tab.id)
+
+        #expect(store.tab(tab.id)!.activePaneId == nil)
+    }
+
+    @Test
 
     func test_switchArrangement_sameArrangement_noOp() {
         let (tab, _) = createTabWithPanes(2)
@@ -289,6 +342,25 @@ final class WorkspaceStoreArrangementTests {
     }
 
     @Test
+    func test_removeArrangement_activeArrangement_fallbackSkipsMinimizedPane() {
+        let (tab, paneIds) = createTabWithPanes(3)
+        _ = store.minimizePane(paneIds[0], inTab: tab.id)
+        let arrId = store.createArrangement(
+            name: "#1",
+            paneIds: Set([paneIds[1], paneIds[2]]),
+            inTab: tab.id
+        )!
+        store.switchArrangement(to: arrId, inTab: tab.id)
+        store.setActivePane(paneIds[1], inTab: tab.id)
+
+        store.removeArrangement(arrId, inTab: tab.id)
+
+        let updatedTab = store.tab(tab.id)!
+        #expect(updatedTab.activeArrangementId == updatedTab.defaultArrangement.id)
+        #expect(updatedTab.activePaneId == paneIds[1])
+    }
+
+    @Test
 
     func test_removeArrangement_inactiveArrangement_doesNotChangeActive() {
         let (tab, paneIds) = createTabWithPanes(3)
@@ -331,6 +403,45 @@ final class WorkspaceStoreArrangementTests {
         store.renameArrangement(UUID(), name: "Nope", inTab: tab.id)
     }
 
+    // MARK: - renameTab
+
+    @Test
+    func test_renameTab_changesName() {
+        let (tab, _) = createTabWithPanes(2)
+
+        store.renameTab(tab.id, name: "Review Queue")
+
+        #expect(store.tab(tab.id)?.name == "Review Queue")
+    }
+
+    @Test
+    func test_renameTab_trimsWhitespace() {
+        let (tab, _) = createTabWithPanes(1)
+
+        store.renameTab(tab.id, name: "  Review Queue  ")
+
+        #expect(store.tab(tab.id)?.name == "Review Queue")
+    }
+
+    @Test
+    func test_renameTab_multilineName_normalizesToSingleLine() {
+        let (tab, _) = createTabWithPanes(1)
+
+        store.renameTab(tab.id, name: "  Review Queue\nFor Launch  ")
+
+        #expect(store.tab(tab.id)?.name == "Review Queue For Launch")
+    }
+
+    @Test
+    func test_renameTab_invalidId_noOp() {
+        let (tab, _) = createTabWithPanes(1)
+        let originalName = store.tab(tab.id)?.name
+
+        store.renameTab(UUID(), name: "Nope")
+
+        #expect(store.tab(tab.id)?.name == originalName)
+    }
+
     // MARK: - Arrangement + Layout Mutations Interaction
 
     @Test
@@ -345,10 +456,10 @@ final class WorkspaceStoreArrangementTests {
         store.switchArrangement(to: arrId, inTab: tab.id)
 
         // Insert a new pane while in custom arrangement
-        let newPane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let newPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         store.insertPane(
             newPane.id, inTab: tab.id, at: paneIds[0],
-            direction: .horizontal, position: .after
+            direction: .horizontal, position: .after, sizingMode: .halveTarget
         )
 
         // Should be in custom arrangement (active)
@@ -393,13 +504,13 @@ final class WorkspaceStoreArrangementTests {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store1 = WorkspaceStore(persistor: persistor)
 
-        let pane1 = store1.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let pane2 = store1.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane1 = store1.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane2 = store1.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: pane1.id)
         store1.appendTab(tab)
         store1.insertPane(
             pane2.id, inTab: tab.id, at: pane1.id,
-            direction: .horizontal, position: .after
+            direction: .horizontal, position: .after, sizingMode: .halveTarget
         )
 
         let arrId = store1.createArrangement(
@@ -421,6 +532,33 @@ final class WorkspaceStoreArrangementTests {
         #expect(restoredCustom.name == "Focus")
         #expect(restoredCustom.layout.paneIds == [pane1.id])
         #expect(restoredTab.activeArrangementId == arrId)
+
+        try? FileManager.default.removeItem(at: tempDir)
+    }
+
+    @Test
+    func test_minimizedPanes_persistAndRestoreWithArrangement() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appending(path: "arr-minimized-persist-\(UUID().uuidString)")
+        let persistor = WorkspacePersistor(workspacesDir: tempDir)
+        let store1 = WorkspaceStore(persistor: persistor)
+
+        let pane1 = store1.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane2 = store1.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = Tab(paneId: pane1.id)
+        store1.appendTab(tab)
+        store1.insertPane(
+            pane2.id, inTab: tab.id, at: pane1.id,
+            direction: .horizontal, position: .after, sizingMode: .halveTarget
+        )
+        _ = store1.minimizePane(pane2.id, inTab: tab.id)
+        store1.flush()
+
+        let store2 = WorkspaceStore(persistor: persistor)
+        store2.restore()
+
+        let restoredTab = try #require(store2.tabs.first)
+        #expect(restoredTab.activeMinimizedPaneIds == Set([pane2.id]))
 
         try? FileManager.default.removeItem(at: tempDir)
     }

@@ -5,11 +5,11 @@ import Testing
 
 @Suite(.serialized)
 @MainActor
-final class WorkspaceRepoCacheTests {
+final class RepoCacheAtomTests {
 
     @Test
     func setRepoAndWorktreeEnrichment_persistsInMemoryState() {
-        let store = WorkspaceRepoCache()
+        let store = RepoCacheAtom()
         let repoId = UUID()
         let worktreeId = UUID()
 
@@ -39,7 +39,7 @@ final class WorkspaceRepoCacheTests {
 
     @Test
     func removeRepo_prunesWorktreeAndCounters() {
-        let store = WorkspaceRepoCache()
+        let store = RepoCacheAtom()
         let repoId = UUID()
         let worktreeId = UUID()
 
@@ -58,12 +58,51 @@ final class WorkspaceRepoCacheTests {
 
     @Test
     func markRebuilt_updatesRevisionAndTimestamp() {
-        let store = WorkspaceRepoCache()
+        let store = RepoCacheAtom()
         let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
 
         store.markRebuilt(sourceRevision: 42, at: timestamp)
 
         #expect(store.sourceRevision == 42)
         #expect(store.lastRebuiltAt == timestamp)
+    }
+
+    @Test
+    func recordRecentTarget_movesExistingEntryToFront_andCapsAtFifteen() {
+        let store = RepoCacheAtom()
+        let targets = (0..<16).map { index in
+            RecentWorkspaceTarget.forCwd(
+                URL(fileURLWithPath: "/tmp/project-\(index)"),
+                title: "project-\(index)",
+                lastOpenedAt: Date(timeIntervalSince1970: Double(index))
+            )
+        }
+
+        for target in targets {
+            store.recordRecentTarget(target)
+        }
+        store.recordRecentTarget(targets[2])
+
+        #expect(store.recentTargets.count == 15)
+        #expect(store.recentTargets.first?.id == targets[2].id)
+        #expect(store.recentTargets.contains { $0.id == targets[0].id } == false)
+    }
+
+    @Test
+    func removeRecentTarget_removesMatchingId_andMissingIdIsNoOp() {
+        let store = RepoCacheAtom()
+        let first = RecentWorkspaceTarget.forCwd(URL(fileURLWithPath: "/tmp/first"))
+        let second = RecentWorkspaceTarget.forCwd(URL(fileURLWithPath: "/tmp/second"))
+
+        store.recordRecentTarget(first)
+        store.recordRecentTarget(second)
+
+        store.removeRecentTarget(first.id)
+
+        #expect(store.recentTargets == [second])
+
+        store.removeRecentTarget("cwd:/tmp/missing")
+
+        #expect(store.recentTargets == [second])
     }
 }

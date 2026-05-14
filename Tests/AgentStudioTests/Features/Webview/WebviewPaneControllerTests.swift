@@ -7,6 +7,9 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct WebviewPaneControllerTests {
+    init() {
+        installTestAtomRegistryIfNeeded()
+    }
 
     private func settleEventLoop(turns: Int = 8) async {
         for _ in 0..<turns {
@@ -14,18 +17,18 @@ struct WebviewPaneControllerTests {
         }
     }
 
-    private func setManagementMode(active: Bool) async {
+    private func setManagementLayer(active: Bool) async {
         for _ in 0..<6 {
             if active {
-                if !ManagementModeMonitor.shared.isActive {
-                    ManagementModeMonitor.shared.toggle()
+                if !atom(\.managementLayer).isActive {
+                    atom(\.managementLayer).toggle()
                 }
-            } else if ManagementModeMonitor.shared.isActive {
-                ManagementModeMonitor.shared.deactivate()
+            } else if atom(\.managementLayer).isActive {
+                atom(\.managementLayer).deactivate()
             }
 
             await settleEventLoop(turns: 10)
-            if ManagementModeMonitor.shared.isActive == active {
+            if atom(\.managementLayer).isActive == active {
                 return
             }
         }
@@ -153,34 +156,36 @@ struct WebviewPaneControllerTests {
         )
     }
 
-    // MARK: - Management Mode Interaction Regression Coverage
+    // MARK: - Management Layer Interaction Regression Coverage
 
     @Test
-    func test_managementModeToggle_updatesWebviewControllerInteractionState() async {
-        await withManagementModeTestLock {
-            await setManagementMode(active: false)
-            let paneView = WebviewPaneView(
+    func test_managementLayerToggle_updatesWebviewControllerInteractionState() async {
+        await withAsyncTestAtomRegistry { _ in
+            await setManagementLayer(active: false)
+            let mountedView = WebviewPaneMountView(
                 paneId: UUIDv7.generate(),
                 state: WebviewState(url: URL(string: "about:blank")!)
             )
-            _ = paneView.swiftUIContainer
+            let host = PaneHostView(paneId: mountedView.paneId)
+            host.mountContentView(mountedView)
+            _ = host.swiftUIContainer
             await settleEventLoop()
-            #expect(paneView.controller.isContentInteractionEnabled)
+            #expect(mountedView.controller.isContentInteractionEnabled)
 
-            await setManagementMode(active: true)
-            #expect(ManagementModeMonitor.shared.isActive)
-            #expect(!paneView.controller.isContentInteractionEnabled)
+            await setManagementLayer(active: true)
+            #expect(atom(\.managementLayer).isActive)
+            #expect(!mountedView.controller.isContentInteractionEnabled)
 
-            await setManagementMode(active: false)
-            #expect(!ManagementModeMonitor.shared.isActive)
-            #expect(paneView.controller.isContentInteractionEnabled)
+            await setManagementLayer(active: false)
+            #expect(!atom(\.managementLayer).isActive)
+            #expect(mountedView.controller.isContentInteractionEnabled)
         }
     }
 
     @Test
     func test_webviewPaneView_resizesHostingViewToBounds() {
         // Arrange
-        let paneView = WebviewPaneView(
+        let paneView = WebviewPaneMountView(
             paneId: UUIDv7.generate(),
             state: WebviewState(url: URL(string: "about:blank")!)
         )

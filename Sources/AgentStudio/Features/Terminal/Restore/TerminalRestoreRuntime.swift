@@ -28,12 +28,8 @@ struct TerminalRestoreRuntime {
         self.liveSessionIdsProvider = liveSessionIdsProvider
     }
 
-    func shouldStartHiddenRestore(
-        policy: BackgroundRestorePolicy,
-        hasExistingSession: Bool
-    ) -> Bool {
+    func shouldStartHiddenRestore(hasExistingSession: Bool) -> Bool {
         TerminalRestoreScheduler.shouldStartHiddenRestore(
-            policy: policy,
             hasExistingSession: hasExistingSession
         )
     }
@@ -50,7 +46,6 @@ struct TerminalRestoreRuntime {
         guard pane.provider == .zmx else { return true }
         guard let sessionId = zmxSessionId(for: pane, store: store) else { return false }
         return shouldStartHiddenRestore(
-            policy: sessionConfiguration.backgroundRestorePolicy,
             hasExistingSession: liveSessionIds.contains(sessionId)
         )
     }
@@ -67,6 +62,7 @@ struct TerminalRestoreRuntime {
 
     func zmxSessionId(for pane: Pane, store: WorkspaceStore) -> String? {
         guard pane.provider == .zmx else { return nil }
+        let workspaceRepositoryTopology = store.repositoryTopologyAtom
 
         if let parentPaneId = pane.parentPaneId {
             return ZmxBackend.drawerSessionId(
@@ -76,8 +72,8 @@ struct TerminalRestoreRuntime {
         }
 
         if let worktreeId = pane.worktreeId,
-            let worktree = store.worktree(worktreeId),
-            let repo = store.repo(containing: worktreeId)
+            let worktree = workspaceRepositoryTopology.worktree(worktreeId),
+            let repo = workspaceRepositoryTopology.repo(containing: worktreeId)
         {
             return ZmxBackend.sessionId(
                 repoStableKey: repo.stableKey,
@@ -86,15 +82,15 @@ struct TerminalRestoreRuntime {
             )
         }
 
-        if let workingDirectory = pane.metadata.facets.cwd {
+        if let launchDirectory = pane.metadata.launchDirectory ?? pane.metadata.facets.cwd {
             return ZmxBackend.floatingSessionId(
-                workingDirectory: workingDirectory,
+                launchDirectory: launchDirectory,
                 paneId: pane.id
             )
         }
 
         return ZmxBackend.floatingSessionId(
-            workingDirectory: FileManager.default.homeDirectoryForCurrentUser,
+            launchDirectory: FileManager.default.homeDirectoryForCurrentUser,
             paneId: pane.id
         )
     }
@@ -111,7 +107,7 @@ struct TerminalRestoreRuntime {
             zmxDir: sessionConfiguration.zmxDir,
             socketPath: socketPath,
             socketPathLength: socketPath.count,
-            maxSocketPathLength: 104,
+            maxSocketPathLength: 103,
             zmxPath: zmxPath
         )
     }

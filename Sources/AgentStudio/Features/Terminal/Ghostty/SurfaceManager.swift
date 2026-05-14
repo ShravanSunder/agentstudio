@@ -113,10 +113,9 @@ final class SurfaceManager {
         self.clock = clock
         (cwdChangeStream, cwdChangeContinuation) = AsyncStream.makeStream()
 
-        let appSupport = FileManager.default.homeDirectoryForCurrentUser
-            .appending(path: ".agentstudio")
+        let appSupport = AppDataPaths.rootDirectory()
         try? FileManager.default.createDirectory(at: appSupport, withIntermediateDirectories: true)
-        self.checkpointURL = appSupport.appending(path: "surface-checkpoint.json")
+        self.checkpointURL = AppDataPaths.surfaceCheckpointURL()
 
         setupHealthMonitoring()
 
@@ -146,7 +145,7 @@ final class SurfaceManager {
     ) -> Result<ManagedSurface, SurfaceError> {
 
         RestoreTrace.log(
-            "SurfaceManager.createSurface begin pane=\(metadata.paneId?.uuidString ?? "nil") title=\(metadata.title) cwd=\(metadata.workingDirectory?.path ?? "nil") cmd=\(metadata.command ?? "nil")"
+            "SurfaceManager.createSurface begin pane=\(metadata.paneId?.uuidString ?? "nil") title=\(metadata.title) cwd=\(metadata.cwd?.path ?? "nil") cmd=\(metadata.command ?? "nil")"
         )
         var mutableConfig = config
 
@@ -485,8 +484,8 @@ final class SurfaceManager {
     }
 
     /// Get current working directory for a surface
-    func workingDirectory(for id: UUID) -> URL? {
-        metadata(for: id)?.workingDirectory
+    func cwd(for id: UUID) -> URL? {
+        metadata(for: id)?.cwd
     }
 
     /// Get all active surface IDs
@@ -564,6 +563,28 @@ final class SurfaceManager {
             return .success(())
         case .success(false):
             return .failure(.operationFailed("Ghostty rejected clear_screen binding action"))
+        case .failure(let error):
+            return .failure(error)
+        }
+    }
+
+    func scrollToBottom(forPaneId paneId: UUID) -> Result<Void, SurfaceError> {
+        guard let surfaceId = surfaceId(forPaneId: paneId) else {
+            return .failure(.surfaceNotFound)
+        }
+
+        let action = TerminalSurfaceAction.scrollToBottom.bindingActionString
+        let didPerform = withSurface(surfaceId) { surface in
+            action.withCString { ptr in
+                ghostty_surface_binding_action(surface, ptr, UInt(action.utf8.count))
+            }
+        }
+
+        switch didPerform {
+        case .success(true):
+            return .success(())
+        case .success(false):
+            return .failure(.operationFailed("Ghostty rejected scroll_to_bottom binding action"))
         case .failure(let error):
             return .failure(error)
         }
@@ -681,9 +702,9 @@ extension SurfaceManager {
         }()
 
         guard var current = managed else { return }
-        guard current.metadata.workingDirectory != url else { return }
+        guard current.metadata.cwd != url else { return }
 
-        current.metadata.workingDirectory = url
+        current.metadata.cwd = url
         if isActive {
             activeSurfaces[surfaceId] = current
         } else {
@@ -899,7 +920,6 @@ extension SurfaceManager {
 
 #if DEBUG
     extension SurfaceManager {
-
         /// Test crash isolation - use in development only
         func testCrash(_ surfaceId: UUID, thread: CrashThread) {
             _ = withSurface(surfaceId) { surface in

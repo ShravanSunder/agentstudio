@@ -19,16 +19,16 @@ derivation.
 | `PaneId` | `PaneId` (`struct` wrapping `UUID`) | `WorkspaceStore` | Yes | `Pane.init(id: UUID = UUIDv7.generate(), ...)` with `PaneMetadata.paneId = PaneId(uuid: id)` | Universal pane identity across store/layout/view/runtime/surface |
 | `RepoStableKey` | `String` (16 hex) | `Repo` | Derived | `StableKey.fromPath(repoPath)` | Deterministic zmx key segment |
 | `WorktreeStableKey` | `String` (16 hex) | `Worktree` | Derived | `StableKey.fromPath(worktree.path)` | Deterministic zmx key segment |
-| `MainZmxSessionId` | `String` (65 chars) | `ZmxBackend` | Derived | `agentstudio--<repo16>--<worktree16>--<pane16>` | zmx daemon/socket identity for layout panes |
-| `DrawerZmxSessionId` | `String` (49 chars) | `ZmxBackend` | Derived | `agentstudio-d--<parentPane16>--<drawerPane16>` | zmx daemon/socket identity for drawer panes |
+| `MainZmxSessionId` | `String` (53 chars) | `ZmxBackend` | Derived | `as-<repo16>-<worktree16>-<pane16>` | zmx daemon/socket identity for layout panes |
+| `DrawerZmxSessionId` | `String` (38 chars) | `ZmxBackend` | Derived | `as-d--<parentPane16>--<drawerPane16>` | zmx daemon/socket identity for drawer panes |
 
 ### Session Name Calculation Rules
 
 1. `paneHex = lowercase(removeHyphens(paneId.uuidString))`
 2. `pane16 = (uuidVersion(paneId) == 7) ? last16hex(paneHex) : first16hex(paneHex)`
 3. UUIDv7 puts timestamp bits at the front; using trailing bits preserves per-pane entropy.
-4. `mainSessionId = "agentstudio--" + repoStableKey + "--" + worktreeStableKey + "--" + pane16`
-5. `drawerSessionId = "agentstudio-d--" + parentPane16 + "--" + drawerPane16`
+4. `mainSessionId = "as-" + repoStableKey + "-" + worktreeStableKey + "-" + pane16`
+5. `drawerSessionId = "as-d--" + parentPane16 + "--" + drawerPane16`
 6. `repoStableKey` and `worktreeStableKey` are deterministic SHA-256 path keys (16 hex chars each)
 
 ### PaneId Lifecycle (ASCII)
@@ -75,7 +75,7 @@ PaneId + RepoStableKey + WorktreeStableKey
       ZmxBackend.sessionId(...)
                   |
                   v
-  "agentstudio--repo16--wt16--pane16"
+  "as-repo16-wt16-pane16"
                   |
                   v
       zmx attach/list/kill (scoped by ZMX_DIR)
@@ -303,11 +303,73 @@ For the startup sequencing details (deferred attach, geometry readiness, and tes
 
 ### Architecture
 
-zmx is a ~1000 LOC Zig tool that provides raw byte passthrough with zero terminal emulation. It uses libghostty-vt for state tracking, meaning `TERM=xterm-ghostty` flows through natively:
+zmx is a ~1000 LOC Zig tool that provides raw byte passthrough with an internal `ghostty_vt` terminal for state tracking. `TERM=xterm-ghostty` flows through natively:
 - **No config file** needed
-- **No terminal emulation layer** (no keyboard/mouse protocol conflicts)
+- **No terminal emulation layer** for forwarding (keyboard/mouse protocols pass through raw)
 - **No custom terminfo** needed (xterm-ghostty works natively)
 - One daemon per session (no shared server)
+- Internal `ghostty_vt` tracks terminal state for serialization (session restore), not for rendering
+
+### IPC Protocol
+
+zmx uses a binary protocol over Unix domain sockets. Each message is a packed header followed by a variable-length payload.
+
+**Header format (5 bytes):**
+
+```
+┌─────────┬──────────────────────┐
+│ tag: u8 │ payload_len: u32 LE  │
+└─────────┴──────────────────────┘
+```
+
+**IPC tags:**
+
+| Tag | Value | Direction | Purpose |
+|-----|-------|-----------|---------|
+| `Input` | 0 | client → daemon | Keystrokes / stdin bytes |
+| `Output` | 1 | daemon → client | PTY output bytes (broadcast to all clients) |
+| `Resize` | 2 | client → daemon | New terminal dimensions (cols, rows) |
+| `Detach` | 3 | client → daemon | Disconnect this client |
+| `DetachAll` | 4 | client → daemon | Disconnect all clients |
+| `Kill` | 5 | client → daemon | Terminate session |
+| `Info` | 6 | bidirectional | Session metadata (pid, cmd, cwd, created_at) |
+| `Init` | 7 | client → daemon | Initial handshake with client dimensions |
+| `History` | 8 | daemon → client | Serialized terminal state on attach |
+| `Run` | 9 | client → daemon | Execute command in session |
+| `Ack` | 10 | daemon → client | Acknowledgment |
+
+**Connection model:** The daemon accepts any connection to its Unix socket without authentication (socket permissions are the access control boundary). All connected clients receive broadcast Output messages. One-shot connections (connect → send → read → close) are safe and match zmx's own `probeSession()` pattern.
+
+**Info struct (552 bytes):** Contains `clients_len: usize`, `pid: i32`, `cols: u16`, `rows: u16`, `cmd: [256]u8`, `cwd: [256]u8`, `created_at: u64`, `task_exit: u64`, `task_exit_valid: u8`, plus alignment padding.
+
+### Session Restore and the Two-Terminal Problem
+
+zmx has two terminals processing the same byte stream — the **outer terminal** (Ghostty surface, what the user sees) and the **inner terminal** (daemon's `ghostty_vt`, shadow tracker for state capture). These can diverge in behavior, and all zmx-related bugs trace to this divergence. See [zmx Terminal Integration](zmx_terminal_integration_lessons.md) for the full investigation.
+
+**Restore flow with OSC 133 fix:**
+
+```
+App launches → creates Ghostty surface with zmx attach command
+  │
+  ▼
+zmx client connects to existing daemon, sends Init with dimensions
+  │
+  ▼
+Daemon receives Init:
+  ├─ 1. Serializes internal terminal state (serializeTerminalState)
+  │     └─ Rewrites OSC 133;A with redraw=0 in serialized output
+  ├─ 2. Sends serialized state as Output to client
+  ├─ 3. Disables shell_redraws_prompt before resize
+  └─ 4. Resizes PTY and internal terminal to new client dimensions
+  │
+  ▼
+Client receives serialized state → writes to stdout → Ghostty renders
+  │
+  ▼
+Shell's SIGWINCH redraw arrives → Ghostty renders current prompt
+```
+
+The `redraw=0` injection tells the outer terminal "this process cannot redraw prompts — don't clear prompt rows on resize." This is the Kitty protocol extension applied via `rewritePromptRedraw()` in the daemon's output path. Without it, the outer terminal clears prompt rows expecting the shell to redraw, but the shell's redraw goes through zmx's IPC relay with cursor coordinates relative to the inner PTY. See [zmx Restore and Sizing](zmx_restore_and_sizing.md) for deferred attach sequencing and geometry details.
 
 ### ZMX_DIR Isolation
 
@@ -369,7 +431,7 @@ This must stay aligned with:
 
 ## SessionStatus State Machine (Dormant)
 
-A full 7-state machine exists in `Models/StateMachine/SessionStatus.swift` for future integration with zmx backend health monitoring. It is **not yet wired** into `SessionRuntime` (which uses the simpler `SessionRuntimeStatus` enum above).
+A full 7-state machine exists in `Core/Models/SessionStatus.swift` for future integration with zmx backend health monitoring. It is **not yet wired** into `SessionRuntime` (which uses the simpler `SessionRuntimeStatus` enum above).
 
 ```mermaid
 stateDiagram-v2
@@ -401,26 +463,29 @@ stateDiagram-v2
 
 | File | Role |
 |------|------|
-| `Core/Stores/WorkspaceStore.swift` | Atomic store — workspace structure (panes, tabs, layouts, persistence) |
-| `Core/Stores/WorkspacePersistor.swift` | JSON serialization/deserialization |
-| `Core/Stores/SessionRuntime.swift` | Runtime health monitoring and status tracking |
-| `App/PaneCoordinator.swift` | Dispatches actions (open, close, split, undo, etc.) and is the sole intermediary for view/surface orchestration |
+| `Core/State/MainActor/Persistence/WorkspaceStore.swift` | Main-actor persistence wrapper over the canonical workspace atoms |
+| `Core/State/MainActor/Persistence/WorkspacePersistor.swift` | JSON serialization/deserialization |
+| `Core/RuntimeEventSystem/Runtime/SessionRuntime.swift` | Runtime health monitoring and status tracking |
+| `App/Coordination/PaneCoordinator.swift` | Dispatches actions (open, close, split, undo, etc.) and is the sole intermediary for view/surface orchestration |
 | `Core/Models/Pane.swift` | Pane identity and content metadata |
 | `Core/Models/SessionLifetime.swift` | `.persistent` / `.temporary` enum |
 | `Core/Models/SessionResidency.swift` | `.active` / `.pendingUndo` / `.backgrounded` enum |
 | `Core/Models/Layout.swift` | Value-type split layout tree (Codable for persistence) |
 | `Core/Models/Tab.swift` | Tab with layout and active pane |
 | `Core/Models/SessionConfiguration.swift` | Config detection from env vars |
-| `Core/Models/StateMachine/SessionStatus.swift` | 7-state machine definition for future zmx health |
+| `Core/Models/SessionStatus.swift` | 7-state machine definition for future zmx health |
 | `Infrastructure/StateMachine/StateMachine.swift` | Generic state machine with effect handling |
 | `Infrastructure/ProcessExecutor.swift` | Protocol + `DefaultProcessExecutor` for CLI execution |
-| `Core/Stores/ZmxBackend.swift` | zmx CLI wrapper — session ID gen, create/destroy/healthCheck |
-| `Features/Terminal/Views/AgentStudioTerminalView.swift` | Terminal view (displays surfaces, does not own them) |
-| `App/AppDelegate.swift` | Launch flow — restore workspace, create window |
+| `Core/RuntimeEventSystem/Runtime/ZmxBackend.swift` | zmx CLI wrapper — session ID gen, create/destroy/healthCheck |
+| `Features/Terminal/Hosting/TerminalPaneMountView.swift` | Terminal mounted content (displays surfaces, does not own them) |
+| `App/Boot/AppDelegate.swift` | Launch flow — restore workspace, create window |
 
 ## Related Documentation
 
 - **[Architecture Overview](README.md)** — System overview and document index
 - **[Component Architecture](component_architecture.md)** — Data model, service layer, data flow, persistence
 - **[Surface Architecture](ghostty_surface_architecture.md)** — Surface ownership, state machine, undo close, health monitoring
-- **[App Architecture](appkit_swiftui_architecture.md)** — AppKit + SwiftUI hybrid, lifecycle management
+- **[App Architecture](appkit_swiftui_architecture.md)** — AppKit + SwiftUI hybrid, per-tab hosting, ViewRegistry slots
+- **[zmx Terminal Integration](zmx_terminal_integration_lessons.md)** — Two-terminal problem, OSC 133 fix, design principles
+- **[zmx Restore and Sizing](zmx_restore_and_sizing.md)** — Deferred attach, geometry readiness, SIGWINCH relay
+- **[Remote zmx Architecture Ideas](remote_zmx_architecture_ideas.md)** — SSH tunnel architecture, fork strategy

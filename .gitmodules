@@ -3,4 +3,4 @@
 	url = https://github.com/ghostty-org/ghostty.git
 [submodule "vendor/zmx"]
 	path = vendor/zmx
-	url = https://github.com/neurosnap/zmx.git
+	url = https://github.com/ShravanSunder/zmx.git

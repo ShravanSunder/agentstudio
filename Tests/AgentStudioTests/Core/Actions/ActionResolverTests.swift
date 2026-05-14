@@ -4,7 +4,7 @@ import Testing
 @testable import AgentStudio
 
 @Suite(.serialized)
-final class ActionResolverTests {
+final class WorkspaceCommandResolverTests {
 
     // MARK: - Test Helpers
 
@@ -15,17 +15,17 @@ final class ActionResolverTests {
         ActionStateSnapshot(
             tabs: tabs,
             activeTabId: activeTabId,
-            isManagementModeActive: false
+            isManagementLayerActive: false
         )
     }
 
     private func makeSinglePaneTab(tabId: UUID = UUID(), paneId: UUID = UUIDv7.generate()) -> TabSnapshot {
-        TabSnapshot(id: tabId, paneIds: [paneId], activePaneId: paneId)
+        TabSnapshot(id: tabId, visiblePaneIds: [paneId], ownedPaneIds: [paneId], activePaneId: paneId)
     }
 
     private func makeMultiPaneTab(tabId: UUID = UUID(), paneIds: [UUID]? = nil) -> TabSnapshot {
         let ids = paneIds ?? [UUIDv7.generate(), UUIDv7.generate()]
-        return TabSnapshot(id: tabId, paneIds: ids, activePaneId: ids.first)
+        return TabSnapshot(id: tabId, visiblePaneIds: ids, ownedPaneIds: ids, activePaneId: ids.first)
     }
 
     // MARK: - resolveDrop: Multi-pane tab → mergeTab
@@ -46,11 +46,12 @@ final class ActionResolverTests {
             ))
 
         // Act
-        let result = ActionResolver.resolveDrop(
+        let result = WorkspaceCommandResolver.resolveDrop(
             payload: payload,
             destinationPaneId: targetPaneId,
             destinationTabId: targetTabId,
-            zone: .right,
+            zone: DropZoneSide.right,
+            sizingMode: DropSizingMode.halveTarget,
             state: snapshot
         )
 
@@ -61,7 +62,7 @@ final class ActionResolverTests {
                     sourceTabId: sourceTabId,
                     targetTabId: targetTabId,
                     targetPaneId: targetPaneId,
-                    direction: .right
+                    direction: SplitNewDirection.right
                 ))
     }
 
@@ -84,22 +85,24 @@ final class ActionResolverTests {
             ))
 
         // Act
-        let result = ActionResolver.resolveDrop(
+        let result = WorkspaceCommandResolver.resolveDrop(
             payload: payload,
             destinationPaneId: targetPaneId,
             destinationTabId: targetTabId,
-            zone: .left,
+            zone: DropZoneSide.left,
+            sizingMode: DropSizingMode.halveTarget,
             state: snapshot
         )
 
         // Assert
         #expect(
             result
-                == .insertPane(
-                    source: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
+                == PaneActionCommand.insertPane(
+                    source: PaneSource.existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
                     targetTabId: targetTabId,
                     targetPaneId: targetPaneId,
-                    direction: .left
+                    direction: SplitNewDirection.left,
+                    sizingMode: DropSizingMode.halveTarget
                 ))
     }
 
@@ -116,22 +119,24 @@ final class ActionResolverTests {
         let payload = SplitDropPayload(kind: .newTerminal)
 
         // Act
-        let result = ActionResolver.resolveDrop(
+        let result = WorkspaceCommandResolver.resolveDrop(
             payload: payload,
             destinationPaneId: targetPaneId,
             destinationTabId: targetTabId,
-            zone: .right,
+            zone: DropZoneSide.right,
+            sizingMode: DropSizingMode.halveTarget,
             state: snapshot
         )
 
         // Assert
         #expect(
             result
-                == .insertPane(
-                    source: .newTerminal,
+                == PaneActionCommand.insertPane(
+                    source: PaneSource.newTerminal,
                     targetTabId: targetTabId,
                     targetPaneId: targetPaneId,
-                    direction: .right
+                    direction: SplitNewDirection.right,
+                    sizingMode: DropSizingMode.halveTarget
                 ))
     }
 
@@ -151,11 +156,12 @@ final class ActionResolverTests {
             ))
 
         // Act
-        let result = ActionResolver.resolveDrop(
+        let result = WorkspaceCommandResolver.resolveDrop(
             payload: payload,
             destinationPaneId: targetPaneId,
             destinationTabId: targetTabId,
-            zone: .right,
+            zone: DropZoneSide.right,
+            sizingMode: DropSizingMode.halveTarget,
             state: snapshot
         )
 
@@ -179,11 +185,12 @@ final class ActionResolverTests {
             ))
 
         // Act
-        let result = ActionResolver.resolveDrop(
+        let result = WorkspaceCommandResolver.resolveDrop(
             payload: payload,
             destinationPaneId: paneIds[0],
             destinationTabId: tabId,
-            zone: .right,
+            zone: DropZoneSide.right,
+            sizingMode: DropSizingMode.halveTarget,
             state: snapshot
         )
 
@@ -194,11 +201,11 @@ final class ActionResolverTests {
                     sourceTabId: tabId,
                     targetTabId: tabId,
                     targetPaneId: paneIds[0],
-                    direction: .right
+                    direction: SplitNewDirection.right
                 ))
 
         // Verify validator rejects self-merge
-        let validation = ActionValidator.validate(result!, state: snapshot)
+        let validation = WorkspaceCommandValidator.validate(result!, state: snapshot)
         if case .failure(.selfTabMerge) = validation { return }
         Issue.record("Expected selfTabMerge error from validator")
     }
@@ -214,7 +221,7 @@ final class ActionResolverTests {
         let tab = MockTab(id: tabId, activePaneId: paneId, allPaneIds: [paneId])
 
         // Act
-        let result = ActionResolver.resolve(command: .closeTab, tabs: [tab], activeTabId: tabId)
+        let result = WorkspaceCommandResolver.resolve(command: .closeTab, tabs: [tab], activeTabId: tabId)
 
         // Assert
         #expect(result == .closeTab(tabId: tabId))
@@ -229,7 +236,7 @@ final class ActionResolverTests {
         let tab = MockTab(id: tabId, activePaneId: paneId, allPaneIds: [paneId])
 
         // Act
-        let result = ActionResolver.resolve(command: .breakUpTab, tabs: [tab], activeTabId: tabId)
+        let result = WorkspaceCommandResolver.resolve(command: .breakUpTab, tabs: [tab], activeTabId: tabId)
 
         // Assert
         #expect(result == .breakUpTab(tabId: tabId))
@@ -245,7 +252,7 @@ final class ActionResolverTests {
         let tab2 = MockTab(id: tab2Id, activePaneId: UUID(), allPaneIds: [UUID()])
 
         // Act — from last tab wraps to first
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .nextTab, tabs: [tab1, tab2], activeTabId: tab2Id
         )
 
@@ -263,7 +270,7 @@ final class ActionResolverTests {
         let tab2 = MockTab(id: tab2Id, activePaneId: UUID(), allPaneIds: [UUID()])
 
         // Act — from first tab wraps to last
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .prevTab, tabs: [tab1, tab2], activeTabId: tab1Id
         )
 
@@ -284,10 +291,14 @@ final class ActionResolverTests {
         let tabs = [tab1, tab2, tab3]
 
         // Act & Assert
-        #expect(ActionResolver.resolve(command: .selectTab1, tabs: tabs, activeTabId: nil) == .selectTab(tabId: tab1Id))
-        #expect(ActionResolver.resolve(command: .selectTab3, tabs: tabs, activeTabId: nil) == .selectTab(tabId: tab3Id))
+        #expect(
+            WorkspaceCommandResolver.resolve(command: .selectTab1, tabs: tabs, activeTabId: nil)
+                == .selectTab(tabId: tab1Id))
+        #expect(
+            WorkspaceCommandResolver.resolve(command: .selectTab3, tabs: tabs, activeTabId: nil)
+                == .selectTab(tabId: tab3Id))
         // Out of range
-        #expect((ActionResolver.resolve(command: .selectTab4, tabs: tabs, activeTabId: nil)) == nil)
+        #expect((WorkspaceCommandResolver.resolve(command: .selectTab4, tabs: tabs, activeTabId: nil)) == nil)
     }
 
     // MARK: - resolve(command:) — Pane Lifecycle
@@ -301,7 +312,7 @@ final class ActionResolverTests {
         let tab = MockTab(id: tabId, activePaneId: paneId, allPaneIds: [paneId])
 
         // Act
-        let result = ActionResolver.resolve(command: .closePane, tabs: [tab], activeTabId: tabId)
+        let result = WorkspaceCommandResolver.resolve(command: .closePane, tabs: [tab], activeTabId: tabId)
 
         // Assert
         #expect(result == .closeTab(tabId: tabId))
@@ -317,7 +328,7 @@ final class ActionResolverTests {
         let tab = MockTab(id: tabId, activePaneId: paneA, allPaneIds: [paneA, paneB])
 
         // Act
-        let result = ActionResolver.resolve(command: .closePane, tabs: [tab], activeTabId: tabId)
+        let result = WorkspaceCommandResolver.resolve(command: .closePane, tabs: [tab], activeTabId: tabId)
 
         // Assert
         #expect(result == .closePane(tabId: tabId, paneId: paneA))
@@ -332,7 +343,7 @@ final class ActionResolverTests {
         let tab = MockTab(id: tabId, activePaneId: paneId, allPaneIds: [paneId])
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .extractPaneToTab, tabs: [tab], activeTabId: tabId
         )
 
@@ -348,12 +359,30 @@ final class ActionResolverTests {
         let tab = MockTab(id: tabId, activePaneId: UUID(), allPaneIds: [UUID()])
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .equalizePanes, tabs: [tab], activeTabId: tabId
         )
 
         // Assert
         #expect(result == .equalizePanes(tabId: tabId))
+    }
+
+    @Test
+    func test_resolve_scrollToBottom_returnsActionWithActivePane() {
+        // Arrange
+        let tabId = UUID()
+        let paneId = UUIDv7.generate()
+        let tab = MockTab(id: tabId, activePaneId: paneId, allPaneIds: [paneId])
+
+        // Act
+        let result = WorkspaceCommandResolver.resolve(
+            command: .scrollToBottom,
+            tabs: [tab],
+            activeTabId: tabId
+        )
+
+        // Assert
+        #expect(result == .scrollToBottom(tabId: tabId, paneId: paneId))
     }
 
     // MARK: - resolve(command:) — Pane Focus
@@ -369,12 +398,12 @@ final class ActionResolverTests {
         tab.neighbors = [paneA: [.left: paneB]]
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .focusPaneLeft, tabs: [tab], activeTabId: tabId
         )
 
-        // Assert
-        #expect(result == .focusPane(tabId: tabId, paneId: paneB))
+        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        #expect(result == nil)
     }
 
     @Test
@@ -387,7 +416,7 @@ final class ActionResolverTests {
         // No neighbors configured
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .focusPaneRight, tabs: [tab], activeTabId: tabId
         )
 
@@ -406,12 +435,12 @@ final class ActionResolverTests {
         tab.nextPanes = [paneA: paneB]
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .focusNextPane, tabs: [tab], activeTabId: tabId
         )
 
-        // Assert
-        #expect(result == .focusPane(tabId: tabId, paneId: paneB))
+        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        #expect(result == nil)
     }
 
     @Test
@@ -425,12 +454,12 @@ final class ActionResolverTests {
         tab.previousPanes = [paneB: paneA]
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .focusPrevPane, tabs: [tab], activeTabId: tabId
         )
 
-        // Assert
-        #expect(result == .focusPane(tabId: tabId, paneId: paneA))
+        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        #expect(result == nil)
     }
 
     // MARK: - resolve(command:) — Split
@@ -444,7 +473,7 @@ final class ActionResolverTests {
         let tab = MockTab(id: tabId, activePaneId: paneId, allPaneIds: [paneId])
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .splitRight, tabs: [tab], activeTabId: tabId
         )
 
@@ -452,60 +481,12 @@ final class ActionResolverTests {
         #expect(
             result
                 == .insertPane(
-                    source: .newTerminal,
+                    source: PaneSource.newTerminal,
                     targetTabId: tabId,
                     targetPaneId: paneId,
-                    direction: .right
+                    direction: SplitNewDirection.right,
+                    sizingMode: DropSizingMode.halveTarget
                 ))
-    }
-
-    @Test
-
-    func test_resolve_splitBelow_returnsNil() {
-        // Vertical splits disabled (drawers own bottom space)
-        // Arrange
-        let tabId = UUID()
-        let paneId = UUID()
-        let tab = MockTab(id: tabId, activePaneId: paneId, allPaneIds: [paneId])
-
-        // Act
-        let result = ActionResolver.resolve(
-            command: .splitBelow, tabs: [tab], activeTabId: tabId
-        )
-
-        // Assert
-        #expect((result) == nil)
-    }
-
-    // MARK: - resolve(command:) — Duplicate
-
-    @Test
-
-    func test_resolve_duplicatePane_returnsWithActivePaneAndRightDirection() {
-        // Arrange
-        let tabId = UUID()
-        let paneId = UUIDv7.generate()
-        let tab = MockTab(id: tabId, activePaneId: paneId, allPaneIds: [paneId])
-
-        // Act
-        let result = ActionResolver.resolve(command: .duplicatePane, tabs: [tab], activeTabId: tabId)
-
-        // Assert
-        #expect(result == .duplicatePane(tabId: tabId, paneId: PaneId(uuid: paneId), direction: .right))
-    }
-
-    @Test
-
-    func test_resolve_duplicatePane_noActivePane_returnsNil() {
-        // Arrange — tab with no activePaneId
-        let tabId = UUID()
-        let tab = MockTab(id: tabId, activePaneId: nil, allPaneIds: [UUID()])
-
-        // Act
-        let result = ActionResolver.resolve(command: .duplicatePane, tabs: [tab], activeTabId: tabId)
-
-        // Assert
-        #expect(result == nil)
     }
 
     // MARK: - resolve(command:) — Edge Cases
@@ -517,10 +498,10 @@ final class ActionResolverTests {
         let tab = MockTab(id: UUID(), activePaneId: UUID(), allPaneIds: [UUID()])
 
         // Act & Assert — all commands requiring activeTabId return nil
-        #expect((ActionResolver.resolve(command: .closeTab, tabs: [tab], activeTabId: nil)) == nil)
-        #expect((ActionResolver.resolve(command: .closePane, tabs: [tab], activeTabId: nil)) == nil)
-        #expect((ActionResolver.resolve(command: .splitRight, tabs: [tab], activeTabId: nil)) == nil)
-        #expect((ActionResolver.resolve(command: .focusPaneLeft, tabs: [tab], activeTabId: nil)) == nil)
+        #expect((WorkspaceCommandResolver.resolve(command: .closeTab, tabs: [tab], activeTabId: nil)) == nil)
+        #expect((WorkspaceCommandResolver.resolve(command: .closePane, tabs: [tab], activeTabId: nil)) == nil)
+        #expect((WorkspaceCommandResolver.resolve(command: .splitRight, tabs: [tab], activeTabId: nil)) == nil)
+        #expect((WorkspaceCommandResolver.resolve(command: .focusPaneLeft, tabs: [tab], activeTabId: nil)) == nil)
     }
 
     @Test
@@ -531,34 +512,46 @@ final class ActionResolverTests {
         let tab = MockTab(id: tabId, activePaneId: UUID(), allPaneIds: [UUID()])
 
         // Act & Assert — non-structural commands return nil
-        #expect((ActionResolver.resolve(command: .addRepo, tabs: [tab], activeTabId: tabId)) == nil)
+        #expect((WorkspaceCommandResolver.resolve(command: .watchFolder, tabs: [tab], activeTabId: tabId)) == nil)
         #expect(
-            (ActionResolver.resolve(
+            (WorkspaceCommandResolver.resolve(
                 command: .toggleSidebar, tabs: [tab], activeTabId: tabId
             )) == nil)
         #expect(
-            (ActionResolver.resolve(
+            (WorkspaceCommandResolver.resolve(
                 command: .newFloatingTerminal, tabs: [tab], activeTabId: tabId
             )) == nil)
         #expect(
-            (ActionResolver.resolve(
+            (WorkspaceCommandResolver.resolve(
                 command: .filterSidebar, tabs: [tab], activeTabId: tabId
             )) == nil)
         #expect(
-            (ActionResolver.resolve(
+            (WorkspaceCommandResolver.resolve(
+                command: .openPaneLocationInBookmarkedEditor, tabs: [tab], activeTabId: tabId
+            )) == nil)
+        #expect(
+            (WorkspaceCommandResolver.resolve(
+                command: .openPaneLocationInFinder, tabs: [tab], activeTabId: tabId
+            )) == nil)
+        #expect(
+            (WorkspaceCommandResolver.resolve(
+                command: .openPaneLocationInEditorMenu, tabs: [tab], activeTabId: tabId
+            )) == nil)
+        #expect(
+            (WorkspaceCommandResolver.resolve(
                 command: .openNewTerminalInTab, tabs: [tab], activeTabId: tabId
             )) == nil)
         // Webview/OAuth commands are non-pane commands
         #expect(
-            (ActionResolver.resolve(
+            (WorkspaceCommandResolver.resolve(
                 command: .openWebview, tabs: [tab], activeTabId: tabId
             )) == nil)
         #expect(
-            (ActionResolver.resolve(
+            (WorkspaceCommandResolver.resolve(
                 command: .signInGitHub, tabs: [tab], activeTabId: tabId
             )) == nil)
         #expect(
-            (ActionResolver.resolve(
+            (WorkspaceCommandResolver.resolve(
                 command: .signInGoogle, tabs: [tab], activeTabId: tabId
             )) == nil)
     }
@@ -571,8 +564,8 @@ final class ActionResolverTests {
         let tab = MockTab(id: tabId, activePaneId: nil, allPaneIds: [UUID()])
 
         // Act & Assert — commands needing active pane return nil
-        #expect((ActionResolver.resolve(command: .closePane, tabs: [tab], activeTabId: tabId)) == nil)
-        #expect((ActionResolver.resolve(command: .splitRight, tabs: [tab], activeTabId: tabId)) == nil)
+        #expect((WorkspaceCommandResolver.resolve(command: .closePane, tabs: [tab], activeTabId: tabId)) == nil)
+        #expect((WorkspaceCommandResolver.resolve(command: .splitRight, tabs: [tab], activeTabId: tabId)) == nil)
     }
 
     // MARK: - snapshot(from:) with MockTab
@@ -590,15 +583,15 @@ final class ActionResolverTests {
         let tab2 = MockTab(id: tab2Id, activePaneId: pane2a, allPaneIds: [pane2a, pane2b])
 
         // Act
-        let snapshot = ActionResolver.snapshot(
-            from: [tab1, tab2], activeTabId: tab1Id, isManagementModeActive: false
+        let snapshot = WorkspaceCommandResolver.snapshot(
+            from: [tab1, tab2], activeTabId: tab1Id, isManagementLayerActive: false
         )
 
         // Assert
         #expect(snapshot.tabCount == 2)
         #expect(snapshot.activeTabId == tab1Id)
-        #expect(snapshot.tab(tab1Id)?.paneIds == [pane1])
-        #expect(snapshot.tab(tab2Id)?.paneIds == [pane2a, pane2b])
+        #expect(snapshot.tab(tab1Id)?.visiblePaneIds == [pane1])
+        #expect(snapshot.tab(tab2Id)?.visiblePaneIds == [pane2a, pane2b])
         #expect(snapshot.tab(tab2Id)?.activePaneId == pane2a)
         #expect(snapshot.tab(tab2Id)?.isSplit == true)
         #expect(!(snapshot.tab(tab1Id)?.isSplit == true))
@@ -616,29 +609,31 @@ final class ActionResolverTests {
         let snapshot = makeSnapshot(tabs: [tab])
         let payload = SplitDropPayload(kind: .newTerminal)
 
-        let zoneMappings: [(DropZone, SplitNewDirection)] = [
+        let zoneMappings: [(DropZoneSide, SplitNewDirection)] = [
             (.left, .left),
             (.right, .right),
         ]
 
         for (zone, expectedDirection) in zoneMappings {
             // Act
-            let result = ActionResolver.resolveDrop(
+            let result = WorkspaceCommandResolver.resolveDrop(
                 payload: payload,
                 destinationPaneId: paneId,
                 destinationTabId: tabId,
                 zone: zone,
+                sizingMode: DropSizingMode.halveTarget,
                 state: snapshot
             )
 
             // Assert
             #expect(
                 result
-                    == .insertPane(
-                        source: .newTerminal,
+                    == PaneActionCommand.insertPane(
+                        source: PaneSource.newTerminal,
                         targetTabId: tabId,
                         targetPaneId: paneId,
-                        direction: expectedDirection
+                        direction: expectedDirection,
+                        sizingMode: DropSizingMode.halveTarget
                     ), "Zone \(zone) should map to direction \(expectedDirection)")
         }
     }

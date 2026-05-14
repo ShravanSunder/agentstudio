@@ -22,7 +22,7 @@ final class PaneContentWiringTests {
     func test_createPane_webviewContent() {
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com")!, showNavigation: true)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Web")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Web")
         )
 
         #expect(pane.title == "Web")
@@ -41,7 +41,7 @@ final class PaneContentWiringTests {
         let filePath = URL(fileURLWithPath: "/tmp/test.swift")
         let pane = store.createPane(
             content: .codeViewer(CodeViewerState(filePath: filePath, scrollToLine: 42)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Code")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Code")
         )
 
         #expect(pane.title == "Code")
@@ -58,7 +58,7 @@ final class PaneContentWiringTests {
     func test_createPane_terminalContent_viaGenericOverload() {
         let pane = store.createPane(
             content: .terminal(TerminalState(provider: .ghostty, lifetime: .persistent)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Term")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Term")
         )
 
         #expect(pane.provider == .ghostty)
@@ -71,7 +71,7 @@ final class PaneContentWiringTests {
         store.flush()
         _ = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://test.com")!, showNavigation: false)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Web")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Web")
         )
         #expect(store.isDirty)
     }
@@ -82,20 +82,20 @@ final class PaneContentWiringTests {
 
     func test_mixedContentTab_layoutContainsAllPanes() {
         let terminalPane = store.createPane(
-            source: .floating(workingDirectory: nil, title: nil),
+            source: .floating(launchDirectory: nil, title: nil),
             title: "Terminal",
             provider: .ghostty
         )
         let webPane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://docs.com")!, showNavigation: true)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Docs")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Docs")
         )
 
         let tab = Tab(paneId: terminalPane.id)
         store.appendTab(tab)
         store.insertPane(
             webPane.id, inTab: tab.id, at: terminalPane.id,
-            direction: .horizontal, position: .after)
+            direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         let updatedTab = store.tab(tab.id)!
         #expect(updatedTab.panes.contains(terminalPane.id))
@@ -114,7 +114,7 @@ final class PaneContentWiringTests {
 
         let pane = store1.createPane(
             content: .webview(WebviewState(url: URL(string: "https://round-trip.com")!, showNavigation: false)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Persist Web")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Persist Web")
         )
         let tab = Tab(paneId: pane.id)
         store1.appendTab(tab)
@@ -145,7 +145,7 @@ final class PaneContentWiringTests {
         let filePath = URL(fileURLWithPath: "/tmp/code.swift")
         let pane = store1.createPane(
             content: .codeViewer(CodeViewerState(filePath: filePath, scrollToLine: 99)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Persist Code")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Persist Code")
         )
         let tab = Tab(paneId: pane.id)
         store1.appendTab(tab)
@@ -168,9 +168,9 @@ final class PaneContentWiringTests {
 
     @Test
 
-    func test_viewRegistry_registersPaneView() {
+    func test_viewRegistry_registersPaneHostView() {
         let registry = ViewRegistry()
-        let view = PaneView(paneId: UUID())
+        let view = PaneHostView(paneId: UUID())
 
         registry.register(view, for: view.paneId)
 
@@ -185,20 +185,20 @@ final class PaneContentWiringTests {
         let paneId = UUID()
 
         // Non-terminal pane
-        let webView = PaneView(paneId: paneId)
+        let webView = PaneHostView(paneId: paneId)
         registry.register(webView, for: paneId)
 
         #expect((registry.view(for: paneId)) != nil)
         #expect((registry.terminalView(for: paneId)) == nil)
     }
 
-    // MARK: - PaneView base class
+    // MARK: - PaneHostView base class
 
     @Test
 
     func test_paneView_identifiable() {
         let id = UUID()
-        let view = PaneView(paneId: id)
+        let view = PaneHostView(paneId: id)
 
         #expect(view.id == id)
         #expect(view.paneId == id)
@@ -207,7 +207,7 @@ final class PaneContentWiringTests {
     @Test
 
     func test_paneView_swiftUIContainer() {
-        let view = PaneView(paneId: UUID())
+        let view = PaneHostView(paneId: UUID())
         let container = view.swiftUIContainer
 
         // Container wraps the view
@@ -222,7 +222,7 @@ final class PaneContentWiringTests {
         // Arrange
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://old.com")!, showNavigation: true)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Web")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Web")
         )
         let newState = WebviewState(
             url: URL(string: "https://new.com")!,
@@ -250,7 +250,7 @@ final class PaneContentWiringTests {
         // Arrange
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Web")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Web")
         )
         store.flush()
         #expect(!(store.isDirty))
@@ -279,7 +279,7 @@ final class PaneContentWiringTests {
     func test_viewRegistry_webviewView_returnsNilForNonWebview() {
         let registry = ViewRegistry()
         let paneId = UUID()
-        let view = PaneView(paneId: paneId)
+        let view = PaneHostView(paneId: paneId)
         registry.register(view, for: paneId)
 
         #expect((registry.webviewView(for: paneId)) == nil)
@@ -292,12 +292,229 @@ final class PaneContentWiringTests {
         let paneId1 = UUID()
         let paneId2 = UUID()
 
-        // Register a generic PaneView (not a webview)
-        registry.register(PaneView(paneId: paneId1), for: paneId1)
-        // Register another generic PaneView
-        registry.register(PaneView(paneId: paneId2), for: paneId2)
+        // Register a generic PaneHostView (not a webview)
+        registry.register(PaneHostView(paneId: paneId1), for: paneId1)
+        // Register another generic PaneHostView
+        registry.register(PaneHostView(paneId: paneId2), for: paneId2)
 
-        // allWebviewViews should be empty since neither is a WebviewPaneView
+        // allWebviewViews should be empty since neither host mounts a webview pane
         #expect(registry.allWebviewViews.isEmpty)
+    }
+
+    @Test("flat pane missing host fallback distinguishes retired transitions from real slot bugs")
+    func flatPaneMissingHostDisposition_distinguishesRetiredTransitions() {
+        #expect(
+            PaneSegmentMissingHostDisposition.resolve(
+                isRetired: true,
+                isInitialRestorePending: false,
+                isInactivePersistentTab: false
+            )
+                == .retiredTransition
+        )
+        #expect(
+            PaneSegmentMissingHostDisposition.resolve(
+                isRetired: false,
+                isInitialRestorePending: true,
+                isInactivePersistentTab: false
+            )
+                == .deferredInitialRestore
+        )
+        #expect(
+            PaneSegmentMissingHostDisposition.resolve(
+                isRetired: false,
+                isInitialRestorePending: false,
+                isInactivePersistentTab: true
+            )
+                == .deferredInactiveTabRestore
+        )
+        #expect(
+            PaneSegmentMissingHostDisposition.resolve(
+                isRetired: false,
+                isInitialRestorePending: false,
+                isInactivePersistentTab: false
+            )
+                == .unexpectedMissingHost
+        )
+    }
+
+    @Test("initial restore pending state is explicit and bounded")
+    func viewRegistry_initialRestorePending_isExplicitAndBounded() {
+        let registry = ViewRegistry()
+
+        #expect(registry.isInitialRestorePending == false)
+
+        registry.beginInitialRestore()
+        #expect(registry.isInitialRestorePending == true)
+
+        registry.completeInitialRestore()
+        #expect(registry.isInitialRestorePending == false)
+    }
+
+    @Test
+    func test_viewRegistry_ensureSlot_isIdempotent() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+
+        let firstSlot = registry.ensureSlot(for: paneId)
+        let secondSlot = registry.ensureSlot(for: paneId)
+
+        #expect(firstSlot === secondSlot)
+    }
+
+    @Test
+    func test_viewRegistry_unregister_preservesSlotIdentity_forReregistration() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+        let firstHost = PaneHostView(paneId: paneId)
+        registry.register(firstHost, for: paneId)
+        let slotBeforeUnregister = registry.slot(for: paneId)
+
+        registry.unregister(paneId)
+        let secondHost = PaneHostView(paneId: paneId)
+        registry.register(secondHost, for: paneId)
+
+        let slotAfterReregister = registry.slot(for: paneId)
+        #expect(slotBeforeUnregister === slotAfterReregister)
+        #expect(slotAfterReregister.host === secondHost)
+    }
+
+    @Test
+    func test_viewRegistry_removeSlot_deletesSlotIdentity() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+
+        let originalSlot = registry.ensureSlot(for: paneId)
+        registry.removeSlot(for: paneId)
+        let recreatedSlot = registry.ensureSlot(for: paneId)
+
+        #expect(originalSlot !== recreatedSlot)
+    }
+
+    @Test("retireSlot keeps the same slot readable while a surface still renders it")
+    func viewRegistry_retireSlot_keepsSameSlotWhileRendered() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+
+        let live = registry.ensureSlot(for: paneId)
+        registry.surfaceRenderedIds("tab:tab1", ids: [paneId])
+        registry.retireSlot(for: paneId)
+
+        let retired = registry.slot(for: paneId)
+        #expect(retired === live)
+        #expect(retired.host == nil)
+
+        registry.surfaceRenderedIds("tab:tab1", ids: [])
+
+        let recreated = registry.ensureSlot(for: paneId)
+        #expect(recreated !== live)
+    }
+
+    @Test("retireSlot immediately deletes when no surface renders the pane")
+    func viewRegistry_retireSlot_withoutRenderedSurfaceFinalizesImmediately() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+
+        let live = registry.ensureSlot(for: paneId)
+        registry.retireSlot(for: paneId)
+
+        #expect(registry.isRetiredForTesting(paneId) == false)
+        #expect(registry.peekSlotForTesting(paneId) == nil)
+
+        let recreated = registry.ensureSlot(for: paneId)
+        #expect(recreated !== live)
+    }
+
+    @Test("removeSlot immediately deletes the slot (non-transition call sites)")
+    func viewRegistry_removeSlot_deletesImmediately() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+
+        let original = registry.ensureSlot(for: paneId)
+        registry.removeSlot(for: paneId)
+
+        let recreated = registry.ensureSlot(for: paneId)
+        #expect(recreated !== original)
+    }
+
+    @Test("ensureSlot on a retired slot promotes it in place (D6)")
+    func viewRegistry_ensureSlot_promotesRetiredInPlace() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+
+        let original = registry.ensureSlot(for: paneId)
+        registry.surfaceRenderedIds("tab:tab1", ids: [paneId])
+        registry.retireSlot(for: paneId)
+
+        let promoted = registry.ensureSlot(for: paneId)
+        #expect(promoted === original)
+    }
+
+    @Test("a retired slot is finalized only when no surface renders it")
+    func viewRegistry_retiredSlot_requiresUnionAbsence() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+        let originalSlot = registry.ensureSlot(for: paneId)
+
+        registry.surfaceRenderedIds("tab:tab1", ids: [paneId])
+        registry.surfaceRenderedIds("drawerShell:parent1", ids: [])
+        registry.retireSlot(for: paneId)
+
+        registry.surfaceRenderedIds("drawerShell:parent1", ids: [])
+        #expect(registry.isRetiredForTesting(paneId) == true)
+        #expect(registry.peekSlotForTesting(paneId) === originalSlot)
+
+        registry.surfaceRenderedIds("tab:tab1", ids: [])
+        #expect(registry.isRetiredForTesting(paneId) == false)
+        #expect(registry.peekSlotForTesting(paneId) == nil)
+    }
+
+    @Test("unregisterSurface re-runs finalization for ids no longer rendered anywhere")
+    func viewRegistry_unregisterSurface_finalizesOrphanedRetired() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+        let originalSlot = registry.ensureSlot(for: paneId)
+
+        registry.surfaceRenderedIds("tab:tab1", ids: [paneId])
+        registry.retireSlot(for: paneId)
+
+        #expect(registry.isRetiredForTesting(paneId) == true)
+        #expect(registry.peekSlotForTesting(paneId) === originalSlot)
+
+        registry.unregisterSurface("tab:tab1")
+        #expect(registry.isRetiredForTesting(paneId) == false)
+        #expect(registry.peekSlotForTesting(paneId) == nil)
+    }
+
+    @Test("container-level surface survives render-mode switches without finalizing tombstones")
+    func viewRegistry_containerSurface_modeSwitch_doesNotFinalize() {
+        let registry = ViewRegistry()
+        let zoomedPaneId = UUID()
+        let otherPaneId = UUID()
+        let zoomedSlot = registry.ensureSlot(for: zoomedPaneId)
+        _ = registry.ensureSlot(for: otherPaneId)
+
+        registry.surfaceRenderedIds("tab:tab1", ids: [zoomedPaneId, otherPaneId])
+        registry.retireSlot(for: otherPaneId)
+
+        registry.surfaceRenderedIds("tab:tab1", ids: [zoomedPaneId])
+        #expect(registry.peekSlotForTesting(zoomedPaneId) === zoomedSlot)
+        #expect(registry.isRetiredForTesting(otherPaneId) == false)
+        #expect(registry.peekSlotForTesting(otherPaneId) == nil)
+    }
+
+    @Test
+    func test_viewRegistry_slotLazyFallback_createsObservableSlot() {
+        let registry = ViewRegistry()
+        let paneId = UUID()
+
+        ViewRegistry.suppressLazyFallbackAssertionForTesting = true
+        defer {
+            ViewRegistry.suppressLazyFallbackAssertionForTesting = false
+        }
+
+        let lazySlot = registry.slot(for: paneId)
+
+        #expect(lazySlot.host == nil)
+        #expect(registry.slot(for: paneId) === lazySlot)
     }
 }

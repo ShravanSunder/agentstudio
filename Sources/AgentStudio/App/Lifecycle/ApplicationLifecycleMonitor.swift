@@ -2,12 +2,12 @@ import Foundation
 
 @MainActor
 final class ApplicationLifecycleMonitor {
-    private let appLifecycleStore: AppLifecycleStore
-    private let windowLifecycleStore: WindowLifecycleStore
+    private let appLifecycleStore: AppLifecycleAtom
+    private let windowLifecycleStore: WindowLifecycleAtom
 
     init(
-        appLifecycleStore: AppLifecycleStore,
-        windowLifecycleStore: WindowLifecycleStore
+        appLifecycleStore: AppLifecycleAtom,
+        windowLifecycleStore: WindowLifecycleAtom
     ) {
         self.appLifecycleStore = appLifecycleStore
         self.windowLifecycleStore = windowLifecycleStore
@@ -38,5 +38,20 @@ final class ApplicationLifecycleMonitor {
     func handleWindowDidResignKey(_ windowId: UUID) {
         windowLifecycleStore.recordWindowResignedKey(windowId)
         windowLifecycleStore.recordWindowResignedFocused(windowId)
+    }
+
+    func handleTerminalContainerBoundsChanged(_ bounds: CGRect) {
+        guard !bounds.isEmpty else { return }
+        RestoreTrace.log(
+            "ApplicationLifecycleMonitor.handleTerminalContainerBoundsChanged bounds=\(NSStringFromRect(bounds))"
+        )
+        windowLifecycleStore.recordTerminalContainerBounds(bounds)
+    }
+
+    func handleLaunchLayoutSettled() {
+        RestoreTrace.log(
+            "ApplicationLifecycleMonitor.handleLaunchLayoutSettled bounds=\(NSStringFromRect(windowLifecycleStore.terminalContainerBounds)) settled(before)=\(windowLifecycleStore.isLaunchLayoutSettled)"
+        )
+        windowLifecycleStore.recordLaunchLayoutSettled()
     }
 }

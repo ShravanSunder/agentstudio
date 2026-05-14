@@ -13,6 +13,7 @@ final class CommandBarPanel: NSPanel {
     /// Called when the panel wants to dismiss (e.g., Escape key).
     /// Set by the controller so dismissal always goes through the proper lifecycle.
     var onDismiss: (() -> Void)?
+    var onShortcutTrigger: ((ShortcutTrigger) -> Bool)?
 
     /// Visual effect backdrop for macOS blur.
     private let effectView: NSVisualEffectView = {
@@ -21,7 +22,7 @@ final class CommandBarPanel: NSPanel {
         view.blendingMode = .behindWindow
         view.state = .active
         view.wantsLayer = true
-        view.layer?.cornerRadius = 12
+        view.layer?.cornerRadius = AppStyles.CommandBar.Panel.cornerRadius
         view.layer?.masksToBounds = true
         return view
     }()
@@ -61,7 +62,7 @@ final class CommandBarPanel: NSPanel {
         // Content setup: effectView fills the panel
         let container = NSView()
         container.wantsLayer = true
-        container.layer?.cornerRadius = 12
+        container.layer?.cornerRadius = AppStyles.CommandBar.Panel.cornerRadius
         container.layer?.masksToBounds = true
 
         effectView.translatesAutoresizingMaskIntoConstraints = false
@@ -82,6 +83,8 @@ final class CommandBarPanel: NSPanel {
 
         let hosting = NSHostingView(rootView: AnyView(view))
         hosting.translatesAutoresizingMaskIntoConstraints = false
+        hosting.setContentHuggingPriority(.defaultLow, for: .vertical)
+        hosting.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         effectView.addSubview(hosting)
         NSLayoutConstraint.activate([
             hosting.leadingAnchor.constraint(equalTo: effectView.leadingAnchor),
@@ -123,12 +126,24 @@ final class CommandBarPanel: NSPanel {
         frame.size.height = panelHeight
         frame.origin.y -= heightDelta  // Grow downward
         setFrame(frame, display: true)
+
+        contentMinSize = NSSize(width: 0, height: panelHeight)
+        contentMaxSize = NSSize(width: .greatestFiniteMagnitude, height: panelHeight)
     }
 
     // MARK: - Key Handling
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if let trigger = ShortcutDecoder.decode(event: event),
+            onShortcutTrigger?(trigger) == true
+        {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
 
     override func cancelOperation(_ sender: Any?) {
         // Escape key — route through controller so backdrop + state are cleaned up

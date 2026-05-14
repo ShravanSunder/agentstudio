@@ -8,11 +8,17 @@
 #
 # Optional variables:
 #   EXTRA_SWIFT_TEST_ARGS - Additional swift test flags (e.g. "--enable-code-coverage")
+#   XCB_EXTRA_ARGS        - Extra xcbeautify flags (e.g. "--renderer github-actions")
+
+# shellcheck source=scripts/xcb-helpers.sh
+source "$(dirname "${BASH_SOURCE[0]}")/xcb-helpers.sh"
 
 prebuild_swift_tests() {
   echo "[$LOG_PREFIX] >>> prebuild test bundles"
+  local xcb_pipe
+  xcb_pipe=$(_xcb_pipe_cmd)
   # shellcheck disable=SC2086
-  swift build --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH"
+  swift build --build-tests ${EXTRA_SWIFT_TEST_ARGS:-} --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 }
 
 run_swift_with_timeout() {
@@ -27,7 +33,13 @@ run_swift_with_timeout() {
   local last_heartbeat="$start_epoch"
   local timed_out=0
 
-  "$@" &
+  local xcb_pipe
+  xcb_pipe=$(_xcb_pipe_cmd)
+
+  # Run command piped through xcbeautify in a subshell so we track one PID.
+  # Subshell inherits pipefail from parent — swift exit code propagates.
+  # shellcheck disable=SC2086
+  ( "$@" 2>&1 | $xcb_pipe ) &
   local command_pid=$!
 
   while kill -0 "$command_pid" 2>/dev/null; do
@@ -75,11 +87,15 @@ run_webkit_suite_with_retry() {
     echo "[webkit] running $filter (attempt $attempt/$max_attempts)"
     set +e
     local output
+    # Bypass xcbeautify — we need raw output to detect "unexpected signal code" for retries.
+    # Set _XCB_BYPASS on its own line: bash evaluates $() before assignments on the same line.
+    _XCB_BYPASS=1
     # shellcheck disable=SC2086
     output=$(run_swift_with_timeout "$filter" "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off swift test ${EXTRA_SWIFT_TEST_ARGS:-} \
       --skip-build --filter "$filter" --build-path "$BUILD_PATH" 2>&1)
     local command_status=$?
+    unset _XCB_BYPASS
     set -e
     echo "$output"
 

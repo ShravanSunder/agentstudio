@@ -25,7 +25,8 @@ struct PaneCoordinatorViewFactoryTests {
         let coordinator = PaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
-            runtime: runtime
+            runtime: runtime,
+            windowLifecycleStore: WindowLifecycleAtom()
         )
         return PaneCoordinatorHarness(
             store: store,
@@ -36,8 +37,8 @@ struct PaneCoordinatorViewFactoryTests {
         )
     }
 
-    @Test("createViewForContent registers a webview view in the registry")
-    func createViewForContent_registersWebviewView() {
+    @Test("createViewForContent registers a host whose mounted content is a webview mount")
+    func createViewForContent_registersHostedWebviewView() {
         let harness = makeHarness()
         let viewRegistry = harness.viewRegistry
         let coordinator = harness.coordinator
@@ -47,20 +48,22 @@ struct PaneCoordinatorViewFactoryTests {
         let pane = Pane(
             id: UUIDv7.generate(),
             content: .webview(WebviewState(url: URL(string: "https://example.com")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Web"))
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Web"))
         )
 
         let maybeView = coordinator.createViewForContent(pane: pane)
         let registered = viewRegistry.view(for: pane.id)
 
-        #expect(maybeView is WebviewPaneView)
-        #expect(registered is WebviewPaneView)
+        #expect(maybeView is WebviewPaneMountView)
+        #expect(!(maybeView is PaneHostView))
+        #expect(registered != nil)
+        #expect(registered?.mountedContentViewForTesting is WebviewPaneMountView)
         #expect(viewRegistry.allWebviewViews.count == 1)
-        #expect(viewRegistry.allWebviewViews[pane.id] === registered as? WebviewPaneView)
+        #expect(viewRegistry.allWebviewViews[pane.id] === maybeView as? WebviewPaneMountView)
     }
 
-    @Test("createViewForContent registers a code viewer view in the registry")
-    func createViewForContent_registersCodeViewerView() {
+    @Test("createViewForContent registers a host whose mounted content is a code viewer mount")
+    func createViewForContent_registersHostedCodeViewerView() {
         let harness = makeHarness()
         let viewRegistry = harness.viewRegistry
         let coordinator = harness.coordinator
@@ -72,18 +75,20 @@ struct PaneCoordinatorViewFactoryTests {
             content: .codeViewer(
                 CodeViewerState(filePath: URL(fileURLWithPath: "/tmp/example.swift"), scrollToLine: 42)
             ),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Code"))
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Code"))
         )
 
         let maybeView = coordinator.createViewForContent(pane: pane)
         let registered = viewRegistry.view(for: pane.id)
 
-        #expect(maybeView is CodeViewerPaneView)
-        #expect(registered is CodeViewerPaneView)
+        #expect(maybeView is CodeViewerPaneMountView)
+        #expect(!(maybeView is PaneHostView))
+        #expect(registered != nil)
+        #expect(registered?.mountedContentViewForTesting is CodeViewerPaneMountView)
         #expect(viewRegistry.registeredPaneIds == Set([pane.id]))
     }
 
-    @Test("createViewForContent builds bridge view and teardown clears bridge readiness")
+    @Test("createViewForContent builds bridge mounted content under a host and teardown clears bridge readiness")
     func createViewForContent_bridgeView_tearsDownCleanly() {
         let harness = makeHarness()
         let viewRegistry = harness.viewRegistry
@@ -94,14 +99,17 @@ struct PaneCoordinatorViewFactoryTests {
         let pane = Pane(
             id: UUIDv7.generate(),
             content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "abc123"))),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Diff"))
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Diff"))
         )
 
         let maybeView = coordinator.createViewForContent(pane: pane)
-        guard let bridgeView = maybeView as? BridgePaneView else {
-            Issue.record("Expected a BridgePaneView")
+        guard let bridgeView = maybeView as? BridgePaneMountView else {
+            Issue.record("Expected a BridgePaneMountView")
             return
         }
+        let registered = viewRegistry.view(for: pane.id)
+        #expect(registered != nil)
+        #expect(registered?.mountedContentViewForTesting === bridgeView)
         let bridgeController = bridgeView.controller
         #expect(bridgeController.isBridgeReady == false)
 
@@ -125,12 +133,12 @@ struct PaneCoordinatorViewFactoryTests {
         let webviewPane = Pane(
             id: UUIDv7.generate(),
             content: .webview(WebviewState(url: URL(string: "https://example.com/runtime-web")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Web"))
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Web"))
         )
         let bridgePane = Pane(
             id: UUIDv7.generate(),
             content: .bridgePanel(BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "def456"))),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Diff"))
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Diff"))
         )
         let fileURL = FileManager.default.temporaryDirectory
             .appending(path: "code-view-runtime-\(UUID().uuidString).swift")
@@ -140,7 +148,7 @@ struct PaneCoordinatorViewFactoryTests {
             id: UUIDv7.generate(),
             content: .codeViewer(CodeViewerState(filePath: fileURL, scrollToLine: 1)),
             metadata: PaneMetadata(
-                source: .floating(workingDirectory: fileURL.deletingLastPathComponent(), title: "Code"))
+                source: .floating(launchDirectory: fileURL.deletingLastPathComponent(), title: "Code"))
         )
 
         _ = coordinator.createViewForContent(pane: webviewPane)
@@ -163,7 +171,7 @@ struct PaneCoordinatorViewFactoryTests {
         let pane = Pane(
             id: UUIDv7.generate(),
             content: .unsupported(UnsupportedContent(type: "legacy", version: 1, rawState: nil)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Legacy"))
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Legacy"))
         )
 
         let maybeView = coordinator.createViewForContent(pane: pane)
@@ -181,7 +189,7 @@ struct PaneCoordinatorViewFactoryTests {
             id: drawerPaneId,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(
-                source: .floating(workingDirectory: URL(fileURLWithPath: "/Users/test"), title: "Drawer"),
+                source: .floating(launchDirectory: URL(fileURLWithPath: "/Users/test"), title: "Drawer"),
                 title: "Drawer"
             ),
             kind: .drawerChild(parentPaneId: parentPaneId)
@@ -189,7 +197,7 @@ struct PaneCoordinatorViewFactoryTests {
 
         let sessionId = PaneCoordinator.floatingZmxRestoreSessionId(
             for: pane,
-            workingDirectory: URL(fileURLWithPath: "/Users/test")
+            launchDirectory: URL(fileURLWithPath: "/Users/test")
         )
 
         #expect(sessionId == ZmxBackend.drawerSessionId(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId))
@@ -198,21 +206,21 @@ struct PaneCoordinatorViewFactoryTests {
     @Test("floating zmx restore uses floating session IDs for top-level floating panes")
     func floatingZmxRestoreSessionId_topLevelFloatingPane_usesFloatingSessionId() {
         let paneId = UUIDv7.generate()
-        let workingDirectory = URL(fileURLWithPath: "/Users/test/project")
+        let launchDirectory = URL(fileURLWithPath: "/Users/test/project")
         let pane = Pane(
             id: paneId,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(
-                source: .floating(workingDirectory: workingDirectory, title: "Floating"),
+                source: .floating(launchDirectory: launchDirectory, title: "Floating"),
                 title: "Floating"
             )
         )
 
         let sessionId = PaneCoordinator.floatingZmxRestoreSessionId(
             for: pane,
-            workingDirectory: workingDirectory
+            launchDirectory: launchDirectory
         )
 
-        #expect(sessionId == ZmxBackend.floatingSessionId(workingDirectory: workingDirectory, paneId: paneId))
+        #expect(sessionId == ZmxBackend.floatingSessionId(launchDirectory: launchDirectory, paneId: paneId))
     }
 }

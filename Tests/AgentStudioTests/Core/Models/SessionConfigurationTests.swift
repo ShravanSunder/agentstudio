@@ -136,10 +136,11 @@ final class SessionConfigurationTests {
 
     @Test
 
-    func test_backgroundRestorePolicy_defaultsToExistingSessionsOnly() {
+    func test_sessionRestoreDetect_usesExistingSessionsOnlyHiddenRestorePolicy() {
         let config = SessionConfiguration.detect(environment: [:])
 
-        #expect(config.backgroundRestorePolicy == .existingSessionsOnly)
+        #expect(config.shouldRestoreHiddenPane(hasExistingSession: true))
+        #expect(!config.shouldRestoreHiddenPane(hasExistingSession: false))
     }
 
     // MARK: - zmxDir
@@ -150,9 +151,9 @@ final class SessionConfigurationTests {
         // Act
         let config = SessionConfiguration.detect()
 
-        // Assert — should use the short ~/.agentstudio/z socket root.
+        // Assert — debug builds default to the debug app-state root.
         let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
-        #expect(config.zmxDir.hasPrefix(homeDir + "/.agentstudio/z"))
+        #expect(config.zmxDir.hasPrefix(homeDir + "/.agentstudio-db/z"))
     }
 
     // MARK: - Terminfo Discovery (Ghostty's own terminfo, independent of zmx)

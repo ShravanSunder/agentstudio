@@ -9,9 +9,14 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: macos-26
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -21,6 +26,30 @@ jobs:
 
       - name: Setup mise
         uses: jdx/mise-action@v3
+
+      # --- Import Apple Developer ID certificate via official Apple action ---
+
+      - name: Import code signing certificate
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Determine signing identity
+        id: signing
+        run: |
+          # Dynamically discover the Developer ID identity from the keychain
+          IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+
+          if [ -n "$IDENTITY" ]; then
+            echo "Found signing identity: $IDENTITY"
+            echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+            echo "can_sign=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No Developer ID Application certificate found — falling back to ad-hoc signing"
+            echo "identity=-" >> "$GITHUB_OUTPUT"
+            echo "can_sign=false" >> "$GITHUB_OUTPUT"
+          fi
 
       # --- Submodule commit SHAs (cache keys) ---
 
@@ -112,43 +141,187 @@ jobs:
             [ -f "$TERMINFO_SRC/67/ghostty" ] && cp "$TERMINFO_SRC/67/ghostty" Sources/AgentStudio/Resources/terminfo/67/
           fi
 
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            RAW_VERSION="${GITHUB_REF#refs/tags/}"
+            echo "version=${RAW_VERSION}" >> "$GITHUB_OUTPUT"
+            echo "marketing_version=${RAW_VERSION#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev-$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+            echo "marketing_version=0.0.1-dev" >> "$GITHUB_OUTPUT"
+          fi
+          echo "build_version=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
       - name: Cache Swift build
         uses: actions/cache@v4
         with:
           path: .build
-          key: swift-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}
+          key: swift-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-${{ hashFiles('Sources/**/*.swift') }}
           restore-keys: |
+            swift-${{ runner.os }}-${{ hashFiles('Package.swift', 'Package.resolved') }}-
             swift-${{ runner.os }}-
 
       - name: Build AgentStudio
         run: |
           set -o pipefail
-          swift build -c release 2>&1 | scripts/filter-known-linker-warnings.sh
+          swift build -c release 2>&1 | scripts/filter-known-linker-warnings.sh | xcbeautify --renderer github-actions
 
       - name: Create App Bundle
         run: |
+          set -euo pipefail
           APP_DIR="AgentStudio.app/Contents"
           rm -rf AgentStudio.app
-          mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources" "$APP_DIR/Frameworks"
+          mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
 
           cp .build/release/AgentStudio "$APP_DIR/MacOS/"
           [ -f "vendor/zmx/zig-out/bin/zmx" ] && cp vendor/zmx/zig-out/bin/zmx "$APP_DIR/MacOS/"
           cp Sources/AgentStudio/Resources/Info.plist "$APP_DIR/"
+          bash scripts/inject-bundle-version.sh \
+            "$APP_DIR/Info.plist" \
+            "${{ steps.version.outputs.marketing_version }}" \
+            "${{ steps.version.outputs.build_version }}"
           cp Sources/AgentStudio/Resources/AppIcon.icns "$APP_DIR/Resources/"
           [ -d "Sources/AgentStudio/Resources/terminfo" ] && cp -R Sources/AgentStudio/Resources/terminfo "$APP_DIR/Resources/"
           if [ -d "Sources/AgentStudio/Resources/ghostty" ]; then
             mkdir -p "$APP_DIR/Resources/ghostty"
             cp -R Sources/AgentStudio/Resources/ghostty/. "$APP_DIR/Resources/ghostty/"
           fi
-          cp -R Frameworks/GhosttyKit.xcframework "$APP_DIR/Frameworks/"
 
-          codesign --force --deep --sign - AgentStudio.app
-          echo "AgentStudio.app created and signed"
+          # GhosttyKit is a static library (libghostty.a) — already linked into
+          # the AgentStudio binary at build time. Do NOT embed the xcframework
+          # in the app bundle; it's only needed at build time for SwiftPM.
+
+          # SwiftPM resource bundle — Bundle.appResources looks in Contents/Resources/
+          RESOURCE_BUNDLE="$(find .build -path '*/release/AgentStudio_AgentStudio.bundle' -type d | head -1)"
+          if [ -n "$RESOURCE_BUNDLE" ]; then
+            cp -R "$RESOURCE_BUNDLE" "$APP_DIR/Resources/"
+          else
+            echo "::error::SwiftPM resource bundle not found"
+            exit 1
+          fi
+
+      # --- Code signing (Developer ID or ad-hoc fallback) ---
+
+      - name: Sign app bundle
+        env:
+          SIGNING_IDENTITY: ${{ steps.signing.outputs.identity }}
+          CAN_SIGN: ${{ steps.signing.outputs.can_sign }}
+        run: |
+          set -euo pipefail
+          ENTITLEMENTS="Sources/AgentStudio/Resources/AgentStudio.entitlements"
+          APP="AgentStudio.app"
+
+          if [ "$CAN_SIGN" = "true" ]; then
+            echo "Signing with: $SIGNING_IDENTITY"
+
+            # Sign any embedded dylibs or frameworks (inside-out)
+            if [ -d "$APP/Contents/Frameworks" ]; then
+              find "$APP/Contents/Frameworks" -type d -name "*.framework" -print0 | while IFS= read -r -d '' item; do
+                codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime "$item"
+              done
+              find "$APP/Contents/Frameworks" -type f -name "*.dylib" -print0 | while IFS= read -r -d '' item; do
+                codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime "$item"
+              done
+            fi
+
+            # Sign zmx helper binary
+            if [ -f "$APP/Contents/MacOS/zmx" ]; then
+              codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime \
+                --entitlements "$ENTITLEMENTS" "$APP/Contents/MacOS/zmx"
+            fi
+
+            # Sign the main app bundle
+            codesign --force --sign "$SIGNING_IDENTITY" --timestamp --options runtime \
+              --entitlements "$ENTITLEMENTS" "$APP"
+          else
+            echo "Ad-hoc signing (no Developer ID configured)..."
+            codesign --force --deep --sign - "$APP"
+          fi
+
+          # Verify
+          codesign --verify --deep --strict --verbose "$APP"
+          echo "App bundle signed and verified"
+
+      # --- Notarization (only with Developer ID) ---
+
+      - name: Submit app for notarization
+        if: steps.signing.outputs.can_sign == 'true'
+        id: notarize_submit
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          echo "Creating ZIP for notarization..."
+          ditto -c -k --keepParent AgentStudio.app AgentStudio-notarize.zip
+
+          echo "Submitting to Apple notary service..."
+          SUBMISSION_ID=$(xcrun notarytool submit AgentStudio-notarize.zip \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_NOTARY_PASSWORD" \
+            --output-format json | jq -r '.id // empty')
+
+          if [ -z "$SUBMISSION_ID" ] || [ "$SUBMISSION_ID" = "null" ]; then
+            echo "::error::Failed to extract submission ID from notarization response"
+            exit 1
+          fi
+
+          echo "submission_id=$SUBMISSION_ID" >> "$GITHUB_OUTPUT"
+          echo "Submission ID: $SUBMISSION_ID"
+
+      - name: Wait for notarization
+        if: steps.signing.outputs.can_sign == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_NOTARY_PASSWORD: ${{ secrets.APPLE_NOTARY_PASSWORD }}
+          SUBMISSION_ID: ${{ steps.notarize_submit.outputs.submission_id }}
+        run: |
+          set -euo pipefail
+
+          echo "Waiting for notarization: $SUBMISSION_ID (up to 30m)..."
+          if ! xcrun notarytool wait "$SUBMISSION_ID" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_NOTARY_PASSWORD" \
+            --timeout 30m; then
+            echo "::error::Notarization failed or timed out."
+
+            echo "Current status:"
+            xcrun notarytool info "$SUBMISSION_ID" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_NOTARY_PASSWORD" || true
+
+            echo "Fetching notarization log..."
+            xcrun notarytool log "$SUBMISSION_ID" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_NOTARY_PASSWORD" notary-log.json || true
+            test -f notary-log.json && cat notary-log.json || true
+
+            exit 1
+          fi
+
+      - name: Staple notarization ticket
+        if: steps.signing.outputs.can_sign == 'true'
+        run: |
+          set -euo pipefail
+          xcrun stapler staple AgentStudio.app
+          spctl --assess --type execute --verbose AgentStudio.app
+          rm -f AgentStudio-notarize.zip
+
+      # --- Package and release ---
 
       - name: Create ZIP Archive
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          zip -r "AgentStudio-${VERSION}-macos.zip" AgentStudio.app
+          VERSION="${{ steps.version.outputs.version }}"
+          ditto -c -k --keepParent AgentStudio.app "AgentStudio-${VERSION}-macos.zip"
           echo "ARTIFACT_NAME=AgentStudio-${VERSION}-macos.zip" >> $GITHUB_ENV
 
       - name: Compute SHA256
@@ -157,8 +330,15 @@ jobs:
           echo "SHA256: $SHA256"
           echo "RELEASE_SHA256=$SHA256" >> $GITHUB_ENV
 
+      - name: Upload artifact as backup
+        uses: actions/upload-artifact@v4
+        with:
+          name: AgentStudio-${{ steps.version.outputs.version }}
+          path: ${{ env.ARTIFACT_NAME }}
+
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
         with:
           files: ${{ env.ARTIFACT_NAME }}
           generate_release_notes: true
@@ -168,3 +348,40 @@ jobs:
             **SHA256:** `${{ env.RELEASE_SHA256 }}`
         env:
           GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      # --- Update Homebrew tap ---
+
+      - name: Update Homebrew tap
+        if: startsWith(github.ref, 'refs/tags/') && !contains(github.ref, 'alpha') && !contains(github.ref, 'beta')
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.version }}"
+          SHA256="${{ env.RELEASE_SHA256 }}"
+          # Strip 'v' prefix for cask version
+          CASK_VERSION="${VERSION#v}"
+
+          # Use credential helper to avoid PAT in git clone URL
+          git config --global credential.helper store
+          echo "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com" > ~/.git-credentials
+
+          git clone https://github.com/ShravanSunder/homebrew-agentstudio.git /tmp/homebrew-tap
+          cd /tmp/homebrew-tap
+
+          # Line-anchored sed to avoid matching comments or other fields
+          sed -i '' 's/^  version ".*"$/  version "'"${CASK_VERSION}"'"/' Casks/agent-studio.rb
+          sed -i '' 's/^  sha256 ".*"$/  sha256 "'"${SHA256}"'"/' Casks/agent-studio.rb
+
+          # Validate the update worked
+          grep -q "version \"${CASK_VERSION}\"" Casks/agent-studio.rb || { echo "::error::Failed to update cask version"; exit 1; }
+          grep -q "sha256 \"${SHA256}\"" Casks/agent-studio.rb || { echo "::error::Failed to update cask sha256"; exit 1; }
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/agent-studio.rb
+          git commit -m "Update agent-studio to v${CASK_VERSION}"
+          git push origin main
+
+          # Clean up credentials
+          rm -f ~/.git-credentials

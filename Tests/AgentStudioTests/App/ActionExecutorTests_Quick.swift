@@ -6,6 +6,10 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct ActionExecutorTestsQuick {
+    init() {
+        installTestAtomRegistryIfNeeded()
+    }
+
     private struct ActionExecutorHarness {
         let store: WorkspaceStore
         let viewRegistry: ViewRegistry
@@ -26,7 +30,8 @@ struct ActionExecutorTestsQuick {
         let coordinator = PaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
-            runtime: runtime
+            runtime: runtime,
+            windowLifecycleStore: WindowLifecycleAtom()
         )
         let executor = ActionExecutor(coordinator: coordinator, store: store)
         return ActionExecutorHarness(
@@ -39,8 +44,8 @@ struct ActionExecutorTestsQuick {
         )
     }
 
-    @Test("openWebview creates a tab and registers a webview pane")
-    func openWebview_addsTabAndRegistersView() {
+    @Test("openWebview creates a generic GitHub tab without workspace association")
+    func openWebview_addsGenericGitHubTabAndRegistersView() {
         let harness = makeHarness()
         let store = harness.store
         let viewRegistry = harness.viewRegistry
@@ -48,13 +53,61 @@ struct ActionExecutorTestsQuick {
         let tempDir = harness.tempDir
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let pane = executor.openWebview(url: URL(string: "https://example.com")!)
+        let pane = executor.openWebview()
 
         #expect(pane != nil)
         #expect(store.tabs.count == 1)
         #expect(store.activeTabId == store.tabs[0].id)
-        #expect(viewRegistry.view(for: pane!.id) is WebviewPaneView)
+        #expect(viewRegistry.view(for: pane!.id) != nil)
         #expect(viewRegistry.webviewView(for: pane!.id) != nil)
+        #expect(pane?.webviewState?.url == URL(string: "https://github.com"))
+        #expect(pane?.repoId == nil)
+        #expect(pane?.worktreeId == nil)
+        #expect(pane?.metadata.cwd == nil)
+    }
+
+    @Test("openContextualWebviewInPane creates a split browser pane with inherited workspace association")
+    func openContextualWebviewInPane_addsSplitPaneWithAssociation() {
+        let harness = makeHarness()
+        let store = harness.store
+        let executor = harness.executor
+        let tempDir = harness.tempDir
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let repo = store.addRepo(at: tempDir.appending(path: "repo"))
+        guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
+            Issue.record("Expected main worktree")
+            return
+        }
+
+        let sourcePane = store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Source",
+            facets: PaneContextFacets(
+                repoId: repo.id,
+                repoName: repo.name,
+                worktreeId: worktree.id,
+                worktreeName: worktree.name,
+                cwd: worktree.path
+            )
+        )
+        let tab = Tab(paneId: sourcePane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let pane = executor.openContextualWebviewInPane(
+            sourcePaneId: sourcePane.id,
+            targetTabId: tab.id,
+            url: URL(string: "https://github.com/ShravanSunder/agentstudio/pulls")!
+        )
+
+        #expect(pane != nil)
+        #expect(store.tab(tab.id)?.paneIds.count == 2)
+        #expect(store.tab(tab.id)?.activePaneId == pane?.id)
+        #expect(pane?.webviewState?.url == URL(string: "https://github.com/ShravanSunder/agentstudio/pulls"))
+        #expect(pane?.repoId == repo.id)
+        #expect(pane?.worktreeId == worktree.id)
+        #expect(pane?.metadata.cwd == worktree.path)
     }
 
     @Test("repair recreateSurface replaces a missing webview view")
@@ -69,7 +122,7 @@ struct ActionExecutorTestsQuick {
 
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "about:blank")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Web"))
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Web"))
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -82,13 +135,11 @@ struct ActionExecutorTestsQuick {
 
         viewRegistry.unregister(pane.id)
 
-        let revisionBefore = store.viewRevision
         executor.execute(.repair(.recreateSurface(paneId: pane.id)))
 
         let afterView = viewRegistry.view(for: pane.id)
         #expect(afterView != nil)
         #expect(afterView !== beforeView)
-        #expect(store.viewRevision == revisionBefore + 1)
     }
 
     @Test("minimizePane hides pane and expandPane restores active pane")
@@ -99,8 +150,8 @@ struct ActionExecutorTestsQuick {
         let tempDir = harness.tempDir
         defer { try? FileManager.default.removeItem(at: tempDir) }
 
-        let paneOne = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let paneTwo = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let paneOne = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let paneTwo = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: paneOne.id)
         store.appendTab(tab)
         store.insertPane(
@@ -108,7 +159,7 @@ struct ActionExecutorTestsQuick {
             inTab: tab.id,
             at: paneOne.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
 
         executor.execute(.minimizePane(tabId: tab.id, paneId: paneOne.id))
@@ -116,7 +167,7 @@ struct ActionExecutorTestsQuick {
             Issue.record("Expected tab \(tab.id) after minimizing pane")
             return
         }
-        #expect(minimized.minimizedPaneIds == Set([paneOne.id]))
+        #expect(minimized.activeMinimizedPaneIds == Set([paneOne.id]))
         #expect(minimized.activePaneId == paneTwo.id)
 
         executor.execute(.expandPane(tabId: tab.id, paneId: paneOne.id))
@@ -124,7 +175,51 @@ struct ActionExecutorTestsQuick {
             Issue.record("Expected tab \(tab.id) after expanding pane")
             return
         }
-        #expect(expanded.minimizedPaneIds == Set<UUID>())
+        #expect(expanded.activeMinimizedPaneIds == Set<UUID>())
         #expect(expanded.activePaneId == paneOne.id)
+    }
+
+    @Test("expandPane does not restore unrelated missing visible views")
+    func expandPane_doesNotInvokeVisibleViewRestoreSweep() {
+        let harness = makeHarness()
+        let store = harness.store
+        let viewRegistry = harness.viewRegistry
+        let coordinator = harness.coordinator
+        let executor = harness.executor
+        let tempDir = harness.tempDir
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        coordinator.windowLifecycleStore.recordTerminalContainerBounds(CGRect(x: 0, y: 0, width: 1000, height: 600))
+        coordinator.windowLifecycleStore.recordLaunchLayoutSettled()
+
+        let paneOne = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com/one")!)),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "One"), title: "One")
+        )
+        let paneTwo = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://example.com/two")!)),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Two"), title: "Two")
+        )
+        let tab = Tab(paneId: paneOne.id)
+        store.appendTab(tab)
+        store.insertPane(
+            paneTwo.id,
+            inTab: tab.id,
+            at: paneOne.id,
+            direction: .horizontal,
+            position: .after, sizingMode: .halveTarget
+        )
+
+        _ = coordinator.createViewForContent(
+            pane: paneOne,
+            initialFrame: CGRect(x: 0, y: 0, width: 500, height: 600)
+        )
+        #expect(viewRegistry.view(for: paneOne.id) != nil)
+        #expect(viewRegistry.view(for: paneTwo.id) == nil)
+
+        executor.execute(.minimizePane(tabId: tab.id, paneId: paneOne.id))
+        executor.execute(.expandPane(tabId: tab.id, paneId: paneOne.id))
+
+        #expect(viewRegistry.view(for: paneTwo.id) == nil)
     }
 }

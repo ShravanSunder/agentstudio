@@ -42,7 +42,7 @@ func makeRepo(
 
 func makePane(
     id: UUID = UUIDv7.generate(),
-    source: TerminalSource = .floating(workingDirectory: nil, title: nil),
+    source: TerminalSource = .floating(launchDirectory: nil, title: nil),
     title: String = "Terminal",
     provider: SessionProvider = .zmx,
     lifetime: SessionLifetime = .persistent,
@@ -58,12 +58,12 @@ func makePane(
 
 // MARK: - Tab Factory (multi-pane)
 
-func makeTab(paneIds: [UUID], activePaneId: UUID? = nil) -> Tab {
+func makeTab(paneIds: [UUID], activePaneId: UUID? = nil, name: String = "Tab") -> Tab {
     guard let first = paneIds.first else {
         fatalError("Need at least one pane ID")
     }
     if paneIds.count == 1 {
-        return Tab(paneId: first)
+        return Tab(paneId: first, name: name)
     }
     // Build layout by inserting subsequent panes
     var layout = Layout(paneId: first)
@@ -72,8 +72,8 @@ func makeTab(paneIds: [UUID], activePaneId: UUID? = nil) -> Tab {
             paneId: paneIds[i],
             at: paneIds[i - 1],
             direction: .horizontal,
-            position: .after
-        )
+            position: .after, sizingMode: .halveTarget
+        )!
     }
     let arrangement = PaneArrangement(
         name: "Default",
@@ -82,6 +82,7 @@ func makeTab(paneIds: [UUID], activePaneId: UUID? = nil) -> Tab {
         visiblePaneIds: Set(paneIds)
     )
     return Tab(
+        name: name,
         panes: paneIds,
         arrangements: [arrangement],
         activeArrangementId: arrangement.id,
@@ -92,7 +93,7 @@ func makeTab(paneIds: [UUID], activePaneId: UUID? = nil) -> Tab {
 // MARK: - SurfaceMetadata Factory
 
 func makeSurfaceMetadata(
-    workingDirectory: String? = "/tmp/test-dir",
+    launchDirectory: String? = "/tmp/test-dir",
     command: String? = nil,
     title: String = "Terminal",
     worktreeId: UUID? = nil,
@@ -100,7 +101,7 @@ func makeSurfaceMetadata(
     paneId: UUID? = nil
 ) -> SurfaceMetadata {
     SurfaceMetadata(
-        workingDirectory: workingDirectory.map { URL(fileURLWithPath: $0) },
+        launchDirectory: launchDirectory.map { URL(fileURLWithPath: $0) },
         command: command,
         title: title,
         worktreeId: worktreeId,
@@ -112,14 +113,14 @@ func makeSurfaceMetadata(
 // MARK: - PaneSessionHandle Factory
 
 func makePaneSessionHandle(
-    id: String = "agentstudio--a1b2c3d4e5f6a7b8--00112233aabbccdd--a1b2c3d4e5f6a7b8",
+    id: String = "as-a1b2c3d4e5f6a7b8-00112233aabbccdd-a1b2c3d4e5f6a7b8",
     paneId: UUID = UUID(),
     projectId: UUID = UUID(),
     worktreeId: UUID = UUID(),
     repoPath: String = "/tmp/test-repo",
     worktreePath: String = "/tmp/test-repo/feature-branch",
     displayName: String = "test",
-    workingDirectory: String = "/tmp/test-repo/feature-branch"
+    launchDirectory: String = "/tmp/test-repo/feature-branch"
 ) -> PaneSessionHandle {
     PaneSessionHandle(
         id: id,
@@ -129,6 +130,6 @@ func makePaneSessionHandle(
         repoPath: URL(fileURLWithPath: repoPath),
         worktreePath: URL(fileURLWithPath: worktreePath),
         displayName: displayName,
-        workingDirectory: URL(fileURLWithPath: workingDirectory)
+        launchDirectory: URL(fileURLWithPath: launchDirectory)
     )
 }

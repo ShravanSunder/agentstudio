@@ -80,6 +80,9 @@ extension WebKitSerializedTests {
     @MainActor
     @Suite(.serialized)
     final class BridgeWebKitSpikeTests {
+        init() {
+            installTestAtomRegistryIfNeeded()
+        }
 
         // MARK: - Item 1: WKContentWorld creation and identity
 

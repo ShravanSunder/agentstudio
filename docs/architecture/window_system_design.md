@@ -2,6 +2,24 @@
 
 > Agent Studio — Dynamic Window System Architecture
 
+> ⚠️ **OUTDATED — read with caution.** This doc was written early in the project and parts of it have drifted from the actual implementation and from newer architecture docs. **It is not authoritative for any of the concepts it covers.** A dedicated cleanup ticket is needed to reconcile it against the current code.
+>
+> **Specific known issues:**
+>
+> - **Internal contradiction on drawer-pane lifecycle.** Section "Transient State" (~line 121) describes an "Orphaned pane pool" with a 5-minute TTL into which drawer panes are promoted when their parent is deleted. Later, section "Concept 3: Drawer" (~line 345) says parent-pane deletion **backgrounds** drawer panes. Those are two different stories about the same lifecycle. The actual code behavior should be checked and the loser removed.
+> - **Stale ownership naming (now fixed in this doc).** Older revisions said management-layer state was stored in `ManagementLayerMonitor.shared` (~line 553). Per [`appkit_swiftui_architecture.md`](appkit_swiftui_architecture.md) the canonical owner is `ManagementLayerAtom` and `ManagementLayerMonitor` is a side-effect observer. The reference here has been updated, but other instances of the older mental model may persist in this doc.
+> - **Pre-LUNA-361 mental model.** Sections discussing notification routing, sidebar surfaces, or composition state may reflect designs that have been superseded by the [Notification Inbox spec](../superpowers/specs/2026-04-17-notification-inbox-design.md) and the [Interaction Model WIP](../superpowers/specs/2026-04-18-interaction-model-wip.md).
+>
+> **Authoritative docs for the concepts this one covers:**
+>
+> - [`component_architecture.md`](component_architecture.md) — atoms, stores, coordinator, persistence
+> - [`workspace_data_architecture.md`](workspace_data_architecture.md) — three-tier persistence, sidebar data flow
+> - [`appkit_swiftui_architecture.md`](appkit_swiftui_architecture.md) — AppKit + SwiftUI hybrid, controller layer
+> - [`directory_structure.md`](directory_structure.md) — module boundaries, Feature Slice Self-Containment
+> - [`pane_runtime_architecture.md`](pane_runtime_architecture.md) — runtime contracts, event taxonomy
+>
+> Consult those first. Use this doc only for the foundational concepts (pane/tab/drawer/dynamic-view definitions) that haven't been re-described elsewhere, and verify against code before relying on any specific claim.
+
 See [JTBD & Requirements](jtbd_and_requirements.md) for the motivation, pain points, and requirements this design addresses.
 
 ---
@@ -550,7 +568,7 @@ Multiple UI surfaces that trigger operations through the same `PaneActionCommand
 
 A window-level toggle that enables pane manipulation controls. When off, panes show clean content with no distractions. When on, hover reveals controls for rearranging, splitting, minimizing, and closing panes.
 
-- Stored in `ManagementModeMonitor.shared` — singleton `@Observable` with `private(set) var isActive: Bool`
+- Stored in `ManagementLayerAtom` (`Core/State/MainActor/Atoms/ManagementLayerAtom.swift`) — `@Observable @MainActor` with `private(set) var isActive: Bool`. `ManagementLayerMonitor` (`App/Lifecycle/`) is a side-effect observer, not the canonical owner. See [appkit_swiftui_architecture.md](appkit_swiftui_architecture.md) for the three-component split.
 - Toggled via toolbar button (separate button group, left of "Add Repo") or keyboard shortcut
 - Icon: `slider.horizontal.3`, highlighted when active
 
@@ -648,7 +666,7 @@ When a pane is minimized, it collapses to a narrow bar. Not gated on edit mode �
 - Width: 30px (horizontal splits) / Height: 30px (vertical splits)
 - Click body: expands the pane (dispatches `.expandPane`)
 - Hamburger menu: Expand, Close options
-- Minimize state: `minimizedPaneIds: Set<UUID>` on Tab (transient, not persisted)
+- Minimize state: `minimizedPaneIds: Set<UUID>` on `PaneArrangement` (arrangement-scoped and persisted)
 
 ### Tab Bar Layout
 
@@ -731,6 +749,49 @@ Populated drawer:
 - Click icon to switch active drawer pane
 - Right-click icon for close
 - Panel slides up from bottom, overlays terminal content
+
+---
+
+## Implementation Notes
+
+These are architectural details discovered during implementation that affect the window system design.
+
+### Flat Strip Direction Mapping
+
+The current layout is a horizontal flat pane strip — vertical splits are not supported. Ghostty's keybindings emit vertical split/focus/resize directions (up, down) which are mapped to horizontal equivalents in `PaneCoordinator`:
+
+| Ghostty direction | Mapped to | Applies to |
+|-------------------|-----------|------------|
+| `up` | `left` | split, resize, focus |
+| `down` | `right` | split, resize, focus |
+| `left` | `left` | unchanged |
+| `right` | `right` | unchanged |
+| `previous` / `next` | `focusPrevPane` / `focusNextPane` | focus only |
+
+This mapping lives in `mapSplitDirection`, `mapResizeSplitDirection`, and `mapGotoSplitDirection` in `App/Coordination/PaneCoordinator.swift`.
+
+### Drawer Pane Tab Resolution
+
+`ActionStateSnapshot` builds a reverse lookup `paneToTab: [UUID: UUID]` for O(1) pane-to-tab resolution. Drawer panes are included via their parent: `lookup[drawerPaneId] = lookup[parentPaneId]`. A drawer cannot exist without its parent (hard invariant), so the parent is always in the lookup when drawer entries are added.
+
+Without this, action validation could reject drawer close actions because the drawer pane ID wouldn't resolve to any tab.
+
+### Terminal Process Termination Routing
+
+When a terminal process exits, `PaneTabViewController.handleTerminalProcessTerminated` routes the close action differently based on pane state:
+
+| Pane state | Routing |
+|-----------|---------|
+| Drawer child | `removeDrawerPane(parentPaneId:, drawerPaneId:)` |
+| Visible in active arrangement | Normal validated `closePane` / `closeTab` |
+| Hidden by active arrangement | `executor.executeTrusted()` — bypasses arrangement validation |
+| Orphaned (not in any tab) | Logged and ignored |
+
+The `executeTrusted` path exists because arrangement validation rejects close actions for hidden panes, but process termination must still clean up the underlying pane regardless of arrangement visibility.
+
+### Close Transitions
+
+`PaneCloseTransitionCoordinator` provides visual feedback before actual close. When a pane close begins, the pane is marked as "closing" (opacity 0.58, scale 0.985, non-interactive) and the actual `closePane` action dispatches after a short delay. This prevents the jarring instant-removal that AppKit split layout changes produce.
 
 ---
 

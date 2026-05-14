@@ -48,7 +48,7 @@ Each contract (C1-C16) has a specific relationship to the EventBus:
 | C13 | Workflow Engine | Consumer (deferred) | EventBus → @MainActor | Future bus subscriber |
 | C14 | Replay Buffer | Internal | @MainActor | Per-runtime, filled at emit time |
 | C15 | Process Channel | Source (deferred) | Future boundary | Not through EventBus (request/response) |
-| C16 | Filesystem Context | Projection (deferred) | @MainActor | Derived from C6 events on MainActor |
+| C16 | Filesystem Context | Projection | @MainActor | `PaneFilesystemProjectionAtom` derives per-pane snapshots from C6 events on MainActor |
 
 ## Architecture Overview
 
@@ -96,14 +96,20 @@ The app has two separate event buses. They serve different purposes and carry di
 
 | Bus | Type | Purpose | Producers | Consumers |
 |-----|------|---------|-----------|-----------|
-| `PaneRuntimeEventBus` | `EventBus<RuntimeEnvelope>` | Runtime facts: filesystem changes, git status, forge data, topology | FilesystemActor, GitProjector, ForgeActor, AppDelegate (boot topology replay) | WorkspaceCacheCoordinator, ForgeActor (fan-out) |
+| `PaneRuntimeEventBus` | `EventBus<RuntimeEnvelope>` | Runtime facts: filesystem changes, git status, forge data, topology, terminal activity, notification-relevant pane facts | FilesystemActor, GitProjector, ForgeActor, AppDelegate (boot topology replay), pane runtimes, terminal activity derivers | WorkspaceCacheCoordinator, ForgeActor (fan-out), NotificationReducer, inbox feature consumers, pane coordinators |
 | `AppEventBus` | `EventBus<AppEvent>` | App-level notifications that are not commands | App shell coordinators, terminal/viewport notifications | AppDelegate and small app-shell consumers |
 
-**These are not redundant.** `AppEventBus` carries app-level notifications such as `.worktreeBellRang` and other app-shell fan-out that is not itself a workspace command. `PaneRuntimeEventBus` carries system facts (`.repoDiscovered`, `.snapshotChanged`, `.pullRequestCountsChanged`). Workspace work does **not** route through `AppEventBus`; it uses `PaneActionCommand` and the validated coordinator pipeline directly. AppKit/macOS lifecycle ingress uses `ApplicationLifecycleMonitor` plus lifecycle stores, not either bus. A notification on `AppEventBus` may RESULT in a runtime fact on `PaneRuntimeEventBus`, but they are different events with different semantics.
+**These are not redundant.** `AppEventBus` carries app-level notifications such as `.worktreeBellRang` (pre-LUNA-361; see note below) and other app-shell fan-out that is not itself a workspace command. `PaneRuntimeEventBus` carries system facts (`.repoDiscovered`, `.snapshotChanged`, `.pullRequestCountsChanged`). Workspace work does **not** route through `AppEventBus`; it uses `PaneActionCommand` and the validated coordinator pipeline directly. AppKit/macOS lifecycle ingress uses `ApplicationLifecycleMonitor` plus lifecycle stores, not either bus. A notification on `AppEventBus` may RESULT in a runtime fact on `PaneRuntimeEventBus`, but they are different events with different semantics.
+
+> **Note on `.worktreeBellRang` (post LUNA-361).** The notification inbox feature consumes `GhosttyEvent.bellRang` directly from `PaneRuntimeEventBus` via the notification inbox promoter/router, not from `AppEventBus.worktreeBellRang`. Whether the existing `AppEventBus.worktreeBellRang` post in `PaneCoordinator` stays as a peer signal for other consumers or is removed is a follow-up decision; the notification inbox does not depend on it.
+
+> **Derived notification rule.** Inferred terminal activity such as unseen output bursts stays on the existing runtime event plane. Do not add a third derived-activity bus. A terminal activity deriver translates qualifying high-volume runtime facts into typed, lower-volume product facts under the non-Ghostty namespace `PaneRuntimeEvent.terminalActivity(TerminalActivityEvent)`. Derived product facts use the deriver's own `EventSource` and monotonic sequence space so they do not duplicate the causal pane runtime event's `(source, seq)`. Because the event is still carried in `RuntimeEnvelope.pane`, visibility tiering resolves through `PaneEnvelope.paneId`, not through the derived provenance source. Feature-level inbox promotion remains the single owner of promotion, coalescing, and `InboxNotificationAtom` writes. Trace records observe these product facts; tracing must never be the source of product notification behavior.
+
+The feature-level inbox promoter is not Contract 12. C12 remains the runtime-plane `NotificationReducer` contract in [Pane Runtime Architecture](pane_runtime_architecture.md#contract-12-notificationreducer). The LUNA-361 inbox promoter is an additional feature consumer on the bus that translates notification-relevant runtime facts into `InboxNotificationAtom` mutations.
 
 All topology events (`.repoDiscovered`, `.repoRemoved`) and enrichment events (`.snapshotChanged`, `.branchChanged`) flow through `PaneRuntimeEventBus`. The coordinator's bus subscription is the single intake. AppDelegate posts `.repoDiscovered` on the bus for boot replay; `FilesystemActor` posts `.repoDiscovered` and `.repoRemoved` on the bus when diffing watched-folder refreshes.
 
-> **Files:** `Core/PaneRuntime/Events/EventChannels.swift` defines `PaneRuntimeEventBus`. `App/Events/` defines `AppEvent` and `AppEventBus`.
+> **Files:** `Core/RuntimeEventSystem/Events/EventChannels.swift` defines `PaneRuntimeEventBus`. `App/Events/` defines `AppEvent` and `AppEventBus`.
 
 ## Direct Commands Use Capability Protocols
 
@@ -311,7 +317,7 @@ Pane/tab lifecycle transitions. Originate on MainActor, rare, but multiple consu
 | `paneClosed` | `PaneCoordinator` | Rare | Yes |
 | `tabSwitched` | `WorkspaceStore` | Low | Yes |
 
-App shell lifecycle is intentionally separate from this bus. Application active/resign/terminate and window key/focus events are translated by `ApplicationLifecycleMonitor` into `AppLifecycleStore` and `WindowLifecycleStore` state instead of being published here.
+App shell lifecycle is intentionally separate from this bus. Application active/resign/terminate and window key/focus events are translated by `ApplicationLifecycleMonitor` into `AppLifecycleAtom` and `WindowLifecycleAtom` state instead of being published here.
 
 ## Actor Inventory
 
@@ -356,7 +362,7 @@ actor EventBus<Envelope: Sendable> {
 **Why actor, not class with lock:** Swift actors are the standard concurrency primitive. The cooperative pool gives fair scheduling without dedicated thread overhead. `await bus.post()` is the consistent interface for all producers regardless of their isolation context.
 
 **Buffer policy:** `AsyncStream.makeStream()` defaults to unbounded buffering. Under burst conditions (agent dumps 500 lines → 500 events in quick succession), subscriber streams can grow unbounded. Policy per subscriber tier:
-- **Critical subscribers** (NotificationReducer, PaneCoordinator): unbounded. These must never drop events — correctness depends on completeness. They consume quickly on MainActor.
+- **Critical subscribers** (NotificationReducer, feature-level inbox promoters, PaneCoordinator): unbounded. These must never drop events — correctness depends on completeness. They consume quickly on MainActor.
 - **Lossy subscribers** (analytics, logging, future plugin sinks): use `.bufferingPolicy(.bufferingNewest(100))` on `makeStream()`. Dropping oldest events under burst is acceptable — these consumers don't need total recall.
 - **The bus itself does not enforce buffer policy** — it yields to every continuation unconditionally. Buffer policy is chosen at `subscribe()` time by the caller, not imposed by the bus. This keeps the bus dumb.
 
@@ -487,7 +493,7 @@ The command doesn't post to the bus directly — the reactive system handles fan
 
 ### `@MainActor` (existing, extended)
 
-All runtimes (`TerminalRuntime`, future `BridgeRuntime`, `WebviewRuntime`, `SwiftPaneRuntime`), all stores (`WorkspaceStore`, `WorkspaceRepoCache`, `WorkspaceUIStore`, `SurfaceManager`, `SessionRuntime`), `PaneCoordinator`, `WorkspaceCacheCoordinator`, `NotificationReducer`, views, `ViewRegistry`.
+All runtimes (`TerminalRuntime`, future `BridgeRuntime`, `WebviewRuntime`, `SwiftPaneRuntime`), all stores (`WorkspaceStore`, `RepoCacheAtom`, `UIStateAtom`, `SurfaceManager`, `SessionRuntime`), `PaneCoordinator`, `WorkspaceCacheCoordinator`, NotificationReducer, feature-level inbox promoters/routers, views, `ViewRegistry`.
 
 These consume from EventBus via `for await`:
 
@@ -521,7 +527,7 @@ SE-0461 changes the default isolation behavior for `nonisolated async` functions
 - **`@concurrent nonisolated`** explicitly runs on cooperative pool. `nonisolated` opts out of the enclosing actor's isolation; `@concurrent` opts into pool execution. This is the project's preferred pattern for offloading CPU-bound work, replacing most uses of `Task.detached`.
 - **NOT `nonisolated async` alone** — in Swift 6.2, `nonisolated async` means `nonisolated(nonsending)` by default: it inherits caller isolation. A `nonisolated async` method called from `@MainActor` runs ON MainActor in 6.2. This is a behavioral change from Swift 6.0.
 - **Prefer `@concurrent` over `Task.detached`** (project policy) — `Task.detached` strips task priority, task-locals, and structured concurrency. `@concurrent` preserves all of these. Exception: `Task.detached` remains appropriate when you explicitly need to escape structured concurrency (e.g., fire-and-forget background work that must outlive the calling scope) or when you need to strip inherited task-locals intentionally.
-- **PaneRuntimeEventChannel bus bridge is an explicit exception** — pane-local subscribers + replay are synchronous and ordered; global EventBus fanout uses a fire-and-forget `Task` so runtime emit paths stay non-blocking. This accepts best-effort cross-runtime fanout (no structured backpressure on that hop) in exchange for keeping pane command handling responsive.
+- **PaneRuntimeEventChannel bus bridge uses a bounded outbound `AsyncStream`** — pane-local subscribers + replay remain synchronous and ordered, while global EventBus fanout drains from one dedicated outbound stream per runtime. This preserves FIFO ordering without a Task-per-event hop and keeps runtime emit paths synchronous at the call site.
 - **Avoid `MainActor.run` in this architecture** — in the typical pattern of awaiting a `@concurrent nonisolated` function from a `@MainActor` caller, the compiler handles the hop back automatically. `MainActor.run` is still valid Swift when you genuinely need to hop TO MainActor from a non-MainActor isolated context (e.g., inside a `nonisolated` actor method that needs a one-off MainActor call), but in our architecture's common paths it adds unnecessary noise.
 
 ### Pattern: Runtime offloads heavy work
@@ -621,6 +627,11 @@ Every edge in the architecture uses one of four patterns. The choice is mechanic
  │  No  + request-response    →  Direct await call         │
  │  No  + UI binding          →  @Observable               │
  │  No  + one-shot/finite     →  Continuation / array      │
+ │                                                         │
+ │  ORDERING-SENSITIVE DEPENDENT EFFECTS:                   │
+ │  Consumer MUST run after another's mutation?             │
+ │  → Handler chain (typed delta, direct call after mutate) │
+ │  → NOT via bus (bus has no ordering guarantee)           │
  └─────────────────────────────────────────────────────────┘
 ```
 
@@ -761,9 +772,13 @@ Pure sink. Consumes from bus stream, writes to @Observable.
 
 | Direction | Connection | Pattern | Why |
 |-----------|-----------|---------|-----|
-| **In** | `for await envelope in await bus.subscribe()` | **AsyncStream** (from bus) | Decoupled consumption from bus. |
+| **In** | `TopologyEffectHandler.topologyDidChange(delta)` | Direct call from coordinator | Deterministic post-topology effects. Replaces bus topology subscription for ordering-sensitive work. |
+| **In** | `for await envelope in await bus.subscribe()` | **AsyncStream** (from bus) | Worktree-scoped and pane-scoped events only. No longer subscribes to topology events on the bus. |
 | **Out** | `runtime.handleCommand(envelope)` | Direct call | Command dispatch is request-response. |
 | **Out** | Store mutations | Direct call | `workspace.closeTab()`, `surfaces.moveSurfacesToUndo()` — known targets. |
+| **Out** | `filesystemSource.register/unregister` | Direct call | Filesystem root sync after topology changes — sole owner of registration. |
+
+**Note:** PaneCoordinator no longer subscribes to `.system(.topology)` events on the bus. It receives topology changes exclusively via the `TopologyEffectHandler` protocol, which the coordinator calls after mutating the store. This makes ordering deterministic — the store is always mutated before PaneCoordinator reacts.
 
 #### Sink+Source actors (CheckpointActor pattern, future)
 
@@ -946,7 +961,7 @@ RUNTIME → SWIFTUI VIEW (zero-overhead binding):
                │  (compiler-generated, zero overhead)
                ▼
   ┌──────────────────────────────────────┐
-  │  AgentStudioTerminalView             │
+  │  TerminalPaneMountView               │
   │                                      │
   │  Text(runtime.title)       ← binds   │
   │  ScrollBar(runtime         ← binds   │
@@ -979,12 +994,12 @@ PROJECTION (C16: filesystem context → view):
        │  filter: source == .system(.builtin(.filesystemWatcher))
        │  filter: worktreeId matches pane's worktree
        ▼
-  PaneFilesystemContext (@MainActor, @Observable)
-  ┌──────────────────────────────────────┐
-  │  private(set) var changedFiles: ...  │◄─── updated from C6 events
-  │  private(set) var gitWorkingTree: ...│
-  │  private(set) var lastDiff: ...      │
-  └────────────┬─────────────────────────┘
+  PaneFilesystemProjectionAtom (@MainActor, @Observable)
+  ┌───────────────────────────────────────────────┐
+  │  private(set) var snapshotsByPaneId: [...]    │◄─── updated from C6 events
+  │  consume(_:panesById:worktreeRootsByWtId:)    │
+  │  prune(validPaneIds:validWorktreeIds:)        │
+  └────────────┬──────────────────────────────────┘
                │  @Observable binding
                ▼
   DiffPaneView / SidebarFileTree / etc.
@@ -1318,13 +1333,13 @@ Current codebase patterns that need migration to align with this design. Audited
 | Historical File | Historical Pattern | Historical Events | Severity |
 |------|---------|--------|----------|
 | `App/Panes/PaneTabViewController.swift` | 8 `for await` consumers, 3 `.post()` producers | selectTabById, extractPane, repairSurface, processTerminated, undoClose, refocusTerminal, webviewOpen, addRepo, filterSidebar, signIn | HIGH |
-| `App/MainSplitViewController.swift` | 6 `for await` consumers, 1 `addObserver` | openWorktree, tabClose, selectTab, sidebarToggle, newTerminal, sidebarFilter, willTerminate | HIGH |
+| `App/Windows/MainSplitViewController.swift` | 6 `for await` consumers, 1 `addObserver` | openWorktree, tabClose, selectTab, sidebarToggle, newTerminal, sidebarFilter, willTerminate | HIGH |
 | `Features/CommandBar/CommandBarDataSource.swift` | 5 `.post()` producers | selectTabById, openWorktreeRequested | HIGH |
 | `Features/Terminal/Ghostty/GhosttySurfaceView.swift` | 2 `.post()` producers | didUpdateWorkingDirectory, didUpdateRendererHealth | MEDIUM |
 | `Features/Terminal/Ghostty/Ghostty.swift` | 2 `for await` consumers, 2 `.post()` | ghosttyNewWindow, ghosttyCloseSurface, didBecomeActive, didResignActive | MEDIUM |
-| `Features/Terminal/Views/AgentStudioTerminalView.swift` | 2 `addObserver`, 2 `.post()` | surfaceClose, repairSurfaceRequested, terminalProcessTerminated | MEDIUM |
-| `App/MainWindowController.swift` | 2 `.post()` | filterSidebarRequested, addRepoRequested | LOW |
-| `App/AppDelegate.swift` | 1 `addObserver` | signIn OAuth callback | LOW |
+| `Features/Terminal/Hosting/TerminalPaneMountView.swift` | 2 `addObserver`, 2 `.post()` | surfaceClose, repairSurfaceRequested, terminalProcessTerminated | MEDIUM |
+| `App/Windows/MainWindowController.swift` | 2 `.post()` | filterSidebarRequested, addRepoRequested | LOW |
+| `App/Boot/AppDelegate.swift` | 1 `addObserver` | signIn OAuth callback | LOW |
 | `Features/Terminal/Ghostty/SurfaceManager.swift` | 1 `addObserver`, 1 `removeObserver` | Health notifications | LOW |
 
 This table is a historical inventory from the pre-hardening state. The current codebase has already removed the Ghostty mixed bus and the command-shaped `repairSurfaceRequested` app event path.
@@ -1352,7 +1367,7 @@ These methods don't need MainActor isolation — they take immutable input and r
 
 ### Phase 2: UI — Combine bridge patterns
 
-3 `.onReceive(NotificationCenter.default.publisher(...))` in `MainSplitViewController.swift` (lines 395-404). These bridge NotificationCenter to SwiftUI. They can migrate to EventBus subscriptions or direct store method calls when Phase 1 completes.
+3 `.onReceive(NotificationCenter.default.publisher(...))` in `App/Windows/MainSplitViewController.swift` (lines 395-404). These bridge NotificationCenter to SwiftUI. They can migrate to EventBus subscriptions or direct store method calls when Phase 1 completes.
 
 ### Phase 3: Polish — URLHistoryService JSON I/O
 

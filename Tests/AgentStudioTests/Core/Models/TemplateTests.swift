@@ -27,7 +27,11 @@ final class TemplateTests {
             provider: .zmx
         )
 
-        let pane = template.instantiate(worktreeId: worktreeId, repoId: repoId)
+        let pane = template.instantiate(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            launchDirectory: URL(fileURLWithPath: "/tmp/worktree")
+        )
 
         #expect(pane.title == "Claude Agent")
         #expect(pane.provider == .zmx)
@@ -74,7 +78,11 @@ final class TemplateTests {
             terminals: [TerminalTemplate(title: "Shell")]
         )
 
-        let (panes, tab) = template.instantiate(worktreeId: worktreeId, repoId: repoId)
+        let (panes, tab) = template.instantiate(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            launchDirectory: URL(fileURLWithPath: "/tmp/worktree")
+        )
 
         #expect(panes.count == 1)
         #expect(panes[0].title == "Shell")
@@ -98,7 +106,11 @@ final class TemplateTests {
             splitDirection: .horizontal
         )
 
-        let (panes, tab) = template.instantiate(worktreeId: worktreeId, repoId: repoId)
+        let (panes, tab) = template.instantiate(
+            worktreeId: worktreeId,
+            repoId: repoId,
+            launchDirectory: URL(fileURLWithPath: "/tmp/worktree")
+        )
 
         #expect(panes.count == 3)
         #expect(tab.paneIds.count == 3)
@@ -155,7 +167,11 @@ final class TemplateTests {
         // Invariant: persistent lifetime implies zmx provider.
         // A .ghostty + .persistent pane would claim persistence but have no zmx backend.
         let template = TerminalTemplate()
-        let pane = template.instantiate(worktreeId: UUID(), repoId: UUID())
+        let pane = template.instantiate(
+            worktreeId: UUID(),
+            repoId: UUID(),
+            launchDirectory: URL(fileURLWithPath: "/tmp/worktree")
+        )
 
         #expect(pane.provider == .zmx, "Persistent panes must use zmx provider")
         #expect(pane.lifetime == .persistent)
@@ -168,7 +184,11 @@ final class TemplateTests {
             name: "Test",
             terminals: [TerminalTemplate(title: "Shell")]
         )
-        let (panes, _) = template.instantiate(worktreeId: UUID(), repoId: UUID())
+        let (panes, _) = template.instantiate(
+            worktreeId: UUID(),
+            repoId: UUID(),
+            launchDirectory: URL(fileURLWithPath: "/tmp/worktree")
+        )
 
         for pane in panes {
             #expect(pane.provider == .zmx, "All template-instantiated panes must use zmx")

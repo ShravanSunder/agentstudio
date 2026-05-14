@@ -11,21 +11,38 @@ private let stateLogger = Logger(subsystem: "com.agentstudio", category: "Comman
 /// Always accessed on the main thread (SwiftUI views + AppKit panel controller).
 @Observable
 final class CommandBarState {
+    enum OpenMode: Equatable {
+        case prefix(String)
+        case defaultScope(CommandBarScope)
+    }
+
     // MARK: - Visibility
 
     var isVisible: Bool = false
 
     // MARK: - Search Input
 
-    /// Full raw text including prefix character (e.g., ">close", "@main").
+    /// Full raw text including any visible prefix characters (e.g., "> close", "$ main").
     var rawInput: String = "" {
-        didSet { selectedIndex = 0 }
+        didSet {
+            if let normalizedPrefix = Self.normalizedLeadingPrefix(for: rawInput, previousInput: oldValue),
+                rawInput != normalizedPrefix
+            {
+                rawInput = normalizedPrefix
+                return
+            }
+            selectedIndex = 0
+        }
     }
 
     // MARK: - Navigation
 
     /// Stack of nested levels. Empty = at root level.
     var navigationStack: [CommandBarLevel] = []
+
+    /// Root scope that remains stable while navigating nested levels.
+    private(set) var pinnedScope: CommandBarScope = .everything
+    private(set) var defaultRootScope: CommandBarScope = .everything
 
     // MARK: - Selection
 
@@ -39,33 +56,36 @@ final class CommandBarState {
 
     // MARK: - Computed — Prefix Parsing
 
-    /// Active prefix character: ">", "@", or nil.
+    /// Active prefix token: "> ", "$ ", "# ", or nil.
     var activePrefix: String? {
         guard navigationStack.isEmpty else { return nil }
-        guard let first = rawInput.first else { return nil }
-        let char = String(first)
-        return [">", "@", "#"].contains(char) ? char : nil
+        guard rawInput.count >= 2 else { return nil }
+        let twoChars = String(rawInput.prefix(2))
+        return ["> ", "$ ", "# "].contains(twoChars) ? twoChars : nil
     }
 
-    /// Search query text after stripping the prefix (and any leading space).
+    /// Search query text after stripping the active prefix token.
     var searchQuery: String {
         guard let prefix = activePrefix else { return rawInput }
-        let afterPrefix = String(rawInput.dropFirst(prefix.count))
-        // Strip the space we insert after the prefix for cursor positioning
-        if afterPrefix.first == " " {
-            return String(afterPrefix.dropFirst())
-        }
-        return afterPrefix
+        return String(rawInput.dropFirst(prefix.count))
     }
 
     /// Current scope derived from prefix.
     var activeScope: CommandBarScope {
         switch activePrefix {
-        case ">": return .commands
-        case "@": return .panes
-        case "#": return .repos
-        default: return .everything
+        case "> ": return .commands
+        case "$ ": return .panes
+        case "# ": return .repos
+        default: return defaultRootScope
         }
+    }
+
+    var currentScope: CommandBarScope {
+        isNested ? pinnedScope : activeScope
+    }
+
+    var hasPrefixInText: Bool {
+        activePrefix != nil && !rawInput.isEmpty
     }
 
     /// Whether we're in a nested navigation level.
@@ -74,9 +94,15 @@ final class CommandBarState {
     /// Current level for display (last in stack, or nil for root).
     var currentLevel: CommandBarLevel? { navigationStack.last }
 
-    /// Scope pill text components (only when nested).
-    var scopePillParent: String? { currentLevel?.parentLabel }
-    var scopePillChild: String? { currentLevel?.title }
+    /// Pill label: shows scopeLabel if set, otherwise falls back to title.
+    var scopePillLabel: String? { currentLevel?.scopeLabel ?? currentLevel?.title }
+
+    /// Back row label: shows title when scopeLabel is set (pill shows category),
+    /// nil when scopeLabel is absent (pill already shows title, bare ‹ suffices).
+    var backRowLabel: String? {
+        guard let level = currentLevel else { return nil }
+        return level.scopeLabel != nil ? level.title : nil
+    }
 
     // MARK: - Placeholder
 
@@ -88,32 +114,57 @@ final class CommandBarState {
         switch activeScope {
         case .everything: return "Search or jump to..."
         case .commands: return "Run a command..."
-        case .panes: return "Switch to pane..."
+        case .panes: return "Search panes..."
         case .repos: return "Open repo or worktree..."
+        case .inbox: return "Search inbox..."
         }
     }
 
-    /// SF Symbol name for the scope icon left of the search field.
+    /// Icon name for the scope indicator left of the search field.
     var scopeIcon: String {
         if isNested { return "magnifyingglass" }
         switch activeScope {
         case .everything: return "magnifyingglass"
         case .commands: return "chevron.right.2"
-        case .panes: return "at"
-        case .repos: return "number"
+        case .panes: return "terminal"
+        case .repos: return "octicon-repo"
+        case .inbox: return "bell"
         }
+    }
+
+    var scopeIconIsOcticon: Bool {
+        scopeIcon.hasPrefix("octicon-")
     }
 
     // MARK: - Actions
 
-    /// Show the command bar with an optional prefix pre-filled.
-    /// Adds a trailing space after known prefixes so the cursor lands after it.
-    func show(prefix: String? = nil) {
-        if let prefix, !prefix.isEmpty, [">", "@", "#"].contains(prefix) {
+    /// Show the command bar rooted at a specific scope.
+    func show(defaultScope: CommandBarScope = .everything) {
+        show(mode: .defaultScope(defaultScope))
+    }
+
+    /// Show the command bar with a prefix pre-filled.
+    func show(prefix: String) {
+        show(mode: .prefix(prefix))
+    }
+
+    private func show(mode: OpenMode) {
+        let prefix: String?
+        switch mode {
+        case .prefix(let requestedPrefix):
+            prefix = requestedPrefix
+            defaultRootScope = .everything
+        case .defaultScope(let scope):
+            prefix = nil
+            defaultRootScope = scope
+        }
+
+        if let prefix, !prefix.isEmpty, [">", "$", "#"].contains(prefix) {
             rawInput = prefix + " "
         } else {
             rawInput = prefix ?? ""
         }
+        pinnedScope = activeScope
         navigationStack = []
         selectedIndex = 0
         isVisible = true
@@ -124,6 +175,8 @@ final class CommandBarState {
     func dismiss() {
         isVisible = false
         rawInput = ""
+        pinnedScope = .everything
+        defaultRootScope = .everything
         navigationStack = []
         selectedIndex = 0
         stateLogger.debug("Command bar dismissed")
@@ -132,8 +185,32 @@ final class CommandBarState {
     /// Switch prefix in-place (when already open, pressing a different shortcut).
     func switchPrefix(_ prefix: String) {
         navigationStack = []
+        defaultRootScope = .everything
         rawInput = prefix.isEmpty ? "" : prefix + " "
+        pinnedScope = activeScope
         selectedIndex = 0
+    }
+
+    @MainActor
+    static func forOpen(
+        windowLifecycle: WindowLifecycleAtom,
+        managementLayer: ManagementLayerAtom,
+        uiState: UIStateAtom
+    ) -> CommandBarState {
+        let state = CommandBarState()
+        let owner = KeyboardOwner.current(
+            windowLifecycle: windowLifecycle,
+            managementLayer: managementLayer,
+            uiState: uiState
+        )
+        state.show(defaultScope: defaultScope(for: owner))
+        return state
+    }
+
+    /// Root-scope mapping is shared by the production AppDelegate open path and
+    /// the test fixture entry point above so new owner→scope rows stay in sync.
+    static func defaultScope(for owner: KeyboardOwner) -> CommandBarScope {
+        owner == .sidebar(.inbox) ? .inbox : .everything
     }
 
     /// Push a nested level onto the navigation stack.
@@ -175,6 +252,12 @@ final class CommandBarState {
     // MARK: - Persistence
 
     private static let recentsKey = "CommandBarRecentItemIds"
+
+    private static func normalizedLeadingPrefix(for input: String, previousInput: String) -> String? {
+        guard previousInput.isEmpty else { return nil }
+        guard [">", "$", "#"].contains(input) else { return nil }
+        return input + " "
+    }
 
     func loadRecents() {
         recentItemIds = UserDefaults.standard.stringArray(forKey: Self.recentsKey) ?? []

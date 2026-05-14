@@ -1,8 +1,5 @@
-## Linked Issue
+## Summary
 
-<!-- REQUIRED: Every PR must close or reference an issue. PRs without a linked issue will not be merged. -->
-
-Closes #<!-- REQUIRED: Add the issue number here. e.g., Closes #123 -->
 
 
 ---
@@ -11,11 +8,10 @@ Closes #<!-- REQUIRED: Add the issue number here. e.g., Closes #123 -->
 
 <!-- Most contributors use AI agents. Describe your approach: -->
 
-**Prompt used:**
+**Prompts used:**
 
 <!-- e.g. "Claude Code with the following prompt: ..." or "Implemented manually" -->
 
-**Key decisions made:**
 
 
 ---
@@ -24,8 +20,6 @@ Closes #<!-- REQUIRED: Add the issue number here. e.g., Closes #123 -->
 
 <!-- How was this tested? What should reviewers verify? -->
 
-- [ ]
-- [ ]
 
 ---
 

@@ -27,7 +27,7 @@ final class TabArrangementTests {
         let paneA = UUID()
         let paneB = UUID()
         let defaultLayout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let defaultArr = PaneArrangement(
             name: "Default", isDefault: true, layout: defaultLayout, visiblePaneIds: Set(defaultLayout.paneIds))
         let customArr = PaneArrangement(
@@ -51,7 +51,7 @@ final class TabArrangementTests {
         let paneA = UUID()
         let paneB = UUID()
         let defaultLayout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: defaultLayout)
         let customArr = PaneArrangement(
             name: "Solo", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
@@ -93,8 +93,8 @@ final class TabArrangementTests {
         let paneB = UUID()
         let paneC = UUID()
         let fullLayout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
-            .inserting(paneId: paneC, at: paneB, direction: .horizontal, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
+            .inserting(paneId: paneC, at: paneB, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: fullLayout)
         let focusArr = PaneArrangement(
             name: "Focus", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
@@ -117,7 +117,7 @@ final class TabArrangementTests {
         let paneA = UUID()
         let paneB = UUID()
         let splitLayout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: splitLayout)
 
         let tab = Tab(
@@ -201,7 +201,7 @@ final class TabArrangementTests {
         let paneA = UUID()
         let paneB = UUID()
         let splitLayout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: splitLayout)
         let customArr = PaneArrangement(
             name: "Focus", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
@@ -246,7 +246,7 @@ final class TabArrangementTests {
         let paneA = UUID()
         let paneB = UUID()
         let layout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
 
         let arr = PaneArrangement(name: "Test", isDefault: false, layout: layout)
 
@@ -259,7 +259,7 @@ final class TabArrangementTests {
         let paneA = UUID()
         let paneB = UUID()
         let layout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
 
         let arr = PaneArrangement(
             name: "Subset",
@@ -275,11 +275,15 @@ final class TabArrangementTests {
 
     func test_paneArrangement_codable_roundTrip() throws {
         let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arr = PaneArrangement(
             name: "Focus",
             isDefault: false,
-            layout: Layout(paneId: paneA),
-            visiblePaneIds: [paneA]
+            layout: layout,
+            visiblePaneIds: [paneA, paneB],
+            minimizedPaneIds: [paneB]
         )
 
         let data = try JSONEncoder().encode(arr)
@@ -288,7 +292,29 @@ final class TabArrangementTests {
         #expect(decoded.id == arr.id)
         #expect(decoded.name == "Focus")
         #expect(!(decoded.isDefault))
+        #expect(decoded.visiblePaneIds == [paneA, paneB])
+        #expect(decoded.minimizedPaneIds == [paneB])
+        #expect(decoded.layout.paneIds == [paneA, paneB])
+    }
+
+    @Test
+    func test_paneArrangement_decodeMissingMinimizedPaneIds_defaultsToEmpty() throws {
+        let paneA = UUID()
+        let data = Data(
+            """
+            {
+              "id":"\(UUID().uuidString)",
+              "name":"Focus",
+              "isDefault":false,
+              "layout":{"panes":[{"paneId":"\(paneA.uuidString)","ratio":1}],"dividerIds":[]},
+              "visiblePaneIds":["\(paneA.uuidString)"]
+            }
+            """.utf8
+        )
+
+        let decoded = try JSONDecoder().decode(PaneArrangement.self, from: data)
+
         #expect(decoded.visiblePaneIds == [paneA])
-        #expect(decoded.layout.paneIds == [paneA])
+        #expect(decoded.minimizedPaneIds.isEmpty)
     }
 }

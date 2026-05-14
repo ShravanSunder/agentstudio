@@ -124,7 +124,7 @@ final class SurfaceTypesTests {
         let wtId = UUID()
         let pId = UUID()
         let original = makeSurfaceMetadata(
-            workingDirectory: "/tmp/work",
+            launchDirectory: "/tmp/work",
             command: "zsh",
             title: "My Terminal",
             worktreeId: wtId,
@@ -146,7 +146,7 @@ final class SurfaceTypesTests {
     func test_surfaceMetadata_codable_nilOptionals_roundTrip() throws {
         // Arrange
         let original = SurfaceMetadata(
-            workingDirectory: nil,
+            launchDirectory: nil,
             command: nil,
             title: "Terminal",
             worktreeId: nil,
@@ -158,7 +158,7 @@ final class SurfaceTypesTests {
         let decoded = try JSONDecoder().decode(SurfaceMetadata.self, from: data)
 
         // Assert
-        #expect(decoded.workingDirectory == nil)
+        #expect(decoded.cwd == nil)
         #expect(decoded.command == nil)
         #expect(decoded.worktreeId == nil)
     }

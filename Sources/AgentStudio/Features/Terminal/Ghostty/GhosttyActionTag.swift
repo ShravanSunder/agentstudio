@@ -9,6 +9,7 @@ enum GhosttyActionTag: Sendable, CaseIterable {
     case newTab
     case ringBell
     case setTitle
+    case setTabTitle
     case pwd
     case newSplit
     case gotoSplit
@@ -91,6 +92,7 @@ enum GhosttyActionTag: Sendable, CaseIterable {
         case .newTab: return UInt32(GHOSTTY_ACTION_NEW_TAB.rawValue)
         case .ringBell: return UInt32(GHOSTTY_ACTION_RING_BELL.rawValue)
         case .setTitle: return UInt32(GHOSTTY_ACTION_SET_TITLE.rawValue)
+        case .setTabTitle: return UInt32(GHOSTTY_ACTION_SET_TAB_TITLE.rawValue)
         case .pwd: return UInt32(GHOSTTY_ACTION_PWD.rawValue)
         case .newSplit: return UInt32(GHOSTTY_ACTION_NEW_SPLIT.rawValue)
         case .gotoSplit: return UInt32(GHOSTTY_ACTION_GOTO_SPLIT.rawValue)

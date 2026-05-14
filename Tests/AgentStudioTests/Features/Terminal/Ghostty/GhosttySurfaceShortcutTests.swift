@@ -12,41 +12,70 @@ final class GhosttySurfaceShortcutTests {
 
     @Test
     func test_appOwnedShortcuts_containsAtLeast3() {
-        // Assert — at minimum the 3 command bar shortcuts are registered
+        // Assert — command bar shortcuts, drawer-pane creation, and terminal navigation are registered
         #expect(
-            Ghostty.SurfaceView.appOwnedShortcuts.count >= 3, "Expected at least 3 app-owned shortcuts (⌘P, ⌘⇧P, ⌘⌥P)")
+            Ghostty.SurfaceView.appOwnedShortcuts.count >= 5,
+            "Expected app-owned shortcuts to include ⌘P, ⌘⇧P, ⌘⌥P, ⌘⇧D, and ⌘⌥K"
+        )
     }
 
     @Test
     func test_appOwnedShortcuts_containsCmdP() {
-        // Act
-        let match = Ghostty.SurfaceView.appOwnedShortcuts.contains { shortcut in
-            shortcut.key == "p" && shortcut.mods == [.command]
-        }
-
         // Assert
-        #expect(match, "Expected ⌘P in appOwnedShortcuts")
+        #expect(
+            Ghostty.SurfaceView.appOwnedShortcuts.contains(.showCommandBarEverything),
+            "Expected quick open in appOwnedShortcuts"
+        )
     }
 
     @Test
     func test_appOwnedShortcuts_containsCmdShiftP() {
-        // Act
-        let match = Ghostty.SurfaceView.appOwnedShortcuts.contains { shortcut in
-            shortcut.key == "p" && shortcut.mods == [.command, .shift]
-        }
-
         // Assert
-        #expect(match, "Expected ⌘⇧P in appOwnedShortcuts")
+        #expect(
+            Ghostty.SurfaceView.appOwnedShortcuts.contains(.showCommandBarCommands),
+            "Expected command palette in appOwnedShortcuts"
+        )
     }
 
     @Test
     func test_appOwnedShortcuts_containsCmdOptionP() {
-        // Act
-        let match = Ghostty.SurfaceView.appOwnedShortcuts.contains { shortcut in
-            shortcut.key == "p" && shortcut.mods == [.command, .option]
-        }
-
         // Assert
-        #expect(match, "Expected ⌘⌥P in appOwnedShortcuts")
+        #expect(
+            Ghostty.SurfaceView.appOwnedShortcuts.contains(.showCommandBarPanes),
+            "Expected pane picker in appOwnedShortcuts"
+        )
+    }
+
+    @Test
+    func test_appOwnedShortcuts_containsCmdShiftD() {
+        // Assert
+        #expect(
+            Ghostty.SurfaceView.appOwnedShortcuts.contains(.addDrawerPane),
+            "Expected add drawer pane in appOwnedShortcuts"
+        )
+    }
+
+    @Test
+    func test_appOwnedShortcuts_containsCmdOptionKScrollToBottom() {
+        #expect(
+            Ghostty.SurfaceView.appOwnedShortcuts.contains(.scrollToBottom),
+            "Expected scroll-to-bottom in appOwnedShortcuts"
+        )
+    }
+
+    @Test
+    func test_appOwnedShortcuts_containsSidebarAndPaneInboxShortcuts() {
+        #expect(
+            Ghostty.SurfaceView.appOwnedShortcuts.contains(.showInboxNotifications),
+            "Expected sidebar inbox shortcut in appOwnedShortcuts"
+        )
+        #expect(
+            Ghostty.SurfaceView.appOwnedShortcuts.contains(.showPaneInboxNotifications),
+            "Expected pane inbox shortcut in appOwnedShortcuts"
+        )
+        #expect(
+            Ghostty.SurfaceView.appOwnedShortcuts.contains(.showWorktreeSidebar),
+            "Expected worktree sidebar shortcut in appOwnedShortcuts"
+        )
     }
 }

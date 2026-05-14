@@ -7,9 +7,12 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct Luna295DirectZmxAttachIntegrationTests {
+    init() {
+        installTestAtomRegistryIfNeeded()
+    }
+
     private let fixtureSessionConfiguration = SessionConfiguration(
         isEnabled: true,
-        backgroundRestorePolicy: .existingSessionsOnly,
         zmxPath: "/tmp/fake-zmx",
         zmxDir: "/tmp/fake-zmx-dir",
         healthCheckInterval: 30,
@@ -21,6 +24,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let viewRegistry: ViewRegistry
         let runtime: SessionRuntime
         let coordinator: PaneCoordinator
+        let windowLifecycleStore: WindowLifecycleAtom
         let surfaceManager: CapturingSurfaceManager
         let tempDir: URL
     }
@@ -33,13 +37,15 @@ struct Luna295DirectZmxAttachIntegrationTests {
         store.restore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
+        let windowLifecycleStore = WindowLifecycleAtom()
         let surfaceManager = CapturingSurfaceManager()
         let coordinator = PaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
             surfaceManager: surfaceManager,
-            runtimeRegistry: .shared
+            runtimeRegistry: .shared,
+            windowLifecycleStore: windowLifecycleStore
         )
         coordinator.sessionConfig = fixtureSessionConfiguration
         coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
@@ -51,10 +57,13 @@ struct Luna295DirectZmxAttachIntegrationTests {
             viewRegistry: viewRegistry,
             runtime: runtime,
             coordinator: coordinator,
+            windowLifecycleStore: windowLifecycleStore,
             surfaceManager: surfaceManager,
             tempDir: tempDir
         )
     }
+
+    private let trustedBounds = CGRect(x: 0, y: 0, width: 1000, height: 600)
 
     @Test
     func newZmxPane_uses_directSurfaceCommand_notDeferredShell() throws {
@@ -65,11 +74,16 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let worktree = try #require(repo.worktrees.first)
 
         let pane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
 
-        _ = harness.coordinator.createView(for: pane, worktree: worktree, repo: repo)
+        _ = harness.coordinator.createView(
+            for: pane,
+            worktree: worktree,
+            repo: repo,
+            initialFrame: NSRect(x: 0, y: 0, width: 1000, height: 600)
+        )
 
         let config = try #require(harness.surfaceManager.lastConfig)
         #expect(config.startupStrategy.startupCommandForSurface?.contains(" attach ") == true)
@@ -82,11 +96,14 @@ struct Luna295DirectZmxAttachIntegrationTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let pane = harness.store.createPane(
-            source: .floating(workingDirectory: harness.tempDir, title: "Floating"),
+            source: .floating(launchDirectory: harness.tempDir, title: "Floating"),
             provider: .zmx
         )
 
-        _ = harness.coordinator.createViewForContent(pane: pane)
+        _ = harness.coordinator.createViewForContent(
+            pane: pane,
+            initialFrame: NSRect(x: 0, y: 0, width: 1000, height: 600)
+        )
 
         let config = try #require(harness.surfaceManager.lastConfig)
         #expect(config.startupStrategy.startupCommandForSurface?.contains(" attach ") == true)
@@ -99,11 +116,14 @@ struct Luna295DirectZmxAttachIntegrationTests {
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let pane = harness.store.createPane(
-            source: .floating(workingDirectory: nil, title: nil),
+            source: .floating(launchDirectory: nil, title: nil),
             provider: .zmx
         )
 
-        _ = harness.coordinator.createViewForContent(pane: pane)
+        _ = harness.coordinator.createViewForContent(
+            pane: pane,
+            initialFrame: NSRect(x: 0, y: 0, width: 1000, height: 600)
+        )
 
         let config = try #require(harness.surfaceManager.lastConfig)
         #expect(config.startupStrategy.startupCommandForSurface?.contains(" attach ") == true)
@@ -118,11 +138,11 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let hiddenPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
 
@@ -134,7 +154,6 @@ struct Luna295DirectZmxAttachIntegrationTests {
 
         let customConfig = SessionConfiguration(
             isEnabled: true,
-            backgroundRestorePolicy: .existingSessionsOnly,
             zmxPath: "/tmp/fake-zmx",
             zmxDir: "/tmp/fake-zmx-dir",
             healthCheckInterval: 30,
@@ -145,7 +164,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
             liveSessionIdsProvider: { _ in [] }
         )
 
-        await harness.coordinator.restoreAllViews()
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        await harness.coordinator.restoreAllViews(in: trustedBounds)
 
         #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id])
     }
@@ -158,11 +178,11 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let hiddenPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
 
@@ -179,7 +199,6 @@ struct Luna295DirectZmxAttachIntegrationTests {
         )
         let customConfig = SessionConfiguration(
             isEnabled: true,
-            backgroundRestorePolicy: .existingSessionsOnly,
             zmxPath: "/tmp/fake-zmx",
             zmxDir: "/tmp/fake-zmx-dir",
             healthCheckInterval: 30,
@@ -190,94 +209,10 @@ struct Luna295DirectZmxAttachIntegrationTests {
             liveSessionIdsProvider: { _ in [liveSessionId] }
         )
 
-        await harness.coordinator.restoreAllViews()
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        await harness.coordinator.restoreAllViews(in: trustedBounds)
 
         #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id, hiddenPane.id])
-    }
-
-    @Test
-    func restoreAllViews_restores_hiddenZmxWithoutLiveSession_whenPolicyIsAllTerminalPanes() async throws {
-        let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-
-        let repo = harness.store.addRepo(at: harness.tempDir)
-        let worktree = try #require(repo.worktrees.first)
-        let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
-            provider: .zmx
-        )
-        let hiddenPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
-            provider: .zmx
-        )
-
-        let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
-        let hiddenTab = Tab(paneId: hiddenPane.id, name: "Hidden")
-        harness.store.appendTab(visibleTab)
-        harness.store.appendTab(hiddenTab)
-        harness.store.setActiveTab(visibleTab.id)
-
-        let customConfig = SessionConfiguration(
-            isEnabled: true,
-            backgroundRestorePolicy: .allTerminalPanes,
-            zmxPath: "/tmp/fake-zmx",
-            zmxDir: "/tmp/fake-zmx-dir",
-            healthCheckInterval: 30,
-            maxCheckpointAge: 60
-        )
-        harness.coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
-            sessionConfiguration: customConfig,
-            liveSessionIdsProvider: { _ in [] }
-        )
-
-        await harness.coordinator.restoreAllViews()
-
-        #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id, hiddenPane.id])
-    }
-
-    @Test
-    func restoreAllViews_skips_hiddenZmxEvenWithLiveSession_whenPolicyIsOff() async throws {
-        let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-
-        let repo = harness.store.addRepo(at: harness.tempDir)
-        let worktree = try #require(repo.worktrees.first)
-        let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
-            provider: .zmx
-        )
-        let hiddenPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
-            provider: .zmx
-        )
-
-        let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
-        let hiddenTab = Tab(paneId: hiddenPane.id, name: "Hidden")
-        harness.store.appendTab(visibleTab)
-        harness.store.appendTab(hiddenTab)
-        harness.store.setActiveTab(visibleTab.id)
-
-        let liveSessionId = ZmxBackend.sessionId(
-            repoStableKey: repo.stableKey,
-            worktreeStableKey: worktree.stableKey,
-            paneId: hiddenPane.id
-        )
-        let customConfig = SessionConfiguration(
-            isEnabled: true,
-            backgroundRestorePolicy: .off,
-            zmxPath: "/tmp/fake-zmx",
-            zmxDir: "/tmp/fake-zmx-dir",
-            healthCheckInterval: 30,
-            maxCheckpointAge: 60
-        )
-        harness.coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
-            sessionConfiguration: customConfig,
-            liveSessionIdsProvider: { _ in [liveSessionId] }
-        )
-
-        await harness.coordinator.restoreAllViews()
-
-        #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id])
     }
 
     @Test
@@ -288,11 +223,11 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let hiddenPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
 
@@ -304,7 +239,6 @@ struct Luna295DirectZmxAttachIntegrationTests {
 
         let customConfig = SessionConfiguration(
             isEnabled: true,
-            backgroundRestorePolicy: .existingSessionsOnly,
             zmxPath: "/tmp/fake-zmx",
             zmxDir: "/tmp/fake-zmx-dir",
             healthCheckInterval: 30,
@@ -314,11 +248,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
             sessionConfiguration: customConfig,
             liveSessionIdsProvider: { _ in [] }
         )
-        harness.coordinator.terminalContainerBoundsProvider = {
-            CGRect(x: 0, y: 0, width: 1000, height: 600)
-        }
-
-        await harness.coordinator.restoreAllViews()
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        await harness.coordinator.restoreAllViews(in: trustedBounds)
         #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id])
 
         harness.coordinator.execute(.selectTab(tabId: hiddenTab.id))
@@ -334,11 +265,11 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let hiddenParentPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .ghostty
         )
         let hiddenDrawerPane = try #require(harness.store.addDrawerPane(to: hiddenParentPane.id))
@@ -355,7 +286,6 @@ struct Luna295DirectZmxAttachIntegrationTests {
         )
         let customConfig = SessionConfiguration(
             isEnabled: true,
-            backgroundRestorePolicy: .existingSessionsOnly,
             zmxPath: "/tmp/fake-zmx",
             zmxDir: "/tmp/fake-zmx-dir",
             healthCheckInterval: 30,
@@ -366,7 +296,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
             liveSessionIdsProvider: { _ in [liveSessionId] }
         )
 
-        await harness.coordinator.restoreAllViews()
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        await harness.coordinator.restoreAllViews(in: trustedBounds)
 
         #expect(
             harness.surfaceManager.createdPaneIds == [visiblePane.id, hiddenParentPane.id, hiddenDrawerPane.id]
@@ -381,11 +312,11 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let hiddenParentPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let hiddenDrawerPane = try #require(harness.store.addDrawerPane(to: hiddenParentPane.id))
@@ -402,7 +333,6 @@ struct Luna295DirectZmxAttachIntegrationTests {
         )
         let customConfig = SessionConfiguration(
             isEnabled: true,
-            backgroundRestorePolicy: .existingSessionsOnly,
             zmxPath: "/tmp/fake-zmx",
             zmxDir: "/tmp/fake-zmx-dir",
             healthCheckInterval: 30,
@@ -413,7 +343,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
             liveSessionIdsProvider: { _ in [liveSessionId] }
         )
 
-        await harness.coordinator.restoreAllViews()
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        await harness.coordinator.restoreAllViews(in: trustedBounds)
 
         #expect(harness.surfaceManager.createdPaneIds == [visiblePane.id, hiddenDrawerPane.id])
     }
@@ -426,7 +357,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let pane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
 
@@ -434,12 +365,17 @@ struct Luna295DirectZmxAttachIntegrationTests {
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
 
+        let containerWidth: CGFloat = 1000
+        let containerHeight: CGFloat = 600
         await harness.coordinator.restoreAllViews(
-            in: CGRect(x: 0, y: 0, width: 1000, height: 600)
+            in: CGRect(x: 0, y: 0, width: containerWidth, height: containerHeight)
         )
 
         let config = try #require(harness.surfaceManager.createdConfigsByPaneId[pane.id])
-        #expect(config.initialFrame == CGRect(x: 2, y: 2, width: 996, height: 596))
+        let gap = AppStyles.General.Layout.paneGap
+        #expect(
+            config.initialFrame
+                == CGRect(x: gap, y: gap, width: containerWidth - gap * 2, height: containerHeight - gap * 2))
     }
 
     @Test
@@ -450,7 +386,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let repo = harness.store.addRepo(at: harness.tempDir)
         let worktree = try #require(repo.worktrees.first)
         let pane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
         let drawerPane = try #require(harness.store.addDrawerPane(to: pane.id))
@@ -468,6 +404,238 @@ struct Luna295DirectZmxAttachIntegrationTests {
         #expect(frame.width > 0)
         #expect(frame.height > 0)
         #expect(frame.origin.y > 0)
+    }
+
+    @Test
+    func resolveInitialFramesByTabId_ignoresShowMinimizedBarsToggle_forCanonicalMinimizedGeometry() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        let firstPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            provider: .zmx
+        )
+        let secondPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            provider: .zmx
+        )
+
+        let tab = Tab(paneId: firstPane.id, name: "Minimized")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        _ = harness.store.insertPane(
+            secondPane.id,
+            inTab: tab.id,
+            at: firstPane.id,
+            direction: .horizontal,
+            position: .after, sizingMode: .halveTarget
+        )
+        _ = harness.store.minimizePane(secondPane.id, inTab: tab.id)
+        atom(\.uiState).setShowMinimizedBars(false)
+
+        let framesByTabId = harness.coordinator.resolveInitialFramesByTabId(
+            in: CGRect(x: 0, y: 0, width: 1000, height: 600)
+        )
+        let minimizedFrame = try #require(framesByTabId[tab.id]?[secondPane.id])
+
+        #expect(
+            minimizedFrame.width
+                == AppStyles.Shell.PaneChrome.collapsedBarWidth
+                - (AppStyles.General.Layout.paneGap * 2)
+        )
+    }
+
+    @Test
+    func splitRight_newZmxPane_usesTrustedInitialFrame_notPlaceholderGeometry() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        let existingPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            provider: .zmx
+        )
+        let tab = Tab(paneId: existingPane.id, name: "Split")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(
+            CGRect(x: 0, y: 0, width: 1000, height: 600)
+        )
+
+        let existingPaneIds = Set(harness.store.panes.keys)
+        harness.coordinator.execute(
+            .insertPane(
+                source: .newTerminal,
+                targetTabId: tab.id,
+                targetPaneId: existingPane.id,
+                direction: .right,
+                sizingMode: .halveTarget
+            )
+        )
+
+        let newPaneId = try #require(Set(harness.store.panes.keys).subtracting(existingPaneIds).first)
+        let config = try #require(harness.surfaceManager.createdConfigsByPaneId[newPaneId])
+        let activeTab = try #require(harness.store.activeTab)
+        let resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
+            for: activeTab.layout,
+            in: harness.windowLifecycleStore.terminalContainerBounds,
+            dividerThickness: AppStyles.General.Layout.paneGap,
+            minimizedPaneIds: activeTab.activeMinimizedPaneIds,
+            collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
+        )
+
+        #expect(config.initialFrame != nil)
+        #expect(config.initialFrame != CGRect(x: 0, y: 0, width: 800, height: 600))
+        #expect(config.initialFrame == resolvedFrames[newPaneId])
+    }
+
+    @Test
+    func openNewTerminalTab_usesTrustedInitialFrame_notPlaceholderGeometry() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(
+            CGRect(x: 0, y: 0, width: 1000, height: 600)
+        )
+
+        let pane = try #require(harness.coordinator.openNewTerminal(for: worktree, in: repo))
+        let config = try #require(harness.surfaceManager.createdConfigsByPaneId[pane.id])
+        let activeTab = try #require(harness.store.activeTab)
+        let resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
+            for: activeTab.layout,
+            in: harness.windowLifecycleStore.terminalContainerBounds,
+            dividerThickness: AppStyles.General.Layout.paneGap,
+            minimizedPaneIds: activeTab.activeMinimizedPaneIds,
+            collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
+        )
+
+        #expect(config.initialFrame != nil)
+        #expect(config.initialFrame != CGRect(x: 0, y: 0, width: 800, height: 600))
+        #expect(config.initialFrame == resolvedFrames[pane.id])
+    }
+
+    @Test
+    func openFloatingTerminal_usesTrustedInitialFrame_notPlaceholderGeometry() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        harness.windowLifecycleStore.recordTerminalContainerBounds(
+            CGRect(x: 0, y: 0, width: 1000, height: 600)
+        )
+
+        let pane = try #require(
+            harness.coordinator.openFloatingTerminal(launchDirectory: harness.tempDir, title: "Floating")
+        )
+        let config = try #require(harness.surfaceManager.createdConfigsByPaneId[pane.id])
+        let activeTab = try #require(harness.store.activeTab)
+        let resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
+            for: activeTab.layout,
+            in: harness.windowLifecycleStore.terminalContainerBounds,
+            dividerThickness: AppStyles.General.Layout.paneGap,
+            minimizedPaneIds: activeTab.activeMinimizedPaneIds,
+            collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
+        )
+
+        #expect(config.initialFrame != nil)
+        #expect(config.initialFrame != CGRect(x: 0, y: 0, width: 800, height: 600))
+        #expect(config.initialFrame == resolvedFrames[pane.id])
+    }
+
+    @Test
+    func openNewTerminalTab_defersSurfaceCreation_untilBoundsExist_thenCreatesWithTrustedFrame() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+
+        let pane = try #require(harness.coordinator.openNewTerminal(for: worktree, in: repo))
+        #expect(harness.surfaceManager.createdConfigsByPaneId[pane.id] == nil)
+        let preparingPlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
+        #expect(preparingPlaceholder.mode == .preparing)
+
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+        harness.coordinator.restoreViewsForActiveTabIfNeeded()
+
+        let config = try #require(harness.surfaceManager.createdConfigsByPaneId[pane.id])
+        let failedPlaceholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
+        let activeTab = try #require(harness.store.activeTab)
+        let resolvedFrames = TerminalPaneGeometryResolver.resolveFrames(
+            for: activeTab.layout,
+            in: harness.windowLifecycleStore.terminalContainerBounds,
+            dividerThickness: AppStyles.General.Layout.paneGap,
+            minimizedPaneIds: activeTab.activeMinimizedPaneIds,
+            collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
+        )
+
+        #expect(config.initialFrame == resolvedFrames[pane.id])
+        #expect(failedPlaceholder.mode == .failedToStart)
+    }
+
+    @Test
+    func openNewTerminalTab_failedCreation_keepsFailurePlaceholderVisible() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+
+        let pane = try #require(harness.coordinator.openNewTerminal(for: worktree, in: repo))
+
+        let placeholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
+        #expect(placeholder.mode == .failedToStart)
+    }
+
+    @Test
+    func failedToStartPlaceholder_doesNotAutoRetryOnLaterBoundsChanges() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(trustedBounds)
+
+        let pane = try #require(harness.coordinator.openNewTerminal(for: worktree, in: repo))
+        let createAttemptsBefore = harness.surfaceManager.createdPaneIds.count
+        let placeholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
+
+        #expect(placeholder.mode == .failedToStart)
+        #expect(placeholder.shouldRetryCreationWhenBoundsChange == false)
+
+        harness.windowLifecycleStore.recordTerminalContainerBounds(
+            CGRect(x: 0, y: 0, width: 1200, height: 700)
+        )
+        harness.coordinator.restoreViewsForActiveTabIfNeeded()
+
+        #expect(harness.surfaceManager.createdPaneIds.count == createAttemptsBefore)
+        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id)?.mode == .failedToStart)
+    }
+
+    @Test
+    func createViewForContentUsingCurrentGeometry_withoutBounds_returnsNil_andDoesNotReachSurfaceManager() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let repo = harness.store.addRepo(at: harness.tempDir)
+        let worktree = try #require(repo.worktrees.first)
+        let pane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            provider: .zmx
+        )
+
+        let view = harness.coordinator.createViewForContentUsingCurrentGeometry(pane: pane)
+
+        #expect(view == nil)
+        let placeholder = try #require(harness.viewRegistry.terminalStatusPlaceholderView(for: pane.id))
+        #expect(placeholder.mode == .preparing)
+        #expect(harness.surfaceManager.lastConfig == nil)
+        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
     }
 }
 

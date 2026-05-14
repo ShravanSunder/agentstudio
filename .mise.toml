@@ -6,26 +6,46 @@ PROJECT_ROOT = "{{config_root}}"
 
 # --- Low-level build tasks ---
 
+[tasks.init-submodules]
+description = "Populate git submodules required for vendored builds"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+echo "[setup] hydrating git submodules..."
+git submodule update --init --recursive
+if [ -f "vendor/ghostty/build.zig" ]; then
+  echo "[setup] ghostty ready"
+fi
+if [ -f "vendor/zmx/build.zig" ]; then
+  echo "[setup] zmx ready"
+fi
+"""
+
 [tasks.build-ghostty]
 description = "Build Ghostty XCFramework"
-run = "zig build -Doptimize=ReleaseFast -Demit-xcframework=true -Demit-macos-app=false -Dxcframework-target=native"
-dir = "vendor/ghostty"
+depends = ["init-submodules"]
+run = "bash \"${PROJECT_ROOT}/scripts/build-ghostty-local.sh\""
 
 [tasks.build-zmx]
 description = "Build zmx session multiplexer"
-run = "zig build -Doptimize=ReleaseFast"
+depends = ["init-submodules"]
+run = "bash \"${PROJECT_ROOT}/scripts/zig.sh\" build -Doptimize=ReleaseFast"
 dir = "vendor/zmx"
 
 [tasks.copy-xcframework]
 description = "Copy GhosttyKit.xcframework to Frameworks/"
 depends = ["build-ghostty"]
 run = """
-if [ -d "Frameworks/GhosttyKit.xcframework" ]; then
-  echo "GhosttyKit.xcframework already exists, skipping copy (use mise run clean to force)"
-  exit 0
-fi
+rm -rf Frameworks/GhosttyKit.xcframework
 mkdir -p Frameworks
 cp -R vendor/ghostty/macos/GhosttyKit.xcframework Frameworks/
+# Drop vendored debug info from the static archive to avoid Apple toolchain
+# symbol-resolution warnings during app/test links. This does not affect
+# linkable symbols; it only reduces unusable third-party debug metadata.
+ARCHIVE_PATH="$(find Frameworks/GhosttyKit.xcframework -type f \\( -name 'libghostty-fat.a' -o -name 'libghostty.a' \\) | head -n 1)"
+if [ -n "$ARCHIVE_PATH" ]; then
+  xcrun strip -S "$ARCHIVE_PATH"
+fi
 """
 
 [tasks.setup-dev-resources]
@@ -49,7 +69,7 @@ else
 fi
 
 if [ -d "$SHELL_INTEGRATION_DEV" ]; then
-  echo "shell-integration already exists, skipping copy (use mise run clean to force)"
+  echo "shell-integration already exists, skipping copy (use mise run refresh-vendors to force)"
 else
   mkdir -p "$(dirname "$SHELL_INTEGRATION_DEV")"
   cp -R "$SRC" "$SHELL_INTEGRATION_DEV"
@@ -60,7 +80,7 @@ fi
 TERMINFO_SRC="vendor/ghostty/zig-out/share/terminfo"
 TERMINFO_DEV="Sources/AgentStudio/Resources/terminfo"
 if [ -d "$TERMINFO_DEV/78" ] && [ -d "$TERMINFO_DEV/67" ]; then
-  echo "terminfo already exists, skipping copy (use mise run clean to force)"
+  echo "terminfo already exists, skipping copy (use mise run refresh-vendors to force)"
 elif [ -d "$TERMINFO_SRC" ]; then
   mkdir -p "$TERMINFO_DEV/78" "$TERMINFO_DEV/67"
   [ -f "$TERMINFO_SRC/78/xterm-ghostty" ] && cp "$TERMINFO_SRC/78/xterm-ghostty" "$TERMINFO_DEV/78/"
@@ -91,6 +111,14 @@ echo "--- architecture boundary checks ---"
 bash scripts/check-core-boundary-imports.sh
 """
 
+[tasks.doctor-mac]
+description = "Check local macOS prerequisites and known build hazards"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+bash scripts/doctor-mac.sh
+"""
+
 # --- Setup (first-time / after clean) ---
 
 [tasks.setup]
@@ -104,9 +132,10 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 git config core.hooksPath .githooks
-chmod +x .githooks/pre-commit
+chmod +x .githooks/pre-commit .githooks/pre-push
 echo "Configured git hooks path: .githooks"
 echo "Installed pre-commit hook: .githooks/pre-commit"
+echo "Installed pre-push hook: .githooks/pre-push"
 """
 
 # --- Composite build tasks ---
@@ -116,14 +145,12 @@ description = "Debug build (run mise run setup first time)"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-RUN_ID="${AGENT_RUN_ID:-}"
-if [ -z "$RUN_ID" ]; then
-  echo "[build] ERROR: AGENT_RUN_ID is required (example: AGENT_RUN_ID=abc123 mise run build)"
-  exit 2
-fi
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$RUN_ID}"
+source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
+BUILD_PATH="$SWIFT_BUILD_DIR"
 echo "[build] BUILD_PATH=$BUILD_PATH"
-swift build --build-path "$BUILD_PATH"
+xcb_pipe=$(_xcb_pipe_cmd)
+swift build --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
 [tasks.build-release]
@@ -131,14 +158,12 @@ description = "Release build (run mise run setup first time)"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-RUN_ID="${AGENT_RUN_ID:-}"
-if [ -z "$RUN_ID" ]; then
-  echo "[build-release] ERROR: AGENT_RUN_ID is required (example: AGENT_RUN_ID=abc123 mise run build-release)"
-  exit 2
-fi
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build-release-agent-$RUN_ID}"
+source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" release
+BUILD_PATH="$SWIFT_BUILD_DIR"
 echo "[build-release] BUILD_PATH=$BUILD_PATH"
-swift build -c release --build-path "$BUILD_PATH"
+xcb_pipe=$(_xcb_pipe_cmd)
+swift build -c release --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
 [tasks.test]
@@ -146,12 +171,8 @@ description = "Run default test suite (excludes E2E + ZmxE2E by default)"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-RUN_ID="${AGENT_RUN_ID:-}"
-if [ -z "$RUN_ID" ]; then
-  echo "[test] ERROR: AGENT_RUN_ID is required (example: AGENT_RUN_ID=abc123 mise run test)"
-  exit 2
-fi
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$RUN_ID}"
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
+BUILD_PATH="$SWIFT_BUILD_DIR"
 TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
 echo "[test] BUILD_PATH=$BUILD_PATH"
 echo "[test] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
@@ -182,6 +203,9 @@ fi
 echo "--- WebView serialized tests (serial) ---"
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgePaneControllerTests"
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgeSchemeHandlerSpikeTests"
+# Keep content-world probing in its own process; WebKit can crash when a
+# second WebPage follows this probe in the same swift-test process.
+run_webkit_suite_with_retry "WebKitSerializedTests/BridgeContentWorldIsolationTests"
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgeTransportIntegrationTests"
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgeWebKitSpikeTests"
 echo "--- E2E serialized tests (serial) ---"
@@ -209,12 +233,8 @@ description = "Run test suite with code coverage and print coverage JSON path"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-RUN_ID="${AGENT_RUN_ID:-}"
-if [ -z "$RUN_ID" ]; then
-  echo "[test-coverage] ERROR: AGENT_RUN_ID is required (example: AGENT_RUN_ID=abc123 mise run test-coverage)"
-  exit 2
-fi
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$RUN_ID}"
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
+BUILD_PATH="$SWIFT_BUILD_DIR"
 TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-60}"
 echo "[test-coverage] BUILD_PATH=$BUILD_PATH"
 echo "[test-coverage] TIMEOUT_SECONDS=$TIMEOUT_SECONDS"
@@ -245,6 +265,9 @@ fi
 echo "--- WebView serialized tests (serial, coverage) ---"
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgePaneControllerTests"
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgeSchemeHandlerSpikeTests"
+# Keep content-world probing in its own process; WebKit can crash when a
+# second WebPage follows this probe in the same swift-test process.
+run_webkit_suite_with_retry "WebKitSerializedTests/BridgeContentWorldIsolationTests"
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgeTransportIntegrationTests"
 run_webkit_suite_with_retry "WebKitSerializedTests/BridgeWebKitSpikeTests"
 
@@ -289,9 +312,11 @@ description = "Run E2E serialized tests only (opt-in; zmx E2E currently unstable
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
+source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
 BUILD_PATH="${SWIFT_BUILD_DIR:-.build}"
-swift build --build-tests --build-path "$BUILD_PATH"
-AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTests --build-path "$BUILD_PATH"
+xcb_pipe=$(_xcb_pipe_cmd)
+swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
+AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter E2ESerializedTests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
 [tasks.test-zmx-e2e]
@@ -299,9 +324,11 @@ description = "Run zmx E2E tests only (opt-in; may stall)"
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
+source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
 BUILD_PATH="${SWIFT_BUILD_DIR:-.build}"
-swift build --build-tests --build-path "$BUILD_PATH"
-AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter ZmxE2ETests --build-path "$BUILD_PATH"
+xcb_pipe=$(_xcb_pipe_cmd)
+swift build --build-tests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
+AGENT_STUDIO_BENCHMARK_MODE=off swift test --skip-build --filter ZmxE2ETests --build-path "$BUILD_PATH" 2>&1 | $xcb_pipe
 """
 
 [tasks.test-benchmark]
@@ -310,26 +337,54 @@ depends = ["build"]
 run = """
 #!/usr/bin/env bash
 set -euo pipefail
-RUN_ID="${AGENT_RUN_ID:-}"
-if [ -z "$RUN_ID" ]; then
-  echo "[test-benchmark] ERROR: AGENT_RUN_ID is required (example: AGENT_RUN_ID=abc123 mise run test-benchmark)"
-  exit 2
-fi
-BUILD_PATH="${SWIFT_BUILD_DIR:-.build-agent-$RUN_ID}"
+source "${PROJECT_ROOT}/scripts/xcb-helpers.sh"
+source "${PROJECT_ROOT}/scripts/swift-build-slot.sh" debug
+BUILD_PATH="$SWIFT_BUILD_DIR"
 export AGENT_STUDIO_BENCHMARK_MODE=benchmark
-
-swift test --build-path "$BUILD_PATH" --filter "PushBenchmarkSupportTests"
-swift test --build-path "$BUILD_PATH" --filter "PushPerformanceBenchmarkTests"
+xcb_pipe=$(_xcb_pipe_cmd)
+swift test --build-path "$BUILD_PATH" --filter "PushBenchmarkSupportTests" 2>&1 | $xcb_pipe
+swift test --build-path "$BUILD_PATH" --filter "PushPerformanceBenchmarkTests" 2>&1 | $xcb_pipe
 """
 
-[tasks.clean]
-description = "Clean all build artifacts"
+[tasks.clean-artifacts]
+description = "Clean swift build dirs and app bundle (vendor and vendor-derived files preserved)"
 run = """
-rm -rf .build Frameworks/GhosttyKit.xcframework AgentStudio.app
-rm -rf Sources/AgentStudio/Resources/ghostty
-rm -rf vendor/ghostty/.zig-cache vendor/ghostty/zig-out vendor/ghostty/macos/build vendor/ghostty/macos/*.xcframework
-rm -rf vendor/zmx/.zig-cache vendor/zmx/zig-out
-echo "Cleaned all build artifacts"
+#!/usr/bin/env bash
+set -euo pipefail
+rm -rf "${PROJECT_ROOT}/.build" "${PROJECT_ROOT}"/.build-*
+rm -rf "${PROJECT_ROOT}/AgentStudio.app"
+echo "Cleaned swift build dirs and app bundle in ${PROJECT_ROOT}"
+"""
+
+[tasks.refresh-vendors]
+description = "Re-copy vendor-derived resources from vendor/ghostty (forces overwrite of GhosttyKit.xcframework, shell-integration, terminfo)"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+rm -rf "${PROJECT_ROOT}/Frameworks/GhosttyKit.xcframework"
+rm -rf "${PROJECT_ROOT}/Sources/AgentStudio/Resources/ghostty"
+rm -rf "${PROJECT_ROOT}/Sources/AgentStudio/Resources/terminfo"
+mise run copy-xcframework
+mise run setup-dev-resources
+echo "Refreshed vendor-derived resources"
+"""
+
+[tasks.clean-agent-builds]
+description = "Reap stale .slot-claim leaks from agent build dirs (safe while other agents work)"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+shopt -s nullglob
+reaped=0
+for dir in .build-agent-* .build-release-agent-*; do
+  [ -d "$dir/.slot-claim" ] || continue
+  if ! lsof +D "$dir" >/dev/null 2>&1; then
+    rm -rf "$dir/.slot-claim"
+    echo "[clean-agent-builds] reaped stale claim: $dir/.slot-claim"
+    reaped=$((reaped + 1))
+  fi
+done
+echo "[clean-agent-builds] reaped $reaped stale claim(s)"
 """
 
 [tasks.create-app-bundle]
@@ -339,18 +394,45 @@ run = """
 #!/usr/bin/env bash
 set -e
 
+# Find the freshest release artifact across .build-release-agent-{1..4}.
+# Honors SWIFT_BUILD_DIR if the caller pinned it.
+if [ -n "${SWIFT_BUILD_DIR:-}" ] && [ -f "$SWIFT_BUILD_DIR/release/AgentStudio" ]; then
+  BUILD_PATH="$SWIFT_BUILD_DIR"
+else
+  BUILD_PATH=""
+  newest_mtime=0
+  for n in 1 2 3 4; do
+    candidate=".build-release-agent-$n"
+    binary="$candidate/release/AgentStudio"
+    if [ -f "$binary" ]; then
+      mtime=$(stat -f %m "$binary")
+      if [ "$mtime" -gt "$newest_mtime" ]; then
+        newest_mtime="$mtime"
+        BUILD_PATH="$candidate"
+      fi
+    fi
+  done
+  if [ -z "$BUILD_PATH" ]; then
+    echo "create-app-bundle: no release artifact found in .build-release-agent-{1..4}" >&2
+    exit 1
+  fi
+fi
+echo "[create-app-bundle] BUILD_PATH=$BUILD_PATH"
 APP_DIR="AgentStudio.app/Contents"
 rm -rf AgentStudio.app
-mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources" "$APP_DIR/Frameworks"
+mkdir -p "$APP_DIR/MacOS" "$APP_DIR/Resources"
 
 # Binary
-cp .build/release/AgentStudio "$APP_DIR/MacOS/"
+cp "$BUILD_PATH/release/AgentStudio" "$APP_DIR/MacOS/"
 
 # zmx
 [ -f "vendor/zmx/zig-out/bin/zmx" ] && cp vendor/zmx/zig-out/bin/zmx "$APP_DIR/MacOS/"
 
 # Info.plist + icon
 cp Sources/AgentStudio/Resources/Info.plist "$APP_DIR/"
+MARKETING_VERSION="${APP_MARKETING_VERSION:-0.0.1-dev}"
+BUILD_VERSION="${APP_BUILD_VERSION:-$(git rev-list --count HEAD)}"
+bash scripts/inject-bundle-version.sh "$APP_DIR/Info.plist" "$MARKETING_VERSION" "$BUILD_VERSION"
 cp Sources/AgentStudio/Resources/AppIcon.icns "$APP_DIR/Resources/"
 
 # terminfo
@@ -361,10 +443,36 @@ TERMINFO="Sources/AgentStudio/Resources/terminfo"
 GHOSTTY_RES="Sources/AgentStudio/Resources/ghostty"
 [ -d "$GHOSTTY_RES" ] && { mkdir -p "$APP_DIR/Resources/ghostty"; cp -R "$GHOSTTY_RES/." "$APP_DIR/Resources/ghostty/"; }
 
-# GhosttyKit framework
-cp -R Frameworks/GhosttyKit.xcframework "$APP_DIR/Frameworks/"
+# GhosttyKit is a static library — already linked into the binary at build time.
+# Do NOT embed the xcframework; it's only needed at build time for SwiftPM.
 
-# Sign
-codesign --force --deep --sign - AgentStudio.app
+# SwiftPM resource bundle — Bundle.appResources looks in Contents/Resources/
+RESOURCE_BUNDLE="$(find "$BUILD_PATH" -path '*/release/AgentStudio_AgentStudio.bundle' -type d | head -1)"
+[ -n "$RESOURCE_BUNDLE" ] && cp -R "$RESOURCE_BUNDLE" "$APP_DIR/Resources/"
+
+# Sign — uses Developer ID if SIGNING_IDENTITY is set, else ad-hoc
+ENTITLEMENTS="Sources/AgentStudio/Resources/AgentStudio.entitlements"
+IDENTITY="${SIGNING_IDENTITY:--}"
+
+if [ "$IDENTITY" != "-" ]; then
+  echo "Signing with: $IDENTITY"
+  if [ -d "AgentStudio.app/Contents/Frameworks" ]; then
+    find AgentStudio.app/Contents/Frameworks -name "*.dylib" -o -name "*.framework" | while read item; do
+      codesign --force --sign "$IDENTITY" --timestamp --options runtime "$item"
+    done
+  fi
+  [ -f "AgentStudio.app/Contents/MacOS/zmx" ] && \
+    codesign --force --sign "$IDENTITY" --timestamp --options runtime --entitlements "$ENTITLEMENTS" "AgentStudio.app/Contents/MacOS/zmx"
+  codesign --force --sign "$IDENTITY" --timestamp --options runtime --entitlements "$ENTITLEMENTS" AgentStudio.app
+else
+  echo "Ad-hoc signing (set SIGNING_IDENTITY for Developer ID)"
+  codesign --force --deep --sign - AgentStudio.app
+fi
+
+codesign --verify --deep --strict AgentStudio.app
 echo "AgentStudio.app created and signed"
 """
+
+[tasks.generate-icon]
+description = "Regenerate AppIcon.icns from AppIcon.svg (requires: brew install librsvg)"
+run = "scripts/generate-icon.sh"

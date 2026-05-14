@@ -22,7 +22,10 @@ final class ActionExecutorTests {
         store.restore()
         viewRegistry = ViewRegistry()
         runtime = SessionRuntime(store: store)
-        coordinator = PaneCoordinator(store: store, viewRegistry: viewRegistry, runtime: runtime)
+        coordinator = PaneCoordinator(
+            store: store, viewRegistry: viewRegistry, runtime: runtime,
+            windowLifecycleStore: WindowLifecycleAtom()
+        )
         executor = ActionExecutor(coordinator: coordinator, store: store)
     }
 
@@ -42,8 +45,8 @@ final class ActionExecutorTests {
     @Test
     func test_execute_selectTab_setsActiveTab() {
         // Arrange
-        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab1 = Tab(paneId: p1.id)
         let tab2 = Tab(paneId: p2.id)
         store.appendTab(tab1)
@@ -62,7 +65,7 @@ final class ActionExecutorTests {
     @Test
     func test_execute_closeTab_removesTab() {
         // Arrange
-        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: p1.id)
         store.appendTab(tab)
         #expect(store.tabs.count == 1)
@@ -77,7 +80,7 @@ final class ActionExecutorTests {
     @Test
     func test_execute_closeTab_pushesToUndoStack() {
         // Arrange
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
 
@@ -96,8 +99,8 @@ final class ActionExecutorTests {
     @Test
     func test_execute_closeTab_multipleCloses_stacksUndo() {
         // Arrange
-        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab1 = Tab(paneId: p1.id)
         let tab2 = Tab(paneId: p2.id)
         store.appendTab(tab1)
@@ -128,7 +131,7 @@ final class ActionExecutorTests {
         // Arrange
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://undo.example")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Undoable"), title: "Undoable")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Undoable"), title: "Undoable")
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -158,10 +161,10 @@ final class ActionExecutorTests {
     @Test
     func test_execute_breakUpTab_splitsIntoIndividualTabs() {
         // Arrange
-        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let layout = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
@@ -185,15 +188,42 @@ final class ActionExecutorTests {
         #expect(store.tabs[1].paneIds == [p2.id])
     }
 
+    @Test
+    func test_execute_breakUpTab_namesNewTabsFromPaneContext() {
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: "Left"), title: "Left")
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: "Right"), title: "Right")
+        let layout = Layout(paneId: p1.id)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: layout,
+            visiblePaneIds: Set(layout.paneIds)
+        )
+        let tab = Tab(
+            panes: layout.paneIds,
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id,
+            activePaneId: p1.id
+        )
+        store.appendTab(tab)
+
+        executor.execute(.breakUpTab(tabId: tab.id))
+
+        #expect(store.tabs.count == 2)
+        #expect(store.tabs[0].name == "Left")
+        #expect(store.tabs[1].name == "Right")
+    }
+
     // MARK: - Execute: extractPaneToTab
 
     @Test
     func test_execute_extractPaneToTab_createsNewTab() {
         // Arrange
-        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let layout = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
@@ -215,15 +245,12 @@ final class ActionExecutorTests {
         #expect(store.tabs.count == 2)
     }
 
-    // MARK: - Execute: focusPane
-
     @Test
-    func test_execute_focusPane_setsActivePane() {
-        // Arrange
-        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+    func test_execute_extractPaneToTab_namesNewTabFromExtractedPane() {
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: "First"), title: "First")
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: "Second"), title: "Second")
         let layout = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
@@ -238,11 +265,10 @@ final class ActionExecutorTests {
         )
         store.appendTab(tab)
 
-        // Act
-        executor.execute(.focusPane(tabId: tab.id, paneId: p2.id))
+        executor.execute(.extractPaneToTab(tabId: tab.id, paneId: p2.id))
 
-        // Assert
-        #expect(store.tabs[0].activePaneId == p2.id)
+        #expect(store.tabs.count == 2)
+        #expect(store.tabs[1].name == "Second")
     }
 
     // MARK: - Execute: resizePane
@@ -250,30 +276,25 @@ final class ActionExecutorTests {
     @Test
     func test_execute_resizePane_updatesRatio() {
         // Arrange
-        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: p1.id)
         store.appendTab(tab)
         store.insertPane(
             p2.id, inTab: tab.id, at: p1.id,
-            direction: .horizontal, position: .after
+            direction: .horizontal, position: .after, sizingMode: .halveTarget
         )
 
-        // Get split ID
-        guard case .split(let split) = store.tabs[0].layout.root else {
-            Issue.record("Expected split layout")
+        guard let dividerId = store.tabs[0].layout.dividerIds.first else {
+            Issue.record("Expected divider")
             return
         }
 
         // Act
-        executor.execute(.resizePane(tabId: tab.id, splitId: split.id, ratio: 0.3))
+        executor.execute(.resizePane(tabId: tab.id, splitId: dividerId, ratio: 0.3))
 
         // Assert
-        guard case .split(let updatedSplit) = store.tabs[0].layout.root else {
-            Issue.record("Expected split layout")
-            return
-        }
-        #expect(abs(updatedSplit.ratio - 0.3) < 0.001)
+        #expect(abs((store.tabs[0].layout.ratioForSplit(dividerId) ?? 0.0) - 0.3) < 0.001)
     }
 
     // MARK: - Execute: equalizePanes
@@ -281,31 +302,27 @@ final class ActionExecutorTests {
     @Test
     func test_execute_equalizePanes_resetsRatios() {
         // Arrange
-        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: p1.id)
         store.appendTab(tab)
         store.insertPane(
             p2.id, inTab: tab.id, at: p1.id,
-            direction: .horizontal, position: .after
+            direction: .horizontal, position: .after, sizingMode: .halveTarget
         )
 
         // Resize first
-        guard case .split(let split) = store.tabs[0].layout.root else {
-            Issue.record("Expected split")
+        guard let dividerId = store.tabs[0].layout.dividerIds.first else {
+            Issue.record("Expected divider")
             return
         }
-        store.resizePane(tabId: tab.id, splitId: split.id, ratio: 0.3)
+        store.resizePane(tabId: tab.id, splitId: dividerId, ratio: 0.3)
 
         // Act
         executor.execute(.equalizePanes(tabId: tab.id))
 
         // Assert
-        guard case .split(let eqSplit) = store.tabs[0].layout.root else {
-            Issue.record("Expected split")
-            return
-        }
-        #expect(abs(eqSplit.ratio - 0.5) < 0.001)
+        #expect(abs((store.tabs[0].layout.ratioForSplit(dividerId) ?? 0.0) - 0.5) < 0.001)
     }
 
     // MARK: - Execute: closePane
@@ -313,10 +330,10 @@ final class ActionExecutorTests {
     @Test
     func test_execute_closePane_removesFromLayout() {
         // Arrange
-        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let layout = Layout(paneId: p1.id)
-            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after)
+            .inserting(paneId: p2.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
@@ -344,8 +361,8 @@ final class ActionExecutorTests {
     @Test
     func test_execute_insertPane_existingPane_movesPane() {
         // Arrange — p2 in tab2, move to tab1 next to p1
-        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab1 = Tab(paneId: p1.id)
         let tab2 = Tab(paneId: p2.id)
         store.appendTab(tab1)
@@ -357,7 +374,8 @@ final class ActionExecutorTests {
                 source: .existingPane(paneId: p2.id, sourceTabId: tab2.id),
                 targetTabId: tab1.id,
                 targetPaneId: p1.id,
-                direction: .right
+                direction: .right,
+                sizingMode: .halveTarget
             ))
 
         // Assert — tab2 was removed (last pane extracted), tab1 now has split
@@ -372,8 +390,8 @@ final class ActionExecutorTests {
     @Test
     func test_execute_mergeTab_combinesTabs() {
         // Arrange
-        let p1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let p2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let p1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab1 = Tab(paneId: p1.id)
         let tab2 = Tab(paneId: p2.id)
         store.appendTab(tab1)
@@ -396,8 +414,9 @@ final class ActionExecutorTests {
     // MARK: - OpenTerminal
 
     @Test
-    func test_openTerminal_surfaceFails_rollsBackPane() {
-        // Arrange — coordinator.createView() returns nil in tests (no Ghostty runtime)
+    func test_openTerminal_withoutTrustedGeometry_keepsPanePendingUntilBoundsExist() {
+        // Arrange — no trusted terminal container bounds are available in this harness,
+        // so zmx pane creation should defer instead of rolling back.
         let worktree = makeWorktree()
         let repo = makeRepo()
         store.addRepo(at: repo.repoPath)
@@ -405,10 +424,12 @@ final class ActionExecutorTests {
         // Act
         let pane = executor.openTerminal(for: worktree, in: repo)
 
-        // Assert — surface creation failed, pane rolled back, no tab created
-        #expect(pane == nil)
-        #expect(store.tabs.isEmpty)
-        #expect(store.panes.isEmpty)
+        // Assert — the pane exists in canonical state and shows a preparing placeholder
+        // until trusted geometry arrives.
+        #expect(pane != nil)
+        #expect(store.tabs.count == 1)
+        #expect(store.panes.count == 1)
+        #expect(pane.flatMap { viewRegistry.terminalStatusPlaceholderView(for: $0.id) } != nil)
     }
 
     @Test
@@ -421,7 +442,8 @@ final class ActionExecutorTests {
 
         // Create first pane manually
         let existingPane = store.createPane(
-            source: .worktree(worktreeId: worktreeId, repoId: repoId),
+            source: .worktree(
+                worktreeId: worktreeId, repoId: repoId, launchDirectory: URL(fileURLWithPath: "/tmp/worktree")),
             title: "Existing"
         )
         let tab = Tab(paneId: existingPane.id)
@@ -444,7 +466,7 @@ final class ActionExecutorTests {
         var closedPaneIds: [UUID] = []
         for i in 0..<12 {
             let pane = store.createPane(
-                source: .floating(workingDirectory: nil, title: "Tab \(i)")
+                source: .floating(launchDirectory: nil, title: "Tab \(i)")
             )
             closedPaneIds.append(pane.id)
             let tab = Tab(paneId: pane.id)
@@ -481,7 +503,8 @@ final class ActionExecutorTests {
         let transitions = ActionExecutor.computeSwitchArrangementTransitions(
             previousVisiblePaneIds: previousVisiblePaneIds,
             previouslyMinimizedPaneIds: previouslyMinimizedPaneIds,
-            newVisiblePaneIds: newVisiblePaneIds
+            newVisiblePaneIds: newVisiblePaneIds,
+            newMinimizedPaneIds: []
         )
 
         // Assert
@@ -503,7 +526,8 @@ final class ActionExecutorTests {
         let transitions = ActionExecutor.computeSwitchArrangementTransitions(
             previousVisiblePaneIds: previousVisiblePaneIds,
             previouslyMinimizedPaneIds: previouslyMinimizedPaneIds,
-            newVisiblePaneIds: newVisiblePaneIds
+            newVisiblePaneIds: newVisiblePaneIds,
+            newMinimizedPaneIds: []
         )
 
         // Assert
@@ -512,16 +536,39 @@ final class ActionExecutorTests {
     }
 
     @Test
+    func test_computeSwitchArrangementTransitions_skipsTargetMinimizedPaneFromReattachSet() {
+        let paneA = UUID()
+        let paneB = UUID()
+        let paneC = UUID()
+        let previousVisiblePaneIds: Set<UUID> = [paneA, paneB]
+        let previouslyMinimizedPaneIds: Set<UUID> = []
+        let newVisiblePaneIds: Set<UUID> = [paneB, paneC]
+        let newMinimizedPaneIds: Set<UUID> = [paneC]
+
+        let transitions = ActionExecutor.computeSwitchArrangementTransitions(
+            previousVisiblePaneIds: previousVisiblePaneIds,
+            previouslyMinimizedPaneIds: previouslyMinimizedPaneIds,
+            newVisiblePaneIds: newVisiblePaneIds,
+            newMinimizedPaneIds: newMinimizedPaneIds
+        )
+
+        #expect(transitions.hiddenPaneIds == Set([paneA]))
+        #expect(transitions.paneIdsToReattach.isEmpty)
+    }
+
+    @Test
     func test_execute_switchArrangement_updatesStoreState() {
         // Arrange: tab with panes A, B, C. Default arrangement has all 3.
-        let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let pB = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let pC = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pA = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pB = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pC = store.createPane(source: .floating(launchDirectory: nil, title: nil))
 
         let tab = Tab(paneId: pA.id)
         store.appendTab(tab)
-        store.insertPane(pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after)
-        store.insertPane(pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+        store.insertPane(
+            pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         // Create custom arrangement with only panes A and B
         let arrId = store.createArrangement(
@@ -545,14 +592,16 @@ final class ActionExecutorTests {
     @Test
     func test_execute_switchArrangement_backToDefault_restoresAllPanes() {
         // Arrange: tab with panes A, B, C
-        let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let pB = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let pC = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pA = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pB = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pC = store.createPane(source: .floating(launchDirectory: nil, title: nil))
 
         let tab = Tab(paneId: pA.id)
         store.appendTab(tab)
-        store.insertPane(pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after)
-        store.insertPane(pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+        store.insertPane(
+            pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         let customArrId = store.createArrangement(
             name: "Focus",
@@ -577,7 +626,7 @@ final class ActionExecutorTests {
     @Test
     func test_execute_switchArrangement_sameArrangement_noOp() {
         // Arrange
-        let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pA = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: pA.id)
         store.appendTab(tab)
 
@@ -605,19 +654,21 @@ final class ActionExecutorTests {
     @Test
     func test_execute_switchArrangement_viewRegistryRetainsAllViews() {
         // Arrange: tab with 3 panes, each registered in ViewRegistry
-        let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let pB = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let pC = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pA = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pB = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pC = store.createPane(source: .floating(launchDirectory: nil, title: nil))
 
         let tab = Tab(paneId: pA.id)
         store.appendTab(tab)
-        store.insertPane(pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after)
-        store.insertPane(pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+        store.insertPane(
+            pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         // Register stub PaneViews for all 3 panes
-        let viewA = PaneView(paneId: pA.id)
-        let viewB = PaneView(paneId: pB.id)
-        let viewC = PaneView(paneId: pC.id)
+        let viewA = PaneHostView(paneId: pA.id)
+        let viewB = PaneHostView(paneId: pB.id)
+        let viewC = PaneHostView(paneId: pC.id)
         viewRegistry.register(viewA, for: pA.id)
         viewRegistry.register(viewB, for: pB.id)
         viewRegistry.register(viewC, for: pC.id)
@@ -648,19 +699,21 @@ final class ActionExecutorTests {
     @Test
     func test_execute_switchArrangement_backToDefault_viewsStillRegistered() {
         // Arrange: tab with 3 panes, each registered in ViewRegistry
-        let pA = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let pB = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let pC = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pA = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pB = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pC = store.createPane(source: .floating(launchDirectory: nil, title: nil))
 
         let tab = Tab(paneId: pA.id)
         store.appendTab(tab)
-        store.insertPane(pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after)
-        store.insertPane(pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            pB.id, inTab: tab.id, at: pA.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+        store.insertPane(
+            pC.id, inTab: tab.id, at: pB.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         // Register stub PaneViews for all 3 panes
-        let viewA = PaneView(paneId: pA.id)
-        let viewB = PaneView(paneId: pB.id)
-        let viewC = PaneView(paneId: pC.id)
+        let viewA = PaneHostView(paneId: pA.id)
+        let viewB = PaneHostView(paneId: pB.id)
+        let viewC = PaneHostView(paneId: pC.id)
         viewRegistry.register(viewA, for: pA.id)
         viewRegistry.register(viewB, for: pB.id)
         viewRegistry.register(viewC, for: pC.id)
@@ -688,62 +741,57 @@ final class ActionExecutorTests {
         #expect(Set(updatedTab.paneIds) == Set([pA.id, pB.id, pC.id]))
     }
 
-    // MARK: - Execute: repair (viewRevision)
+    // MARK: - Execute: repair
 
     @Test
-    func test_viewRevision_defaultsToZero() {
-        // Assert
-        #expect(store.viewRevision == 0)
-    }
-
-    @Test
-    func test_executeRepair_recreateSurface_bumpsViewRevision() {
+    func test_executeRepair_recreateSurface_replacesExistingView() {
         // Arrange
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/recreate")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Recreate"), title: "Recreate")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Recreate"), title: "Recreate")
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
-        let stubView = PaneView(paneId: pane.id)
+        let stubView = PaneHostView(paneId: pane.id)
         viewRegistry.register(stubView, for: pane.id)
-        #expect(store.viewRevision == 0)
 
         // Act
         executor.execute(.repair(.recreateSurface(paneId: pane.id)))
 
         // Assert
-        #expect(store.viewRevision == 1)
+        let repairedView = viewRegistry.view(for: pane.id)
+        #expect(repairedView != nil)
+        #expect(repairedView !== stubView)
     }
 
     @Test
-    func test_executeRepair_createMissingView_bumpsViewRevision() {
+    func test_executeRepair_createMissingView_registersView() {
         // Arrange
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/missing")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Missing"), title: "Missing")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Missing"), title: "Missing")
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
-        #expect(store.viewRevision == 0)
+        #expect(viewRegistry.view(for: pane.id) == nil)
 
         // Act
         executor.execute(.repair(.createMissingView(paneId: pane.id)))
 
         // Assert
-        #expect(store.viewRevision == 1)
+        #expect(viewRegistry.view(for: pane.id) != nil)
     }
 
     @Test
-    func test_executeRepair_unknownPane_doesNotBumpViewRevision() {
+    func test_executeRepair_unknownPane_doesNotRegisterView() {
         // Arrange
         let unknownId = UUID()
-        #expect(store.viewRevision == 0)
+        #expect(viewRegistry.view(for: unknownId) == nil)
 
         // Act
         executor.execute(.repair(.recreateSurface(paneId: unknownId)))
 
-        // Assert — guard early-returns, no bump
-        #expect(store.viewRevision == 0)
+        // Assert — guard early-returns, no registration
+        #expect(viewRegistry.view(for: unknownId) == nil)
     }
 }

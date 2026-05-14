@@ -55,7 +55,7 @@ struct SurfaceMetadata: Codable, Equatable {
     var lastActiveAt: Date
 
     init(
-        workingDirectory: URL? = nil,
+        launchDirectory: URL? = nil,
         command: String? = nil,
         title: String = "Terminal",
         worktreeId: UUID? = nil,
@@ -66,7 +66,7 @@ struct SurfaceMetadata: Codable, Equatable {
         let sourceFacets = PaneContextFacets(
             repoId: repoId,
             worktreeId: worktreeId,
-            cwd: workingDirectory
+            cwd: launchDirectory
         )
         self.contextFacets = contextFacets.fillingNilFields(from: sourceFacets)
         self.command = command
@@ -76,7 +76,7 @@ struct SurfaceMetadata: Codable, Equatable {
         self.lastActiveAt = Date()
     }
 
-    var workingDirectory: URL? {
+    var cwd: URL? {
         get { contextFacets.cwd }
         set { contextFacets.cwd = newValue }
     }

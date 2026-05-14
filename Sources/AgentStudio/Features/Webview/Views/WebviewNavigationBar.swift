@@ -14,13 +14,13 @@ struct WebviewNavigationBar: View {
     }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: AppStyles.WorkspaceFocus.Webview.navigationControlsSpacing) {
             navigationButtons
             urlField
             progressIndicator
         }
-        .padding(.horizontal, 8)
-        .frame(height: 36)
+        .padding(.horizontal, AppStyles.WorkspaceFocus.Webview.navigationBarHorizontalPadding)
+        .frame(height: AppStyles.WorkspaceFocus.Webview.navigationBarHeight)
         .background(.ultraThinMaterial)
         .onChange(of: controller.url) { _, newURL in
             urlFieldText = newURL?.absoluteString ?? ""
@@ -33,61 +33,61 @@ struct WebviewNavigationBar: View {
     // MARK: - Navigation Buttons
 
     private var navigationButtons: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: AppStyles.WorkspaceFocus.Webview.navigationControlsSpacing) {
             Button {
                 controller.goBack()
             } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: AppStyle.textSm, weight: .medium))
+                    .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
             }
             .disabled(!controller.canGoBack)
             .buttonStyle(.plain)
             .foregroundStyle(controller.canGoBack ? .primary : .quaternary)
             .keyboardShortcut("[", modifiers: .command)
-            .help("Back (⌘[)")
+            .help(LocalActionSpec.browserBack.actionSpec.helpText)
 
             Button {
                 controller.goForward()
             } label: {
                 Image(systemName: "chevron.right")
-                    .font(.system(size: AppStyle.textSm, weight: .medium))
+                    .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
             }
             .disabled(!controller.canGoForward)
             .buttonStyle(.plain)
             .foregroundStyle(controller.canGoForward ? .primary : .quaternary)
             .keyboardShortcut("]", modifiers: .command)
-            .help("Forward (⌘])")
+            .help(LocalActionSpec.browserForward.actionSpec.helpText)
 
             if controller.isLoading {
                 Button {
                     controller.stopLoading()
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: AppStyle.textXs, weight: .medium))
+                        .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
                 }
                 .buttonStyle(.plain)
-                .help("Stop loading")
+                .help(LocalActionSpec.browserStop.actionSpec.helpText)
             } else {
                 Button {
                     controller.reload()
                 } label: {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: AppStyle.textXs, weight: .medium))
+                        .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
                 }
                 .buttonStyle(.plain)
                 .keyboardShortcut("r", modifiers: .command)
-                .help("Reload (⌘R)")
+                .help(LocalActionSpec.browserReload.actionSpec.helpText)
             }
 
             Button {
                 controller.goHome()
             } label: {
                 Image(systemName: "house")
-                    .font(.system(size: AppStyle.textXs, weight: .medium))
+                    .font(.system(size: AppStyles.General.Typography.textXs, weight: .medium))
             }
             .buttonStyle(.plain)
             .foregroundStyle(.primary)
-            .help("New tab page")
+            .help(LocalActionSpec.browserHome.actionSpec.helpText)
 
             favoriteButton
         }
@@ -109,15 +109,15 @@ struct WebviewNavigationBar: View {
                 controller.navigate(to: urlFieldText)
             } label: {
                 Image(systemName: "arrow.right.circle.fill")
-                    .font(.system(size: AppStyle.textLg))
+                    .font(.system(size: AppStyles.General.Typography.textLg))
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
+        .padding(.horizontal, AppStyles.WorkspaceFocus.Webview.navigationFieldHorizontalPadding)
+        .padding(.vertical, AppStyles.WorkspaceFocus.Webview.navigationFieldVerticalPadding)
         .background(Color.primary.opacity(0.04))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .clipShape(RoundedRectangle(cornerRadius: AppStyles.WorkspaceFocus.Webview.navigationFieldCornerRadius))
     }
 
     // MARK: - Favorite
@@ -136,12 +136,16 @@ struct WebviewNavigationBar: View {
                 }
             } label: {
                 Image(systemName: isCurrentPageFavorite ? "star.fill" : "star")
-                    .font(.system(size: AppStyle.textSm, weight: .medium))
+                    .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
                     .foregroundStyle(isCurrentPageFavorite ? .yellow : .secondary)
             }
             .buttonStyle(.plain)
             .keyboardShortcut("d", modifiers: .command)
-            .help(isCurrentPageFavorite ? "Remove from favorites (⌘D)" : "Add to favorites (⌘D)")
+            .help(
+                isCurrentPageFavorite
+                    ? LocalActionSpec.browserRemoveFavorite.actionSpec.helpText
+                    : LocalActionSpec.browserAddFavorite.actionSpec.helpText
+            )
         }
     }
 

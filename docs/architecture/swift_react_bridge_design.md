@@ -2780,7 +2780,7 @@ Sources/AgentStudio/Features/Bridge/
 │       ├── AgentMethods.swift
 │       └── SystemMethods.swift
 └── Views/
-    ├── BridgePaneView.swift
+    ├── BridgePaneMountView.swift
     └── BridgePaneContentView.swift
 
 Tests/AgentStudioTests/Features/Bridge/
@@ -2814,12 +2814,12 @@ The pane system is fully operational. Webview panes already work as general-purp
 | `PaneContent.webview(WebviewState)` | `Core/Models/PaneContent.swift` | Discriminated union case for webview panes |
 | `WebviewState` | `Core/Models/PaneContent.swift` | Serializable state: `url`, `title`, `showNavigation` |
 | `WebviewPaneController` | `Features/Webview/WebviewPaneController.swift` | Per-pane `@Observable` controller owning a `WebPage` |
-| `WebviewPaneView` | `Features/Webview/Views/WebviewPaneView.swift` | AppKit `PaneView` subclass hosting SwiftUI via `NSHostingView` |
+| `WebviewPaneMountView` | `Features/Webview/Views/WebviewPaneMountView.swift` | AppKit mounted content hosting SwiftUI via `NSHostingView` |
 | `WebviewPaneContentView` | `Features/Webview/Views/WebviewPaneContentView.swift` | SwiftUI view: nav bar + `WebView(controller.page)` |
 | `WebviewNavigationDecider` | `Features/Webview/WebviewNavigationDecider.swift` | Browser-oriented allowlist: `https`, `http`, `about`, `file`, `agentstudio` |
 | `WebviewDialogHandler` | `Features/Webview/WebviewDialogHandler.swift` | JS dialog handler (default implementations) |
-| `PaneCoordinator.createViewForContent` | `App/PaneCoordinator+ViewLifecycle.swift` | Routes `PaneContent` -> concrete view/controller creation |
-| `PaneCoordinator.openWebview(url:)` | `App/PaneCoordinator+ActionExecution.swift` | Creates browser pane with `WebviewState` + tab |
+| `PaneCoordinator.createViewForContent` | `App/Coordination/PaneCoordinator+ViewLifecycle.swift` | Routes `PaneContent` -> concrete view/controller creation |
+| `PaneCoordinator.openWebview(url:)` | `App/Coordination/PaneCoordinator+ActionExecution.swift` | Creates browser pane with `WebviewState` + tab |
 
 All webview panes currently share a single static `WebPage.Configuration` (`WebviewPaneController.sharedConfiguration`) with default `websiteDataStore`. The `ViewRegistry` tracks all webview views and supports lookup by pane ID.
 
@@ -2876,8 +2876,9 @@ enum BridgePaneSource: Codable, Hashable {
 ```swift
 case .bridgePanel(let state):
     let controller = BridgePaneController(paneId: pane.id, state: state)
-    let view = BridgePaneView(paneId: pane.id, controller: controller)
-    viewRegistry.register(view, for: pane.id)
+    let view = BridgePaneMountView(paneId: pane.id, controller: controller)
+    registerHostedView(mountedView: view, for: pane.id)
+    registerRuntimeIfNeeded(runtime: view.runtime, for: pane)
     controller.loadApp()
     return view
 ```
@@ -2941,7 +2942,7 @@ init(paneId: UUID, state: BridgePaneState) {
 
 ### 15.5 Pane Lifecycle
 
-- **Creation**: bridge-pane content is created in store/coordinator flow, then `PaneCoordinator.createViewForContent(.bridgePanel)` instantiates `BridgePaneController` + `BridgePaneView` and registers in `ViewRegistry`
+- **Creation**: bridge-pane content is created in store/coordinator flow, then `PaneCoordinator.createViewForContent(.bridgePanel)` instantiates `BridgePaneController` + `BridgePaneMountView`, mounts it through `registerHostedView`, registers runtime state, and calls `controller.loadApp()`
 - **Active**: `BridgePaneController` owns observation loops (started on `bridge.ready`), pushes state to Zustand
 - **Teardown**: `BridgePaneController.teardown()` cancels observation tasks, releases `WebPage`. Triggered by pane removal via `WorkspaceStore.removePane` → `ViewRegistry.deregister`
 - **Persistence**: `BridgePaneState` is `Codable` — round-trips through workspace save/restore. On restore, the panel reloads from source (re-computes manifest from git)

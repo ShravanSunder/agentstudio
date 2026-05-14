@@ -7,12 +7,18 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct PaneTabViewControllerLaunchRestoreTests {
+    init() {
+        installTestAtomRegistryIfNeeded()
+    }
     private struct Harness {
         let store: WorkspaceStore
         let viewRegistry: ViewRegistry
         let runtime: SessionRuntime
         let coordinator: PaneCoordinator
         let executor: ActionExecutor
+        let appLifecycleStore: AppLifecycleAtom
+        let windowLifecycleStore: WindowLifecycleAtom
+        let applicationLifecycleMonitor: ApplicationLifecycleMonitor
         let controller: PaneTabViewController
         let surfaceManager: LaunchCapturingSurfaceManager
         let window: NSWindow
@@ -27,19 +33,29 @@ struct PaneTabViewControllerLaunchRestoreTests {
         store.restore()
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
+        let appLifecycleStore = AppLifecycleAtom()
+        let windowLifecycleStore = WindowLifecycleAtom()
+        let applicationLifecycleMonitor = ApplicationLifecycleMonitor(
+            appLifecycleStore: appLifecycleStore,
+            windowLifecycleStore: windowLifecycleStore
+        )
         let surfaceManager = LaunchCapturingSurfaceManager()
         let coordinator = PaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
             surfaceManager: surfaceManager,
-            runtimeRegistry: .shared
+            runtimeRegistry: .shared,
+            windowLifecycleStore: windowLifecycleStore
         )
         let executor = ActionExecutor(coordinator: coordinator, store: store)
         let controller = PaneTabViewController(
             store: store,
+            repoCache: RepoCacheAtom(),
+            applicationLifecycleMonitor: applicationLifecycleMonitor,
+            appLifecycleStore: appLifecycleStore,
             executor: executor,
-            tabBarAdapter: TabBarAdapter(store: store),
+            tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
             viewRegistry: viewRegistry
         )
         let window = NSWindow(
@@ -51,9 +67,6 @@ struct PaneTabViewControllerLaunchRestoreTests {
         window.contentViewController = controller
         window.makeKeyAndOrderFront(nil)
         window.contentView?.layoutSubtreeIfNeeded()
-        coordinator.terminalContainerBoundsProvider = { [weak controller] in
-            controller?.terminalContainerBounds
-        }
 
         return Harness(
             store: store,
@@ -61,6 +74,9 @@ struct PaneTabViewControllerLaunchRestoreTests {
             runtime: runtime,
             coordinator: coordinator,
             executor: executor,
+            appLifecycleStore: appLifecycleStore,
+            windowLifecycleStore: windowLifecycleStore,
+            applicationLifecycleMonitor: applicationLifecycleMonitor,
             controller: controller,
             surfaceManager: surfaceManager,
             window: window,
@@ -69,104 +85,112 @@ struct PaneTabViewControllerLaunchRestoreTests {
     }
 
     @Test
-    func preArmLayout_doesNotRestoreMissingActivePane() {
+    func layout_writesNonEmptyBoundsToWindowLifecycleStore() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        harness.controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        #expect(harness.windowLifecycleStore.terminalContainerBounds.width > 0)
+        #expect(harness.windowLifecycleStore.terminalContainerBounds.height > 0)
+        #expect(harness.windowLifecycleStore.isReadyForLaunchRestore == false)
+    }
+
+    @Test
+    func settledLayoutWithRecordedBounds_makesStoreReadyForLaunchRestore() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        harness.controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
+        harness.controller.view.layoutSubtreeIfNeeded()
+        harness.applicationLifecycleMonitor.handleLaunchLayoutSettled()
+
+        #expect(harness.windowLifecycleStore.isLaunchLayoutSettled == true)
+        #expect(harness.windowLifecycleStore.isReadyForLaunchRestore == true)
+    }
+
+    @Test
+    func restoreViewsForActiveTabIfNeeded_doesNotCreateViewsBeforeLaunchLayoutSettles() {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
         let pane = harness.store.createPane(
-            source: .floating(workingDirectory: harness.tempDir, title: "Launch Restore"),
+            source: .floating(launchDirectory: harness.tempDir, title: "Early Restore"),
+            provider: .zmx
+        )
+        let tab = Tab(paneId: pane.id, name: "Early Restore")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+
+        harness.windowLifecycleStore.recordTerminalContainerBounds(
+            CGRect(x: 0, y: 0, width: 512, height: 552)
+        )
+        #expect(harness.windowLifecycleStore.isReadyForLaunchRestore == false)
+
+        harness.coordinator.restoreViewsForActiveTabIfNeeded()
+
+        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
+    }
+
+    @Test
+    func restoreAllViews_usesLifecycleStoreBounds() async throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(
+            source: .floating(launchDirectory: harness.tempDir, title: "Launch Restore"),
             provider: .zmx
         )
         let tab = Tab(paneId: pane.id, name: "Launch Restore")
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
 
-        #expect(harness.controller.terminalContainerBounds.isEmpty)
+        let containerWidth: CGFloat = 1000
+        let containerHeight: CGFloat = 600
+        harness.windowLifecycleStore.recordTerminalContainerBounds(
+            CGRect(x: 0, y: 0, width: containerWidth, height: containerHeight)
+        )
 
-        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
+        await harness.coordinator.restoreAllViews(
+            in: harness.windowLifecycleStore.terminalContainerBounds
+        )
 
-        harness.controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
-        harness.controller.view.layoutSubtreeIfNeeded()
-
-        #expect(harness.surfaceManager.createdPaneIds.isEmpty)
+        let config = try #require(harness.surfaceManager.createdConfigsByPaneId[pane.id])
+        let gap = AppStyles.General.Layout.paneGap
+        #expect(
+            config.initialFrame
+                == CGRect(x: gap, y: gap, width: containerWidth - gap * 2, height: containerHeight - gap * 2))
     }
 
     @Test
-    func armedPostResizeLayout_restoresVisibleAndHiddenPanes() async throws {
+    func appLifecycleChanges_doNotReplaceActiveTabHost() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let repo = harness.store.addRepo(at: harness.tempDir)
-        let worktree = try #require(repo.worktrees.first)
-        let visiblePane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+        let pane = harness.store.createPane(
+            source: .floating(launchDirectory: harness.tempDir, title: "Lifecycle"),
             provider: .zmx
         )
-        let hiddenPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
-            provider: .zmx
-        )
-        let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
-        let hiddenTab = Tab(paneId: hiddenPane.id, name: "Hidden")
-        harness.store.appendTab(visibleTab)
-        harness.store.appendTab(hiddenTab)
-        harness.store.setActiveTab(visibleTab.id)
-
-        let liveSessionId = ZmxBackend.sessionId(
-            repoStableKey: repo.stableKey,
-            worktreeStableKey: worktree.stableKey,
-            paneId: hiddenPane.id
-        )
-        harness.coordinator.terminalRestoreRuntime = TerminalRestoreRuntime(
-            sessionConfiguration: SessionConfiguration(
-                isEnabled: true,
-                backgroundRestorePolicy: .existingSessionsOnly,
-                zmxPath: "/tmp/fake-zmx",
-                zmxDir: "/tmp/fake-zmx-dir",
-                healthCheckInterval: 30,
-                maxCheckpointAge: 60
-            ),
-            liveSessionIdsProvider: { _ in [liveSessionId] }
-        )
-
-        var publishedBounds: CGRect?
-        harness.controller.onRestoreHostReady = { bounds in
-            publishedBounds = bounds
-        }
-
-        harness.controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
-        harness.controller.view.layoutSubtreeIfNeeded()
-        #expect(publishedBounds == nil)
-
-        harness.controller.armLaunchRestoreReadiness()
-        harness.controller.view.frame = NSRect(x: 0, y: 0, width: 1400, height: 900)
-        harness.controller.view.layoutSubtreeIfNeeded()
-        let readyBounds = try #require(publishedBounds)
-        await harness.coordinator.restoreAllViews(in: readyBounds)
-
-        #expect(Set(harness.surfaceManager.createdPaneIds) == Set([visiblePane.id, hiddenPane.id]))
-        #expect(harness.surfaceManager.createdPaneIds.contains(hiddenPane.id))
-    }
-
-    @Test
-    func callbackAssignedAfterArmedLayout_receivesCachedRestoreBounds() throws {
-        let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
-
-        harness.controller.view.frame = NSRect(x: 0, y: 0, width: 1200, height: 800)
-        harness.controller.view.layoutSubtreeIfNeeded()
-        harness.controller.armLaunchRestoreReadiness()
-        harness.controller.view.frame = NSRect(x: 0, y: 0, width: 1400, height: 900)
+        let tab = Tab(paneId: pane.id, name: "Lifecycle")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
         harness.controller.view.layoutSubtreeIfNeeded()
 
-        var publishedBounds: CGRect?
-        harness.controller.onRestoreHostReady = { bounds in
-            publishedBounds = bounds
-        }
+        let originalTabHost = try #require(harness.controller.tabHostViewForTesting(tabId: tab.id))
+        #expect(harness.controller.appLifecycleStoreForTesting === harness.appLifecycleStore)
 
-        let readyBounds = try #require(publishedBounds)
-        #expect(!readyBounds.isEmpty)
-        #expect(readyBounds == harness.controller.terminalContainerBounds)
+        harness.applicationLifecycleMonitor.handleApplicationDidBecomeActive()
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        let updatedTabHost = try #require(harness.controller.tabHostViewForTesting(tabId: tab.id))
+        #expect(updatedTabHost === originalTabHost)
+
+        harness.applicationLifecycleMonitor.handleApplicationDidResignActive()
+        harness.controller.view.layoutSubtreeIfNeeded()
+
+        let tabHostAfterResign = try #require(harness.controller.tabHostViewForTesting(tabId: tab.id))
+        #expect(tabHostAfterResign === originalTabHost)
     }
 }
 
@@ -175,6 +199,7 @@ private final class LaunchCapturingSurfaceManager: PaneCoordinatorSurfaceManagin
     private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
 
     private(set) var createdPaneIds: [UUID] = []
+    private(set) var createdConfigsByPaneId: [UUID: Ghostty.SurfaceConfiguration] = [:]
 
     init() {
         self.cwdStream = AsyncStream { continuation in
@@ -187,11 +212,12 @@ private final class LaunchCapturingSurfaceManager: PaneCoordinatorSurfaceManagin
     func syncFocus(activeSurfaceId _: UUID?) {}
 
     func createSurface(
-        config _: Ghostty.SurfaceConfiguration,
+        config: Ghostty.SurfaceConfiguration,
         metadata: SurfaceMetadata
     ) -> Result<ManagedSurface, SurfaceError> {
         if let paneId = metadata.paneId {
             createdPaneIds.append(paneId)
+            createdConfigsByPaneId[paneId] = config
         }
         return .failure(.operationFailed("capture only"))
     }

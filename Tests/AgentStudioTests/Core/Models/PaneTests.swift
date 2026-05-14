@@ -20,7 +20,7 @@ final class PaneTests {
     func test_defaultInit_generatesV7PaneId() {
         let pane = Pane(
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil))
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil))
         )
 
         #expect(UUIDv7.isV7(pane.id))
@@ -42,7 +42,7 @@ final class PaneTests {
     func test_terminalState_returnsNil_forNonTerminalContent() {
         let pane = Pane(
             content: .webview(WebviewState(url: URL(string: "https://example.com")!, showNavigation: true)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Web")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Web")
         )
 
         #expect((pane.terminalState) == nil)
@@ -57,7 +57,7 @@ final class PaneTests {
             content: .bridgePanel(
                 BridgePaneState(panelKind: .diffViewer, source: .commit(sha: "abc123"))
             ),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Bridge Diff")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Bridge Diff")
         )
 
         #expect(pane.metadata.contentType == .diff)
@@ -70,7 +70,7 @@ final class PaneTests {
             content: .codeViewer(
                 CodeViewerState(filePath: URL(fileURLWithPath: "/tmp/main.swift"), scrollToLine: 42)
             ),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Code")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Code")
         )
 
         #expect(pane.metadata.contentType == .codeViewer)
@@ -109,7 +109,7 @@ final class PaneTests {
     @Test
 
     func test_source_delegatesToMetadata() {
-        let source = TerminalSource.floating(workingDirectory: URL(fileURLWithPath: "/tmp"), title: "Float")
+        let source = TerminalSource.floating(launchDirectory: URL(fileURLWithPath: "/tmp"), title: "Float")
         let pane = makePane(source: source)
         #expect(pane.source == source)
     }
@@ -119,7 +119,8 @@ final class PaneTests {
     func test_worktreeId_returnsId_forWorktreeSource() {
         let wtId = UUID()
         let repoId = UUID()
-        let pane = makePane(source: .worktree(worktreeId: wtId, repoId: repoId))
+        let pane = makePane(
+            source: .worktree(worktreeId: wtId, repoId: repoId, launchDirectory: URL(fileURLWithPath: "/tmp/worktree")))
         #expect(pane.worktreeId == wtId)
         #expect(pane.repoId == repoId)
     }
@@ -127,7 +128,7 @@ final class PaneTests {
     @Test
 
     func test_worktreeId_returnsNil_forFloatingSource() {
-        let pane = makePane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = makePane(source: .floating(launchDirectory: nil, title: nil))
         #expect((pane.worktreeId) == nil)
         #expect((pane.repoId) == nil)
     }
@@ -138,7 +139,7 @@ final class PaneTests {
 
     func test_codable_roundTrip_terminalPane() throws {
         let pane = makePane(
-            source: .floating(workingDirectory: URL(fileURLWithPath: "/tmp"), title: "Float"),
+            source: .floating(launchDirectory: URL(fileURLWithPath: "/tmp"), title: "Float"),
             title: "My Term",
             provider: .zmx,
             lifetime: .persistent,
@@ -162,7 +163,7 @@ final class PaneTests {
     func test_codable_roundTrip_webviewPane() throws {
         let pane = Pane(
             content: .webview(WebviewState(url: URL(string: "https://docs.swift.org")!, showNavigation: false)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Docs")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Docs")
         )
 
         let data = try encoder.encode(pane)
@@ -183,13 +184,13 @@ final class PaneTests {
         let drawerPaneId = UUID()
         let drawer = Drawer(
             paneIds: [drawerPaneId],
-            layout: Layout(paneId: drawerPaneId),
-            activePaneId: drawerPaneId,
+            layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)),
+            activeChildId: drawerPaneId,
             isExpanded: false
         )
         let pane = Pane(
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Host"),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Host"),
             kind: .layout(drawer: drawer)
         )
 
@@ -199,7 +200,7 @@ final class PaneTests {
         #expect((decoded.drawer) != nil)
         #expect(decoded.drawer!.paneIds.count == 1)
         #expect(decoded.drawer!.paneIds[0] == drawerPaneId)
-        #expect(decoded.drawer!.activePaneId == drawerPaneId)
+        #expect(decoded.drawer!.activeChildId == drawerPaneId)
         #expect(!(decoded.drawer!.isExpanded))
     }
 
@@ -208,7 +209,8 @@ final class PaneTests {
     func test_codable_roundTrip_worktreeSource() throws {
         let wtId = UUID()
         let repoId = UUID()
-        let pane = makePane(source: .worktree(worktreeId: wtId, repoId: repoId))
+        let pane = makePane(
+            source: .worktree(worktreeId: wtId, repoId: repoId, launchDirectory: URL(fileURLWithPath: "/tmp/worktree")))
 
         let data = try encoder.encode(pane)
         let decoded = try decoder.decode(Pane.self, from: data)
@@ -252,13 +254,13 @@ final class PaneTests {
         let drawerPaneId = UUID()
         let drawer = Drawer(
             paneIds: [drawerPaneId],
-            layout: Layout(paneId: drawerPaneId),
-            activePaneId: drawerPaneId,
+            layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)),
+            activeChildId: drawerPaneId,
             isExpanded: true
         )
         let pane = Pane(
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Legacy Host"),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Legacy Host"),
             kind: .layout(drawer: drawer)
         )
 
@@ -280,7 +282,7 @@ final class PaneTests {
 
     func test_decode_withoutKindAndDrawer_throws() throws {
         let pane = makePane(
-            source: .floating(workingDirectory: nil, title: nil),
+            source: .floating(launchDirectory: nil, title: nil),
             title: "Legacy Empty Drawer",
             provider: .zmx
         )
@@ -303,7 +305,7 @@ final class PaneTests {
 
     func test_decode_withV4PaneId_throws() throws {
         let pane = makePane(
-            source: .floating(workingDirectory: nil, title: nil),
+            source: .floating(launchDirectory: nil, title: nil),
             title: "NonCanonicalId",
             provider: .zmx
         )
@@ -324,7 +326,7 @@ final class PaneTests {
 
     func test_decode_withMismatchedMetadataPaneId_throws() throws {
         let pane = makePane(
-            source: .floating(workingDirectory: nil, title: nil),
+            source: .floating(launchDirectory: nil, title: nil),
             title: "MismatchedMetadataId",
             provider: .zmx
         )
@@ -358,7 +360,8 @@ final class PaneTests {
     func test_metadata_worktreeId_extractsFromWorktreeSource() {
         let wtId = UUID()
         let repoId = UUID()
-        let metadata = PaneMetadata(source: .worktree(worktreeId: wtId, repoId: repoId))
+        let metadata = PaneMetadata(
+            source: .worktree(worktreeId: wtId, repoId: repoId, launchDirectory: URL(fileURLWithPath: "/tmp/worktree")))
 
         #expect(metadata.worktreeId == wtId)
         #expect(metadata.repoId == repoId)
@@ -367,7 +370,7 @@ final class PaneTests {
     @Test
 
     func test_metadata_worktreeId_returnsNil_forFloatingSource() {
-        let metadata = PaneMetadata(source: .floating(workingDirectory: nil, title: nil))
+        let metadata = PaneMetadata(source: .floating(launchDirectory: nil, title: nil))
 
         #expect((metadata.worktreeId) == nil)
         #expect((metadata.repoId) == nil)
@@ -376,7 +379,7 @@ final class PaneTests {
     @Test
 
     func test_metadata_defaultValues() {
-        let metadata = PaneMetadata(source: .floating(workingDirectory: nil, title: nil))
+        let metadata = PaneMetadata(source: .floating(launchDirectory: nil, title: nil))
 
         #expect(metadata.title == "Terminal")
         #expect((metadata.cwd) == nil)
@@ -387,7 +390,7 @@ final class PaneTests {
 
     func test_metadata_codable_roundTrip_withTags() throws {
         let metadata = PaneMetadata(
-            source: .floating(workingDirectory: URL(fileURLWithPath: "/tmp"), title: "Test"),
+            source: .floating(launchDirectory: URL(fileURLWithPath: "/tmp"), title: "Test"),
             title: "Tagged",
             facets: PaneContextFacets(
                 cwd: URL(fileURLWithPath: "/home/user"),
@@ -408,7 +411,7 @@ final class PaneTests {
 
     func test_metadata_decode_missingCanonicalFields_throws() throws {
         let metadata = PaneMetadata(
-            source: .floating(workingDirectory: URL(fileURLWithPath: "/tmp"), title: "Test"),
+            source: .floating(launchDirectory: URL(fileURLWithPath: "/tmp"), title: "Test"),
             title: "Canonical"
         )
         let data = try JSONEncoder().encode(metadata)
@@ -432,7 +435,7 @@ final class PaneTests {
         let parentId = UUID()
         let pane = Pane(
             content: .webview(WebviewState(url: URL(string: "https://test.com")!, showNavigation: true)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil), title: "Web Drawer"),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Web Drawer"),
             kind: .drawerChild(parentPaneId: parentId)
         )
 
@@ -458,14 +461,21 @@ final class PaneTests {
     func test_drawer_codable_roundTrip() throws {
         let id1 = UUID()
         let id2 = UUID()
-        let layout = Layout(paneId: id1).inserting(paneId: id2, at: id1, direction: .horizontal, position: .after)
-        let drawer = Drawer(paneIds: [id1, id2], layout: layout, activePaneId: id2, isExpanded: false)
+        let layout = DrawerGridLayout(
+            topRow: Layout(paneId: id1).inserting(
+                paneId: id2,
+                at: id1,
+                direction: .horizontal,
+                position: .after, sizingMode: .halveTarget
+            )!
+        )
+        let drawer = Drawer(paneIds: [id1, id2], layout: layout, activeChildId: id2, isExpanded: false)
 
         let data = try encoder.encode(drawer)
         let decoded = try decoder.decode(Drawer.self, from: data)
 
         #expect(decoded.paneIds.count == 2)
-        #expect(decoded.activePaneId == id2)
+        #expect(decoded.activeChildId == id2)
         #expect(!(decoded.isExpanded))
         #expect(decoded.paneIds[0] == id1)
         #expect(decoded.paneIds[1] == id2)
@@ -479,9 +489,26 @@ final class PaneTests {
         let drawer = Drawer()
 
         #expect(drawer.paneIds.isEmpty)
-        #expect((drawer.activePaneId) == nil)
+        #expect((drawer.activeChildId) == nil)
         #expect(!(drawer.isExpanded))
         #expect(drawer.minimizedPaneIds.isEmpty)
+    }
+
+    @Test
+    func test_drawer_rejectsLegacyActivePaneIdEncoding() throws {
+        let id = UUID()
+        let drawer = Drawer(
+            paneIds: [id],
+            layout: DrawerGridLayout(topRow: Layout(paneId: id)),
+            activeChildId: id,
+            isExpanded: true
+        )
+        let currentJSON = try #require(String(data: try encoder.encode(drawer), encoding: .utf8))
+        let legacyJSON = currentJSON.replacingOccurrences(of: "activeChildId", with: "activePaneId")
+
+        #expect(throws: DecodingError.self) {
+            try decoder.decode(Drawer.self, from: Data(legacyJSON.utf8))
+        }
     }
 
     // MARK: - PaneKind
@@ -501,7 +528,7 @@ final class PaneTests {
         let parentId = UUID()
         let pane = Pane(
             content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil)),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil)),
             kind: .drawerChild(parentPaneId: parentId)
         )
         #expect((pane.drawer) == nil)
@@ -516,10 +543,10 @@ final class PaneTests {
         let childId = UUID()
         pane.withDrawer { drawer in
             drawer.paneIds.append(childId)
-            drawer.activePaneId = childId
+            drawer.activeChildId = childId
         }
         #expect(pane.drawer?.paneIds == [childId])
-        #expect(pane.drawer?.activePaneId == childId)
+        #expect(pane.drawer?.activeChildId == childId)
     }
 
     @Test
@@ -528,7 +555,7 @@ final class PaneTests {
         let parentId = UUID()
         var pane = Pane(
             content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil)),
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil)),
             kind: .drawerChild(parentPaneId: parentId)
         )
         pane.withDrawer { drawer in
@@ -554,7 +581,7 @@ final class PaneTests {
         // Arrange — default Pane init uses .layout(drawer: Drawer())
         let pane = Pane(
             content: .terminal(TerminalState(provider: .ghostty, lifetime: .temporary)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: nil))
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil))
         )
 
         // Assert

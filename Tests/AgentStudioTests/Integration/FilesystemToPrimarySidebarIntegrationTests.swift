@@ -56,12 +56,12 @@ struct FilesystemToPrimarySidebarIntegrationTests {
             }
             #expect(prCountsConverged)
 
-            let sidebarRepos = testSystem.workspaceStore.repos.map(SidebarRepo.init(repo:))
-            let metadataByRepoId = RepoSidebarContentView.buildRepoMetadata(
+            let sidebarRepos = testSystem.workspaceStore.repos.map(RepoPresentationItem.init(repo:))
+            let metadataByRepoId = RepoExplorerView.buildRepoMetadata(
                 repos: sidebarRepos,
                 repoEnrichmentByRepoId: testSystem.repoCache.repoEnrichmentByRepoId
             )
-            let groups = SidebarRepoGrouping.buildGroups(
+            let groups = RepoPresentationGrouping.buildGroups(
                 repos: sidebarRepos,
                 metadataByRepoId: metadataByRepoId
             )
@@ -74,7 +74,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
             if let financeGroup {
                 let allFinanceWorktrees = financeGroup.repos.flatMap(\.worktrees)
                 let visibleBranchLabels = allFinanceWorktrees.map {
-                    PaneDisplayProjector.resolvedBranchName(
+                    atom(\.paneDisplay).resolvedBranchName(
                         worktree: $0,
                         enrichment: testSystem.repoCache.worktreeEnrichmentByWorktreeId[$0.id]
                     )
@@ -85,7 +85,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
             }
 
             // Search model should still find grouped finance checkouts.
-            let filtered = SidebarFilter.filter(repos: sidebarRepos, query: "rlvr")
+            let filtered = RepoExplorerFilter.filter(repos: sidebarRepos, query: "rlvr")
             #expect(!filtered.isEmpty)
         }
     }
@@ -93,7 +93,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
     private struct IntegratedTestSystem {
         let bus: EventBus<RuntimeEnvelope>
         let workspaceStore: WorkspaceStore
-        let repoCache: WorkspaceRepoCache
+        let repoCache: RepoCacheAtom
         let coordinator: WorkspaceCacheCoordinator
         let pipeline: FilesystemGitPipeline
     }
@@ -108,7 +108,7 @@ struct FilesystemToPrimarySidebarIntegrationTests {
     ) -> IntegratedTestSystem {
         let bus = EventBus<RuntimeEnvelope>()
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let pipeline = FilesystemGitPipeline(
             bus: bus,
             gitWorkingTreeProvider: StubGitWorkingTreeStatusProvider.stub { rootPath in

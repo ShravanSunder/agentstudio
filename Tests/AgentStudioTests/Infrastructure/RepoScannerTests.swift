@@ -263,3 +263,209 @@ struct RepoScannerTests {
         url.standardizedFileURL.resolvingSymlinksInPath().path
     }
 }
+
+@Suite("RepoScanner classification")
+struct RepoScannerClassificationTests {
+    @Test(".git directory is classified as a clone root")
+    func gitDirectoryIsCloneRoot() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appending(path: "scanner-classification-\(UUID().uuidString)")
+        let repoPath = tmp.appending(path: "agent-studio")
+        try FileManager.default.createDirectory(
+            at: repoPath.appending(path: ".git"),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        #expect(RepoScanner.classifyGitEntry(at: repoPath) == .cloneRoot)
+    }
+
+    @Test(".git file is classified as a linked worktree and preserves the parent clone path")
+    func gitFileIsLinkedWorktree() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appending(path: "scanner-linked-\(UUID().uuidString)")
+        let clonePath = tmp.appending(path: "agent-studio")
+        let worktreePath = tmp.appending(path: "agent-studio.feature-a")
+        try FileManager.default.createDirectory(
+            at: clonePath.appending(path: ".git/worktrees/feature-a"),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(at: worktreePath, withIntermediateDirectories: true)
+        try "gitdir: \(clonePath.path)/.git/worktrees/feature-a\n".write(
+            to: worktreePath.appending(path: ".git"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        guard
+            case .linkedWorktree(parentClonePath: let parentClonePath) =
+                RepoScanner.classifyGitEntry(at: worktreePath)
+        else {
+            Issue.record("expected linkedWorktree classification")
+            return
+        }
+
+        #expect(parentClonePath.standardizedFileURL == clonePath.standardizedFileURL)
+    }
+
+    @Test("path without a git marker is not classified")
+    func pathWithoutGitMarkerIsNotClassified() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appending(path: "scanner-empty-classification-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        #expect(RepoScanner.classifyGitEntry(at: tmp) == nil)
+    }
+
+    @Test("parseParentClonePath trims the worktree suffix from an absolute gitdir")
+    func parseParentClonePathFromAbsoluteGitdir() {
+        let parentClonePath = RepoScanner.parseParentClonePath(
+            fromGitFileContent: "gitdir: /tmp/agent-studio/.git/worktrees/feature-a\n"
+        )
+
+        #expect(parentClonePath?.standardizedFileURL == URL(fileURLWithPath: "/tmp/agent-studio"))
+    }
+
+    @Test("relative gitdir is resolved against the worktree path")
+    func gitFileRelativePathIsLinkedWorktree() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appending(path: "scanner-relative-\(UUID().uuidString)")
+        let clonePath = tmp.appending(path: "agent-studio")
+        let linkedRoot = tmp.appending(path: "linked")
+        let worktreePath = linkedRoot.appending(path: "feature-a")
+
+        try FileManager.default.createDirectory(
+            at: clonePath.appending(path: ".git/worktrees/feature-a"),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.createDirectory(at: worktreePath, withIntermediateDirectories: true)
+        try "gitdir: ../../agent-studio/.git/worktrees/feature-a\n".write(
+            to: worktreePath.appending(path: ".git"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        guard
+            case .linkedWorktree(parentClonePath: let parentClonePath) =
+                RepoScanner.classifyGitEntry(at: worktreePath)
+        else {
+            Issue.record("expected linkedWorktree classification for relative gitdir")
+            return
+        }
+
+        #expect(parentClonePath.standardizedFileURL == clonePath.standardizedFileURL)
+    }
+
+    @Test("unreadable git file falls back to clone root boundary")
+    func unreadableGitFileFallsBackToCloneRootBoundary() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appending(path: "scanner-unreadable-\(UUID().uuidString)")
+        let worktreePath = tmp.appending(path: "agent-studio.feature-a")
+        try FileManager.default.createDirectory(at: worktreePath, withIntermediateDirectories: true)
+
+        let gitFilePath = worktreePath.appending(path: ".git")
+        try "gitdir: /tmp/agent-studio/.git/worktrees/feature-a\n".write(
+            to: gitFilePath,
+            atomically: true,
+            encoding: .utf8
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o000],
+            ofItemAtPath: gitFilePath.path
+        )
+        defer {
+            try? FileManager.default.setAttributes(
+                [.posixPermissions: 0o644],
+                ofItemAtPath: gitFilePath.path
+            )
+            try? FileManager.default.removeItem(at: tmp)
+        }
+
+        #expect(RepoScanner.classifyGitEntry(at: worktreePath) == .cloneRoot)
+    }
+
+    @Test("malformed git file content falls back to clone root boundary")
+    func malformedGitFileFallsBackToCloneRootBoundary() throws {
+        let tmp = FileManager.default.temporaryDirectory
+            .appending(path: "scanner-malformed-\(UUID().uuidString)")
+        let worktreePath = tmp.appending(path: "agent-studio.feature-a")
+        try FileManager.default.createDirectory(at: worktreePath, withIntermediateDirectories: true)
+        try "not-a-gitdir-file\n".write(
+            to: worktreePath.appending(path: ".git"),
+            atomically: true,
+            encoding: .utf8
+        )
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        #expect(RepoScanner.classifyGitEntry(at: worktreePath) == .cloneRoot)
+    }
+
+    @Test("parseParentClonePath returns nil when worktrees segment is missing")
+    func parseParentClonePathWithoutWorktreesSegmentReturnsNil() {
+        let result = RepoScanner.parseParentClonePath(
+            fromGitFileContent: "gitdir: /tmp/agent-studio/.git/modules/submodule\n"
+        )
+
+        #expect(result == nil)
+    }
+
+    @Test("parseParentClonePath uses the closest worktrees segment in nested metadata-like paths")
+    func parseParentClonePathUsesClosestWorktreesSegment() {
+        let result = RepoScanner.parseParentClonePath(
+            fromGitFileContent:
+                "gitdir: /tmp/projects/.git/worktrees/my-repo/.git/worktrees/feature-a\n"
+        )
+
+        #expect(
+            result?.standardizedFileURL
+                == URL(fileURLWithPath: "/tmp/projects/.git/worktrees/my-repo").standardizedFileURL
+        )
+    }
+
+    @Test("parseParentClonePath relative content without base path returns nil")
+    func parseParentClonePathRelativeWithoutBasePathReturnsNil() {
+        let result = RepoScanner.parseParentClonePath(
+            fromGitFileContent: "gitdir: ../../agent-studio/.git/worktrees/feature-a\n"
+        )
+
+        #expect(result == nil)
+    }
+
+    @Test("groupClassifiedPaths groups linked worktrees under their clone root")
+    func groupClassifiedPathsByCloneRoot() {
+        let clonePath = URL(fileURLWithPath: "/tmp/agent-studio")
+        let linkedWorktreePath = URL(fileURLWithPath: "/tmp/agent-studio.feature-a")
+        let standaloneClonePath = URL(fileURLWithPath: "/tmp/other-repo")
+
+        let groups = RepoScanner.groupClassifiedPaths([
+            (clonePath, .cloneRoot),
+            (linkedWorktreePath, .linkedWorktree(parentClonePath: clonePath)),
+            (standaloneClonePath, .cloneRoot),
+        ])
+
+        #expect(groups.count == 2)
+        let mainGroup = groups.first { $0.clonePath.standardizedFileURL == clonePath.standardizedFileURL }
+        #expect(mainGroup?.linkedWorktreePaths == [linkedWorktreePath])
+        let standaloneGroup = groups.first {
+            $0.clonePath.standardizedFileURL == standaloneClonePath.standardizedFileURL
+        }
+        #expect(standaloneGroup?.linkedWorktreePaths.isEmpty == true)
+    }
+
+    @Test("groupClassifiedPaths keeps orphaned linked worktrees under their parsed parent clone path")
+    func groupClassifiedPathsForOrphanedLinkedWorktree() {
+        let orphanedParentClonePath = URL(fileURLWithPath: "/tmp/missing-parent")
+        let linkedWorktreePath = URL(fileURLWithPath: "/tmp/agent-studio.feature-a")
+
+        let groups = RepoScanner.groupClassifiedPaths([
+            (linkedWorktreePath, .linkedWorktree(parentClonePath: orphanedParentClonePath))
+        ])
+
+        #expect(groups.count == 1)
+        #expect(groups[0].clonePath.standardizedFileURL == orphanedParentClonePath.standardizedFileURL)
+        #expect(groups[0].linkedWorktreePaths == [linkedWorktreePath])
+    }
+}

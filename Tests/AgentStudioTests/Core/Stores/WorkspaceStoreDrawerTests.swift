@@ -21,7 +21,7 @@ final class WorkspaceStoreDrawerTests {
 
     func test_addDrawerPane_createsDrawerChild() {
         // Arrange
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
 
         // Act
         let dp = store.addDrawerPane(to: pane.id)
@@ -32,7 +32,7 @@ final class WorkspaceStoreDrawerTests {
         #expect((updated.drawer) != nil)
         #expect(updated.drawer!.paneIds.count == 1)
         #expect(updated.drawer!.paneIds[0] == dp!.id)
-        #expect(updated.drawer!.activePaneId == dp!.id)
+        #expect(updated.drawer!.activeChildId == dp!.id)
         #expect(updated.drawer!.isExpanded)
 
         // Drawer pane is a real entry in store.panes
@@ -45,19 +45,33 @@ final class WorkspaceStoreDrawerTests {
     @Test
 
     func test_addDrawerPane_appendsToExistingDrawer() {
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let dp1 = store.addDrawerPane(to: pane.id)!
 
         let dp2 = store.addDrawerPane(to: pane.id)!
 
         let updated = store.pane(pane.id)!
         #expect(updated.drawer!.paneIds.count == 2)
-        #expect(updated.drawer!.activePaneId == dp2.id)  // last added becomes active
+        #expect(updated.drawer!.activeChildId == dp2.id)  // last added becomes active
         #expect(updated.drawer!.paneIds[1] == dp2.id)
 
         // Both drawer panes are in the layout
         #expect(updated.drawer!.layout.contains(dp1.id))
         #expect(updated.drawer!.layout.contains(dp2.id))
+    }
+
+    @Test
+    func test_removeDrawerPane_redistributesRemainingRatiosProportionally() {
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let dp1 = store.addDrawerPane(to: pane.id)!
+        let dp2 = store.addDrawerPane(to: pane.id)!
+        let dp3 = store.addDrawerPane(to: pane.id)!
+
+        store.removeDrawerPane(dp2.id, from: pane.id)
+
+        let updatedLayout = store.pane(pane.id)!.drawer!.layout.topRow
+        #expect(updatedLayout.paneIds == [dp1.id, dp3.id])
+        expectApprox(updatedLayout.ratios, [0.666666666667, 0.333333333333])
     }
 
     @Test
@@ -68,10 +82,23 @@ final class WorkspaceStoreDrawerTests {
         #expect((dp) == nil)
     }
 
+    private func expectApprox(
+        _ actual: [Double],
+        _ expected: [Double],
+        tolerance: Double = 0.000001,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) {
+        #expect(actual.count == expected.count, sourceLocation: sourceLocation)
+        for (actualRatio, expectedRatio) in zip(actual, expected) {
+            #expect(abs(actualRatio - expectedRatio) < tolerance, sourceLocation: sourceLocation)
+        }
+        #expect(abs(actual.reduce(0, +) - 1.0) < tolerance, sourceLocation: sourceLocation)
+    }
+
     @Test
 
     func test_addDrawerPane_marksDirty() {
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         store.flush()
 
         _ = store.addDrawerPane(to: pane.id)
@@ -79,12 +106,101 @@ final class WorkspaceStoreDrawerTests {
         #expect(store.isDirty)
     }
 
+    @Test
+    func test_addDrawerPane_inheritsParentWorktreeContext() throws {
+        let repoPath = URL(filePath: "/tmp/drawer-parent-repo-\(UUID().uuidString)")
+        let worktreePath = repoPath.appending(path: "feature-branch")
+        let repo = store.addRepo(at: repoPath)
+        let worktree = Worktree(repoId: repo.id, name: "feature-branch", path: worktreePath)
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+
+        let inheritedCWD = worktreePath.appending(path: "Sources")
+        let parent = store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            facets: PaneContextFacets(
+                repoId: repo.id,
+                repoName: repo.name,
+                worktreeId: worktree.id,
+                worktreeName: worktree.name,
+                cwd: inheritedCWD
+            )
+        )
+
+        let drawerPane = try #require(store.addDrawerPane(to: parent.id))
+
+        #expect(drawerPane.isDrawerChild)
+        #expect(drawerPane.parentPaneId == parent.id)
+        #expect(drawerPane.repoId == repo.id)
+        #expect(drawerPane.worktreeId == worktree.id)
+        #expect(drawerPane.metadata.cwd == inheritedCWD)
+        #expect(drawerPane.source == .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: inheritedCWD))
+    }
+
+    @Test
+    func test_insertDrawerPane_inheritsParentWorktreeContext() throws {
+        let repoPath = URL(filePath: "/tmp/drawer-insert-parent-\(UUID().uuidString)")
+        let worktreePath = repoPath.appending(path: "feature-branch")
+        let repo = store.addRepo(at: repoPath)
+        let worktree = Worktree(repoId: repo.id, name: "feature-branch", path: worktreePath)
+        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
+
+        let inheritedCWD = worktreePath.appending(path: "Sources")
+        let parent = store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            facets: PaneContextFacets(
+                repoId: repo.id,
+                repoName: repo.name,
+                worktreeId: worktree.id,
+                worktreeName: worktree.name,
+                cwd: inheritedCWD
+            )
+        )
+
+        let firstDrawerPane = try #require(store.addDrawerPane(to: parent.id))
+        let insertedDrawerPane = try #require(
+            store.insertDrawerPane(
+                in: parent.id,
+                at: firstDrawerPane.id,
+                direction: .horizontal,
+                position: .after, sizingMode: .halveTarget
+            )
+        )
+
+        #expect(insertedDrawerPane.isDrawerChild)
+        #expect(insertedDrawerPane.parentPaneId == parent.id)
+        #expect(insertedDrawerPane.repoId == repo.id)
+        #expect(insertedDrawerPane.worktreeId == worktree.id)
+        #expect(insertedDrawerPane.metadata.cwd == inheritedCWD)
+        #expect(
+            insertedDrawerPane.source
+                == .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: inheritedCWD))
+    }
+
+    @Test
+    func test_insertDrawerPane_downCreatesSecondRow() throws {
+        let parent = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let first = try #require(store.addDrawerPane(to: parent.id))
+
+        let second = try #require(
+            store.insertDrawerPane(
+                in: parent.id,
+                at: first.id,
+                direction: .vertical,
+                position: .after, sizingMode: .halveTarget
+            )
+        )
+
+        let drawer = try #require(store.pane(parent.id)?.drawer)
+        #expect(drawer.layout.bottomRow?.contains(second.id) == true)
+        #expect(drawer.layout.topRow.contains(first.id))
+    }
+
     // MARK: - removeDrawerPane
 
     @Test
 
     func test_removeDrawerPane_removesFromDrawer() {
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let dp1 = store.addDrawerPane(to: pane.id)!
         let dp2 = store.addDrawerPane(to: pane.id)!
 
@@ -101,20 +217,20 @@ final class WorkspaceStoreDrawerTests {
     @Test
 
     func test_removeDrawerPane_updatesActiveIfRemoved() {
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let dp1 = store.addDrawerPane(to: pane.id)!
         let dp2 = store.addDrawerPane(to: pane.id)!
 
         // Active is dp2 (last added), remove dp2
         store.removeDrawerPane(dp2.id, from: pane.id)
 
-        #expect(store.pane(pane.id)!.drawer!.activePaneId == dp1.id)
+        #expect(store.pane(pane.id)!.drawer!.activeChildId == dp1.id)
     }
 
     @Test
 
     func test_removeDrawerPane_lastPane_resetsDrawerToEmpty() {
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let dp = store.addDrawerPane(to: pane.id)!
 
         store.removeDrawerPane(dp.id, from: pane.id)
@@ -123,7 +239,7 @@ final class WorkspaceStoreDrawerTests {
         let updated = store.pane(pane.id)!
         #expect((updated.drawer) != nil)
         #expect(updated.drawer!.paneIds.isEmpty)
-        #expect((updated.drawer!.activePaneId) == nil)
+        #expect((updated.drawer!.activeChildId) == nil)
     }
 
     @Test
@@ -138,7 +254,7 @@ final class WorkspaceStoreDrawerTests {
     @Test
 
     func test_toggleDrawer_collapsesWhenExpanded() {
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         _ = store.addDrawerPane(to: pane.id)
 
         store.toggleDrawer(for: pane.id)
@@ -149,7 +265,7 @@ final class WorkspaceStoreDrawerTests {
     @Test
 
     func test_toggleDrawer_expandsWhenCollapsed() {
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         _ = store.addDrawerPane(to: pane.id)
         store.toggleDrawer(for: pane.id)
 
@@ -162,7 +278,7 @@ final class WorkspaceStoreDrawerTests {
 
     func test_toggleDrawer_emptyDrawer_expandsAndCollapses() {
         // Arrange
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         #expect(!(store.pane(pane.id)!.drawer!.isExpanded))
 
         // Act — expand empty drawer
@@ -183,8 +299,8 @@ final class WorkspaceStoreDrawerTests {
 
     func test_toggleDrawer_emptyDrawer_collapsesOtherDrawers() {
         // Arrange — two panes, expand one drawer
-        let pane1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let pane2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         _ = store.addDrawerPane(to: pane1.id)
         // pane1 drawer is expanded (addDrawerPane sets isExpanded = true)
 
@@ -201,32 +317,32 @@ final class WorkspaceStoreDrawerTests {
     @Test
 
     func test_setActiveDrawerPane_switches() {
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let dp1 = store.addDrawerPane(to: pane.id)!
         _ = store.addDrawerPane(to: pane.id)!
 
         store.setActiveDrawerPane(dp1.id, in: pane.id)
 
-        #expect(store.pane(pane.id)!.drawer!.activePaneId == dp1.id)
+        #expect(store.pane(pane.id)!.drawer!.activeChildId == dp1.id)
     }
 
     @Test
 
     func test_setActiveDrawerPane_invalidId_noOp() {
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let dp = store.addDrawerPane(to: pane.id)!
 
         store.setActiveDrawerPane(UUID(), in: pane.id)
 
         // Should remain unchanged
-        #expect(store.pane(pane.id)!.drawer!.activePaneId == dp.id)
+        #expect(store.pane(pane.id)!.drawer!.activeChildId == dp.id)
     }
 
     // MARK: - moveDrawerPane
 
     @Test
     func test_moveDrawerPane_repositionsInLayoutAndFocusesMovedPane() {
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let dp1 = store.addDrawerPane(to: pane.id)!
         let dp2 = store.addDrawerPane(to: pane.id)!
         let dp3 = store.addDrawerPane(to: pane.id)!
@@ -237,21 +353,20 @@ final class WorkspaceStoreDrawerTests {
         store.moveDrawerPane(
             dp1.id,
             in: pane.id,
-            at: dp3.id,
-            direction: .horizontal,
-            position: .after
+            target: .rowSlot(row: .top, insertionIndex: 3),
+            sizingMode: .proportional
         )
 
         let drawer = store.pane(pane.id)!.drawer!
         let afterOrder = drawer.layout.paneIds
         #expect(Set(afterOrder) == Set([dp1.id, dp2.id, dp3.id]))
         #expect(afterOrder.last == dp1.id)
-        #expect(drawer.activePaneId == dp1.id)
+        #expect(drawer.activeChildId == dp1.id)
     }
 
     @Test
     func test_moveDrawerPane_invalidTarget_noOp() {
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let dp1 = store.addDrawerPane(to: pane.id)!
         let dp2 = store.addDrawerPane(to: pane.id)!
         let beforeOrder = store.pane(pane.id)!.drawer!.layout.paneIds
@@ -259,9 +374,8 @@ final class WorkspaceStoreDrawerTests {
         store.moveDrawerPane(
             dp1.id,
             in: pane.id,
-            at: UUID(),
-            direction: .horizontal,
-            position: .after
+            target: .rowSlot(row: .bottom, insertionIndex: 0),
+            sizingMode: .proportional
         )
 
         let drawer = store.pane(pane.id)!.drawer!
@@ -275,46 +389,45 @@ final class WorkspaceStoreDrawerTests {
 
     func test_resizeDrawerPane_updatesLayout() {
         // Arrange
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         _ = store.addDrawerPane(to: pane.id)!
         _ = store.addDrawerPane(to: pane.id)!
 
-        // Find the split ID
         let drawer = store.pane(pane.id)!.drawer!
-        guard case .split(let split) = drawer.layout.root else {
-            Issue.record("Expected split layout with 2 drawer panes")
+        guard let dividerId = drawer.layout.dividerIds.first else {
+            Issue.record("Expected drawer layout divider")
             return
         }
 
         // Act
-        store.resizeDrawerPane(parentPaneId: pane.id, splitId: split.id, ratio: 0.7)
+        store.resizeDrawerPane(parentPaneId: pane.id, splitId: dividerId, ratio: 0.7)
 
         // Assert
         let updated = store.pane(pane.id)!.drawer!
-        #expect(abs((updated.layout.ratioForSplit(split.id) ?? 0) - (0.7)) <= 0.01)
+        #expect(abs((updated.layout.ratioForSplit(dividerId) ?? 0) - (0.7)) <= 0.01)
     }
 
     @Test
 
     func test_equalizeDrawerPanes_resetsRatios() {
         // Arrange
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         _ = store.addDrawerPane(to: pane.id)
         _ = store.addDrawerPane(to: pane.id)
 
         let drawer = store.pane(pane.id)!.drawer!
-        guard case .split(let split) = drawer.layout.root else {
-            Issue.record("Expected split layout")
+        guard let dividerId = drawer.layout.dividerIds.first else {
+            Issue.record("Expected drawer layout divider")
             return
         }
-        store.resizeDrawerPane(parentPaneId: pane.id, splitId: split.id, ratio: 0.8)
+        store.resizeDrawerPane(parentPaneId: pane.id, splitId: dividerId, ratio: 0.8)
 
         // Act
         store.equalizeDrawerPanes(parentPaneId: pane.id)
 
         // Assert
         let updated = store.pane(pane.id)!.drawer!
-        #expect(abs((updated.layout.ratioForSplit(split.id) ?? 0) - (0.5)) <= 0.01)
+        #expect(abs((updated.layout.ratioForSplit(dividerId) ?? 0) - (0.5)) <= 0.01)
     }
 
     // MARK: - minimizeDrawerPane / expandDrawerPane
@@ -323,7 +436,7 @@ final class WorkspaceStoreDrawerTests {
 
     func test_minimizeDrawerPane_returnsTrue_onSuccess() {
         // Arrange
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let dp1 = store.addDrawerPane(to: pane.id)!
         _ = store.addDrawerPane(to: pane.id)
 
@@ -338,7 +451,7 @@ final class WorkspaceStoreDrawerTests {
 
     func test_minimizeDrawerPane_succeeds_lastVisiblePane() {
         // Arrange — single drawer pane
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let dp = store.addDrawerPane(to: pane.id)!
 
         // Act
@@ -347,7 +460,7 @@ final class WorkspaceStoreDrawerTests {
         // Assert — minimizing last pane is now allowed
         #expect(result)
         #expect(store.pane(pane.id)!.drawer!.minimizedPaneIds.contains(dp.id))
-        #expect((store.pane(pane.id)!.drawer!.activePaneId) == nil)
+        #expect((store.pane(pane.id)!.drawer!.activeChildId) == nil)
     }
 
     @Test
@@ -364,7 +477,7 @@ final class WorkspaceStoreDrawerTests {
 
     func test_minimizeDrawerPane_addsToMinimizedSet() {
         // Arrange
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let dp1 = store.addDrawerPane(to: pane.id)!
         let dp2 = store.addDrawerPane(to: pane.id)!
 
@@ -381,7 +494,7 @@ final class WorkspaceStoreDrawerTests {
 
     func test_minimizeDrawerPane_lastVisible_succeeds() {
         // Arrange — single drawer pane
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let dp = store.addDrawerPane(to: pane.id)!
 
         // Act — minimize the only pane
@@ -389,14 +502,14 @@ final class WorkspaceStoreDrawerTests {
 
         // Assert — minimizing last pane is now allowed
         #expect(store.pane(pane.id)!.drawer!.minimizedPaneIds.contains(dp.id))
-        #expect((store.pane(pane.id)!.drawer!.activePaneId) == nil)
+        #expect((store.pane(pane.id)!.drawer!.activeChildId) == nil)
     }
 
     @Test
 
     func test_minimizeDrawerPane_switchesActiveIfMinimized() {
         // Arrange
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let dp1 = store.addDrawerPane(to: pane.id)!
         let dp2 = store.addDrawerPane(to: pane.id)!
         // dp2 is active (last added)
@@ -405,14 +518,14 @@ final class WorkspaceStoreDrawerTests {
         store.minimizeDrawerPane(dp2.id, in: pane.id)
 
         // Assert — active should switch to dp1
-        #expect(store.pane(pane.id)!.drawer!.activePaneId == dp1.id)
+        #expect(store.pane(pane.id)!.drawer!.activeChildId == dp1.id)
     }
 
     @Test
 
     func test_expandDrawerPane_removesFromMinimizedSet() {
         // Arrange
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let dp1 = store.addDrawerPane(to: pane.id)!
         _ = store.addDrawerPane(to: pane.id)
         store.minimizeDrawerPane(dp1.id, in: pane.id)
@@ -431,7 +544,7 @@ final class WorkspaceStoreDrawerTests {
 
     func test_removePane_cascadeDeletesDrawerChildren() {
         // Arrange — parent pane with 2 drawer children
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let dp1 = store.addDrawerPane(to: pane.id)!
         let dp2 = store.addDrawerPane(to: pane.id)!
 
@@ -453,7 +566,7 @@ final class WorkspaceStoreDrawerTests {
 
     func test_removeLastDrawerPane_preservesIsExpanded() {
         // Arrange — collapsed drawer with one pane
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let dp = store.addDrawerPane(to: pane.id)!
         // Collapse the drawer
         store.toggleDrawer(for: pane.id)
@@ -472,7 +585,7 @@ final class WorkspaceStoreDrawerTests {
 
     func test_withDrawer_drawerChildPane_noOp() {
         // Arrange — create a drawer child pane
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let dp = store.addDrawerPane(to: pane.id)!
 
         // Act — try to mutate drawer on a drawer child (should be no-op)
@@ -493,8 +606,8 @@ final class WorkspaceStoreDrawerTests {
 
     func test_collapseAllDrawers_collapsesExpandedDrawers() {
         // Arrange — two panes with expanded drawers
-        let pane1 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
-        let pane2 = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane1 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let pane2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         _ = store.addDrawerPane(to: pane1.id)
         store.toggleDrawer(for: pane2.id)  // expand empty drawer
         #expect(store.pane(pane2.id)!.drawer!.isExpanded)
@@ -511,7 +624,7 @@ final class WorkspaceStoreDrawerTests {
 
     func test_collapseAllDrawers_noOp_whenNoneExpanded() {
         // Arrange — pane with collapsed drawer
-        let pane = store.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         #expect(!(store.pane(pane.id)!.drawer!.isExpanded))
 
         // Act — should not crash
@@ -531,7 +644,7 @@ final class WorkspaceStoreDrawerTests {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let store1 = WorkspaceStore(persistor: persistor)
 
-        let pane = store1.createPane(source: .floating(workingDirectory: nil, title: nil))
+        let pane = store1.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: pane.id)
         store1.appendTab(tab)
 
@@ -548,7 +661,7 @@ final class WorkspaceStoreDrawerTests {
         #expect((restoredPane) != nil)
         if let restored = restoredPane {
             #expect(restored.drawer!.paneIds.count == 1)
-            #expect(restored.drawer!.activePaneId == dp.id)
+            #expect(restored.drawer!.activeChildId == dp.id)
 
             // Drawer child pane should also be restored in store
             let restoredDrawerPane = store2.pane(dp.id)

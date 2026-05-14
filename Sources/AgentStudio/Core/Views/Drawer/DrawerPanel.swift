@@ -39,258 +39,273 @@ struct DrawerResizeHandle: View {
 // MARK: - DrawerPanel
 
 /// Floating drawer panel that overlays pane content.
-/// Renders the drawer's split tree (via SplitSubtreeView) in a rectangular panel
+/// Renders the drawer's flat pane strip inside a rectangular panel
 /// with a resize handle at the top and material background.
 ///
-/// Translates tab-level PaneActions dispatched by SplitSubtreeView/PaneLeafContainer
+/// Translates tab-level PaneActions dispatched by pane leaves
 /// into drawer-specific actions (resize, minimize, close, focus, equalize).
 struct DrawerPanel: View {
-    let tree: PaneSplitTree
+    let layout: DrawerGridLayout
     let parentPaneId: UUID
     let tabId: UUID
-    let activePaneId: UUID?
+    let activeChildId: UUID?
     let minimizedPaneIds: Set<UUID>
-    let splitRenderInfo: SplitRenderInfo
+    let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let height: CGFloat
     let store: WorkspaceStore
-    let repoCache: WorkspaceRepoCache
+    let repoCache: RepoCacheAtom
+    let viewRegistry: ViewRegistry
     let action: (PaneActionCommand) -> Void
     let onResize: (CGFloat) -> Void
     let onDismiss: () -> Void
-    let appLifecycleStore: AppLifecycleStore
+    let onPaneFocusTrigger: PaneFocusTriggerHandler
+    let appLifecycleStore: AppLifecycleAtom
+    let paneInboxPresentation: PaneInboxPresentation?
+    let onOpenPaneGitHub: (UUID) -> Void
+    let dropTarget: DrawerRearrangeTarget?
+    /// Active drag's source pane id, used to omit self/adjacent
+    /// targets from the visuals dict the overlay paints (R1, R2, R8).
+    let dragSourcePaneId: UUID?
 
     @State private var drawerPaneFrames: [UUID: CGRect] = [:]
-    @State private var dropTarget: PaneDropTarget?
-    @State private var dropTargetWatchdogTask: Task<Void, Never>?
-    @Bindable private var managementMode = ManagementModeMonitor.shared
+    @State private var drawerActionDispatcher: PaneTabActionDispatcher
+    private var managementLayer: ManagementLayerAtom {
+        atom(\.managementLayer)
+    }
+
+    private var drawerSurfaceId: String {
+        "drawerShell:\(parentPaneId)"
+    }
+
+    private var renderedDrawerPaneIds: Set<UUID> {
+        Set(layout.paneIds)
+    }
+
+    init(
+        layout: DrawerGridLayout,
+        parentPaneId: UUID,
+        tabId: UUID,
+        activeChildId: UUID?,
+        minimizedPaneIds: Set<UUID>,
+        closeTransitionCoordinator: PaneCloseTransitionCoordinator,
+        height: CGFloat,
+        store: WorkspaceStore,
+        repoCache: RepoCacheAtom,
+        viewRegistry: ViewRegistry,
+        action: @escaping (PaneActionCommand) -> Void,
+        onResize: @escaping (CGFloat) -> Void,
+        onDismiss: @escaping () -> Void,
+        onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
+        appLifecycleStore: AppLifecycleAtom,
+        paneInboxPresentation: PaneInboxPresentation?,
+        onOpenPaneGitHub: @escaping (UUID) -> Void,
+        dropTarget: DrawerRearrangeTarget?,
+        dragSourcePaneId: UUID?
+    ) {
+        self.layout = layout
+        self.parentPaneId = parentPaneId
+        self.tabId = tabId
+        self.activeChildId = activeChildId
+        self.minimizedPaneIds = minimizedPaneIds
+        self.closeTransitionCoordinator = closeTransitionCoordinator
+        self.height = height
+        self.store = store
+        self.repoCache = repoCache
+        self.viewRegistry = viewRegistry
+        self.action = action
+        self.onResize = onResize
+        self.onDismiss = onDismiss
+        self.onPaneFocusTrigger = onPaneFocusTrigger
+        self.appLifecycleStore = appLifecycleStore
+        self.paneInboxPresentation = paneInboxPresentation
+        self.onOpenPaneGitHub = onOpenPaneGitHub
+        self.dropTarget = dropTarget
+        self.dragSourcePaneId = dragSourcePaneId
+        self._drawerActionDispatcher = State(
+            initialValue: PaneTabActionDispatcher(
+                dispatch: { paneAction in
+                    switch paneAction {
+                    case .resizePane(_, let splitId, let ratio):
+                        action(.resizeDrawerPane(parentPaneId: parentPaneId, splitId: splitId, ratio: ratio))
+                    case .equalizePanes:
+                        action(.equalizeDrawerPanes(parentPaneId: parentPaneId))
+                    case .minimizePane(_, let paneId):
+                        action(.minimizeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
+                    case .expandPane(_, let paneId):
+                        action(.expandDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
+                    case .closePane(let tabId, let paneId):
+                        action(.closePane(tabId: tabId, paneId: paneId))
+                    case .insertPaneRequest(let request):
+                        action(
+                            .insertDrawerPane(
+                                parentPaneId: parentPaneId,
+                                targetDrawerPaneId: request.targetPaneId,
+                                direction: request.direction,
+                                sizingMode: request.sizingMode
+                            )
+                        )
+                    default:
+                        action(paneAction)
+                    }
+                },
+                shouldHandleSplitDragPayload: { _ in true },
+                shouldAcceptDrop: { _, _, _, _ in false },
+                handleDrop: { _, _, _, _ in
+                    #if DEBUG
+                        assertionFailure("DrawerPanel drop handling is routed by the drawer overlay")
+                    #endif
+                }
+            )
+        )
+    }
 
     /// Translates tab-level actions into drawer-specific actions.
-    /// SplitSubtreeView and PaneLeafContainer dispatch actions using tabId,
-    /// but in the drawer context these need to be routed to drawer operations.
+    /// Pane leaf interactions dispatch actions using tabId, but in the drawer
+    /// context these need to be routed to drawer operations.
+    @ViewBuilder
+    private func rowContent(_ rowLayout: Layout) -> some View {
+        FlatPaneStripContent(
+            layout: rowLayout,
+            tabId: tabId,
+            activePaneId: activeChildId,
+            minimizedPaneIds: minimizedPaneIds,
+            collapsedPaneWidth: CollapsedPaneBar.barWidth,
+            onSaveArrangement: nil,
+            closeTransitionCoordinator: closeTransitionCoordinator,
+            actionDispatcher: drawerActionDispatcher,
+            onPaneFocusTrigger: onPaneFocusTrigger,
+            store: store,
+            repoCache: repoCache,
+            viewRegistry: viewRegistry,
+            coordinateSpaceName: Self.drawerDropCoordinateSpace,
+            useDrawerFramePreference: true,
+            isInactivePersistentTab: false,
+            paneInboxPresentation: paneInboxPresentation,
+            onOpenPaneGitHub: onOpenPaneGitHub
+        )
+    }
+
+    /// Empty-drawer keystroke hint. Both halves come from the existing
+    /// command-spec system so the on-screen text stays in lockstep with
+    /// the keystroke gate and the command's action label.
+    ///   key   ──► AppShortcut.addDrawerPane displayed in `.emptyDrawer`
+    ///             context (returns the raw-character alternate "P").
+    ///   text  ──► LocalActionSpec.addDrawerPane.actionSpec.helpText
+    @ViewBuilder
+    private var emptyDrawerHint: some View {
+        let keyDisplay = AppShortcut.addDrawerPane.displayKeyBinding(in: .emptyDrawer)?.displayString ?? ""
+        let actionText = LocalActionSpec.addDrawerPane.actionSpec.helpText.lowercased()
+        Text("Press \(keyDisplay) to \(actionText)")
+            .font(.system(size: AppStyles.General.Typography.textXs))
+            .foregroundStyle(.tertiary)
+    }
+
     @ViewBuilder
     private var addDrawerButton: some View {
         Button {
             action(.addDrawerPane(parentPaneId: parentPaneId))
         } label: {
             Image(systemName: "plus")
-                .font(.system(size: AppStyle.text2xl, weight: .medium))
+                .font(.system(size: AppStyles.General.Typography.text2xl, weight: .medium))
                 .foregroundStyle(.secondary)
                 .frame(width: 48, height: 48)
                 .background(
                     RoundedRectangle(cornerRadius: 10)
-                        .fill(Color.white.opacity(AppStyle.fillHover))
+                        .fill(Color.white.opacity(AppStyles.General.Fill.hover))
                 )
         }
         .buttonStyle(.plain)
-        .help("Add a drawer terminal")
-    }
-
-    private var drawerAction: (PaneActionCommand) -> Void {
-        { paneAction in
-            switch paneAction {
-            case .resizePane(_, let splitId, let ratio):
-                action(.resizeDrawerPane(parentPaneId: parentPaneId, splitId: splitId, ratio: ratio))
-            case .equalizePanes:
-                action(.equalizeDrawerPanes(parentPaneId: parentPaneId))
-            case .minimizePane(_, let paneId):
-                action(.minimizeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
-            case .expandPane(_, let paneId):
-                action(.expandDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
-            case .closePane(_, let paneId):
-                action(.removeDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
-            case .insertPane(_, _, let targetPaneId, let direction):
-                action(
-                    .insertDrawerPane(
-                        parentPaneId: parentPaneId, targetDrawerPaneId: targetPaneId, direction: direction))
-            case .focusPane(_, let paneId):
-                action(.setActiveDrawerPane(parentPaneId: parentPaneId, drawerPaneId: paneId))
-            default:
-                // Pass through any other actions (e.g., toggleDrawer)
-                action(paneAction)
-            }
-        }
+        .help(LocalActionSpec.addDrawerTerminal.actionSpec.helpText)
     }
 
     var body: some View {
-        GeometryReader { drawerGeometry in
-            let containerBounds = CGRect(origin: .zero, size: drawerGeometry.size)
+        GeometryReader { geometry in
+            let containerBounds = CGRect(origin: .zero, size: geometry.size)
             ZStack(alignment: .topLeading) {
                 VStack(spacing: 0) {
                     // Resize handle at top
                     DrawerResizeHandle(onDrag: onResize)
 
-                    // Drawer split tree content — padded to match inter-pane gap
-                    if let node = tree.root, !splitRenderInfo.allMinimized {
-                        SplitSubtreeView(
-                            node: node,
-                            tabId: tabId,
-                            isSplit: tree.isSplit,
-                            activePaneId: activePaneId,
-                            minimizedPaneIds: minimizedPaneIds,
-                            splitRenderInfo: splitRenderInfo,
-                            action: drawerAction,
-                            onPersist: nil,
-                            store: store,
-                            repoCache: repoCache,
-                            dropTargetCoordinateSpace: Self.drawerDropCoordinateSpace,
-                            useDrawerFramePreference: true
-                        )
+                    if !layout.isEmpty {
+                        // Row-to-row spacing matches horizontal pane gap so the
+                        // grid reads as a uniform 2x2 arrangement instead of
+                        // two visually separate strips.
+                        VStack(spacing: AppStyles.General.Layout.paneGap) {
+                            rowContent(layout.topRow)
+                            if let bottomRow = layout.bottomRow {
+                                rowContent(bottomRow)
+                            }
+                        }
                         .padding(.horizontal, DrawerLayout.panelContentPadding)
                         .padding(.bottom, DrawerLayout.panelContentPadding)
-                    } else if splitRenderInfo.allMinimized {
-                        // All drawer panes minimized — show bars + add button
-                        HStack(spacing: 0) {
-                            ForEach(splitRenderInfo.allMinimizedPaneIds, id: \.self) { paneId in
-                                CollapsedPaneBar(
-                                    paneId: paneId,
-                                    tabId: tabId,
-                                    title: PaneDisplayProjector.displayLabel(
-                                        for: paneId,
-                                        store: store,
-                                        repoCache: repoCache
-                                    ),
-                                    action: drawerAction
-                                )
-                                .frame(width: CollapsedPaneBar.barWidth)
-                            }
-                            Spacer()
-                            addDrawerButton
-                            Spacer()
-                        }
                     } else {
                         VStack(spacing: 12) {
                             Spacer()
                             addDrawerButton
-                            Text("Add a drawer terminal")
-                                .font(.system(size: AppStyle.textXs))
-                                .foregroundStyle(.tertiary)
+                            emptyDrawerHint
                             Spacer()
                         }
                         .frame(maxWidth: .infinity)
                     }
                 }
 
-                if managementMode.isActive {
-                    PaneDropTargetOverlay(target: dropTarget, paneFrames: drawerPaneFrames)
-                        .allowsHitTesting(false)
+                if managementLayer.isActive {
+                    DrawerDropTargetOverlay(
+                        target: dropTarget,
+                        targetVisuals: DrawerPaneDragCoordinator.targetVisuals(
+                            geometry: DrawerPaneDragGeometry(
+                                paneFrames: drawerPaneFrames,
+                                layout: layout,
+                                containerBounds: containerBounds,
+                                minimizedPaneIds: minimizedPaneIds,
+                                excludedPaneIds: dragSourcePaneId.map { [$0] } ?? []
+                            )
+                        )
+                    )
+                    .allowsHitTesting(false)
                 }
-
-                SplitContainerDropCaptureOverlay(
-                    paneFrames: drawerPaneFrames,
-                    // Use full drawer panel geometry so edge corridors remain
-                    // available for left/right insertion around outermost panes.
-                    containerBounds: containerBounds,
-                    target: $dropTarget,
-                    isManagementModeActive: managementMode.isActive,
-                    shouldAcceptDrop: shouldAcceptDrawerDrop,
-                    onDrop: handleDrawerDrop
-                )
             }
             .onPreferenceChange(DrawerPaneFramePreferenceKey.self) { drawerPaneFrames = $0 }
-            .onChange(of: managementMode.isActive) { _, isActive in
-                if !isActive {
-                    dropTarget = nil
-                }
-            }
-            .onChange(of: appLifecycleStore.isActive) { _, isActive in
-                if !isActive {
-                    dropTarget = nil
-                }
-            }
-            .onChange(of: dropTarget) { _, target in
-                if target == nil {
-                    stopDropTargetWatchdog()
-                } else {
-                    startDropTargetWatchdog()
-                }
-            }
-            .onDisappear {
-                stopDropTargetWatchdog()
-            }
         }
         .frame(height: height)
+        .background(
+            GeometryReader { geometry in
+                Color.clear.preference(
+                    key: DrawerPanelFrameInTabKey.self,
+                    value: geometry.frame(in: .named("tabContainer"))
+                )
+            }
+        )
         .coordinateSpace(name: Self.drawerDropCoordinateSpace)
         .contentShape(RoundedRectangle(cornerRadius: DrawerLayout.panelCornerRadius, style: .continuous))
-    }
-
-    private static let drawerDropCoordinateSpace = "drawerContainer"
-
-    private func shouldAcceptDrawerDrop(
-        payload: SplitDropPayload,
-        destPaneId: UUID,
-        zone: DropZone
-    ) -> Bool {
-        guard managementMode.isActive else { return false }
-        guard let drawer = store.pane(parentPaneId)?.drawer else { return false }
-        guard drawer.layout.contains(destPaneId) else { return false }
-
-        guard case .existingPane(let sourcePaneId, _) = payload.kind else { return false }
-        guard sourcePaneId != destPaneId else { return false }
-        guard let sourcePane = store.pane(sourcePaneId) else { return false }
-        guard sourcePane.parentPaneId == parentPaneId else { return false }
-
-        let snapshot = ActionResolver.snapshot(
-            from: store.tabs,
-            activeTabId: store.activeTabId,
-            isManagementModeActive: managementMode.isActive,
-            knownWorktreeIds: Set(store.repos.flatMap(\.worktrees).map(\.id))
-        )
-        let action = PaneActionCommand.moveDrawerPane(
-            parentPaneId: parentPaneId,
-            drawerPaneId: sourcePaneId,
-            targetDrawerPaneId: destPaneId,
-            direction: splitDirection(for: zone)
-        )
-        if case .success = ActionValidator.validate(action, state: snapshot) {
-            return true
-        }
-        return false
-    }
-
-    private func handleDrawerDrop(payload: SplitDropPayload, destPaneId: UUID, zone: DropZone) {
-        guard case .existingPane(let sourcePaneId, _) = payload.kind else { return }
-        guard sourcePaneId != destPaneId else { return }
-        guard let sourcePane = store.pane(sourcePaneId) else { return }
-        guard sourcePane.parentPaneId == parentPaneId else { return }
-
-        action(
-            .moveDrawerPane(
-                parentPaneId: parentPaneId,
-                drawerPaneId: sourcePaneId,
-                targetDrawerPaneId: destPaneId,
-                direction: splitDirection(for: zone)
+        .modifier(
+            DrawerSurfaceRegistrationModifier(
+                viewRegistry: viewRegistry,
+                surfaceId: drawerSurfaceId,
+                renderedPaneIds: renderedDrawerPaneIds
             )
         )
     }
 
-    private func splitDirection(for zone: DropZone) -> SplitNewDirection {
-        switch zone {
-        case .left: return .left
-        case .right: return .right
-        }
-    }
+    private static let drawerDropCoordinateSpace = "drawerContainer"
+}
 
-    private func startDropTargetWatchdog() {
-        stopDropTargetWatchdog()
+private struct DrawerSurfaceRegistrationModifier: ViewModifier {
+    let viewRegistry: ViewRegistry
+    let surfaceId: String
+    let renderedPaneIds: Set<UUID>
 
-        dropTargetWatchdogTask = Task { @MainActor in
-            while !Task.isCancelled {
-                if DropTargetLatchState.shouldClearTarget(
-                    appIsActive: appLifecycleStore.isActive,
-                    pressedMouseButtons: NSEvent.pressedMouseButtons
-                ) {
-                    dropTarget = nil
-                    return
-                }
-
-                try? await Task.sleep(for: .milliseconds(16))
+    func body(content: Content) -> some View {
+        content
+            .onAppear {
+                viewRegistry.surfaceRenderedIds(surfaceId, ids: renderedPaneIds)
             }
-        }
-    }
-
-    private func stopDropTargetWatchdog() {
-        dropTargetWatchdogTask?.cancel()
-        dropTargetWatchdogTask = nil
+            .onChange(of: renderedPaneIds) { _, paneIds in
+                viewRegistry.surfaceRenderedIds(surfaceId, ids: paneIds)
+            }
+            .onDisappear {
+                viewRegistry.unregisterSurface(surfaceId)
+            }
     }
 }
 
@@ -305,20 +320,26 @@ struct DrawerPanel: View {
             VStack {
                 Spacer()
                 DrawerPanel(
-                    tree: PaneSplitTree(),
+                    layout: DrawerGridLayout(),
                     parentPaneId: UUID(),
                     tabId: UUID(),
-                    activePaneId: nil,
+                    activeChildId: nil,
                     minimizedPaneIds: [],
-                    splitRenderInfo: SplitRenderInfo.compute(layout: Layout(), minimizedPaneIds: []),
+                    closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
                     height: 200,
                     store: WorkspaceStore(
                         persistor: WorkspacePersistor(workspacesDir: FileManager.default.temporaryDirectory)),
-                    repoCache: WorkspaceRepoCache(),
+                    repoCache: RepoCacheAtom(),
+                    viewRegistry: ViewRegistry(),
                     action: { _ in },
                     onResize: { _ in },
                     onDismiss: {},
-                    appLifecycleStore: AppLifecycleStore()
+                    onPaneFocusTrigger: { _ in },
+                    appLifecycleStore: AppLifecycleAtom(),
+                    paneInboxPresentation: nil,
+                    onOpenPaneGitHub: { _ in },
+                    dropTarget: nil,
+                    dragSourcePaneId: nil
                 )
                 Spacer()
             }

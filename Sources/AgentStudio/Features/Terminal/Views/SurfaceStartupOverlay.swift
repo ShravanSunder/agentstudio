@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 private enum SurfaceStartupOverlayState {
+    case preparing
     case restoring
 }
 
@@ -13,21 +14,33 @@ private struct SurfaceStartupOverlay: View {
             Color(nsColor: .windowBackgroundColor)
                 .opacity(0.98)
 
-            VStack(spacing: 16) {
+            VStack(spacing: AppStyles.WorkspaceFocus.Terminal.startupOverlaySpacing) {
                 ProgressView()
                     .controlSize(.regular)
 
                 switch state {
+                case .preparing:
+                    Text("Preparing terminal...")
+                        .font(.system(size: AppStyles.General.Typography.textLg, weight: .semibold))
                 case .restoring:
                     Text("Restoring terminal…")
-                        .font(.system(size: AppStyle.textLg, weight: .semibold))
+                        .font(.system(size: AppStyles.General.Typography.textLg, weight: .semibold))
                 }
 
-                Text("Waiting for the terminal session to attach cleanly.")
-                    .font(.system(size: AppStyle.textSm))
+                Text(detailText)
+                    .font(.system(size: AppStyles.General.Typography.textSm))
                     .foregroundStyle(.secondary)
             }
-            .padding(28)
+            .padding(AppStyles.WorkspaceFocus.Terminal.startupOverlayPadding)
+        }
+    }
+
+    private var detailText: String {
+        switch state {
+        case .preparing:
+            return "Waiting for trusted pane geometry before creating the terminal."
+        case .restoring:
+            return "Waiting for the terminal session to attach cleanly."
         }
     }
 }
@@ -51,6 +64,10 @@ final class SurfaceStartupOverlayView: NSView {
 
     func showRestoring() {
         show(state: .restoring)
+    }
+
+    func showPreparing() {
+        show(state: .preparing)
     }
 
     func hide() {

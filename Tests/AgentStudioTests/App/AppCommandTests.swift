@@ -5,9 +5,10 @@ import Testing
 
 // MARK: - Mock Command Handler
 
-final class MockCommandHandler: CommandHandler {
+final class MockCommandHandler: WorkspaceCommandHandling {
     var executedCommands: [(AppCommand, UUID?, SearchItemType?)] = []
     var canExecuteResult: Bool = true
+    var targetedCanExecuteResult: Bool?
     var extractedPaneRequests: [(tabId: UUID, paneId: UUID, targetTabIndex: Int?)] = []
     var movePaneRequests: [(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID)] = []
 
@@ -23,6 +24,13 @@ final class MockCommandHandler: CommandHandler {
         canExecuteResult
     }
 
+    func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        _ = command
+        _ = target
+        _ = targetType
+        return targetedCanExecuteResult ?? canExecuteResult
+    }
+
     func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
         extractedPaneRequests.append((tabId, paneId, targetTabIndex))
     }
@@ -33,13 +41,19 @@ final class MockCommandHandler: CommandHandler {
 }
 
 @MainActor
-final class MockAppCommandRouter: AppCommandRouting {
+final class MockAppCommandRouter: ShellCommandHandling {
     var handledCommands: [AppCommand] = []
     var handledTargets: [(AppCommand, UUID, SearchItemType)] = []
     var appCommands: Set<AppCommand> = []
 
     func canExecute(_ command: AppCommand) -> Bool {
         appCommands.contains(command)
+    }
+
+    func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        _ = target
+        _ = targetType
+        return canExecute(command)
     }
 
     func execute(_ command: AppCommand) -> Bool {
@@ -63,8 +77,12 @@ final class MockAppCommandRouter: AppCommandRouting {
 
 // MARK: - AppCommand Tests
 
+@MainActor
 @Suite(.serialized)
 final class AppCommandTests {
+    init() {
+        installTestAtomRegistryIfNeeded()
+    }
 
     // MARK: - AppCommand Enum
 
@@ -147,41 +165,62 @@ final class AppCommandTests {
         #expect(b1 != b2)
     }
 
-    // MARK: - CommandDefinition
+    // MARK: - CommandSpec
 
     @Test
     func test_commandDefinition_init_defaults() {
         // Act
-        let def = CommandDefinition(command: .closeTab, label: "Close Tab")
+        let def = CommandSpec(
+            command: .closeTab,
+            label: "Close Tab",
+            icon: .system(.xmark),
+            helpText: "Close the active tab"
+        )
 
         // Assert
-        #expect(def.command == .closeTab)
+        #expect(def.command == AppCommand.closeTab)
         #expect(def.label == "Close Tab")
+        #expect(def.helpText == "Close the active tab")
         #expect(def.keyBinding == nil)
-        #expect(def.icon == nil)
+        #expect(def.icon == .system(.xmark))
         #expect(def.appliesTo.isEmpty)
-        #expect(!(def.requiresManagementMode))
+        #expect(!(def.requiresManagementLayer))
+        #expect(def.visibleWhen.isEmpty)
+        #expect(def.commandBarGroupName == "Commands")
+        #expect(def.commandBarGroupPriority == 7)
+        #expect(!def.isHiddenInCommandBar)
     }
 
     @Test
     func test_commandDefinition_init_full() {
         // Act
-        let def = CommandDefinition(
-            command: .closePane,
-            keyBinding: KeyBinding(key: "w", modifiers: [.command, .shift]),
-            label: "Close Pane",
-            icon: "xmark",
-            appliesTo: [.pane, .floatingTerminal],
-            requiresManagementMode: true
+        let def = CommandSpec(
+            command: .closeWindow,
+            shortcut: .closeWindow,
+            label: "Close Window",
+            icon: .system(.xmark),
+            helpText: "Close the active window",
+            appliesTo: [.tab],
+            requiresManagementLayer: false
         )
 
         // Assert
-        #expect(def.command == .closePane)
+        #expect(def.command == AppCommand.closeWindow)
         #expect(def.keyBinding != nil)
-        #expect(def.icon == "xmark")
-        #expect(def.appliesTo.contains(.pane))
-        #expect(def.appliesTo.contains(.floatingTerminal))
-        #expect(def.requiresManagementMode)
+        #expect(def.icon == .system(.xmark))
+        #expect(def.helpText == "Close the active window")
+        #expect(def.appliesTo.contains(SearchItemType.tab))
+        #expect(!def.requiresManagementLayer)
+    }
+
+    @Test
+    func test_toggleSplitZoom_hasDistinctZoomIcon() {
+        let splitZoom = CommandDispatcher.shared.definition(for: .toggleSplitZoom)
+        let expandPane = CommandDispatcher.shared.definition(for: .expandPane)
+
+        #expect(splitZoom.icon == .system(.plusMagnifyingglass))
+        #expect(expandPane.icon == .system(.arrowUpLeftAndArrowDownRight))
+        #expect(splitZoom.icon != expandPane.icon)
     }
 
     // MARK: - CommandDispatcher
@@ -194,10 +233,37 @@ final class AppCommandTests {
         let dispatcher = CommandDispatcher.shared
 
         // Assert
-        #expect(dispatcher.definition(for: .closeTab) != nil)
-        #expect(dispatcher.definition(for: .closePane) != nil)
-        #expect(dispatcher.definition(for: .addRepo) != nil)
-        #expect(dispatcher.definition(for: .toggleSidebar) != nil)
+        #expect(dispatcher.definitions.count == AppCommand.allCases.count)
+        #expect(dispatcher.definition(for: .closeTab).command == .closeTab)
+        #expect(dispatcher.definition(for: .closePane).command == .closePane)
+        #expect(dispatcher.definition(for: .watchFolder).command == .watchFolder)
+        #expect(dispatcher.definition(for: .toggleSidebar).command == .toggleSidebar)
+    }
+
+    @Test
+    func test_toggleSidebar_isVisibleInCommandBar() {
+        let definition = CommandDispatcher.shared.definition(for: .toggleSidebar)
+        #expect(!definition.isHiddenInCommandBar)
+    }
+
+    @Test
+    func test_dispatcher_registersDefinitionForEveryCommand() {
+        let dispatcher = CommandDispatcher.shared
+
+        for command in AppCommand.allCases {
+            let definition = dispatcher.definition(for: command)
+            #expect(definition.command == command)
+        }
+    }
+
+    @Test
+    func test_dispatcher_allCommandsHaveHelpText() throws {
+        let dispatcher = CommandDispatcher.shared
+
+        for command in AppCommand.allCases {
+            let definition = dispatcher.definition(for: command)
+            #expect(!definition.helpText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
     }
 
     @MainActor
@@ -208,8 +274,8 @@ final class AppCommandTests {
         let def = CommandDispatcher.shared.definition(for: .closeTab)
 
         // Assert
-        #expect(def?.keyBinding?.key == "w")
-        #expect(def?.keyBinding?.modifiers == [.command])
+        #expect(def.keyBinding?.key == "w")
+        #expect(def.keyBinding?.modifiers == [.command])
     }
 
     @MainActor
@@ -243,13 +309,54 @@ final class AppCommandTests {
     @MainActor
 
     @Test
+    func test_scrollToBottom_definition_usesPaneCommandGroupAndShortcut() {
+        let def = CommandDispatcher.shared.definition(for: .scrollToBottom)
+
+        #expect(def.command == .scrollToBottom)
+        #expect(def.shortcut == .scrollToBottom)
+        #expect(def.label == "Scroll to Bottom")
+        #expect(def.commandBarGroupName == "Pane")
+        #expect(def.requiresManagementLayer == false)
+        #expect(def.visibleWhen == [.hasActivePane])
+    }
+
+    @MainActor
+
+    @Test
+    func test_sidebarAndPaneInboxDefinitions_areCommandBarVisibleWithShortcuts() {
+        let sidebarInbox = CommandDispatcher.shared.definition(for: .showInboxNotifications)
+        let clearReadInbox = CommandDispatcher.shared.definition(for: .clearReadInboxNotifications)
+        let paneInbox = CommandDispatcher.shared.definition(for: .showPaneInboxNotifications)
+        let clearPaneInbox = CommandDispatcher.shared.definition(for: .clearPaneInboxNotifications)
+        let worktreeSidebar = CommandDispatcher.shared.definition(for: .showWorktreeSidebar)
+
+        #expect(sidebarInbox.shortcut == .showInboxNotifications)
+        #expect(!sidebarInbox.isHiddenInCommandBar)
+        #expect(clearReadInbox.label == "Clear Read Inbox Notifications")
+        #expect(clearReadInbox.icon == .system(.trash))
+        #expect(clearReadInbox.commandBarGroupName == "Inbox")
+        #expect(!clearReadInbox.isHiddenInCommandBar)
+        #expect(paneInbox.shortcut == .showPaneInboxNotifications)
+        #expect(paneInbox.appliesTo == [.pane])
+        #expect(paneInbox.visibleWhen == [.hasActivePane])
+        #expect(paneInbox.commandBarGroupName == "Pane")
+        #expect(!paneInbox.isHiddenInCommandBar)
+        #expect(clearPaneInbox.label == "Mark Pane Inbox Seen")
+        #expect(clearPaneInbox.icon == .system(.eye))
+        #expect(clearPaneInbox.helpText.contains("seen"))
+        #expect(worktreeSidebar.shortcut == .showWorktreeSidebar)
+        #expect(!worktreeSidebar.isHiddenInCommandBar)
+    }
+
+    @MainActor
+
+    @Test
     func test_dispatcher_commands_forRepo_includesExpected() {
         // Act
         let repoCommands = CommandDispatcher.shared.commands(for: .repo)
 
         // Assert
         let commandNames = repoCommands.map(\.command)
-        #expect(commandNames.contains(.addRepo))
         #expect(commandNames.contains(.removeRepo))
         #expect(!commandNames.contains(.openWorktree))
     }
@@ -328,23 +435,49 @@ final class AppCommandTests {
     }
 
     @MainActor
+    @Test
+    func test_dispatcher_dispatch_targeted_usesTargetedAvailability() {
+        let dispatcher = CommandDispatcher.shared
+        let handler = MockCommandHandler()
+        handler.canExecuteResult = false
+        handler.targetedCanExecuteResult = true
+        dispatcher.handler = handler
+        dispatcher.appCommandRouter = nil
+        let targetId = UUID()
+
+        dispatcher.dispatch(.closeTab, target: targetId, targetType: .tab)
+
+        #expect(handler.executedCommands.count == 1)
+        #expect(handler.executedCommands[0].0 == .closeTab)
+        #expect(handler.executedCommands[0].1 == targetId)
+        #expect(handler.executedCommands[0].2 == .tab)
+
+        dispatcher.handler = nil
+    }
+
+    @MainActor
 
     @Test
     func test_dispatcher_dispatch_routesAppCommandToAppRouterBeforeHandler() {
         let dispatcher = CommandDispatcher.shared
         let handler = MockCommandHandler()
         let appRouter = MockAppCommandRouter()
-        appRouter.appCommands = [.addRepo]
+        appRouter.appCommands = [.watchFolder]
         dispatcher.handler = handler
         dispatcher.appCommandRouter = appRouter
 
-        dispatcher.dispatch(.addRepo)
+        dispatcher.dispatch(.watchFolder)
 
-        #expect(appRouter.handledCommands == [.addRepo])
+        #expect(appRouter.handledCommands == [.watchFolder])
         #expect(handler.executedCommands.isEmpty)
 
         dispatcher.handler = nil
         dispatcher.appCommandRouter = nil
+    }
+
+    @Test
+    func test_addRepo_rawValue_isRemoved() {
+        #expect(AppCommand(rawValue: "addRepo") == nil)
     }
 
     @MainActor
@@ -396,32 +529,30 @@ final class AppCommandTests {
 
     @Test
     func test_dispatcher_dispatchMovePaneToTab_callsHandlerSurface() async {
-        await withManagementModeTestLock {
-            let dispatcher = CommandDispatcher.shared
-            let handler = MockCommandHandler()
-            dispatcher.handler = handler
-            dispatcher.appCommandRouter = nil
-            ManagementModeMonitor.shared.deactivate()
-            ManagementModeMonitor.shared.toggle()
-            defer {
-                dispatcher.handler = nil
-                ManagementModeMonitor.shared.deactivate()
-            }
-
-            let sourcePaneId = UUID()
-            let sourceTabId = UUID()
-            let targetTabId = UUID()
-            dispatcher.dispatchMovePaneToTab(
-                sourcePaneId: sourcePaneId,
-                sourceTabId: sourceTabId,
-                targetTabId: targetTabId
-            )
-
-            #expect(handler.movePaneRequests.count == 1)
-            #expect(handler.movePaneRequests[0].sourcePaneId == sourcePaneId)
-            #expect(handler.movePaneRequests[0].sourceTabId == sourceTabId)
-            #expect(handler.movePaneRequests[0].targetTabId == targetTabId)
+        let dispatcher = CommandDispatcher.shared
+        let handler = MockCommandHandler()
+        dispatcher.handler = handler
+        dispatcher.appCommandRouter = nil
+        atom(\.managementLayer).deactivate()
+        atom(\.managementLayer).toggle()
+        defer {
+            dispatcher.handler = nil
+            atom(\.managementLayer).deactivate()
         }
+
+        let sourcePaneId = UUID()
+        let sourceTabId = UUID()
+        let targetTabId = UUID()
+        dispatcher.dispatchMovePaneToTab(
+            sourcePaneId: sourcePaneId,
+            sourceTabId: sourceTabId,
+            targetTabId: targetTabId
+        )
+
+        #expect(handler.movePaneRequests.count == 1)
+        #expect(handler.movePaneRequests[0].sourcePaneId == sourcePaneId)
+        #expect(handler.movePaneRequests[0].sourceTabId == sourceTabId)
+        #expect(handler.movePaneRequests[0].targetTabId == targetTabId)
     }
 
     @MainActor
@@ -447,74 +578,70 @@ final class AppCommandTests {
     @MainActor
 
     @Test
-    func test_dispatcher_closePane_requiresManagementMode() {
+    func test_dispatcher_closePane_requiresManagementLayer() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .closePane)
 
         // Assert
-        #expect(def?.requiresManagementMode ?? false)
+        #expect(def.requiresManagementLayer)
     }
 
     @MainActor
 
     @Test
-    func test_dispatcher_movePaneToTab_requiresManagementMode() {
+    func test_dispatcher_movePaneToTab_requiresManagementLayer() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .movePaneToTab)
 
         // Assert
-        #expect(def?.requiresManagementMode ?? false)
-        #expect(def?.appliesTo.contains(.pane) ?? false)
+        #expect(def.requiresManagementLayer)
+        #expect(def.appliesTo.contains(.pane))
     }
 
     @MainActor
 
     @Test
-    func test_dispatcher_closeTab_doesNotRequireManagementMode() {
+    func test_dispatcher_closeTab_doesNotRequireManagementLayer() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .closeTab)
 
         // Assert
-        #expect(!(def?.requiresManagementMode ?? true))
+        #expect(!def.requiresManagementLayer)
     }
 
     @MainActor
 
     @Test
     func test_dispatcher_managementRequiredCommand_blockedWhenInactive() async {
-        await withManagementModeTestLock {
-            let dispatcher = CommandDispatcher.shared
-            let handler = MockCommandHandler()
-            dispatcher.handler = handler
-            ManagementModeMonitor.shared.deactivate()
-            defer {
-                dispatcher.handler = nil
-                ManagementModeMonitor.shared.deactivate()
-            }
-
-            #expect(!dispatcher.canDispatch(.closePane))
-            #expect(!dispatcher.canDispatch(.movePaneToTab))
+        let dispatcher = CommandDispatcher.shared
+        let handler = MockCommandHandler()
+        dispatcher.handler = handler
+        atom(\.managementLayer).deactivate()
+        defer {
+            dispatcher.handler = nil
+            atom(\.managementLayer).deactivate()
         }
+
+        #expect(!dispatcher.canDispatch(.closePane))
+        #expect(!dispatcher.canDispatch(.movePaneToTab))
     }
 
     @MainActor
 
     @Test
     func test_dispatcher_managementRequiredCommand_allowedWhenActive() async {
-        await withManagementModeTestLock {
-            let dispatcher = CommandDispatcher.shared
-            let handler = MockCommandHandler()
-            dispatcher.handler = handler
-            ManagementModeMonitor.shared.deactivate()
-            ManagementModeMonitor.shared.toggle()
-            defer {
-                dispatcher.handler = nil
-                ManagementModeMonitor.shared.deactivate()
-            }
-
-            #expect(dispatcher.canDispatch(.closePane))
-            #expect(dispatcher.canDispatch(.movePaneToTab))
+        let dispatcher = CommandDispatcher.shared
+        let handler = MockCommandHandler()
+        dispatcher.handler = handler
+        atom(\.managementLayer).deactivate()
+        atom(\.managementLayer).toggle()
+        defer {
+            dispatcher.handler = nil
+            atom(\.managementLayer).deactivate()
         }
+
+        #expect(dispatcher.canDispatch(.closePane))
+        #expect(dispatcher.canDispatch(.movePaneToTab))
     }
 
     // MARK: - Sidebar Commands
@@ -527,9 +654,8 @@ final class AppCommandTests {
         let def = CommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Assert
-        #expect(def != nil)
-        #expect(def?.label == "Filter Sidebar")
-        #expect(def?.icon == "magnifyingglass")
+        #expect(def.label == "Filter Sidebar")
+        #expect(def.icon == .system(.magnifyingglass))
     }
 
     @MainActor
@@ -540,9 +666,9 @@ final class AppCommandTests {
         let def = CommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Assert
-        #expect(def?.keyBinding?.key == "f")
-        #expect(def?.keyBinding?.modifiers.contains(.command) ?? false)
-        #expect(def?.keyBinding?.modifiers.contains(.shift) ?? false)
+        #expect(def.keyBinding?.key == "f")
+        #expect(def.keyBinding?.modifiers.contains(.command) ?? false)
+        #expect(!(def.keyBinding?.modifiers.contains(.shift) ?? false))
     }
 
     @MainActor
@@ -553,9 +679,9 @@ final class AppCommandTests {
         let def = CommandDispatcher.shared.definition(for: .openNewTerminalInTab)
 
         // Assert
-        #expect(def != nil)
-        #expect(def?.label == "Open New Terminal in Tab")
-        #expect(def?.icon == "terminal.fill")
+        #expect(def.label == "Open Terminal in New Tab")
+        #expect(def.icon == .system(.terminalFill))
+        #expect(def.helpText == "Open a worktree in a fresh terminal tab")
     }
 
     @MainActor
@@ -566,7 +692,7 @@ final class AppCommandTests {
         let def = CommandDispatcher.shared.definition(for: .openNewTerminalInTab)
 
         // Assert
-        #expect(def?.appliesTo.contains(.worktree) ?? false)
+        #expect(def.appliesTo.contains(.worktree))
     }
 
     @MainActor
@@ -584,12 +710,12 @@ final class AppCommandTests {
     @MainActor
 
     @Test
-    func test_dispatcher_filterSidebar_doesNotRequireManagementMode() {
+    func test_dispatcher_filterSidebar_doesNotRequireManagementLayer() {
         // Act
         let def = CommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Assert
-        #expect(!(def?.requiresManagementMode ?? true))
+        #expect(!def.requiresManagementLayer)
     }
 
     @MainActor
@@ -600,7 +726,7 @@ final class AppCommandTests {
         let def = CommandDispatcher.shared.definition(for: .filterSidebar)
 
         // Assert
-        #expect(def?.appliesTo.isEmpty ?? false)
+        #expect(def.appliesTo.isEmpty)
     }
 
     // MARK: - Webview Commands
@@ -610,9 +736,8 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_openWebview_registered() {
         let def = CommandDispatcher.shared.definition(for: .openWebview)
-        #expect(def != nil)
-        #expect(def?.label == "Open New Webview Tab")
-        #expect(def?.icon == "globe")
+        #expect(def.label == "Open New Webview Tab")
+        #expect(def.icon == .system(.globe))
     }
 
     @MainActor
@@ -620,7 +745,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_openWebview_noKeyBinding() {
         let def = CommandDispatcher.shared.definition(for: .openWebview)
-        #expect(def?.keyBinding == nil)
+        #expect(def.keyBinding == nil)
     }
 
     @MainActor
@@ -628,9 +753,8 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_signInGitHub_registered() {
         let def = CommandDispatcher.shared.definition(for: .signInGitHub)
-        #expect(def != nil)
-        #expect(def?.label == "Sign in to GitHub")
-        #expect(def?.icon == "person.badge.key")
+        #expect(def.label == "Sign in to GitHub")
+        #expect(def.icon == .system(.personBadgeKey))
     }
 
     @MainActor
@@ -638,9 +762,8 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_signInGoogle_registered() {
         let def = CommandDispatcher.shared.definition(for: .signInGoogle)
-        #expect(def != nil)
-        #expect(def?.label == "Sign in to Google")
-        #expect(def?.icon == "person.badge.key")
+        #expect(def.label == "Sign in to Google")
+        #expect(def.icon == .system(.personBadgeKey))
     }
 
     @MainActor
@@ -648,7 +771,7 @@ final class AppCommandTests {
     @Test
     func test_dispatcher_signIn_noKeyBindings() {
         // Sign-in commands are invoked from command bar, no global shortcuts
-        #expect(CommandDispatcher.shared.definition(for: .signInGitHub)?.keyBinding == nil)
-        #expect(CommandDispatcher.shared.definition(for: .signInGoogle)?.keyBinding == nil)
+        #expect(CommandDispatcher.shared.definition(for: .signInGitHub).keyBinding == nil)
+        #expect(CommandDispatcher.shared.definition(for: .signInGoogle).keyBinding == nil)
     }
 }

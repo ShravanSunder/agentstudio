@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import GhosttyKit
 import Testing
@@ -7,110 +8,431 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct PaneTabViewControllerCommandTests {
-    private struct Harness {
-        let store: WorkspaceStore
-        let coordinator: PaneCoordinator
-        let controller: PaneTabViewController
-        let surfaceManager: MockPaneTabCommandSurfaceManager
-        let tempDir: URL
+    init() {
+        installTestAtomRegistryIfNeeded()
     }
 
-    private func makeHarness(
-        createSurfaceResult: Result<ManagedSurface, SurfaceError> = .failure(.ghosttyNotInitialized)
-    ) -> Harness {
-        let tempDir = FileManager.default.temporaryDirectory
-            .appending(path: "agentstudio-pane-tab-command-\(UUID().uuidString)")
-        let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir))
-        store.restore()
-        let viewRegistry = ViewRegistry()
-        let runtime = SessionRuntime(store: store)
-        let surfaceManager = MockPaneTabCommandSurfaceManager(createSurfaceResult: createSurfaceResult)
-        let runtimeRegistry = RuntimeRegistry()
-        let coordinator = PaneCoordinator(
-            store: store,
-            viewRegistry: viewRegistry,
-            runtime: runtime,
-            surfaceManager: surfaceManager,
-            runtimeRegistry: runtimeRegistry
-        )
-        let executor = ActionExecutor(coordinator: coordinator, store: store)
-        let controller = PaneTabViewController(
-            store: store,
-            repoCache: WorkspaceRepoCache(),
-            executor: executor,
-            tabBarAdapter: TabBarAdapter(store: store, repoCache: WorkspaceRepoCache()),
-            viewRegistry: viewRegistry
-        )
-        return Harness(
-            store: store,
-            coordinator: coordinator,
-            controller: controller,
-            surfaceManager: surfaceManager,
-            tempDir: tempDir
-        )
-    }
-
-    private func makeRepoAndWorktree(_ store: WorkspaceStore, root: URL) -> (Repo, Worktree) {
-        let repoPath = root.appending(path: "repo-\(UUID().uuidString)")
-        let worktreePath = repoPath.appending(path: "wt-main")
-        try? FileManager.default.createDirectory(at: repoPath, withIntermediateDirectories: true)
-        try? FileManager.default.createDirectory(at: worktreePath, withIntermediateDirectories: true)
-
-        let repo = store.addRepo(at: repoPath)
-        let worktree = Worktree(repoId: repo.id, name: "wt-main", path: worktreePath)
-        store.reconcileDiscoveredWorktrees(repo.id, worktrees: [worktree])
-        return (repo, worktree)
-    }
-
-    @Test("execute newTab resolves worktree context from floating pane cwd")
-    func executeNewTab_resolvesWorktreeContextFromFloatingPaneCwd() {
+    @Test("execute newTab uses first watched folder as cwd fallback")
+    func executeNewTab_usesFirstWatchedFolderAsFallback() {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let (_, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
-        let pane = harness.store.createPane(
-            source: .floating(workingDirectory: worktree.path.appending(path: "nested"), title: "Pane A"),
-            title: "Pane A",
-            provider: .zmx,
-            facets: PaneContextFacets(cwd: worktree.path.appending(path: "nested"))
-        )
-        let tab = Tab(paneId: pane.id)
-        harness.store.appendTab(tab)
-        harness.store.setActiveTab(tab.id)
+        let watchedFolder = harness.tempDir.appending(path: "watched-root")
+        try? FileManager.default.createDirectory(at: watchedFolder, withIntermediateDirectories: true)
+        _ = harness.store.repositoryTopologyAtom.addWatchedPath(watchedFolder)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(CGRect(x: 0, y: 0, width: 1000, height: 600))
         let initialPaneIds = Set(harness.store.panes.keys)
 
         harness.controller.execute(.newTab)
 
-        #expect(Set(harness.store.panes.keys) == initialPaneIds)
+        #expect(Set(harness.store.panes.keys).count == initialPaneIds.count + 1)
         #expect(harness.surfaceManager.createSurfaceCallCount == 1)
         #expect(
-            harness.surfaceManager.lastCreatedSurfaceMetadata?.workingDirectory
-                == worktree.path.appending(path: "nested"))
+            harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd?.standardizedFileURL
+                == watchedFolder.standardizedFileURL
+        )
     }
 
-    @Test("execute newTab falls back to floating terminal creation when no worktree matches cwd")
-    func executeNewTab_fallsBackToFloatingCreation() {
+    @Test("execute newTab falls back to user home when no watched folder exists")
+    func executeNewTab_fallsBackToUserHome() {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let unknownCwd = harness.tempDir.appending(path: "outside-known-repos")
-        try? FileManager.default.createDirectory(at: unknownCwd, withIntermediateDirectories: true)
-        let pane = harness.store.createPane(
-            source: .floating(workingDirectory: unknownCwd, title: "Pane A"),
-            title: "Pane A",
-            provider: .zmx,
-            facets: PaneContextFacets(cwd: unknownCwd)
-        )
-        let tab = Tab(paneId: pane.id)
-        harness.store.appendTab(tab)
-        harness.store.setActiveTab(tab.id)
+        harness.windowLifecycleStore.recordTerminalContainerBounds(CGRect(x: 0, y: 0, width: 1000, height: 600))
         let initialPaneIds = Set(harness.store.panes.keys)
 
         harness.controller.execute(.newTab)
 
-        #expect(Set(harness.store.panes.keys) == initialPaneIds)
+        #expect(Set(harness.store.panes.keys).count == initialPaneIds.count + 1)
         #expect(harness.surfaceManager.createSurfaceCallCount == 1)
-        #expect(harness.surfaceManager.lastCreatedSurfaceMetadata?.workingDirectory == unknownCwd)
+        #expect(
+            harness.surfaceManager.lastCreatedSurfaceMetadata?.cwd
+                == FileManager.default.homeDirectoryForCurrentUser
+        )
+    }
+
+    @Test("targeted renameTab presents the anchored popover for the selected tab")
+    func executeRenameTab_targetedTab_presentsRenamePopoverForSelectedTab() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let firstPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+        let secondPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        let firstTab = Tab(paneId: firstPane.id, name: "First Tab")
+        let secondTab = Tab(paneId: secondPane.id, name: "Second Tab")
+        harness.store.appendTab(firstTab)
+        harness.store.appendTab(secondTab)
+        harness.store.setActiveTab(firstTab.id)
+
+        harness.controller.execute(.renameTab, target: secondTab.id, targetType: .tab)
+
+        #expect(harness.tabRenamePopoverState.presentedTabId == secondTab.id)
+        #expect(harness.store.activeTabId == secondTab.id)
+        #expect(harness.store.tab(secondTab.id)?.name == "Second Tab")
+    }
+
+    @Test("targeted renameTab ignores stale tab targets")
+    func executeRenameTab_missingTarget_doesNotPresentRenamePopover() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Only"))
+        let tab = Tab(paneId: pane.id, name: "Only Tab")
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let missingTabId = UUID()
+
+        harness.controller.execute(.renameTab, target: missingTabId, targetType: .tab)
+
+        #expect(harness.tabRenamePopoverState.presentedTabId == nil)
+        #expect(harness.store.activeTabId == tab.id)
+    }
+
+    @Test("targeted renameArrangement begins inline edit on arrangement in the active tab")
+    func executeRenameArrangement_activeTabArrangement_beginsInlineEdit() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let firstPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+        let secondPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        let tab = Tab(paneId: firstPane.id)
+        harness.store.appendTab(tab)
+        harness.store.insertPane(
+            secondPane.id,
+            inTab: tab.id,
+            at: firstPane.id,
+            direction: .horizontal,
+            position: .after, sizingMode: .halveTarget
+        )
+        harness.store.setActiveTab(tab.id)
+        guard
+            let customArrangementId = harness.store.createArrangement(
+                name: "Layout 1",
+                paneIds: [firstPane.id],
+                inTab: tab.id
+            )
+        else {
+            Issue.record("expected arrangement to be created")
+            return
+        }
+
+        harness.controller.execute(.renameArrangement, target: customArrangementId, targetType: .tab)
+
+        #expect(harness.arrangementInlineRenameState.editingArrangementId == customArrangementId)
+        #expect(harness.arrangementInlineRenameState.draftName == "Layout 1")
+        #expect(harness.store.activeTabId == tab.id)
+    }
+
+    @Test("targeted renameArrangement switches to the owning tab before beginning inline edit")
+    func executeRenameArrangement_crossTabArrangement_switchesTabFirst() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let firstTabPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+        let secondTabPaneA = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second A"))
+        let secondTabPaneB = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second B"))
+        let firstTab = Tab(paneId: firstTabPane.id, name: "First")
+        let secondTab = Tab(paneId: secondTabPaneA.id, name: "Second")
+        harness.store.appendTab(firstTab)
+        harness.store.appendTab(secondTab)
+        harness.store.insertPane(
+            secondTabPaneB.id,
+            inTab: secondTab.id,
+            at: secondTabPaneA.id,
+            direction: .horizontal,
+            position: .after, sizingMode: .halveTarget
+        )
+        harness.store.setActiveTab(firstTab.id)
+        guard
+            let customArrangementId = harness.store.createArrangement(
+                name: "Layout 1",
+                paneIds: [secondTabPaneA.id],
+                inTab: secondTab.id
+            )
+        else {
+            Issue.record("expected arrangement to be created")
+            return
+        }
+
+        harness.controller.execute(.renameArrangement, target: customArrangementId, targetType: .tab)
+
+        #expect(harness.store.activeTabId == secondTab.id)
+        #expect(harness.arrangementInlineRenameState.editingArrangementId == customArrangementId)
+        #expect(harness.arrangementInlineRenameState.draftName == "Layout 1")
+    }
+
+    @Test("openPaneLocationInBookmarkedEditor without bookmark uses the implicit default order")
+    func executeOpenPaneLocationInBookmarkedEditor_withoutBookmark_usesImplicitDefaultOrder() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let parentPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        guard let drawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
+            Issue.record("Expected drawer pane creation")
+            return
+        }
+
+        harness.store.setActiveDrawerPane(drawerPane.id, in: parentPane.id)
+
+        harness.controller.execute(.openPaneLocationInBookmarkedEditor)
+        #expect(harness.launchRecorder.openedEditors.count == 1)
+        #expect(harness.launchRecorder.openedEditors.first?.id == ExternalEditorTarget.cursor.id)
+        #expect(
+            harness.launchRecorder.openedEditors.first?.path.standardizedFileURL
+                == worktree.path.standardizedFileURL
+        )
+    }
+
+    @Test("openPaneLocationInBookmarkedEditor with stale bookmark clears bookmark and uses default order")
+    func executeOpenPaneLocationInBookmarkedEditor_staleBookmark_clearsBookmarkAndUsesDefaultOrder() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let parentPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        guard let drawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
+            Issue.record("Expected drawer pane creation")
+            return
+        }
+
+        harness.store.setActiveDrawerPane(drawerPane.id, in: parentPane.id)
+        atom(\.editorChooser).setBookmarkedEditor("missing-editor")
+
+        harness.controller.execute(.openPaneLocationInBookmarkedEditor)
+        #expect(atom(\.editorChooser).state.bookmarkedEditorId == nil)
+        #expect(harness.launchRecorder.openedEditors.count == 1)
+        #expect(harness.launchRecorder.openedEditors.first?.id == ExternalEditorTarget.cursor.id)
+        #expect(
+            harness.launchRecorder.openedEditors.first?.path.standardizedFileURL
+                == worktree.path.standardizedFileURL
+        )
+    }
+
+    @Test("openPaneLocationInEditorMenu uses the selected drawer pane for ownership")
+    func executeOpenPaneLocationInEditorMenu_usesDrawerPaneForOwnership() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let parentPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        guard let drawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
+            Issue.record("Expected drawer pane creation")
+            return
+        }
+
+        harness.store.setActiveDrawerPane(drawerPane.id, in: parentPane.id)
+
+        harness.controller.execute(.openPaneLocationInEditorMenu)
+
+        #expect(atom(\.editorChooser).state.openForPaneId == drawerPane.id)
+    }
+
+    @Test("showPaneInboxNotifications opens for parent pane plus drawer children")
+    func executeShowPaneInboxNotifications_opensPaneInboxPresenter() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let parentPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+
+        harness.controller.execute(.showPaneInboxNotifications)
+
+        #expect(harness.paneInboxPresenter.request?.parentPaneId == parentPane.id)
+        #expect(harness.paneInboxPresenter.request?.paneIds == [parentPane.id, drawerPane.id])
+    }
+
+    @Test("showPaneInboxNotifications resolves drawer child focus to parent pane scope")
+    func executeShowPaneInboxNotifications_fromPaneInboxChildFocusOpensParentPaneInbox() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let parentPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let firstDrawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+        let secondDrawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+        harness.store.setActivePane(firstDrawerPane.id, inTab: tab.id)
+
+        harness.controller.execute(.showPaneInboxNotifications)
+
+        #expect(harness.paneInboxPresenter.request?.parentPaneId == parentPane.id)
+        #expect(
+            harness.paneInboxPresenter.request?.paneIds == [parentPane.id, firstDrawerPane.id, secondDrawerPane.id])
+    }
+
+    @Test("showPaneInboxNotifications opens for parent pane without drawer children")
+    func executeShowPaneInboxNotifications_withoutDrawerChildrenOpensForParentPane() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+
+        harness.controller.execute(.showPaneInboxNotifications)
+
+        #expect(harness.paneInboxPresenter.request?.parentPaneId == pane.id)
+        #expect(harness.paneInboxPresenter.request?.paneIds == [pane.id])
+    }
+
+    @Test("showPaneInboxNotifications toggles an already-open pane inbox closed")
+    func executeShowPaneInboxNotifications_togglesOpenPaneInboxClosed() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+
+        harness.controller.execute(.showPaneInboxNotifications)
+        #expect(harness.paneInboxPresenter.request?.parentPaneId == pane.id)
+
+        harness.controller.execute(.showPaneInboxNotifications)
+        #expect(harness.paneInboxPresenter.request == nil)
+    }
+
+    @Test("clearPaneInboxNotifications clears active parent pane scope")
+    func executeClearPaneInboxNotificationsClearsActiveParentPaneScope() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+
+        harness.controller.execute(.clearPaneInboxNotifications)
+
+        #expect(harness.launchRecorder.clearedPaneInboxRequests.count == 1)
+        #expect(harness.launchRecorder.clearedPaneInboxRequests.first?.parentPaneId == parentPane.id)
+        #expect(harness.launchRecorder.clearedPaneInboxRequests.first?.paneIds == [parentPane.id, drawerPane.id])
+    }
+
+    @Test("targeted focusPane opens owning drawer and selects drawer child")
+    func executeFocusPane_targetedDrawerChildOpensOwningDrawer() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parentTab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(parentTab)
+        let otherPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Other"))
+        let otherTab = Tab(paneId: otherPane.id)
+        harness.store.appendTab(otherTab)
+        harness.store.setActiveTab(otherTab.id)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+        harness.store.toggleDrawer(for: parentPane.id)
+        #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == false)
+
+        harness.controller.execute(.focusPane, target: drawerPane.id, targetType: .pane)
+
+        #expect(harness.store.activeTabId == parentTab.id)
+        #expect(harness.store.tab(parentTab.id)?.activePaneId == parentPane.id)
+        #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == true)
+        #expect(harness.store.pane(parentPane.id)?.drawer?.activeChildId == drawerPane.id)
+        #expect(atom(\.workspaceFocusOwner).owner == .drawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id))
+    }
+
+    @Test("openPaneLocationInFinder forwards the selected pane path to Finder")
+    func executeOpenPaneLocationInFinder_revealsSelectedPanePath() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let parentPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+
+        harness.controller.execute(.openPaneLocationInFinder)
+
+        #expect(harness.launchRecorder.revealedPaths == [worktree.path])
+    }
+
+    @Test("location commands are unavailable when no pane target exists")
+    func locationCommands_withoutTargetPath_areUnavailable() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        #expect(!harness.controller.canExecute(.openPaneLocationInBookmarkedEditor))
+        #expect(!harness.controller.canExecute(.openPaneLocationInFinder))
+        #expect(!harness.controller.canExecute(.openPaneLocationInEditorMenu))
+    }
+
+    @Test("targeted renameArrangement ignores the default arrangement")
+    func executeRenameArrangement_defaultArrangement_isIgnored() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Only"))
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        let defaultArrangementId = harness.store.tab(tab.id)?.defaultArrangement.id ?? UUID()
+
+        harness.controller.execute(.renameArrangement, target: defaultArrangementId, targetType: .tab)
+
+        #expect(harness.arrangementInlineRenameState.editingArrangementId == nil)
+        #expect(harness.arrangementInlineRenameState.draftName.isEmpty)
+    }
+
+    @Test("targeted renameArrangement ignores a stale arrangement id")
+    func executeRenameArrangement_unknownArrangement_isIgnored() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Only"))
+        let tab = Tab(paneId: pane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+
+        harness.controller.execute(.renameArrangement, target: UUID(), targetType: .tab)
+
+        #expect(harness.arrangementInlineRenameState.editingArrangementId == nil)
+        #expect(harness.store.activeTabId == tab.id)
     }
 
     @Test("terminated pane closes only the matching split pane")
@@ -120,12 +442,12 @@ struct PaneTabViewControllerCommandTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let primaryPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Primary",
             provider: .zmx
         )
         let terminatingPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Terminating",
             provider: .zmx
         )
@@ -136,7 +458,7 @@ struct PaneTabViewControllerCommandTests {
             inTab: tab.id,
             at: primaryPane.id,
             direction: .horizontal,
-            position: .after
+            position: .after, sizingMode: .halveTarget
         )
 
         harness.controller.handleTerminalProcessTerminated(paneId: terminatingPane.id)
@@ -144,6 +466,7 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.store.tab(tab.id)?.paneIds == [primaryPane.id])
         #expect(harness.store.pane(primaryPane.id) != nil)
         #expect(harness.store.pane(terminatingPane.id) == nil)
+        #expect(harness.viewRegistry.terminalStatusPlaceholderView(for: terminatingPane.id) == nil)
     }
 
     @Test("terminated pane closes only the matching tab when multiple tabs share a worktree")
@@ -153,12 +476,12 @@ struct PaneTabViewControllerCommandTests {
 
         let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
         let survivingPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Surviving",
             provider: .zmx
         )
         let terminatingPane = harness.store.createPane(
-            source: .worktree(worktreeId: worktree.id, repoId: repo.id),
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             title: "Terminating",
             provider: .zmx
         )
@@ -175,45 +498,289 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.store.pane(survivingPane.id) != nil)
     }
 
-}
+    @Test("terminated hidden pane closes without removing visible sibling or creating undo")
+    func handleTerminalProcessTerminated_hiddenPaneClosesWithoutUndoEntry() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-private final class MockPaneTabCommandSurfaceManager: PaneCoordinatorSurfaceManaging {
-    private let cwdStream: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent>
-    private let createSurfaceResult: Result<ManagedSurface, SurfaceError>
+        let (repo, worktree) = makeRepoAndWorktree(harness.store, root: harness.tempDir)
+        let visiblePane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Visible",
+            provider: .zmx
+        )
+        let hiddenPane = harness.store.createPane(
+            source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
+            title: "Hidden",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: visiblePane.id)
+        harness.store.appendTab(tab)
+        harness.store.insertPane(
+            hiddenPane.id,
+            inTab: tab.id,
+            at: visiblePane.id,
+            direction: .horizontal,
+            position: .after, sizingMode: .halveTarget
+        )
+        let focusArrangementId = harness.store.createArrangement(
+            name: "Focus Visible",
+            paneIds: [visiblePane.id],
+            inTab: tab.id
+        )!
+        harness.store.switchArrangement(to: focusArrangementId, inTab: tab.id)
 
-    private(set) var createSurfaceCallCount = 0
-    private(set) var lastCreatedSurfaceMetadata: SurfaceMetadata?
+        harness.controller.handleTerminalProcessTerminated(paneId: hiddenPane.id)
 
-    init(createSurfaceResult: Result<ManagedSurface, SurfaceError>) {
-        self.createSurfaceResult = createSurfaceResult
-        self.cwdStream = AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { continuation in
-            continuation.finish()
+        #expect(harness.store.pane(visiblePane.id) != nil)
+        #expect(harness.store.pane(hiddenPane.id) == nil)
+        #expect(harness.store.tab(tab.id)?.visiblePaneIds == [visiblePane.id])
+        #expect(harness.executor.undoStack.isEmpty)
+    }
+
+    @Test("terminated pane in a background tab does not create undo")
+    func handleTerminalProcessTerminated_backgroundTabPaneClosesWithoutUndoEntry() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let firstPane = harness.store.createPane(
+            source: .floating(launchDirectory: nil, title: "First"),
+            title: "First",
+            provider: .zmx
+        )
+        let secondPane = harness.store.createPane(
+            source: .floating(launchDirectory: nil, title: "Second"),
+            title: "Second",
+            provider: .zmx
+        )
+        let foregroundPane = harness.store.createPane(
+            source: .floating(launchDirectory: nil, title: "Foreground"),
+            title: "Foreground",
+            provider: .zmx
+        )
+        let backgroundTab = Tab(paneId: firstPane.id, name: "Background")
+        let foregroundTab = Tab(paneId: foregroundPane.id, name: "Foreground")
+        harness.store.appendTab(backgroundTab)
+        harness.store.insertPane(
+            secondPane.id,
+            inTab: backgroundTab.id,
+            at: firstPane.id,
+            direction: .horizontal,
+            position: .after, sizingMode: .halveTarget
+        )
+        harness.store.appendTab(foregroundTab)
+        harness.store.setActiveTab(foregroundTab.id)
+
+        harness.controller.handleTerminalProcessTerminated(paneId: firstPane.id)
+
+        #expect(harness.store.pane(firstPane.id) == nil)
+        #expect(harness.store.tab(backgroundTab.id) != nil)
+        #expect(harness.executor.undoStack.isEmpty)
+    }
+
+    @Test("terminated drawer child under a hidden parent does not create undo")
+    func handleTerminalProcessTerminated_hiddenDrawerChildClosesWithoutUndoEntry() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(
+            source: .floating(launchDirectory: nil, title: "Parent"),
+            title: "Parent",
+            provider: .zmx
+        )
+        let visiblePane = harness.store.createPane(
+            source: .floating(launchDirectory: nil, title: "Visible"),
+            title: "Visible",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.insertPane(
+            visiblePane.id,
+            inTab: tab.id,
+            at: parentPane.id,
+            direction: .horizontal,
+            position: .after, sizingMode: .halveTarget
+        )
+        guard let drawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
+            Issue.record("Expected drawer pane creation")
+            return
         }
+        let focusedVisibleArrangementId = harness.store.createArrangement(
+            name: "Visible only",
+            paneIds: Set([visiblePane.id]),
+            inTab: tab.id
+        )!
+        harness.store.switchArrangement(to: focusedVisibleArrangementId, inTab: tab.id)
+
+        harness.controller.handleTerminalProcessTerminated(paneId: drawerPane.id)
+
+        #expect(harness.store.pane(drawerPane.id) == nil)
+        #expect(harness.store.pane(parentPane.id) != nil)
+        #expect(harness.executor.undoStack.isEmpty)
     }
 
-    var surfaceCWDChanges: AsyncStream<SurfaceManager.SurfaceCWDChangeEvent> { cwdStream }
+    @Test("terminated drawer child is ignored while close transition is already in flight")
+    func handleTerminalProcessTerminated_drawerChildClosingTransitionInFlight_isIgnored() {
+        let closeClock = TestPushClock()
+        let closeTransitionCoordinator = PaneCloseTransitionCoordinator(clock: closeClock)
+        let harness = makeHarness(closeTransitionCoordinator: closeTransitionCoordinator)
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-    func syncFocus(activeSurfaceId: UUID?) {}
+        let parentPane = harness.store.createPane(
+            source: .floating(launchDirectory: nil, title: "Parent"),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        guard let drawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
+            Issue.record("Expected drawer pane creation")
+            return
+        }
 
-    func createSurface(
-        config: Ghostty.SurfaceConfiguration,
-        metadata: SurfaceMetadata
-    ) -> Result<ManagedSurface, SurfaceError> {
-        createSurfaceCallCount += 1
-        lastCreatedSurfaceMetadata = metadata
-        return createSurfaceResult
+        closeTransitionCoordinator.beginClosingPane(drawerPane.id, delay: .seconds(10)) {}
+
+        harness.controller.handleTerminalProcessTerminated(paneId: drawerPane.id)
+
+        #expect(harness.store.pane(drawerPane.id) != nil)
+        #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds == [drawerPane.id])
     }
 
-    @discardableResult
-    func attach(_ surfaceId: UUID, to paneId: UUID) -> Ghostty.SurfaceView? {
-        nil
+    @Test("command harness shares window lifecycle store across monitor and coordinator")
+    func makeHarness_sharesWindowLifecycleStoreAcrossLifecycleBoundaries() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        #expect(
+            harness.coordinator.windowLifecycleStore === harness.windowLifecycleStore
+        )
     }
 
-    func detach(_ surfaceId: UUID, reason: SurfaceDetachReason) {}
+    @Test("toggleManagementLayer preserves drawer scope while exiting management layer")
+    func executeToggleManagementLayer_preservesDrawerScopeOnExit() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-    func undoClose() -> ManagedSurface? { nil }
+        let parentPane = harness.store.createPane(
+            source: .floating(launchDirectory: nil, title: "Parent"),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        _ = harness.store.addDrawerPane(to: parentPane.id)
 
-    func requeueUndo(_ surfaceId: UUID) {}
+        // Intentional: this covers the path where drawer pane selection
+        // establishes the management navigation scope after mode is already active.
+        atom(\.managementLayer).activate()
+        harness.controller.setManagementNavigationScopeToDrawerForTesting(parentPaneId: parentPane.id)
 
-    func destroy(_ surfaceId: UUID) {}
+        harness.controller.execute(.toggleManagementLayer)
+
+        #expect(!atom(\.managementLayer).isActive)
+        #expect(
+            harness.controller.managementNavigationScopeDescriptionForTesting
+                == "drawer:\(parentPane.id.uuidString)"
+        )
+    }
+
+    @Test("managementLayerCreateTerminal targets drawer after drawer pane selection")
+    func executeManagementCreateTerminal_selectedDrawerTargetsDrawer() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(
+            source: .floating(launchDirectory: nil, title: "Parent"),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+        guard let drawerPane = harness.store.addDrawerPane(to: parentPane.id) else {
+            Issue.record("Expected drawer pane creation")
+            return
+        }
+
+        atom(\.managementLayer).activate()
+
+        harness.controller.handlePaneFocusTrigger(
+            .drawer(.selectPane(parentPaneId: parentPane.id, drawerPaneId: drawerPane.id))
+        )
+
+        let paneIdsBefore = Set(harness.store.panes.keys)
+        let tabPaneIdsBefore = Set(harness.store.tab(tab.id)?.paneIds ?? [])
+        let drawerPaneIdsBefore = Set(harness.store.pane(parentPane.id)?.drawer?.paneIds ?? [])
+
+        harness.controller.execute(.managementLayerCreateTerminal)
+
+        let paneIdsAfter = Set(harness.store.panes.keys)
+        let createdPaneIds = paneIdsAfter.subtracting(paneIdsBefore)
+        #expect(createdPaneIds.count == 1)
+        let createdPaneId = try #require(createdPaneIds.first)
+
+        let tabPaneIdsAfter = Set(harness.store.tab(tab.id)?.paneIds ?? [])
+        let drawerPaneIdsAfter = Set(harness.store.pane(parentPane.id)?.drawer?.paneIds ?? [])
+
+        #expect(tabPaneIdsAfter == tabPaneIdsBefore)
+        #expect(drawerPaneIdsAfter == drawerPaneIdsBefore.union([createdPaneId]))
+        #expect(
+            harness.controller.managementNavigationScopeDescriptionForTesting
+                == "drawer:\(parentPane.id.uuidString)"
+        )
+    }
+
+    @Test("managementLayerCreateTerminal in main row adds a split pane to the active tab")
+    func executeManagementCreateTerminal_mainRowTargetsActiveTab() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(
+            source: .floating(launchDirectory: nil, title: "Parent"),
+            title: "Parent",
+            provider: .zmx
+        )
+        let tab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(tab)
+        harness.store.setActiveTab(tab.id)
+
+        harness.controller.execute(.toggleManagementLayer)
+
+        let paneIdsBefore = Set(harness.store.panes.keys)
+        let tabPaneIdsBefore = Set(harness.store.tab(tab.id)?.paneIds ?? [])
+
+        harness.controller.execute(.managementLayerCreateTerminal)
+
+        let paneIdsAfter = Set(harness.store.panes.keys)
+        let createdPaneIds = paneIdsAfter.subtracting(paneIdsBefore)
+        #expect(createdPaneIds.count == 1)
+        let createdPaneId = try #require(createdPaneIds.first)
+        let tabPaneIdsAfter = Set(harness.store.tab(tab.id)?.paneIds ?? [])
+
+        #expect(tabPaneIdsAfter == tabPaneIdsBefore.union([createdPaneId]))
+        #expect(harness.store.pane(parentPane.id)?.drawer?.paneIds.isEmpty ?? true)
+        #expect(harness.controller.managementNavigationScopeDescriptionForTesting == "mainRow")
+    }
+
+    @Test("option-j and option-l stay main-row movement outside drawers")
+    func executeFocusPaneLeftRight_outsideDrawerStaysInMainRow() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let first = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+        let second = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        let tab = Tab(paneId: first.id)
+        harness.store.appendTab(tab)
+        harness.store.insertPane(
+            second.id, inTab: tab.id, at: first.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
+        harness.store.setActiveTab(tab.id)
+        harness.store.setActivePane(second.id, inTab: tab.id)
+
+        harness.controller.execute(.focusPaneLeft)
+
+        #expect(harness.store.tab(tab.id)?.activePaneId == first.id)
+    }
+
 }

@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-Agent Studio embeds Ghostty terminal surfaces via libghostty. `SurfaceManager` (singleton) **owns** all surfaces. `AgentStudioTerminalView` only **displays** them. `PaneCoordinator` is the sole intermediary — views and the model layer never call `SurfaceManager` directly. Surfaces live in exactly one of three collections (active, hidden, undoStack), with dual-layer health monitoring and crash isolation per terminal.
+Agent Studio embeds Ghostty terminal surfaces via libghostty. `SurfaceManager` (singleton) **owns** all surfaces. `TerminalPaneMountView` only **displays** them, and it does so from inside a stable `PaneHostView`. `PaneCoordinator` is the sole intermediary — views and the model layer never call `SurfaceManager` directly. Surfaces live in exactly one of three collections (active, hidden, undoStack), with dual-layer health monitoring and crash isolation per terminal.
 
 ---
 
@@ -10,7 +10,7 @@ Agent Studio embeds Ghostty terminal surfaces via libghostty. `SurfaceManager` (
 
 The key architectural decision is **separation of ownership from display**:
 - `SurfaceManager` **owns** all surfaces (creation, lifecycle, destruction)
-- `AgentStudioTerminalView` containers only **display** surfaces
+- `TerminalPaneMountView` containers only **display** surfaces
 - `PaneCoordinator` is the sole intermediary for surface/runtime lifecycle
 
 ```
@@ -35,8 +35,8 @@ The key architectural decision is **separation of ownership from display**:
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    AgentStudioTerminalView                          │
-│                  (DISPLAYS, does not own)                           │
+│                    TerminalPaneMountView                            │
+│          (mounted under PaneHostView, displays only)                │
 │                                                                     │
 │   paneId: UUID       ←─ single identity across all layers           │
 │   surfaceId: UUID?   ←─ which surface is displayed here             │
@@ -145,35 +145,69 @@ User presses Cmd+Shift+T
 
 ---
 
+## Embedded Ghostty Host Composition
+
+`Ghostty.shared` remains the subsystem entrypoint. The local `Ghostty.App` type is now a thin composition root that wires four focused host-side responsibilities:
+
+- `Ghostty.AppHandle` owns `ghostty_app_t` and config lifetime.
+- `Ghostty.CallbackRouter` owns the C callback table (`wakeup_cb`, `action_cb`, clipboard callbacks, `close_surface_cb`) and reconstructs Swift objects from userdata.
+- `Ghostty.ActionRouter` owns the action-tag switch, surface lookup, and runtime routing.
+- `Ghostty.AppFocusSynchronizer` observes `AppLifecycleAtom.isActive` and mirrors app-level focus into `ghostty_app_set_focus`.
+
+The boundary is intentionally split by isolation contract: callback trampolines stay nonisolated and capture stable identity synchronously; surface updates and runtime routing hop to `@MainActor`.
+
+---
+
+## Host Scrollback UX Boundary
+
+Agent Studio now consumes libghostty/runtime facts for terminal scrollback UX, but still renders the visible macOS UI on the host side.
+
+- Ghostty core owns terminal scrollback/search state and exposes it through routed runtime events such as `scrollbarChanged` and `search*`.
+- `TerminalRuntime` is the observable host-side cache for those facts.
+- `TerminalPaneMountView` composes host UI around the surface: `TerminalSurfaceScrollView`, `TerminalSearchOverlayView`, and `ScrollToBottomIndicatorView`.
+- `TerminalSurfaceScrollView` provides the native scrollbar UI on macOS and synchronizes scrollbar thumb / live-scroll movement back into Ghostty core via `scroll_to_row:N`.
+- `Ghostty.SurfaceView` remains the rendering/input bridge and keeps ordinary wheel/trackpad scrolling owned by Ghostty core, matching Ghostty.app more closely than the earlier host-owned scroll prototype.
+- `Ghostty.AppHandle` injects an Agent Studio config override before `ghostty_config_finalize` so Ghostty core does not auto-scroll to bottom on keypress or output while the host wrapper is providing explicit scrollback affordances.
+
+This is a deliberate split of responsibilities:
+
+- libghostty owns terminal truth
+- Agent Studio owns macOS host presentation
+
+That differs from Ghostty.app only in product choices such as Agent Studio's always-visible scrollbar.
+
+---
+
 ## CWD Propagation Architecture
 
-When a user `cd`s in a terminal, the shell's OSC 7 integration reports the new working directory. Ghostty's core parses this and emits `GHOSTTY_ACTION_PWD`. Agent Studio captures this and propagates it through a 5-stage notification pipeline.
+When a user `cd`s in a terminal, the shell's OSC 7 integration reports the new working directory. Ghostty's core parses this and emits `GHOSTTY_ACTION_PWD`. Agent Studio captures this and propagates it through a 5-stage pipeline.
 
-> **Migration target (LUNA-325):** This pipeline will be replaced by `GhosttyAdapter` → `GhosttyEvent.cwdChanged` → `TerminalRuntime` → `PaneEventEnvelope` on the typed coordination stream. `DispatchQueue.main.async` becomes `MainActor.assumeIsolated`, and `NotificationCenter` posts become typed event emission.
+> **Current state:** Surface-local CWD changes already use the modern host-side path: callback router → `SurfaceView` closure callback → `SurfaceManager.surfaceCWDChanges` `AsyncStream` → `PaneCoordinator` → `WorkspaceStore`.
 >
-> **Deprecation status:** The NotificationCenter CWD path below is legacy documentation only and is deprecated for new paths. Migration follows the no-dual-path invariant in `pane_runtime_architecture.md`.
+> **Future routing target (LUNA-325):** This can still collapse further into `GhosttyAdapter` → `GhosttyEvent.cwdChanged` → `TerminalRuntime` → `PaneEventEnvelope` when the remaining runtime event expansion lands.
 
 ```
 Terminal shell (cd /foo)
     │ OSC 7
     ▼
 ① Ghostty C API                             [GHOSTTY_ACTION_PWD]
-    │ Ghostty.App.handleAction()
+    │ Ghostty.CallbackRouter.action_cb
+    │   └─► Ghostty.ActionRouter.handleAction()
     │ guard target == surface, safe C→String
-    │ DispatchQueue.main.async { surfaceView.pwdDidChange(pwd) }
+    │ Task { @MainActor in surfaceView.pwdDidChange(pwd) }
     ▼
 ② SurfaceView.pwd: String? didSet           [GhosttySurfaceView.swift]
     │ guard pwd != oldValue (dedup)
-    │ NotificationCenter.post(.didUpdateWorkingDirectory)
+    │ onWorkingDirectoryChanged?(surfaceViewId, pwd)
     ▼
 ③ SurfaceManager.onWorkingDirectoryChanged() [SurfaceManager.swift]
     │ SurfaceView → surfaceId (via surfaceViewToId)
     │ CWDNormalizer: String? → URL? (validates absolute path)
     │ SurfaceMetadata.workingDirectory = url
-    │ post .surfaceCWDChanged (surfaceId + URL)
+    │ AsyncStream yield SurfaceCWDChangeEvent(surfaceId, paneId, cwd)
     ▼
-④ PaneCoordinator                          [PaneCoordinator.swift]
-    │ surfaceId → paneId (via metadata.paneId)
+④ PaneCoordinator                          [App/Coordination/PaneCoordinator.swift]
+    │ for await event in surfaceManager.surfaceCWDChanges
     │ store.updatePaneCWD(paneId, url)
     ▼
 ⑤ WorkspaceStore                            [WorkspaceStore.swift]
@@ -186,9 +220,9 @@ UI consumers (search by CWD, breadcrumbs, grouping)
 ### Key Design Points
 
 - **1 pane = 1 surface = 1 CWD**. Layout splits create separate panes, so each pane tracks its own CWD independently.
-- **`CWDNormalizer`** (`Ghostty/CWDNormalizer.swift`): Pure function — `nil → nil`, `"" → nil`, non-absolute → nil, valid path → `URL.standardizedFileURL`. Defense-in-depth on top of Ghostty's own OSC 7 URI validation.
+- **`CWDNormalizer`** (`Infrastructure/CWDNormalizer.swift`): Pure function — `nil → nil`, `"" → nil`, non-absolute → nil, valid path → `URL.standardizedFileURL`. Defense-in-depth on top of Ghostty's own OSC 7 URI validation.
 - **Dual storage**: `SurfaceMetadata.workingDirectory` (surface-level truth) + `PaneMetadata.cwd` (model-level, persisted). Both update synchronously on main thread.
-- **Thread safety**: The C callback may fire off-main; the handler wraps in `DispatchQueue.main.async` (matches `SET_TITLE` pattern).
+- **Thread safety**: The C callback may fire off-main; the callback router captures stable identity synchronously, then uses `Task { @MainActor ... }` before touching `SurfaceView` or runtime state.
 - **Dedup**: Both `SurfaceView.pwd` (didSet guard) and `WorkspaceStore.updatePaneCWD` (equality check) skip redundant updates.
 - **Persistence**: `PaneMetadata.cwd: URL?` is Codable. Old persisted panes missing this field decode as `nil` (Swift optional auto-default).
 
@@ -274,14 +308,19 @@ This document defines surface lifecycle primitives. Scheduling policy belongs to
 ## Restore Initializer Pattern
 
 ```swift
-// WRONG: Creates orphan surface
-let view = AgentStudioTerminalView(worktree: w, project: p)
-view.displaySurface(restoredSurface)  // Original surface from view is orphaned!
+// Worktree-bound (with repo context)
+let view = TerminalPaneMountView(worktree: w, repo: r, restoredSurfaceId: id, paneId: paneId)
+view.displaySurface(restoredSurface)
 
-// RIGHT: Skip surface creation for restore
-let view = AgentStudioTerminalView(worktree: w, project: p, restoredSurfaceId: id)
-view.displaySurface(restoredSurface)  // No orphan, view has no surface yet
+// Floating (no repo context — drawers, standalone terminals)
+let view = TerminalPaneMountView(restoredSurfaceId: id, paneId: paneId, title: "Terminal")
+view.displaySurface(restoredSurface)
+
+// Placeholder-only (no surface yet)
+let view = TerminalPaneMountView(paneId: paneId, title: "Terminal")
 ```
+
+All three initializers require `paneId:`. The view never creates its own surface — the caller attaches one via `displaySurface()` after construction.
 
 ---
 
@@ -317,10 +356,14 @@ view.displaySurface(restoredSurface)  // No orphan, view has no surface yet
 |------|---------|
 | `Ghostty/SurfaceManager.swift` | Singleton owner, lifecycle, health monitoring, CWD propagation |
 | `Ghostty/SurfaceTypes.swift` | SurfaceState, ManagedSurface, SurfaceMetadata, protocols |
-| `Ghostty/CWDNormalizer.swift` | Pure normalizer: raw pwd string → validated file URL |
+| `Infrastructure/CWDNormalizer.swift` | Pure normalizer: raw pwd string → validated file URL |
 | `Ghostty/GhosttySurfaceView.swift` | Surface view with `pwd` property (OSC 7 CWD tracking) |
-| `Ghostty/Ghostty.swift` | C API wrapper, action handler (including `GHOSTTY_ACTION_PWD`) |
-| `Views/AgentStudioTerminalView.swift` | Container, implements SurfaceHealthDelegate |
+| `Ghostty/Ghostty.swift` | Thin composition root for the embedded Ghostty host |
+| `Ghostty/GhosttyAppHandle.swift` | Owns `ghostty_app_t` and config lifetime |
+| `Ghostty/GhosttyCallbackRouter.swift` | Owns the C callback table and userdata reconstruction |
+| `Ghostty/GhosttyActionRouter.swift` | Owns Ghostty action routing and runtime lookup |
+| `Ghostty/GhosttyAppFocusSynchronizer.swift` | Mirrors app lifecycle focus into `ghostty_app_set_focus` |
+| `Hosting/TerminalPaneMountView.swift` | Terminal mount container, implements `SurfaceHealthDelegate` |
 | `Views/SurfaceErrorOverlay.swift` | Error state UI with restart/close |
 
 ---

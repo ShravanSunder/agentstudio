@@ -2,44 +2,47 @@ import SwiftUI
 
 // MARK: - CommandBarView
 
-/// Root SwiftUI view for the command bar. Composes search field, scope pill,
-/// results list, and footer. Bound to CommandBarState.
+/// Root SwiftUI view for the command bar. Composes search field, results list,
+/// and footer. Bound to CommandBarState.
 struct CommandBarView: View {
     @Bindable var state: CommandBarState
     let store: WorkspaceStore
-    let repoCache: WorkspaceRepoCache
+    let repoCache: RepoCacheAtom
     let dispatcher: CommandDispatcher
-    let onDismiss: () -> Void
+    let notificationInboxCommands: InboxNotificationCommands?
+    let onShortcutTrigger: (ShortcutTrigger) -> Bool
+    let onExecuteItem: (CommandBarItem, EnterModifier) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            // Scope pill (only when nested)
-            if state.isNested {
-                HStack {
-                    CommandBarScopePill(
-                        parent: state.scopePillParent,
-                        child: state.scopePillChild,
-                        onDismiss: { state.popToRoot() }
-                    )
-                    Spacer()
-                }
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-                .padding(.bottom, 4)
-            }
+            CommandBarStatusStrip(
+                mode: currentMode,
+                context: currentContext
+            )
 
-            // Search field with keyboard interception
+            Divider()
+                .opacity(AppStyles.CommandBar.Panel.rootDividerOpacity)
+
             CommandBarSearchField(
                 state: state,
                 onArrowUp: { state.moveSelectionUp(totalItems: totalItems) },
                 onArrowDown: { state.moveSelectionDown(totalItems: totalItems) },
-                onEnter: { executeSelected() },
+                onEnter: { modifier in executeSelected(modifier: modifier) },
+                onShortcutTrigger: onShortcutTrigger,
                 onBackspaceOnEmpty: { handleBackspace() }
             )
 
             // Separator
             Divider()
-                .opacity(0.3)
+                .opacity(AppStyles.CommandBar.Panel.nestedDividerOpacity)
+
+            // Back row when nested
+            if state.isNested {
+                CommandBarBackRow(
+                    label: state.backRowLabel,
+                    onBack: { state.popToRoot() }
+                )
+            }
 
             // Results list
             CommandBarResultsList(
@@ -47,23 +50,38 @@ struct CommandBarView: View {
                 selectedIndex: state.selectedIndex,
                 searchQuery: state.searchQuery,
                 dimmedItemIds: dimmedItemIds,
-                onSelect: { item in executeItem(item) }
+                onSelect: { item in onExecuteItem(item, .plain) }
             )
 
             // Separator
             Divider()
-                .opacity(0.3)
+                .opacity(AppStyles.CommandBar.Panel.nestedDividerOpacity)
 
             // Footer
             CommandBarFooter(
-                isNested: state.isNested,
-                selectedHasChildren: selectedItem?.hasChildren ?? false
+                hints: footerHints
             )
         }
         .frame(maxWidth: .infinity)
     }
 
     // MARK: - Data
+
+    private var currentMode: CommandBarAppMode {
+        atom(\.managementLayer).isActive ? .management : .normal
+    }
+
+    private var currentContext: WorkspacePaneFocus {
+        let workspaceTab = WorkspaceTabDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
+        return atom(\.workspacePaneFocus).currentFocus(
+            workspaceTab: workspaceTab,
+            workspacePane: store.paneAtom,
+            workspaceFocusOwner: atom(\.workspaceFocusOwner)
+        )
+    }
 
     private var allItems: [CommandBarItem] {
         if let level = state.currentLevel {
@@ -73,7 +91,9 @@ struct CommandBarView: View {
             scope: state.activeScope,
             store: store,
             repoCache: repoCache,
-            dispatcher: dispatcher
+            dispatcher: dispatcher,
+            focus: currentContext,
+            notificationInboxCommands: notificationInboxCommands
         )
     }
 
@@ -89,20 +109,24 @@ struct CommandBarView: View {
         CommandBarDataSource.grouped(filteredItems)
     }
 
+    private var displayedItems: [CommandBarItem] {
+        CommandBarDataSource.displayItems(from: groups)
+    }
+
     private var totalItems: Int {
-        filteredItems.count
+        displayedItems.count
     }
 
     private var selectedItem: CommandBarItem? {
-        guard state.selectedIndex >= 0, state.selectedIndex < filteredItems.count else { return nil }
-        return filteredItems[state.selectedIndex]
+        guard state.selectedIndex >= 0, state.selectedIndex < displayedItems.count else { return nil }
+        return displayedItems[state.selectedIndex]
     }
 
     /// IDs of items that should be dimmed (command not currently dispatchable).
     /// Checks both direct dispatch and navigate (drill-in) items via the `command` property.
     private var dimmedItemIds: Set<String> {
         var ids = Set<String>()
-        for item in filteredItems {
+        for item in displayedItems {
             if let command = item.command, !dispatcher.canDispatch(command) {
                 ids.insert(item.id)
             }
@@ -110,37 +134,35 @@ struct CommandBarView: View {
         return ids
     }
 
-    // MARK: - Actions
-
-    private func executeSelected() {
-        guard let item = selectedItem else { return }
-        executeItem(item)
+    private var footerHints: [FooterHint] {
+        FooterHintBuilder.hints(
+            for: selectedItem,
+            isNested: state.isNested,
+            canOpenInCurrentTab: canOpenWorktreeInCurrentTab,
+            scope: state.currentScope
+        )
     }
 
-    private func executeItem(_ item: CommandBarItem) {
-        // Block execution of dimmed (unavailable) commands
-        if dimmedItemIds.contains(item.id) { return }
-
-        switch item.action {
-        case .dispatch(let command):
-            state.recordRecent(itemId: item.id)
-            onDismiss()
-            dispatcher.dispatch(command)
-
-        case .dispatchTargeted(let command, let target, let targetType):
-            state.recordRecent(itemId: item.id)
-            onDismiss()
-            dispatcher.dispatch(command, target: target, targetType: targetType)
-
-        case .navigate(let level):
-            // Don't record intermediate navigation items as recent
-            state.pushLevel(level)
-
-        case .custom(let closure):
-            state.recordRecent(itemId: item.id)
-            onDismiss()
-            closure()
+    private var canOpenWorktreeInCurrentTab: Bool {
+        let workspaceTab = WorkspaceTabDerived(
+            shellAtom: store.tabShellAtom,
+            arrangementAtom: store.tabArrangementAtom
+        )
+        guard
+            let activeTabId = store.tabShellAtom.activeTabId,
+            let activeTab = workspaceTab.tab(activeTabId),
+            activeTab.activePaneId != nil
+        else {
+            return false
         }
+        return true
+    }
+
+    // MARK: - Actions
+
+    private func executeSelected(modifier: EnterModifier = .plain) {
+        guard let item = selectedItem else { return }
+        onExecuteItem(item, modifier)
     }
 
     private func handleBackspace() {

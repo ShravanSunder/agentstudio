@@ -37,12 +37,12 @@ enum BridgeBootstrap {
                 // so receiver-side stale/epoch guards work without nested unwrapping.
                 merge: function(store, data, revision, epoch) {
                     document.dispatchEvent(new CustomEvent('__bridge_push', {
-                        detail: { op: 'merge', store: store, data: data, __revision: revision, __epoch: epoch, nonce: PUSH_NONCE }
+                        detail: { op: 'merge', data: data, __revision: revision, __epoch: epoch, nonce: PUSH_NONCE }
                     }));
                 },
                 replace: function(store, data, revision, epoch) {
                     document.dispatchEvent(new CustomEvent('__bridge_push', {
-                        detail: { op: 'replace', store: store, data: data, __revision: revision, __epoch: epoch, nonce: PUSH_NONCE }
+                        detail: { op: 'replace', data: data, __revision: revision, __epoch: epoch, nonce: PUSH_NONCE }
                     }));
                 },
                 applyEnvelope: function(envelope) {
@@ -52,7 +52,7 @@ enum BridgeBootstrap {
                     const store = envelope.store;
                     const payload = envelope.payload !== undefined ? envelope.payload : envelope.data;
                     if (payload === undefined) {
-                        console.warn('[BridgeInternal] applyEnvelope: payload is undefined, envelope dropped', JSON.stringify({op: op, store: store}));
+                        console.warn('[BridgeInternal] applyEnvelope: payload is undefined, envelope dropped', JSON.stringify({op: op}));
                         return;
                     }
                     // Forward envelope as data with metadata lifted to detail level.

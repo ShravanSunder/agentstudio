@@ -76,6 +76,8 @@ private struct TypedRPCMethodHandler<Method: RPCMethod>: AnyRPCMethodHandler {
             }
             let encoder = JSONEncoder()
             return try encoder.encode(result)
+        } catch let error as RPCMethodDispatchError {
+            throw error
         } catch {
             throw RPCMethodDispatchError.handlerFailure(message(from: error))
         }

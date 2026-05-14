@@ -69,6 +69,7 @@ final class BridgePaneController {
     private var managementScript: WKUserScript
     private(set) var isContentInteractionEnabled: Bool
     private var interactionApplyTask: Task<Void, Never>?
+    private var inboxPostTimestamps: [Date] = []
 
     /// Per store+op dedup cache. Bounded at O(StoreKey × PushOp) — currently 8 entries max.
     /// Each entry stores the epoch it was pushed in + the payload bytes. Dedup only matches
@@ -101,7 +102,7 @@ final class BridgePaneController {
             paneId: runtimePaneId,
             metadata: resolvedMetadata
         )
-        let blockInteraction = ManagementModeMonitor.shared.isActive
+        let blockInteraction = atom(\.managementLayer).isActive
         let initialManagementScript = WebInteractionManagementScript.makeUserScript(
             blockInteraction: blockInteraction
         )
@@ -192,7 +193,7 @@ final class BridgePaneController {
 
     // MARK: - Content Interaction
 
-    /// Called by the pane view when management mode toggles. Keeps both the currently
+    /// Called by the pane view when management layer toggles. Keeps both the currently
     /// loaded bridge page and future navigations in sync with interaction suppression.
     func setWebContentInteractionEnabled(_ enabled: Bool) {
         let didChange = enabled != isContentInteractionEnabled
@@ -282,6 +283,17 @@ final class BridgePaneController {
         registerStub(AgentMethods.CancelTaskMethod.self)
         registerStub(AgentMethods.InjectPromptMethod.self)
 
+        // inbox namespace
+        router.register(method: InboxMethods.PostMethod.self) { @MainActor [weak self] params in
+            guard let self else { return nil }
+            let sanitizedParams = try self.sanitizeInboxPostParams(params)
+            // Pane identity comes from this controller, not RPC params, so web content cannot spoof another pane.
+            self.ingestRuntimeEvent(
+                .agentNotificationRequested(title: sanitizedParams.title, body: sanitizedParams.body)
+            )
+            return nil
+        }
+
         // system namespace
         registerStub(SystemMethods.HealthMethod.self)
         registerStub(SystemMethods.CapabilitiesMethod.self)
@@ -295,6 +307,32 @@ final class BridgePaneController {
             bridgeControllerLogger.info("[BridgePaneController] stub: \(M.method) called (not yet wired)")
             throw BridgeMethodUnimplementedError(method: M.method)
         }
+    }
+
+    private func sanitizeInboxPostParams(
+        _ params: InboxMethods.PostMethod.Params
+    ) throws -> InboxMethods.PostMethod.Params {
+        let now = Date()
+        let windowStart = now.addingTimeInterval(-AppPolicies.InboxNotification.rpcPostRateLimitWindowSeconds)
+        inboxPostTimestamps.removeAll { $0 < windowStart }
+        guard inboxPostTimestamps.count < AppPolicies.InboxNotification.maxRPCPostsPerWindow else {
+            throw RPCMethodDispatchError.invalidParams("inbox.post rate limit exceeded")
+        }
+
+        let title = params.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else {
+            throw RPCMethodDispatchError.invalidParams("inbox.post title is required")
+        }
+        inboxPostTimestamps.append(now)
+
+        let body = params.body?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .nilIfEmpty
+
+        return .init(
+            title: title.limited(to: AppPolicies.InboxNotification.maxTitleCharacters),
+            body: body?.limited(to: AppPolicies.InboxNotification.maxBodyCharacters)
+        )
     }
 
     // MARK: - Lifecycle
@@ -413,8 +451,7 @@ final class BridgePaneController {
             state: paneState.review,
             transport: self,
             revisions: revisionClock,
-            // Review epoch tracks diff epoch for now (Phase 2 stub — ReviewState has no
-            // independent epoch). Phase 3+ should add review.epoch if review data has its own
+            // Review epoch tracks diff epoch until review data has its own
             // version timeline separate from diffs.
             epoch: { [paneState] in paneState.diff.epoch },
             slices: {
@@ -493,7 +530,7 @@ final class BridgePaneController {
         return PaneMetadata(
             paneId: paneId,
             contentType: contentType,
-            source: .floating(workingDirectory: nil, title: title),
+            source: .floating(launchDirectory: nil, title: title),
             title: title
         )
     }
@@ -567,7 +604,7 @@ extension BridgePaneController: PushTransport {
             )
             return
         }
-        // Phase 2: transport the envelope to React (transport failures ARE connection errors).
+        // Transport the envelope to React; transport failures are connection errors.
         do {
             try await page.callJavaScript(
                 "window.__bridgeInternal.applyEnvelope(JSON.parse(json))",
@@ -603,5 +640,16 @@ struct BridgeMethodUnimplementedError: Error, LocalizedError, Sendable {
 
     var errorDescription: String? {
         "Unimplemented bridge method: \(method)"
+    }
+}
+
+extension String {
+    fileprivate var nilIfEmpty: String? {
+        isEmpty ? nil : self
+    }
+
+    fileprivate func limited(to maxCharacters: Int) -> String {
+        guard count > maxCharacters else { return self }
+        return String(prefix(maxCharacters))
     }
 }

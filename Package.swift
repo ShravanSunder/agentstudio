@@ -11,6 +11,8 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-async-algorithms", from: "1.0.0"),
+        .package(url: "https://github.com/apple/swift-distributed-tracing.git", from: "1.2.0"),
+        .package(url: "https://github.com/swift-otel/swift-otel.git", from: "1.0.0"),
     ],
     targets: [
         .executableTarget(
@@ -18,15 +20,20 @@ let package = Package(
             dependencies: [
                 "GhosttyKit",
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
+                .product(name: "Tracing", package: "swift-distributed-tracing"),
+                .product(name: "OTel", package: "swift-otel"),
             ],
             path: "Sources/AgentStudio",
             exclude: [
                 "Resources/Info.plist",
+                "Resources/AppIcon.svg",
                 "Resources/terminfo-src",
+                "Resources/AgentStudio.entitlements",
             ],
             resources: [
-                .process("Resources/SidebarIcons.xcassets"),
+                .process("Resources/Icons.xcassets"),
                 .copy("Resources/AppIcon.icns"),
+                .copy("Resources/AppLogoTransparent.svg"),
                 .copy("Resources/AppIcon.iconset"),
                 .copy("Resources/terminfo"),
                 .copy("Resources/ghostty"),
@@ -48,7 +55,7 @@ let package = Package(
                 .linkedFramework("WebKit"),
                 .linkedFramework("AuthenticationServices"),
                 .linkedLibrary("z"),
-                .linkedLibrary("c++")
+                .linkedLibrary("c++"),
             ]
         ),
         .testTarget(
@@ -56,6 +63,9 @@ let package = Package(
             dependencies: [
                 "AgentStudio",
                 .product(name: "AsyncAlgorithms", package: "swift-async-algorithms"),
+                .product(name: "InMemoryTracing", package: "swift-distributed-tracing"),
+                .product(name: "Instrumentation", package: "swift-distributed-tracing"),
+                .product(name: "Tracing", package: "swift-distributed-tracing"),
             ],
             path: "Tests/AgentStudioTests",
             swiftSettings: [
@@ -65,6 +75,6 @@ let package = Package(
         .binaryTarget(
             name: "GhosttyKit",
             path: "Frameworks/GhosttyKit.xcframework"
-        )
+        ),
     ]
 )

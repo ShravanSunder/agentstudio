@@ -17,22 +17,30 @@ Data flows DOWN only — tier N never reads tier N+1.
 ```
 TIER A: CANONICAL CONFIG (source of truth, user intent)
   File: ~/.agentstudio/workspaces/<id>/workspace.state.json
-  Owner: WorkspaceStore (@MainActor, @Observable)
+  Owner: canonical workspace atoms + WorkspaceStore persistence wrapper
   Mutated by: explicit user actions + topology consumer (discovery events)
   Contains: canonical repos, canonical worktrees, panes, tabs, layouts
 
 TIER B: DERIVED CACHE (rebuildable from Tier A + actors)
   File: ~/.agentstudio/workspaces/<id>/workspace.cache.json
-  Owner: WorkspaceRepoCache (@MainActor, @Observable)
+  Owner: RepoCacheAtom (@MainActor, @Observable)
   Mutated by: WorkspaceCacheCoordinator only (event-driven)
-  Contains: repo enrichment, worktree enrichment, PR counts, notification counts
+  Contains: repo enrichment, worktree enrichment, PR counts
+           (notification unread counts moved — now derived from
+            InboxNotificationAtom.unreadCount(forWorktreeId:)
+            per LUNA-361)
 
-TIER C: UI STATE (preferences, non-structural)
+TIER C: UI STATE (preferences, non-structural + composition state)
   File: ~/.agentstudio/workspaces/<id>/workspace.ui.json
-  Owner: WorkspaceUIStore (@MainActor, @Observable)
-  Mutated by: sidebar view actions only
-  Contains: expanded groups, checkout colors, filter state
+  Owner: UIStateAtom (@MainActor, @Observable)
+  Mutated by: sidebar view actions, MainSplitViewController
+              (publishing sidebar collapsed state), sidebar surface
+              views (publishing focus), composite commands (⌘I / ⌘S)
+  Contains: expanded groups, checkout colors, filter state,
+            sidebar composition state (collapsed / surface / has-focus)
 ```
+
+> **Note on composition state.** `sidebarCollapsed`, `sidebarSurface`, and `sidebarHasFocus` live on `UIStateAtom` as composition state — generic, app-wide UI shell state consumed by multiple features. See [directory_structure.md — composition state vs feature state](directory_structure.md). `sidebarHasFocus` is runtime-only (not persisted).
 
 ### Tier A: Canonical Models
 
@@ -72,7 +80,8 @@ struct Worktree: Codable, Identifiable, Hashable {
 **What is NOT canonical** (lives in cache, populated by event bus):
 - `organizationName`, `origin`, `upstream` → `RepoEnrichment`
 - `branch`, git snapshot → `WorktreeEnrichment`
-- PR counts, notification counts → `WorkspaceRepoCache` dictionaries
+- PR counts → `RepoCacheAtom` dictionaries
+- Notification unread counts → `InboxNotificationAtom.unreadCount(forWorktreeId:)` (per LUNA-361; moved out of `RepoCacheAtom`)
 
 ### Identity Semantics
 
@@ -125,7 +134,10 @@ struct WorkspaceCacheState: Codable {
     var repoEnrichment: [UUID: RepoEnrichment]           // keyed by CanonicalRepo.id
     var worktreeEnrichment: [UUID: WorktreeEnrichment]    // keyed by CanonicalWorktree.id
     var pullRequestCounts: [UUID: Int]                     // keyed by CanonicalWorktree.id
-    var notificationCounts: [UUID: Int]                    // keyed by CanonicalWorktree.id
+    // notificationCounts removed per LUNA-361: unread counts are now
+    // derived from InboxNotificationAtom.unreadCount(forWorktreeId:)
+    // in Features/InboxNotification/State/MainActor/Atoms/, not stored
+    // in the cache tier. The bell pill reads directly from the atom.
 }
 ```
 
@@ -133,10 +145,28 @@ struct WorkspaceCacheState: Codable {
 
 ```swift
 struct WorkspaceUIState: Codable {
-    var expandedGroups: Set<String>       // groupKey strings
-    var checkoutColors: [String: String]  // repoId → color name
+    // Presentation prefs (existing)
+    var expandedGroups: Set<String>        // groupKey strings
+    var checkoutColors: [String: String]   // repoId → color name
     var filterVisible: Bool
     var filterText: String
+
+    // Composition state (added LUNA-361) — app-wide UI shell state
+    var sidebarCollapsed: Bool             // OWNERSHIP MOVE (LUNA-361):
+                                           //   was owned by MainSplitView-
+                                           //   Controller + UserDefaults
+                                           //   key "sidebarCollapsed";
+                                           //   now atom-owned + persisted
+                                           //   in workspace.ui.json.
+                                           //   Greenfield cutover: no
+                                           //   dual-write, no migration
+                                           //   from the legacy UserDefaults
+                                           //   value. UserDefaults key is
+                                           //   dead code after LUNA-361.
+    var sidebarSurface: SidebarSurface     // .repos | .inbox; new surfaces
+                                           //   extend the enum monotonically
+    // sidebarHasFocus is NOT persisted — runtime-only, resets to false
+    // on launch. Published by each sidebar surface view via @FocusState.
 }
 ```
 
@@ -149,18 +179,23 @@ Sequential enrichment via EventBus. Each stage subscribes to the bus and produce
 ```
 WORKSPACE STATE (canonical repos/worktrees, panes/tabs)
       │
-      │ restored at boot → topology events replayed on bus
+      │ restored at boot → topology events replayed on bus (.notScanned)
       ▼
 FilesystemActor (raw filesystem I/O)
+  watched folder scan via RepoScanner:
+    - classifies .git directory (clone root) vs .git file (linked worktree)
+    - groups linked worktrees under parent clones into ScannedRepoGroup
+    - diffs grouped state per watched folder, global dedup for removes
   worktree roots → deep FSEvents watch (DarwinFSEventStreamClient)
-  emits: SystemEnvelope(.topology(..))     ← repo discovery/removal
-         WorktreeEnvelope(.filesystem(..)) ← file change facts
+  emits: SystemEnvelope(.topology(.repoDiscovered(linkedWorktrees: .scanned([...]))))
+         SystemEnvelope(.topology(.repoRemoved))
+         WorktreeEnvelope(.filesystem(.filesChanged))
       │
       │ posts to EventBus<RuntimeEnvelope>
       ▼
 GitWorkingDirectoryProjector (local git enrichment)
   subscribes to .filesystem(.filesChanged)
-  runs: git status, git branch, git remote, git worktree list
+  runs: git status, git branch, git remote
   emits: .snapshotChanged, .branchChanged, .originChanged, .originUnavailable
          .worktreeDiscovered, .worktreeRemoved
       │
@@ -173,22 +208,32 @@ ForgeActor (remote forge enrichment)
       │
       │ all three post to EventBus, fan-out to:
       ▼
-WorkspaceCacheCoordinator (@MainActor, consolidation consumer)
-  .topology(.repoDiscovered) → register canonical repo+worktrees in WorkspaceStore
-                              → compute enrichment → write to WorkspaceRepoCache
-                              → register with FilesystemActor (deep watch)
-                              → register with ForgeActor (if has remote)
-  .topology(.repoRemoved) → unregister actors → mark panes orphaned → prune cache
+WorkspaceCacheCoordinator (@MainActor, topology accumulator)
+  .topology(.repoDiscovered, linkedWorktrees: .scanned):
+    → WorktreeReconciler.reconcile(existing, discovered) → (merged, delta)
+    → reconcileDiscoveredWorktrees(repoId, merged)
+    → cache prune for delta.removedWorktrees
+    → topologyEffectHandler.topologyDidChange(delta) → PaneCoordinator
+  .topology(.repoDiscovered, linkedWorktrees: .notScanned):
+    → register/reassociate repo only, skip worktree reconciliation (boot replay)
+  .topology(.repoRemoved) → mark unavailable → orphan panes → prune cache
   .snapshotChanged → write to cache store
   .branchChanged → write to cache store (ForgeActor gets its own copy via bus fan-out)
   .pullRequestCountsChanged → map branch→worktreeId → write to cache
       │
+      │ topology effects via TopologyEffectHandler (NOT bus):
       ▼
-WorkspaceRepoCache (@Observable, passive)
+PaneCoordinator (ordered post-topology effects)
+  topologyDidChange(delta):
+    → orphanPanesForWorktree for delta.removedWorktrees
+    → syncFilesystemRootsAndActivity() (register new / unregister removed)
+      │
+      ▼
+RepoCacheAtom (@Observable, passive)
   → persisted to cache file on debounced schedule
       │
       ▼
-SIDEBAR (pure reader of WorkspaceStore + WorkspaceRepoCache + WorkspaceUIStore)
+SIDEBAR (pure reader of canonical atoms + RepoCacheAtom + UIStateAtom)
 ```
 
 ### Actor Responsibilities
@@ -231,18 +276,25 @@ SIDEBAR (pure reader of WorkspaceStore + WorkspaceRepoCache + WorkspaceUIStore)
 
 #### WorkspaceCacheCoordinator
 
-Single consolidation consumer with three internal method groups:
+Single topology accumulator with three internal method groups. For topology events with `LinkedWorktreeInfo`, uses `WorktreeReconciler` (pure function) to compute a `WorktreeTopologyDelta`, then delegates ordered effects to an injected `TopologyEffectHandler`.
 
 ```
 handleTopology_*    — CANONICAL mutations (WorkspaceStore)
   Events: .topology(.repoDiscovered), .topology(.repoRemoved),
           .worktreeDiscovered, .worktreeRemoved
   Touches: WorkspaceStore (register/unregister repos+worktrees)
+  For .repoDiscovered with .scanned(linkedPaths):
+    → WorktreeReconciler.reconcile(existing, discovered) → (merged, delta)
+    → store.reconcileDiscoveredWorktrees(repoId, merged)
+    → cache prune for delta.removedWorktrees (coordinator owns repoCache)
+    → topologyEffectHandler.topologyDidChange(delta) → PaneCoordinator
+  For .repoDiscovered with .notScanned:
+    → register/reassociate repo only, skip reconciliation (boot replay)
 
-handleEnrichment_*  — DERIVED cache writes (WorkspaceRepoCache only)
+handleEnrichment_*  — DERIVED cache writes (RepoCacheAtom only)
   Events: .snapshotChanged, .branchChanged, .originChanged, .originUnavailable,
           .pullRequestCountsChanged, .checksUpdated
-  Touches: WorkspaceRepoCache only
+  Touches: RepoCacheAtom only
 
 syncScope_*         — ACTOR registration management
   Operations: register/unregister worktrees with FilesystemActor, ForgeActor
@@ -253,18 +305,28 @@ Method naming convention makes responsibility explicit. If coordinator grows too
 
 ### Discovery — Repo Scanning
 
-`RepoScanner` walks the filesystem from a root URL, stops at the first `.git` boundary (file or directory), caps depth at `RepoScanner.defaultMaxDepth` (4 levels), skips hidden directories and symlinks, validates with `git rev-parse --is-inside-work-tree`, and excludes submodules via `--show-superproject-working-tree`.
+`RepoScanner` walks the filesystem from a root URL and classifies each `.git` entry:
+- `.git` **directory** → clone root (real `git init`/`git clone`)
+- `.git` **file** → linked worktree (reads `gitdir:` line to derive parent clone path by stripping `/.git/worktrees/<name>`)
+- `.git` exists but unreadable → treated as clone root (conservative boundary — scanner stops descending)
 
-Used by `FilesystemActor` as the blocking filesystem walk behind watched-folder refresh. Add Folder no longer calls `RepoScanner` directly from `AppDelegate`; the scan is owned by the watched-folder command path.
+After classification, linked worktrees are grouped under their parent clone into `RepoScanGroup` entries via `groupClassifiedPaths()`. The existing validation behavior is preserved: `git rev-parse --is-inside-work-tree` and submodule exclusion via `--show-superproject-working-tree`.
 
-> **File:** `Infrastructure/RepoScanner.swift`
+Used by `FilesystemActor` as the blocking filesystem walk behind watched-folder refresh. The grouped results enable the coordinator to create correct worktree families from the first topology event.
+
+> **Files:** `Infrastructure/RepoScanner.swift`, `Infrastructure/WorktreeReconciler.swift`
 
 ### Event Namespaces
 
 ```
 TopologyEvent (envelope: SystemEnvelope, all via bus)
-  .repoDiscovered(repoPath:, parentPath:)   — producer: AppDelegate (boot replay), FilesystemActor (watched folder diff)
-  .repoRemoved(repoPath:)                   — producer: FilesystemActor (watched folder diff)
+  .repoDiscovered(repoPath:, parentPath:, linkedWorktrees: LinkedWorktreeInfo = .notScanned)
+      — producer: AppDelegate (boot replay with .notScanned), FilesystemActor (watched folder diff with .scanned)
+      — LinkedWorktreeInfo distinguishes "scanner found these linked worktrees" from "no scan performed"
+      — .scanned([]) = authoritative empty (remove stale linked worktrees)
+      — .scanned([url1, url2]) = authoritative list (reconcile to match)
+      — .notScanned = boot replay / manual add (leave existing worktrees unchanged)
+  .repoRemoved(repoPath:)                   — producer: FilesystemActor (watched folder diff, global dedup)
   .worktreeRegistered(worktreeId:, repoId:, rootPath:) — producer: FilesystemActor
   .worktreeUnregistered(worktreeId:, repoId:)          — producer: FilesystemActor
 
@@ -299,11 +361,13 @@ The sidebar is a pure reader. It reads structure from one store, display data fr
 
 ```
 WorkspaceStore.repos                → canonical repo/worktree structure (what exists)
-WorkspaceRepoCache.repoEnrichment  → org name, display name, groupKey (how to group)
-WorkspaceRepoCache.worktreeEnrichment → branch, git status (how to display)
-WorkspaceRepoCache.pullRequestCounts → PR badges
-WorkspaceRepoCache.notificationCounts → notification bells
-WorkspaceUIStore                    → expanded groups, filter, colors (user prefs)
+RepoCacheAtom.repoEnrichment  → org name, display name, groupKey (how to group)
+RepoCacheAtom.worktreeEnrichment → branch, git status (how to display)
+RepoCacheAtom.pullRequestCounts → PR badges
+InboxNotificationAtom.unreadCount(forWorktreeId:) → notification bells
+                                 (per LUNA-361; moved from RepoCacheAtom)
+UIStateAtom                    → expanded groups, filter, colors (user prefs)
+                                 + sidebar composition state (collapsed / surface / has-focus)
 
 ZERO imperative fetches. ZERO mutations. Pure @Observable binding.
 ```
@@ -318,20 +382,25 @@ Branch display: `WorktreeEnrichment.branch` from cache, falling back to `"detach
 
 ### App Boot (implemented)
 
+Boot is driven by `WorkspaceBootSequence` (`App/Boot/WorkspaceBootSequence.swift`), which defines ordered steps executed synchronously on the main actor:
+
 ```
-1. WorkspaceStore.restore() → load repos, worktrees, panes, tabs from workspace.state.json
-2. WorkspaceRepoCache.loadCache() → warm-start from workspace.cache.json
-   - Sidebar renders immediately with cached enrichment data
-3. WorkspaceUIStore.load() → expanded groups, filter, colors from workspace.ui.json
-4. Start runtime actors (FilesystemActor, GitProjector, ForgeActor)
-5. Start WorkspaceCacheCoordinator → subscribes to bus
-6. replayBootTopology() — emit .repoDiscovered for each persisted repo
-   - Phase A: active-pane repos first (priority)
-   - Phase B: remaining repos
-7. Prune stale cache entries (IDs not in restored store)
-8. Actors process topology events → produce enrichment events
-9. Cache converges → sidebar updates reactively
+WorkspaceBootStep (in order):
+  1. loadCanonicalStore      → load repos, worktrees, panes, tabs from workspace.state.json
+  2. loadCacheStore           → warm-start from workspace.cache.json (sidebar renders immediately)
+  3. loadUIStore              → expanded groups, filter, colors from workspace.ui.json
+  4. establishRuntimeBus      → create/reset PaneRuntimeEventBus
+  5. startFilesystemActor     → start FilesystemActor
+  6. startGitProjector        → start GitWorkingDirectoryProjector
+  7. startForgeActor          → start ForgeActor
+  8. startCacheCoordinator    → start WorkspaceCacheCoordinator, subscribes to bus
+  9. triggerInitialTopologySync → replayBootTopology — emit .repoDiscovered for each persisted repo
+                                  Phase A: active-pane repos first (priority)
+                                  Phase B: remaining repos
+ 10. readyForReactiveSidebar  → prune stale cache entries, sidebar enters reactive mode
 ```
+
+After the boot sequence completes, `AppDelegate` calls `observeLaunchRestoreReadiness()` which creates a `WindowRestoreBridge`. The bridge observes `WindowLifecycleAtom.isReadyForLaunchRestore` and yields trusted terminal container bounds once the window layout has settled. `AppDelegate` then calls `paneCoordinator.restoreAllViews(in: bounds)` to create views for all persisted panes. See [Deferred Launch Restore](#deferred-launch-restore) for the geometry gate that handles panes whose bounds are not yet available.
 
 Boot replay uses the same `.repoDiscovered` event and same coordinator code path as live discovery. The cached data provides instant display; the replay validates and refreshes everything.
 
@@ -354,7 +423,7 @@ Boot replay uses the same `.repoDiscovered` event and same coordinator code path
    b. Does NOT emit topology facts directly
 6. WorkspaceCacheCoordinator.handleTopology(.repoDiscovered):
    a. Idempotent check by stableKey — skip if repo already exists
-   b. Seed enrichment to .awaitingOrigin in WorkspaceRepoCache
+   b. Seed enrichment to .awaitingOrigin in RepoCacheAtom
 7. PaneCoordinator reacts from topology facts and syncs registered worktree roots
 8. Actors start producing enrichment events → cache updates → sidebar renders
 ```
@@ -395,6 +464,58 @@ When a repo directory moves on disk, the plan is:
 2. Coordinator marks panes orphaned, prunes cache, keeps canonical entries for re-association
 3. User can "Locate" the repo at its new path → coordinator updates path, recomputes stableKey, re-registers with actors
 
+### Deferred Launch Restore
+
+> **Files:** `App/Boot/AppDelegate+LaunchRestore.swift`, `App/Lifecycle/WindowRestoreBridge.swift`, `App/Boot/AppDelegateLaunchRestoreObservationState.swift`, `App/Coordination/PaneCoordinator+ViewLifecycle.swift`, `Features/Terminal/Hosting/TerminalStatusPlaceholderView.swift`, `Features/Terminal/Restore/TerminalRestoreScheduler.swift`
+
+zmx terminal panes require a trusted `initialFrame` before Ghostty surface creation. During app boot, `terminalContainerBounds` may be zero because the window has not settled layout yet. The deferred launch restore flow handles this geometry gate.
+
+**Geometry gate.** When `PaneCoordinator.createView(for:...)` is called for a zmx pane and `initialFrame` is nil, it does not create a Ghostty surface. Instead it registers a `.preparing` placeholder via `registerTerminalPlaceholderIfNeeded(for:mode:)` and returns nil. The same gate applies to floating zmx panes (drawers, standalone terminals) in `createFloatingTerminalView`.
+
+**Placeholder modes.** `TerminalStatusPlaceholderView` has two modes:
+- `.preparing` — transient waiting-for-geometry state. `shouldRetryCreationWhenBoundsChange` returns true.
+- `.failedToStart` — resting startup-failure state (surface creation failed). `shouldRetryCreationWhenBoundsChange` returns false. The user can retry or close.
+
+**Retry trigger.** When AppKit delivers a layout pass, `PaneTabViewController.handleTerminalContainerBoundsChanged()` calls `PaneCoordinator.restoreViewsForActiveTabIfNeeded()`. This method checks the active tab for any `.preparing` placeholders, resolves geometry from the now-settled bounds, and calls `createViewForContent(pane:initialFrame:treatAsRestoredSessionStart:)` with real frames. The placeholder is replaced by the live terminal surface.
+
+**Restore ordering.** `TerminalRestoreScheduler.order(_:resolver:)` sorts panes by `VisibilityTier` — `p0Visible` first, then `p1Hidden`. Within the visible tier, the active pane sorts first. This ensures the active tab paints before background tabs are hydrated. Background tabs are restored cooperatively with `Task.yield()` after every two panes.
+
+**Background hidden-pane restore behavior.** Hidden zmx panes are restored at boot only when a live zmx session already exists (discovered via `discoverLiveSessionIds()`). This is fixed product behavior, not a user-configurable preference.
+
+**The flow:**
+
+```
+AppDelegate: WorkspaceBootSequence.run() → stores loaded, actors started, topology replayed
+  ↓
+AppDelegate: observeLaunchRestoreReadiness()
+  → creates WindowRestoreBridge (observes WindowLifecycleAtom)
+  ↓
+WindowLifecycleAtom: recordTerminalContainerBounds() + recordLaunchLayoutSettled()
+  → isReadyForLaunchRestore becomes true
+  ↓
+WindowRestoreBridge: yields trusted bounds via AsyncStream
+  ↓
+AppDelegate: finishLaunchRestore(using: bounds)
+  → paneCoordinator.restoreAllViews(in: bounds)
+  ↓
+restoreAllViews:
+  → TerminalRestoreScheduler orders panes (p0Visible first)
+  → For each pane: resolveInitialFramesByTabId(in: bounds)
+    → createViewForContent(pane, initialFrame, treatAsRestoredSessionStart: true)
+      ↓ zmx pane with initialFrame available → surface created
+      ↓ zmx pane with initialFrame == nil → .preparing placeholder registered
+  ↓
+Window layout settles (AppKit viewDidLayout)
+  → PaneTabViewController.handleTerminalContainerBoundsChanged()
+  ↓
+restoreViewsForActiveTabIfNeeded()
+  → checks: .preparing placeholders in active tab? bounds non-empty?
+  → For each .preparing pane: createViewForContent(pane, initialFrame: REAL_FRAME)
+    → surface created, placeholder replaced
+```
+
+**Timeout recovery.** `AppDelegateLaunchRestoreObservationState` installs a 10-second diagnostic timer. If `WindowRestoreBridge` has not yielded by then, the timer attempts restore with whatever bounds are currently recorded in `WindowLifecycleAtom` as a fallback.
+
 ---
 
 ## Ordering, Replay, and Idempotency
@@ -433,7 +554,7 @@ The event bus is a **notification mechanism** — runtime actors produce facts, 
 
 **Events are facts about the world.** "A repo exists at this path." "Branch changed to X." "PR count is 3." Events carry data, not instructions.
 
-**Stores are mutated by their own methods.** `WorkspaceStore.addRepo(at:)` is a direct method call, not a command dispatched through the bus. The bus does not route mutations.
+**Canonical state is mutated by the owning atoms or `WorkspaceMutationCoordinator`.** The bus does not route mutations, and `WorkspaceStore` is not a convenience mutation facade.
 
 **The coordinator bridges events to store methods.** `WorkspaceCacheCoordinator` subscribes to the bus, pattern-matches on events, and calls the appropriate store methods. It contains no domain logic — just "when I see X, call Y."
 
@@ -481,7 +602,7 @@ func handleTopology(_ event: TopologyEvent) {
 }
 
 // 6. Later, GitProjector emits .snapshotChanged, .branchChanged
-// 7. WorkspaceCacheCoordinator writes enrichment to WorkspaceRepoCache
+// 7. WorkspaceCacheCoordinator writes enrichment to RepoCacheAtom
 // 8. Sidebar re-renders via @Observable
 ```
 
@@ -553,7 +674,7 @@ FilesystemActor ──► bus.post(.repoDiscovered/.repoRemoved) [reports facts]
 Bus ──► WorkspaceCacheCoordinator                   [single intake]
          │
          ├── idempotent upsert (dedup by stableKey)
-         ├── seed enrichment in WorkspaceRepoCache
+         ├── seed enrichment in RepoCacheAtom
          └── sidebar re-renders via @Observable
 ```
 
@@ -570,6 +691,35 @@ Boot: restore() loads watchedPaths + repos
          ▼
 Bus ──► Coordinator (single intake, dedup by stableKey)
 ```
+
+### Topology Accumulator Pattern
+
+Topology facts flow through a layered pipeline. Each layer's output is the next layer's input. No layer reaches back.
+
+```
+LAYER              COMPONENT                        OWNS
+─────              ─────────                        ────
+Fact Producer      FilesystemActor                  Observing filesystem, emitting raw facts
+Publication        EventBus                         Fan-out to all subscribers (dumb pipe)
+Accumulator        WorkspaceCacheCoordinator         Interpreting facts, sequencing effects
+Reconciler         WorktreeReconciler (pure func)   Identity preservation, diff computation
+State              WorkspaceStore                   Canonical truth, mutation methods
+Effects            TopologyEffectHandler             Ordered follow-on work (PaneCoordinator)
+Reader             Sidebar                          Rendering truth via @Observable
+```
+
+**Why not pure pub/sub for topology:** Multiple bus subscribers independently inferring what changed from raw events is fragile — ordering implicit, diffs rediscovered, cleanup ad hoc. The accumulator pattern ensures one interpreter, one diff (via `WorktreeReconciler`), one ordered effect chain (via `TopologyEffectHandler`).
+
+**Why the bus still exists for topology:** Independent consumers (ForgeActor, NotificationReducer) subscribe to raw topology facts on the bus. They react independently, don't depend on store state, and don't need ordering guarantees. The bus serves notification; the handler serves sequencing.
+
+**The handler pattern:**
+- `WorkspaceCacheCoordinator` produces a `WorktreeTopologyDelta` after reconciliation
+- It handles cache cleanup itself (it owns `repoCache`)
+- It calls `topologyEffectHandler.topologyDidChange(delta)` for ordering-sensitive effects
+- `PaneCoordinator` conforms to `TopologyEffectHandler`: orphans panes for removed worktrees, syncs filesystem roots
+- `PaneCoordinator` does NOT subscribe to topology events on the bus — it receives topology changes only via the handler
+
+This replaces the previous pattern where `PaneCoordinator` subscribed to topology events on the bus and scheduled a deferred filesystem sync. That worked by accident (deferred `Task` ran after the coordinator's synchronous store mutation) but was fragile — any change to the timing would break ordering.
 
 **Constraint:** FilesystemActor may emit `.repoDiscovered` and `.repoRemoved` only for paths under a persisted watched scope (`store.watchedPaths`). This is structurally enforced — watched-folder refresh scans only `watchedFolderIds` paths and diffs against the actor-owned baseline for those roots. The `parentPath` field on `.repoDiscovered` provides traceability back to the watched scope without coupling the event type to `WatchedPath.id`.
 
@@ -603,7 +753,7 @@ Test the full event flow: emit an event → coordinator processes it → assert 
     @Test func repoDiscovered_seedsEnrichmentInCache() async {
         // Arrange
         let store = WorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             workspaceStore: store,
             repoCache: repoCache
@@ -627,7 +777,7 @@ Test the full event flow: emit an event → coordinator processes it → assert 
     @Test func repoDiscovered_idempotent_doesNotDuplicate() async {
         // Arrange
         let store = WorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             workspaceStore: store,
             repoCache: repoCache
@@ -652,7 +802,7 @@ Test the full event flow: emit an event → coordinator processes it → assert 
 
 Key testing principles:
 - **Test the event path, not the store in isolation.** The coordinator IS the glue — test it with real stores.
-- **Assert on both stores.** A topology event should update both `WorkspaceStore` (canonical) and `WorkspaceRepoCache` (enrichment).
+- **Assert on both stores.** A topology event should update both `WorkspaceStore` (canonical) and `RepoCacheAtom` (enrichment).
 - **Test idempotency.** Emit the same event twice. Assert no duplicates.
 - **Test ordering tolerance.** Emit events in wrong order. Assert no crash.
 

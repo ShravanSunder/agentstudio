@@ -1,0 +1,73 @@
+import SwiftUI
+
+struct SidebarSurfaceHost: View {
+    enum ChildKind: Equatable {
+        case repoExplorer
+        case inbox
+    }
+
+    let store: WorkspaceStore
+    let uiState: UIStateAtom
+    let sidebarCache: SidebarCacheAtom
+    let inboxFilterDraft: InboxFilterDraftAtom
+    let inboxAtom: InboxNotificationAtom
+    let prefsAtom: InboxNotificationPrefsAtom
+    let onRefocusActivePane: () -> Void
+    let onDismissInbox: @MainActor @Sendable () -> Void
+
+    var body: some View {
+        switch uiState.sidebarSurface {
+        case .repos:
+            RepoExplorerView(
+                store: store,
+                onRefocusActivePane: onRefocusActivePane,
+                onShowNotificationsForWorktree: { worktree in
+                    Self.showNotifications(
+                        for: worktree,
+                        inboxFilterDraft: inboxFilterDraft,
+                        dispatcher: .shared
+                    )
+                },
+                unreadCount: { worktree in
+                    Self.unreadCount(for: worktree, inboxAtom: inboxAtom)
+                }
+            )
+        case .inbox:
+            InboxNotificationSidebarView(
+                inboxAtom: inboxAtom,
+                prefsAtom: prefsAtom,
+                uiState: uiState,
+                sidebarCache: sidebarCache,
+                inboxFilterDraft: inboxFilterDraft,
+                workspacePaneAtom: store.paneAtom,
+                dispatcher: .shared,
+                onRefocusActivePane: onDismissInbox
+            )
+        }
+    }
+
+    static func currentChildKind(uiState: UIStateAtom) -> ChildKind {
+        switch uiState.sidebarSurface {
+        case .repos:
+            .repoExplorer
+        case .inbox:
+            .inbox
+        }
+    }
+
+    static func unreadCount(
+        for worktree: Worktree,
+        inboxAtom: InboxNotificationAtom
+    ) -> Int {
+        inboxAtom.unreadCount(forWorktreeId: worktree.id)
+    }
+
+    static func showNotifications(
+        for worktree: Worktree,
+        inboxFilterDraft: InboxFilterDraftAtom,
+        dispatcher: CommandDispatcher
+    ) {
+        inboxFilterDraft.set(.worktree(id: worktree.id))
+        dispatcher.dispatch(.showInboxNotifications)
+    }
+}

@@ -17,7 +17,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
         let runtimeRegistry = RuntimeRegistry()
-        _ = PaneCoordinator(
+        _ = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -40,7 +40,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
         let runtimeRegistry = RuntimeRegistry()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -50,7 +50,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/runtime-dispatch")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -75,7 +75,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -99,7 +99,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
         let runtimeRegistry = RuntimeRegistry()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -109,7 +109,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/runtime-not-ready")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -136,7 +136,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
         let runtimeRegistry = RuntimeRegistry()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -146,7 +146,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/runtime-capability")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -178,7 +178,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
         let runtimeRegistry = RuntimeRegistry()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -188,7 +188,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/runtime-diff")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Runtime"), title: "Runtime")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Runtime"), title: "Runtime")
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -228,7 +228,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
         let runtimeRegistry = RuntimeRegistry()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -239,7 +239,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let pane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/runtime-close")!)),
             metadata: PaneMetadata(
-                source: .floating(workingDirectory: nil, title: "RuntimeClose"), title: "RuntimeClose")
+                source: .floating(launchDirectory: nil, title: "RuntimeClose"), title: "RuntimeClose")
         )
         let tab = Tab(paneId: pane.id)
         store.appendTab(tab)
@@ -264,7 +264,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -274,11 +274,11 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let sourcePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/source")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Source"), title: "Source")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Source"), title: "Source")
         )
         let otherPane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/other")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Other"), title: "Other")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Other"), title: "Other")
         )
         let sourceTab = Tab(paneId: sourcePane.id)
         let otherTab = Tab(paneId: otherPane.id)
@@ -321,7 +321,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -331,11 +331,11 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let sourcePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/source-next")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Source"), title: "Source")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Source"), title: "Source")
         )
         let nextPane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/next")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Next"), title: "Next")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Next"), title: "Next")
         )
         let sourceTab = Tab(paneId: sourcePane.id)
         let nextTab = Tab(paneId: nextPane.id)
@@ -377,7 +377,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -387,7 +387,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let sourcePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/source-metadata")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Source"), title: "Source")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Source"), title: "Source")
         )
         let sourceTab = Tab(paneId: sourcePane.id)
         store.appendTab(sourceTab)
@@ -441,7 +441,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -451,15 +451,15 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let leftPane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/left")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Left"), title: "Left")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Left"), title: "Left")
         )
         let sourcePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/source-right")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Source"), title: "Source")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Source"), title: "Source")
         )
         let rightPane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/right")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Right"), title: "Right")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Right"), title: "Right")
         )
         let leftTab = Tab(paneId: leftPane.id)
         let sourceTab = Tab(paneId: sourcePane.id)
@@ -506,7 +506,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -516,15 +516,15 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let sourcePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/source-first")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Source"), title: "Source")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Source"), title: "Source")
         )
         let rightOnePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/right-one")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "RightOne"), title: "RightOne")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "RightOne"), title: "RightOne")
         )
         let rightTwoPane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/right-two")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "RightTwo"), title: "RightTwo")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "RightTwo"), title: "RightTwo")
         )
         let sourceTab = Tab(paneId: sourcePane.id)
         let rightOneTab = Tab(paneId: rightOnePane.id)
@@ -569,7 +569,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -579,11 +579,11 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let leftPane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/left-last")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Left"), title: "Left")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Left"), title: "Left")
         )
         let sourcePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/source-last")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Source"), title: "Source")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Source"), title: "Source")
         )
         let leftTab = Tab(paneId: leftPane.id)
         let sourceTab = Tab(paneId: sourcePane.id)
@@ -627,7 +627,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -637,15 +637,15 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let sourcePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/source-index")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Source"), title: "Source")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Source"), title: "Source")
         )
         let middlePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/middle-index")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Middle"), title: "Middle")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Middle"), title: "Middle")
         )
         let lastPane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/last-index")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Last"), title: "Last")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Last"), title: "Last")
         )
         let sourceTab = Tab(paneId: sourcePane.id)
         let middleTab = Tab(paneId: middlePane.id)
@@ -706,7 +706,7 @@ struct PaneCoordinatorRuntimeDispatchTests {
         let viewRegistry = ViewRegistry()
         let runtime = SessionRuntime(store: store)
         let mockSurfaceManager = MockPaneCoordinatorSurfaceManager()
-        let coordinator = PaneCoordinator(
+        let coordinator = makeTestPaneCoordinator(
             store: store,
             viewRegistry: viewRegistry,
             runtime: runtime,
@@ -716,15 +716,15 @@ struct PaneCoordinatorRuntimeDispatchTests {
 
         let sourcePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/source-boundary")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Source"), title: "Source")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Source"), title: "Source")
         )
         let middlePane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/middle-boundary")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Middle"), title: "Middle")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Middle"), title: "Middle")
         )
         let lastPane = store.createPane(
             content: .webview(WebviewState(url: URL(string: "https://example.com/last-boundary")!)),
-            metadata: PaneMetadata(source: .floating(workingDirectory: nil, title: "Last"), title: "Last")
+            metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: "Last"), title: "Last")
         )
         let sourceTab = Tab(paneId: sourcePane.id)
         let middleTab = Tab(paneId: middlePane.id)
@@ -813,22 +813,6 @@ struct PaneCoordinatorRuntimeDispatchTests {
     }
 }
 
-@MainActor
-private func eventually(
-    _ description: String,
-    maxTurns: Int = 200,
-    condition: @escaping @MainActor () -> Bool
-) async {
-    for _ in 0..<maxTurns {
-        if condition() {
-            return
-        }
-        await Task.yield()
-    }
-    #expect(condition(), "\(description) timed out")
-}
-
-@MainActor
 private final class FakePaneRuntime: PaneRuntime {
     let paneId: PaneId
     var metadata: PaneMetadata
@@ -849,7 +833,7 @@ private final class FakePaneRuntime: PaneRuntime {
         self.metadata = PaneMetadata(
             paneId: paneId,
             contentType: contentType,
-            source: .floating(workingDirectory: nil, title: "Fake"),
+            source: .floating(launchDirectory: nil, title: "Fake"),
             title: "Fake"
         )
         self.capabilities = capabilities
@@ -911,6 +895,8 @@ private final class FakePaneRuntime: PaneRuntime {
             switch terminalCommand {
             case .sendInput, .clearScrollback:
                 return .input
+            case .scrollToBottom:
+                return nil
             case .resize:
                 return .resize
             }

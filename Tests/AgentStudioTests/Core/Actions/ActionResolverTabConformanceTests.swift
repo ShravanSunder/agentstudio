@@ -3,10 +3,10 @@ import Testing
 
 @testable import AgentStudio
 
-/// Tests that `Tab` works correctly as a `ResolvableTab` with `ActionResolver`.
+/// Tests that `Tab` works correctly as a `ResolvableTab` with `WorkspaceCommandResolver`.
 /// This validates the Phase 2 conformance added in `ResolvableTab.swift`.
 @Suite(.serialized)
-final class ActionResolverTabConformanceTests {
+final class WorkspaceCommandResolverTabConformanceTests {
 
     // MARK: - ResolvableTab Protocol Conformance
 
@@ -19,7 +19,8 @@ final class ActionResolverTabConformanceTests {
 
         // Assert — basic properties
         #expect(tab.activePaneId == paneId)
-        #expect(tab.allPaneIds == [paneId])
+        #expect(tab.visiblePaneIds == [paneId])
+        #expect(tab.ownedPaneIds == [paneId])
         #expect(!(tab.isSplit))
     }
 
@@ -32,7 +33,8 @@ final class ActionResolverTabConformanceTests {
 
         // Assert
         #expect(tab.isSplit)
-        #expect(Set(tab.allPaneIds) == Set(ids))
+        #expect(Set(tab.visiblePaneIds) == Set(ids))
+        #expect(Set(tab.ownedPaneIds) == Set(ids))
     }
 
     @Test
@@ -46,7 +48,7 @@ final class ActionResolverTabConformanceTests {
         #expect(tab.activePaneId == ids[1])
     }
 
-    // MARK: - ActionResolver.resolve with Tab
+    // MARK: - WorkspaceCommandResolver.resolve with Tab
 
     @Test
 
@@ -56,7 +58,7 @@ final class ActionResolverTabConformanceTests {
         let tab = Tab(paneId: paneId)
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .closeTab, tabs: [tab], activeTabId: tab.id
         )
 
@@ -72,7 +74,7 @@ final class ActionResolverTabConformanceTests {
         let tab = Tab(paneId: paneId)
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .closePane, tabs: [tab], activeTabId: tab.id
         )
 
@@ -89,7 +91,7 @@ final class ActionResolverTabConformanceTests {
         let tab = makeTab(paneIds: [paneA, paneB], activePaneId: paneA)
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .closePane, tabs: [tab], activeTabId: tab.id
         )
 
@@ -105,7 +107,7 @@ final class ActionResolverTabConformanceTests {
         let tab = Tab(paneId: paneId)
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .splitRight, tabs: [tab], activeTabId: tab.id
         )
 
@@ -116,25 +118,9 @@ final class ActionResolverTabConformanceTests {
                     source: .newTerminal,
                     targetTabId: tab.id,
                     targetPaneId: paneId,
-                    direction: .right
+                    direction: .right,
+                    sizingMode: .halveTarget
                 ))
-    }
-
-    @Test
-
-    func test_resolve_splitBelow_withTab_returnsNil() {
-        // Vertical splits disabled (drawers own bottom space)
-        // Arrange
-        let paneId = UUID()
-        let tab = Tab(paneId: paneId)
-
-        // Act
-        let result = ActionResolver.resolve(
-            command: .splitBelow, tabs: [tab], activeTabId: tab.id
-        )
-
-        // Assert
-        #expect((result) == nil)
     }
 
     @Test
@@ -145,7 +131,7 @@ final class ActionResolverTabConformanceTests {
         let tab2 = Tab(paneId: UUID())
 
         // Act — from tab2 wraps to tab1
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .nextTab, tabs: [tab1, tab2], activeTabId: tab2.id
         )
 
@@ -161,7 +147,7 @@ final class ActionResolverTabConformanceTests {
         let tab2 = Tab(paneId: UUID())
 
         // Act — from tab1 wraps to tab2
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .prevTab, tabs: [tab1, tab2], activeTabId: tab1.id
         )
 
@@ -180,10 +166,12 @@ final class ActionResolverTabConformanceTests {
 
         // Act & Assert
         #expect(
-            ActionResolver.resolve(command: .selectTab1, tabs: tabs, activeTabId: nil) == .selectTab(tabId: tab1.id))
+            WorkspaceCommandResolver.resolve(command: .selectTab1, tabs: tabs, activeTabId: nil)
+                == .selectTab(tabId: tab1.id))
         #expect(
-            ActionResolver.resolve(command: .selectTab2, tabs: tabs, activeTabId: nil) == .selectTab(tabId: tab2.id))
-        #expect((ActionResolver.resolve(command: .selectTab4, tabs: tabs, activeTabId: nil)) == nil)
+            WorkspaceCommandResolver.resolve(command: .selectTab2, tabs: tabs, activeTabId: nil)
+                == .selectTab(tabId: tab2.id))
+        #expect((WorkspaceCommandResolver.resolve(command: .selectTab4, tabs: tabs, activeTabId: nil)) == nil)
     }
 
     @Test
@@ -194,7 +182,7 @@ final class ActionResolverTabConformanceTests {
         let tab = makeTab(paneIds: ids)
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .breakUpTab, tabs: [tab], activeTabId: tab.id
         )
 
@@ -210,7 +198,7 @@ final class ActionResolverTabConformanceTests {
         let tab = makeTab(paneIds: ids, activePaneId: ids[0])
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .extractPaneToTab, tabs: [tab], activeTabId: tab.id
         )
 
@@ -226,7 +214,7 @@ final class ActionResolverTabConformanceTests {
         let tab = makeTab(paneIds: ids)
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .equalizePanes, tabs: [tab], activeTabId: tab.id
         )
 
@@ -244,12 +232,12 @@ final class ActionResolverTabConformanceTests {
         let tab = makeTab(paneIds: ids, activePaneId: ids[0])
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .focusNextPane, tabs: [tab], activeTabId: tab.id
         )
 
-        // Assert — should find next pane
-        #expect(result == .focusPane(tabId: tab.id, paneId: ids[1]))
+        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        #expect(result == nil)
     }
 
     @Test
@@ -260,12 +248,12 @@ final class ActionResolverTabConformanceTests {
         let tab = makeTab(paneIds: ids, activePaneId: ids[1])
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .focusPrevPane, tabs: [tab], activeTabId: tab.id
         )
 
-        // Assert — should find previous pane
-        #expect(result == .focusPane(tabId: tab.id, paneId: ids[0]))
+        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        #expect(result == nil)
     }
 
     @Test
@@ -276,12 +264,12 @@ final class ActionResolverTabConformanceTests {
         let tab = makeTab(paneIds: ids, activePaneId: ids[0])
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .focusPaneRight, tabs: [tab], activeTabId: tab.id
         )
 
-        // Assert — neighbor to right of ids[0] is ids[1]
-        #expect(result == .focusPane(tabId: tab.id, paneId: ids[1]))
+        // Assert — pane focus now routes through the Pane Focus System, not PaneActionCommand.
+        #expect(result == nil)
     }
 
     @Test
@@ -292,7 +280,7 @@ final class ActionResolverTabConformanceTests {
         let tab = Tab(paneId: paneId)
 
         // Act
-        let result = ActionResolver.resolve(
+        let result = WorkspaceCommandResolver.resolve(
             command: .focusPaneLeft, tabs: [tab], activeTabId: tab.id
         )
 
@@ -311,15 +299,16 @@ final class ActionResolverTabConformanceTests {
         let tab2 = Tab(paneId: UUID())
 
         // Act
-        let snapshot = ActionResolver.snapshot(
-            from: [tab1, tab2], activeTabId: tab1.id, isManagementModeActive: false
+        let snapshot = WorkspaceCommandResolver.snapshot(
+            from: [tab1, tab2], activeTabId: tab1.id, isManagementLayerActive: false
         )
 
         // Assert
         #expect(snapshot.tabCount == 2)
         #expect(snapshot.activeTabId == tab1.id)
         #expect(snapshot.tab(tab1.id)?.activePaneId == ids1[0])
-        #expect(Set(snapshot.tab(tab1.id)!.paneIds) == Set(ids1))
+        #expect(Set(snapshot.tab(tab1.id)!.visiblePaneIds) == Set(ids1))
+        #expect(Set(snapshot.tab(tab1.id)!.ownedPaneIds) == Set(ids1))
         #expect(snapshot.tab(tab1.id)?.isSplit == true)
         #expect(!(snapshot.tab(tab2.id)?.isSplit == true))
     }

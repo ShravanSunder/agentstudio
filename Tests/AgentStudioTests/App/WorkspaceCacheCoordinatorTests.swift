@@ -15,15 +15,28 @@ final class WorkspaceCacheCoordinatorTests {
         return WorkspaceStore(persistor: persistor)
     }
 
-    @Test
-    func topology_repoDiscovered_addsRepoToWorkspaceStore() {
-        let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
-        let coordinator = WorkspaceCacheCoordinator(
+    private func makeCoordinator(
+        workspaceStore: WorkspaceStore,
+        repoCache: RepoCacheAtom,
+        welcomeAtom: WelcomeAtom
+    ) -> WorkspaceCacheCoordinator {
+        WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
             repoCache: repoCache,
+            welcomeAtom: welcomeAtom,
             scopeSyncHandler: { _ in }
+        )
+    }
+
+    @Test
+    func topology_repoDiscovered_addsRepoToWorkspaceStore() {
+        let workspaceStore = makeWorkspaceStore()
+        let repoCache = RepoCacheAtom()
+        let coordinator = makeCoordinator(
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            welcomeAtom: WelcomeAtom()
         )
 
         let repoPath = URL(fileURLWithPath: "/tmp/luna-repo")
@@ -43,12 +56,11 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func topology_worktreeRegistered_unknownRepo_isIgnored() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
-        let coordinator = WorkspaceCacheCoordinator(
-            bus: EventBus<RuntimeEnvelope>(),
+        let repoCache = RepoCacheAtom()
+        let coordinator = makeCoordinator(
             workspaceStore: workspaceStore,
             repoCache: repoCache,
-            scopeSyncHandler: { _ in }
+            welcomeAtom: WelcomeAtom()
         )
 
         let repoCountBefore = workspaceStore.repos.count
@@ -70,12 +82,11 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func topology_repoDiscovered_duplicatePath_doesNotDuplicateRepo() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
-        let coordinator = WorkspaceCacheCoordinator(
-            bus: EventBus<RuntimeEnvelope>(),
+        let repoCache = RepoCacheAtom()
+        let coordinator = makeCoordinator(
             workspaceStore: workspaceStore,
             repoCache: repoCache,
-            scopeSyncHandler: { _ in }
+            welcomeAtom: WelcomeAtom()
         )
 
         let repoPath = URL(fileURLWithPath: "/tmp/luna-duplicate-repo")
@@ -92,12 +103,11 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func topology_worktreeUnregistered_unknownRepo_isIgnored() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
-        let coordinator = WorkspaceCacheCoordinator(
-            bus: EventBus<RuntimeEnvelope>(),
+        let repoCache = RepoCacheAtom()
+        let coordinator = makeCoordinator(
             workspaceStore: workspaceStore,
             repoCache: repoCache,
-            scopeSyncHandler: { _ in }
+            welcomeAtom: WelcomeAtom()
         )
 
         let envelope = SystemEnvelope.test(
@@ -117,12 +127,11 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func topology_worktreeUnregistered_prunesWorktreeCaches() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
-        let coordinator = WorkspaceCacheCoordinator(
-            bus: EventBus<RuntimeEnvelope>(),
+        let repoCache = RepoCacheAtom()
+        let coordinator = makeCoordinator(
             workspaceStore: workspaceStore,
             repoCache: repoCache,
-            scopeSyncHandler: { _ in }
+            welcomeAtom: WelcomeAtom()
         )
 
         let repoPath = URL(fileURLWithPath: "/tmp/luna-unregister-prune")
@@ -156,9 +165,103 @@ final class WorkspaceCacheCoordinatorTests {
     }
 
     @Test
+    func workspaceActivity_recentTargetOpened_recordsRecentTargetInCache() {
+        let workspaceStore = makeWorkspaceStore()
+        let repoCache = RepoCacheAtom()
+        let coordinator = makeCoordinator(
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            welcomeAtom: WelcomeAtom()
+        )
+
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let target = RecentWorkspaceTarget.forWorktree(
+            path: URL(fileURLWithPath: "/tmp/agent-studio"),
+            worktree: Worktree(
+                id: worktreeId,
+                repoId: repoId,
+                name: "agent-studio",
+                path: URL(fileURLWithPath: "/tmp/agent-studio"),
+                isMainWorktree: true
+            ),
+            repo: Repo(
+                id: repoId,
+                name: "agent-studio",
+                repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+                worktrees: [],
+                createdAt: Date()
+            ),
+            displayTitle: "agent-studio",
+            subtitle: "main",
+            lastOpenedAt: Date(timeIntervalSince1970: 1_700_000_456)
+        )
+
+        coordinator.consume(
+            .system(
+                .test(event: .workspaceActivity(.recentTargetOpened(target)))
+            )
+        )
+
+        #expect(repoCache.recentTargets.first == target)
+    }
+
+    @Test
+    func workspaceActivity_folderScanFinishedWithZeroRepos_updatesWorkspaceStoreToEmptyState() {
+        let workspaceStore = makeWorkspaceStore()
+        let repoCache = RepoCacheAtom()
+        let welcomeAtom = WelcomeAtom()
+        let coordinator = makeCoordinator(
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            welcomeAtom: welcomeAtom
+        )
+        let rootPath = URL(fileURLWithPath: "/tmp/empty-folder-scan")
+
+        welcomeAtom.beginFolderScan(rootPath)
+        coordinator.consume(
+            .system(
+                .test(
+                    event: .workspaceActivity(
+                        .folderScanFinished(rootPath: rootPath, discoveredRepoCount: 0)
+                    )
+                )
+            )
+        )
+
+        #expect(welcomeAtom.folderScanState == .empty(rootPath: rootPath))
+    }
+
+    @Test
+    func workspaceActivity_folderScanFinishedWithRepos_clearsWorkspaceStoreScanState() {
+        let workspaceStore = makeWorkspaceStore()
+        let repoCache = RepoCacheAtom()
+        let welcomeAtom = WelcomeAtom()
+        let coordinator = makeCoordinator(
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            welcomeAtom: welcomeAtom
+        )
+        let rootPath = URL(fileURLWithPath: "/tmp/non-empty-folder-scan")
+
+        welcomeAtom.beginFolderScan(rootPath)
+        coordinator.consume(
+            .system(
+                .test(
+                    event: .workspaceActivity(
+                        .folderScanFinished(rootPath: rootPath, discoveredRepoCount: 2)
+                    )
+                )
+            )
+        )
+
+        #expect(welcomeAtom.folderScanState == .idle)
+    }
+
+    @Test
     func enrichment_snapshotChanged_updatesWorktreeCache() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -192,7 +295,7 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func enrichment_branchChanged_preservesExistingSnapshot() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -236,7 +339,7 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func enrichment_pullRequestCountsChanged_mapsByBranch() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -279,7 +382,7 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func enrichment_originChanged_validRemoteDerivesResolvedIdentity() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -318,7 +421,7 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func enrichment_originChanged_emptyOriginDoesNotResolveLocalIdentity() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -349,7 +452,7 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func enrichment_originUnavailableDerivesLocalIdentity() {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),
             workspaceStore: workspaceStore,
@@ -381,7 +484,7 @@ final class WorkspaceCacheCoordinatorTests {
     @Test
     func scopeSync_originAndBranchDoNotInvokeForgeCommands_repoRemoved_unregisters() async {
         let workspaceStore = makeWorkspaceStore()
-        let repoCache = WorkspaceRepoCache()
+        let repoCache = RepoCacheAtom()
         let recordedScopeChanges = RecordedScopeChanges()
         let coordinator = WorkspaceCacheCoordinator(
             bus: EventBus<RuntimeEnvelope>(),

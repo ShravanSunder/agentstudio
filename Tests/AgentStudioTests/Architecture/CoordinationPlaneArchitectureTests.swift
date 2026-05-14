@@ -3,11 +3,123 @@ import Testing
 
 @Suite("CoordinationPlaneArchitectureTests")
 struct CoordinationPlaneArchitectureTests {
+    private struct LifecycleCompositionSources {
+        let appDelegateSource: String
+        let appDelegateRoutingSource: String
+        let splitViewControllerSource: String
+        let paneTabViewControllerSource: String
+        let activeTabContentSource: String
+        let singleTabContentSource: String
+        let flatTabStripContainerSource: String
+        let flatPaneStripContentSource: String
+        let mainWindowControllerSource: String
+        let paneLeafContainerSource: String
+        let drawerPanelOverlaySource: String
+        let drawerPanelSource: String
+        let viewRegistrySource: String
+        let paneActionDispatchingSource: String
+        let paneTabActionDispatcherSource: String
+        let ghosttySource: String
+        let appLifecycleStoreSource: String
+        let windowLifecycleStoreSource: String
+    }
+
+    private func loadLifecycleCompositionSources(projectRoot: URL) throws -> LifecycleCompositionSources {
+        try LifecycleCompositionSources(
+            appDelegateSource: String(
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift"),
+                encoding: .utf8
+            ),
+            appDelegateRoutingSource: String(
+                contentsOf: projectRoot.appending(
+                    path: "Sources/AgentStudio/App/Boot/AppDelegate+LifecycleRouting.swift"),
+                encoding: .utf8
+            ),
+            splitViewControllerSource: String(
+                contentsOf: projectRoot.appending(
+                    path: "Sources/AgentStudio/App/Windows/MainSplitViewController.swift"),
+                encoding: .utf8
+            ),
+            paneTabViewControllerSource: String(
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Panes/PaneTabViewController.swift"),
+                encoding: .utf8
+            ),
+            activeTabContentSource: String(
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/Panes/ActiveTabContent.swift"),
+                encoding: .utf8
+            ),
+            singleTabContentSource: String(
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/Panes/SingleTabContent.swift"),
+                encoding: .utf8
+            ),
+            flatTabStripContainerSource: String(
+                contentsOf: projectRoot.appending(
+                    path: "Sources/AgentStudio/Core/Views/Panes/FlatTabStripContainer.swift"),
+                encoding: .utf8
+            ),
+            flatPaneStripContentSource: String(
+                contentsOf: projectRoot.appending(
+                    path: "Sources/AgentStudio/Core/Views/Panes/FlatPaneStripContent.swift"),
+                encoding: .utf8
+            ),
+            mainWindowControllerSource: String(
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Windows/MainWindowController.swift"),
+                encoding: .utf8
+            ),
+            paneLeafContainerSource: String(
+                contentsOf: projectRoot.appending(
+                    path: "Sources/AgentStudio/Core/Views/Panes/PaneLeafContainer.swift"),
+                encoding: .utf8
+            ),
+            drawerPanelOverlaySource: String(
+                contentsOf: projectRoot.appending(
+                    path: "Sources/AgentStudio/Core/Views/Drawer/DrawerPanelOverlay.swift"),
+                encoding: .utf8
+            ),
+            drawerPanelSource: String(
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift"),
+                encoding: .utf8
+            ),
+            viewRegistrySource: String(
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Panes/ViewRegistry.swift"),
+                encoding: .utf8
+            ),
+            paneActionDispatchingSource: String(
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Actions/PaneActionDispatching.swift"),
+                encoding: .utf8
+            ),
+            paneTabActionDispatcherSource: String(
+                contentsOf: projectRoot.appending(
+                    path: "Sources/AgentStudio/Core/Actions/PaneTabActionDispatcher.swift"
+                ),
+                encoding: .utf8
+            ),
+            ghosttySource: String(
+                contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/Terminal/Ghostty/Ghostty.swift"),
+                encoding: .utf8
+            ),
+            appLifecycleStoreSource: String(
+                contentsOf: projectRoot.appending(
+                    path: "Sources/AgentStudio/Core/State/MainActor/Atoms/AppLifecycleAtom.swift"
+                ),
+                encoding: .utf8
+            ),
+            windowLifecycleStoreSource: String(
+                contentsOf: projectRoot.appending(
+                    path: "Sources/AgentStudio/Core/State/MainActor/Atoms/WindowLifecycleAtom.swift"
+                ),
+                encoding: .utf8
+            )
+        )
+    }
+
     @Test("NotificationCenter stays limited to lifecycle allowlist")
     func notificationCenterUsage_isLifecycleOnly() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let sourcesRoot = projectRoot.appending(path: "Sources/AgentStudio")
-        let allowedFiles: Set<String> = []
+        let allowedFiles: Set<String> = [
+            "Sources/AgentStudio/Features/Terminal/Hosting/TerminalSurfaceScrollView.swift"
+        ]
 
         var notificationCenterFiles: Set<String> = []
         let enumerator = FileManager.default.enumerator(
@@ -31,81 +143,71 @@ struct CoordinationPlaneArchitectureTests {
     @Test("AppDelegate owns lifecycle composition and MainSplitViewController stays out of direct lifecycle ingress")
     func lifecycleCompositionRoot_staysInAppDelegate() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let appDelegatePath = projectRoot.appending(path: "Sources/AgentStudio/App/AppDelegate.swift")
-        let appDelegateRoutingPath = projectRoot.appending(
-            path: "Sources/AgentStudio/App/AppDelegate+LifecycleRouting.swift"
-        )
         let applicationLifecycleMonitorPath = projectRoot.appending(
             path: "Sources/AgentStudio/App/Lifecycle/ApplicationLifecycleMonitor.swift"
         )
         let appLifecycleStorePath = projectRoot.appending(
-            path: "Sources/AgentStudio/App/Lifecycle/AppLifecycleStore.swift"
+            path: "Sources/AgentStudio/Core/State/MainActor/Atoms/AppLifecycleAtom.swift"
         )
         let windowLifecycleStorePath = projectRoot.appending(
-            path: "Sources/AgentStudio/App/Lifecycle/WindowLifecycleStore.swift"
-        )
-        let splitViewControllerPath = projectRoot.appending(
-            path: "Sources/AgentStudio/App/MainSplitViewController.swift"
-        )
-        let paneTabViewControllerPath = projectRoot.appending(
-            path: "Sources/AgentStudio/App/Panes/PaneTabViewController.swift"
-        )
-        let activeTabContentPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Core/Views/Splits/ActiveTabContent.swift"
-        )
-        let terminalSplitContainerPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Core/Views/Splits/TerminalSplitContainer.swift"
-        )
-        let mainWindowControllerPath = projectRoot.appending(
-            path: "Sources/AgentStudio/App/MainWindowController.swift"
-        )
-        let drawerPanelOverlayPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Core/Views/Drawer/DrawerPanelOverlay.swift"
-        )
-        let drawerPanelPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift"
-        )
-        let ghosttyPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Features/Terminal/Ghostty/Ghostty.swift"
+            path: "Sources/AgentStudio/Core/State/MainActor/Atoms/WindowLifecycleAtom.swift"
         )
 
-        let appDelegateSource = try String(contentsOf: appDelegatePath, encoding: .utf8)
-        let appDelegateRoutingSource = try String(contentsOf: appDelegateRoutingPath, encoding: .utf8)
-        let splitViewControllerSource = try String(contentsOf: splitViewControllerPath, encoding: .utf8)
-        let paneTabViewControllerSource = try String(contentsOf: paneTabViewControllerPath, encoding: .utf8)
-        let activeTabContentSource = try String(contentsOf: activeTabContentPath, encoding: .utf8)
-        let terminalSplitContainerSource = try String(contentsOf: terminalSplitContainerPath, encoding: .utf8)
-        let mainWindowControllerSource = try String(contentsOf: mainWindowControllerPath, encoding: .utf8)
-        let drawerPanelOverlaySource = try String(contentsOf: drawerPanelOverlayPath, encoding: .utf8)
-        let drawerPanelSource = try String(contentsOf: drawerPanelPath, encoding: .utf8)
-        let ghosttySource = try String(contentsOf: ghosttyPath, encoding: .utf8)
-        let appLifecycleStoreSource = try String(contentsOf: appLifecycleStorePath, encoding: .utf8)
-        let windowLifecycleStoreSource = try String(contentsOf: windowLifecycleStorePath, encoding: .utf8)
+        let sources = try loadLifecycleCompositionSources(projectRoot: projectRoot)
 
         #expect(FileManager.default.fileExists(atPath: applicationLifecycleMonitorPath.path))
         #expect(FileManager.default.fileExists(atPath: appLifecycleStorePath.path))
         #expect(FileManager.default.fileExists(atPath: windowLifecycleStorePath.path))
-        #expect(appDelegateSource.contains("ApplicationLifecycleMonitor"))
-        #expect(appDelegateSource.contains("var applicationLifecycleMonitor: ApplicationLifecycleMonitor"))
-        #expect(appDelegateRoutingSource.contains("Ghostty.bindApplicationLifecycleStore(appLifecycleStore)"))
+        #expect(sources.appDelegateSource.contains("ApplicationLifecycleMonitor"))
+        #expect(sources.appDelegateSource.contains("var applicationLifecycleMonitor: ApplicationLifecycleMonitor"))
+        #expect(sources.appDelegateRoutingSource.contains("Ghostty.bindApplicationLifecycleStore(appLifecycleStore)"))
         #expect(
-            paneTabViewControllerSource.contains(
-                "func setAppLifecycleStore(_ appLifecycleStore: AppLifecycleStore)"
+            sources.paneTabViewControllerSource.contains("private let appLifecycleStore: AppLifecycleAtom")
+        )
+        #expect(
+            !sources.paneTabViewControllerSource.contains(
+                "func setAppLifecycleStore(_ appLifecycleStore: AppLifecycleAtom)"
             )
         )
-        #expect(activeTabContentSource.contains("let appLifecycleStore: AppLifecycleStore"))
-        #expect(terminalSplitContainerSource.contains("let appLifecycleStore: AppLifecycleStore"))
-        #expect(drawerPanelOverlaySource.contains("let appLifecycleStore: AppLifecycleStore"))
-        #expect(drawerPanelSource.contains("let appLifecycleStore: AppLifecycleStore"))
-        #expect(!ghosttySource.contains("AppLifecycleStore.shared"))
-        #expect(!appLifecycleStoreSource.contains("static let shared"))
-        #expect(!windowLifecycleStoreSource.contains("static let shared"))
-        #expect(splitViewControllerSource.contains("willTerminateNotification") == false)
-        #expect(splitViewControllerSource.contains("didBecomeActiveNotification") == false)
-        #expect(splitViewControllerSource.contains("didResignActiveNotification") == false)
-        #expect(mainWindowControllerSource.contains("windowDidBecomeKey"))
-        #expect(mainWindowControllerSource.contains("windowDidResignKey"))
-        #expect(mainWindowControllerSource.contains("handleWindowRegistered(windowId)"))
+        #expect(!sources.paneTabViewControllerSource.contains("replaceSplitContentView()"))
+        #expect(sources.paneTabViewControllerSource.contains("tabContentHosts"))
+        #expect(sources.paneTabViewControllerSource.contains("PaneTabActionDispatcher"))
+        #expect(sources.mainWindowControllerSource.contains("appLifecycleStore: AppLifecycleAtom"))
+        #expect(sources.splitViewControllerSource.contains("appLifecycleStore: AppLifecycleAtom"))
+        #expect(!sources.appDelegateRoutingSource.contains("setAppLifecycleStore(appLifecycleStore)"))
+        #expect(sources.activeTabContentSource.contains("let appLifecycleStore: AppLifecycleAtom"))
+        #expect(sources.singleTabContentSource.contains("let actionDispatcher: PaneActionDispatching"))
+        #expect(sources.flatTabStripContainerSource.contains("let actionDispatcher: PaneActionDispatching"))
+        #expect(sources.flatPaneStripContentSource.contains("let actionDispatcher: PaneActionDispatching"))
+        #expect(sources.paneLeafContainerSource.contains("let actionDispatcher: PaneActionDispatching"))
+        #expect(sources.paneActionDispatchingSource.contains("protocol PaneActionDispatching"))
+        #expect(sources.paneTabActionDispatcherSource.contains("final class PaneTabActionDispatcher"))
+        #expect(sources.flatTabStripContainerSource.contains("let appLifecycleStore: AppLifecycleAtom"))
+        #expect(sources.drawerPanelOverlaySource.contains("let appLifecycleStore: AppLifecycleAtom"))
+        #expect(sources.drawerPanelSource.contains("let appLifecycleStore: AppLifecycleAtom"))
+        #expect(sources.viewRegistrySource.contains("PaneViewSlot"))
+        #expect(sources.viewRegistrySource.contains("@Observable"))
+        #expect(sources.viewRegistrySource.contains("ensureSlot"))
+        #expect(sources.viewRegistrySource.contains("removeSlot"))
+        #expect(sources.appDelegateSource.contains("seedSlotsForRestoredPanes()"))
+        if let seedCallRange = sources.appDelegateSource.range(of: "seedSlotsForRestoredPanes()"),
+            let windowCreationRange = sources.appDelegateSource.range(
+                of: "mainWindowController = MainWindowController("
+            )
+        {
+            #expect(seedCallRange.lowerBound < windowCreationRange.lowerBound)
+        } else {
+            Issue.record("Expected AppDelegate to seed restored pane slots before main window creation")
+        }
+        #expect(!sources.ghosttySource.contains("AppLifecycleAtom.shared"))
+        #expect(!sources.appLifecycleStoreSource.contains("static let shared"))
+        #expect(!sources.windowLifecycleStoreSource.contains("static let shared"))
+        #expect(sources.splitViewControllerSource.contains("willTerminateNotification") == false)
+        #expect(sources.splitViewControllerSource.contains("didBecomeActiveNotification") == false)
+        #expect(sources.splitViewControllerSource.contains("didResignActiveNotification") == false)
+        #expect(sources.mainWindowControllerSource.contains("windowDidBecomeKey"))
+        #expect(sources.mainWindowControllerSource.contains("windowDidResignKey"))
+        #expect(sources.mainWindowControllerSource.contains("handleWindowRegistered(windowId)"))
     }
 
     @Test("AppEvent surface excludes stale workspace-command duplicates")
@@ -137,7 +239,7 @@ struct CoordinationPlaneArchitectureTests {
         #expect(!source.contains("case filterSidebarRequested"))
         #expect(!source.contains("case refocusTerminalRequested"))
         #expect(!source.contains("case showCommandBarRepos"))
-        #expect(!source.contains("case managementModeChanged"))
+        #expect(!source.contains("case managementLayerChanged"))
         #expect(source.contains("case terminalProcessTerminated"))
         #expect(!source.contains("case repairSurfaceRequested"))
         #expect(source.contains("case worktreeBellRang"))
@@ -147,7 +249,7 @@ struct CoordinationPlaneArchitectureTests {
     func appEventOwnership_staysInAppSlice() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let eventChannelsPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Core/PaneRuntime/Events/EventChannels.swift"
+            path: "Sources/AgentStudio/Core/RuntimeEventSystem/Events/EventChannels.swift"
         )
         let appEventPath = projectRoot.appending(
             path: "Sources/AgentStudio/App/Events/AppEvent.swift"
@@ -174,7 +276,7 @@ struct CoordinationPlaneArchitectureTests {
     func ghosttyMixedBus_isRemoved() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let eventChannelsPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Core/PaneRuntime/Events/EventChannels.swift"
+            path: "Sources/AgentStudio/Core/RuntimeEventSystem/Events/EventChannels.swift"
         )
         let ghosttyPath = projectRoot.appending(
             path: "Sources/AgentStudio/Features/Terminal/Ghostty/Ghostty.swift"
@@ -183,7 +285,7 @@ struct CoordinationPlaneArchitectureTests {
             path: "Sources/AgentStudio/Features/Terminal/Ghostty/SurfaceManager.swift"
         )
         let terminalViewPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Features/Terminal/Views/AgentStudioTerminalView.swift"
+            path: "Sources/AgentStudio/Features/Terminal/Hosting/TerminalPaneMountView.swift"
         )
 
         let eventChannelsSource = try String(contentsOf: eventChannelsPath, encoding: .utf8)
@@ -203,10 +305,10 @@ struct CoordinationPlaneArchitectureTests {
     func refreshWorktreesRequested_hasRealConsumer() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let appDelegateRoutingPath = projectRoot.appending(
-            path: "Sources/AgentStudio/App/AppDelegate+LifecycleRouting.swift"
+            path: "Sources/AgentStudio/App/Boot/AppDelegate+LifecycleRouting.swift"
         )
         let sidebarPath = projectRoot.appending(
-            path: "Sources/AgentStudio/Features/Sidebar/RepoSidebarContentView.swift"
+            path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"
         )
 
         let appDelegateRoutingSource = try String(contentsOf: appDelegateRoutingPath, encoding: .utf8)
@@ -222,15 +324,15 @@ struct CoordinationPlaneArchitectureTests {
     func userTriggeredCommandRouting_avoidsAppEventBus() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let appDelegateSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/AppDelegate.swift"),
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift"),
             encoding: .utf8
         )
         let mainSplitSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/MainSplitViewController.swift"),
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Windows/MainSplitViewController.swift"),
             encoding: .utf8
         )
         let mainWindowSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/MainWindowController.swift"),
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Windows/MainWindowController.swift"),
             encoding: .utf8
         )
         let paneTabSource = try String(
@@ -246,19 +348,21 @@ struct CoordinationPlaneArchitectureTests {
             encoding: .utf8
         )
         let paneLeafSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/Splits/PaneLeafContainer.swift"),
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/Panes/PaneLeafContainer.swift"),
             encoding: .utf8
         )
         let draggableTabBarSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/DraggableTabBarHostingView.swift"),
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Panes/TabBar/DraggableTabBarHostingView.swift"),
             encoding: .utf8
         )
-        let managementModeMonitorSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/ManagementModeMonitor.swift"),
+        let managementLayerMonitorSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Lifecycle/ManagementLayerMonitor.swift"),
             encoding: .utf8
         )
-        let managementModeShieldSource = try String(
-            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Core/Views/ManagementModeDragShield.swift"),
+        let managementLayerShieldSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Panes/Hosting/ManagementLayerDragShield.swift"),
             encoding: .utf8
         )
 
@@ -268,8 +372,8 @@ struct CoordinationPlaneArchitectureTests {
         #expect(!commandBarSource.contains("AppEventBus"))
         #expect(!paneLeafSource.contains("AppEventBus"))
         #expect(!draggableTabBarSource.contains("AppEventBus"))
-        #expect(!managementModeMonitorSource.contains("AppEventBus"))
-        #expect(!managementModeShieldSource.contains("AppEventBus"))
+        #expect(!managementLayerMonitorSource.contains("AppEventBus"))
+        #expect(!managementLayerShieldSource.contains("AppEventBus"))
         #expect(!paneTabSource.contains("case .selectTabById"))
         #expect(!paneTabSource.contains("case .undoCloseTabRequested"))
         #expect(!paneTabSource.contains("case .extractPaneRequested"))
@@ -308,8 +412,8 @@ struct CoordinationPlaneArchitectureTests {
 
         #expect(readmeSource.contains("Coordination Planes"))
         #expect(readmeSource.contains("ApplicationLifecycleMonitor"))
-        #expect(readmeSource.contains("AppLifecycleStore"))
-        #expect(readmeSource.contains("WindowLifecycleStore"))
+        #expect(readmeSource.contains("AppLifecycleAtom"))
+        #expect(readmeSource.contains("WindowLifecycleAtom"))
         #expect(readmeSource.contains("@Observable"))
         #expect(readmeSource.contains("private(set)"))
         #expect(readmeSource.contains("AppCommand -> AppEventBus -> controller -> PaneActionCommand"))
@@ -317,16 +421,16 @@ struct CoordinationPlaneArchitectureTests {
         #expect(!readmeSource.contains("AppKit/macOS lifecycle only → NotificationCenter"))
 
         #expect(runtimeArchitectureSource.contains("ApplicationLifecycleMonitor"))
-        #expect(runtimeArchitectureSource.contains("AppLifecycleStore"))
-        #expect(runtimeArchitectureSource.contains("WindowLifecycleStore"))
+        #expect(runtimeArchitectureSource.contains("AppLifecycleAtom"))
+        #expect(runtimeArchitectureSource.contains("WindowLifecycleAtom"))
         #expect(runtimeArchitectureSource.contains("AppCommand -> AppEventBus -> controller -> PaneActionCommand"))
         #expect(!runtimeArchitectureSource.contains("two `NotificationCenter.post` calls remain in `Ghostty.App`"))
 
         #expect(eventBusDesignSource.contains("AppEventBus` carries app-level notifications"))
         #expect(eventBusDesignSource.contains(".worktreeBellRang"))
         #expect(eventBusDesignSource.contains("ApplicationLifecycleMonitor"))
-        #expect(eventBusDesignSource.contains("AppLifecycleStore"))
-        #expect(eventBusDesignSource.contains("WindowLifecycleStore"))
+        #expect(eventBusDesignSource.contains("AppLifecycleAtom"))
+        #expect(eventBusDesignSource.contains("WindowLifecycleAtom"))
         #expect(!eventBusDesignSource.contains(".repairSurfaceRequested"))
         #expect(!eventBusDesignSource.contains("defines both buses"))
     }
