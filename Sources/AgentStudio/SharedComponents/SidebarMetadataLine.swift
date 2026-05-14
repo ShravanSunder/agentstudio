@@ -5,6 +5,10 @@ struct SidebarMetadataLine: View {
     let text: String
     let prominence: SidebarMetadataProminence
 
+    static var reservedIconPlaceholderHeight: CGFloat {
+        AppStyles.Shell.Sidebar.branchIconSize
+    }
+
     init(
         iconSystemName: String? = nil,
         text: String,
@@ -23,7 +27,10 @@ struct SidebarMetadataLine: View {
                     .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
             } else {
                 Color.clear
-                    .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth)
+                    .frame(
+                        width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth,
+                        height: Self.reservedIconPlaceholderHeight
+                    )
             }
 
             Text(text)

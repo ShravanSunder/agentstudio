@@ -9,6 +9,8 @@ Build: `.build-agent-1/debug/AgentStudio`
 Scope:
 - Inbox sidebar source-group chrome parity with RepoExplorer.
 - PaneInbox row/background/count-pill cleanup.
+- Offscreen component-level comparison of the shared RepoExplorer header/row
+  grammar against the Notification Inbox header/row grammar.
 
 Status:
 - Peekaboo was attempted against the debug app by PID and by window id.
@@ -22,6 +24,11 @@ Status:
   `CAPTURE_FAILED` / `Window is not on any available display`.
 - Alternate window capture engines (`auto`, `classic`, `cg`, `modern`, `sckit`)
   all failed against the same window id.
+- Because live window capture is blocked, an offscreen SwiftUI/AppKit render was
+  generated from the current source components. This does not replace final
+  product-window acceptance, but it provides reviewable pixels for the shared
+  sidebar contract: matching source-group header slots, indentation, icon color,
+  row background grammar, reserved metadata columns, and Other sources header.
 
 Artifacts:
 - `initial-see.json`: failed Peekaboo PID capture.
@@ -31,6 +38,10 @@ Artifacts:
 - `retry-see-pid-81387.json`: failed local PID capture.
 - `retry-image-pid-81387.json`: failed local PID image capture.
 - `retry-window-173973-*.json`: failed local window-id captures for every available capture engine.
+- `offscreen/sidebar-contract-components-offscreen.png`: bounded component
+  comparison render produced by the test process after live capture failed.
 
 Conclusion:
-- Automated tests and code review can validate the component contracts, but native visual acceptance remains blocked until Peekaboo or macOS screen capture returns a usable image.
+- Automated tests, code review, and the offscreen component render validate the
+  shared component contract. Full native product-window visual acceptance remains
+  blocked until Peekaboo or macOS screen capture returns a usable image.
