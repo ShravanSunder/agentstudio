@@ -24,6 +24,12 @@ Status:
   `CAPTURE_FAILED` / `Window is not on any available display`.
 - Alternate window capture engines (`auto`, `classic`, `cg`, `modern`, `sckit`)
   all failed against the same window id.
+- A direct ScreenCaptureKit still-image retry against the same PID/window was
+  also attempted outside Peekaboo. `SCShareableContent.current` listed the
+  AgentStudio windows, but returned zero displays and reported the target
+  `AgentStudio` window as off-screen; `SCScreenshotManager.captureImage` then
+  aborted with `CGS_REQUIRE_INIT` / exit 134. The rect-based ScreenCaptureKit
+  path returned no image.
 - Because live window capture is blocked, an offscreen SwiftUI/AppKit render was
   generated from the current source components. This does not replace final
   product-window acceptance, but it provides reviewable pixels for the shared
