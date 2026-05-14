@@ -7,6 +7,15 @@ struct InboxNotificationGroupHeader: View {
     var showsUnreadCount = true
     let onToggle: () -> Void
 
+    static func chromePolicy(for style: InboxNotificationListSectionHeader.Style) -> SidebarHeaderChromePolicy {
+        switch style {
+        case .plain:
+            return SidebarSectionHeader<SidebarSectionHeaderTextLabel, EmptyView>.chromePolicy
+        case .repo:
+            return SidebarRepoGroupHeader<EmptyView>.chromePolicy
+        }
+    }
+
     var body: some View {
         switch header.style {
         case .plain:

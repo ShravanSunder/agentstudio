@@ -7,6 +7,14 @@ struct SidebarRepoGroupHeader<TrailingContent: View>: View {
     let onToggle: () -> Void
     @ViewBuilder let trailingContent: () -> TrailingContent
 
+    static var chromePolicy: SidebarHeaderChromePolicy {
+        .repoGroupHeader
+    }
+
+    static var leadingInset: CGFloat {
+        AppStyles.Shell.Sidebar.listRowLeadingInset
+    }
+
     var body: some View {
         Button(action: onToggle) {
             SidebarSectionHeaderRow(isCollapsed: isCollapsed) {
@@ -17,7 +25,7 @@ struct SidebarRepoGroupHeader<TrailingContent: View>: View {
             } trailingContent: {
                 trailingContent()
             }
-            .padding(.leading, AppStyles.Shell.Sidebar.listRowLeadingInset)
+            .padding(.leading, Self.leadingInset)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

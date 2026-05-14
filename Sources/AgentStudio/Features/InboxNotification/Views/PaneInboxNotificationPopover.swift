@@ -15,6 +15,7 @@ struct PaneInboxNotificationPopover: View {
     let dispatcher: CommandDispatcher
     let onActivate: @MainActor (InboxNotification) -> Void
     let onClose: @MainActor @Sendable () -> Void
+    static let rowChromePolicy = SidebarRowShell<InboxRow>.chromePolicy
 
     @State private var selectedNotificationId: UUID?
 

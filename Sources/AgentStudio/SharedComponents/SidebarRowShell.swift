@@ -6,6 +6,10 @@ struct SidebarRowShell<Content: View>: View {
     let isHovering: Bool
     let content: Content
 
+    static var chromePolicy: SidebarRowChromePolicy {
+        .sidebarRowShell
+    }
+
     init(
         isSelected: Bool = false,
         isFlashing: Bool = false,
@@ -27,7 +31,7 @@ struct SidebarRowShell<Content: View>: View {
     }
 
     private var rowBackground: some View {
-        RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.rowCornerRadius)
+        RoundedRectangle(cornerRadius: Self.rowCornerRadius)
             .fill(rowFill)
     }
 
@@ -62,5 +66,9 @@ struct SidebarRowShell<Content: View>: View {
 
     static var contentHorizontalInset: CGFloat {
         AppStyles.Shell.Sidebar.rowHorizontalInset
+    }
+
+    static var rowCornerRadius: CGFloat {
+        AppStyles.Shell.Sidebar.rowCornerRadius
     }
 }

@@ -160,14 +160,11 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
                 ?? source.runtimeDisplayLabel.trimmedNonEmpty
                 ?? "Pane"
         case .drawerChild:
-            let parentTitle = source.parentPaneDisplayLabel.trimmedNonEmpty ?? "Pane"
-            if let paneTitle = source.paneDisplayLabel.trimmedNonEmpty {
-                return "\(parentTitle) / Drawer \(paneTitle)"
-            }
-            if let drawerOrdinal = source.drawerOrdinal {
-                return "\(parentTitle) / Drawer \(drawerOrdinal)"
-            }
-            return "\(parentTitle) / Drawer"
+            return source.parentPaneDisplayLabel.trimmedNonEmpty
+                ?? (source.worktree?.name).trimmedNonEmpty
+                ?? source.branchName.trimmedNonEmpty
+                ?? source.runtimeDisplayLabel.trimmedNonEmpty
+                ?? "Pane"
         }
     }
 

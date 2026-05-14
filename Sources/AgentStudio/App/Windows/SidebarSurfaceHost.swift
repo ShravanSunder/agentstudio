@@ -15,7 +15,18 @@ struct SidebarSurfaceHost: View {
     let onRefocusActivePane: () -> Void
     let onDismissInbox: @MainActor @Sendable () -> Void
 
+    static var surfaceChromePolicy: SidebarSurfaceChromePolicy {
+        SidebarSurfaceChrome<EmptyView>.policy
+    }
+
     var body: some View {
+        SidebarSurfaceChrome {
+            currentSurface
+        }
+    }
+
+    @ViewBuilder
+    private var currentSurface: some View {
         switch uiState.sidebarSurface {
         case .repos:
             RepoExplorerView(

@@ -39,6 +39,10 @@ struct SidebarSectionHeader<LabelContent: View, TrailingContent: View>: View {
     @ViewBuilder let label: () -> LabelContent
     @ViewBuilder let trailingContent: () -> TrailingContent
 
+    static var chromePolicy: SidebarHeaderChromePolicy {
+        .plainSectionHeader
+    }
+
     var body: some View {
         Button(action: onToggle) {
             SidebarSectionHeaderRow(isCollapsed: isCollapsed) {

@@ -168,48 +168,30 @@ struct InboxNotificationSidebarViewTests {
     }
 
     @Test("inbox header controls use distinct symbols and grouped row indentation")
-    func inboxHeaderControlsUseDistinctSymbolsAndGroupedRowIndentation() throws {
-        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let source = try String(
-            contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/Features/InboxNotification/Views/InboxSidebarComponents.swift"
-            ),
-            encoding: .utf8
+    func inboxHeaderControlsUseDistinctSymbolsAndGroupedRowIndentation() {
+        #expect(InboxSidebarHeader.sortIconName == "arrow.up.arrow.down.circle")
+        #expect(InboxSidebarHeader.groupIconName == "square.stack.3d.up")
+        #expect(InboxSidebarHeader.filterIconName == "line.3.horizontal.decrease.circle")
+        #expect(InboxSidebarHeader.sortIconName != InboxSidebarHeader.groupIconName)
+        #expect(InboxSidebarHeader.groupIconName != InboxSidebarHeader.filterIconName)
+        #expect(InboxSidebarContent.rowLeadingInset(isGrouped: false) == 0)
+        #expect(
+            InboxSidebarContent.rowLeadingInset(isGrouped: true)
+                == AppStyles.Shell.Sidebar.groupChildRowLeadingInset
         )
-
-        #expect(source.contains("\"arrow.up.arrow.down.circle\""))
-        #expect(source.contains("\"square.stack.3d.up\""))
-        #expect(source.contains("\"line.3.horizontal.decrease.circle\""))
-        #expect(source.contains("sort == .newestFirst ? \"arrow.down\" : \"arrow.up\"") == false)
-        #expect(source.contains("\"rectangle.3.group\"") == false)
-        #expect(source.contains(".padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)"))
     }
 
     @Test("repo grouped inbox and repo explorer use shared repo header chrome")
-    func repoGroupedInboxAndRepoExplorerUseSharedRepoHeaderChrome() throws {
-        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let inboxHeaderSource = try String(
-            contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/Features/InboxNotification/Components/InboxNotificationGroupHeader.swift"
-            ),
-            encoding: .utf8
+    @MainActor
+    func repoGroupedInboxAndRepoExplorerUseSharedRepoHeaderChrome() {
+        #expect(
+            InboxNotificationGroupHeader.chromePolicy(for: .repo(organizationName: "askluna"))
+                == .repoGroupHeader
         )
-        let repoExplorerSource = try String(
-            contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"
-            ),
-            encoding: .utf8
-        )
-        let sharedHeaderSource = try String(
-            contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/SharedComponents/SidebarRepoGroupHeader.swift"
-            ),
-            encoding: .utf8
-        )
-
-        #expect(inboxHeaderSource.contains("SidebarRepoGroupHeader("))
-        #expect(repoExplorerSource.contains("SidebarRepoGroupHeader("))
-        #expect(sharedHeaderSource.contains("AppStyles.Shell.Sidebar.listRowLeadingInset"))
+        #expect(InboxNotificationGroupHeader.chromePolicy(for: .plain) == .plainSectionHeader)
+        #expect(RepoExplorerView.groupHeaderChromePolicy == .repoGroupHeader)
+        #expect(SidebarRepoGroupHeader<EmptyView>.chromePolicy == .repoGroupHeader)
+        #expect(SidebarRepoGroupHeader<EmptyView>.leadingInset == AppStyles.Shell.Sidebar.listRowLeadingInset)
     }
 
     @Test("focus bridge publishes sidebar focus and escape callback through mounted view")

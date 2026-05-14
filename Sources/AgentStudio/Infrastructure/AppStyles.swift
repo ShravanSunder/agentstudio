@@ -83,6 +83,11 @@ enum AppStyles {
 
     enum Shell {
         enum Sidebar {
+            static let minimumWidth: CGFloat = 200
+            static let shadowOpacity: CGFloat = 0.20
+            static let shadowRadius: CGFloat = 4
+            static let shadowOffsetX: CGFloat = 2
+            static let shadowOffsetY: CGFloat = 0
             static let rowContentSpacing: CGFloat = 4
             static let rowVerticalInset: CGFloat = 6
             static let listRowLeadingInset: CGFloat = 2
@@ -94,8 +99,8 @@ enum AppStyles {
             static let worktreeIconSize: CGFloat = 11
             static let branchIconSize: CGFloat = 10
             static let branchFontSize: CGFloat = AppStyles.General.Typography.textSm
-            static let rowHorizontalInset: CGFloat = 8
-            static let rowCornerRadius: CGFloat = AppStyles.General.CornerRadius.panel
+            static let rowHorizontalInset: CGFloat = AppStyles.General.Spacing.tight / 2
+            static let rowCornerRadius: CGFloat = AppStyles.General.CornerRadius.bar
             static let groupRowVerticalPadding: CGFloat = 2
             static let countBadgeHorizontalPadding: CGFloat = 6
             static let countBadgeVerticalPadding: CGFloat = 2

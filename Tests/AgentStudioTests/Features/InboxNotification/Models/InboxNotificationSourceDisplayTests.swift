@@ -41,7 +41,7 @@ struct InboxNotificationSourceDisplayTests {
 
         #expect(display.sourceLine == "askluna · askluna")
         #expect(display.placementLine == "Tab Work · Pane Claude · Drawer Gemini")
-        #expect(display.groupLabel(for: .byPane) == "Claude / Drawer Gemini")
+        #expect(display.groupLabel(for: .byPane) == "Claude")
     }
 
     @Test("pane inbox hides redundant parent placement")

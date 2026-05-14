@@ -29,6 +29,8 @@ struct RepoExplorerView: View {
     let onRefocusActivePane: () -> Void
     let onShowNotificationsForWorktree: (Worktree) -> Void
     let unreadCount: (Worktree) -> Int
+    static let surfaceListPolicy = SidebarSurfaceListPolicy.nativeSidebarList
+    static let groupHeaderChromePolicy = SidebarRepoGroupHeader<EmptyView>.chromePolicy
 
     private var repoCache: RepoCacheAtom {
         atom(\.repoCache)
@@ -113,9 +115,6 @@ struct RepoExplorerView: View {
                 groupList
             }
         }
-        .frame(minWidth: 200)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .shadow(color: .black.opacity(0.2), radius: 4, x: 2, y: 0)
         .animation(.easeOut(duration: 0.15), value: uiState.isFilterVisible)
         .task {
             filterText = uiState.filterText
@@ -321,7 +320,7 @@ struct RepoExplorerView: View {
                 }
             }
         }
-        .listStyle(.sidebar)
+        .sidebarSurfaceListStyle(Self.surfaceListPolicy)
         .id(sidebarProjectionFingerprint)
         .transition(.opacity.animation(.easeOut(duration: 0.12)))
     }

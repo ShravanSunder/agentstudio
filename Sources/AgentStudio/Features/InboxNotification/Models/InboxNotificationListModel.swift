@@ -225,8 +225,7 @@ struct InboxNotificationListModel: Equatable {
             return buildGroupedSections(
                 notifications: notifications,
                 key: { notification in
-                    guard let paneId = notification.paneId else { return .noPane }
-                    return .pane(id: paneId)
+                    paneGroupingKey(for: notification)
                 },
                 header: { _, notifications in
                     .plain(label: bestGroupLabel(for: notifications, grouping: .byPane, placeholder: "Other panes"))
@@ -246,6 +245,14 @@ struct InboxNotificationListModel: Equatable {
                 collapsedGroups: collapsedGroups
             )
         }
+    }
+
+    private static func paneGroupingKey(for notification: InboxNotification) -> InboxNotificationSectionKey {
+        guard case .pane(let source) = notification.source else { return .noPane }
+        if source.paneRole == .drawerChild, let parentPaneId = source.parentPaneId {
+            return .pane(id: parentPaneId)
+        }
+        return .pane(id: source.paneId)
     }
 
     private static func buildGroupedSections(

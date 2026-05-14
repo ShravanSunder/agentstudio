@@ -122,9 +122,9 @@ struct InboxSidebarHeader: View {
     let grouping: InboxNotificationGrouping
     let focusedField: FocusState<InboxFocus?>.Binding
     let actions: InboxSidebarActions
-    private let sortIconName = "arrow.up.arrow.down.circle"
-    private let groupIconName = "square.stack.3d.up"
-    private let filterIconName = "line.3.horizontal.decrease.circle"
+    static let sortIconName = "arrow.up.arrow.down.circle"
+    static let groupIconName = "square.stack.3d.up"
+    static let filterIconName = "line.3.horizontal.decrease.circle"
     private let clearReadInboxSpec = AppCommand.clearReadInboxNotifications.definition
 
     var body: some View {
@@ -147,7 +147,7 @@ struct InboxSidebarHeader: View {
                 )
 
                 Button(action: actions.onToggleSort) {
-                    Image(systemName: sortIconName)
+                    Image(systemName: Self.sortIconName)
                 }
                 .buttonStyle(.borderless)
                 .help("Toggle inbox sort")
@@ -155,7 +155,7 @@ struct InboxSidebarHeader: View {
                 Button {
                     groupingMenuOpen.toggle()
                 } label: {
-                    Image(systemName: groupIconName)
+                    Image(systemName: Self.groupIconName)
                 }
                 .buttonStyle(.borderless)
                 .help("Group inbox notifications")
@@ -198,7 +198,7 @@ struct InboxSidebarHeader: View {
 
             if let activeFilter {
                 HStack(spacing: 6) {
-                    Image(systemName: filterIconName)
+                    Image(systemName: Self.filterIconName)
                     Text(activeFilterLabel ?? fallbackFilterLabel(activeFilter))
                         .lineLimit(1)
                     Button(action: actions.onClearFilter) {
@@ -241,49 +241,58 @@ struct InboxSidebarContent: View {
     let focusedField: FocusState<InboxFocus?>.Binding
     let flashingRowIds: Set<UUID>
     let actions: InboxSidebarActions
+    static let surfaceListPolicy = SidebarSurfaceListPolicy.nativeSidebarList
 
     var body: some View {
         if sections.allSatisfy(\.notifications.isEmpty) {
             InboxNotificationEmptyState()
         } else {
             TimelineView(.periodic(from: .now, by: 60)) { context in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(sections) { section in
-                            if let header = section.header {
-                                InboxNotificationGroupHeader(
-                                    header: header,
-                                    unreadCount: section.unreadCount,
-                                    isCollapsed: section.isCollapsed,
-                                    onToggle: { actions.onToggleGroupCollapse(section.id) }
+                List {
+                    ForEach(sections) { section in
+                        if let header = section.header {
+                            InboxNotificationGroupHeader(
+                                header: header,
+                                unreadCount: section.unreadCount,
+                                isCollapsed: section.isCollapsed,
+                                onToggle: { actions.onToggleGroupCollapse(section.id) }
+                            )
+                            .listRowInsets(
+                                EdgeInsets(
+                                    top: 0,
+                                    leading: 0,
+                                    bottom: 0,
+                                    trailing: 0
                                 )
-                            }
-                            ForEach(section.visibleNotifications) { notification in
-                                if section.label == nil {
-                                    InboxSidebarNotificationRow(
-                                        notification: notification,
-                                        now: context.date,
-                                        focusedField: focusedField,
-                                        isFlashing: flashingRowIds.contains(notification.id),
-                                        actions: actions
-                                    )
-                                } else {
-                                    InboxSidebarNotificationRow(
-                                        notification: notification,
-                                        now: context.date,
-                                        focusedField: focusedField,
-                                        isFlashing: flashingRowIds.contains(notification.id),
-                                        actions: actions
-                                    )
-                                    .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
-                                }
-                            }
+                            )
+                        }
+                        ForEach(section.visibleNotifications) { notification in
+                            InboxSidebarNotificationRow(
+                                notification: notification,
+                                now: context.date,
+                                focusedField: focusedField,
+                                isFlashing: flashingRowIds.contains(notification.id),
+                                actions: actions
+                            )
+                            .listRowInsets(
+                                EdgeInsets(
+                                    top: 0,
+                                    leading: Self.rowLeadingInset(isGrouped: section.label != nil),
+                                    bottom: 0,
+                                    trailing: 0
+                                )
+                            )
                         }
                     }
                 }
+                .sidebarSurfaceListStyle(Self.surfaceListPolicy)
                 .focused(focusedField, equals: .list)
             }
         }
+    }
+
+    static func rowLeadingInset(isGrouped: Bool) -> CGFloat {
+        isGrouped ? AppStyles.Shell.Sidebar.groupChildRowLeadingInset : 0
     }
 }
 
@@ -293,6 +302,7 @@ struct InboxSidebarNotificationRow: View {
     let focusedField: FocusState<InboxFocus?>.Binding
     let isFlashing: Bool
     let actions: InboxSidebarActions
+    static let rowChromePolicy = SidebarRowShell<InboxRow>.chromePolicy
     @State private var isHovering = false
 
     var body: some View {

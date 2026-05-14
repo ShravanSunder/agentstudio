@@ -15,6 +15,10 @@ struct InboxNotificationListModelTests {
         var branchName: String?
         var tabDisplayLabel: String?
         var paneDisplayLabel: String?
+        var paneRole: InboxNotification.PaneSource.PaneRole = .main
+        var parentPaneId: UUID?
+        var parentPaneDisplayLabel: String?
+        var drawerOrdinal: Int?
         var runtimeDisplayLabel: String?
     }
 
@@ -32,6 +36,10 @@ struct InboxNotificationListModelTests {
         branchName: String? = nil,
         tabDisplayLabel: String? = nil,
         paneDisplayLabel: String? = nil,
+        paneRole: InboxNotification.PaneSource.PaneRole = .main,
+        parentPaneId: UUID? = nil,
+        parentPaneDisplayLabel: String? = nil,
+        drawerOrdinal: Int? = nil,
         runtimeDisplayLabel: String? = nil,
         isRead: Bool = false
     ) -> InboxNotification {
@@ -52,6 +60,10 @@ struct InboxNotificationListModelTests {
                     branchName: branchName,
                     tabDisplayLabel: tabDisplayLabel,
                     paneDisplayLabel: paneDisplayLabel,
+                    paneRole: paneRole,
+                    parentPaneId: parentPaneId,
+                    parentPaneDisplayLabel: parentPaneDisplayLabel,
+                    drawerOrdinal: drawerOrdinal,
                     runtimeDisplayLabel: runtimeDisplayLabel
                 )
             ),
@@ -81,6 +93,10 @@ struct InboxNotificationListModelTests {
                 worktreeName: context.worktreeName,
                 branchName: context.branchName,
                 paneDisplayLabel: context.paneDisplayLabel,
+                paneRole: context.paneRole,
+                parentPaneId: context.parentPaneId,
+                parentPaneDisplayLabel: context.parentPaneDisplayLabel,
+                drawerOrdinal: context.drawerOrdinal,
                 runtimeDisplayLabel: context.runtimeDisplayLabel
             )
         )
@@ -342,6 +358,46 @@ struct InboxNotificationListModelTests {
                 direction: InboxNotificationListNavigationDirection.next
             ) == nil
         )
+    }
+
+    @Test("by pane grouping rolls drawer children up to their parent pane")
+    func byPaneGroupingRollsDrawerChildrenUpToParentPane() {
+        let parentPaneId = UUID()
+        let drawerPaneId = UUID()
+        let siblingPaneId = UUID()
+        let parentNotification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Parent",
+            paneId: parentPaneId,
+            paneDisplayLabel: "Claude"
+        )
+        let drawerNotification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 200),
+            title: "Drawer",
+            paneId: drawerPaneId,
+            paneDisplayLabel: "Gemini",
+            paneRole: .drawerChild,
+            parentPaneId: parentPaneId,
+            parentPaneDisplayLabel: "Claude",
+            drawerOrdinal: 1
+        )
+        let siblingNotification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 300),
+            title: "Sibling",
+            paneId: siblingPaneId,
+            paneDisplayLabel: "Terminal"
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [siblingNotification, drawerNotification, parentNotification],
+            grouping: .byPane,
+            sort: .oldestFirst,
+            searchText: ""
+        )
+
+        #expect(model.sections.map(\.id) == [parentPaneId.uuidString, siblingPaneId.uuidString])
+        #expect(model.sections.map(\.label) == ["Claude", "Terminal"])
+        #expect(model.sections[0].notifications.map(\.title) == ["Parent", "Drawer"])
     }
 
     @Test("group boundary navigation skips collapsed groups")
