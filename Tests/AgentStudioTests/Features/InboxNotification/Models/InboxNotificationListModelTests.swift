@@ -400,6 +400,33 @@ struct InboxNotificationListModelTests {
         #expect(model.sections[0].notifications.map(\.title) == ["Parent", "Drawer"])
     }
 
+    @Test("group label uses newest source label independent of visible sort")
+    func groupLabelUsesNewestSourceLabelIndependentOfVisibleSort() {
+        let paneId = UUID()
+        let older = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Older",
+            paneId: paneId,
+            paneDisplayLabel: "Old Label"
+        )
+        let newer = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 200),
+            title: "Newer",
+            paneId: paneId,
+            paneDisplayLabel: "New Label"
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [newer, older],
+            grouping: .byPane,
+            sort: .oldestFirst,
+            searchText: ""
+        )
+
+        #expect(model.sections.map(\.label) == ["New Label"])
+        #expect(model.sections[0].notifications.map(\.title) == ["Older", "Newer"])
+    }
+
     @Test("group boundary navigation skips collapsed groups")
     func groupBoundaryNavigationSkipsCollapsedGroups() {
         let firstPane = UUID()

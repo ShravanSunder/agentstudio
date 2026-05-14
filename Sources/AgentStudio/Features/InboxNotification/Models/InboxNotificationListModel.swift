@@ -287,10 +287,19 @@ struct InboxNotificationListModel: Equatable {
         placeholder: String
     ) -> String {
         notifications
-            .sorted { $0.timestamp > $1.timestamp }
             .lazy
-            .compactMap { InboxNotificationSourceDisplay(notification: $0).groupLabel(for: grouping) }
-            .first { !$0.isEmpty && $0 != placeholder } ?? placeholder
+            .compactMap { notification -> (timestamp: Date, label: String)? in
+                guard
+                    let label = InboxNotificationSourceDisplay(notification: notification).groupLabel(for: grouping),
+                    !label.isEmpty,
+                    label != placeholder
+                else {
+                    return nil
+                }
+                return (timestamp: notification.timestamp, label: label)
+            }
+            .max { left, right in left.timestamp < right.timestamp }?
+            .label ?? placeholder
     }
 }
 
