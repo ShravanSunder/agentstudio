@@ -284,12 +284,15 @@ final class InboxNotificationRouter {
     private func handle(_ envelope: RuntimeEnvelope) {
         guard case .pane(let paneEnvelope) = envelope else { return }
         if case .terminal(.scrollbarChanged(let scrollbarState)) = paneEnvelope.event {
+            let wasPinnedToBottom = pinnedToBottomByPaneId[paneEnvelope.paneId.uuid] == true
             pinnedToBottomByPaneId[paneEnvelope.paneId.uuid] = scrollbarState.isPinnedToBottom
-            clearObservedPaneInboxRowsIfNeeded(
-                paneId: paneEnvelope.paneId.uuid,
-                scrollbarState: scrollbarState,
-                traceKeepOnly: false
-            )
+            if scrollbarState.isPinnedToBottom && !wasPinnedToBottom {
+                clearObservedPaneInboxRowsIfNeeded(
+                    paneId: paneEnvelope.paneId.uuid,
+                    scrollbarState: scrollbarState,
+                    traceKeepOnly: false
+                )
+            }
         }
         let decision = classify(paneEnvelope)
         traceEventBusDelivery(decision, envelope: paneEnvelope)

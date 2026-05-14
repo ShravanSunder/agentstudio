@@ -73,6 +73,19 @@ private enum InboxNotificationSectionKey: Hashable {
     }
 }
 
+private struct InboxNotificationListItem {
+    let notification: InboxNotification
+    let sourceDisplay: InboxNotificationSourceDisplay
+    let normalizedSearchText: String
+
+    init(notification: InboxNotification) {
+        self.notification = notification
+        let sourceDisplay = InboxNotificationSourceDisplay(notification: notification)
+        self.sourceDisplay = sourceDisplay
+        self.normalizedSearchText = sourceDisplay.searchText.lowercased()
+    }
+}
+
 struct InboxNotificationListModel: Equatable {
     let sections: [InboxNotificationListSection]
 
@@ -89,12 +102,13 @@ struct InboxNotificationListModel: Equatable {
             sortedNotifications,
             filter: filter
         )
-        let textFilteredNotifications = Self.filterNotifications(
-            sourceFilteredNotifications,
+        let sourceItems = sourceFilteredNotifications.map(InboxNotificationListItem.init)
+        let textFilteredItems = Self.filterItems(
+            sourceItems,
             searchText: searchText
         )
         self.sections = Self.buildSections(
-            notifications: textFilteredNotifications,
+            items: textFilteredItems,
             grouping: grouping,
             collapsedGroups: collapsedGroups
         )
@@ -163,23 +177,20 @@ struct InboxNotificationListModel: Equatable {
         }
     }
 
-    private static func filterNotifications(
-        _ notifications: [InboxNotification],
+    private static func filterItems(
+        _ items: [InboxNotificationListItem],
         searchText: String
-    ) -> [InboxNotification] {
+    ) -> [InboxNotificationListItem] {
         let trimmedQuery = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !trimmedQuery.isEmpty else { return notifications }
+        guard !trimmedQuery.isEmpty else { return items }
 
-        return notifications.filter { notification in
-            InboxNotificationSourceDisplay(notification: notification)
-                .searchText
-                .lowercased()
-                .contains(trimmedQuery)
+        return items.filter { item in
+            item.normalizedSearchText.contains(trimmedQuery)
         }
     }
 
     private static func buildSections(
-        notifications: [InboxNotification],
+        items: [InboxNotificationListItem],
         grouping: InboxNotificationGrouping,
         collapsedGroups: Set<InboxNotificationGroupKey>
     ) -> [InboxNotificationListSection] {
@@ -190,19 +201,20 @@ struct InboxNotificationListModel: Equatable {
                 InboxNotificationListSection(
                     id: ungroupedKey,
                     header: nil,
-                    notifications: notifications,
+                    notifications: items.map(\.notification),
                     isCollapsed: collapsedGroups.contains(InboxNotificationGroupKey(ungroupedKey))
                 )
             ]
         case .byRepo:
             return buildGroupedSections(
-                notifications: notifications,
-                key: { notification in
+                items: items,
+                key: { item in
+                    let notification = item.notification
                     if let repoId = notification.repoId { return .repo(id: repoId) }
                     if let repoName = notification.repoName { return .repoName(repoName) }
                     return .noRepo
                 },
-                header: { groupKey, notifications in
+                header: { groupKey, items in
                     switch groupKey {
                     case .repoName(let name):
                         .repo(label: name, organizationName: nil)
@@ -211,7 +223,7 @@ struct InboxNotificationListModel: Equatable {
                     default:
                         .repo(
                             label: bestGroupLabel(
-                                for: notifications,
+                                for: items,
                                 grouping: .byRepo,
                                 placeholder: "Other sources"
                             ),
@@ -223,24 +235,25 @@ struct InboxNotificationListModel: Equatable {
             )
         case .byPane:
             return buildGroupedSections(
-                notifications: notifications,
-                key: { notification in
-                    paneGroupingKey(for: notification)
+                items: items,
+                key: { item in
+                    paneGroupingKey(for: item.notification)
                 },
-                header: { _, notifications in
-                    .plain(label: bestGroupLabel(for: notifications, grouping: .byPane, placeholder: "Other panes"))
+                header: { _, items in
+                    .plain(label: bestGroupLabel(for: items, grouping: .byPane, placeholder: "Other panes"))
                 },
                 collapsedGroups: collapsedGroups
             )
         case .byTab:
             return buildGroupedSections(
-                notifications: notifications,
-                key: { notification in
+                items: items,
+                key: { item in
+                    let notification = item.notification
                     guard let tabId = notification.tabId else { return .noTab }
                     return .tab(id: tabId)
                 },
-                header: { _, notifications in
-                    .plain(label: bestGroupLabel(for: notifications, grouping: .byTab, placeholder: "Untitled Tab"))
+                header: { _, items in
+                    .plain(label: bestGroupLabel(for: items, grouping: .byTab, placeholder: "Untitled Tab"))
                 },
                 collapsedGroups: collapsedGroups
             )
@@ -256,18 +269,18 @@ struct InboxNotificationListModel: Equatable {
     }
 
     private static func buildGroupedSections(
-        notifications: [InboxNotification],
-        key: (InboxNotification) -> InboxNotificationSectionKey,
-        header: (InboxNotificationSectionKey, [InboxNotification]) -> InboxNotificationListSectionHeader,
+        items: [InboxNotificationListItem],
+        key: (InboxNotificationListItem) -> InboxNotificationSectionKey,
+        header: (InboxNotificationSectionKey, [InboxNotificationListItem]) -> InboxNotificationListSectionHeader,
         collapsedGroups: Set<InboxNotificationGroupKey>
     ) -> [InboxNotificationListSection] {
-        let buckets = Dictionary(grouping: notifications, by: key)
-        return buckets.map { groupKey, notifications in
+        let buckets = Dictionary(grouping: items, by: key)
+        return buckets.map { groupKey, items in
             let groupId = groupKey.id
             return InboxNotificationListSection(
                 id: groupId,
-                header: header(groupKey, notifications),
-                notifications: notifications,
+                header: header(groupKey, items),
+                notifications: items.map(\.notification),
                 isCollapsed: collapsedGroups.contains(InboxNotificationGroupKey(groupId))
             )
         }.sorted { left, right in
@@ -282,21 +295,21 @@ struct InboxNotificationListModel: Equatable {
     }
 
     private static func bestGroupLabel(
-        for notifications: [InboxNotification],
+        for items: [InboxNotificationListItem],
         grouping: InboxNotificationGrouping,
         placeholder: String
     ) -> String {
-        notifications
+        items
             .lazy
-            .compactMap { notification -> (timestamp: Date, label: String)? in
+            .compactMap { item -> (timestamp: Date, label: String)? in
                 guard
-                    let label = InboxNotificationSourceDisplay(notification: notification).groupLabel(for: grouping),
+                    let label = item.sourceDisplay.groupLabel(for: grouping),
                     !label.isEmpty,
                     label != placeholder
                 else {
                     return nil
                 }
-                return (timestamp: notification.timestamp, label: label)
+                return (timestamp: item.notification.timestamp, label: label)
             }
             .max { left, right in left.timestamp < right.timestamp }?
             .label ?? placeholder
