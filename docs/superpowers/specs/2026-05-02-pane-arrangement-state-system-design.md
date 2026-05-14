@@ -801,8 +801,32 @@ CHANGED SIGNATURE (subset arrangements removed):
 
 The `paneIds` parameter is dropped in PR 1. Call sites passing
 `paneIds:` will stop compiling — fix them by removing the argument.
-`TabArrangementMutationRules.swift` (current filtering logic that
-applies the subset) is deleted in the same PR.
+
+**`TabArrangementMutationRules.swift` — what to keep vs change.**
+The file owns 9 public functions (`createArrangement`,
+`removingArrangement`, `removingUserPane`, `switchingArrangement`,
+`minimizingPane`, `expandingPane`, `breakingUpTab`,
+`extractingPane`, `merging`). Only ONE of them — `createArrangement`
+— has subset-filtering logic. The file is NOT deleted. PR 1
+changes happen in-place:
+
+- `createArrangement(...)`: replace the subset-filter branch with
+  "new arrangement = copy of active arrangement's layout + show-
+  toggle" (Q3 inheritance). Loses the `paneIds: Set<UUID>`
+  parameter.
+- `minimizingPane` / `expandingPane`: keep as-is for main panes
+  (they already operate on the active arrangement). Verify they
+  use the new `showsMinimizedPanes` semantic correctly.
+- `removingUserPane`: extend to also drop the matching DrawerView
+  entry from every arrangement's `drawerViews` map (calibration
+  for pane-with-drawer removal — see §9).
+- `switchingArrangement`, `removingArrangement`, `breakingUpTab`,
+  `extractingPane`, `merging`: unchanged behaviorally, but check
+  for any reads of the removed `visiblePaneIds` field.
+
+If, after PR 1, this file ends up being a thin shim, it can be
+inlined into `WorkspaceTabArrangementAtom` — but that's a
+follow-up cleanup, NOT part of this spec.
 
 REMOVED PaneActionCommand cases: none. (Subset-arrangement creation
 is the only feature killed by removing visiblePaneIds; the create
