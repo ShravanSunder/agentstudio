@@ -30,6 +30,9 @@ Status:
   `AgentStudio` window as off-screen; `SCScreenshotManager.captureImage` then
   aborted with `CGS_REQUIRE_INIT` / exit 134. The rect-based ScreenCaptureKit
   path returned no image.
+- A final CoreGraphics display-level fallback produced a PNG through the
+  runtime `CGDisplayCreateImage` symbol, but the captured display image was
+  fully black, matching the earlier `screencapture` full-screen behavior.
 - Because live window capture is blocked, an offscreen SwiftUI/AppKit render was
   generated from the current source components. This does not replace final
   product-window acceptance, but it provides reviewable pixels for the shared
