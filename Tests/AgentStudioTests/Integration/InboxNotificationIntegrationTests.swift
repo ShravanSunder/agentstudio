@@ -23,9 +23,9 @@ struct InboxNotificationIntegrationTests {
         let tracker: PaneFocusTracker
         let router: InboxNotificationRouter
 
-        func shutdown() {
-            router.stop()
-            tracker.stop()
+        func shutdown() async {
+            await router.stop()
+            await tracker.stop()
             attendedPane.stop()
         }
     }
@@ -162,7 +162,7 @@ struct InboxNotificationIntegrationTests {
         #expect(listModel.sections.map(\.label) == ["agent-studio"])
         #expect(listModel.sections.flatMap(\.notifications).map(\.id) == [notification.id])
 
-        fixture.shutdown()
+        await fixture.shutdown()
     }
 
     @Test("bridge inbox.post reaches router and atom through runtime events")
@@ -211,7 +211,7 @@ struct InboxNotificationIntegrationTests {
         controller.teardown()
         forwardingTask.cancel()
         await forwardingTask.value
-        fixture.shutdown()
+        await fixture.shutdown()
     }
 
     @Test("approval and security receive-side events land in list and drawer surfaces")
@@ -303,6 +303,6 @@ struct InboxNotificationIntegrationTests {
         )
         #expect(paneNotifications.count == routedEvents.count)
 
-        fixture.shutdown()
+        await fixture.shutdown()
     }
 }

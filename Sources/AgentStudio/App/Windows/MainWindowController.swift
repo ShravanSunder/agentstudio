@@ -6,6 +6,12 @@ final class SidebarToolbarButton: NSButton {
     var currentSymbolName = ""
 }
 
+enum InboxToolbarUnreadBadgeText {
+    static func text(for unreadCount: Int) -> String {
+        unreadCount > 99 ? "99+" : "\(unreadCount)"
+    }
+}
+
 /// Main window controller for AgentStudio
 class MainWindowController: NSWindowController, NSWindowDelegate {
     private var splitViewController: MainSplitViewController?
@@ -14,7 +20,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     private var uiState: UIStateAtom?
     private weak var worktreeToolbarButton: SidebarToolbarButton?
     private weak var inboxToolbarButton: SidebarToolbarButton?
-    private weak var inboxToolbarBellDot: NSView?
+    private var inboxToolbarBadgeHostingView: NSHostingView<UnreadCountBadge>?
     private var isObservingInboxUnread = false
     private var isObservingSidebarSurface = false
     private var awaitsLaunchRestoreResize = false
@@ -170,7 +176,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             action: #selector(showInboxSidebarAction)
         )
         self.inboxToolbarButton = inboxButton
-        installInboxUnreadDot(on: inboxButton)
+        installInboxUnreadBadge(on: inboxButton)
 
         // Stack buttons horizontally with standard titlebar spacing
         let stack = NSStackView(views: [worktreeButton, inboxButton])
@@ -273,21 +279,48 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    private func installInboxUnreadDot(on button: NSButton) {
-        let dot = NSView(frame: NSRect(x: 24, y: 18, width: 6, height: 6))
-        dot.identifier = NSUserInterfaceItemIdentifier("inboxToolbarBellDot")
-        dot.wantsLayer = true
-        dot.layer?.backgroundColor = NSColor.systemRed.cgColor
-        dot.layer?.cornerRadius = 3
-        dot.autoresizingMask = [.minXMargin, .minYMargin]
-        button.addSubview(dot)
-        inboxToolbarBellDot = dot
-        updateInboxUnreadDot()
+    private func installInboxUnreadBadge(on button: NSButton) {
+        let badgeAnchor = NSView()
+        badgeAnchor.identifier = NSUserInterfaceItemIdentifier("inboxToolbarBadgeAnchor")
+        badgeAnchor.translatesAutoresizingMaskIntoConstraints = false
+        button.addSubview(badgeAnchor)
+
+        let badge = NSHostingView(rootView: UnreadCountBadge(text: "1"))
+        badge.identifier = NSUserInterfaceItemIdentifier("inboxToolbarUnreadBadge")
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        badge.isHidden = true
+        badge.setContentHuggingPriority(.required, for: .horizontal)
+        badge.setContentHuggingPriority(.required, for: .vertical)
+        button.addSubview(badge)
+        NSLayoutConstraint.activate([
+            badgeAnchor.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+            badgeAnchor.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+            badgeAnchor.widthAnchor.constraint(equalToConstant: AppStyles.Shell.Sidebar.badgeHitboxSize),
+            badgeAnchor.heightAnchor.constraint(equalToConstant: AppStyles.Shell.Sidebar.badgeHitboxSize),
+            badge.topAnchor.constraint(
+                equalTo: badgeAnchor.topAnchor,
+                constant: -AppStyles.Shell.Sidebar.badgeOffset
+            ),
+            badge.trailingAnchor.constraint(
+                equalTo: badgeAnchor.trailingAnchor,
+                constant: AppStyles.Shell.Sidebar.badgeOffset
+            ),
+        ])
+        inboxToolbarBadgeHostingView = badge
+        updateInboxUnreadBadge()
         observeInboxUnreadCount()
     }
 
-    private func updateInboxUnreadDot() {
-        inboxToolbarBellDot?.isHidden = (inboxAtom?.globalUnreadCount ?? 0) == 0
+    private func updateInboxUnreadBadge() {
+        let unreadCount = inboxAtom?.globalUnreadCount ?? 0
+        guard unreadCount > 0 else {
+            inboxToolbarBadgeHostingView?.isHidden = true
+            return
+        }
+        inboxToolbarBadgeHostingView?.rootView = UnreadCountBadge(
+            text: InboxToolbarUnreadBadgeText.text(for: unreadCount)
+        )
+        inboxToolbarBadgeHostingView?.isHidden = false
     }
 
     private func observeInboxUnreadCount() {
@@ -299,7 +332,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             Task { @MainActor [weak self] in
                 guard let self else { return }
                 self.isObservingInboxUnread = false
-                self.updateInboxUnreadDot()
+                self.updateInboxUnreadBadge()
                 self.observeInboxUnreadCount()
             }
         }

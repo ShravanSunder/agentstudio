@@ -169,11 +169,14 @@ struct PaneLeafContainer: View {
             }
         )
 
-        let paneInboxIds = [paneHost.id] + (drawer?.paneIds ?? [])
+        let paneInboxScope = PaneInboxScopeResolver.resolve(
+            anchorPaneId: paneHost.id,
+            pane: { store.paneAtom.pane($0) }
+        )
         let hostedActions =
             paneInboxPresentation?.trailingActions(
-                parentPaneId: paneHost.id,
-                paneIds: paneInboxIds,
+                parentPaneId: paneInboxScope.parentPaneId,
+                paneIds: paneInboxScope.paneIds,
                 baseTrailingActions: trailingActions,
                 inboxPopoverPresented: $paneInboxPopoverOpen
             ) ?? trailingActions
@@ -181,20 +184,36 @@ struct PaneLeafContainer: View {
         baseDrawerOverlay(drawer: drawer, trailingActions: hostedActions)
             .onChange(of: paneInboxPresentation?.pendingRequest()?.id) { _, _ in
                 guard let request = paneInboxPresentation?.pendingRequest() else { return }
-                guard request.parentPaneId == paneHost.id else { return }
-                guard request.paneIds == paneInboxIds else { return }
+                guard
+                    request.matches(
+                        parentPaneId: paneInboxScope.parentPaneId,
+                        paneIds: paneInboxScope.paneIds
+                    )
+                else { return }
                 switch request.intent {
                 case .open:
                     paneInboxPopoverOpen = true
-                    paneInboxPresentation?.setPresented(paneHost.id, paneInboxIds, true)
+                    paneInboxPresentation?.setPresented(
+                        paneInboxScope.parentPaneId,
+                        paneInboxScope.paneIds,
+                        true
+                    )
                 case .close:
                     paneInboxPopoverOpen = false
-                    paneInboxPresentation?.setPresented(paneHost.id, paneInboxIds, false)
+                    paneInboxPresentation?.setPresented(
+                        paneInboxScope.parentPaneId,
+                        paneInboxScope.paneIds,
+                        false
+                    )
                 }
                 paneInboxPresentation?.clearRequest(request)
             }
             .onChange(of: paneInboxPopoverOpen) { _, isPresented in
-                paneInboxPresentation?.setPresented(paneHost.id, paneInboxIds, isPresented)
+                paneInboxPresentation?.setPresented(
+                    paneInboxScope.parentPaneId,
+                    paneInboxScope.paneIds,
+                    isPresented
+                )
             }
     }
 

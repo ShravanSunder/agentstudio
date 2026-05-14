@@ -42,6 +42,11 @@ struct TerminalActivitySnapshot: Equatable, Sendable {
     var secureInputActive: Bool
     var recentURLRequests: [TerminalURLRequest]
     var outputBurst: TerminalOutputBurstState
+    var scrollbarState: ScrollbarState?
+
+    var isPinnedToBottom: Bool {
+        scrollbarState?.isPinnedToBottom == true
+    }
 
     init(paneId: UUID) {
         self.paneId = paneId
@@ -50,6 +55,7 @@ struct TerminalActivitySnapshot: Equatable, Sendable {
         self.secureInputActive = false
         self.recentURLRequests = []
         self.outputBurst = .unknown
+        self.scrollbarState = nil
     }
 }
 
@@ -60,11 +66,11 @@ struct TerminalActivitySnapshot: Equatable, Sendable {
 final class TerminalActivityAtom {
     private(set) var snapshotsByPaneId: [UUID: TerminalActivitySnapshot] = [:]
 
-    private let outputBurstThreshold: Int
+    let outputBurstThreshold: Int
     private let recentURLLimit: Int
 
     init(
-        outputBurstThreshold: Int = 30,
+        outputBurstThreshold: Int = AppPolicies.InboxNotification.terminalActivityOutputBurstThresholdRows,
         recentURLLimit: Int = 10
     ) {
         self.outputBurstThreshold = max(1, outputBurstThreshold)
@@ -97,6 +103,7 @@ final class TerminalActivityAtom {
                 to: &snapshot
             )
         case .scrollbarChanged(let state):
+            snapshot.scrollbarState = state
             snapshot.outputBurst = nextOutputBurstState(
                 current: snapshot.outputBurst,
                 newTotal: state.total

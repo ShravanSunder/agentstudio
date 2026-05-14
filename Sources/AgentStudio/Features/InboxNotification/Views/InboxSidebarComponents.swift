@@ -4,6 +4,7 @@ struct InboxSidebarActions {
     let onEscape: @MainActor @Sendable () -> Void
     let onToggleSort: () -> Void
     let onClearFilter: () -> Void
+    let onClearReadHistory: () -> Void
     let onSelectGrouping: (InboxNotificationGrouping) -> Void
     let onToggleGroupCollapse: (String) -> Void
     let onMoveGroupBoundary: (InboxNotificationListNavigationDirection) -> Bool
@@ -72,6 +73,7 @@ struct InboxSidebarRootContainer: View {
             InboxSidebarHeader(
                 searchText: $searchText,
                 activeFilter: activeFilter,
+                activeFilterLabel: activeFilterLabel,
                 sort: sort,
                 groupingMenuOpen: $groupingMenuOpen,
                 grouping: grouping,
@@ -89,16 +91,38 @@ struct InboxSidebarRootContainer: View {
             )
         }
     }
+
+    private var activeFilterLabel: String? {
+        guard let activeFilter else { return nil }
+        return sections
+            .lazy
+            .flatMap(\.notifications)
+            .compactMap { notification in
+                InboxNotificationSourceDisplay(notification: notification).filterLabel(for: activeFilter)
+            }
+            .first ?? fallbackFilterLabel(for: activeFilter)
+    }
+
+    private func fallbackFilterLabel(for filter: InboxFilter) -> String {
+        switch filter {
+        case .worktree:
+            return "Filtered worktree"
+        case .repo:
+            return "Filtered repo"
+        }
+    }
 }
 
 struct InboxSidebarHeader: View {
     @Binding var searchText: String
     let activeFilter: InboxFilter?
+    let activeFilterLabel: String?
     let sort: InboxNotificationSort
     @Binding var groupingMenuOpen: Bool
     let grouping: InboxNotificationGrouping
     let focusedField: FocusState<InboxFocus?>.Binding
     let actions: InboxSidebarActions
+    private let clearReadInboxSpec = AppCommand.clearReadInboxNotifications.definition
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -123,6 +147,7 @@ struct InboxSidebarHeader: View {
                     Image(systemName: sort == .newestFirst ? "arrow.down.to.line" : "arrow.up.to.line")
                 }
                 .buttonStyle(.borderless)
+                .help("Toggle inbox sort")
 
                 Button {
                     groupingMenuOpen.toggle()
@@ -130,6 +155,7 @@ struct InboxSidebarHeader: View {
                     Image(systemName: "line.3.horizontal.decrease.circle")
                 }
                 .buttonStyle(.borderless)
+                .help("Group inbox notifications")
                 .popover(isPresented: $groupingMenuOpen) {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(InboxNotificationGrouping.allCases, id: \.self) { candidate in
@@ -148,12 +174,19 @@ struct InboxSidebarHeader: View {
                     }
                     .padding(8)
                 }
+
+                Button(action: actions.onClearReadHistory) {
+                    clearReadInboxSpec.icon.swiftUIImage()
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel(clearReadInboxSpec.label)
+                .help(clearReadInboxSpec.controlToolTip)
             }
 
             if let activeFilter {
                 HStack(spacing: 6) {
                     Image(systemName: "line.3.horizontal.decrease.circle")
-                    Text(filterLabel(activeFilter))
+                    Text(activeFilterLabel ?? fallbackFilterLabel(activeFilter))
                         .lineLimit(1)
                     Button(action: actions.onClearFilter) {
                         Image(systemName: "xmark.circle.fill")
@@ -180,12 +213,12 @@ struct InboxSidebarHeader: View {
         }
     }
 
-    private func filterLabel(_ filter: InboxFilter) -> String {
+    private func fallbackFilterLabel(_ filter: InboxFilter) -> String {
         switch filter {
-        case .worktree(let id):
-            return "Worktree \(id.uuidString.prefix(8))"
-        case .repo(let id):
-            return "Repo \(id.uuidString.prefix(8))"
+        case .worktree:
+            return "Filtered worktree"
+        case .repo:
+            return "Filtered repo"
         }
     }
 }
@@ -236,24 +269,33 @@ struct InboxSidebarNotificationRow: View {
     let focusedField: FocusState<InboxFocus?>.Binding
     let isFlashing: Bool
     let actions: InboxSidebarActions
+    @State private var isHovering = false
 
     var body: some View {
-        InboxRow(notification: notification, now: now)
-            .focused(focusedField, equals: .row(notification.id))
-            .contentShape(Rectangle())
-            .background(isFlashing ? Color.accentColor.opacity(0.18) : Color.clear)
-            .animation(.easeOut(duration: 0.25), value: isFlashing)
-            .onTapGesture {
-                actions.onActivate(notification)
-            }
-            .onKeyPress(.return) {
-                guard focusedField.wrappedValue == .row(notification.id) else { return .ignored }
-                return handleRowKey(.return)
-            }
-            .onKeyPress(.space) {
-                guard focusedField.wrappedValue == .row(notification.id) else { return .ignored }
-                return handleRowKey(.space)
-            }
+        SidebarRowShell(
+            isFlashing: isFlashing,
+            isHovering: isHovering
+        ) {
+            InboxRow(
+                notification: notification,
+                now: now,
+                rowContext: .globalInbox
+            )
+        }
+        .focused(focusedField, equals: .row(notification.id))
+        .animation(.easeOut(duration: 0.25), value: isFlashing)
+        .onHover { isHovering = $0 }
+        .onTapGesture {
+            actions.onActivate(notification)
+        }
+        .onKeyPress(.return) {
+            guard focusedField.wrappedValue == .row(notification.id) else { return .ignored }
+            return handleRowKey(.return)
+        }
+        .onKeyPress(.space) {
+            guard focusedField.wrappedValue == .row(notification.id) else { return .ignored }
+            return handleRowKey(.space)
+        }
     }
 
     private func handleRowKey(_ key: KeyEquivalent) -> KeyPress.Result {

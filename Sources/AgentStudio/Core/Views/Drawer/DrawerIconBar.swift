@@ -212,27 +212,11 @@ struct DrawerIconBar: View {
                                         action: onOpenInbox
                                     )
                                     .overlay(alignment: .topTrailing) {
-                                        if trailingActions.inboxUnreadCount > 0 {
-                                            Text("\(trailingActions.inboxUnreadCount)")
-                                                .font(
-                                                    .system(
-                                                        size: AppStyles.Components.PaneInbox.unreadBadgeFontSize,
-                                                        weight: .semibold
-                                                    )
-                                                )
-                                                .padding(
-                                                    .horizontal,
-                                                    AppStyles.Components.PaneInbox.unreadBadgeHorizontalPadding
-                                                )
-                                                .padding(
-                                                    .vertical,
-                                                    AppStyles.Components.PaneInbox.unreadBadgeVerticalPadding
-                                                )
-                                                .background(Capsule().fill(.red))
-                                                .foregroundStyle(.white)
+                                        if let inboxUnreadBadge = trailingActions.inboxUnreadBadge {
+                                            UnreadCountBadge(text: inboxUnreadBadge.text)
                                                 .offset(
-                                                    x: AppStyles.Components.PaneInbox.unreadBadgeOffset,
-                                                    y: -AppStyles.Components.PaneInbox.unreadBadgeOffset
+                                                    x: AppStyles.Components.NotificationBadge.offset,
+                                                    y: -AppStyles.Components.NotificationBadge.offset
                                                 )
                                         }
                                     }
@@ -268,7 +252,7 @@ struct DrawerIconBar: View {
                 GeometryReader { geo in
                     Color.clear.preference(
                         key: DrawerIconBarFrameKey.self,
-                        value: geo.frame(in: .global)
+                        value: geo.frame(in: .named("tabContainer"))
                     )
                 }
             )

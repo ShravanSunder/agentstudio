@@ -157,11 +157,10 @@ struct InboxNotificationListModel: Equatable {
         guard !trimmedQuery.isEmpty else { return notifications }
 
         return notifications.filter { notification in
-            notification.title.lowercased().contains(trimmedQuery)
-                || (notification.body ?? "").lowercased().contains(trimmedQuery)
-                || (notification.repoName ?? "").lowercased().contains(trimmedQuery)
-                || (notification.worktreeName ?? "").lowercased().contains(trimmedQuery)
-                || (notification.branchName ?? "").lowercased().contains(trimmedQuery)
+            InboxNotificationSourceDisplay(notification: notification)
+                .searchText
+                .lowercased()
+                .contains(trimmedQuery)
         }
     }
 
@@ -189,7 +188,7 @@ struct InboxNotificationListModel: Equatable {
                     if let repoName = notification.repoName { return .repoName(repoName) }
                     return .noRepo
                 },
-                label: { $0.repoName ?? "Unknown Repo" },
+                label: { InboxNotificationSourceDisplay(notification: $0).groupLabel(for: grouping) ?? "Workspace" },
                 collapsedGroups: collapsedGroups
             )
         case .byPane:
@@ -199,7 +198,7 @@ struct InboxNotificationListModel: Equatable {
                     guard let paneId = notification.paneId else { return .noPane }
                     return .pane(id: paneId)
                 },
-                label: { $0.worktreeName ?? $0.branchName ?? "Unknown Pane" },
+                label: { InboxNotificationSourceDisplay(notification: $0).groupLabel(for: grouping) ?? "Pane" },
                 collapsedGroups: collapsedGroups
             )
         case .byTab:
@@ -209,10 +208,7 @@ struct InboxNotificationListModel: Equatable {
                     guard let tabId = notification.tabId else { return .noTab }
                     return .tab(id: tabId)
                 },
-                label: { notification in
-                    guard let tabId = notification.tabId else { return "Unknown Tab" }
-                    return "Tab \(tabId.uuidString.prefix(8))"
-                },
+                label: { InboxNotificationSourceDisplay(notification: $0).groupLabel(for: grouping) ?? "Workspace" },
                 collapsedGroups: collapsedGroups
             )
         }

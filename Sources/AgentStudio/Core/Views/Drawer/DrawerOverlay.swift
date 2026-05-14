@@ -13,7 +13,7 @@ struct DrawerOverlay: View {
         let onOpenInbox: (() -> Void)?
         let inboxPopoverPresented: Binding<Bool>
         let inboxPopoverContent: AnyView?
-        let inboxUnreadCount: Int
+        let inboxUnreadBadge: PaneInboxUnreadBadge?
 
         init(
             canOpenTarget: Bool,
@@ -24,7 +24,7 @@ struct DrawerOverlay: View {
             onOpenInbox: (() -> Void)? = nil,
             inboxPopoverPresented: Binding<Bool> = .constant(false),
             inboxPopoverContent: AnyView? = nil,
-            inboxUnreadCount: Int = 0
+            inboxUnreadBadge: PaneInboxUnreadBadge? = nil
         ) {
             self.canOpenTarget = canOpenTarget
             self.editorMenuContent = editorMenuContent
@@ -34,7 +34,7 @@ struct DrawerOverlay: View {
             self.onOpenInbox = onOpenInbox
             self.inboxPopoverPresented = inboxPopoverPresented
             self.inboxPopoverContent = inboxPopoverContent
-            self.inboxUnreadCount = inboxUnreadCount
+            self.inboxUnreadBadge = inboxUnreadBadge
         }
     }
 

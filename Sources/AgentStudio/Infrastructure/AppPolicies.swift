@@ -2,8 +2,17 @@ import CoreGraphics
 import Foundation
 
 enum AppPolicies {
+    enum Diagnostics {
+        static let traceEventQueueBufferLimit: Int = 4096
+    }
+
     enum SelectablePopover {
         static let maxNumberedShortcuts: Int = 9
+    }
+
+    enum PaneInbox {
+        static let maxVisibleNotifications: Int = 25
+        static let unreadBadgeDisplayLimit: Int = 9
     }
 
     enum WorkspaceFocus {
@@ -21,9 +30,14 @@ enum AppPolicies {
         static let maxRPCPostsPerWindow: Int = 20
         static let rpcPostRateLimitWindowSeconds: TimeInterval = 60
 
-        /// Minimum command duration before an unfocused command-finished event
+        /// Minimum command duration before a command-finished event
         /// is promoted into inbox history.
-        static let commandFinishedMinDurationSeconds: UInt64 = 10
+        static let commandFinishedMinDurationNanoseconds: UInt64 = 10_000_000_000
+        /// Durations beyond one week are treated as corrupt runtime payloads.
+        static let commandFinishedMaxTrustedDurationNanoseconds: UInt64 = 604_800_000_000_000
+        static let terminalActivityOutputBurstThresholdRows: Int = 30
+        static let terminalActivityQuietDebounceDuration: Duration = .milliseconds(750)
+        static let terminalActivitySessionIdleTimeoutDuration: Duration = .seconds(300)
     }
 
     /// Drag-and-drop behavioral rules. These are decisions about HOW the

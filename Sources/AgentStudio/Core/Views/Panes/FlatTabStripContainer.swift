@@ -23,6 +23,7 @@ struct FlatTabStripContainer: View {
     @State private var dropTargetMouseUpMonitor: Any?
     @State private var drawerPaneFramesInDrawer: [UUID: CGRect] = [:]
     @State private var drawerPanelFrameInTab: CGRect = .zero
+    @State private var drawerDismissCoordinateView: NSView?
     @State private var drawerDropTarget: DrawerRearrangeTarget?
     @State private var drawerDropTargetMouseUpMonitor: Any?
     /// Active drag's source pane id, published by either capture
@@ -85,6 +86,7 @@ struct FlatTabStripContainer: View {
     var body: some View {
         GeometryReader { tabGeometry in
             let containerBounds = CGRect(origin: .zero, size: tabGeometry.size)
+            let isInactivePersistentTab = store.tabLayoutAtom.activeTabId != tabId
             let showMinimizedBars = managementLayer.isActive || atom(\.uiState).showMinimizedBars
             let effectiveCollapsedWidth: CGFloat = showMinimizedBars ? CollapsedPaneBar.barWidth : 0
             let expandedDrawerParentPaneId = DrawerDragOwnershipPolicy.expandedDrawerParentPaneId(
@@ -165,6 +167,7 @@ struct FlatTabStripContainer: View {
                         viewRegistry: viewRegistry,
                         coordinateSpaceName: "tabContainer",
                         useDrawerFramePreference: false,
+                        isInactivePersistentTab: isInactivePersistentTab,
                         paneInboxPresentation: paneInboxPresentation,
                         onOpenPaneGitHub: onOpenPaneGitHub
                     )
@@ -187,6 +190,7 @@ struct FlatTabStripContainer: View {
                     paneInboxPresentation: paneInboxPresentation,
                     onOpenPaneGitHub: onOpenPaneGitHub,
                     drawerDropTarget: drawerDropTarget,
+                    dismissCoordinateView: drawerDismissCoordinateView,
                     dragSourcePaneId: activeDragSourcePaneId
                 )
 
@@ -217,6 +221,14 @@ struct FlatTabStripContainer: View {
 
                 tabLevelDrawerCapture(expandedDrawerParentPaneId: expandedDrawerParentPaneId)
             }
+            .background(
+                DrawerDismissCoordinateSpaceBridge { view in
+                    if drawerDismissCoordinateView !== view {
+                        drawerDismissCoordinateView = view
+                    }
+                }
+                .allowsHitTesting(false)
+            )
             .onPreferenceChange(PaneFramePreferenceKey.self) { paneFrames = $0 }
             .onPreferenceChange(DrawerIconBarFrameKey.self) { iconBarFrame = $0 }
             .onPreferenceChange(DrawerPaneFramePreferenceKey.self) { drawerPaneFramesInDrawer = $0 }

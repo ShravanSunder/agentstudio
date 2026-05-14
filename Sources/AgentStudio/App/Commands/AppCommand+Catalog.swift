@@ -578,6 +578,15 @@ extension AppCommand {
                 commandBarGroupName: "Window",
                 commandBarGroupPriority: CommandBarGroupPriority.window
             )
+        case .clearReadInboxNotifications:
+            return CommandSpec(
+                command: self,
+                label: "Clear Read Inbox Notifications",
+                icon: .system(.trash),
+                helpText: "Remove read notifications from the inbox history",
+                commandBarGroupName: "Inbox",
+                commandBarGroupPriority: CommandBarGroupPriority.window
+            )
         case .showPaneInboxNotifications:
             return CommandSpec(
                 command: self,
@@ -585,6 +594,17 @@ extension AppCommand {
                 label: "Toggle Pane Inbox",
                 icon: .system(.bellBadge),
                 helpText: "Show notifications for the active pane and its drawer children",
+                appliesTo: [.pane],
+                visibleWhen: [.hasActivePane],
+                commandBarGroupName: "Pane",
+                commandBarGroupPriority: CommandBarGroupPriority.pane
+            )
+        case .clearPaneInboxNotifications:
+            return CommandSpec(
+                command: self,
+                label: "Mark Pane Inbox Seen",
+                icon: .system(.eye),
+                helpText: "Mark notifications for the active pane and its drawer children as seen",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",

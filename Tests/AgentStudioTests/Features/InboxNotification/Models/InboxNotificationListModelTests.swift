@@ -13,6 +13,9 @@ struct InboxNotificationListModelTests {
         var worktreeId: UUID?
         var worktreeName: String?
         var branchName: String?
+        var tabDisplayLabel: String?
+        var paneDisplayLabel: String?
+        var runtimeDisplayLabel: String?
     }
 
     private func makeInboxNotification(
@@ -27,6 +30,9 @@ struct InboxNotificationListModelTests {
         worktreeId: UUID? = nil,
         worktreeName: String? = nil,
         branchName: String? = nil,
+        tabDisplayLabel: String? = nil,
+        paneDisplayLabel: String? = nil,
+        runtimeDisplayLabel: String? = nil,
         isRead: Bool = false
     ) -> InboxNotification {
         InboxNotification(
@@ -43,7 +49,10 @@ struct InboxNotificationListModelTests {
                     repoName: repoName,
                     worktreeId: worktreeId,
                     worktreeName: worktreeName,
-                    branchName: branchName
+                    branchName: branchName,
+                    tabDisplayLabel: tabDisplayLabel,
+                    paneDisplayLabel: paneDisplayLabel,
+                    runtimeDisplayLabel: runtimeDisplayLabel
                 )
             ),
             isRead: isRead,
@@ -56,6 +65,8 @@ struct InboxNotificationListModelTests {
             context.paneId != nil || context.tabId != nil || context.repoId != nil
                 || context.repoName != nil || context.worktreeId != nil
                 || context.worktreeName != nil || context.branchName != nil
+                || context.tabDisplayLabel != nil || context.paneDisplayLabel != nil
+                || context.runtimeDisplayLabel != nil
         else {
             return .global
         }
@@ -63,11 +74,14 @@ struct InboxNotificationListModelTests {
             .init(
                 paneId: context.paneId ?? UUID(),
                 tabId: context.tabId,
+                tabDisplayLabel: context.tabDisplayLabel,
                 repoId: context.repoId,
                 repoName: context.repoName,
                 worktreeId: context.worktreeId,
                 worktreeName: context.worktreeName,
-                branchName: context.branchName
+                branchName: context.branchName,
+                paneDisplayLabel: context.paneDisplayLabel,
+                runtimeDisplayLabel: context.runtimeDisplayLabel
             )
         )
     }
@@ -155,8 +169,8 @@ struct InboxNotificationListModelTests {
         #expect(model.sections.flatMap(\.notifications).map(\.id) == [matching.id])
     }
 
-    @Test("missing source names are not synthesized from ids")
-    func missingSourceNamesAreNotSynthesizedFromIds() {
+    @Test("missing repo names use pane label instead of UUID prefix")
+    func missingRepoNamesUsePaneLabelInsteadOfUUIDPrefix() {
         let repoId = UUID()
         let worktreeId = UUID()
         let notification = makeInboxNotification(
@@ -177,7 +191,54 @@ struct InboxNotificationListModelTests {
         )
 
         #expect(model.sections.map(\.id) == ["repo:\(repoId.uuidString)"])
-        #expect(model.sections.map(\.label) == ["Unknown Repo"])
+        #expect(model.sections.map(\.label) == ["Pane"])
+        #expect(
+            model.sections.map(\.label).contains { label in
+                label?.contains(repoId.uuidString.prefix(8)) == true
+            } == false)
+    }
+
+    @Test("by tab grouping uses tab display label instead of UUID prefix")
+    func byTabGroupingUsesTabDisplayLabel() {
+        let tabId = UUID()
+        let notification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Claude Code",
+            paneId: UUID(),
+            tabId: tabId,
+            tabDisplayLabel: "Work",
+            paneDisplayLabel: "Claude"
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [notification],
+            grouping: .byTab,
+            sort: .oldestFirst,
+            searchText: ""
+        )
+
+        #expect(model.sections.map(\.id) == [tabId.uuidString])
+        #expect(model.sections.map(\.label) == ["Work"])
+    }
+
+    @Test("search uses source display text")
+    func searchUsesSourceDisplayText() {
+        let notification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Done",
+            tabDisplayLabel: "Work",
+            paneDisplayLabel: "Gemini",
+            runtimeDisplayLabel: "Terminal"
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [notification],
+            grouping: .none,
+            sort: .oldestFirst,
+            searchText: "gemini"
+        )
+
+        #expect(model.sections.flatMap(\.notifications).map(\.id) == [notification.id])
     }
 
     @Test("collapsed grouped sections keep unread counts but hide rows")

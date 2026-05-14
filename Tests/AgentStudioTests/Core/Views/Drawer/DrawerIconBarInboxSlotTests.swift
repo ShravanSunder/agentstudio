@@ -6,7 +6,7 @@ import Testing
 @MainActor
 @Suite("DrawerIconBar inbox slot")
 struct DrawerIconBarInboxSlotTests {
-    @Test("trailing actions carry optional inbox callback and unread count")
+    @Test("trailing actions carry optional inbox callback and unread badge")
     func trailingActionsCarryInboxConfiguration() {
         var didOpenInbox = false
         let actions = makeTrailingActions(
@@ -16,10 +16,16 @@ struct DrawerIconBarInboxSlotTests {
             }
         )
 
-        #expect(actions.inboxUnreadCount == 3)
+        #expect(actions.inboxUnreadBadge?.text == "3")
         #expect(actions.inboxPopoverContent == nil)
         actions.onOpenInbox?()
         #expect(didOpenInbox)
+    }
+
+    @Test("pane inbox unread badge uses compact overflow text")
+    func paneInboxUnreadBadgeUsesCompactOverflowText() {
+        #expect(PaneInboxUnreadBadge(unreadCount: AppPolicies.PaneInbox.unreadBadgeDisplayLimit)?.text == "9")
+        #expect(PaneInboxUnreadBadge(unreadCount: 10)?.text == "9+")
     }
 
     @Test("icon bar accepts trailing inbox action configuration")
@@ -47,7 +53,7 @@ struct DrawerIconBarInboxSlotTests {
             buttonTitle: "Cursor",
             onOpenFinder: {},
             onOpenInbox: onOpenInbox,
-            inboxUnreadCount: inboxUnreadCount
+            inboxUnreadBadge: PaneInboxUnreadBadge(unreadCount: inboxUnreadCount)
         )
     }
 }

@@ -10,6 +10,22 @@ struct PaneInboxRequest: Equatable, Identifiable {
     let parentPaneId: UUID
     let paneIds: [UUID]
     let intent: PaneInboxRequestIntent
+
+    func matches(parentPaneId: UUID, paneIds: [UUID]) -> Bool {
+        self.parentPaneId == parentPaneId && Set(self.paneIds) == Set(paneIds)
+    }
+}
+
+struct PaneInboxUnreadBadge: Equatable {
+    let text: String
+
+    init?(
+        unreadCount: Int,
+        visibleLimit: Int = AppPolicies.PaneInbox.unreadBadgeDisplayLimit
+    ) {
+        guard unreadCount > 0 else { return nil }
+        text = unreadCount > visibleLimit ? "\(visibleLimit)+" : "\(unreadCount)"
+    }
 }
 
 /// Core receives primitive counts, callbacks, and type-erased popover content;
@@ -17,12 +33,14 @@ struct PaneInboxRequest: Equatable, Identifiable {
 @MainActor
 struct PaneInboxPresentation {
     let unreadCount: @MainActor ([UUID]) -> Int
+    let clear: @MainActor (UUID, [UUID]) -> Void
     let open: @MainActor (UUID, [UUID]) -> Void
     let toggle: @MainActor (UUID, [UUID]) -> Void
     let setPresented: @MainActor (UUID, [UUID], Bool) -> Void
     let pendingRequest: @MainActor () -> PaneInboxRequest?
     let clearRequest: @MainActor (PaneInboxRequest) -> Void
-    let popoverContent: @MainActor ([UUID], @escaping @MainActor @Sendable () -> Void) -> AnyView
+    let popoverContent: @MainActor (UUID, [UUID], @escaping @MainActor @Sendable () -> Void) -> AnyView
+    let pruneFilterModes: @MainActor (Set<UUID>) -> Void
 
     func trailingActions(
         parentPaneId: UUID,
@@ -39,10 +57,11 @@ struct PaneInboxPresentation {
             onOpenInbox: { toggle(parentPaneId, paneIds) },
             inboxPopoverPresented: inboxPopoverPresented,
             inboxPopoverContent: popoverContent(
+                parentPaneId,
                 paneIds,
                 { inboxPopoverPresented.wrappedValue = false }
             ),
-            inboxUnreadCount: unreadCount(paneIds)
+            inboxUnreadBadge: PaneInboxUnreadBadge(unreadCount: unreadCount(paneIds))
         )
     }
 }

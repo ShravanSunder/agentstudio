@@ -1,5 +1,11 @@
 import Foundation
 import SwiftUI
+import os.log
+
+private let inboxNotificationSidebarLogger = Logger(
+    subsystem: "com.agentstudio",
+    category: "InboxNotificationSidebarView"
+)
 
 private struct InboxNotificationListModelKey: Equatable {
     let notifications: [InboxNotification]
@@ -89,6 +95,7 @@ struct InboxNotificationSidebarView: View {
                 onEscape: handleEscape,
                 onToggleSort: toggleSort,
                 onClearFilter: clearFilter,
+                onClearReadHistory: { inboxAtom.clearReadHistory() },
                 onSelectGrouping: { prefsAtom.setGrouping($0) },
                 onToggleGroupCollapse: toggleGroupCollapse,
                 onMoveGroupBoundary: moveFocusToGroupBoundary,
@@ -200,8 +207,13 @@ struct InboxNotificationSidebarView: View {
     }
 
     private func activate(_ notification: InboxNotification) {
-        inboxAtom.markRead(id: notification.id)
-        inboxAtom.dismissFromPaneInbox(id: notification.id)
+        let didMarkRead = inboxAtom.markRead(id: notification.id)
+        let didDismiss = inboxAtom.dismissFromPaneInbox(id: notification.id)
+        if !didMarkRead || !didDismiss {
+            inboxNotificationSidebarLogger.warning(
+                "Inbox activation used stale notification id \(notification.id.uuidString, privacy: .public)"
+            )
+        }
 
         switch InboxSidebarActivationResolver.resolve(
             notification: notification,
