@@ -366,10 +366,16 @@ I3. The default arrangement contains ALL of tab.allPaneIds in its
 I4. arrangement.minimizedPaneIds is a subset of arrangement.layout.paneIds.
 I5. arrangement.activePaneId, when non-nil, is a member of
     arrangement.layout.paneIds.
-I6. For every pane P in tab.allPaneIds where P has a drawer:
+I6. For every pane P in tab.allPaneIds where P has a NON-EMPTY
+    drawer (P.drawer.paneIds is not empty):
       every arrangement.drawerViews must contain an entry for
       P.drawer.drawerId. The drawer view's layout contains all
-      drawerPaneIds.
+      drawer.paneIds.
+    For panes with EMPTY drawers (paneIds.isEmpty):
+      no arrangement contains a drawerViews entry for them
+      (per Q4 — empty drawers have no per-arrangement view state;
+       the only meaningful state is Drawer.isExpanded which is
+       global on the Drawer struct).
 I7. drawerView.minimizedPaneIds is a subset of drawerView.layout.paneIds.
 I8. drawerView.activeChildId, when non-nil, is a member of
     drawerView.layout.paneIds.
@@ -558,14 +564,60 @@ remove main pane from tab
   chooseNewActivePaneId(arr) selection rule (covers all edge cases):
     1. if arr.layout.paneIds is empty:
          return nil  (layout has no panes; tab is conceptually empty
-                      until next add; UI shows empty-tab state)
+                      until next add; UI shows empty-tab placeholder
+                      — see §10 empty-arrangement UI rule)
     2. else if there is any pane in arr.layout.paneIds NOT in
        arr.minimizedPaneIds:
          return the first such pane (left-to-right in layout)
     3. else (all remaining panes are minimized):
          return arr.layout.paneIds.first
-         (still set activePaneId; UI focus may render against a
-          minimized pane — that's fine, user can unminimize)
+         (still set activePaneId; UI behavior depends on
+          showsMinimizedPanes — see empty-visible rule below)
+
+Empty-visible arrangement rule (Q6 / user decision 2026-05-14):
+
+  When an arrangement renders with zero visible panes — either
+  because layout is empty (rule 1) OR all panes are minimized AND
+  showsMinimizedPanes is false (rule 3 case) — the tab content
+  area shows an empty-arrangement PLACEHOLDER, mirroring the
+  existing empty-drawer hint.
+
+  Authorized shortcut in this state (user-confirmed 2026-05-14):
+
+      P  ──►  add a new pane (analogous to the existing
+              ShortcutContext.emptyDrawer behavior on the empty
+              drawer panel; same shortcut, different context).
+
+  No other shortcuts (minimize, unminimize, switch arrangement,
+  etc.) are added by this spec. Wiring P through AppShortcut /
+  ShortcutContext / AppCommand is implementation detail for the
+  empty-arrangement state — done in PR 1 using the existing
+  contextual-alternate pattern.
+
+  Placeholder shape (illustrative; final copy + count display
+  owned by the tab content view layer):
+
+      ┌──────────────────────────────────────────────┐
+      │                                              │
+      │   (empty-arrangement placeholder)            │
+      │   "Press P to add a pane"                    │
+      │   optional count of minimized panes when     │
+      │   showsMinimizedPanes is false               │
+      │                                              │
+      └──────────────────────────────────────────────┘
+
+  This is NOT a validator-prevented state. Hiding the last visible
+  pane via the showsMinimizedPanes=false toggle (or minimizing the
+  last visible pane) is ALLOWED. The placeholder is a UI affordance,
+  not a guard.
+
+  Owned by the tab content view layer (NOT this spec). This spec
+  just guarantees:
+    - activePaneId computation is well-defined in this case
+    - WorkspaceArrangementViewDerived.activeVisiblePaneIds returns
+      an empty array
+    - the tab is not in a broken state — switching to another tab
+      or unminimizing snaps it back to a normal render
 
 add drawer pane (parent has drawer; was empty OR already populated)
   Drawer.paneIds.append(drawerPaneId)
@@ -862,7 +914,10 @@ Developer workflow: blow away `~/.agentstudio/workspaces/*/
 workspace.state.json` on first run under the new schema. Document
 this in the PR description, not in code.
 
-**Decode error recovery path (explicit):**
+**Decode error recovery path (matches current persistence contract):**
+
+The existing persistence layer already has a corrupt-file recovery
+contract. The spec uses that contract — no new behavior needed.
 
 ```
 WorkspacePersistor.load() reads workspace.state.json
@@ -870,26 +925,37 @@ WorkspacePersistor.load() reads workspace.state.json
 JSONDecoder fails on old-shape fields (e.g. PaneArrangement
 expects "drawerViews" but old file has "visiblePaneIds")
    ↓
-WorkspacePersistor catches DecodingError at the top level
+WorkspacePersistor catches DecodingError and returns
+LoadResult.corrupt(Error)
+(see WorkspacePersistor.swift LoadResult enum — .loaded(T)
+ | .missing | .corrupt(Error))
    ↓
-emits trace: arrangement.decode_failed (cause: "schema_mismatch")
-   ↓
-returns nil from load()
-   ↓
-WorkspaceStore.init falls back to empty workspace:
-  - empty allPaneIds
-  - one default PaneArrangement with empty layout
-  - no panes
+WorkspaceStore.init handles .corrupt:
+  1. calls persistor.quarantineCorruptCanonicalWorkspaceFiles()
+     — moves the broken file aside with a .quarantined-<date>
+        suffix so we don't try to decode it again
+  2. logs the decoding error via workspaceStoreLogger.error(...)
+  3. invokes recoveryReporter callback with
+     PersistenceRecoveryEvent (.store: .workspace, .recovery:
+      .quarantinedAndReset or .quarantineFailed)
+  4. emits trace: arrangement.decode_failed (NEW — see §16.5)
+  5. continues init with empty state:
+     - empty allPaneIds
+     - no panes
+     - tab list will be empty until the first user action
    ↓
 user sees empty workspace on launch (no crash, no error dialog —
-this is dev-stage, expected behavior)
+existing quarantine-and-reset behavior is unchanged)
 ```
 
 In production (post-launch) we'd add a one-shot migration path or
-user-facing notification. For now, dev workflow handles it.
+a user-facing notification through the recoveryReporter. For now,
+dev workflow handles it (and the quarantine preserves the broken
+file for inspection).
 
 Tests in `FreshStateDecodeTests` (§18) cover the failure path:
-old-shape JSON → load() returns nil → init produces empty workspace.
+old-shape JSON → load() returns `.corrupt` → init quarantines +
+empty state + recoveryReporter called + trace emitted.
 
 ## 15. Storage location
 
@@ -1102,22 +1168,65 @@ arrangement.invariant_violation
                                                         //   description
 ```
 
+For persistence boot-path errors (emitted from WorkspaceStore.init
+when LoadResult.corrupt is returned — see §14):
+
+```
+arrangement.decode_failed
+  arrangement.cause = "schema_mismatch" | "json_invalid" |
+                      "file_unreadable" | "unknown"
+  arrangement.workspace_id = UUID?    // nil if id couldn't be
+                                        //   parsed from filename
+  arrangement.quarantine_recovery = "quarantinedAndReset" |
+                                      "quarantineFailed"
+  arrangement.error_description = String  // redacted; one line
+```
+
+This is the only `arrangement.*` record emitted OUTSIDE the
+validate-then-commit pipeline (it fires during persistor load
+at WorkspaceStore.init time, before any commands are dispatched).
+Tests cover it via `FreshStateDecodeTests` (§18).
+
 In DEBUG builds, an invariant violation also fires `assertionFailure`.
 In RELEASE, it logs via the trace + os.Logger.error and does not
 crash. The trace record is the persistent record of what happened.
 
 ### 16.5.3 ServiceContext correlation
 
-When a PaneActionCommand enters `WorkspaceCommandResolver`, it
-generates a fresh `agentStudioCorrelationID` and stashes it on
-`ServiceContext`. All downstream traces (validation, mutation,
-calibration, atom mutation, EventBus emission) inherit this
-correlation ID via `ServiceContext.current`, so the entire command
-lifecycle is traceable end-to-end via a single ID.
+Correlation ID is created at the COMMAND DISPATCH ENTRYPOINT, not
+inside the resolver (which is a static/pure-ish snapshot builder).
+The dispatch entrypoint is `ActionExecutor.execute(_ action:
+PaneActionCommand)` (`App/Commands/ActionExecutor.swift:113`).
+
+```
+ActionExecutor.execute(_ action: PaneActionCommand)
+  ▸ create fresh agentStudioCorrelationID
+  ▸ stash on ServiceContext via withValue { ... }
+  ▸ call resolver.snapshot(...) inside the scope
+  ▸ call validator.validate(...) inside the scope
+  ▸ call coordinator.execute(...) inside the scope
+  ▸ all downstream traces inherit the correlation ID
+```
+
+PaneTabViewController's `dispatchAction(...)` (the other dispatch
+surface, `App/Panes/PaneTabViewController.swift:1655`-ish) MUST
+route through the same ActionExecutor entrypoint so correlation
+is uniform across keyboard, drag, and command-bar inputs. Today
+that's already the path; the spec just adds the
+correlation-stashing wrapper around it.
+
+All downstream traces (validation, mutation, calibration, atom
+mutation, EventBus emission) inherit this correlation ID via
+`ServiceContext.current`, so the entire command lifecycle is
+traceable end-to-end via a single ID.
 
 This matches the pattern used by GitWorkingDirectoryProjector for
 `correlationId` carry-forward (per workspace_data_architecture.md
 § Actor Responsibilities).
+
+Note: WorkspaceCommandResolver is a STATIC enum with
+`snapshot(...)` and other pure functions. It is the wrong place
+for state-creation (correlation ID). Keep resolver pure.
 
 ### 16.5.4 Performance
 
@@ -1204,6 +1313,19 @@ ManagementModeOverrideTests
     showsMinimizedPanes — it returns to the user's preference
   ▸ same applies to drawer's showsMinimizedPanes per drawerView
 
+EmptyArrangementPlaceholderTests (Q6 — model-side only)
+  ▸ arrangement with empty layout → activeVisiblePaneIds == []
+    AND activePaneId == nil
+  ▸ arrangement with all panes minimized AND showsMinimizedPanes
+    == false → activeVisiblePaneIds == [] AND activePaneId is
+    one of the minimized panes (not nil)
+  ▸ same scenario with management mode active → activeVisible-
+    PaneIds == arrangement.layout.paneIds (override restores)
+  ▸ minimizing the LAST visible pane is NOT rejected by the
+    validator (no V-rule prevents it; UI placeholder handles it)
+  ▸ unminimizing a pane in the empty-visible state correctly
+    repopulates activeVisiblePaneIds
+
 CrossTabPaneMoveTests
   ▸ movePaneAcrossTabs strips source ALL arrangements
   ▸ movePaneAcrossTabs adds to destination ALL arrangements
@@ -1253,10 +1375,20 @@ WorkspacePaneAtomDrawerStrippedTests
 FreshStateDecodeTests
   ▸ new schema decodes round-trip cleanly (encode → decode →
     equal)
-  ▸ workspace.state.json with old shape fails to decode →
-    initializer returns empty workspace (no crash)
+  ▸ workspace.state.json with old shape returns LoadResult.corrupt
+    from WorkspacePersistor.load() (not nil — matches existing
+    contract)
+  ▸ WorkspaceStore.init handles .corrupt by:
+      - calling quarantineCorruptCanonicalWorkspaceFiles()
+      - logging via workspaceStoreLogger.error
+      - invoking recoveryReporter with PersistenceRecoveryEvent
+        (.store: .workspace, .recovery: .quarantinedAndReset)
+      - emitting arrangement.decode_failed trace
+      - starting with empty state
   ▸ default values applied correctly for fresh state
     (showsMinimizedPanes=true, drawerViews={}, etc.)
+  ▸ quarantined file is preserved on disk with .quarantined-<ts>
+    suffix (existing persistor behavior — not changed)
 
 ObservabilityTests (split across PR 1 and PR 2)
 
@@ -1270,12 +1402,17 @@ ObservabilityTests (split across PR 1 and PR 2)
       unrecognized)
     ▸ adding a drawer pane emits .calibration_started +
       .calibration_applied with affected_arrangement_count >= 1
-    ▸ correlation_id propagates from received → validated →
-      committed (assert via captured trace records that all share
-      the same agentstudio.correlation_id attribute)
+    ▸ correlation_id originates at ActionExecutor.execute(_:)
+      and propagates from received → validated → committed
+      (assert via captured trace records that all share the same
+      agentstudio.correlation_id attribute)
     ▸ invariant violation in DEBUG fires assertionFailure AND
       emits arrangement.invariant_violation; in RELEASE only
       emits trace
+    ▸ corrupt persisted state emits arrangement.decode_failed at
+      WorkspaceStore.init (NOT inside the command pipeline);
+      correlation_id is null on that record (boot path, no
+      command in flight)
     ▸ tracing default-off: no records emitted unless
       AGENTSTUDIO_TRACE_TAGS includes "arrangement" (or "*")
 
