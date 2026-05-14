@@ -412,7 +412,6 @@ extension PaneCoordinator {
             }
             runtime.removeSession(paneId)
         }
-
         Self.logger.debug("Tore down view for pane \(paneId)")
     }
 
@@ -592,6 +591,9 @@ extension PaneCoordinator {
     /// Startup is staged so the active tab is restored first, then background tabs
     /// are hydrated cooperatively with yields to keep first-interaction latency low.
     func restoreAllViews(in terminalContainerBounds: CGRect? = nil) async {
+        defer {
+            viewRegistry.completeInitialRestore()
+        }
         if let terminalContainerBounds {
             RestoreTrace.log(
                 "restoreAllViews inputBounds=\(NSStringFromRect(terminalContainerBounds))"
@@ -700,9 +702,7 @@ extension PaneCoordinator {
             let paneId = PaneId(uuid: pane.id)
             return visibilityTierResolver.tier(for: paneId) == .p1Hidden ? pane.id : nil
         }
-        let needsHiddenSessionDiscovery =
-            sessionConfig.backgroundRestorePolicy != .off
-            && !hiddenZmxPaneIds.isEmpty
+        let needsHiddenSessionDiscovery = !hiddenZmxPaneIds.isEmpty
         if !needsHiddenSessionDiscovery {
             return []
         }

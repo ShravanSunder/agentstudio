@@ -43,6 +43,7 @@ final class PaneCoordinator {
     let paneEventBus: EventBus<RuntimeEnvelope>
     let runtimeTargetResolver: RuntimeTargetResolver
     let runtimeCommandClock: ContinuousClock
+    let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let filesystemSource: any PaneCoordinatorFilesystemSourceManaging
     let paneFilesystemProjectionStore: PaneFilesystemProjectionAtom
     let windowLifecycleStore: WindowLifecycleAtom
@@ -97,6 +98,7 @@ final class PaneCoordinator {
         runtimeRegistry: RuntimeRegistry,
         paneEventBus: EventBus<RuntimeEnvelope> = PaneRuntimeEventBus.shared,
         runtimeCommandClock: ContinuousClock = ContinuousClock(),
+        closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
         filesystemSource: (any PaneCoordinatorFilesystemSourceManaging)? = nil,
         paneFilesystemProjectionStore: PaneFilesystemProjectionAtom = PaneFilesystemProjectionAtom(),
         windowLifecycleStore: WindowLifecycleAtom
@@ -118,6 +120,7 @@ final class PaneCoordinator {
         self.paneEventBus = paneEventBus
         self.runtimeTargetResolver = RuntimeTargetResolver(workspaceStore: store)
         self.runtimeCommandClock = runtimeCommandClock
+        self.closeTransitionCoordinator = closeTransitionCoordinator
         self.filesystemSource = resolvedFilesystemSource
         self.paneFilesystemProjectionStore = paneFilesystemProjectionStore
         self.windowLifecycleStore = windowLifecycleStore
@@ -343,8 +346,8 @@ final class PaneCoordinator {
                 Self.logger.warning(
                     "Runtime error event received from pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: errorEvent), privacy: .public)"
                 )
-            case .lifecycle, .browser, .diff, .editor, .plugin, .paneFilesystemContext, .artifact, .security,
-                .filesystem:
+            case .lifecycle, .terminalActivity, .browser, .diff, .editor, .agentNotificationRequested, .plugin,
+                .paneFilesystemContext, .artifact, .security, .filesystem:
                 Self.logger.debug(
                     "Runtime event family ignored by coordinator for pane \(sourcePaneId.uuid.uuidString, privacy: .public): \(String(describing: paneEnvelope.event), privacy: .public)"
                 )
@@ -379,7 +382,8 @@ final class PaneCoordinator {
                     source: .newTerminal,
                     targetTabId: sourceTabId,
                     targetPaneId: sourcePaneUUID,
-                    direction: mapSplitDirection(direction)
+                    direction: mapSplitDirection(direction),
+                    sizingMode: .halveTarget
                 )
             )
         case .gotoSplit(let direction):

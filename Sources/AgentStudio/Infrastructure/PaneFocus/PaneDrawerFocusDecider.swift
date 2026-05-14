@@ -15,15 +15,21 @@ enum PaneDrawerFocusDecider {
             )
 
         case .toggle(let parentPaneId):
-            let responderPaneId =
-                if context.activeDrawer?.parentPaneId == parentPaneId {
-                    context.activeDrawer?.paneId ?? parentPaneId
+            let responder: PaneDrawerResponderAction
+            if context.activeDrawer?.parentPaneId == parentPaneId {
+                if let drawerPaneId = context.activeDrawer?.paneId {
+                    responder = .focusPaneHost(paneId: drawerPaneId)
+                } else if context.activeDrawer?.isEmpty == true {
+                    responder = .preserveCurrentResponder
                 } else {
-                    parentPaneId
+                    responder = .focusPaneHost(paneId: parentPaneId)
                 }
+            } else {
+                responder = .focusPaneHost(paneId: parentPaneId)
+            }
             return PaneDrawerFocusDecision(
                 selection: .keep,
-                responder: .focusPaneHost(paneId: responderPaneId),
+                responder: responder,
                 runtime: .preserveRuntimeFocus,
                 reason: .drawerSelectionChanged
             )

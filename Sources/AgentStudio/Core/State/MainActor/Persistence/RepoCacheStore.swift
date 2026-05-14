@@ -7,13 +7,16 @@ private let repoCacheStoreLogger = Logger(subsystem: "com.agentstudio", category
 final class RepoCacheStore {
     private let atom: RepoCacheAtom
     private let persistor: WorkspacePersistor
+    private let recoveryReporter: PersistenceRecoveryReporter?
 
     init(
         atom: RepoCacheAtom,
-        persistor: WorkspacePersistor = WorkspacePersistor()
+        persistor: WorkspacePersistor = WorkspacePersistor(),
+        recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.atom = atom
         self.persistor = persistor
+        self.recoveryReporter = recoveryReporter
     }
 
     func restore(for workspaceId: UUID) {
@@ -34,24 +37,38 @@ final class RepoCacheStore {
             break
         case .corrupt(let error):
             repoCacheStoreLogger.warning("Cache file corrupt, will rebuild from events: \(error)")
+            recoveryReporter?(
+                .init(
+                    store: .repoCache,
+                    workspaceId: workspaceId,
+                    recovery: .rebuiltFromEvents
+                )
+            )
         }
     }
 
     func flush(for workspaceId: UUID) throws {
-        guard persistor.ensureDirectory() else {
-            throw CocoaError(.fileWriteUnknown)
-        }
-        try persistor.saveCache(
-            .init(
-                workspaceId: workspaceId,
-                repoEnrichmentByRepoId: atom.repoEnrichmentByRepoId,
-                worktreeEnrichmentByWorktreeId: atom.worktreeEnrichmentByWorktreeId,
-                pullRequestCountByWorktreeId: atom.pullRequestCountByWorktreeId,
-                notificationCountByWorktreeId: atom.notificationCountByWorktreeId,
-                recentTargets: atom.recentTargets,
-                sourceRevision: atom.sourceRevision,
-                lastRebuiltAt: atom.lastRebuiltAt
+        do {
+            guard persistor.ensureDirectory() else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            try persistor.saveCache(
+                .init(
+                    workspaceId: workspaceId,
+                    repoEnrichmentByRepoId: atom.repoEnrichmentByRepoId,
+                    worktreeEnrichmentByWorktreeId: atom.worktreeEnrichmentByWorktreeId,
+                    pullRequestCountByWorktreeId: atom.pullRequestCountByWorktreeId,
+                    notificationCountByWorktreeId: atom.notificationCountByWorktreeId,
+                    recentTargets: atom.recentTargets,
+                    sourceRevision: atom.sourceRevision,
+                    lastRebuiltAt: atom.lastRebuiltAt
+                )
             )
-        )
+        } catch {
+            recoveryReporter?(
+                .init(store: .repoCache, workspaceId: workspaceId, recovery: .saveFailed)
+            )
+            throw error
+        }
     }
 }

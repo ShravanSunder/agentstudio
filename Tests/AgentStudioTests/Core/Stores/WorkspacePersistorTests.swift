@@ -204,7 +204,7 @@ final class WorkspacePersistorTests {
     }
 
     @Test
-    func test_load_canonicalState_missingWatchedPaths_returnsCorrupt() throws {
+    func test_load_canonicalState_missingWatchedPaths_defaultsOnlyThatSlice() throws {
         // Arrange — valid JSON but without the watchedPaths field
         let workspaceId = UUID()
         let json: [String: Any] = [
@@ -229,8 +229,11 @@ final class WorkspacePersistorTests {
         // Act
         let result = persistor.load()
 
-        // Assert — strict decode means missing required field → corrupt
-        #expect(result.isCorrupt)
+        // Assert — missing recoverable fields default without wiping the workspace.
+        let loaded = result.value
+        #expect(loaded?.id == workspaceId)
+        #expect(loaded?.name == "Test Workspace")
+        #expect(loaded?.watchedPaths.isEmpty == true)
     }
 
     @Test
@@ -263,6 +266,19 @@ final class WorkspacePersistorTests {
 
         // Assert
         #expect(persistor.load().isMissing)
+    }
+
+    @Test
+    func test_delete_removesNotificationInboxFile() throws {
+        let state = WorkspacePersistor.PersistableState()
+        let inboxFileURL = persistor.notificationInboxFileURL(for: state.id)
+        #expect(persistor.ensureDirectory())
+        try Data("{}".utf8).write(to: inboxFileURL, options: .atomic)
+        #expect(FileManager.default.fileExists(atPath: inboxFileURL.path))
+
+        persistor.delete(id: state.id)
+
+        #expect(!FileManager.default.fileExists(atPath: inboxFileURL.path))
     }
 
     // MARK: - Multiple Saves
@@ -341,6 +357,67 @@ final class WorkspacePersistorTests {
 
         // Assert
         #expect(loaded?.schemaVersion == WorkspacePersistor.currentSchemaVersion)
+    }
+
+    @Test
+    func test_unknownSchemaVersion_returnsCorrupt() throws {
+        let workspaceId = UUID()
+        let json = """
+            {
+                "schemaVersion": 99999,
+                "workspaceId": "\(workspaceId.uuidString)",
+                "expandedGroups": ["repo:agent-studio"],
+                "checkoutColors": {},
+                "collapsedInboxGroups": []
+            }
+            """
+        let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
+        try Data(json.utf8).write(to: cacheURL, options: .atomic)
+
+        #expect(persistor.loadSidebarCache(for: workspaceId).isCorrupt)
+    }
+
+    @Test
+    func test_missingPersistedIdentity_returnsCorrupt() throws {
+        let workspaceId = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "expandedGroups": ["repo:agent-studio"],
+                "checkoutColors": {},
+                "collapsedInboxGroups": []
+            }
+            """
+        let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
+        try Data(json.utf8).write(to: cacheURL, options: .atomic)
+
+        #expect(persistor.loadSidebarCache(for: workspaceId).isCorrupt)
+    }
+
+    @Test
+    func test_canonicalStateMissingIdentity_returnsCorrupt() throws {
+        let workspaceId = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "name": "Missing Identity",
+                "repos": [],
+                "worktrees": [],
+                "unavailableRepoIds": [],
+                "panes": [],
+                "tabs": [],
+                "activeTabId": null,
+                "sidebarWidth": 250,
+                "windowFrame": null,
+                "watchedPaths": [],
+                "createdAt": 0,
+                "updatedAt": 0
+            }
+            """
+        let stateURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.state.json")
+        try Data(json.utf8).write(to: stateURL, options: .atomic)
+
+        #expect(persistor.load().isCorrupt)
     }
 
     // MARK: - Cache State
@@ -446,8 +523,6 @@ final class WorkspacePersistorTests {
         let workspaceId = UUID()
         let uiState = WorkspacePersistor.PersistableUIState(
             workspaceId: workspaceId,
-            expandedGroups: ["askluna", "personal"],
-            checkoutColors: ["repoA": "#22cc88"],
             filterText: "forge",
             isFilterVisible: true
         )
@@ -456,10 +531,27 @@ final class WorkspacePersistorTests {
         let loaded = persistor.loadUI(for: workspaceId).value
 
         #expect(loaded?.workspaceId == workspaceId)
-        #expect(loaded?.expandedGroups == ["askluna", "personal"])
-        #expect(loaded?.checkoutColors["repoA"] == "#22cc88")
         #expect(loaded?.filterText == "forge")
         #expect(loaded?.isFilterVisible == true)
+    }
+
+    @Test
+    func test_saveAndLoad_sidebarCache() throws {
+        let workspaceId = UUID()
+        let sidebarCache = WorkspacePersistor.PersistableSidebarCache(
+            workspaceId: workspaceId,
+            expandedGroups: [SidebarGroupKey("askluna"), SidebarGroupKey("personal")],
+            checkoutColors: [SidebarCheckoutColorKey("repoA"): "#22cc88"],
+            collapsedInboxGroups: [InboxNotificationGroupKey("kind:terminal")]
+        )
+
+        try persistor.saveSidebarCache(sidebarCache)
+        let loaded = persistor.loadSidebarCache(for: workspaceId).value
+
+        #expect(loaded?.workspaceId == workspaceId)
+        #expect(loaded?.expandedGroups == [SidebarGroupKey("askluna"), SidebarGroupKey("personal")])
+        #expect(loaded?.checkoutColors[SidebarCheckoutColorKey("repoA")] == "#22cc88")
+        #expect(loaded?.collapsedInboxGroups == [InboxNotificationGroupKey("kind:terminal")])
     }
 
     @Test
@@ -482,10 +574,10 @@ final class WorkspacePersistorTests {
         #expect(persistor.loadUI(for: workspaceId).isCorrupt)
     }
 
-    // MARK: - Strict Decoding (no legacy fallbacks)
+    // MARK: - Recoverable Decoding
 
     @Test
-    func test_load_canonicalState_missingWorktrees_returnsCorrupt() throws {
+    func test_load_canonicalState_missingWorktrees_defaultsOnlyThatSlice() throws {
         // Arrange — JSON with all required fields except `worktrees`
         let id = UUID()
         let json = """
@@ -505,8 +597,43 @@ final class WorkspacePersistorTests {
         let fileURL = tempDir.appending(path: "\(id.uuidString).workspace.state.json")
         try Data(json.utf8).write(to: fileURL, options: .atomic)
 
-        // Act & Assert — missing `worktrees` must be rejected, not silently defaulted
-        #expect(persistor.load().isCorrupt)
+        let loaded = persistor.load().value
+
+        #expect(loaded?.id == id)
+        #expect(loaded?.name == "Test")
+        #expect(loaded?.repos.isEmpty == true)
+        #expect(loaded?.worktrees.isEmpty == true)
+    }
+
+    @Test
+    func test_load_canonicalState_badSidebarWidth_defaultsOnlyThatSlice() throws {
+        let id = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "id": "\(id.uuidString)",
+                "name": "Test",
+                "repos": [],
+                "worktrees": [],
+                "unavailableRepoIds": [],
+                "panes": [],
+                "tabs": [],
+                "activeTabId": null,
+                "sidebarWidth": "wide",
+                "windowFrame": null,
+                "watchedPaths": [],
+                "createdAt": 0,
+                "updatedAt": 0
+            }
+            """
+        let fileURL = tempDir.appending(path: "\(id.uuidString).workspace.state.json")
+        try Data(json.utf8).write(to: fileURL, options: .atomic)
+
+        let loaded = persistor.load().value
+
+        #expect(loaded?.id == id)
+        #expect(loaded?.sidebarWidth == 250)
+        #expect(loaded?.tabs.isEmpty == true)
     }
 
     @Test
@@ -530,12 +657,11 @@ final class WorkspacePersistorTests {
         let fileURL = tempDir.appending(path: "\(id.uuidString).workspace.state.json")
         try Data(json.utf8).write(to: fileURL, options: .atomic)
 
-        // Act & Assert — missing `schemaVersion` must be rejected, not defaulted to 0
         #expect(persistor.load().isCorrupt)
     }
 
     @Test
-    func test_loadCache_missingRequiredField_returnsCorrupt() throws {
+    func test_loadCache_missingRequiredField_defaultsOnlyThatSlice() throws {
         // Arrange — cache JSON missing required `repoEnrichmentByRepoId`
         let workspaceId = UUID()
         let json = """
@@ -551,19 +677,47 @@ final class WorkspacePersistorTests {
         let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.cache.json")
         try Data(json.utf8).write(to: cacheURL, options: .atomic)
 
-        // Act & Assert — missing `repoEnrichmentByRepoId` must be rejected, not silently defaulted
-        #expect(persistor.loadCache(for: workspaceId).isCorrupt)
+        let loaded = persistor.loadCache(for: workspaceId).value
+
+        #expect(loaded?.workspaceId == workspaceId)
+        #expect(loaded?.repoEnrichmentByRepoId.isEmpty == true)
+        #expect(loaded?.worktreeEnrichmentByWorktreeId.isEmpty == true)
+        #expect(loaded?.sourceRevision == 0)
     }
 
     @Test
-    func test_loadUI_missingRequiredField_returnsCorrupt() throws {
-        // Arrange — UI JSON missing required `expandedGroups`
+    func test_loadCache_sliceTypeError_defaultsBadSlice() throws {
         let workspaceId = UUID()
         let json = """
             {
                 "schemaVersion": 1,
                 "workspaceId": "\(workspaceId.uuidString)",
-                "checkoutColors": {},
+                "repoEnrichmentByRepoId": 42,
+                "worktreeEnrichmentByWorktreeId": {},
+                "pullRequestCountByWorktreeId": {},
+                "notificationCountByWorktreeId": {"\(UUID().uuidString)": 3},
+                "recentTargets": [],
+                "sourceRevision": 7
+            }
+            """
+        let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.cache.json")
+        try Data(json.utf8).write(to: cacheURL, options: .atomic)
+
+        let loaded = persistor.loadCache(for: workspaceId).value
+
+        #expect(loaded?.workspaceId == workspaceId)
+        #expect(loaded?.repoEnrichmentByRepoId.isEmpty == true)
+        #expect(loaded?.sourceRevision == 7)
+    }
+
+    @Test
+    func test_loadUI_missingOptionalCompositionFields_defaults() throws {
+        // Arrange — UI JSON missing optional composition fields.
+        let workspaceId = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "workspaceId": "\(workspaceId.uuidString)",
                 "filterText": "",
                 "isFilterVisible": false
             }
@@ -571,8 +725,56 @@ final class WorkspacePersistorTests {
         let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
-        // Act & Assert — missing `expandedGroups` must be rejected, not silently defaulted
-        #expect(persistor.loadUI(for: workspaceId).isCorrupt)
+        // Act & Assert — UI composition fields default without corrupting the whole file.
+        #expect(persistor.loadUI(for: workspaceId).value?.showMinimizedBars == true)
+    }
+
+    @Test
+    func test_loadUI_sliceTypeError_defaultsBadSlice() throws {
+        let workspaceId = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "workspaceId": "\(workspaceId.uuidString)",
+                "filterText": 42,
+                "isFilterVisible": "bad-value",
+                "showMinimizedBars": false,
+                "sidebarCollapsed": true,
+                "sidebarSurface": "inbox"
+            }
+            """
+        let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
+        try Data(json.utf8).write(to: uiURL, options: .atomic)
+
+        let loaded = persistor.loadUI(for: workspaceId).value
+
+        #expect(loaded?.filterText.isEmpty == true)
+        #expect(loaded?.isFilterVisible == false)
+        #expect(loaded?.showMinimizedBars == false)
+        #expect(loaded?.sidebarCollapsed == true)
+        #expect(loaded?.sidebarSurface == .inbox)
+    }
+
+    @Test
+    func test_loadSidebarCache_sliceTypeError_defaultsBadSlice() throws {
+        let workspaceId = UUID()
+        let json = """
+            {
+                "schemaVersion": 1,
+                "workspaceId": "\(workspaceId.uuidString)",
+                "expandedGroups": 42,
+                "checkoutColors": {"repoA": "#22cc88"},
+                "collapsedInboxGroups": ["kind:terminal"]
+            }
+            """
+        let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
+        try Data(json.utf8).write(to: cacheURL, options: .atomic)
+
+        let loaded = persistor.loadSidebarCache(for: workspaceId).value
+
+        #expect(loaded?.expandedGroups.isEmpty == true)
+        #expect(loaded?.checkoutColors == [SidebarCheckoutColorKey("repoA"): "#22cc88"])
+        #expect(loaded?.collapsedInboxGroups == [InboxNotificationGroupKey("kind:terminal")])
     }
 
 }

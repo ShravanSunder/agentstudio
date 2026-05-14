@@ -25,14 +25,22 @@ TIER B: DERIVED CACHE (rebuildable from Tier A + actors)
   File: ~/.agentstudio/workspaces/<id>/workspace.cache.json
   Owner: RepoCacheAtom (@MainActor, @Observable)
   Mutated by: WorkspaceCacheCoordinator only (event-driven)
-  Contains: repo enrichment, worktree enrichment, PR counts, notification counts
+  Contains: repo enrichment, worktree enrichment, PR counts
+           (notification unread counts moved — now derived from
+            InboxNotificationAtom.unreadCount(forWorktreeId:)
+            per LUNA-361)
 
-TIER C: UI STATE (preferences, non-structural)
+TIER C: UI STATE (preferences, non-structural + composition state)
   File: ~/.agentstudio/workspaces/<id>/workspace.ui.json
   Owner: UIStateAtom (@MainActor, @Observable)
-  Mutated by: sidebar view actions only
-  Contains: expanded groups, checkout colors, filter state
+  Mutated by: sidebar view actions, MainSplitViewController
+              (publishing sidebar collapsed state), sidebar surface
+              views (publishing focus), composite commands (⌘I / ⌘S)
+  Contains: expanded groups, checkout colors, filter state,
+            sidebar composition state (collapsed / surface / has-focus)
 ```
+
+> **Note on composition state.** `sidebarCollapsed`, `sidebarSurface`, and `sidebarHasFocus` live on `UIStateAtom` as composition state — generic, app-wide UI shell state consumed by multiple features. See [directory_structure.md — composition state vs feature state](directory_structure.md). `sidebarHasFocus` is runtime-only (not persisted).
 
 ### Tier A: Canonical Models
 
@@ -72,7 +80,8 @@ struct Worktree: Codable, Identifiable, Hashable {
 **What is NOT canonical** (lives in cache, populated by event bus):
 - `organizationName`, `origin`, `upstream` → `RepoEnrichment`
 - `branch`, git snapshot → `WorktreeEnrichment`
-- PR counts, notification counts → `RepoCacheAtom` dictionaries
+- PR counts → `RepoCacheAtom` dictionaries
+- Notification unread counts → `InboxNotificationAtom.unreadCount(forWorktreeId:)` (per LUNA-361; moved out of `RepoCacheAtom`)
 
 ### Identity Semantics
 
@@ -125,7 +134,10 @@ struct WorkspaceCacheState: Codable {
     var repoEnrichment: [UUID: RepoEnrichment]           // keyed by CanonicalRepo.id
     var worktreeEnrichment: [UUID: WorktreeEnrichment]    // keyed by CanonicalWorktree.id
     var pullRequestCounts: [UUID: Int]                     // keyed by CanonicalWorktree.id
-    var notificationCounts: [UUID: Int]                    // keyed by CanonicalWorktree.id
+    // notificationCounts removed per LUNA-361: unread counts are now
+    // derived from InboxNotificationAtom.unreadCount(forWorktreeId:)
+    // in Features/InboxNotification/State/MainActor/Atoms/, not stored
+    // in the cache tier. The bell pill reads directly from the atom.
 }
 ```
 
@@ -133,10 +145,28 @@ struct WorkspaceCacheState: Codable {
 
 ```swift
 struct WorkspaceUIState: Codable {
-    var expandedGroups: Set<String>       // groupKey strings
-    var checkoutColors: [String: String]  // repoId → color name
+    // Presentation prefs (existing)
+    var expandedGroups: Set<String>        // groupKey strings
+    var checkoutColors: [String: String]   // repoId → color name
     var filterVisible: Bool
     var filterText: String
+
+    // Composition state (added LUNA-361) — app-wide UI shell state
+    var sidebarCollapsed: Bool             // OWNERSHIP MOVE (LUNA-361):
+                                           //   was owned by MainSplitView-
+                                           //   Controller + UserDefaults
+                                           //   key "sidebarCollapsed";
+                                           //   now atom-owned + persisted
+                                           //   in workspace.ui.json.
+                                           //   Greenfield cutover: no
+                                           //   dual-write, no migration
+                                           //   from the legacy UserDefaults
+                                           //   value. UserDefaults key is
+                                           //   dead code after LUNA-361.
+    var sidebarSurface: SidebarSurface     // .repos | .inbox; new surfaces
+                                           //   extend the enum monotonically
+    // sidebarHasFocus is NOT persisted — runtime-only, resets to false
+    // on launch. Published by each sidebar surface view via @FocusState.
 }
 ```
 
@@ -334,8 +364,10 @@ WorkspaceStore.repos                → canonical repo/worktree structure (what 
 RepoCacheAtom.repoEnrichment  → org name, display name, groupKey (how to group)
 RepoCacheAtom.worktreeEnrichment → branch, git status (how to display)
 RepoCacheAtom.pullRequestCounts → PR badges
-RepoCacheAtom.notificationCounts → notification bells
+InboxNotificationAtom.unreadCount(forWorktreeId:) → notification bells
+                                 (per LUNA-361; moved from RepoCacheAtom)
 UIStateAtom                    → expanded groups, filter, colors (user prefs)
+                                 + sidebar composition state (collapsed / surface / has-focus)
 
 ZERO imperative fetches. ZERO mutations. Pure @Observable binding.
 ```
@@ -448,10 +480,7 @@ zmx terminal panes require a trusted `initialFrame` before Ghostty surface creat
 
 **Restore ordering.** `TerminalRestoreScheduler.order(_:resolver:)` sorts panes by `VisibilityTier` — `p0Visible` first, then `p1Hidden`. Within the visible tier, the active pane sorts first. This ensures the active tab paints before background tabs are hydrated. Background tabs are restored cooperatively with `Task.yield()` after every two panes.
 
-**Background restore policy.** `BackgroundRestorePolicy` controls whether hidden zmx panes are restored at boot:
-- `.off` — skip all hidden panes
-- `.existingSessionsOnly` — restore only if a live zmx session already exists (discovered via `discoverLiveSessionIds()`)
-- `.allTerminalPanes` — restore all hidden zmx panes unconditionally
+**Background hidden-pane restore behavior.** Hidden zmx panes are restored at boot only when a live zmx session already exists (discovered via `discoverLiveSessionIds()`). This is fixed product behavior, not a user-configurable preference.
 
 **The flow:**
 

@@ -21,6 +21,7 @@ final class CommandBarPanelController {
     private let store: WorkspaceStore
     private let repoCache: RepoCacheAtom
     private let dispatcher: CommandDispatcher
+    private let notificationInboxCommands: InboxNotificationCommands?
 
     // MARK: - Panel
 
@@ -30,16 +31,22 @@ final class CommandBarPanelController {
     /// The parent window the command bar is attached to.
     private weak var parentWindow: NSWindow?
 
+    var isKeyWindow: Bool {
+        panel?.isKeyWindow == true
+    }
+
     // MARK: - Initialization
 
     init(
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        dispatcher: CommandDispatcher
+        dispatcher: CommandDispatcher,
+        notificationInboxCommands: InboxNotificationCommands? = nil
     ) {
         self.store = store
         self.repoCache = repoCache
         self.dispatcher = dispatcher
+        self.notificationInboxCommands = notificationInboxCommands
         state.loadRecents()
     }
 
@@ -47,24 +54,54 @@ final class CommandBarPanelController {
 
     /// Show the command bar. If already visible with a different prefix, switch in-place.
     /// If already visible with the same prefix (or no prefix), preserve current state.
-    func show(prefix: String? = nil, parentWindow: NSWindow) {
+    func show(parentWindow: NSWindow) {
+        show(mode: .defaultScope(.everything), parentWindow: parentWindow)
+    }
+
+    func show(prefix: String, parentWindow: NSWindow) {
+        show(mode: .prefix(prefix), parentWindow: parentWindow)
+    }
+
+    func show(defaultRootScope: CommandBarScope, parentWindow: NSWindow) {
+        show(mode: .defaultScope(defaultRootScope), parentWindow: parentWindow)
+    }
+
+    private func show(
+        mode: CommandBarState.OpenMode,
+        parentWindow: NSWindow
+    ) {
         self.parentWindow = parentWindow
 
         if state.isVisible {
             let currentPrefix = normalizedPrefix(for: state.currentScope)
             let normalizedRequestedPrefix: String? =
-                normalizedPrefix(for: prefix)
+                switch mode {
+                case .prefix(let prefix):
+                    normalizedPrefix(for: prefix)
+                case .defaultScope:
+                    nil
+                }
 
             if currentPrefix == normalizedRequestedPrefix {
                 return
             } else {
-                state.switchPrefix(prefix ?? "")
+                switch mode {
+                case .prefix(let prefix):
+                    state.switchPrefix(prefix)
+                case .defaultScope:
+                    state.show(defaultScope: defaultRootScope(for: mode))
+                }
                 return
             }
         }
 
         // Create panel and backdrop
-        state.show(prefix: prefix)
+        switch mode {
+        case .prefix(let prefix):
+            state.show(prefix: prefix)
+        case .defaultScope(let defaultRootScope):
+            state.show(defaultScope: defaultRootScope)
+        }
         presentPanel(parentWindow: parentWindow)
     }
 
@@ -101,6 +138,7 @@ final class CommandBarPanelController {
             store: store,
             repoCache: repoCache,
             dispatcher: dispatcher,
+            notificationInboxCommands: notificationInboxCommands,
             onShortcutTrigger: { [weak self] trigger in
                 self?.handleShortcutTrigger(trigger) ?? false
             },
@@ -135,14 +173,15 @@ final class CommandBarPanelController {
         controllerLogger.debug("Command bar panel presented")
     }
 
-    private var currentContext: WorkspaceFocus {
+    private var currentContext: WorkspacePaneFocus {
         let workspaceTab = WorkspaceTabDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
-        return atom(\.workspaceFocus).currentFocus(
+        return atom(\.workspacePaneFocus).currentFocus(
             workspaceTab: workspaceTab,
-            workspacePane: store.paneAtom
+            workspacePane: store.paneAtom,
+            workspaceFocusOwner: atom(\.workspaceFocusOwner)
         )
     }
 
@@ -155,7 +194,8 @@ final class CommandBarPanelController {
             store: store,
             repoCache: repoCache,
             dispatcher: dispatcher,
-            focus: currentContext
+            focus: currentContext,
+            notificationInboxCommands: notificationInboxCommands
         )
     }
 
@@ -206,7 +246,11 @@ final class CommandBarPanelController {
             return true
         case .showPrefix(let prefix):
             guard let parentWindow else { return false }
-            show(prefix: prefix, parentWindow: parentWindow)
+            if let prefix {
+                show(prefix: prefix, parentWindow: parentWindow)
+            } else {
+                show(parentWindow: parentWindow)
+            }
             return true
         case .executeRow(let item):
             executeItem(item)
@@ -217,6 +261,15 @@ final class CommandBarPanelController {
             return true
         case .unhandled:
             return false
+        }
+    }
+
+    private func defaultRootScope(for mode: CommandBarState.OpenMode) -> CommandBarScope {
+        switch mode {
+        case .prefix:
+            return .everything
+        case .defaultScope(let scope):
+            return scope
         }
     }
 
@@ -318,6 +371,8 @@ final class CommandBarPanelController {
             return "$ "
         case .repos:
             return "# "
+        case .inbox:
+            return nil
         }
     }
 

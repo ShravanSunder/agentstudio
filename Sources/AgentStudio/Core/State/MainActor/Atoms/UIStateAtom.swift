@@ -1,41 +1,15 @@
-import Foundation
 import Observation
-
-struct EditorChooserState: Equatable {
-    var openForPaneId: UUID?
-    var bookmarkedEditorId: EditorTargetId?
-}
 
 @MainActor
 @Observable
 final class UIStateAtom {
-    private(set) var expandedGroups: Set<String> = []
-    private(set) var checkoutColors: [String: String] = [:]
     private(set) var filterText: String = ""
     private(set) var isFilterVisible: Bool = false
     private(set) var showMinimizedBars: Bool = true
-    private(set) var editorChooserState: EditorChooserState = .init()
-    private(set) var availableEditorTargets: [ExternalEditorTarget] = []
-
-    func setExpandedGroups(_ groups: Set<String>) {
-        expandedGroups = groups
-    }
-
-    func setGroupExpanded(_ groupKey: String, isExpanded: Bool) {
-        if isExpanded {
-            expandedGroups.insert(groupKey)
-        } else {
-            expandedGroups.remove(groupKey)
-        }
-    }
-
-    func setCheckoutColor(_ colorHex: String?, for stableKey: String) {
-        if let colorHex {
-            checkoutColors[stableKey] = colorHex
-        } else {
-            checkoutColors.removeValue(forKey: stableKey)
-        }
-    }
+    private(set) var sidebarCollapsed: Bool = false
+    private(set) var sidebarSurface: SidebarSurface = .repos
+    /// Runtime-only composition fact published by sidebar surfaces and read by keyboard owner derivation.
+    private(set) var sidebarHasFocus: Bool = false
 
     func setFilterText(_ text: String) {
         filterText = text
@@ -49,44 +23,39 @@ final class UIStateAtom {
         showMinimizedBars = show
     }
 
-    func setBookmarkedEditor(_ editorId: EditorTargetId?) {
-        editorChooserState.bookmarkedEditorId = editorId
+    func setSidebarCollapsed(_ isCollapsed: Bool) {
+        sidebarCollapsed = isCollapsed
     }
 
-    func setOpenEditorPane(_ paneId: UUID?) {
-        editorChooserState.openForPaneId = paneId
+    func setSidebarSurface(_ surface: SidebarSurface) {
+        sidebarSurface = surface
     }
 
-    func setAvailableEditorTargets(_ targets: [ExternalEditorTarget]) {
-        availableEditorTargets = targets
+    func setSidebarHasFocus(_ hasFocus: Bool) {
+        sidebarHasFocus = hasFocus
     }
 
     func hydrate(
-        expandedGroups: Set<String>,
-        checkoutColors: [String: String],
         filterText: String,
         isFilterVisible: Bool,
         showMinimizedBars: Bool = true,
-        editorChooserState: EditorChooserState = .init()
+        sidebarCollapsed: Bool = false,
+        sidebarSurface: SidebarSurface = .repos
     ) {
-        self.expandedGroups = expandedGroups
-        self.checkoutColors = checkoutColors
         self.filterText = filterText
         self.isFilterVisible = isFilterVisible
         self.showMinimizedBars = showMinimizedBars
-        self.editorChooserState = editorChooserState
-        self.availableEditorTargets = []
-        // The open chooser belongs to the current live pane tree only, not persisted state.
-        self.editorChooserState.openForPaneId = nil
+        self.sidebarCollapsed = sidebarCollapsed
+        self.sidebarSurface = sidebarSurface
+        self.sidebarHasFocus = false
     }
 
     func clear() {
-        expandedGroups.removeAll(keepingCapacity: false)
-        checkoutColors.removeAll(keepingCapacity: false)
         filterText = ""
         isFilterVisible = false
         showMinimizedBars = true
-        editorChooserState = .init()
-        availableEditorTargets = []
+        sidebarCollapsed = false
+        sidebarSurface = .repos
+        sidebarHasFocus = false
     }
 }

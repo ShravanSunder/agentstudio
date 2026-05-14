@@ -16,6 +16,7 @@ final class DrawerCommandIntegrationTests {
     private var tempDir: URL!
 
     init() {
+        installTestAtomRegistryIfNeeded()
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "drawer-cmd-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
@@ -89,7 +90,7 @@ final class DrawerCommandIntegrationTests {
         let dp2 = store.addDrawerPane(to: parentPaneId)!
         #expect(store.pane(parentPaneId)!.drawer!.paneIds.count == 2)
         #expect(
-            store.pane(parentPaneId)!.drawer!.activePaneId == dp2.id,
+            store.pane(parentPaneId)!.drawer!.activeChildId == dp2.id,
             "Last added drawer pane should be active initially")
 
         // Act — close the active drawer pane (dp2)
@@ -100,7 +101,7 @@ final class DrawerCommandIntegrationTests {
         #expect((drawer) != nil)
         #expect(drawer!.paneIds.count == 1, "Only 1 drawer pane should remain")
         #expect(drawer!.paneIds[0] == dp1.id, "The remaining pane should be dp1")
-        #expect(drawer!.activePaneId == dp1.id, "dp1 should become the active drawer pane")
+        #expect(drawer!.activeChildId == dp1.id, "dp1 should become the active drawer pane")
     }
 
     // MARK: - Toggle Drawer
@@ -152,7 +153,7 @@ final class DrawerCommandIntegrationTests {
         )
 
         #expect(snapshot.activeTabId == tabId)
-        #expect(store.pane(parentPaneId)?.drawer?.activePaneId == drawerPane.id)
+        #expect(store.pane(parentPaneId)?.drawer?.activeChildId == drawerPane.id)
     }
 
     // MARK: - Set Active Drawer Pane
@@ -164,13 +165,13 @@ final class DrawerCommandIntegrationTests {
         let (parentPaneId, _) = createParentPaneInTab()
         let dp1 = store.addDrawerPane(to: parentPaneId)!
         let dp2 = store.addDrawerPane(to: parentPaneId)!
-        #expect(store.pane(parentPaneId)!.drawer!.activePaneId == dp2.id)
+        #expect(store.pane(parentPaneId)!.drawer!.activeChildId == dp2.id)
 
         // Act
         executor.execute(.setActiveDrawerPane(parentPaneId: parentPaneId, drawerPaneId: dp1.id))
 
         // Assert
-        #expect(store.pane(parentPaneId)!.drawer!.activePaneId == dp1.id)
+        #expect(store.pane(parentPaneId)!.drawer!.activeChildId == dp1.id)
     }
 
     @Test
@@ -184,15 +185,97 @@ final class DrawerCommandIntegrationTests {
             .moveDrawerPane(
                 parentPaneId: parentPaneId,
                 drawerPaneId: dp1.id,
-                targetDrawerPaneId: dp3.id,
-                direction: .right
+                target: .rowSlot(row: .top, insertionIndex: 3),
+                sizingMode: .proportional
             )
         )
 
         let drawer = store.pane(parentPaneId)!.drawer!
         #expect(Set(drawer.layout.paneIds) == Set([dp1.id, dp2.id, dp3.id]))
         #expect(drawer.layout.paneIds.last == dp1.id)
-        #expect(drawer.activePaneId == dp1.id)
+        #expect(drawer.activeChildId == dp1.id)
+    }
+
+    @Test
+    func test_moveDrawerPane_downIntoThirdRow_isNoOp() {
+        let (parentPaneId, _) = createParentPaneInTab()
+        let topLeft = store.addDrawerPane(to: parentPaneId)!
+        _ = store.addDrawerPane(to: parentPaneId)!
+        let bottom = store.insertDrawerPane(
+            in: parentPaneId,
+            at: topLeft.id,
+            direction: .vertical,
+            position: .after, sizingMode: .halveTarget
+        )!
+
+        let before = store.pane(parentPaneId)!.drawer!.layout
+
+        executor.execute(
+            .moveDrawerPane(
+                parentPaneId: parentPaneId,
+                drawerPaneId: bottom.id,
+                target: .createSecondRow(position: .bottom),
+                sizingMode: .proportional
+            )
+        )
+
+        #expect(store.pane(parentPaneId)!.drawer!.layout == before)
+    }
+
+    @Test
+    func test_insertDrawerPane_verticalAfter_rendersBottomRow() throws {
+        let (parentPaneId, _) = createParentPaneInTab()
+        let first = try #require(store.addDrawerPane(to: parentPaneId))
+
+        executor.execute(
+            .insertDrawerPane(
+                parentPaneId: parentPaneId,
+                targetDrawerPaneId: first.id,
+                direction: .down,
+                sizingMode: .halveTarget
+            )
+        )
+
+        let drawer = try #require(store.pane(parentPaneId)?.drawer)
+        #expect(drawer.layout.bottomRow != nil)
+    }
+
+    @Test
+    func test_moveDrawerPane_verticalDrop_preservesTwoRowLegality() throws {
+        let (parentPaneId, _) = createParentPaneInTab()
+        let first = try #require(store.addDrawerPane(to: parentPaneId))
+        let second = try #require(store.addDrawerPane(to: parentPaneId))
+        _ = store.insertDrawerPane(
+            in: parentPaneId,
+            at: first.id,
+            direction: .vertical,
+            position: .after, sizingMode: .halveTarget
+        )
+
+        executor.execute(
+            .moveDrawerPane(
+                parentPaneId: parentPaneId,
+                drawerPaneId: second.id,
+                target: .rowSlot(row: .bottom, insertionIndex: 1),
+                sizingMode: .proportional
+            )
+        )
+
+        let drawer = try #require(store.pane(parentPaneId)?.drawer)
+        #expect(drawer.layout.bottomRow?.contains(second.id) == true)
+    }
+
+    @Test
+    func test_detachDrawerPane_promotesPaneToParentRight() throws {
+        let (parentPaneId, tabId) = createParentPaneInTab()
+        let drawerPane = try #require(store.addDrawerPane(to: parentPaneId))
+
+        executor.execute(.detachDrawerPane(parentPaneId: parentPaneId, drawerPaneId: drawerPane.id))
+
+        let tab = try #require(store.tab(tabId))
+        #expect(tab.paneIds == [parentPaneId, drawerPane.id])
+        #expect(store.pane(parentPaneId)?.drawer?.paneIds.contains(drawerPane.id) == false)
+        #expect(store.pane(drawerPane.id)?.isDrawerChild == false)
     }
 
     // MARK: - Minimize / Expand Drawer Pane
@@ -312,7 +395,7 @@ final class DrawerCommandIntegrationTests {
         // Assert
         let drawer = store.pane(parentPaneId)!.drawer!
         #expect(drawer.paneIds.isEmpty)
-        #expect((drawer.activePaneId) == nil)
+        #expect((drawer.activeChildId) == nil)
         // Pane should be removed from store
         #expect((store.pane(dp.id)) == nil)
     }
@@ -327,7 +410,8 @@ final class DrawerCommandIntegrationTests {
         let p2 = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = Tab(paneId: p1.id)
         store.appendTab(tab)
-        store.insertPane(p2.id, inTab: tab.id, at: p1.id, direction: .horizontal, position: .after)
+        store.insertPane(
+            p2.id, inTab: tab.id, at: p1.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
 
         let dp1 = store.addDrawerPane(to: p1.id)!
         let dp2 = store.addDrawerPane(to: p1.id)!

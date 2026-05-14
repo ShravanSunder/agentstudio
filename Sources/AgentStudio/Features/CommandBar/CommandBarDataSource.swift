@@ -25,6 +25,7 @@ enum CommandBarDataSource {
         static let windowCommands = "Window"
         static let webviewCommands = "Webview"
         static let authCommands = "Auth"
+        static let inboxCommands = "Inbox"
     }
 
     enum Priority {
@@ -43,22 +44,25 @@ enum CommandBarDataSource {
         scope: CommandBarScope,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        dispatcher: CommandDispatcher
+        dispatcher: CommandDispatcher,
+        notificationInboxCommands: InboxNotificationCommands? = nil
     ) -> [CommandBarItem] {
         let workspaceTab = WorkspaceTabDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
-        let focus = atom(\.workspaceFocus).currentFocus(
+        let focus = atom(\.workspacePaneFocus).currentFocus(
             workspaceTab: workspaceTab,
-            workspacePane: store.paneAtom
+            workspacePane: store.paneAtom,
+            workspaceFocusOwner: atom(\.workspaceFocusOwner)
         )
         return items(
             scope: scope,
             store: store,
             repoCache: repoCache,
             dispatcher: dispatcher,
-            focus: focus
+            focus: focus,
+            notificationInboxCommands: notificationInboxCommands
         )
     }
 
@@ -67,7 +71,8 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         dispatcher: CommandDispatcher,
-        focus: WorkspaceFocus
+        focus: WorkspacePaneFocus,
+        notificationInboxCommands: InboxNotificationCommands? = nil
     ) -> [CommandBarItem] {
         switch scope {
         case .everything:
@@ -78,6 +83,8 @@ enum CommandBarDataSource {
             return paneAndTabItems(store: store, repoCache: repoCache)
         case .repos:
             return repoScopeItems(store: store)
+        case .inbox:
+            return inboxItems(commands: notificationInboxCommands)
         }
     }
 
@@ -108,7 +115,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         dispatcher: CommandDispatcher,
-        focus: WorkspaceFocus
+        focus: WorkspacePaneFocus
     ) -> [CommandBarItem] {
         var items: [CommandBarItem] = []
         items.append(contentsOf: paneItems(store: store, repoCache: repoCache))
@@ -284,7 +291,7 @@ enum CommandBarDataSource {
     /// Visible command definitions, filtered once.
     private static func visibleCommands(
         dispatcher: CommandDispatcher,
-        focus: WorkspaceFocus
+        focus: WorkspacePaneFocus
     ) -> [CommandSpec] {
         dispatcher.definitions.values.filter {
             !$0.isHiddenInCommandBar && $0.isVisible(in: focus)
@@ -296,7 +303,7 @@ enum CommandBarDataSource {
         dispatcher: CommandDispatcher,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        focus: WorkspaceFocus
+        focus: WorkspacePaneFocus
     ) -> [CommandBarItem] {
         visibleCommands(dispatcher: dispatcher, focus: focus)
             .sorted { $0.command.rawValue < $1.command.rawValue }
@@ -316,7 +323,7 @@ enum CommandBarDataSource {
         dispatcher: CommandDispatcher,
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
-        focus: WorkspaceFocus,
+        focus: WorkspacePaneFocus,
         groupName: String,
         priority: Int
     ) -> [CommandBarItem] {
@@ -349,7 +356,7 @@ enum CommandBarDataSource {
                 title: def.label,
                 icon: def.icon,
                 iconColor: commandIconColor,
-                shortcutTrigger: def.shortcut?.trigger,
+                shortcutTrigger: def.commandBarShortcutTrigger,
                 group: groupName,
                 groupPriority: groupPriority,
                 keywords: commandKeywords(for: def),
@@ -369,7 +376,7 @@ enum CommandBarDataSource {
                 title: def.label,
                 icon: def.icon,
                 iconColor: commandIconColor,
-                shortcutTrigger: def.shortcut?.trigger,
+                shortcutTrigger: def.commandBarShortcutTrigger,
                 group: groupName,
                 groupPriority: groupPriority,
                 keywords: commandKeywords(for: def),
@@ -384,7 +391,7 @@ enum CommandBarDataSource {
             title: def.label,
             icon: def.icon,
             iconColor: commandIconColor,
-            shortcutTrigger: def.shortcut?.trigger,
+            shortcutTrigger: def.commandBarShortcutTrigger,
             group: groupName,
             groupPriority: groupPriority,
             keywords: commandKeywords(for: def),
@@ -667,7 +674,7 @@ enum CommandBarDataSource {
         {
             items = drawer.paneIds.enumerated().compactMap { index, drawerPaneId -> CommandBarItem? in
                 guard let drawerPane = workspacePane.pane(drawerPaneId) else { return nil }
-                let isActive = drawer.activePaneId == drawerPaneId
+                let isActive = drawer.activeChildId == drawerPaneId
                 return CommandBarItem(
                     id: "target-drawer-\(drawerPaneId.uuidString)",
                     title: paneDisplayLabel(for: drawerPane, store: store, repoCache: repoCache),

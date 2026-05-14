@@ -103,6 +103,12 @@ final class ManagementLayerMonitor {
             return .passThrough
         }
 
+        if normalizedModifiers == [.option],
+            ["i", "j", "k", "l"].contains(charactersIgnoringModifiers?.lowercased() ?? "")
+        {
+            return .passThrough
+        }
+
         let nonSemanticArrowModifiers: NSEvent.ModifierFlags = [.numericPad, .function]
         let sanitizedModifiers = modifierFlags.subtracting(nonSemanticArrowModifiers)
         guard

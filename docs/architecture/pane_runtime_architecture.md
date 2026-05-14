@@ -613,9 +613,14 @@ AGENT PROCESS (Claude/Codex)
   │              ┌─────────────────┼─────────────────┐
   │              │                 │                  │
   │              ▼                 ▼                  ▼
-  │     NotificationReducer   BridgeRuntime     WorkspaceStore
-  │     (badge on tab,        (diff pane via    (update tab
-  │      toast, drawer)        bridge+React)     metadata)
+  │     InboxNotificationRouter    BridgeRuntime     WorkspaceStore
+  │     (Notification Inbox:   (diff pane via    (update tab
+  │      sidebar inbox +       bridge+React)     metadata)
+  │      per-drawer popover +
+  │      sidebar bell badge,
+  │      per LUNA-361; NO
+  │      toast / no transient
+  │      surfaces)
   │              │                 │
   │              ▼                 ▼
   │     User sees: "Agent A    User reviews diff
@@ -1757,7 +1762,7 @@ Every `ghostty_action_tag_e` case has a defined handling policy. The adapter's s
 | `readOnlyChanged` | Runtime → Bus | Updates `isReadOnly` and emits replayable state | critical | Ghostty default still drives the built-in badge/overlay path |
 | `secureInputRequested` / `secureInputChanged` | Runtime → Bus | Resolves secure-input mode to current boolean state | critical | Request is input, replayable boolean is output |
 | `promptTitleRequested` | Runtime → Bus | One-shot request, not replayed | critical | Current implementation preserves Ghostty default prompt UX |
-| `desktopNotificationRequested` | Runtime → Bus | One-shot request, not replayed | critical | Current implementation preserves Ghostty default notification UX |
+| `desktopNotificationRequested` | Runtime → Bus | One-shot request, not replayed | critical | Per LUNA-361, consumed by `InboxNotificationRouter` and routed into `InboxNotificationAtom` (sidebar inbox + drawer popover, not OS notification). Ghostty default desktop-notification path is NOT invoked. |
 | **Runtime-accounted, no bus post** | | | | |
 | `openURLRequested` | Runtime only | Explicitly routed, no replay | critical | Ghostty default still opens the URL |
 | `undoRequested` / `redoRequested` | Runtime only | Explicitly routed, no replay | critical | Ghostty default still handles responder-chain undo/redo |
@@ -3021,7 +3026,7 @@ Structural guarantees that hold across all contracts. Each invariant is enforced
 
 ### Event Scoping
 
-**A15. Source/payload compatibility is a contract invariant.** Pane-scoped payloads (`.terminal`, `.browser`, `.diff`, `.editor`, `.plugin`) require `source = .pane(id)`. Filesystem payloads require `source = .system(.builtin(.filesystemWatcher))` and `sourceFacets.worktreeId`. Security payloads require `source = .system(.builtin(.securityBackend))`. Workspace lifecycle events not pane-scoped require `source = .system(.builtin(.coordinator))`. Typed service events require `source = .system(.service(...))` with provider identity. Plugin system events require `source = .system(.plugin(kind))`. Invalid combinations are contract violations — runtime emits `RuntimeErrorEvent` rather than silently misrouting.
+**A15. Source/payload compatibility is a contract invariant.** Direct pane-runtime payloads (`.terminal`, `.browser`, `.diff`, `.editor`, `.plugin`) require `source = .pane(id)`. Derived pane product facts carried in `RuntimeEnvelope.pane` may use a system provenance source such as `source = .system(.builtin(.terminalActivityRouter))`, but their pane scope remains `PaneEnvelope.paneId` and reducers must tier them by that pane identity. Filesystem payloads require `source = .system(.builtin(.filesystemWatcher))` and `sourceFacets.worktreeId`. Security payloads require `source = .system(.builtin(.securityBackend))`. Workspace lifecycle events not pane-scoped require `source = .system(.builtin(.coordinator))`. Typed service events require `source = .system(.service(...))` with provider identity. Plugin system events require `source = .system(.plugin(kind))`. Invalid combinations are contract violations — runtime emits `RuntimeErrorEvent` rather than silently misrouting.
 
 *Enforced by:* Envelope invariant #3 and #4 (Contract 3). Validated at envelope creation in runtime.
 

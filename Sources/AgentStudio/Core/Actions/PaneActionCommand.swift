@@ -36,6 +36,14 @@ enum PaneSource: Equatable, Hashable {
     case newTerminal
 }
 
+struct PaneInsertRequest: Equatable, Hashable {
+    let source: PaneSource
+    let targetTabId: UUID
+    let targetPaneId: UUID
+    let direction: SplitNewDirection
+    let sizingMode: DropSizingMode
+}
+
 /// Fully resolved action with all target IDs explicit.
 /// Every action that modifies tab/pane state flows through this type.
 ///
@@ -54,9 +62,7 @@ enum PaneActionCommand: Equatable, Hashable {
     case scrollToBottom(tabId: UUID, paneId: UUID)
 
     // Split operations
-    case insertPane(
-        source: PaneSource, targetTabId: UUID,
-        targetPaneId: UUID, direction: SplitNewDirection)
+    case insertPaneRequest(PaneInsertRequest)
     case resizePane(tabId: UUID, splitId: UUID, ratio: Double)
     case equalizePanes(tabId: UUID)
 
@@ -112,6 +118,19 @@ enum PaneActionCommand: Equatable, Hashable {
 
     // Drawer operations
 
+    /// Enter a parent pane's drawer scope without creating a pane.
+    case enterDrawer(parentPaneId: UUID)
+    /// Move focus to the drawer pane above the current selection.
+    case focusDrawerPaneUp(parentPaneId: UUID, drawerPaneId: UUID)
+    /// Move focus to the drawer pane left of the current selection.
+    case focusDrawerPaneLeft(parentPaneId: UUID, drawerPaneId: UUID)
+    /// Move focus to the drawer pane below the current selection.
+    case focusDrawerPaneDown(parentPaneId: UUID, drawerPaneId: UUID)
+    /// Move focus to the drawer pane right of the current selection.
+    case focusDrawerPaneRight(parentPaneId: UUID, drawerPaneId: UUID)
+    /// Promote a drawer pane into the main layout to the right of its parent.
+    case detachDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
+
     /// Add a drawer pane to a parent pane.
     case addDrawerPane(parentPaneId: UUID)
     /// Remove a drawer pane from its parent.
@@ -129,9 +148,19 @@ enum PaneActionCommand: Equatable, Hashable {
     /// Expand a minimized pane within a drawer.
     case expandDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
     /// Insert a new pane into a drawer's layout next to a target drawer pane.
-    case insertDrawerPane(parentPaneId: UUID, targetDrawerPaneId: UUID, direction: SplitNewDirection)
+    case insertDrawerPane(
+        parentPaneId: UUID,
+        targetDrawerPaneId: UUID,
+        direction: SplitNewDirection,
+        sizingMode: DropSizingMode
+    )
     /// Move an existing drawer pane within the same drawer layout.
-    case moveDrawerPane(parentPaneId: UUID, drawerPaneId: UUID, targetDrawerPaneId: UUID, direction: SplitNewDirection)
+    case moveDrawerPane(
+        parentPaneId: UUID,
+        drawerPaneId: UUID,
+        target: DrawerRearrangeTarget,
+        sizingMode: DropSizingMode
+    )
 
     // System actions — dispatched by Reconciler and undo timers, not by user input.
 
@@ -140,6 +169,26 @@ enum PaneActionCommand: Equatable, Hashable {
 
     /// Reconciler-generated repair action.
     case repair(RepairAction)
+}
+
+extension PaneActionCommand {
+    static func insertPane(
+        source: PaneSource,
+        targetTabId: UUID,
+        targetPaneId: UUID,
+        direction: SplitNewDirection,
+        sizingMode: DropSizingMode
+    ) -> Self {
+        .insertPaneRequest(
+            PaneInsertRequest(
+                source: source,
+                targetTabId: targetTabId,
+                targetPaneId: targetPaneId,
+                direction: direction,
+                sizingMode: sizingMode
+            )
+        )
+    }
 }
 
 /// System-generated repair actions from the Reconciler.

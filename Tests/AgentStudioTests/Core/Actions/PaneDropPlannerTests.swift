@@ -10,13 +10,15 @@ final class PaneDropPlannerTests {
         tabs: [TabSnapshot],
         activeTabId: UUID? = nil,
         isManagementLayerActive: Bool = true,
-        drawerParentByPaneId: [UUID: UUID] = [:]
+        drawerParentByPaneId: [UUID: UUID] = [:],
+        drawerLayoutByParentPaneId: [UUID: DrawerGridLayout] = [:]
     ) -> ActionStateSnapshot {
         ActionStateSnapshot(
             tabs: tabs,
             activeTabId: activeTabId,
             isManagementLayerActive: isManagementLayerActive,
-            drawerParentByPaneId: drawerParentByPaneId
+            drawerParentByPaneId: drawerParentByPaneId,
+            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId
         )
     }
 
@@ -43,7 +45,7 @@ final class PaneDropPlannerTests {
             state: state
         )
 
-        #expect(result == .ineligible)
+        #expect(result == .ineligible(.drawerPanePayload))
     }
 
     @Test
@@ -115,7 +117,7 @@ final class PaneDropPlannerTests {
     }
 
     @Test
-    func drawerPane_sameParentDrawerSplit_returnsMoveDrawerPlan() {
+    func drawerPane_sameParentDrawerSplit_returnsIneligible() {
         let sourceTabId = UUID()
         let parentPaneId = UUID()
         let sourcePaneId = UUID()
@@ -132,6 +134,9 @@ final class PaneDropPlannerTests {
             drawerParentByPaneId: [
                 sourcePaneId: parentPaneId,
                 destinationPaneId: parentPaneId,
+            ],
+            drawerLayoutByParentPaneId: [
+                parentPaneId: DrawerGridLayout(topRow: Layout.autoTiled([sourcePaneId, destinationPaneId]))
             ]
         )
         let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId))
@@ -142,24 +147,13 @@ final class PaneDropPlannerTests {
                 targetPaneId: destinationPaneId,
                 targetTabId: sourceTabId,
                 direction: .left,
+                sizingMode: .halveTarget,
                 targetDrawerParentPaneId: parentPaneId
             ),
             state: state
         )
 
-        #expect(
-            result
-                == .eligible(
-                    .paneAction(
-                        .moveDrawerPane(
-                            parentPaneId: parentPaneId,
-                            drawerPaneId: sourcePaneId,
-                            targetDrawerPaneId: destinationPaneId,
-                            direction: .left
-                        )
-                    )
-                )
-        )
+        #expect(result == .ineligible(.drawerDestination))
     }
 
     @Test
@@ -191,12 +185,50 @@ final class PaneDropPlannerTests {
                 targetPaneId: destinationPaneId,
                 targetTabId: sourceTabId,
                 direction: .right,
+                sizingMode: .halveTarget,
                 targetDrawerParentPaneId: destinationParent
             ),
             state: state
         )
 
-        #expect(result == .ineligible)
+        #expect(result == .ineligible(.drawerDestination))
+    }
+
+    @Test
+    func drawerPane_toMainLayoutSplit_returnsIneligible() {
+        let sourceTabId = UUID()
+        let parentPaneId = UUID()
+        let sourcePaneId = UUID()
+        let targetPaneId = UUID()
+        let sourceTab = TabSnapshot(
+            id: sourceTabId,
+            visiblePaneIds: [parentPaneId, sourcePaneId, targetPaneId],
+            ownedPaneIds: [parentPaneId, sourcePaneId, targetPaneId],
+            activePaneId: parentPaneId
+        )
+        let state = makeSnapshot(
+            tabs: [sourceTab],
+            activeTabId: sourceTabId,
+            drawerParentByPaneId: [sourcePaneId: parentPaneId],
+            drawerLayoutByParentPaneId: [
+                parentPaneId: DrawerGridLayout(topRow: Layout.autoTiled([sourcePaneId]))
+            ]
+        )
+        let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId))
+
+        let result = PaneDropPlanner.previewDecision(
+            payload: payload,
+            destination: .split(
+                targetPaneId: targetPaneId,
+                targetTabId: sourceTabId,
+                direction: .right,
+                sizingMode: .halveTarget,
+                targetDrawerParentPaneId: nil
+            ),
+            state: state
+        )
+
+        #expect(result == .ineligible(.drawerPanePayload))
     }
 
     @Test
@@ -227,6 +259,7 @@ final class PaneDropPlannerTests {
                 targetPaneId: targetPaneId,
                 targetTabId: targetTabId,
                 direction: .right,
+                sizingMode: .halveTarget,
                 targetDrawerParentPaneId: nil
             ),
             state: state
@@ -240,7 +273,8 @@ final class PaneDropPlannerTests {
                             source: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
                             targetTabId: targetTabId,
                             targetPaneId: targetPaneId,
-                            direction: .right
+                            direction: .right,
+                            sizingMode: .halveTarget
                         )
                     )
                 )
@@ -268,12 +302,20 @@ final class PaneDropPlannerTests {
                 targetPaneId: targetPaneId,
                 targetTabId: targetTabId,
                 direction: .left,
+                sizingMode: .halveTarget,
                 targetDrawerParentPaneId: nil
             ),
             state: state
         )
 
-        #expect(result == .ineligible)
+        #expect(
+            result
+                == .ineligible(
+                    .validationFailed(
+                        .sourcePaneNotFound(paneId: sourcePaneId, sourceTabId: missingSourceTabId)
+                    )
+                )
+        )
     }
 
     @Test
@@ -304,12 +346,13 @@ final class PaneDropPlannerTests {
                 targetPaneId: missingTargetPaneId,
                 targetTabId: targetTabId,
                 direction: .right,
+                sizingMode: .halveTarget,
                 targetDrawerParentPaneId: nil
             ),
             state: state
         )
 
-        #expect(result == .ineligible)
+        #expect(result.isIneligible)
     }
 
     @Test
@@ -326,12 +369,13 @@ final class PaneDropPlannerTests {
                 targetPaneId: paneId,
                 targetTabId: tabId,
                 direction: .left,
+                sizingMode: .halveTarget,
                 targetDrawerParentPaneId: nil
             ),
             state: state
         )
 
-        #expect(result == .ineligible)
+        #expect(result.isIneligible)
     }
 
     @Test
@@ -354,12 +398,13 @@ final class PaneDropPlannerTests {
                 targetPaneId: paneA,
                 targetTabId: tabId,
                 direction: .right,
+                sizingMode: .halveTarget,
                 targetDrawerParentPaneId: nil
             ),
             state: state
         )
 
-        #expect(result == .ineligible)
+        #expect(result.isIneligible)
     }
 
     @Test
@@ -393,6 +438,7 @@ final class PaneDropPlannerTests {
                 targetPaneId: targetPaneId,
                 targetTabId: targetTabId,
                 direction: .right,
+                sizingMode: .halveTarget,
                 targetDrawerParentPaneId: nil
             ),
             state: state
@@ -403,7 +449,16 @@ final class PaneDropPlannerTests {
             state: state
         )
 
-        #expect(splitResult == .ineligible)
-        #expect(tabResult == .ineligible)
+        #expect(splitResult.isIneligible)
+        #expect(tabResult.isIneligible)
+    }
+}
+
+extension PaneDropPreviewDecision {
+    fileprivate var isIneligible: Bool {
+        if case .ineligible = self {
+            return true
+        }
+        return false
     }
 }

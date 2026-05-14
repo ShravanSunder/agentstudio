@@ -29,7 +29,7 @@ final class MinimizeLayoutIntegrationTests {
             let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
             store.insertPane(
                 pane.id, inTab: tab.id, at: paneIds.last!,
-                direction: .horizontal, position: .after
+                direction: .horizontal, position: .after, sizingMode: .halveTarget
             )
             paneIds.append(pane.id)
         }
@@ -106,7 +106,7 @@ final class MinimizeLayoutIntegrationTests {
         #expect(drawer.minimizedPaneIds == Set([d1.id, d2.id]))
 
         let renderInfo = FlatTabStripMetrics.compute(
-            layout: drawer.layout,
+            layout: drawer.layout.topRow,
             in: CGRect(x: 0, y: 0, width: 1200, height: 300),
             dividerThickness: AppStyles.General.Layout.paneGap,
             minimizedPaneIds: drawer.minimizedPaneIds,

@@ -8,9 +8,11 @@ import Foundation
 enum PaneRuntimeEvent: Sendable {
     case lifecycle(PaneLifecycleEvent)
     case terminal(GhosttyEvent)
+    case terminalActivity(TerminalActivityEvent)
     case browser(BrowserEvent)
     case diff(DiffEvent)
     case editor(EditorEvent)
+    case agentNotificationRequested(title: String, body: String?)
     case plugin(kind: PaneContentType, event: any PaneKindEvent & Sendable)
     case paneFilesystemContext(PaneFilesystemContextEvent)
     case filesystem(FilesystemEvent)
@@ -24,14 +26,38 @@ extension PaneRuntimeEvent {
     var actionPolicy: ActionPolicy {
         switch self {
         case .terminal(let event): return event.actionPolicy
+        case .terminalActivity(let event): return event.actionPolicy
         case .browser(let event): return event.actionPolicy
         case .diff(let event): return event.actionPolicy
         case .editor(let event): return event.actionPolicy
+        case .agentNotificationRequested:
+            return .critical
         case .plugin(_, let event): return event.actionPolicy
         case .paneFilesystemContext(let event): return event.actionPolicy
         case .lifecycle, .filesystem, .artifact, .security, .error:
             return .critical
         }
+    }
+}
+
+struct TerminalSettledActivity: Sendable, Equatable {
+    let burstWindowId: UUID
+    let thresholdRows: Int
+    let debounceMilliseconds: Int
+    let startedAtMilliseconds: Int64
+    let settledAtMilliseconds: Int64
+    let eventCount: Int
+    let rowsAdded: Int
+    let baselineRows: Int
+    let latestRows: Int
+    let isPinnedToBottom: Bool
+}
+
+enum TerminalActivityEvent: Sendable, Equatable {
+    case unseenActivitySettled(TerminalSettledActivity)
+
+    var actionPolicy: ActionPolicy {
+        .critical
     }
 }
 

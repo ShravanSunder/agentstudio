@@ -88,8 +88,26 @@ final class ActionExecutor {
         coordinator.undoCloseTab()
     }
 
-    func restoreVisibleViewsForActiveTabIfNeeded() {
-        coordinator.restoreViewsForActiveTabIfNeeded()
+    func restoreVisibleViewsForActiveTabIfNeeded(forceWhenBoundsExist: Bool = false) {
+        coordinator.restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: forceWhenBoundsExist)
+    }
+
+    private func drawerParentByPaneId() -> [UUID: UUID] {
+        Dictionary(
+            uniqueKeysWithValues: store.paneAtom.panes.values.compactMap { pane in
+                guard let parentPaneId = pane.parentPaneId else { return nil }
+                return (pane.id, parentPaneId)
+            }
+        )
+    }
+
+    private func drawerLayoutByParentPaneId() -> [UUID: DrawerGridLayout] {
+        Dictionary(
+            uniqueKeysWithValues: store.paneAtom.panes.values.compactMap { pane in
+                guard let drawer = pane.drawer else { return nil }
+                return (pane.id, drawer.layout)
+            }
+        )
     }
 
     /// Validate/canonicalize a PaneActionCommand against current state, then execute it.
@@ -101,7 +119,9 @@ final class ActionExecutor {
             activeTabId: tabLayout.activeTabId,
             isManagementLayerActive: atom(\.managementLayer).isActive,
             knownRepoIds: Set(repositoryTopology.repos.map(\.id)),
-            knownWorktreeIds: Set(repositoryTopology.repos.flatMap(\.worktrees).map(\.id))
+            knownWorktreeIds: Set(repositoryTopology.repos.flatMap(\.worktrees).map(\.id)),
+            drawerParentByPaneId: drawerParentByPaneId(),
+            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId()
         )
         switch WorkspaceCommandValidator.validate(action, state: snapshot) {
         case .success(let validated):

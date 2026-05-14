@@ -8,7 +8,10 @@ enum ShortcutCharacterKey: String, CaseIterable {
     case d
     case e
     case f
+    case i
+    case j
     case k
+    case l
     case m
     case n
     case o
@@ -99,11 +102,61 @@ enum ShortcutContext: CaseIterable, Hashable {
     case global
     case managementLayer
     case terminalAppOwned
+    /// Drawer is open AND has no panes AND focus is on the drawer.
+    /// Raw-character bindings (no modifiers) fire here, gated upstream
+    /// on a neutral responder so text fields keep receiving keystrokes.
+    case emptyDrawer
 }
 
 struct AppShortcutSpec: Equatable {
+    /// Primary trigger — what shows in the command bar / menus.
     let trigger: ShortcutTrigger
+
+    /// Alternate triggers keyed by the exact contexts where they are
+    /// valid. This prevents a context-specific raw character binding
+    /// from inheriting the broader contexts of the primary trigger.
+    let alternateTriggers: [ShortcutTrigger: Set<ShortcutContext>]
+
     let contexts: Set<ShortcutContext>
+
+    init(
+        trigger: ShortcutTrigger,
+        alternateTriggers: [ShortcutTrigger: Set<ShortcutContext>] = [:],
+        contexts: Set<ShortcutContext>
+    ) {
+        self.trigger = trigger
+        self.alternateTriggers = alternateTriggers
+        self.contexts = contexts
+    }
+
+    /// Trigger to display in a given context. The first matching
+    /// trigger from `[trigger] + alternateTriggers` whose modifier
+    /// shape suits the context wins. Falls back to the primary
+    /// trigger when no alternate is appropriate.
+    ///
+    /// Today the only context that prefers an alternate is
+    /// `.emptyDrawer`, which prefers a no-modifier raw-character
+    /// trigger when one exists. Other contexts use the primary.
+    func displayTrigger(in context: ShortcutContext) -> ShortcutTrigger {
+        if context == .emptyDrawer,
+            let rawCharacterAlternate = alternateTriggers.first(where: { trigger, contexts in
+                trigger.modifiers.isEmpty && contexts.contains(context)
+            })?.key
+        {
+            return rawCharacterAlternate
+        }
+        return trigger
+    }
+
+    func matches(_ candidate: ShortcutTrigger, in context: ShortcutContext) -> Bool {
+        if candidate == trigger {
+            return contexts.contains(context)
+        }
+        guard let contexts = alternateTriggers[candidate] else {
+            return false
+        }
+        return contexts.contains(context)
+    }
 }
 
 enum AppShortcut: String, CaseIterable {
@@ -121,6 +174,9 @@ enum AppShortcut: String, CaseIterable {
     case toggleManagementLayer
     case toggleSidebar
     case filterSidebar
+    case showInboxNotifications
+    case showPaneInboxNotifications
+    case showWorktreeSidebar
     case newWindow
     case closeWindow
     case showCommandBarEverything
@@ -172,9 +228,16 @@ enum AppShortcut: String, CaseIterable {
                 contexts: [.global]
             )
         case .addDrawerPane:
+            // Primary: cmd-shift-D fires globally (also in
+            // terminal-app-owned context). Alternate: raw-character
+            // P fires in `.emptyDrawer` (gated on neutral responder
+            // upstream so text fields still receive the keystroke).
             return .init(
                 trigger: .init(key: .character(.d), modifiers: [.command, .shift]),
-                contexts: [.global, .terminalAppOwned]
+                alternateTriggers: [
+                    .init(key: .character(.p), modifiers: []): [.emptyDrawer]
+                ],
+                contexts: [.global, .terminalAppOwned, .emptyDrawer]
             )
         case .toggleDrawer:
             return .init(
@@ -213,8 +276,23 @@ enum AppShortcut: String, CaseIterable {
             )
         case .filterSidebar:
             return .init(
-                trigger: .init(key: .character(.f), modifiers: [.command, .shift]),
+                trigger: .init(key: .character(.f), modifiers: [.command]),
                 contexts: [.global]
+            )
+        case .showInboxNotifications:
+            return .init(
+                trigger: .init(key: .character(.i), modifiers: [.command]),
+                contexts: [.global, .terminalAppOwned]
+            )
+        case .showPaneInboxNotifications:
+            return .init(
+                trigger: .init(key: .character(.i), modifiers: [.command, .shift]),
+                contexts: [.global, .terminalAppOwned]
+            )
+        case .showWorktreeSidebar:
+            return .init(
+                trigger: .init(key: .character(.s), modifiers: [.command]),
+                contexts: [.global, .terminalAppOwned]
             )
         case .newWindow:
             return .init(
@@ -264,11 +342,16 @@ enum AppShortcut: String, CaseIterable {
         case .managementLayerFocusRight:
             return Self.managementSpec(key: .arrow(.right))
         case .managementLayerEnterDrawer:
-            return Self.managementSpec(key: .arrow(.down))
+            return Self.managementSpec(key: .enter)
         case .managementLayerExitDrawer:
             return Self.managementSpec(key: .arrow(.up))
         case .managementLayerOpenDrawer:
-            return Self.managementSpec(key: .character(.d))
+            return Self.managementSpec(
+                key: .character(.d),
+                alternateTriggers: [
+                    .init(key: .arrow(.down), modifiers: []): [.managementLayer]
+                ]
+            )
         case .managementLayerCreateTerminal:
             return Self.managementSpec(key: .character(.p))
         case .managementLayerCreateBrowser:
@@ -279,6 +362,10 @@ enum AppShortcut: String, CaseIterable {
     }
 
     var trigger: ShortcutTrigger { spec.trigger }
+
+    /// All triggers (primary + alternates) that dispatch this command.
+    var triggers: [ShortcutTrigger] { [spec.trigger] + Array(spec.alternateTriggers.keys) }
+
     var command: AppCommand {
         switch self {
         case .newTab:
@@ -295,6 +382,10 @@ enum AppShortcut: String, CaseIterable {
 }
 
 extension AppShortcut {
+    func displayKeyBinding(in context: ShortcutContext) -> KeyBinding? {
+        spec.displayTrigger(in: context).keyBinding
+    }
+
     fileprivate static func selectTabSpec(key: ShortcutCharacterKey) -> AppShortcutSpec {
         .init(
             trigger: .init(key: .character(key), modifiers: [.command]),
@@ -302,9 +393,13 @@ extension AppShortcut {
         )
     }
 
-    fileprivate static func managementSpec(key: ShortcutInputKey) -> AppShortcutSpec {
+    fileprivate static func managementSpec(
+        key: ShortcutInputKey,
+        alternateTriggers: [ShortcutTrigger: Set<ShortcutContext>] = [:]
+    ) -> AppShortcutSpec {
         .init(
             trigger: .init(key: key, modifiers: []),
+            alternateTriggers: alternateTriggers,
             contexts: [.managementLayer]
         )
     }
@@ -354,7 +449,7 @@ enum ShortcutDecoder {
         in context: ShortcutContext
     ) -> AppShortcut? {
         AppShortcut.allCases.first { shortcut in
-            shortcut.trigger == trigger && shortcut.contexts.contains(context)
+            shortcut.spec.matches(trigger, in: context)
         }
     }
 

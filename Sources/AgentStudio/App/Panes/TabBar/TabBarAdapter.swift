@@ -63,6 +63,8 @@ final class TabBarAdapter {
 
     var draggingTabId: UUID?
     var dropTargetIndex: Int?
+    var dwellTabId: UUID?
+    var dwellProgress: CGFloat = 0
     var tabFrames: [UUID: CGRect] = [:]
 
     // MARK: - Internals

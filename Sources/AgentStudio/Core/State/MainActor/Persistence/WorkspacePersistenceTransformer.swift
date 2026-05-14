@@ -139,7 +139,10 @@ enum WorkspacePersistenceTransformer {
                     !validPaneIds.contains($0)
                 }
                 for paneId in invalidIds {
-                    if let newLayout = tabs[tabIndex].arrangements[arrIndex].layout.removing(paneId: paneId) {
+                    if let newLayout = tabs[tabIndex].arrangements[arrIndex].layout.removing(
+                        paneId: paneId,
+                        sizingMode: .halveTarget
+                    ) {
                         tabs[tabIndex].arrangements[arrIndex].layout = newLayout
                     } else {
                         tabs[tabIndex].arrangements[arrIndex].layout = Layout()

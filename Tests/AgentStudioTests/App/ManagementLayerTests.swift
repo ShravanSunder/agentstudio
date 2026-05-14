@@ -88,6 +88,19 @@ struct ManagementLayerTests {
         }
     }
 
+    @Test("management layer passes option-ijkl through")
+    func test_managementLayer_keyPolicy_optionIJKLPassThrough() async {
+        withTestAtomRegistry { _ in
+            let monitor = makeMonitor()
+            let decision = monitor.keyDownDecision(
+                keyCode: 34,
+                modifierFlags: [.option],
+                charactersIgnoringModifiers: "i"
+            )
+            #expect(decision == .passThrough)
+        }
+    }
+
     @Test("management layer key policy consumes plain typing")
     func test_managementLayer_keyPolicy_plainTypingConsumed() async {
         withTestAtomRegistry { _ in
@@ -177,7 +190,7 @@ struct ManagementLayerTests {
                     keyCode: 125,
                     modifierFlags: [],
                     charactersIgnoringModifiers: nil
-                ) == .dispatch(.managementLayerEnterDrawer)
+                ) == .dispatch(.managementLayerOpenDrawer)
             )
             #expect(
                 monitor.keyDownDecision(

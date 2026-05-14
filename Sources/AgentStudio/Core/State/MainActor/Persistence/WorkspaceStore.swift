@@ -21,6 +21,7 @@ final class WorkspaceStore {
     private let persistor: WorkspacePersistor
     private let persistDebounceDuration: Duration
     private let clock: any Clock<Duration>
+    private let recoveryReporter: PersistenceRecoveryReporter?
     private var debouncedSaveTask: Task<Void, Never>?
     private var isObservingPersistedState = false
     private var isRestoringState = false
@@ -36,7 +37,8 @@ final class WorkspaceStore {
         mutationCoordinator: WorkspaceMutationCoordinator? = nil,
         persistor: WorkspacePersistor = WorkspacePersistor(),
         persistDebounceDuration: Duration = .milliseconds(500),
-        clock: any Clock<Duration> = ContinuousClock()
+        clock: any Clock<Duration> = ContinuousClock(),
+        recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         let resolvedTabShellAtom = tabLayoutAtom?.shellAtom ?? tabShellAtom
         let resolvedTabArrangementAtom = tabLayoutAtom?.arrangementAtom ?? tabArrangementAtom
@@ -62,6 +64,7 @@ final class WorkspaceStore {
         self.persistor = persistor
         self.persistDebounceDuration = persistDebounceDuration
         self.clock = clock
+        self.recoveryReporter = recoveryReporter
         observePersistedState()
     }
 
@@ -93,8 +96,17 @@ final class WorkspaceStore {
                 "Restored workspace '\(state.name)' with \(hydratedPaneCount) pane(s), \(hydratedTabCount) tab(s), dropped \(droppedPaneCount) pane(s), dropped \(droppedTabCount) tab(s)"
             )
         case .corrupt(let error):
+            let quarantine = persistor.quarantineCorruptCanonicalWorkspaceFiles()
             workspaceStoreLogger.error(
-                "Workspace file exists but failed to decode — starting with empty state: \(error)"
+                "Workspace file exists but failed to decode; quarantined canonical workspace files before starting with empty state: \(error)"
+            )
+            recoveryReporter?(
+                .init(
+                    store: .workspace,
+                    workspaceId: quarantine?.workspaceId,
+                    recovery: quarantine?.recovery ?? .quarantineFailed,
+                    quarantinedFilename: quarantine?.recoveryFilename
+                )
             )
         case .missing:
             workspaceStoreLogger.info("No workspace files found — first launch")
@@ -159,6 +171,7 @@ final class WorkspaceStore {
             workspaceStoreLogger.error(
                 "Failed to persist workspace because the workspaces directory could not be created"
             )
+            reportSaveFailed()
             return false
         }
 
@@ -180,7 +193,18 @@ final class WorkspaceStore {
             return true
         } catch {
             workspaceStoreLogger.error("Failed to persist workspace: \(error.localizedDescription)")
+            reportSaveFailed()
             return false
         }
+    }
+
+    private func reportSaveFailed() {
+        recoveryReporter?(
+            .init(
+                store: .workspace,
+                workspaceId: metadataAtom.workspaceId,
+                recovery: .saveFailed
+            )
+        )
     }
 }

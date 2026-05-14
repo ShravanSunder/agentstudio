@@ -1,0 +1,40 @@
+import Foundation
+import Testing
+
+@testable import AgentStudio
+
+@Suite("Inbox notification persistence recovery")
+struct InboxNotificationPersistenceRecoveryTests {
+    @Test("factory creates visible global recovery notification")
+    func factoryCreatesVisibleGlobalRecoveryNotification() {
+        let workspaceId = UUID()
+        let event = PersistenceRecoveryEvent(
+            store: .sidebarCache,
+            workspaceId: workspaceId,
+            recovery: .quarantinedAndReset,
+            quarantinedFilename: "workspace.sidebar-cache.corrupt.json"
+        )
+
+        let notification = InboxNotification.persistenceRecovery(event)
+
+        #expect(notification.kind == .persistenceRecovery)
+        #expect(notification.source == .global)
+        #expect(notification.title == "Sidebar cache reset")
+        #expect(notification.body?.contains("workspace.sidebar-cache.corrupt.json") == true)
+        #expect(notification.isRead == false)
+        #expect(notification.isDismissedFromPaneInbox == false)
+    }
+
+    @Test("factory describes save and quarantine failures")
+    func factoryDescribesSaveAndQuarantineFailures() {
+        let saveFailed = InboxNotification.persistenceRecovery(
+            .init(store: .notificationInbox, workspaceId: nil, recovery: .saveFailed)
+        )
+        let quarantineFailed = InboxNotification.persistenceRecovery(
+            .init(store: .workspace, workspaceId: nil, recovery: .quarantineFailed)
+        )
+
+        #expect(saveFailed.body?.contains("could not save") == true)
+        #expect(quarantineFailed.body?.contains("moving it aside failed") == true)
+    }
+}

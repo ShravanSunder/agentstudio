@@ -142,6 +142,43 @@ struct NotificationReducerTests {
         #expect(second?.source == .pane(lowTierPaneId))
     }
 
+    @Test("pane envelope with system provenance still tiers by pane identity")
+    func paneEnvelopeWithSystemProvenanceStillTiersByPaneIdentity() async {
+        let visiblePaneId = PaneId()
+        let hiddenPaneId = PaneId()
+        let resolver = TestVisibilityTierResolver(
+            mapping: [
+                visiblePaneId: .p0Visible,
+                hiddenPaneId: .p1Hidden,
+            ]
+        )
+        let reducer = NotificationReducer(tierResolver: resolver)
+        var iterator = reducer.criticalEvents.makeAsyncIterator()
+
+        reducer.submit(
+            makePaneEnvelope(
+                seq: 1,
+                source: .system(.builtin(.terminalActivityRouter)),
+                paneId: hiddenPaneId,
+                event: .terminalActivity(.unseenActivitySettled(makeSettledActivity()))
+            )
+        )
+        reducer.submit(
+            makePaneEnvelope(
+                seq: 2,
+                source: .pane(visiblePaneId),
+                paneId: visiblePaneId,
+                event: .terminal(.bellRang)
+            )
+        )
+
+        let first = await iterator.next()
+        let second = await iterator.next()
+
+        #expect(first?.source == .pane(visiblePaneId))
+        #expect(second?.source == .system(.builtin(.terminalActivityRouter)))
+    }
+
     @Test("system topology stays system-scoped with no legacy bridge conversion")
     func systemTopologyStaysSystemScoped() async {
         let reducer = NotificationReducer()
@@ -183,16 +220,21 @@ struct NotificationReducerTests {
     private func makePaneEnvelope(
         seq: UInt64,
         source: EventSource = .pane(PaneId()),
+        paneId explicitPaneId: PaneId? = nil,
         paneKind: PaneContentType = .terminal,
         event: PaneRuntimeEvent
     ) -> RuntimeEnvelope {
         let clock = ContinuousClock()
         let resolvedPaneId: PaneId
-        switch source {
-        case .pane(let paneId):
-            resolvedPaneId = paneId
-        case .worktree, .system:
-            resolvedPaneId = PaneId()
+        if let explicitPaneId {
+            resolvedPaneId = explicitPaneId
+        } else {
+            switch source {
+            case .pane(let paneId):
+                resolvedPaneId = paneId
+            case .worktree, .system:
+                resolvedPaneId = PaneId()
+            }
         }
 
         return .pane(
@@ -204,6 +246,21 @@ struct NotificationReducerTests {
                 paneKind: paneKind,
                 event: event
             )
+        )
+    }
+
+    private func makeSettledActivity() -> TerminalSettledActivity {
+        TerminalSettledActivity(
+            burstWindowId: UUID(),
+            thresholdRows: 30,
+            debounceMilliseconds: 750,
+            startedAtMilliseconds: 1000,
+            settledAtMilliseconds: 1200,
+            eventCount: 3,
+            rowsAdded: 40,
+            baselineRows: 100,
+            latestRows: 140,
+            isPinnedToBottom: false
         )
     }
 }

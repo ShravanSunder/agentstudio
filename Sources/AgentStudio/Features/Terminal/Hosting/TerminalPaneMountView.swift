@@ -1,9 +1,23 @@
 import AppKit
 import GhosttyKit
 
+private actor TerminationDeliveryObservation {
+    private var hasObservedHandling = false
+
+    func markHandled() {
+        hasObservedHandling = true
+    }
+
+    func handled() -> Bool {
+        hasObservedHandling
+    }
+}
+
 /// Host-side terminal pane container for Ghostty surfaces, overlays, and lifecycle UI.
 /// PaneCoordinator creates surfaces and passes them here via displaySurface().
 final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDelegate {
+    private static let terminationHandlingRetryTurns = 20
+
     let paneId: UUID
     let worktree: Worktree?
     let repo: Repo?
@@ -478,8 +492,26 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
     private func postProcessTerminationEvent(processAlive: Bool) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            let postResult = await AppEventBus.shared.post(.terminalProcessTerminated(paneId: self.paneId))
-            let hadEffectiveDelivery = postResult.subscriberCount > 0 && postResult.droppedCount == 0
+            let terminationObservation = TerminationDeliveryObservation()
+            let paneId = self.paneId
+            let acknowledgementTask = Task {
+                let stream = await AppEventBus.shared.subscribe()
+                for await event in stream {
+                    switch event {
+                    case .terminalProcessTerminationHandled(let handledPaneId) where handledPaneId == paneId:
+                        await terminationObservation.markHandled()
+                        return
+                    default:
+                        continue
+                    }
+                }
+            }
+
+            _ = await AppEventBus.shared.post(.terminalProcessTerminated(paneId: paneId))
+            let hadEffectiveDelivery = await self.waitForTerminationHandling(
+                observation: terminationObservation,
+                acknowledgementTask: acknowledgementTask
+            )
             self.hasObservedEffectiveTerminationDelivery = hadEffectiveDelivery
             if hadEffectiveDelivery {
                 self.finishRestorePresentation()
@@ -489,6 +521,22 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
             self.shouldSuppressProcessExitedOverlayAfterTermination = false
             self.showProcessExitedFallback(processAlive: processAlive)
         }
+    }
+
+    private func waitForTerminationHandling(
+        observation: TerminationDeliveryObservation,
+        acknowledgementTask: Task<Void, Never>
+    ) async -> Bool {
+        defer { acknowledgementTask.cancel() }
+
+        for _ in 0..<Self.terminationHandlingRetryTurns {
+            if await observation.handled() {
+                return true
+            }
+            await Task.yield()
+        }
+
+        return await observation.handled()
     }
 
     private func showProcessExitedFallback(processAlive: Bool) {

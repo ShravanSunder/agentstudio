@@ -49,7 +49,7 @@ Agent Studio is a macOS terminal application that embeds Ghostty terminal surfac
 ## Architecture Principles
 
 - **Pane as primary entity** — `Pane` is the stable identity across model, runtime, view registry, surface metadata, and restore flows
-- **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` store: `WorkspaceStore` (canonical associations), `RepoCacheAtom` (derived enrichment), `UIStateAtom` (presentation prefs), `SurfaceManager` (Ghostty surfaces), `SessionRuntime` (backends). No god-store. Each store owns one domain and has one reason to change.
+- **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` store: `WorkspaceStore` (canonical associations), `RepoCacheAtom` (derived enrichment), `UIStateAtom` (presentation prefs + sidebar composition state), `SurfaceManager` (Ghostty surfaces), `SessionRuntime` (backends). No god-store. Each store owns one domain and has one reason to change. Feature atoms live inside their feature slice at `Features/<slice>/State/MainActor/Atoms/` — see [directory_structure.md — Feature Slice Self-Containment](directory_structure.md).
 - **Unidirectional flow (Valtio-style)** — All store state is `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers.
 - **Coordinator for cross-store sequencing** — A coordinator sequences operations across stores for a single user action. Owns no state, contains no domain logic.
 - **Lifecycle ingress stays separate** — `ApplicationLifecycleMonitor` owns AppKit ingress only. It mutates `AppLifecycleAtom` and `WindowLifecycleAtom`, both `@Observable` atomic stores with `private(set)` mutation surfaces. `WindowLifecycleAtom` holds transient window facts only: key/focus state, terminal container bounds, launch-layout-settle state, and derived readiness; none of those readiness properties are persisted.
@@ -92,10 +92,16 @@ RepoCacheAtom (derived enrichment — workspace.cache.json, rebuildable)
 ├── repoEnrichmentByRepoId             ← origin, identity, groupKey, displayName
 ├── worktreeEnrichmentByWorktreeId     ← branch, git snapshot
 ├── pullRequestCountByWorktreeId       ← PR badges
-└── notificationCountByWorktreeId      ← notification bells
+└── (notification counts moved — unread bells now derive from
+                                        InboxNotificationAtom.unreadCount(
+                                        forWorktreeId:) per LUNA-361)
 
-UIStateAtom (presentation prefs — workspace.ui.json)
+UIStateAtom (presentation prefs + sidebar composition — workspace.ui.json)
 ├── expandedGroups, checkoutColors, filterText, isFilterVisible
+└── sidebarCollapsed, sidebarSurface, sidebarHasFocus   ← composition
+                                                          state; has-
+                                                          Focus is
+                                                          runtime-only
 ```
 
 ## Mutation Flow (Summary)
@@ -141,6 +147,7 @@ Each document owns a specific concern. No two documents are authoritative for th
 | [Zmx Restore and Sizing](zmx_restore_and_sizing.md) | Zmx-specific attach and sizing | Deferred attach sequencing, geometry readiness, restart reconcile policy, zmx restore/sizing test coverage |
 | [Surface Architecture](ghostty_surface_architecture.md) | Ghostty surface management | Surface ownership, state machine, health monitoring, crash isolation, CWD propagation |
 | [App Architecture](appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid shell | AppKit hosting model, controllers, command bar panel, event handling |
+| [Commands and Shortcuts](commands_and_shortcuts.md) | Command + shortcut system | Four-file model (AppCommand / AppShortcut / CommandSpec / LocalActionSpec), decision tree for adding bindings, contexts, alternateTriggers, where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
 | [Remote zmx Architecture Ideas](remote_zmx_architecture_ideas.md) | Remote zmx daemons and fork strategy | SSH tunnel architecture (Option C), security model, connection lifecycle, case for forking zmx |
 | [Directory Structure](directory_structure.md) | Module boundaries and file placement | Core vs Features decision process, import rule, component → slice map, placement rationale |
 | [Swift-React Bridge](swift_react_bridge_design.md) | Bridge transport for React panes | Three-stream bridge architecture, push pipeline, JSON-RPC command channel, content world isolation |

@@ -134,7 +134,7 @@ struct PaneDisplayDerived {
         let workspacePane = atom(\.workspacePane)
         let workspaceRepositoryTopology = atom(\.workspaceRepositoryTopology)
         let repoCache = atom(\.repoCache)
-        let uiState = atom(\.uiState)
+        let sidebarCache = atom(\.sidebarCache)
 
         guard let pane = workspacePane.pane(paneId) else {
             paneDisplayLogger.warning("accentColorHex: pane \(paneId.uuidString, privacy: .public) not found")
@@ -153,17 +153,23 @@ struct PaneDisplayDerived {
             metadataByRepoId: repoMetadataById
         )
 
+        let checkoutColorOverrides = Dictionary(
+            uniqueKeysWithValues: sidebarCache.checkoutColors.map { key, value in
+                (key.rawValue, value)
+            }
+        )
+
         if let group = resolvedGroups.first(where: { group in
             group.repos.contains(where: { $0.id == repoId })
         }) {
             return RepoPresentationColoring.checkoutColorHex(
                 for: sidebarRepo,
                 in: group,
-                checkoutColorOverrides: uiState.checkoutColors
+                checkoutColorOverrides: checkoutColorOverrides
             )
         }
 
-        return uiState.checkoutColors[repoId.uuidString]
+        return sidebarCache.checkoutColors[SidebarCheckoutColorKey(repoId.uuidString)]
     }
 
     func collapsedBarLabelParts(for paneId: UUID) -> [CollapsedBarLabelPart] {

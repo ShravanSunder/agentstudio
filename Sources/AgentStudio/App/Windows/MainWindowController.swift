@@ -1,10 +1,28 @@
 import AppKit
+import Observation
 import SwiftUI
+
+final class SidebarToolbarButton: NSButton {
+    var currentSymbolName = ""
+}
+
+enum InboxToolbarUnreadBadgeText {
+    static func text(for unreadCount: Int) -> String {
+        unreadCount > 99 ? "99+" : "\(unreadCount)"
+    }
+}
 
 /// Main window controller for AgentStudio
 class MainWindowController: NSWindowController, NSWindowDelegate {
     private var splitViewController: MainSplitViewController?
     private var sidebarAccessory: NSTitlebarAccessoryViewController?
+    private var inboxAtom: InboxNotificationAtom?
+    private var uiState: UIStateAtom?
+    private weak var worktreeToolbarButton: SidebarToolbarButton?
+    private weak var inboxToolbarButton: SidebarToolbarButton?
+    private var inboxToolbarBadgeHostingView: NSHostingView<UnreadCountBadge>?
+    private var isObservingInboxUnread = false
+    private var isObservingSidebarSurface = false
     private var awaitsLaunchRestoreResize = false
     private var awaitsLaunchMaximize = false
     private var applicationLifecycleMonitor: ApplicationLifecycleMonitor!
@@ -19,7 +37,11 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         appLifecycleStore: AppLifecycleAtom,
         tabBarAdapter: TabBarAdapter,
-        viewRegistry: ViewRegistry
+        viewRegistry: ViewRegistry,
+        inboxAtom: InboxNotificationAtom,
+        inboxPrefsAtom: InboxNotificationPrefsAtom,
+        paneInboxPresenter: PaneInboxNotificationPresenter,
+        closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
     ) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
@@ -42,6 +64,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
         self.init(window: window)
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
+        self.inboxAtom = inboxAtom
+        self.uiState = atom(\.uiState)
         window.delegate = self
         applicationLifecycleMonitor.handleWindowRegistered(windowId)
 
@@ -52,7 +76,11 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
             tabBarAdapter: tabBarAdapter,
-            viewRegistry: viewRegistry
+            viewRegistry: viewRegistry,
+            inboxAtom: inboxAtom,
+            inboxPrefsAtom: inboxPrefsAtom,
+            paneInboxPresenter: paneInboxPresenter,
+            closeTransitionCoordinator: closeTransitionCoordinator
         )
         self.splitViewController = splitVC
         window.contentViewController = splitVC
@@ -128,39 +156,35 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
     // MARK: - Titlebar Accessory
 
     private func setupTitlebarAccessory() {
-        let toggleSidebarPresentation = CommandDispatcher.shared.definition(for: .toggleSidebar)
-        let filterSidebarPresentation = CommandDispatcher.shared.definition(for: .filterSidebar)
+        let worktreeSidebarPresentation = CommandDispatcher.shared.definition(for: .showWorktreeSidebar)
+        let inboxSidebarPresentation = CommandDispatcher.shared.definition(for: .showInboxNotifications)
 
-        // Sidebar toggle button
-        let toggleButton = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
-        toggleButton.image = NSImage(
-            systemSymbolName: "sidebar.left",
-            accessibilityDescription: toggleSidebarPresentation.actionSpec.label
+        // Worktree sidebar button
+        let worktreeButton = makeSidebarToolbarButton(
+            identifier: "worktreeToolbarButton",
+            accessibilityLabel: worktreeSidebarPresentation.actionSpec.label,
+            toolTip: worktreeSidebarPresentation.controlToolTip,
+            action: #selector(showWorktreeSidebarAction)
         )
-        toggleButton.bezelStyle = .accessoryBarAction
-        toggleButton.isBordered = false
-        toggleButton.target = self
-        toggleButton.action = #selector(toggleSidebarAction)
-        toggleButton.toolTip = toggleSidebarPresentation.controlToolTip
+        self.worktreeToolbarButton = worktreeButton
 
-        // Search button
-        let searchButton = NSButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
-        searchButton.image = NSImage(
-            systemSymbolName: "magnifyingglass",
-            accessibilityDescription: filterSidebarPresentation.actionSpec.label
+        // Inbox sidebar button
+        let inboxButton = makeSidebarToolbarButton(
+            identifier: "inboxToolbarBell",
+            accessibilityLabel: inboxSidebarPresentation.actionSpec.label,
+            toolTip: inboxSidebarPresentation.controlToolTip,
+            action: #selector(showInboxSidebarAction)
         )
-        searchButton.bezelStyle = .accessoryBarAction
-        searchButton.isBordered = false
-        searchButton.target = self
-        searchButton.action = #selector(filterSidebarAction)
-        searchButton.toolTip = filterSidebarPresentation.controlToolTip
+        self.inboxToolbarButton = inboxButton
+        installInboxUnreadBadge(on: inboxButton)
 
-        // Stack both buttons horizontally with standard titlebar spacing
-        let stack = NSStackView(views: [toggleButton, searchButton])
+        // Stack buttons horizontally with standard titlebar spacing
+        let stack = NSStackView(views: [worktreeButton, inboxButton])
+        stack.identifier = NSUserInterfaceItemIdentifier("sidebarToolbarAccessory")
         stack.orientation = .horizontal
-        stack.spacing = 8
-        stack.edgeInsets = NSEdgeInsets(top: 0, left: 4, bottom: 0, right: 0)
-        stack.frame = NSRect(x: 0, y: 0, width: 78, height: 28)
+        stack.spacing = 10
+        stack.edgeInsets = NSEdgeInsets(top: 0, left: 22, bottom: 0, right: 0)
+        stack.frame = NSRect(x: 0, y: 0, width: 104, height: 28)
 
         let accessoryVC = NSTitlebarAccessoryViewController()
         accessoryVC.view = stack
@@ -168,6 +192,150 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
         window?.addTitlebarAccessoryViewController(accessoryVC)
         self.sidebarAccessory = accessoryVC
+        updateSidebarToolbarIcons()
+        observeSidebarSurface()
+    }
+
+    private func makeSidebarToolbarButton(
+        identifier: String,
+        accessibilityLabel: String,
+        toolTip: String,
+        action: Selector
+    ) -> SidebarToolbarButton {
+        let button = SidebarToolbarButton(frame: NSRect(x: 0, y: 0, width: 36, height: 28))
+        button.bezelStyle = .accessoryBarAction
+        button.isBordered = false
+        button.identifier = NSUserInterfaceItemIdentifier(identifier)
+        button.target = self
+        button.action = action
+        button.toolTip = toolTip
+        button.image = sidebarToolbarImage(
+            symbolName: "circle",
+            accessibilityDescription: accessibilityLabel
+        )
+        return button
+    }
+
+    private func updateSidebarToolbarIcons() {
+        guard let uiState else { return }
+        let worktreeSymbol =
+            uiState.sidebarSurface == .repos
+            ? "square.stack.3d.down.right.fill"
+            : "square.stack.3d.down.right"
+        let inboxSymbol =
+            uiState.sidebarSurface == .inbox
+            ? "bell.fill"
+            : "bell"
+
+        applySidebarToolbarImage(
+            symbolName: worktreeSymbol,
+            accessibilityDescription: CommandDispatcher.shared.definition(for: .showWorktreeSidebar).actionSpec.label,
+            to: worktreeToolbarButton
+        )
+        applySidebarToolbarImage(
+            symbolName: inboxSymbol,
+            accessibilityDescription: CommandDispatcher.shared.definition(for: .showInboxNotifications).actionSpec
+                .label,
+            to: inboxToolbarButton
+        )
+    }
+
+    private func sidebarToolbarImage(
+        symbolName: String,
+        accessibilityDescription: String
+    ) -> NSImage? {
+        let image = NSImage(
+            systemSymbolName: symbolName,
+            accessibilityDescription: accessibilityDescription
+        )
+        image?.setName(NSImage.Name(symbolName))
+        return image
+    }
+
+    private func applySidebarToolbarImage(
+        symbolName: String,
+        accessibilityDescription: String,
+        to button: SidebarToolbarButton?
+    ) {
+        button?.currentSymbolName = symbolName
+        button?.image = sidebarToolbarImage(
+            symbolName: symbolName,
+            accessibilityDescription: accessibilityDescription
+        )
+    }
+
+    private func observeSidebarSurface() {
+        guard !isObservingSidebarSurface, let uiState else { return }
+        isObservingSidebarSurface = true
+        withObservationTracking {
+            _ = uiState.sidebarSurface
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isObservingSidebarSurface = false
+                self.updateSidebarToolbarIcons()
+                self.observeSidebarSurface()
+            }
+        }
+    }
+
+    private func installInboxUnreadBadge(on button: NSButton) {
+        let badgeAnchor = NSView()
+        badgeAnchor.identifier = NSUserInterfaceItemIdentifier("inboxToolbarBadgeAnchor")
+        badgeAnchor.translatesAutoresizingMaskIntoConstraints = false
+        button.addSubview(badgeAnchor)
+
+        let badge = NSHostingView(rootView: UnreadCountBadge(text: "1"))
+        badge.identifier = NSUserInterfaceItemIdentifier("inboxToolbarUnreadBadge")
+        badge.translatesAutoresizingMaskIntoConstraints = false
+        badge.isHidden = true
+        badge.setContentHuggingPriority(.required, for: .horizontal)
+        badge.setContentHuggingPriority(.required, for: .vertical)
+        button.addSubview(badge)
+        NSLayoutConstraint.activate([
+            badgeAnchor.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+            badgeAnchor.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+            badgeAnchor.widthAnchor.constraint(equalToConstant: AppStyles.Shell.Sidebar.badgeHitboxSize),
+            badgeAnchor.heightAnchor.constraint(equalToConstant: AppStyles.Shell.Sidebar.badgeHitboxSize),
+            badge.topAnchor.constraint(
+                equalTo: badgeAnchor.topAnchor,
+                constant: -AppStyles.Shell.Sidebar.badgeOffset
+            ),
+            badge.trailingAnchor.constraint(
+                equalTo: badgeAnchor.trailingAnchor,
+                constant: AppStyles.Shell.Sidebar.badgeOffset
+            ),
+        ])
+        inboxToolbarBadgeHostingView = badge
+        updateInboxUnreadBadge()
+        observeInboxUnreadCount()
+    }
+
+    private func updateInboxUnreadBadge() {
+        let unreadCount = inboxAtom?.globalUnreadCount ?? 0
+        guard unreadCount > 0 else {
+            inboxToolbarBadgeHostingView?.isHidden = true
+            return
+        }
+        inboxToolbarBadgeHostingView?.rootView = UnreadCountBadge(
+            text: InboxToolbarUnreadBadgeText.text(for: unreadCount)
+        )
+        inboxToolbarBadgeHostingView?.isHidden = false
+    }
+
+    private func observeInboxUnreadCount() {
+        guard !isObservingInboxUnread else { return }
+        isObservingInboxUnread = true
+        withObservationTracking {
+            _ = inboxAtom?.globalUnreadCount
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.isObservingInboxUnread = false
+                self.updateInboxUnreadBadge()
+                self.observeInboxUnreadCount()
+            }
+        }
     }
 
     // MARK: - Toolbar
@@ -189,6 +357,14 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     func showSidebarFilter() {
         splitViewController?.showSidebarFilter()
+    }
+
+    func showInboxNotifications(commandBarIsKey: Bool) {
+        splitViewController?.showInboxNotifications(commandBarIsKey: commandBarIsKey)
+    }
+
+    func showWorktreeSidebar() {
+        splitViewController?.showWorktreeSidebar()
     }
 
     func expandSidebar() {
@@ -243,8 +419,14 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         toggleSidebar()
     }
 
-    @objc private func filterSidebarAction() {
-        CommandDispatcher.shared.dispatch(.filterSidebar)
+    @objc private func showWorktreeSidebarAction() {
+        showWorktreeSidebar()
+        updateSidebarToolbarIcons()
+    }
+
+    @objc private func showInboxSidebarAction() {
+        showInboxNotifications(commandBarIsKey: false)
+        updateSidebarToolbarIcons()
     }
 
     @objc private func watchFolderAction() {

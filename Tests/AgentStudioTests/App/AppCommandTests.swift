@@ -8,6 +8,7 @@ import Testing
 final class MockCommandHandler: WorkspaceCommandHandling {
     var executedCommands: [(AppCommand, UUID?, SearchItemType?)] = []
     var canExecuteResult: Bool = true
+    var targetedCanExecuteResult: Bool?
     var extractedPaneRequests: [(tabId: UUID, paneId: UUID, targetTabIndex: Int?)] = []
     var movePaneRequests: [(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID)] = []
 
@@ -21,6 +22,13 @@ final class MockCommandHandler: WorkspaceCommandHandling {
 
     func canExecute(_ command: AppCommand) -> Bool {
         canExecuteResult
+    }
+
+    func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        _ = command
+        _ = target
+        _ = targetType
+        return targetedCanExecuteResult ?? canExecuteResult
     }
 
     func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
@@ -40,6 +48,12 @@ final class MockAppCommandRouter: ShellCommandHandling {
 
     func canExecute(_ command: AppCommand) -> Bool {
         appCommands.contains(command)
+    }
+
+    func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        _ = target
+        _ = targetType
+        return canExecute(command)
     }
 
     func execute(_ command: AppCommand) -> Bool {
@@ -227,6 +241,12 @@ final class AppCommandTests {
     }
 
     @Test
+    func test_toggleSidebar_isVisibleInCommandBar() {
+        let definition = CommandDispatcher.shared.definition(for: .toggleSidebar)
+        #expect(!definition.isHiddenInCommandBar)
+    }
+
+    @Test
     func test_dispatcher_registersDefinitionForEveryCommand() {
         let dispatcher = CommandDispatcher.shared
 
@@ -298,6 +318,34 @@ final class AppCommandTests {
         #expect(def.commandBarGroupName == "Pane")
         #expect(def.requiresManagementLayer == false)
         #expect(def.visibleWhen == [.hasActivePane])
+    }
+
+    @MainActor
+
+    @Test
+    func test_sidebarAndPaneInboxDefinitions_areCommandBarVisibleWithShortcuts() {
+        let sidebarInbox = CommandDispatcher.shared.definition(for: .showInboxNotifications)
+        let clearReadInbox = CommandDispatcher.shared.definition(for: .clearReadInboxNotifications)
+        let paneInbox = CommandDispatcher.shared.definition(for: .showPaneInboxNotifications)
+        let clearPaneInbox = CommandDispatcher.shared.definition(for: .clearPaneInboxNotifications)
+        let worktreeSidebar = CommandDispatcher.shared.definition(for: .showWorktreeSidebar)
+
+        #expect(sidebarInbox.shortcut == .showInboxNotifications)
+        #expect(!sidebarInbox.isHiddenInCommandBar)
+        #expect(clearReadInbox.label == "Clear Read Inbox Notifications")
+        #expect(clearReadInbox.icon == .system(.trash))
+        #expect(clearReadInbox.commandBarGroupName == "Inbox")
+        #expect(!clearReadInbox.isHiddenInCommandBar)
+        #expect(paneInbox.shortcut == .showPaneInboxNotifications)
+        #expect(paneInbox.appliesTo == [.pane])
+        #expect(paneInbox.visibleWhen == [.hasActivePane])
+        #expect(paneInbox.commandBarGroupName == "Pane")
+        #expect(!paneInbox.isHiddenInCommandBar)
+        #expect(clearPaneInbox.label == "Mark Pane Inbox Seen")
+        #expect(clearPaneInbox.icon == .system(.eye))
+        #expect(clearPaneInbox.helpText.contains("seen"))
+        #expect(worktreeSidebar.shortcut == .showWorktreeSidebar)
+        #expect(!worktreeSidebar.isHiddenInCommandBar)
     }
 
     @MainActor
@@ -383,6 +431,27 @@ final class AppCommandTests {
         #expect(handler.executedCommands[0].2 == .tab)
 
         // Cleanup
+        dispatcher.handler = nil
+    }
+
+    @MainActor
+    @Test
+    func test_dispatcher_dispatch_targeted_usesTargetedAvailability() {
+        let dispatcher = CommandDispatcher.shared
+        let handler = MockCommandHandler()
+        handler.canExecuteResult = false
+        handler.targetedCanExecuteResult = true
+        dispatcher.handler = handler
+        dispatcher.appCommandRouter = nil
+        let targetId = UUID()
+
+        dispatcher.dispatch(.closeTab, target: targetId, targetType: .tab)
+
+        #expect(handler.executedCommands.count == 1)
+        #expect(handler.executedCommands[0].0 == .closeTab)
+        #expect(handler.executedCommands[0].1 == targetId)
+        #expect(handler.executedCommands[0].2 == .tab)
+
         dispatcher.handler = nil
     }
 
@@ -599,7 +668,7 @@ final class AppCommandTests {
         // Assert
         #expect(def.keyBinding?.key == "f")
         #expect(def.keyBinding?.modifiers.contains(.command) ?? false)
-        #expect(def.keyBinding?.modifiers.contains(.shift) ?? false)
+        #expect(!(def.keyBinding?.modifiers.contains(.shift) ?? false))
     }
 
     @MainActor

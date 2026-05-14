@@ -10,6 +10,32 @@ struct DrawerOverlay: View {
         let editorMenuPresented: Binding<Bool>
         let buttonTitle: String?
         let onOpenFinder: () -> Void
+        let onOpenInbox: (() -> Void)?
+        let inboxPopoverPresented: Binding<Bool>
+        let inboxPopoverContent: AnyView?
+        let inboxUnreadBadge: PaneInboxUnreadBadge?
+
+        init(
+            canOpenTarget: Bool,
+            editorMenuContent: AnyView,
+            editorMenuPresented: Binding<Bool>,
+            buttonTitle: String?,
+            onOpenFinder: @escaping () -> Void,
+            onOpenInbox: (() -> Void)? = nil,
+            inboxPopoverPresented: Binding<Bool> = .constant(false),
+            inboxPopoverContent: AnyView? = nil,
+            inboxUnreadBadge: PaneInboxUnreadBadge? = nil
+        ) {
+            self.canOpenTarget = canOpenTarget
+            self.editorMenuContent = editorMenuContent
+            self.editorMenuPresented = editorMenuPresented
+            self.buttonTitle = buttonTitle
+            self.onOpenFinder = onOpenFinder
+            self.onOpenInbox = onOpenInbox
+            self.inboxPopoverPresented = inboxPopoverPresented
+            self.inboxPopoverContent = inboxPopoverContent
+            self.inboxUnreadBadge = inboxUnreadBadge
+        }
     }
 
     let paneId: UUID

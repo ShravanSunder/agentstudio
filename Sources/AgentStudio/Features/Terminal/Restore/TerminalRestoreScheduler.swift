@@ -25,18 +25,8 @@ struct TerminalRestoreScheduler {
     }
 
     @MainActor
-    static func shouldStartHiddenRestore(
-        policy: BackgroundRestorePolicy,
-        hasExistingSession: Bool
-    ) -> Bool {
-        switch policy {
-        case .off:
-            return false
-        case .existingSessionsOnly:
-            return hasExistingSession
-        case .allTerminalPanes:
-            return true
-        }
+    static func shouldStartHiddenRestore(hasExistingSession: Bool) -> Bool {
+        hasExistingSession
     }
 }
 
@@ -98,7 +88,7 @@ final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolving {
                 guard let drawer = store.paneAtom.pane(paneId)?.drawer, drawer.isExpanded else {
                     return nil
                 }
-                return drawer.activePaneId
+                return drawer.activeChildId
             }
         )
     }

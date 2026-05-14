@@ -74,8 +74,12 @@ enum TabArrangementValidation {
                     for paneId in duplicatePaneIds {
                         updatedStates[tabIndex].arrangements[arrangementIndex].visiblePaneIds.remove(paneId)
                         updatedStates[tabIndex].arrangements[arrangementIndex].minimizedPaneIds.remove(paneId)
+                        guard updatedStates[tabIndex].arrangements[arrangementIndex].layout.contains(paneId) else {
+                            continue
+                        }
                         if let newLayout = updatedStates[tabIndex].arrangements[arrangementIndex].layout.removing(
-                            paneId: paneId
+                            paneId: paneId,
+                            sizingMode: .halveTarget
                         ) {
                             updatedStates[tabIndex].arrangements[arrangementIndex].layout = newLayout
                         } else {

@@ -193,12 +193,16 @@ final class EventReplayBuffer {
             return 24
         case .terminal(let terminalEvent):
             return estimateSize(of: terminalEvent)
+        case .terminalActivity(let activityEvent):
+            return estimateSize(of: activityEvent)
         case .browser(let browserEvent):
             return estimateSize(of: browserEvent)
         case .diff(let diffEvent):
             return estimateSize(of: diffEvent)
         case .editor(let editorEvent):
             return estimateSize(of: editorEvent)
+        case .agentNotificationRequested(let title, let body):
+            return 32 + title.utf8.count + (body?.utf8.count ?? 0)
         case .plugin(_, let event):
             return 24 + event.eventName.rawValue.utf8.count
         case .paneFilesystemContext(let event):
@@ -211,6 +215,13 @@ final class EventReplayBuffer {
             return estimateSize(of: securityEvent)
         case .error(let errorEvent):
             return 24 + String(describing: errorEvent).utf8.count
+        }
+    }
+
+    private static func estimateSize(of event: TerminalActivityEvent) -> Int {
+        switch event {
+        case .unseenActivitySettled:
+            return 88
         }
     }
 

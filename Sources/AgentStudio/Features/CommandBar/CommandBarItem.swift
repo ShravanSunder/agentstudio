@@ -8,6 +8,7 @@ enum CommandBarScope {
     case commands  // ">" prefix — shows only commands grouped by category
     case panes  // "$" prefix — shows only panes grouped by tab
     case repos  // "#" prefix — shows repos and worktrees for opening
+    case inbox
 }
 
 // MARK: - CommandBarAppMode
@@ -315,6 +316,15 @@ enum FooterHintBuilder {
                 actions = [FooterHint(id: "enter", key: "↵", label: enterLabel)]
                 if item.hasChildren {
                     actions.append(FooterHint(id: "drill-in", key: "→", label: "Drill in"))
+                }
+                if let shortcutKeys = item.shortcutKeys {
+                    actions.append(
+                        FooterHint(
+                            id: "item-shortcut",
+                            keys: shortcutKeys,
+                            label: "Shortcut"
+                        )
+                    )
                 }
             }
         }

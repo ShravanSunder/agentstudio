@@ -27,6 +27,7 @@ enum AppStyles {
             static let hover: CGFloat = 0.08
             static let pressed: CGFloat = 0.10
             static let active: CGFloat = 0.12
+            static let selected: CGFloat = 0.15
         }
 
         enum CornerRadius {
@@ -43,6 +44,8 @@ enum AppStyles {
         }
 
         enum Typography {
+            // Smallest readable label for dense chrome affordances.
+            static let textXxs: CGFloat = 9
             static let textXs: CGFloat = 11
             static let textSm: CGFloat = 12
             static let textBase: CGFloat = 13
@@ -72,7 +75,6 @@ enum AppStyles {
 
         enum Layout {
             static let paneGap: CGFloat = 1
-            static let splitMinimumPaneSize: CGFloat = 10
             static let dropTargetMarkerWidth: CGFloat = 8
             static let dropTargetPreviewMinimumWidth: CGFloat = 34
             static let dropTargetPreviewMaxFraction: CGFloat = 0.22
@@ -92,10 +94,17 @@ enum AppStyles {
             static let worktreeIconSize: CGFloat = 11
             static let branchIconSize: CGFloat = 10
             static let branchFontSize: CGFloat = AppStyles.General.Typography.textSm
+            static let rowHorizontalInset: CGFloat = 8
+            static let rowCornerRadius: CGFloat = AppStyles.General.CornerRadius.panel
             static let groupRowVerticalPadding: CGFloat = 2
             static let countBadgeHorizontalPadding: CGFloat = 6
             static let countBadgeVerticalPadding: CGFloat = 2
             static let countBadgeBackgroundOpacity: CGFloat = 0.15
+            static let notificationRowUnreadDotSize: CGFloat = 6
+            static let notificationRowTitleSize: CGFloat = AppStyles.General.Typography.textBase
+            static let notificationRowSourceSize: CGFloat = AppStyles.General.Typography.textSm
+            static let notificationRowDetailSize: CGFloat = AppStyles.General.Typography.textSm
+            static let notificationRowTimestampSize: CGFloat = AppStyles.General.Typography.textSm
             static let chipRowSpacing: CGFloat = 4
             static let chipContentSpacing: CGFloat = 2
             static let syncClusterSpacing: CGFloat = 1
@@ -110,6 +119,23 @@ enum AppStyles {
             static let chipForegroundOpacity: CGFloat = 0.82
             static let chipMuteOverlayOpacity: CGFloat = 0.16
             static let rowHoverOpacity: CGFloat = AppStyles.General.Fill.pressed
+            static let badgeOffset: CGFloat = 4
+            static let badgeHitboxSize: CGFloat = AppStyles.General.Button.compact
+
+            enum SearchField {
+                static let contentSpacing: CGFloat = AppStyles.General.Spacing.standard
+                static let iconSize: CGFloat = AppStyles.General.Typography.textXs
+                static let textSize: CGFloat = AppStyles.General.Typography.textSm
+                static let horizontalPadding: CGFloat = 10
+                static let verticalPadding: CGFloat = 6
+                static let outerHorizontalPadding: CGFloat = 8
+                static let outerVerticalPadding: CGFloat = 6
+                static let cornerRadius: CGFloat = AppStyles.General.CornerRadius.panel
+                static let backgroundOpacity: CGFloat = AppStyles.General.Fill.muted
+                static let borderOpacity: CGFloat = AppStyles.General.Stroke.subtle
+                static let borderWidth: CGFloat = 1
+                static let clearTransitionDuration: Double = 0.10
+            }
 
             static let groupChildRowLeadingInset: CGFloat =
                 listRowLeadingInset
@@ -154,6 +180,12 @@ enum AppStyles {
             static let maskFadeWidth: CGFloat = 14
             static let collapsedBarWidth: CGFloat = 40
             static let background = Color(nsColor: NSColor(white: 0.09, alpha: 1.0))
+        }
+
+        enum DrawerToolbar {
+            static let trailingClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
+            static let dividerHeight: CGFloat = 16
+            static let dividerHorizontalPadding: CGFloat = 2
         }
 
         enum ManagementLayer {
@@ -255,13 +287,36 @@ enum AppStyles {
             static let bookmarkHitSize: CGFloat = 24
             static let badgeFontSize: CGFloat = AppStyles.General.Typography.textXs
             static let badgeFillOpacity: CGFloat = AppStyles.General.Fill.hover
+            static let fallbackIconFontSize: CGFloat = AppStyles.General.Typography.textSm
+            static let selectedRowFillOpacity: CGFloat = AppStyles.General.Fill.selected
 
             static let chooserButtonContentSpacing: CGFloat = AppStyles.General.Spacing.tight
             static let chooserButtonHorizontalPadding: CGFloat = AppStyles.General.Spacing.standard
-            static let chooserChevronFontSize: CGFloat = 9
-            static let trailingClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
-            static let dividerHeight: CGFloat = 16
-            static let dividerHorizontalPadding: CGFloat = 2
+            static let chooserChevronFontSize: CGFloat = AppStyles.General.Typography.textXxs
+        }
+
+        enum PaneInbox {
+            static let popoverWidth: CGFloat = 320
+            static let popoverHeight: CGFloat = 400
+            static let headerPadding: CGFloat = 12
+            static let headerControlSpacing: CGFloat = AppStyles.General.Spacing.standard
+            static let headerSeparatorHeight: CGFloat = AppStyles.General.Button.compact
+            static let filterButtonHorizontalPadding: CGFloat = AppStyles.General.Spacing.loose
+            static let filterButtonVerticalPadding: CGFloat = AppStyles.General.Spacing.tight
+            static let filterButtonCornerRadius: CGFloat = AppStyles.General.CornerRadius.button
+            static let filterButtonFontSize: CGFloat = AppStyles.General.Typography.textXs
+            static let rowCornerRadius: CGFloat = AppStyles.General.CornerRadius.panel
+            static let unreadBadgeFontSize: CGFloat = AppStyles.General.Typography.textXxs
+            static let unreadBadgeHorizontalPadding: CGFloat = 4
+            static let unreadBadgeVerticalPadding: CGFloat = 1
+            static let unreadBadgeOffset: CGFloat = 4
+        }
+
+        enum NotificationBadge {
+            static let fontSize: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeFontSize
+            static let horizontalPadding: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeHorizontalPadding
+            static let verticalPadding: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeVerticalPadding
+            static let offset: CGFloat = AppStyles.Components.PaneInbox.unreadBadgeOffset
         }
     }
 

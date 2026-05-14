@@ -6,6 +6,20 @@ private let persistorLogger = Logger(subsystem: "com.agentstudio", category: "Wo
 /// Pure persistence I/O for workspace state.
 /// Collaborator of the main-actor persistence wrappers — not a public peer.
 struct WorkspacePersistor {
+    struct CanonicalQuarantineResult: Sendable, Equatable {
+        let workspaceId: UUID?
+        let quarantinedFilenames: [String]
+        let failed: Bool
+
+        var recoveryFilename: String? {
+            guard !quarantinedFilenames.isEmpty else { return nil }
+            return quarantinedFilenames.joined(separator: ", ")
+        }
+
+        var recovery: PersistenceRecoveryEvent.Recovery {
+            failed ? .quarantineFailed : .quarantinedAndReset
+        }
+    }
 
     /// Distinguishes "no file found" from "file exists but is corrupt" on load.
     enum LoadResult<T> {
@@ -16,211 +30,10 @@ struct WorkspacePersistor {
 
     static let currentSchemaVersion = 1
     private static let canonicalSuffix = ".workspace.state.json"
-
-    // MARK: - Persistable Structs
-
-    /// On-disk representation of workspace state.
-    struct PersistableState: Codable {
-        var schemaVersion: Int
-        var id: UUID
-        var name: String
-        var repos: [CanonicalRepo]
-        var worktrees: [CanonicalWorktree]
-        var unavailableRepoIds: Set<UUID>
-        var panes: [Pane]
-        var tabs: [Tab]
-        var activeTabId: UUID?
-        var sidebarWidth: CGFloat
-        var windowFrame: CGRect?
-        var watchedPaths: [WatchedPath]
-        var createdAt: Date
-        var updatedAt: Date
-
-        enum CodingKeys: String, CodingKey {
-            case schemaVersion, id, name, repos, worktrees, unavailableRepoIds
-            case panes, tabs, activeTabId, sidebarWidth, windowFrame
-            case watchedPaths, createdAt, updatedAt
-        }
-
-        init(
-            id: UUID = UUID(),
-            name: String = "Default Workspace",
-            repos: [CanonicalRepo] = [],
-            worktrees: [CanonicalWorktree] = [],
-            unavailableRepoIds: Set<UUID> = [],
-            panes: [Pane] = [],
-            tabs: [Tab] = [],
-            activeTabId: UUID? = nil,
-            sidebarWidth: CGFloat = 250,
-            windowFrame: CGRect? = nil,
-            watchedPaths: [WatchedPath] = [],
-            createdAt: Date = Date(),
-            updatedAt: Date = Date()
-        ) {
-            self.schemaVersion = WorkspacePersistor.currentSchemaVersion
-            self.id = id
-            self.name = name
-            self.repos = repos
-            self.worktrees = worktrees
-            self.unavailableRepoIds = unavailableRepoIds
-            self.panes = panes
-            self.tabs = tabs
-            self.activeTabId = activeTabId
-            self.sidebarWidth = sidebarWidth
-            self.windowFrame = windowFrame
-            self.watchedPaths = watchedPaths
-            self.createdAt = createdAt
-            self.updatedAt = updatedAt
-        }
-
-    }
-
-    /// Rebuildable cache snapshot persisted separately from canonical state.
-    struct PersistableCacheState: Codable {
-        var schemaVersion: Int
-        var workspaceId: UUID
-        var repoEnrichmentByRepoId: [UUID: RepoEnrichment]
-        var worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment]
-        var pullRequestCountByWorktreeId: [UUID: Int]
-        var notificationCountByWorktreeId: [UUID: Int]
-        var recentTargets: [RecentWorkspaceTarget]
-        var sourceRevision: UInt64
-        var lastRebuiltAt: Date?
-
-        init(
-            workspaceId: UUID,
-            repoEnrichmentByRepoId: [UUID: RepoEnrichment] = [:],
-            worktreeEnrichmentByWorktreeId: [UUID: WorktreeEnrichment] = [:],
-            pullRequestCountByWorktreeId: [UUID: Int] = [:],
-            notificationCountByWorktreeId: [UUID: Int] = [:],
-            recentTargets: [RecentWorkspaceTarget] = [],
-            sourceRevision: UInt64 = 0,
-            lastRebuiltAt: Date? = nil
-        ) {
-            self.schemaVersion = WorkspacePersistor.currentSchemaVersion
-            self.workspaceId = workspaceId
-            self.repoEnrichmentByRepoId = repoEnrichmentByRepoId
-            self.worktreeEnrichmentByWorktreeId = worktreeEnrichmentByWorktreeId
-            self.pullRequestCountByWorktreeId = pullRequestCountByWorktreeId
-            self.notificationCountByWorktreeId = notificationCountByWorktreeId
-            self.recentTargets = recentTargets
-            self.sourceRevision = sourceRevision
-            self.lastRebuiltAt = lastRebuiltAt
-        }
-
-        private enum CodingKeys: String, CodingKey {
-            case schemaVersion
-            case workspaceId
-            case repoEnrichmentByRepoId
-            case worktreeEnrichmentByWorktreeId
-            case pullRequestCountByWorktreeId
-            case notificationCountByWorktreeId
-            case recentTargets
-            case sourceRevision
-            case lastRebuiltAt
-        }
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
-            self.workspaceId = try container.decode(UUID.self, forKey: .workspaceId)
-            self.repoEnrichmentByRepoId = try container.decode(
-                [UUID: RepoEnrichment].self,
-                forKey: .repoEnrichmentByRepoId
-            )
-            self.worktreeEnrichmentByWorktreeId = try container.decode(
-                [UUID: WorktreeEnrichment].self,
-                forKey: .worktreeEnrichmentByWorktreeId
-            )
-            self.pullRequestCountByWorktreeId = try container.decode(
-                [UUID: Int].self,
-                forKey: .pullRequestCountByWorktreeId
-            )
-            self.notificationCountByWorktreeId = try container.decode(
-                [UUID: Int].self,
-                forKey: .notificationCountByWorktreeId
-            )
-            self.recentTargets =
-                try container.decodeIfPresent(
-                    [RecentWorkspaceTarget].self,
-                    forKey: .recentTargets
-                )
-                ?? []
-            self.sourceRevision = try container.decode(UInt64.self, forKey: .sourceRevision)
-            self.lastRebuiltAt = try container.decodeIfPresent(
-                Date.self,
-                forKey: .lastRebuiltAt
-            )
-        }
-
-    }
-
-    /// UI preference snapshot persisted separately from canonical and cache state.
-    struct PersistableUIState: Codable {
-        struct PersistedEditorChooserState: Codable {
-            var bookmarkedEditorId: EditorTargetId?
-        }
-
-        var schemaVersion: Int
-        var workspaceId: UUID
-        var expandedGroups: Set<String>
-        var checkoutColors: [String: String]
-        var filterText: String
-        var isFilterVisible: Bool
-        var showMinimizedBars: Bool
-        var editorChooserState: PersistedEditorChooserState
-
-        init(
-            workspaceId: UUID,
-            expandedGroups: Set<String> = [],
-            checkoutColors: [String: String] = [:],
-            filterText: String = "",
-            isFilterVisible: Bool = false,
-            showMinimizedBars: Bool = true,
-            editorChooserState: PersistedEditorChooserState = .init()
-        ) {
-            self.schemaVersion = WorkspacePersistor.currentSchemaVersion
-            self.workspaceId = workspaceId
-            self.expandedGroups = expandedGroups
-            self.checkoutColors = checkoutColors
-            self.filterText = filterText
-            self.isFilterVisible = isFilterVisible
-            self.showMinimizedBars = showMinimizedBars
-            self.editorChooserState = editorChooserState
-        }
-
-        private enum CodingKeys: String, CodingKey {
-            case schemaVersion
-            case workspaceId
-            case expandedGroups
-            case checkoutColors
-            case filterText
-            case isFilterVisible
-            case showMinimizedBars
-            case editorChooserState
-        }
-
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            self.schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
-            self.workspaceId = try container.decode(UUID.self, forKey: .workspaceId)
-            self.expandedGroups = try container.decode(Set<String>.self, forKey: .expandedGroups)
-            self.checkoutColors = try container.decode([String: String].self, forKey: .checkoutColors)
-            self.filterText = try container.decode(String.self, forKey: .filterText)
-            self.isFilterVisible = try container.decode(Bool.self, forKey: .isFilterVisible)
-            self.showMinimizedBars = try container.decodeIfPresent(Bool.self, forKey: .showMinimizedBars) ?? true
-            do {
-                self.editorChooserState =
-                    try container.decodeIfPresent(
-                        PersistedEditorChooserState.self,
-                        forKey: .editorChooserState
-                    ) ?? .init()
-            } catch {
-                self.editorChooserState = .init()
-            }
-        }
-
-    }
+    private static let cacheSuffix = ".workspace.cache.json"
+    private static let uiSuffix = ".workspace.ui.json"
+    private static let sidebarCacheSuffix = ".workspace.sidebar-cache.json"
+    private static let inboxSuffix = ".notification-inbox.json"
 
     // MARK: - Properties
 
@@ -257,27 +70,36 @@ struct WorkspacePersistor {
     /// Throws on encoding or write failure so callers can handle.
     func save(_ state: PersistableState) throws {
         let url = canonicalFileURL(for: state.id)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-
+        let encoder = makeEncoder()
         let data = try encoder.encode(state)
         try data.write(to: url, options: .atomic)
     }
 
     func saveCache(_ state: PersistableCacheState) throws {
         let url = cacheFileURL(for: state.workspaceId)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let encoder = makeEncoder()
         let data = try encoder.encode(state)
         try data.write(to: url, options: .atomic)
     }
 
     func saveUI(_ state: PersistableUIState) throws {
         let url = uiFileURL(for: state.workspaceId)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let encoder = makeEncoder()
         let data = try encoder.encode(state)
         try data.write(to: url, options: .atomic)
+    }
+
+    func saveSidebarCache(_ state: PersistableSidebarCache) throws {
+        let url = sidebarCacheFileURL(for: state.workspaceId)
+        let encoder = makeEncoder()
+        let data = try encoder.encode(state)
+        try data.write(to: url, options: .atomic)
+    }
+
+    private func makeEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return encoder
     }
 
     // MARK: - Load
@@ -316,6 +138,152 @@ struct WorkspacePersistor {
         decodeFromFile(uiFileURL(for: workspaceId), as: PersistableUIState.self)
     }
 
+    func loadSidebarCache(for workspaceId: UUID) -> LoadResult<PersistableSidebarCache> {
+        decodeFromFile(sidebarCacheFileURL(for: workspaceId), as: PersistableSidebarCache.self)
+    }
+
+    @discardableResult
+    func quarantineCorruptCanonicalWorkspaceFiles() -> CanonicalQuarantineResult? {
+        let contents: [URL]
+        do {
+            contents = try FileManager.default.contentsOfDirectory(
+                at: workspacesDir,
+                includingPropertiesForKeys: nil,
+                options: .skipsHiddenFiles
+            )
+        } catch {
+            persistorLogger.error(
+                "Failed to list workspace directory before quarantining corrupt canonical workspace: \(error)"
+            )
+            return CanonicalQuarantineResult(
+                workspaceId: nil,
+                quarantinedFilenames: [],
+                failed: true
+            )
+        }
+
+        guard let canonicalURL = contents.first(where: { $0.lastPathComponent.hasSuffix(Self.canonicalSuffix) })
+        else {
+            return nil
+        }
+
+        let workspaceId = workspaceIdFromCanonicalFile(canonicalURL)
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        var quarantinedFilenames: [String] = []
+
+        let candidates = canonicalRecoveryCandidates(
+            canonicalURL: canonicalURL,
+            workspaceId: workspaceId
+        )
+
+        for candidate in candidates where FileManager.default.fileExists(atPath: candidate.sourceURL.path) {
+            let quarantinedURL = workspacesDir.appending(path: candidate.quarantinedName(timestamp))
+            do {
+                try FileManager.default.moveItem(at: candidate.sourceURL, to: quarantinedURL)
+                quarantinedFilenames.append(quarantinedURL.lastPathComponent)
+            } catch {
+                persistorLogger.error(
+                    "Failed to quarantine corrupt workspace file \(candidate.sourceURL.lastPathComponent, privacy: .public): \(error)"
+                )
+            }
+        }
+
+        return CanonicalQuarantineResult(
+            workspaceId: workspaceId,
+            quarantinedFilenames: quarantinedFilenames,
+            failed: quarantinedFilenames.isEmpty
+        )
+    }
+
+    @discardableResult
+    func quarantineCorruptUIFile(for workspaceId: UUID) -> URL? {
+        quarantineCorruptFile(
+            sourceURL: uiFileURL(for: workspaceId),
+            fileName: { timestamp in
+                "\(workspaceId.uuidString).workspace.ui.corrupt-\(timestamp).json"
+            },
+            label: "UI"
+        )
+    }
+
+    @discardableResult
+    func quarantineCorruptSidebarCacheFile(for workspaceId: UUID) -> URL? {
+        quarantineCorruptFile(
+            sourceURL: sidebarCacheFileURL(for: workspaceId),
+            fileName: { timestamp in
+                "\(workspaceId.uuidString).workspace.sidebar-cache.corrupt-\(timestamp).json"
+            },
+            label: "sidebar cache"
+        )
+    }
+
+    @discardableResult
+    private func quarantineCorruptFile(
+        sourceURL: URL,
+        fileName: (String) -> String,
+        label: String
+    ) -> URL? {
+        guard FileManager.default.fileExists(atPath: sourceURL.path) else {
+            return nil
+        }
+
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+            .replacingOccurrences(of: ":", with: "-")
+        let quarantinedURL = workspacesDir.appending(path: fileName(timestamp))
+
+        do {
+            try FileManager.default.moveItem(at: sourceURL, to: quarantinedURL)
+            return quarantinedURL
+        } catch {
+            persistorLogger.error(
+                "Failed to quarantine corrupt \(label, privacy: .public) file \(sourceURL.lastPathComponent): \(error)"
+            )
+            return nil
+        }
+    }
+
+    private struct RecoveryCandidate {
+        let sourceURL: URL
+        let quarantinedName: (String) -> String
+    }
+
+    private func canonicalRecoveryCandidates(
+        canonicalURL: URL,
+        workspaceId: UUID?
+    ) -> [RecoveryCandidate] {
+        var candidates = [
+            RecoveryCandidate(sourceURL: canonicalURL) { timestamp in
+                "\(canonicalURL.deletingPathExtension().lastPathComponent).corrupt-\(timestamp).json"
+            }
+        ]
+        guard let workspaceId else { return candidates }
+        candidates.append(
+            contentsOf: [
+                RecoveryCandidate(sourceURL: cacheFileURL(for: workspaceId)) { timestamp in
+                    "\(workspaceId.uuidString).workspace.cache.corrupt-\(timestamp).json"
+                },
+                RecoveryCandidate(sourceURL: uiFileURL(for: workspaceId)) { timestamp in
+                    "\(workspaceId.uuidString).workspace.ui.corrupt-\(timestamp).json"
+                },
+                RecoveryCandidate(sourceURL: sidebarCacheFileURL(for: workspaceId)) { timestamp in
+                    "\(workspaceId.uuidString).workspace.sidebar-cache.corrupt-\(timestamp).json"
+                },
+                RecoveryCandidate(sourceURL: inboxFileURL(for: workspaceId)) { timestamp in
+                    "\(workspaceId.uuidString).notification-inbox.corrupt-\(timestamp).json"
+                },
+            ]
+        )
+        return candidates
+    }
+
+    private func workspaceIdFromCanonicalFile(_ url: URL) -> UUID? {
+        let fileName = url.lastPathComponent
+        guard fileName.hasSuffix(Self.canonicalSuffix) else { return nil }
+        let rawId = String(fileName.dropLast(Self.canonicalSuffix.count))
+        return UUID(uuidString: rawId)
+    }
+
     // MARK: - Delete
 
     /// Delete all workspace files for the given workspace ID.
@@ -324,6 +292,8 @@ struct WorkspacePersistor {
             canonicalFileURL(for: id),
             cacheFileURL(for: id),
             uiFileURL(for: id),
+            sidebarCacheFileURL(for: id),
+            notificationInboxFileURL(for: id),
         ]
         for url in urls {
             do {
@@ -346,8 +316,13 @@ struct WorkspacePersistor {
         do {
             data = try Data(contentsOf: url)
         } catch {
-            // File doesn't exist or can't be read — treat as missing.
-            return .missing
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                return .missing
+            }
+            persistorLogger.error(
+                "Failed to read workspace file \(url.lastPathComponent): \(error)"
+            )
+            return .corrupt(error)
         }
 
         do {
@@ -366,10 +341,22 @@ struct WorkspacePersistor {
     }
 
     private func cacheFileURL(for id: UUID) -> URL {
-        workspacesDir.appending(path: "\(id.uuidString).workspace.cache.json")
+        workspacesDir.appending(path: "\(id.uuidString)\(Self.cacheSuffix)")
     }
 
     private func uiFileURL(for id: UUID) -> URL {
-        workspacesDir.appending(path: "\(id.uuidString).workspace.ui.json")
+        workspacesDir.appending(path: "\(id.uuidString)\(Self.uiSuffix)")
+    }
+
+    private func sidebarCacheFileURL(for id: UUID) -> URL {
+        workspacesDir.appending(path: "\(id.uuidString)\(Self.sidebarCacheSuffix)")
+    }
+
+    func notificationInboxFileURL(for id: UUID) -> URL {
+        inboxFileURL(for: id)
+    }
+
+    private func inboxFileURL(for id: UUID) -> URL {
+        workspacesDir.appending(path: "\(id.uuidString)\(Self.inboxSuffix)")
     }
 }

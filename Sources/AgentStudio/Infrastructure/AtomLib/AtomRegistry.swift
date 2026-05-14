@@ -7,9 +7,16 @@ final class AtomRegistry {
     let workspaceTabArrangement: WorkspaceTabArrangementAtom
     let workspaceTabLayout: WorkspaceTabLayoutAtom
     let workspaceMutationCoordinator: WorkspaceMutationCoordinator
+    let windowLifecycle: WindowLifecycleAtom
     let repoCache: RepoCacheAtom
+    let sidebarCache: SidebarCacheAtom
+    let terminalActivity: TerminalActivityAtom
+    let editorChooser: EditorChooserAtom
+    let paneInboxPresentationState: PaneInboxPresentationAtom
     let uiState: UIStateAtom
+    let inboxFilterDraft: InboxFilterDraftAtom
     let managementLayer: ManagementLayerAtom
+    let workspaceFocusOwner: WorkspaceFocusOwnerAtom
     let sessionRuntime: SessionRuntimeAtom
     let welcome: WelcomeAtom
 
@@ -20,9 +27,16 @@ final class AtomRegistry {
         workspaceTabShell: WorkspaceTabShellAtom = .init(),
         workspaceTabArrangement: WorkspaceTabArrangementAtom = .init(),
         workspaceMutationCoordinator: WorkspaceMutationCoordinator? = nil,
+        windowLifecycle: WindowLifecycleAtom = .init(),
         repoCache: RepoCacheAtom = .init(),
+        sidebarCache: SidebarCacheAtom = .init(),
+        terminalActivity: TerminalActivityAtom = .init(),
+        editorChooser: EditorChooserAtom = .init(),
+        paneInboxPresentationState: PaneInboxPresentationAtom = .init(),
         uiState: UIStateAtom = .init(),
+        inboxFilterDraft: InboxFilterDraftAtom = .init(),
         managementLayer: ManagementLayerAtom = .init(),
+        workspaceFocusOwner: WorkspaceFocusOwnerAtom = .init(),
         sessionRuntime: SessionRuntimeAtom = .init(),
         welcome: WelcomeAtom = .init()
     ) {
@@ -43,9 +57,16 @@ final class AtomRegistry {
                 workspaceTabShellAtom: workspaceTabShell,
                 workspaceTabArrangementAtom: workspaceTabArrangement
             )
+        self.windowLifecycle = windowLifecycle
         self.repoCache = repoCache
+        self.sidebarCache = sidebarCache
+        self.terminalActivity = terminalActivity
+        self.editorChooser = editorChooser
+        self.paneInboxPresentationState = paneInboxPresentationState
         self.uiState = uiState
+        self.inboxFilterDraft = inboxFilterDraft
         self.managementLayer = managementLayer
+        self.workspaceFocusOwner = workspaceFocusOwner
         self.sessionRuntime = sessionRuntime
         self.welcome = welcome
     }
@@ -58,9 +79,15 @@ final class AtomRegistry {
         WorkspaceLookupDerived()
     }
 
-    var workspaceFocus: WorkspaceFocusDerived {
-        WorkspaceFocusDerived()
+    var workspacePaneFocus: WorkspacePaneFocusDerived {
+        WorkspacePaneFocusDerived()
     }
+
+    lazy var attendedPane = AttendedPaneAtom(
+        tabLayout: workspaceTabLayout,
+        windowLifecycle: windowLifecycle,
+        managementLayer: managementLayer
+    )
 
     var tabDisplay: TabDisplayDerived {
         TabDisplayDerived()

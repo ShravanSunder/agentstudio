@@ -134,6 +134,7 @@ struct CustomTabBar: View {
                                         index: index,
                                         isActive: tab.id == adapter.activeTabId,
                                         isDragging: adapter.draggingTabId == tab.id,
+                                        dwellProgress: adapter.dwellTabId == tab.id ? adapter.dwellProgress : 0,
                                         tabWidth: computedTabWidth,
                                         showInsertBefore: adapter.dropTargetIndex == index
                                             && adapter.draggingTabId != tab.id,
@@ -622,6 +623,7 @@ struct TabPillView: View {
     let index: Int
     let isActive: Bool
     let isDragging: Bool
+    let dwellProgress: CGFloat
     let tabWidth: CGFloat
     let showInsertBefore: Bool
     let showInsertAfter: Bool
@@ -721,6 +723,9 @@ struct TabPillView: View {
 
     private var tabContent: some View {
         ZStack {
+            RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.pill)
+                .fill(Color.accentColor.opacity(0.30 * dwellProgress))
+
             // Centered title with fade-out mask.
             // Clear zones match the overlay positions so text is fully invisible
             // behind the shortcut label and close button.

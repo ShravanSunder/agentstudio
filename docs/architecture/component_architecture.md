@@ -445,7 +445,7 @@ There is no standalone `ViewResolver` type in code; this behavior is owned by th
   - `PaneDropTargetOverlay` (single target visualization layer)
   - `PaneLeafContainer` (pane-type-agnostic leaf wrapper)
 
-> **Files:** `App/Panes/ViewRegistry.swift`, `Core/Views/Splits/SplitContainerDropCaptureOverlay.swift`
+> **Files:** `App/Panes/ViewRegistry.swift`, `Core/Views/Panes/SplitContainerDropCaptureOverlay.swift`
 
 ### 3.6 PaneCoordinator
 
@@ -520,8 +520,8 @@ Owned by `WorkspaceStore` as a `private let` member. Pure persistence I/O. No bu
 To keep Jotai-style store boundaries and Valtio-style source-of-truth guarantees intact, persistence is split by domain responsibility:
 
 - Canonical workspace model (`WorkspaceStore`) stays in `workspace.state.json` — contains `watchedPaths`, `CanonicalRepo[]`, `CanonicalWorktree[]`, panes, tabs, layouts
-- Derived enrichment data (`RepoCacheAtom`) in `workspace.cache.json` — contains `RepoEnrichment`, `WorktreeEnrichment`, PR/notification counts. Written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events.
-- Workspace-scoped UI preferences (`UIStateAtom`) in `workspace.ui.json`
+- Derived enrichment data (`RepoCacheAtom`) in `workspace.cache.json` — contains `RepoEnrichment`, `WorktreeEnrichment`, PR counts. Written exclusively by `WorkspaceCacheCoordinator` via enrichment pipeline events. Notification unread counts moved to `InboxNotificationAtom` per LUNA-361 (derived via `unreadCount(forWorktreeId:)`, not cached in this tier).
+- Workspace-scoped UI preferences and sidebar composition state (`UIStateAtom`) in `workspace.ui.json`
 - Global app preferences and keybindings are stored separately from workspace state
 
 This prevents derived data from silently becoming canonical truth and aligns each persisted file with exactly one reason to change.
@@ -545,7 +545,7 @@ This prevents derived data from silently becoming canonical truth and aligns eac
 
 - `WorkspaceStore` → canonical workspace model in `workspace.state.json`
 - `RepoCacheAtom` → derived git/wt/gh metadata + status in `workspace.cache.json`
-- `UIStateAtom` → workspace-scoped UI preferences in `workspace.ui.json`
+- `UIStateAtom` → workspace-scoped UI preferences + sidebar composition state (`sidebarCollapsed`, `sidebarSurface`, `sidebarHasFocus` — last one runtime-only) in `workspace.ui.json`
 - `PreferencesStore` → global app preferences in `preferences.global.json`
 - `KeybindingsStore` → command-to-shortcut overrides in `keybindings.json`
 
@@ -588,7 +588,8 @@ Explicitly excluded from canonical state:
   - `syncState` (`ahead`, `behind`, `diverged`, `noUpstream`, `unknown`)
   - `linesAdded`, `linesDeleted`
   - `prCount`
-  - `notificationCount`
+  - ~~`notificationCount`~~ — removed per LUNA-361; unread counts
+    now come from `InboxNotificationAtom.unreadCount(forWorktreeId:)`
 
 Required cache validity fields:
 
@@ -606,8 +607,7 @@ Required cache validity fields:
 
 **Global preferences (`preferences.global.json`)**
 
-- Terminal defaults (for example `terminalFontSize`)
-- Global behavior toggles (for example `autoRefreshWorktrees`, `detachOnClose`)
+- True app-wide user-configurable defaults that are not workspace-scoped
 - Global visual defaults (for example drawer ratio if globally scoped)
 
 **Keybindings (`keybindings.json`)**
@@ -783,6 +783,14 @@ Agent Studio has two typed presentation layers for user-triggerable UI:
 │ → WorkspaceCommandValidator → PaneCoordinator               │
 └──────────────────────────────────────────────────────────────┘
 ```
+
+`ShellCommandHandling` is deliberately narrow. It may open app windows,
+toggle the sidebar shell, open command-bar modes, and start app-level
+auth or file-picker flows. It must not own pane-local presentation.
+Commands that depend on active pane identity, drawer focus, drawer
+children, or workspace validation terminate in `WorkspaceCommandHandling`
+on `PaneTabViewController`. This keeps keyboard shortcuts, command-bar
+rows, and drawer buttons on the same resolver path.
 
 For UI actions that are *not* `AppCommand`s — for example drawer hover tooltips, sidebar
 editor menus, settings buttons, and command-bar mode entries — the app uses

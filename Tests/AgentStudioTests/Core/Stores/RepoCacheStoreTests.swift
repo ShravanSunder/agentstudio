@@ -90,7 +90,12 @@ struct RepoCacheStoreTests {
         try "not json".write(to: corruptURL, atomically: true, encoding: .utf8)
 
         let atom = RepoCacheAtom()
-        let repoStore = RepoCacheStore(atom: atom, persistor: persistor)
+        var reportedRecovery: PersistenceRecoveryEvent?
+        let repoStore = RepoCacheStore(
+            atom: atom,
+            persistor: persistor,
+            recoveryReporter: { reportedRecovery = $0 }
+        )
 
         repoStore.restore(for: workspaceId)
 
@@ -99,5 +104,30 @@ struct RepoCacheStoreTests {
         #expect(atom.pullRequestCountByWorktreeId.isEmpty)
         #expect(atom.notificationCountByWorktreeId.isEmpty)
         #expect(atom.recentTargets.isEmpty)
+        #expect(reportedRecovery?.store == .repoCache)
+        #expect(reportedRecovery?.workspaceId == workspaceId)
+        #expect(reportedRecovery?.recovery == .rebuiltFromEvents)
+    }
+
+    @Test
+    func flushFailure_reportsSaveFailedRecovery() {
+        let workspaceId = UUID()
+        let blockedDirectoryURL = FileManager.default.temporaryDirectory
+            .appending(path: "repo-cache-blocked-\(UUID().uuidString)")
+        try? Data("not-a-directory".utf8).write(to: blockedDirectoryURL, options: .atomic)
+        var reportedRecovery: PersistenceRecoveryEvent?
+        let store = RepoCacheStore(
+            atom: RepoCacheAtom(),
+            persistor: WorkspacePersistor(workspacesDir: blockedDirectoryURL),
+            recoveryReporter: { reportedRecovery = $0 }
+        )
+
+        #expect(throws: Error.self) {
+            try store.flush(for: workspaceId)
+        }
+
+        #expect(reportedRecovery?.store == .repoCache)
+        #expect(reportedRecovery?.workspaceId == workspaceId)
+        #expect(reportedRecovery?.recovery == .saveFailed)
     }
 }

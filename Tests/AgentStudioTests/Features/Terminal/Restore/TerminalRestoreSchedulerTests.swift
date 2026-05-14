@@ -73,20 +73,14 @@ struct TerminalRestoreSchedulerTests {
     @Test
     func scheduler_startsEligibleHiddenExistingSession_beforeReveal() {
         #expect(
-            TerminalRestoreScheduler.shouldStartHiddenRestore(
-                policy: .existingSessionsOnly,
-                hasExistingSession: true
-            )
+            TerminalRestoreScheduler.shouldStartHiddenRestore(hasExistingSession: true)
         )
     }
 
     @Test
     func scheduler_skipsBackgroundPane_withoutExistingSession_underDefaultPolicy() {
         #expect(
-            !TerminalRestoreScheduler.shouldStartHiddenRestore(
-                policy: .existingSessionsOnly,
-                hasExistingSession: false
-            )
+            !TerminalRestoreScheduler.shouldStartHiddenRestore(hasExistingSession: false)
         )
     }
 

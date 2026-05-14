@@ -20,7 +20,7 @@ struct WorkspaceRecentCardModel: Equatable, Identifiable {
     let detail: String
     let icon: WorkspaceHomeCardIcon
     let statusChips: WorkspaceStatusChipsModel?
-    let checkoutIconKind: SidebarCheckoutIconKind?
+    let checkoutIconKind: RepoExplorerCheckoutIconKind?
     let iconColorHex: String?
     let repoName: String
     let worktreeDisplayName: String
@@ -151,7 +151,7 @@ enum WorkspaceLauncherProjector {
         repoCache: RepoCacheAtom,
         iconColorHex: String?
     ) -> WorkspaceRecentCardModel {
-        let branchStatus = RepoSidebarContentView.branchStatus(
+        let branchStatus = RepoExplorerView.branchStatus(
             enrichment: repoCache.worktreeEnrichmentByWorktreeId[worktree.id],
             pullRequestCount: repoCache.pullRequestCountByWorktreeId[worktree.id]
         )
@@ -191,7 +191,7 @@ enum WorkspaceLauncherProjector {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> [UUID: String] {
-        let sidebarRepos = RepoSidebarContentView.resolvedRepos(
+        let sidebarRepos = RepoExplorerView.resolvedRepos(
             store.repositoryTopologyAtom.repos.map(RepoPresentationItem.init(repo:)),
             enrichmentByRepoId: repoCache.repoEnrichmentByRepoId
         )

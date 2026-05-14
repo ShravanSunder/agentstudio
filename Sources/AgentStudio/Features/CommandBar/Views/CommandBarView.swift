@@ -9,6 +9,7 @@ struct CommandBarView: View {
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let dispatcher: CommandDispatcher
+    let notificationInboxCommands: InboxNotificationCommands?
     let onShortcutTrigger: (ShortcutTrigger) -> Bool
     let onExecuteItem: (CommandBarItem, EnterModifier) -> Void
 
@@ -70,14 +71,15 @@ struct CommandBarView: View {
         atom(\.managementLayer).isActive ? .management : .normal
     }
 
-    private var currentContext: WorkspaceFocus {
+    private var currentContext: WorkspacePaneFocus {
         let workspaceTab = WorkspaceTabDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
         )
-        return atom(\.workspaceFocus).currentFocus(
+        return atom(\.workspacePaneFocus).currentFocus(
             workspaceTab: workspaceTab,
-            workspacePane: store.paneAtom
+            workspacePane: store.paneAtom,
+            workspaceFocusOwner: atom(\.workspaceFocusOwner)
         )
     }
 
@@ -90,7 +92,8 @@ struct CommandBarView: View {
             store: store,
             repoCache: repoCache,
             dispatcher: dispatcher,
-            focus: currentContext
+            focus: currentContext,
+            notificationInboxCommands: notificationInboxCommands
         )
     }
 

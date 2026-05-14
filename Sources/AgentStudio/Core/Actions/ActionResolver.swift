@@ -121,7 +121,10 @@ enum WorkspaceCommandResolver {
     private static func isNonPaneCommand(_ command: AppCommand) -> Bool {
         switch command {
         case .watchFolder, .removeRepo,
-            .toggleSidebar, .newFloatingTerminal,
+            .toggleSidebar, .showInboxNotifications, .clearReadInboxNotifications, .showPaneInboxNotifications,
+            .clearPaneInboxNotifications,
+            .showWorktreeSidebar,
+            .newFloatingTerminal,
             .newTerminalInTab, .newTab, .undoCloseTab, .renameTab,
             .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands,
@@ -151,7 +154,8 @@ enum WorkspaceCommandResolver {
         payload: SplitDropPayload,
         destinationPaneId: UUID,
         destinationTabId: UUID,
-        zone: DropZone,
+        zone: DropZoneSide,
+        sizingMode: DropSizingMode,
         state: ActionStateSnapshot
     ) -> PaneActionCommand? {
         let direction = splitNewDirection(for: zone)
@@ -176,7 +180,8 @@ enum WorkspaceCommandResolver {
                     source: .existingPane(paneId: firstPaneId, sourceTabId: tabId),
                     targetTabId: destinationTabId,
                     targetPaneId: destinationPaneId,
-                    direction: direction
+                    direction: direction,
+                    sizingMode: sizingMode
                 )
             }
 
@@ -185,7 +190,8 @@ enum WorkspaceCommandResolver {
                 source: .existingPane(paneId: paneId, sourceTabId: sourceTabId),
                 targetTabId: destinationTabId,
                 targetPaneId: destinationPaneId,
-                direction: direction
+                direction: direction,
+                sizingMode: sizingMode
             )
 
         case .newTerminal:
@@ -193,7 +199,8 @@ enum WorkspaceCommandResolver {
                 source: .newTerminal,
                 targetTabId: destinationTabId,
                 targetPaneId: destinationPaneId,
-                direction: direction
+                direction: direction,
+                sizingMode: sizingMode
             )
         }
     }
@@ -207,7 +214,8 @@ enum WorkspaceCommandResolver {
         isManagementLayerActive: Bool,
         knownRepoIds: Set<UUID> = [],
         knownWorktreeIds: Set<UUID> = [],
-        drawerParentByPaneId: [UUID: UUID] = [:]
+        drawerParentByPaneId: [UUID: UUID] = [:],
+        drawerLayoutByParentPaneId: [UUID: DrawerGridLayout] = [:]
     ) -> ActionStateSnapshot {
         ActionStateSnapshot(
             tabs: tabs.map { tab in
@@ -222,7 +230,8 @@ enum WorkspaceCommandResolver {
             isManagementLayerActive: isManagementLayerActive,
             knownRepoIds: knownRepoIds,
             knownWorktreeIds: knownWorktreeIds,
-            drawerParentByPaneId: drawerParentByPaneId
+            drawerParentByPaneId: drawerParentByPaneId,
+            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId
         )
     }
 
@@ -273,11 +282,12 @@ enum WorkspaceCommandResolver {
             source: .newTerminal,
             targetTabId: tab.id,
             targetPaneId: paneId,
-            direction: direction
+            direction: direction,
+            sizingMode: .halveTarget
         )
     }
 
-    private static func splitNewDirection(for zone: DropZone) -> SplitNewDirection {
+    private static func splitNewDirection(for zone: DropZoneSide) -> SplitNewDirection {
         switch zone {
         case .left: return .left
         case .right: return .right

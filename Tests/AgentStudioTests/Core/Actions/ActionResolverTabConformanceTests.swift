@@ -118,7 +118,8 @@ final class WorkspaceCommandResolverTabConformanceTests {
                     source: .newTerminal,
                     targetTabId: tab.id,
                     targetPaneId: paneId,
-                    direction: .right
+                    direction: .right,
+                    sizingMode: .halveTarget
                 ))
     }
 
