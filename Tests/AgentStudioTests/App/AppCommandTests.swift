@@ -569,35 +569,38 @@ final class AppCommandTests {
 
     @Test
     func test_dispatcher_dispatchMovePaneToTab_callsHandlerSurface() async throws {
-        let dispatcher = CommandDispatcher.shared
-        let handler = MockCommandHandler()
-        atom(\.managementLayer).deactivate()
+        try await withAsyncTestAtomRegistry { _ in
+            let dispatcher = CommandDispatcher.shared
+            let handler = MockCommandHandler()
+            atom(\.managementLayer).deactivate()
 
-        let sourcePaneId = UUID()
-        let sourceTabId = UUID()
-        let targetTabId = UUID()
+            let sourcePaneId = UUID()
+            let sourceTabId = UUID()
+            let targetTabId = UUID()
 
-        try await withIsolatedCommandDispatcher(
-            configure: {
-                dispatcher.handler = handler
-                dispatcher.appCommandRouter = nil
-            },
-            body: {
-                atom(\.managementLayer).toggle()
-                defer { atom(\.managementLayer).deactivate() }
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    dispatcher.handler = handler
+                    dispatcher.appCommandRouter = nil
+                },
+                body: {
+                    atom(\.managementLayer).toggle()
+                    defer { atom(\.managementLayer).deactivate() }
 
-                dispatcher.dispatchMovePaneToTab(
-                    sourcePaneId: sourcePaneId,
-                    sourceTabId: sourceTabId,
-                    targetTabId: targetTabId
-                )
+                    dispatcher.dispatchMovePaneToTab(
+                        sourcePaneId: sourcePaneId,
+                        sourceTabId: sourceTabId,
+                        targetTabId: targetTabId
+                    )
 
-                #expect(handler.movePaneRequests.count == 1)
-                #expect(handler.movePaneRequests[0].sourcePaneId == sourcePaneId)
-                #expect(handler.movePaneRequests[0].sourceTabId == sourceTabId)
-                #expect(handler.movePaneRequests[0].targetTabId == targetTabId)
-            }
-        )
+                    let request = try #require(handler.movePaneRequests.first)
+                    #expect(handler.movePaneRequests.count == 1)
+                    #expect(request.sourcePaneId == sourcePaneId)
+                    #expect(request.sourceTabId == sourceTabId)
+                    #expect(request.targetTabId == targetTabId)
+                }
+            )
+        }
     }
 
     @MainActor
@@ -662,45 +665,49 @@ final class AppCommandTests {
 
     @Test
     func test_dispatcher_managementRequiredCommand_blockedWhenInactive() async throws {
-        let dispatcher = CommandDispatcher.shared
-        let handler = MockCommandHandler()
-        atom(\.managementLayer).deactivate()
+        try await withAsyncTestAtomRegistry { _ in
+            let dispatcher = CommandDispatcher.shared
+            let handler = MockCommandHandler()
+            atom(\.managementLayer).deactivate()
 
-        try await withIsolatedCommandDispatcher(
-            configure: {
-                dispatcher.handler = handler
-                dispatcher.appCommandRouter = nil
-            },
-            body: {
-                defer { atom(\.managementLayer).deactivate() }
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    dispatcher.handler = handler
+                    dispatcher.appCommandRouter = nil
+                },
+                body: {
+                    defer { atom(\.managementLayer).deactivate() }
 
-                #expect(!dispatcher.canDispatch(.closePane))
-                #expect(!dispatcher.canDispatch(.movePaneToTab))
-            }
-        )
+                    #expect(!dispatcher.canDispatch(.closePane))
+                    #expect(!dispatcher.canDispatch(.movePaneToTab))
+                }
+            )
+        }
     }
 
     @MainActor
 
     @Test
     func test_dispatcher_managementRequiredCommand_allowedWhenActive() async throws {
-        let dispatcher = CommandDispatcher.shared
-        let handler = MockCommandHandler()
-        atom(\.managementLayer).deactivate()
+        try await withAsyncTestAtomRegistry { _ in
+            let dispatcher = CommandDispatcher.shared
+            let handler = MockCommandHandler()
+            atom(\.managementLayer).deactivate()
 
-        try await withIsolatedCommandDispatcher(
-            configure: {
-                dispatcher.handler = handler
-                dispatcher.appCommandRouter = nil
-            },
-            body: {
-                atom(\.managementLayer).toggle()
-                defer { atom(\.managementLayer).deactivate() }
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    dispatcher.handler = handler
+                    dispatcher.appCommandRouter = nil
+                },
+                body: {
+                    atom(\.managementLayer).toggle()
+                    defer { atom(\.managementLayer).deactivate() }
 
-                #expect(dispatcher.canDispatch(.closePane))
-                #expect(dispatcher.canDispatch(.movePaneToTab))
-            }
-        )
+                    #expect(dispatcher.canDispatch(.closePane))
+                    #expect(dispatcher.canDispatch(.movePaneToTab))
+                }
+            )
+        }
     }
 
     // MARK: - Sidebar Commands
