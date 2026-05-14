@@ -58,6 +58,7 @@ class MainSplitViewController: NSSplitViewController {
     private let paneInboxPresenter: PaneInboxNotificationPresenter
     private let sidebarRootViewBuilder: SidebarRootViewBuilder
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
+    private let paneTabRegistersAsCommandHandler: Bool
 
     func syncVisibleTerminalGeometry(reason: StaticString) {
         paneTabViewController?.syncVisibleTerminalGeometry(reason: reason)
@@ -75,7 +76,8 @@ class MainSplitViewController: NSSplitViewController {
         paneInboxPresenter: PaneInboxNotificationPresenter,
         sidebarRootViewBuilder: @escaping SidebarRootViewBuilder = MainSplitViewController
             .defaultSidebarRootViewBuilder,
-        closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
+        closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
+        paneTabRegistersAsCommandHandler: Bool = true
     ) {
         self.store = store
         self.actionExecutor = actionExecutor
@@ -88,6 +90,7 @@ class MainSplitViewController: NSSplitViewController {
         self.paneInboxPresenter = paneInboxPresenter
         self.sidebarRootViewBuilder = sidebarRootViewBuilder
         self.closeTransitionCoordinator = closeTransitionCoordinator
+        self.paneTabRegistersAsCommandHandler = paneTabRegistersAsCommandHandler
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -107,7 +110,8 @@ class MainSplitViewController: NSSplitViewController {
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry,
             paneInboxPresentation: makePaneInboxPresentation(),
-            closeTransitionCoordinator: closeTransitionCoordinator
+            closeTransitionCoordinator: closeTransitionCoordinator,
+            registersAsCommandHandler: paneTabRegistersAsCommandHandler
         )
         self.paneTabViewController = paneTabVC
 
@@ -260,7 +264,7 @@ class MainSplitViewController: NSSplitViewController {
             clearRequest: { request in
                 presenter.clearRequest(request)
             },
-            popoverContent: { parentPaneId, paneIds, onClose in
+            popoverContent: { parentPaneId, paneIds, onClear, onClose in
                 AnyView(
                     PaneInboxNotificationPopover(
                         parentPaneId: parentPaneId,
@@ -273,9 +277,7 @@ class MainSplitViewController: NSSplitViewController {
                         onFocusPane: { [weak self] paneId in
                             self?.paneTabViewController?.execute(.focusPane, target: paneId, targetType: .pane)
                         },
-                        onClear: {
-                            inbox.clearPaneInbox(paneIds: paneIds)
-                        },
+                        onClear: onClear,
                         onClose: onClose
                     )
                 )

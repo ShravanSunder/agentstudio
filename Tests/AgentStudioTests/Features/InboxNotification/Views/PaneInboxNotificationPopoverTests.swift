@@ -210,121 +210,119 @@ struct PaneInboxNotificationPopoverTests {
     }
 
     @Test("mounted pane inbox clear button clears through local window scoped closure")
-    func mountedPaneInboxClearButtonClearsThroughLocalWindowScopedClosure() throws {
-        let previousHandler = CommandDispatcher.shared.handler
-        let previousRouter = CommandDispatcher.shared.appCommandRouter
-        defer {
-            CommandDispatcher.shared.handler = previousHandler
-            CommandDispatcher.shared.appCommandRouter = previousRouter
-        }
-
+    func mountedPaneInboxClearButtonClearsThroughLocalWindowScopedClosure() async throws {
         let parentPaneId = UUID()
         let notification = makeNotification(paneId: parentPaneId, title: "Clearable")
         let inboxAtom = InboxNotificationAtom()
         let commandHandler = PaneInboxCommandHandlerProbe()
         inboxAtom.append(notification)
-        CommandDispatcher.shared.handler = commandHandler
-        CommandDispatcher.shared.appCommandRouter = nil
         var didClearLocally = false
 
-        let hostingView = NSHostingView(
-            rootView: PaneInboxNotificationPopover(
-                parentPaneId: parentPaneId,
-                paneIds: [parentPaneId],
-                inboxAtom: inboxAtom,
-                presentationAtom: PaneInboxPresentationAtom(),
-                onActivate: { _ in },
-                onFocusPane: { _ in },
-                onClear: {
-                    didClearLocally = true
-                    inboxAtom.clearPaneInbox(paneIds: [parentPaneId])
-                },
-                onClose: {}
-            )
-            .frame(width: 360, height: 240)
-        )
-        let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = hostingView
-        window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
-        hostingView.layoutSubtreeIfNeeded()
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                CommandDispatcher.shared.handler = commandHandler
+                CommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                let hostingView = NSHostingView(
+                    rootView: PaneInboxNotificationPopover(
+                        parentPaneId: parentPaneId,
+                        paneIds: [parentPaneId],
+                        inboxAtom: inboxAtom,
+                        presentationAtom: PaneInboxPresentationAtom(),
+                        onActivate: { _ in },
+                        onFocusPane: { _ in },
+                        onClear: {
+                            didClearLocally = true
+                            inboxAtom.clearPaneInbox(paneIds: [parentPaneId])
+                        },
+                        onClose: {}
+                    )
+                    .frame(width: 360, height: 240)
+                )
+                let window = NSWindow(
+                    contentRect: CGRect(x: 0, y: 0, width: 360, height: 240),
+                    styleMask: [.titled, .closable],
+                    backing: .buffered,
+                    defer: false
+                )
+                window.contentView = hostingView
+                window.makeKeyAndOrderFront(nil)
+                defer { window.orderOut(nil) }
+                hostingView.layoutSubtreeIfNeeded()
 
-        let clearButton = try #require(
-            findAccessibleElement(in: hostingView, identifier: "paneInboxClearButton")
+                let clearButton = try #require(
+                    findAccessibleElement(in: hostingView, identifier: "paneInboxClearButton")
+                )
+
+                pressAccessibleElement(clearButton)
+
+                #expect(didClearLocally)
+                #expect(commandHandler.executedTargets.isEmpty)
+                #expect(inboxAtom.notifications.first?.isRead == true)
+                #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == true)
+            }
         )
-
-        pressAccessibleElement(clearButton)
-
-        #expect(didClearLocally)
-        #expect(commandHandler.executedTargets.isEmpty)
-        #expect(inboxAtom.notifications.first?.isRead == true)
-        #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == true)
     }
 
     @Test("mounted pane inbox row activation focuses through local window scoped closure")
-    func mountedPaneInboxRowActivationFocusesThroughLocalWindowScopedClosure() throws {
-        let previousHandler = CommandDispatcher.shared.handler
-        let previousRouter = CommandDispatcher.shared.appCommandRouter
-        defer {
-            CommandDispatcher.shared.handler = previousHandler
-            CommandDispatcher.shared.appCommandRouter = previousRouter
-        }
-
+    func mountedPaneInboxRowActivationFocusesThroughLocalWindowScopedClosure() async throws {
         let parentPaneId = UUID()
         let notification = makeNotification(paneId: parentPaneId, title: "Focusable")
         let inboxAtom = InboxNotificationAtom()
         let commandHandler = PaneInboxCommandHandlerProbe()
         inboxAtom.append(notification)
-        CommandDispatcher.shared.handler = commandHandler
-        CommandDispatcher.shared.appCommandRouter = nil
         var activatedNotificationIds: [UUID] = []
         var locallyFocusedPaneIds: [UUID] = []
         var didClose = false
 
-        let hostingView = NSHostingView(
-            rootView: PaneInboxNotificationPopover(
-                parentPaneId: parentPaneId,
-                paneIds: [parentPaneId],
-                inboxAtom: inboxAtom,
-                presentationAtom: PaneInboxPresentationAtom(),
-                onActivate: { activatedNotificationIds.append($0.id) },
-                onFocusPane: { locallyFocusedPaneIds.append($0) },
-                onClear: {},
-                onClose: { didClose = true }
-            )
-            .frame(width: 360, height: 240)
-        )
-        let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 360, height: 240),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = hostingView
-        window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
-        hostingView.layoutSubtreeIfNeeded()
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                CommandDispatcher.shared.handler = commandHandler
+                CommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                let hostingView = NSHostingView(
+                    rootView: PaneInboxNotificationPopover(
+                        parentPaneId: parentPaneId,
+                        paneIds: [parentPaneId],
+                        inboxAtom: inboxAtom,
+                        presentationAtom: PaneInboxPresentationAtom(),
+                        onActivate: { activatedNotificationIds.append($0.id) },
+                        onFocusPane: { locallyFocusedPaneIds.append($0) },
+                        onClear: {},
+                        onClose: { didClose = true }
+                    )
+                    .frame(width: 360, height: 240)
+                )
+                let window = NSWindow(
+                    contentRect: CGRect(x: 0, y: 0, width: 360, height: 240),
+                    styleMask: [.titled, .closable],
+                    backing: .buffered,
+                    defer: false
+                )
+                window.contentView = hostingView
+                window.makeKeyAndOrderFront(nil)
+                defer { window.orderOut(nil) }
+                hostingView.layoutSubtreeIfNeeded()
 
-        let row = try #require(
-            findAccessibleElement(
-                in: hostingView,
-                identifier: "paneInboxNotificationRow.\(notification.id.uuidString)"
-            )
+                let row = try #require(
+                    findAccessibleElement(
+                        in: hostingView,
+                        identifier: "paneInboxNotificationRow.\(notification.id.uuidString)"
+                    )
+                )
+
+                pressAccessibleElement(row)
+
+                #expect(activatedNotificationIds == [notification.id])
+                #expect(locallyFocusedPaneIds == [parentPaneId])
+                #expect(commandHandler.executedTargets.isEmpty)
+                #expect(inboxAtom.notifications.first?.isRead == true)
+                #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == true)
+                #expect(didClose)
+            }
         )
-
-        pressAccessibleElement(row)
-
-        #expect(activatedNotificationIds == [notification.id])
-        #expect(locallyFocusedPaneIds == [parentPaneId])
-        #expect(commandHandler.executedTargets.isEmpty)
-        #expect(inboxAtom.notifications.first?.isRead == true)
-        #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == true)
-        #expect(didClose)
     }
 
     @Test("mounted pane inbox row accessibility label uses display fallback")

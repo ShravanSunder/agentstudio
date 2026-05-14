@@ -54,7 +54,8 @@ struct PaneTabViewControllerEditorChooserCommandTests {
             viewRegistry: viewRegistry,
             installedEditorTargetsProvider: { installedEditorTargets },
             openEditorHandler: { _, _, _ in true },
-            openFinderHandler: { _ in true }
+            openFinderHandler: { _ in true },
+            registersAsCommandHandler: false
         )
 
         return Harness(store: store, controller: controller, tempDir: tempDir)

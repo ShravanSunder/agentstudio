@@ -182,31 +182,11 @@ struct PaneLeafContainer: View {
             ) ?? trailingActions
 
         baseDrawerOverlay(drawer: drawer, trailingActions: hostedActions)
+            .onAppear {
+                consumePendingPaneInboxRequest(in: paneInboxScope)
+            }
             .onChange(of: paneInboxPresentation?.pendingRequest()?.id) { _, _ in
-                guard let request = paneInboxPresentation?.pendingRequest() else { return }
-                guard
-                    request.matches(
-                        parentPaneId: paneInboxScope.parentPaneId,
-                        paneIds: paneInboxScope.paneIds
-                    )
-                else { return }
-                switch request.intent {
-                case .open:
-                    paneInboxPopoverOpen = true
-                    paneInboxPresentation?.setPresented(
-                        paneInboxScope.parentPaneId,
-                        paneInboxScope.paneIds,
-                        true
-                    )
-                case .close:
-                    paneInboxPopoverOpen = false
-                    paneInboxPresentation?.setPresented(
-                        paneInboxScope.parentPaneId,
-                        paneInboxScope.paneIds,
-                        false
-                    )
-                }
-                paneInboxPresentation?.clearRequest(request)
+                consumePendingPaneInboxRequest(in: paneInboxScope)
             }
             .onChange(of: paneInboxPopoverOpen) { _, isPresented in
                 paneInboxPresentation?.setPresented(
@@ -215,6 +195,21 @@ struct PaneLeafContainer: View {
                     isPresented
                 )
             }
+    }
+
+    private func consumePendingPaneInboxRequest(in scope: PaneInboxScope) {
+        guard let request = paneInboxPresentation?.pendingRequest() else { return }
+        guard request.matches(parentPaneId: scope.parentPaneId, paneIds: scope.paneIds) else { return }
+
+        switch request.intent {
+        case .open:
+            paneInboxPopoverOpen = true
+            paneInboxPresentation?.setPresented(scope.parentPaneId, scope.paneIds, true)
+        case .close:
+            paneInboxPopoverOpen = false
+            paneInboxPresentation?.setPresented(scope.parentPaneId, scope.paneIds, false)
+        }
+        paneInboxPresentation?.clearRequest(request)
     }
 
     private func baseDrawerOverlay(

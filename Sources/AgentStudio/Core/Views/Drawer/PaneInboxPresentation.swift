@@ -39,7 +39,9 @@ struct PaneInboxPresentation {
     let setPresented: @MainActor (UUID, [UUID], Bool) -> Void
     let pendingRequest: @MainActor () -> PaneInboxRequest?
     let clearRequest: @MainActor (PaneInboxRequest) -> Void
-    let popoverContent: @MainActor (UUID, [UUID], @escaping @MainActor @Sendable () -> Void) -> AnyView
+    let popoverContent:
+        @MainActor (UUID, [UUID], @escaping @MainActor @Sendable () -> Void, @escaping @MainActor @Sendable () -> Void)
+            -> AnyView
     let pruneFilterModes: @MainActor (Set<UUID>) -> Void
 
     func trailingActions(
@@ -57,10 +59,13 @@ struct PaneInboxPresentation {
             onOpenInbox: { toggle(parentPaneId, paneIds) },
             inboxPopoverPresented: inboxPopoverPresented,
             inboxPopoverContent: popoverContent(
-                parentPaneId,
-                paneIds,
-                { inboxPopoverPresented.wrappedValue = false }
-            ),
+                parentPaneId, paneIds,
+                {
+                    clear(parentPaneId, paneIds)
+                },
+                {
+                    inboxPopoverPresented.wrappedValue = false
+                }),
             inboxUnreadBadge: PaneInboxUnreadBadge(unreadCount: unreadCount(paneIds))
         )
     }

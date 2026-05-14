@@ -45,6 +45,7 @@ struct InboxNotificationGroupHeader: View {
     private func unreadBadge() -> some View {
         if unreadCount > 0, showsUnreadCount {
             UnreadCountBadge(text: "\(unreadCount)")
+                .accessibilityIdentifier("inboxGroupUnreadBadge")
         }
     }
 }

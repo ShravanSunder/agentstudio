@@ -76,7 +76,8 @@ private func makeMainSplitViewControllerHarness(
         paneInboxPresenter: PaneInboxNotificationPresenter(),
         sidebarRootViewBuilder: { dependencies in
             sidebarRootViewBuilder(dependencies.uiState, dependencies.onDismissInbox)
-        }
+        },
+        paneTabRegistersAsCommandHandler: false
     )
     let window = NSWindow(
         contentRect: NSRect(x: 0, y: 0, width: 1000, height: 700),

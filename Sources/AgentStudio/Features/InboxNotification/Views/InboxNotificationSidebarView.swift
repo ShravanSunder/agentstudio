@@ -85,6 +85,7 @@ struct InboxNotificationSidebarView: View {
             uiState: uiState,
             searchText: $searchText,
             activeFilter: activeFilter,
+            activeFilterLabel: activeFilterLabel,
             sort: prefsAtom.sort,
             groupingMenuOpen: $groupingMenuOpen,
             grouping: prefsAtom.grouping,
@@ -123,8 +124,15 @@ struct InboxNotificationSidebarView: View {
     }
 
     private var activeFilterLabel: String? {
+        Self.activeFilterLabel(activeFilter: activeFilter, notifications: inboxAtom.notifications)
+    }
+
+    static func activeFilterLabel(
+        activeFilter: InboxFilter?,
+        notifications: [InboxNotification]
+    ) -> String? {
         guard let activeFilter else { return nil }
-        return inboxAtom.notifications
+        return notifications
             .lazy
             .compactMap { notification in
                 InboxNotificationSourceDisplay(notification: notification).filterLabel(for: activeFilter)
@@ -132,7 +140,7 @@ struct InboxNotificationSidebarView: View {
             .first ?? fallbackFilterLabel(for: activeFilter)
     }
 
-    private func fallbackFilterLabel(for filter: InboxFilter) -> String {
+    private static func fallbackFilterLabel(for filter: InboxFilter) -> String {
         switch filter {
         case .worktree:
             return "Filtered worktree"

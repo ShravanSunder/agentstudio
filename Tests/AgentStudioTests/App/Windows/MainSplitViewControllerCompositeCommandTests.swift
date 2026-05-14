@@ -177,97 +177,95 @@ struct MainSplitViewControllerCompositeCommandTests {
 
     @Test("production pane inbox popover clear uses window scoped wiring")
     func productionPaneInboxPopoverClearUsesWindowScopedWiring() async throws {
-        let previousHandler = CommandDispatcher.shared.handler
-        let previousRouter = CommandDispatcher.shared.appCommandRouter
-        defer {
-            CommandDispatcher.shared.handler = previousHandler
-            CommandDispatcher.shared.appCommandRouter = previousRouter
-        }
+        try await withIsolatedCommandDispatcher(
+            configure: {},
+            body: {
+                let inboxAtom = InboxNotificationAtom()
+                try await withMainSplitViewControllerHarness(
+                    withRepos: true,
+                    inboxAtom: inboxAtom,
+                    body: { harness in
+                        let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Pane"))
+                        let tab = Tab(paneId: pane.id)
+                        harness.store.appendTab(tab)
+                        harness.store.setActiveTab(tab.id)
+                        let notification = makePaneInboxNotification(paneId: pane.id, title: "Clearable")
+                        inboxAtom.append(notification)
+                        let commandHandler = MainSplitViewControllerCommandHandlerProbe()
+                        CommandDispatcher.shared.handler = commandHandler
+                        CommandDispatcher.shared.appCommandRouter = nil
 
-        let inboxAtom = InboxNotificationAtom()
-        try await withMainSplitViewControllerHarness(
-            withRepos: true,
-            inboxAtom: inboxAtom,
-            body: { harness in
-                let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Pane"))
-                let tab = Tab(paneId: pane.id)
-                harness.store.appendTab(tab)
-                harness.store.setActiveTab(tab.id)
-                let notification = makePaneInboxNotification(paneId: pane.id, title: "Clearable")
-                inboxAtom.append(notification)
-                let commandHandler = MainSplitViewControllerCommandHandlerProbe()
-                CommandDispatcher.shared.handler = commandHandler
-                CommandDispatcher.shared.appCommandRouter = nil
+                        let hostingView = makePaneInboxPopoverHostingView(
+                            presentation: harness.controller.makePaneInboxPresentation(),
+                            parentPaneId: pane.id,
+                            paneIds: [pane.id]
+                        )
+                        let popoverWindow = makePopoverWindow(hostingView: hostingView)
+                        defer { popoverWindow.orderOut(nil) }
 
-                let hostingView = makePaneInboxPopoverHostingView(
-                    presentation: harness.controller.makePaneInboxPresentation(),
-                    parentPaneId: pane.id,
-                    paneIds: [pane.id]
+                        let clearButton = try #require(
+                            findAccessibleElement(in: hostingView, identifier: "paneInboxClearButton")
+                        )
+
+                        pressAccessibleElement(clearButton)
+
+                        #expect(commandHandler.executedTargets.isEmpty)
+                        #expect(inboxAtom.notifications.first?.isRead == true)
+                        #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == true)
+                    }
                 )
-                let popoverWindow = makePopoverWindow(hostingView: hostingView)
-                defer { popoverWindow.orderOut(nil) }
-
-                let clearButton = try #require(
-                    findAccessibleElement(in: hostingView, identifier: "paneInboxClearButton")
-                )
-
-                pressAccessibleElement(clearButton)
-
-                #expect(commandHandler.executedTargets.isEmpty)
-                #expect(inboxAtom.notifications.first?.isRead == true)
-                #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == true)
             }
         )
     }
 
     @Test("production pane inbox popover row activation uses window scoped focus")
     func productionPaneInboxPopoverRowActivationUsesWindowScopedFocus() async throws {
-        let previousHandler = CommandDispatcher.shared.handler
-        let previousRouter = CommandDispatcher.shared.appCommandRouter
-        defer {
-            CommandDispatcher.shared.handler = previousHandler
-            CommandDispatcher.shared.appCommandRouter = previousRouter
-        }
+        try await withIsolatedCommandDispatcher(
+            configure: {},
+            body: {
+                let inboxAtom = InboxNotificationAtom()
+                try await withMainSplitViewControllerHarness(
+                    withRepos: true,
+                    inboxAtom: inboxAtom,
+                    body: { harness in
+                        let targetPane = harness.store.createPane(
+                            source: .floating(launchDirectory: nil, title: "Target"))
+                        let targetTab = Tab(paneId: targetPane.id)
+                        harness.store.appendTab(targetTab)
+                        let activePane = harness.store.createPane(
+                            source: .floating(launchDirectory: nil, title: "Active"))
+                        let activeTab = Tab(paneId: activePane.id)
+                        harness.store.appendTab(activeTab)
+                        harness.store.setActiveTab(activeTab.id)
+                        let notification = makePaneInboxNotification(paneId: targetPane.id, title: "Focusable")
+                        inboxAtom.append(notification)
+                        let commandHandler = MainSplitViewControllerCommandHandlerProbe()
+                        CommandDispatcher.shared.handler = commandHandler
+                        CommandDispatcher.shared.appCommandRouter = nil
 
-        let inboxAtom = InboxNotificationAtom()
-        try await withMainSplitViewControllerHarness(
-            withRepos: true,
-            inboxAtom: inboxAtom,
-            body: { harness in
-                let targetPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Target"))
-                let targetTab = Tab(paneId: targetPane.id)
-                harness.store.appendTab(targetTab)
-                let activePane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Active"))
-                let activeTab = Tab(paneId: activePane.id)
-                harness.store.appendTab(activeTab)
-                harness.store.setActiveTab(activeTab.id)
-                let notification = makePaneInboxNotification(paneId: targetPane.id, title: "Focusable")
-                inboxAtom.append(notification)
-                let commandHandler = MainSplitViewControllerCommandHandlerProbe()
-                CommandDispatcher.shared.handler = commandHandler
-                CommandDispatcher.shared.appCommandRouter = nil
+                        let hostingView = makePaneInboxPopoverHostingView(
+                            presentation: harness.controller.makePaneInboxPresentation(),
+                            parentPaneId: targetPane.id,
+                            paneIds: [targetPane.id]
+                        )
+                        let popoverWindow = makePopoverWindow(hostingView: hostingView)
+                        defer { popoverWindow.orderOut(nil) }
 
-                let hostingView = makePaneInboxPopoverHostingView(
-                    presentation: harness.controller.makePaneInboxPresentation(),
-                    parentPaneId: targetPane.id,
-                    paneIds: [targetPane.id]
+                        let row = try #require(
+                            findAccessibleElement(
+                                in: hostingView,
+                                identifier: "paneInboxNotificationRow.\(notification.id.uuidString)"
+                            )
+                        )
+
+                        pressAccessibleElement(row)
+
+                        #expect(commandHandler.executedTargets.isEmpty)
+                        #expect(harness.store.activeTabId == targetTab.id)
+                        #expect(inboxAtom.notifications.first?.isRead == true)
+                        #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == true)
+                    }
                 )
-                let popoverWindow = makePopoverWindow(hostingView: hostingView)
-                defer { popoverWindow.orderOut(nil) }
-
-                let row = try #require(
-                    findAccessibleElement(
-                        in: hostingView,
-                        identifier: "paneInboxNotificationRow.\(notification.id.uuidString)"
-                    )
-                )
-
-                pressAccessibleElement(row)
-
-                #expect(commandHandler.executedTargets.isEmpty)
-                #expect(harness.store.activeTabId == targetTab.id)
-                #expect(inboxAtom.notifications.first?.isRead == true)
-                #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == true)
             }
         )
     }
@@ -343,11 +341,21 @@ private func makePaneInboxPopoverHostingView(
 ) -> NSHostingView<AnyView> {
     NSHostingView(
         rootView: AnyView(
-            presentation.popoverContent(parentPaneId, paneIds, {})
-                .frame(width: 360, height: 240)
+            presentation.popoverContent(
+                parentPaneId,
+                paneIds,
+                {
+                    presentation.clear(parentPaneId, paneIds)
+                },
+                ignorePaneInboxPopoverClose
+            )
+            .frame(width: 360, height: 240)
         )
     )
 }
+
+@MainActor
+private func ignorePaneInboxPopoverClose() {}
 
 @MainActor
 private func makePopoverWindow(hostingView: NSView) -> NSWindow {

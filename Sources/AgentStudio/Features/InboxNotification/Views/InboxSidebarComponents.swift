@@ -3,7 +3,7 @@ import SwiftUI
 struct InboxSidebarActions {
     let onEscape: @MainActor @Sendable () -> Void
     let onToggleSort: () -> Void
-    let onClearFilter: () -> Void
+    let onClearFilter: @MainActor @Sendable () -> Void
     let onClearReadHistory: @MainActor @Sendable () -> Void
     let onSelectGrouping: (InboxNotificationGrouping) -> Void
     let onToggleGroupCollapse: (String) -> Void
@@ -17,6 +17,7 @@ struct InboxSidebarRootContainer: View {
     let uiState: UIStateAtom
     @Binding var searchText: String
     let activeFilter: InboxFilter?
+    let activeFilterLabel: String?
     let sort: InboxNotificationSort
     @Binding var groupingMenuOpen: Bool
     let grouping: InboxNotificationGrouping
@@ -88,30 +89,11 @@ struct InboxSidebarRootContainer: View {
                 sections: sections,
                 focusedField: focusedField,
                 flashingRowIds: flashingRowIds,
+                grouping: grouping,
                 actions: actions
             )
         }
         .background(Self.surfaceBackground.color)
-    }
-
-    private var activeFilterLabel: String? {
-        guard let activeFilter else { return nil }
-        return sections
-            .lazy
-            .flatMap(\.notifications)
-            .compactMap { notification in
-                InboxNotificationSourceDisplay(notification: notification).filterLabel(for: activeFilter)
-            }
-            .first ?? fallbackFilterLabel(for: activeFilter)
-    }
-
-    private func fallbackFilterLabel(for filter: InboxFilter) -> String {
-        switch filter {
-        case .worktree:
-            return "Filtered worktree"
-        case .repo:
-            return "Filtered repo"
-        }
     }
 }
 
@@ -199,17 +181,35 @@ struct InboxSidebarHeader: View {
             }
 
             if let activeFilter {
+                let filterLabel = activeFilterLabel ?? fallbackFilterLabel(activeFilter)
                 HStack(spacing: 6) {
                     Image(systemName: Self.filterIconName)
-                    Text(activeFilterLabel ?? fallbackFilterLabel(activeFilter))
+                    Text(filterLabel)
                         .lineLimit(1)
                     Button(action: actions.onClearFilter) {
                         Image(systemName: "xmark.circle.fill")
                     }
                     .buttonStyle(.borderless)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Clear inbox filter")
+                    .accessibilityIdentifier("inboxSidebarClearFilterButton")
+                    .accessibilityHidden(true)
+                    .background(
+                        AccessibilityPressBridge(
+                            identifier: "inboxSidebarClearFilterButton",
+                            label: "Clear inbox filter",
+                            action: actions.onClearFilter
+                        )
+                    )
                 }
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
+                .background(
+                    AccessibilityLabelBridge(
+                        identifier: "inboxSidebarActiveFilterChip",
+                        label: filterLabel
+                    )
+                )
             }
         }
         .padding(8)
@@ -242,6 +242,7 @@ struct InboxSidebarContent: View {
     let sections: [InboxNotificationListSection]
     let focusedField: FocusState<InboxFocus?>.Binding
     let flashingRowIds: Set<UUID>
+    let grouping: InboxNotificationGrouping
     let actions: InboxSidebarActions
     static let surfaceListPolicy = SidebarSurfaceListPolicy.nativeSidebarList
     static let surfaceBackground = SidebarSurfaceBackground.windowBackgroundColor
@@ -258,6 +259,7 @@ struct InboxSidebarContent: View {
                                 header: header,
                                 unreadCount: section.unreadCount,
                                 isCollapsed: section.isCollapsed,
+                                showsUnreadCount: Self.showsUnreadCount(for: grouping),
                                 onToggle: { actions.onToggleGroupCollapse(section.id) }
                             )
                             .listRowInsets(
@@ -298,6 +300,10 @@ struct InboxSidebarContent: View {
 
     static func rowLeadingInset(isGrouped: Bool) -> CGFloat {
         isGrouped ? AppStyles.Shell.Sidebar.groupChildRowLeadingInset : 0
+    }
+
+    static func showsUnreadCount(for grouping: InboxNotificationGrouping) -> Bool {
+        grouping != .byPane
     }
 }
 

@@ -5,7 +5,7 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("InboxNotificationSidebarView")
+@Suite("InboxNotificationSidebarView", .serialized)
 struct InboxNotificationSidebarViewTests {
     @Test("preseeded filter draft is consumed when the inbox mounts")
     func preseededFilterDraftIsConsumedOnMount() async {
@@ -93,78 +93,76 @@ struct InboxNotificationSidebarViewTests {
     }
 
     @Test("clear action dispatches the clear read inbox command")
-    func clearActionDispatchesClearReadInboxCommand() {
-        let previousRouter = CommandDispatcher.shared.appCommandRouter
-        let previousHandler = CommandDispatcher.shared.handler
-        defer {
-            CommandDispatcher.shared.appCommandRouter = previousRouter
-            CommandDispatcher.shared.handler = previousHandler
-        }
-
+    func clearActionDispatchesClearReadInboxCommand() async throws {
         let router = MockAppCommandRouter()
         router.appCommands = [.clearReadInboxNotifications]
-        CommandDispatcher.shared.appCommandRouter = router
-        CommandDispatcher.shared.handler = nil
-        let view = InboxNotificationSidebarView(
-            inboxAtom: InboxNotificationAtom(),
-            prefsAtom: InboxNotificationPrefsAtom(),
-            uiState: UIStateAtom(),
-            sidebarCache: SidebarCacheAtom(),
-            inboxFilterDraft: InboxFilterDraftAtom(),
-            workspacePaneAtom: WorkspacePaneAtom(),
-            dispatcher: .shared,
-            onRefocusActivePane: {}
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                CommandDispatcher.shared.appCommandRouter = router
+                CommandDispatcher.shared.handler = nil
+            },
+            body: {
+                let view = InboxNotificationSidebarView(
+                    inboxAtom: InboxNotificationAtom(),
+                    prefsAtom: InboxNotificationPrefsAtom(),
+                    uiState: UIStateAtom(),
+                    sidebarCache: SidebarCacheAtom(),
+                    inboxFilterDraft: InboxFilterDraftAtom(),
+                    workspacePaneAtom: WorkspacePaneAtom(),
+                    dispatcher: .shared,
+                    onRefocusActivePane: {}
+                )
+
+                view.clearReadInboxNotifications()
+
+                #expect(router.handledCommands == [.clearReadInboxNotifications])
+            }
         )
-
-        view.clearReadInboxNotifications()
-
-        #expect(router.handledCommands == [.clearReadInboxNotifications])
     }
 
     @Test("mounted inbox sidebar clear button dispatches clear read command")
     func mountedInboxSidebarClearButtonDispatchesClearReadCommand() async throws {
-        let previousRouter = CommandDispatcher.shared.appCommandRouter
-        let previousHandler = CommandDispatcher.shared.handler
-        defer {
-            CommandDispatcher.shared.appCommandRouter = previousRouter
-            CommandDispatcher.shared.handler = previousHandler
-        }
-
         let router = MockAppCommandRouter()
         router.appCommands = [.clearReadInboxNotifications]
-        CommandDispatcher.shared.appCommandRouter = router
-        CommandDispatcher.shared.handler = nil
-        let hostingView = NSHostingView(
-            rootView: InboxNotificationSidebarView(
-                inboxAtom: InboxNotificationAtom(),
-                prefsAtom: InboxNotificationPrefsAtom(),
-                uiState: UIStateAtom(),
-                sidebarCache: SidebarCacheAtom(),
-                inboxFilterDraft: InboxFilterDraftAtom(),
-                workspacePaneAtom: WorkspacePaneAtom(),
-                dispatcher: .shared,
-                onRefocusActivePane: {}
-            )
-            .frame(width: 360, height: 420)
-        )
-        let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 360, height: 420),
-            styleMask: [.titled, .closable],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = hostingView
-        window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
-        hostingView.layoutSubtreeIfNeeded()
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                CommandDispatcher.shared.appCommandRouter = router
+                CommandDispatcher.shared.handler = nil
+            },
+            body: {
+                let hostingView = NSHostingView(
+                    rootView: InboxNotificationSidebarView(
+                        inboxAtom: InboxNotificationAtom(),
+                        prefsAtom: InboxNotificationPrefsAtom(),
+                        uiState: UIStateAtom(),
+                        sidebarCache: SidebarCacheAtom(),
+                        inboxFilterDraft: InboxFilterDraftAtom(),
+                        workspacePaneAtom: WorkspacePaneAtom(),
+                        dispatcher: .shared,
+                        onRefocusActivePane: {}
+                    )
+                    .frame(width: 360, height: 420)
+                )
+                let window = NSWindow(
+                    contentRect: CGRect(x: 0, y: 0, width: 360, height: 420),
+                    styleMask: [.titled, .closable],
+                    backing: .buffered,
+                    defer: false
+                )
+                window.contentView = hostingView
+                window.makeKeyAndOrderFront(nil)
+                defer { window.orderOut(nil) }
+                hostingView.layoutSubtreeIfNeeded()
 
-        let clearButton = try #require(
-            findAccessibleElement(in: hostingView, identifier: "inboxSidebarClearButton")
-        )
+                let clearButton = try #require(
+                    findAccessibleElement(in: hostingView, identifier: "inboxSidebarClearButton")
+                )
 
-        #expect(accessibleElementCount(in: hostingView, identifier: "inboxSidebarClearButton") == 1)
-        pressAccessibleElement(clearButton)
-        #expect(router.handledCommands == [.clearReadInboxNotifications])
+                #expect(accessibleElementCount(in: hostingView, identifier: "inboxSidebarClearButton") == 1)
+                pressAccessibleElement(clearButton)
+                #expect(router.handledCommands == [.clearReadInboxNotifications])
+            }
+        )
     }
 
     @Test("inbox header controls use distinct symbols and grouped row indentation")
@@ -181,6 +179,129 @@ struct InboxNotificationSidebarViewTests {
             InboxSidebarContent.rowLeadingInset(isGrouped: true)
                 == AppStyles.Shell.Sidebar.groupChildRowLeadingInset
         )
+        #expect(InboxSidebarContent.showsUnreadCount(for: .byPane) == false)
+        #expect(InboxSidebarContent.showsUnreadCount(for: .byRepo))
+        #expect(InboxSidebarContent.showsUnreadCount(for: .byTab))
+    }
+
+    @Test("active filter label uses full inbox source when visible rows are empty")
+    func activeFilterLabelUsesFullInboxSourceWhenVisibleRowsAreEmpty() {
+        let repoId = UUID()
+        let notification = InboxNotification(
+            id: UUID(),
+            timestamp: Date(timeIntervalSince1970: 100),
+            kind: .agentRpc,
+            title: "Done",
+            body: nil,
+            source: .pane(
+                .init(
+                    paneId: UUID(),
+                    repoId: repoId,
+                    repoName: "askluna",
+                    worktreeName: "notification-system"
+                )
+            ),
+            isRead: false,
+            isDismissedFromPaneInbox: false
+        )
+        let visibleModel = InboxNotificationListModel(
+            notifications: [notification],
+            grouping: .none,
+            sort: .newestFirst,
+            searchText: "does-not-match",
+            filter: .repo(id: repoId),
+            collapsedGroups: []
+        )
+
+        let hasNoVisibleRows = visibleModel.sections.allSatisfy { $0.notifications.isEmpty }
+        #expect(hasNoVisibleRows)
+        #expect(
+            InboxNotificationSidebarView.activeFilterLabel(
+                activeFilter: .repo(id: repoId),
+                notifications: [notification]
+            ) == "askluna"
+        )
+    }
+
+    @Test("mounted root keeps active filter label when visible rows are empty")
+    func mountedRootKeepsActiveFilterLabelWhenVisibleRowsAreEmpty() throws {
+        let repoId = UUID()
+        let notification = makeSourceNotification(repoId: repoId, repoName: "askluna")
+        let sections = InboxNotificationListModel(
+            notifications: [notification],
+            grouping: .none,
+            sort: .newestFirst,
+            searchText: "does-not-match",
+            filter: .repo(id: repoId),
+            collapsedGroups: []
+        ).sections
+
+        let hostingView = NSHostingView(
+            rootView: InboxSidebarRootHarness(
+                activeFilter: .repo(id: repoId),
+                activeFilterLabel: "askluna",
+                grouping: .none,
+                sections: sections
+            )
+            .frame(width: 360, height: 420)
+        )
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 360, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        hostingView.layoutSubtreeIfNeeded()
+
+        let chip = try #require(
+            findAccessibleElement(in: hostingView, identifier: "inboxSidebarActiveFilterChip")
+        )
+
+        #expect(accessibleElementCount(in: hostingView, identifier: "inboxSidebarActiveFilterChip") == 1)
+        #expect(accessibleElementCount(in: hostingView, identifier: "inboxSidebarClearFilterButton") == 1)
+        #expect(accessibilityLabel(of: chip) == "askluna")
+    }
+
+    @Test("mounted root hides unread count badges for by-pane grouping")
+    func mountedRootHidesUnreadCountBadgesForByPaneGrouping() {
+        let paneId = UUID()
+        let notification = makeSourceNotification(
+            paneId: paneId,
+            paneDisplayLabel: "project-dev"
+        )
+        let sections = InboxNotificationListModel(
+            notifications: [notification],
+            grouping: .byPane,
+            sort: .newestFirst,
+            searchText: "",
+            filter: nil,
+            collapsedGroups: []
+        ).sections
+
+        let hostingView = NSHostingView(
+            rootView: InboxSidebarRootHarness(
+                activeFilter: nil,
+                activeFilterLabel: nil,
+                grouping: .byPane,
+                sections: sections
+            )
+            .frame(width: 360, height: 420)
+        )
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 360, height: 420),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        hostingView.layoutSubtreeIfNeeded()
+
+        #expect(accessibleElementCount(in: hostingView, identifier: "inboxGroupUnreadBadge") == 0)
     }
 
     @Test("repo grouped inbox and repo explorer use shared repo header chrome")
@@ -356,6 +477,73 @@ struct InboxNotificationSidebarViewTests {
 }
 
 @MainActor
+private struct InboxSidebarRootHarness: View {
+    let activeFilter: InboxFilter?
+    let activeFilterLabel: String?
+    let grouping: InboxNotificationGrouping
+    let sections: [InboxNotificationListSection]
+    let uiState = UIStateAtom()
+
+    @State private var searchText = ""
+    @State private var groupingMenuOpen = false
+    @FocusState private var focusedField: InboxFocus?
+
+    var body: some View {
+        InboxSidebarRootContainer(
+            uiState: uiState,
+            searchText: $searchText,
+            activeFilter: activeFilter,
+            activeFilterLabel: activeFilterLabel,
+            sort: .newestFirst,
+            groupingMenuOpen: $groupingMenuOpen,
+            grouping: grouping,
+            focusedField: $focusedField,
+            sections: sections,
+            flashingRowIds: [],
+            actions: .init(
+                onEscape: {},
+                onToggleSort: {},
+                onClearFilter: {},
+                onClearReadHistory: {},
+                onSelectGrouping: { _ in },
+                onToggleGroupCollapse: { _ in },
+                onMoveGroupBoundary: { _ in false },
+                onMoveEnd: { _ in false },
+                onActivate: { _ in },
+                onToggleRead: { _ in }
+            )
+        )
+    }
+}
+
+private func makeSourceNotification(
+    paneId: UUID = UUID(),
+    repoId: UUID? = nil,
+    repoName: String? = nil,
+    worktreeName: String? = nil,
+    paneDisplayLabel: String? = nil
+) -> InboxNotification {
+    InboxNotification(
+        id: UUID(),
+        timestamp: Date(timeIntervalSince1970: 100),
+        kind: .agentRpc,
+        title: "Done",
+        body: nil,
+        source: .pane(
+            .init(
+                paneId: paneId,
+                repoId: repoId,
+                repoName: repoName,
+                worktreeName: worktreeName,
+                paneDisplayLabel: paneDisplayLabel
+            )
+        ),
+        isRead: false,
+        isDismissedFromPaneInbox: false
+    )
+}
+
+@MainActor
 private func findDescendant(in view: NSView, identifier: String) -> NSView? {
     if view.identifier?.rawValue == identifier {
         return view
@@ -406,6 +594,12 @@ private func findAccessibleElement(
 
 private func accessibilityIdentifier(of element: AnyObject) -> String? {
     let selector = NSSelectorFromString("accessibilityIdentifier")
+    guard element.responds(to: selector) else { return nil }
+    return element.perform(selector)?.takeUnretainedValue() as? String
+}
+
+private func accessibilityLabel(of element: AnyObject) -> String? {
+    let selector = NSSelectorFromString("accessibilityLabel")
     guard element.responds(to: selector) else { return nil }
     return element.perform(selector)?.takeUnretainedValue() as? String
 }

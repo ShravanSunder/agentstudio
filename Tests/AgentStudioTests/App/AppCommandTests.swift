@@ -369,115 +369,142 @@ final class AppCommandTests {
     @MainActor
 
     @Test
-    func test_dispatcher_dispatch_withoutHandler_doesNotCrash() {
+    func test_dispatcher_dispatch_withoutHandler_doesNotCrash() async throws {
         // Arrange
         let dispatcher = CommandDispatcher.shared
-        dispatcher.handler = nil
 
-        // Act (should not crash)
-        dispatcher.dispatch(.closeTab)
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                dispatcher.handler = nil
+                dispatcher.appCommandRouter = nil
+            },
+            body: {
+                // Act (should not crash)
+                dispatcher.dispatch(.closeTab)
+            }
+        )
     }
 
     @MainActor
 
     @Test
-    func test_dispatcher_canDispatch_withoutHandler_returnsFalse() {
+    func test_dispatcher_canDispatch_withoutHandler_returnsFalse() async throws {
         // Arrange
         let dispatcher = CommandDispatcher.shared
-        dispatcher.handler = nil
 
-        // Act
-        let result = dispatcher.canDispatch(.closeTab)
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                dispatcher.handler = nil
+                dispatcher.appCommandRouter = nil
+            },
+            body: {
+                // Act
+                let result = dispatcher.canDispatch(.closeTab)
 
-        // Assert
-        #expect(!(result))
+                // Assert
+                #expect(!(result))
+            }
+        )
     }
 
     @MainActor
 
     @Test
-    func test_dispatcher_dispatch_callsHandler() {
+    func test_dispatcher_dispatch_callsHandler() async throws {
         // Arrange
         let dispatcher = CommandDispatcher.shared
         let handler = MockCommandHandler()
-        dispatcher.handler = handler
-        dispatcher.appCommandRouter = nil
 
-        // Act
-        dispatcher.dispatch(.closeTab)
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                dispatcher.handler = handler
+                dispatcher.appCommandRouter = nil
+            },
+            body: {
+                // Act
+                dispatcher.dispatch(.closeTab)
 
-        // Assert
-        #expect(handler.executedCommands.count == 1)
-        #expect(handler.executedCommands[0].0 == .closeTab)
-        #expect(handler.executedCommands[0].1 == nil)  // no target
-
-        // Cleanup
-        dispatcher.handler = nil
+                // Assert
+                #expect(handler.executedCommands.count == 1)
+                #expect(handler.executedCommands[0].0 == .closeTab)
+                #expect(handler.executedCommands[0].1 == nil)  // no target
+            }
+        )
     }
 
     @MainActor
 
     @Test
-    func test_dispatcher_dispatch_targeted_callsHandler() {
+    func test_dispatcher_dispatch_targeted_callsHandler() async throws {
         // Arrange
         let dispatcher = CommandDispatcher.shared
         let handler = MockCommandHandler()
-        dispatcher.handler = handler
-        dispatcher.appCommandRouter = nil
         let targetId = UUID()
 
-        // Act
-        dispatcher.dispatch(.closeTab, target: targetId, targetType: .tab)
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                dispatcher.handler = handler
+                dispatcher.appCommandRouter = nil
+            },
+            body: {
+                // Act
+                dispatcher.dispatch(.closeTab, target: targetId, targetType: .tab)
 
-        // Assert
-        #expect(handler.executedCommands.count == 1)
-        #expect(handler.executedCommands[0].0 == .closeTab)
-        #expect(handler.executedCommands[0].1 == targetId)
-        #expect(handler.executedCommands[0].2 == .tab)
-
-        // Cleanup
-        dispatcher.handler = nil
+                // Assert
+                #expect(handler.executedCommands.count == 1)
+                #expect(handler.executedCommands[0].0 == .closeTab)
+                #expect(handler.executedCommands[0].1 == targetId)
+                #expect(handler.executedCommands[0].2 == .tab)
+            }
+        )
     }
 
     @MainActor
     @Test
-    func test_dispatcher_dispatch_targeted_usesTargetedAvailability() {
+    func test_dispatcher_dispatch_targeted_usesTargetedAvailability() async throws {
         let dispatcher = CommandDispatcher.shared
         let handler = MockCommandHandler()
         handler.canExecuteResult = false
         handler.targetedCanExecuteResult = true
-        dispatcher.handler = handler
-        dispatcher.appCommandRouter = nil
         let targetId = UUID()
 
-        dispatcher.dispatch(.closeTab, target: targetId, targetType: .tab)
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                dispatcher.handler = handler
+                dispatcher.appCommandRouter = nil
+            },
+            body: {
+                dispatcher.dispatch(.closeTab, target: targetId, targetType: .tab)
 
-        #expect(handler.executedCommands.count == 1)
-        #expect(handler.executedCommands[0].0 == .closeTab)
-        #expect(handler.executedCommands[0].1 == targetId)
-        #expect(handler.executedCommands[0].2 == .tab)
-
-        dispatcher.handler = nil
+                #expect(handler.executedCommands.count == 1)
+                #expect(handler.executedCommands[0].0 == .closeTab)
+                #expect(handler.executedCommands[0].1 == targetId)
+                #expect(handler.executedCommands[0].2 == .tab)
+            }
+        )
     }
 
     @MainActor
 
     @Test
-    func test_dispatcher_dispatch_routesAppCommandToAppRouterBeforeHandler() {
+    func test_dispatcher_dispatch_routesAppCommandToAppRouterBeforeHandler() async throws {
         let dispatcher = CommandDispatcher.shared
         let handler = MockCommandHandler()
         let appRouter = MockAppCommandRouter()
         appRouter.appCommands = [.watchFolder]
-        dispatcher.handler = handler
-        dispatcher.appCommandRouter = appRouter
 
-        dispatcher.dispatch(.watchFolder)
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                dispatcher.handler = handler
+                dispatcher.appCommandRouter = appRouter
+            },
+            body: {
+                dispatcher.dispatch(.watchFolder)
 
-        #expect(appRouter.handledCommands == [.watchFolder])
-        #expect(handler.executedCommands.isEmpty)
-
-        dispatcher.handler = nil
-        dispatcher.appCommandRouter = nil
+                #expect(appRouter.handledCommands == [.watchFolder])
+                #expect(handler.executedCommands.isEmpty)
+            }
+        )
     }
 
     @Test
@@ -488,96 +515,113 @@ final class AppCommandTests {
     @MainActor
 
     @Test
-    func test_dispatcher_dispatchTargeted_routesAppCommandToAppRouterBeforeHandler() {
+    func test_dispatcher_dispatchTargeted_routesAppCommandToAppRouterBeforeHandler() async throws {
         let dispatcher = CommandDispatcher.shared
         let handler = MockCommandHandler()
         let appRouter = MockAppCommandRouter()
         appRouter.appCommands = [.removeRepo]
-        dispatcher.handler = handler
-        dispatcher.appCommandRouter = appRouter
         let repoId = UUID()
 
-        dispatcher.dispatch(.removeRepo, target: repoId, targetType: .repo)
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                dispatcher.handler = handler
+                dispatcher.appCommandRouter = appRouter
+            },
+            body: {
+                dispatcher.dispatch(.removeRepo, target: repoId, targetType: .repo)
 
-        #expect(appRouter.handledTargets.count == 1)
-        #expect(appRouter.handledTargets[0].0 == .removeRepo)
-        #expect(appRouter.handledTargets[0].1 == repoId)
-        #expect(appRouter.handledTargets[0].2 == .repo)
-        #expect(handler.executedCommands.isEmpty)
-
-        dispatcher.handler = nil
-        dispatcher.appCommandRouter = nil
+                #expect(appRouter.handledTargets.count == 1)
+                #expect(appRouter.handledTargets[0].0 == .removeRepo)
+                #expect(appRouter.handledTargets[0].1 == repoId)
+                #expect(appRouter.handledTargets[0].2 == .repo)
+                #expect(handler.executedCommands.isEmpty)
+            }
+        )
     }
 
     @MainActor
 
     @Test
-    func test_dispatcher_dispatchExtractPaneToTab_callsHandlerSurface() {
+    func test_dispatcher_dispatchExtractPaneToTab_callsHandlerSurface() async throws {
         let dispatcher = CommandDispatcher.shared
         let handler = MockCommandHandler()
-        dispatcher.handler = handler
-        dispatcher.appCommandRouter = nil
 
         let tabId = UUID()
         let paneId = UUID()
-        dispatcher.dispatchExtractPaneToTab(tabId: tabId, paneId: paneId, targetTabIndex: 2)
 
-        #expect(handler.extractedPaneRequests.count == 1)
-        #expect(handler.extractedPaneRequests[0].tabId == tabId)
-        #expect(handler.extractedPaneRequests[0].paneId == paneId)
-        #expect(handler.extractedPaneRequests[0].targetTabIndex == 2)
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                dispatcher.handler = handler
+                dispatcher.appCommandRouter = nil
+            },
+            body: {
+                dispatcher.dispatchExtractPaneToTab(tabId: tabId, paneId: paneId, targetTabIndex: 2)
 
-        dispatcher.handler = nil
+                #expect(handler.extractedPaneRequests.count == 1)
+                #expect(handler.extractedPaneRequests[0].tabId == tabId)
+                #expect(handler.extractedPaneRequests[0].paneId == paneId)
+                #expect(handler.extractedPaneRequests[0].targetTabIndex == 2)
+            }
+        )
     }
 
     @MainActor
 
     @Test
-    func test_dispatcher_dispatchMovePaneToTab_callsHandlerSurface() async {
+    func test_dispatcher_dispatchMovePaneToTab_callsHandlerSurface() async throws {
         let dispatcher = CommandDispatcher.shared
         let handler = MockCommandHandler()
-        dispatcher.handler = handler
-        dispatcher.appCommandRouter = nil
         atom(\.managementLayer).deactivate()
-        atom(\.managementLayer).toggle()
-        defer {
-            dispatcher.handler = nil
-            atom(\.managementLayer).deactivate()
-        }
 
         let sourcePaneId = UUID()
         let sourceTabId = UUID()
         let targetTabId = UUID()
-        dispatcher.dispatchMovePaneToTab(
-            sourcePaneId: sourcePaneId,
-            sourceTabId: sourceTabId,
-            targetTabId: targetTabId
-        )
 
-        #expect(handler.movePaneRequests.count == 1)
-        #expect(handler.movePaneRequests[0].sourcePaneId == sourcePaneId)
-        #expect(handler.movePaneRequests[0].sourceTabId == sourceTabId)
-        #expect(handler.movePaneRequests[0].targetTabId == targetTabId)
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                dispatcher.handler = handler
+                dispatcher.appCommandRouter = nil
+            },
+            body: {
+                atom(\.managementLayer).toggle()
+                defer { atom(\.managementLayer).deactivate() }
+
+                dispatcher.dispatchMovePaneToTab(
+                    sourcePaneId: sourcePaneId,
+                    sourceTabId: sourceTabId,
+                    targetTabId: targetTabId
+                )
+
+                #expect(handler.movePaneRequests.count == 1)
+                #expect(handler.movePaneRequests[0].sourcePaneId == sourcePaneId)
+                #expect(handler.movePaneRequests[0].sourceTabId == sourceTabId)
+                #expect(handler.movePaneRequests[0].targetTabId == targetTabId)
+            }
+        )
     }
 
     @MainActor
 
     @Test
-    func test_dispatcher_cannotDispatch_whenHandlerReturnsFalse() {
+    func test_dispatcher_cannotDispatch_whenHandlerReturnsFalse() async throws {
         // Arrange
         let dispatcher = CommandDispatcher.shared
         let handler = MockCommandHandler()
         handler.canExecuteResult = false
-        dispatcher.handler = handler
 
-        // Act
-        dispatcher.dispatch(.closeTab)
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                dispatcher.handler = handler
+                dispatcher.appCommandRouter = nil
+            },
+            body: {
+                // Act
+                dispatcher.dispatch(.closeTab)
 
-        // Assert — command should not have been executed
-        #expect(handler.executedCommands.isEmpty)
-
-        // Cleanup
-        dispatcher.handler = nil
+                // Assert — command should not have been executed
+                #expect(handler.executedCommands.isEmpty)
+            }
+        )
     }
 
     @MainActor
@@ -617,36 +661,46 @@ final class AppCommandTests {
     @MainActor
 
     @Test
-    func test_dispatcher_managementRequiredCommand_blockedWhenInactive() async {
+    func test_dispatcher_managementRequiredCommand_blockedWhenInactive() async throws {
         let dispatcher = CommandDispatcher.shared
         let handler = MockCommandHandler()
-        dispatcher.handler = handler
         atom(\.managementLayer).deactivate()
-        defer {
-            dispatcher.handler = nil
-            atom(\.managementLayer).deactivate()
-        }
 
-        #expect(!dispatcher.canDispatch(.closePane))
-        #expect(!dispatcher.canDispatch(.movePaneToTab))
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                dispatcher.handler = handler
+                dispatcher.appCommandRouter = nil
+            },
+            body: {
+                defer { atom(\.managementLayer).deactivate() }
+
+                #expect(!dispatcher.canDispatch(.closePane))
+                #expect(!dispatcher.canDispatch(.movePaneToTab))
+            }
+        )
     }
 
     @MainActor
 
     @Test
-    func test_dispatcher_managementRequiredCommand_allowedWhenActive() async {
+    func test_dispatcher_managementRequiredCommand_allowedWhenActive() async throws {
         let dispatcher = CommandDispatcher.shared
         let handler = MockCommandHandler()
-        dispatcher.handler = handler
         atom(\.managementLayer).deactivate()
-        atom(\.managementLayer).toggle()
-        defer {
-            dispatcher.handler = nil
-            atom(\.managementLayer).deactivate()
-        }
 
-        #expect(dispatcher.canDispatch(.closePane))
-        #expect(dispatcher.canDispatch(.movePaneToTab))
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                dispatcher.handler = handler
+                dispatcher.appCommandRouter = nil
+            },
+            body: {
+                atom(\.managementLayer).toggle()
+                defer { atom(\.managementLayer).deactivate() }
+
+                #expect(dispatcher.canDispatch(.closePane))
+                #expect(dispatcher.canDispatch(.movePaneToTab))
+            }
+        )
     }
 
     // MARK: - Sidebar Commands

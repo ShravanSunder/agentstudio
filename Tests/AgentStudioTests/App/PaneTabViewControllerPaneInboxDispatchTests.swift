@@ -12,58 +12,58 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
     }
 
     @Test("dispatcher PaneInbox command reaches the active parent pane scope")
-    func dispatcherShowPaneInboxNotificationsOpensActiveParentScope() throws {
+    func dispatcherShowPaneInboxNotificationsOpensActiveParentScope() async throws {
         let harness = makeHarness()
-        let previousHandler = CommandDispatcher.shared.handler
-        let previousRouter = CommandDispatcher.shared.appCommandRouter
-        defer {
-            CommandDispatcher.shared.handler = previousHandler
-            CommandDispatcher.shared.appCommandRouter = previousRouter
-            try? FileManager.default.removeItem(at: harness.tempDir)
-        }
-        CommandDispatcher.shared.handler = harness.controller
-        CommandDispatcher.shared.appCommandRouter = nil
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
-        let tab = Tab(paneId: parentPane.id)
-        harness.store.appendTab(tab)
-        harness.store.setActiveTab(tab.id)
-        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                CommandDispatcher.shared.handler = harness.controller
+                CommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+                let tab = Tab(paneId: parentPane.id)
+                harness.store.appendTab(tab)
+                harness.store.setActiveTab(tab.id)
+                let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
 
-        #expect(CommandDispatcher.shared.canDispatch(.showPaneInboxNotifications))
+                #expect(CommandDispatcher.shared.canDispatch(.showPaneInboxNotifications))
 
-        CommandDispatcher.shared.dispatch(.showPaneInboxNotifications)
+                CommandDispatcher.shared.dispatch(.showPaneInboxNotifications)
 
-        #expect(harness.paneInboxPresenter.request?.parentPaneId == parentPane.id)
-        #expect(harness.paneInboxPresenter.request?.paneIds == [parentPane.id, drawerPane.id])
-        #expect(harness.paneInboxPresenter.request?.intent == .open)
+                #expect(harness.paneInboxPresenter.request?.parentPaneId == parentPane.id)
+                #expect(harness.paneInboxPresenter.request?.paneIds == [parentPane.id, drawerPane.id])
+                #expect(harness.paneInboxPresenter.request?.intent == .open)
+            }
+        )
     }
 
     @Test("Cmd-Shift-I app-owned key event reaches PaneInbox command dispatch")
-    func cmdShiftIKeyEventOpensPaneInboxForActiveParentScope() throws {
+    func cmdShiftIKeyEventOpensPaneInboxForActiveParentScope() async throws {
         let harness = makeHarness()
-        let previousHandler = CommandDispatcher.shared.handler
-        let previousRouter = CommandDispatcher.shared.appCommandRouter
-        defer {
-            CommandDispatcher.shared.handler = previousHandler
-            CommandDispatcher.shared.appCommandRouter = previousRouter
-            try? FileManager.default.removeItem(at: harness.tempDir)
-        }
-        CommandDispatcher.shared.handler = harness.controller
-        CommandDispatcher.shared.appCommandRouter = nil
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
-        let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
-        let tab = Tab(paneId: parentPane.id)
-        harness.store.appendTab(tab)
-        harness.store.setActiveTab(tab.id)
-        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
-        let event = try #require(cmdShiftIEvent())
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                CommandDispatcher.shared.handler = harness.controller
+                CommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+                let tab = Tab(paneId: parentPane.id)
+                harness.store.appendTab(tab)
+                harness.store.setActiveTab(tab.id)
+                let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+                let event = try #require(cmdShiftIEvent())
 
-        #expect(harness.controller.handleAppOwnedKeyEvent(event))
+                #expect(harness.controller.handleAppOwnedKeyEvent(event))
 
-        #expect(harness.paneInboxPresenter.request?.parentPaneId == parentPane.id)
-        #expect(harness.paneInboxPresenter.request?.paneIds == [parentPane.id, drawerPane.id])
-        #expect(harness.paneInboxPresenter.request?.intent == .open)
+                #expect(harness.paneInboxPresenter.request?.parentPaneId == parentPane.id)
+                #expect(harness.paneInboxPresenter.request?.paneIds == [parentPane.id, drawerPane.id])
+                #expect(harness.paneInboxPresenter.request?.intent == .open)
+            }
+        )
     }
 
     private func cmdShiftIEvent() -> NSEvent? {
