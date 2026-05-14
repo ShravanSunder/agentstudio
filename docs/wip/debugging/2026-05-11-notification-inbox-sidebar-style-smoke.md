@@ -53,6 +53,70 @@ Use PID targeting for every capture:
 
 ## Latest Attempt
 
+Date: 2026-05-14
+Build dir: `.build-agent-1`
+
+Commands run:
+
+    mise run build
+    .build-agent-1/arm64-apple-macosx/debug/AgentStudio
+    APP_PID=69792
+    peekaboo see --pid "$APP_PID" \
+      --path docs/wip/visual/2026-05-14-notification-inbox-redesign-debug-see.png \
+      --json
+    peekaboo see --mode screen \
+      --path docs/wip/visual/2026-05-14-notification-inbox-redesign-screen.png \
+      --json
+    AGENTSTUDIO_DATA_DIR="$PWD/tmp/visual-agentstudio-data-20260514-004221" \
+      "$PWD/.build-agent-1/arm64-apple-macosx/debug/AgentStudio" \
+      > "$PWD/tmp/visual-agentstudio-20260514-004221.log" 2>&1 &
+    APP_PID=14120
+    peekaboo see --pid "$APP_PID" \
+      --path docs/wip/visual/2026-05-14-notification-inbox-redesign-pid-14120.png \
+      --json
+
+Result:
+
+    {
+      "success": false,
+      "error": {
+        "code": "INTERNAL_SWIFT_ERROR",
+        "message": "The operation couldn’t be completed. (PeekabooBridge.PeekabooBridgeErrorEnvelope error 1.)"
+      }
+    }
+
+The isolated branch debug process exited without producing an observable app window:
+
+    {
+      "success": false,
+      "error": {
+        "code": "WINDOW_NOT_FOUND",
+        "message": "Desktop observation target was not found: pid 14120"
+      }
+    }
+
+The follow-up screen capture succeeded but captured `loginwindow`:
+
+    {
+      "success": true,
+      "data": {
+        "application_name": "loginwindow",
+        "window_title": "Login",
+        "element_count": 1,
+        "interactable_count": 0
+      }
+    }
+
+Interpretation:
+
+- The branch app built and launched by PID.
+- PID-targeted app capture still could not observe an app window.
+- A second isolated-data launch also exited before Peekaboo could observe a window.
+- Full-screen capture is currently blocked by the macOS login/lock surface, so it cannot verify RepoExplorer/Inbox/PaneInbox visual parity.
+- Product visual acceptance is still not passed.
+
+## Prior Attempt
+
 Date: 2026-05-12
 Build dir: `.build-agent-1`
 

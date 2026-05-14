@@ -347,6 +347,88 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.launchRecorder.clearedPaneInboxRequests.first?.paneIds == [parentPane.id, drawerPane.id])
     }
 
+    @Test("targeted clearPaneInboxNotifications resolves inactive drawer child to parent scope")
+    func executeClearPaneInboxNotificationsTargetedDrawerChildClearsRequestedParentScope() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parentTab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(parentTab)
+        let unrelatedPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Unrelated"))
+        let unrelatedTab = Tab(paneId: unrelatedPane.id)
+        harness.store.appendTab(unrelatedTab)
+        harness.store.setActiveTab(unrelatedTab.id)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+
+        #expect(
+            harness.controller.canExecute(
+                .clearPaneInboxNotifications,
+                target: drawerPane.id,
+                targetType: .pane
+            )
+        )
+
+        harness.controller.execute(.clearPaneInboxNotifications, target: drawerPane.id, targetType: .pane)
+
+        #expect(harness.launchRecorder.clearedPaneInboxRequests.count == 1)
+        #expect(harness.launchRecorder.clearedPaneInboxRequests.first?.parentPaneId == parentPane.id)
+        #expect(harness.launchRecorder.clearedPaneInboxRequests.first?.paneIds == [parentPane.id, drawerPane.id])
+    }
+
+    @Test("targeted showPaneInboxNotifications opens requested inactive pane scope")
+    func executeShowPaneInboxNotificationsTargetedOpensRequestedInactivePaneScope() throws {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+        let parentTab = Tab(paneId: parentPane.id)
+        harness.store.appendTab(parentTab)
+        let unrelatedPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Unrelated"))
+        let unrelatedTab = Tab(paneId: unrelatedPane.id)
+        harness.store.appendTab(unrelatedTab)
+        harness.store.setActiveTab(unrelatedTab.id)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+
+        harness.controller.execute(.showPaneInboxNotifications, target: parentPane.id, targetType: .pane)
+
+        #expect(harness.paneInboxPresenter.request?.parentPaneId == parentPane.id)
+        #expect(harness.paneInboxPresenter.request?.paneIds == [parentPane.id, drawerPane.id])
+    }
+
+    @Test("targeted pane inbox commands ignore stale pane targets without active fallback")
+    func executePaneInboxNotificationsTargetedStalePaneDoesNotFallbackToActiveScope() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let activePane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Active"))
+        let activeTab = Tab(paneId: activePane.id)
+        harness.store.appendTab(activeTab)
+        harness.store.setActiveTab(activeTab.id)
+        let stalePaneId = UUID()
+
+        #expect(
+            !harness.controller.canExecute(
+                .showPaneInboxNotifications,
+                target: stalePaneId,
+                targetType: .pane
+            )
+        )
+        #expect(
+            !harness.controller.canExecute(
+                .clearPaneInboxNotifications,
+                target: stalePaneId,
+                targetType: .pane
+            )
+        )
+
+        harness.controller.execute(.showPaneInboxNotifications, target: stalePaneId, targetType: .pane)
+        harness.controller.execute(.clearPaneInboxNotifications, target: stalePaneId, targetType: .pane)
+
+        #expect(harness.paneInboxPresenter.request == nil)
+        #expect(harness.launchRecorder.clearedPaneInboxRequests.isEmpty)
+    }
+
     @Test("targeted focusPane opens owning drawer and selects drawer child")
     func executeFocusPane_targetedDrawerChildOpensOwningDrawer() throws {
         let harness = makeHarness()

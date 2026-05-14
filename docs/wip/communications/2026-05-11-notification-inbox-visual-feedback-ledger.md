@@ -103,7 +103,7 @@ Legend:
 - [x] `mise run test-zmx-e2e` was green before PR.
 - [x] `mise run lint` was green before PR.
 - [x] `mise run build` was green before PR.
-- [x] Final visual verification is not product-passed; the latest PID-based Peekaboo attempt returned `WINDOW_NOT_FOUND` because the debug app produced no observable window.
+- [x] Final visual verification is not product-passed; repeated PID-based Peekaboo attempts could not observe the branch app window, one isolated-data debug launch exited before capture, and screen capture returned `loginwindow` instead of Agent Studio.
 - [x] Plan status must be updated so "complete" does not mean "visually accepted."
 - [ ] PR description/checklist should call out remaining visual blockers if PR stays open.
 

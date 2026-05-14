@@ -174,6 +174,8 @@ struct InboxNotificationSidebarViewTests {
         #expect(InboxSidebarHeader.filterIconName == "line.3.horizontal.decrease.circle")
         #expect(InboxSidebarHeader.sortIconName != InboxSidebarHeader.groupIconName)
         #expect(InboxSidebarHeader.groupIconName != InboxSidebarHeader.filterIconName)
+        #expect(InboxSidebarRootContainer.surfaceBackground == .windowBackgroundColor)
+        #expect(InboxSidebarContent.surfaceBackground == .windowBackgroundColor)
         #expect(InboxSidebarContent.rowLeadingInset(isGrouped: false) == 0)
         #expect(
             InboxSidebarContent.rowLeadingInset(isGrouped: true)

@@ -24,6 +24,7 @@ struct InboxSidebarRootContainer: View {
     let sections: [InboxNotificationListSection]
     let flashingRowIds: Set<UUID>
     let actions: InboxSidebarActions
+    static let surfaceBackground = SidebarSurfaceBackground.windowBackgroundColor
 
     var body: some View {
         baseChrome
@@ -90,6 +91,7 @@ struct InboxSidebarRootContainer: View {
                 actions: actions
             )
         }
+        .background(Self.surfaceBackground.color)
     }
 
     private var activeFilterLabel: String? {
@@ -242,6 +244,7 @@ struct InboxSidebarContent: View {
     let flashingRowIds: Set<UUID>
     let actions: InboxSidebarActions
     static let surfaceListPolicy = SidebarSurfaceListPolicy.nativeSidebarList
+    static let surfaceBackground = SidebarSurfaceBackground.windowBackgroundColor
 
     var body: some View {
         if sections.allSatisfy(\.notifications.isEmpty) {
@@ -286,6 +289,8 @@ struct InboxSidebarContent: View {
                     }
                 }
                 .sidebarSurfaceListStyle(Self.surfaceListPolicy)
+                .scrollContentBackground(.hidden)
+                .background(Self.surfaceBackground.color)
                 .focused(focusedField, equals: .list)
             }
         }

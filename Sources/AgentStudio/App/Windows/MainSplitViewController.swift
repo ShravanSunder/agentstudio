@@ -267,9 +267,14 @@ class MainSplitViewController: NSSplitViewController {
                         paneIds: paneIds,
                         inboxAtom: inbox,
                         presentationAtom: paneInboxState,
-                        dispatcher: CommandDispatcher.shared,
                         onActivate: { notification in
                             presenter.recordRowActivation(notification: notification, paneIds: paneIds)
+                        },
+                        onFocusPane: { [weak self] paneId in
+                            self?.paneTabViewController?.execute(.focusPane, target: paneId, targetType: .pane)
+                        },
+                        onClear: {
+                            inbox.clearPaneInbox(paneIds: paneIds)
                         },
                         onClose: onClose
                     )

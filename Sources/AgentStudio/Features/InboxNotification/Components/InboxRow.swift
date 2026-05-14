@@ -5,17 +5,23 @@ struct InboxRow: View {
     let now: Date
     let rowContext: InboxNotificationSourceDisplay.RowContext
 
+    static var leadingIndicatorColumnWidth: CGFloat {
+        AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth
+    }
+
+    static func metadataLine(
+        iconSystemName: String? = nil,
+        text: String,
+        prominence: SidebarMetadataProminence = .secondary
+    ) -> SidebarMetadataLine {
+        SidebarMetadataLine(iconSystemName: iconSystemName, text: text, prominence: prominence)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
-            HStack(spacing: AppStyles.General.Spacing.standard) {
-                if !notification.isRead {
-                    Circle()
-                        .fill(.red)
-                        .frame(
-                            width: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize,
-                            height: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize
-                        )
-                }
+            HStack(spacing: AppStyles.General.Spacing.tight) {
+                unreadIndicator
+                    .frame(width: Self.leadingIndicatorColumnWidth, alignment: .leading)
 
                 Text(display.primaryText)
                     .font(
@@ -40,24 +46,33 @@ struct InboxRow: View {
                     .foregroundStyle(.secondary)
             }
 
-            Text(display.sourceLine)
-                .font(.system(size: AppStyles.Shell.Sidebar.notificationRowSourceSize, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            Self.metadataLine(text: display.sourceLine)
 
             if let placementLine = display.placementLine {
-                Text(placementLine)
-                    .font(.system(size: AppStyles.Shell.Sidebar.notificationRowDetailSize))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                Self.metadataLine(
+                    iconSystemName: "terminal",
+                    text: placementLine,
+                    prominence: .secondary
+                )
             }
 
             if let detailText = display.detailText {
-                Text(detailText)
-                    .font(.system(size: AppStyles.Shell.Sidebar.notificationRowDetailSize))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
+                Self.metadataLine(text: detailText, prominence: .tertiary)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var unreadIndicator: some View {
+        if notification.isRead {
+            Color.clear
+        } else {
+            Circle()
+                .fill(.red)
+                .frame(
+                    width: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize,
+                    height: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize
+                )
         }
     }
 
@@ -78,5 +93,4 @@ struct InboxRow: View {
         }
         return "\(Int(delta / 86_400))d"
     }
-
 }

@@ -602,9 +602,9 @@ extension AppCommand {
         case .clearPaneInboxNotifications:
             return CommandSpec(
                 command: self,
-                label: "Mark Pane Inbox Seen",
-                icon: .system(.eye),
-                helpText: "Mark notifications for the active pane and its drawer children as seen",
+                label: "Clear Pane Inbox",
+                icon: .system(.deleteLeft),
+                helpText: "Clear notifications for the active pane and its drawer children",
                 appliesTo: [.pane],
                 visibleWhen: [.hasActivePane],
                 commandBarGroupName: "Pane",

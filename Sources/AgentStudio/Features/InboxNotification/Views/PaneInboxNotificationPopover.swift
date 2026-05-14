@@ -12,10 +12,12 @@ struct PaneInboxNotificationPopover: View {
     let paneIds: [UUID]
     let inboxAtom: InboxNotificationAtom
     let presentationAtom: PaneInboxPresentationAtom
-    let dispatcher: CommandDispatcher
     let onActivate: @MainActor (InboxNotification) -> Void
+    let onFocusPane: @MainActor (UUID) -> Void
+    let onClear: @MainActor @Sendable () -> Void
     let onClose: @MainActor @Sendable () -> Void
     static let rowChromePolicy = SidebarRowShell<InboxRow>.chromePolicy
+    static let surfaceBackground = SidebarSurfaceBackground.windowBackgroundColor
 
     @State private var selectedNotificationId: UUID?
 
@@ -29,6 +31,7 @@ struct PaneInboxNotificationPopover: View {
             width: AppStyles.Components.PaneInbox.popoverWidth,
             height: AppStyles.Components.PaneInbox.popoverHeight
         )
+        .background(Self.surfaceBackground.color)
         .background(
             SelectablePopoverKeyboardBridge(
                 items: Self.keyboardItems(for: relevantNotifications),
@@ -99,8 +102,18 @@ struct PaneInboxNotificationPopover: View {
                 clearPaneInboxSpec.icon.swiftUIImage()
             }
             .buttonStyle(.borderless)
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel(clearPaneInboxSpec.label)
+            .accessibilityIdentifier("paneInboxClearButton")
+            .accessibilityHidden(true)
             .help(clearPaneInboxSpec.controlToolTip)
+            .background(
+                AccessibilityPressBridge(
+                    identifier: "paneInboxClearButton",
+                    label: clearPaneInboxSpec.label,
+                    action: clearPaneInbox
+                )
+            )
 
             Button(action: toggleFilterMode) {
                 HStack(spacing: AppStyles.General.Spacing.tight) {
@@ -171,9 +184,19 @@ struct PaneInboxNotificationPopover: View {
                             .onTapGesture {
                                 activate(notification)
                             }
+                            .background(
+                                AccessibilityPressBridge(
+                                    identifier: "paneInboxNotificationRow.\(notification.id.uuidString)",
+                                    label: rowAccessibilityLabel(for: notification),
+                                    action: {
+                                        activate(notification)
+                                    }
+                                )
+                            )
                         }
                     }
                 }
+                .background(Self.surfaceBackground.color)
             }
         }
     }
@@ -195,8 +218,16 @@ struct PaneInboxNotificationPopover: View {
     }
 
     private func clearPaneInbox() {
-        inboxAtom.clearPaneInbox(paneIds: paneIds)
+        onClear()
         repairSelection()
+    }
+
+    private func rowAccessibilityLabel(for notification: InboxNotification) -> String {
+        InboxNotificationSourceDisplay(
+            notification: notification,
+            rowContext: .paneInbox(parentPaneId: parentPaneId)
+        )
+        .primaryText
     }
 
     private func activate(notificationId: UUID) {
@@ -221,7 +252,7 @@ struct PaneInboxNotificationPopover: View {
             )
         }
         if let paneId = notification.paneId {
-            dispatcher.dispatch(.focusPane, target: paneId, targetType: .pane)
+            onFocusPane(paneId)
         }
         onClose()
     }

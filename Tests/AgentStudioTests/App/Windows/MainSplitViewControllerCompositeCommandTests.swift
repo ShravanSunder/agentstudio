@@ -175,6 +175,103 @@ struct MainSplitViewControllerCompositeCommandTests {
         )
     }
 
+    @Test("production pane inbox popover clear uses window scoped wiring")
+    func productionPaneInboxPopoverClearUsesWindowScopedWiring() async throws {
+        let previousHandler = CommandDispatcher.shared.handler
+        let previousRouter = CommandDispatcher.shared.appCommandRouter
+        defer {
+            CommandDispatcher.shared.handler = previousHandler
+            CommandDispatcher.shared.appCommandRouter = previousRouter
+        }
+
+        let inboxAtom = InboxNotificationAtom()
+        try await withMainSplitViewControllerHarness(
+            withRepos: true,
+            inboxAtom: inboxAtom,
+            body: { harness in
+                let pane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Pane"))
+                let tab = Tab(paneId: pane.id)
+                harness.store.appendTab(tab)
+                harness.store.setActiveTab(tab.id)
+                let notification = makePaneInboxNotification(paneId: pane.id, title: "Clearable")
+                inboxAtom.append(notification)
+                let commandHandler = MainSplitViewControllerCommandHandlerProbe()
+                CommandDispatcher.shared.handler = commandHandler
+                CommandDispatcher.shared.appCommandRouter = nil
+
+                let hostingView = makePaneInboxPopoverHostingView(
+                    presentation: harness.controller.makePaneInboxPresentation(),
+                    parentPaneId: pane.id,
+                    paneIds: [pane.id]
+                )
+                let popoverWindow = makePopoverWindow(hostingView: hostingView)
+                defer { popoverWindow.orderOut(nil) }
+
+                let clearButton = try #require(
+                    findAccessibleElement(in: hostingView, identifier: "paneInboxClearButton")
+                )
+
+                pressAccessibleElement(clearButton)
+
+                #expect(commandHandler.executedTargets.isEmpty)
+                #expect(inboxAtom.notifications.first?.isRead == true)
+                #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == true)
+            }
+        )
+    }
+
+    @Test("production pane inbox popover row activation uses window scoped focus")
+    func productionPaneInboxPopoverRowActivationUsesWindowScopedFocus() async throws {
+        let previousHandler = CommandDispatcher.shared.handler
+        let previousRouter = CommandDispatcher.shared.appCommandRouter
+        defer {
+            CommandDispatcher.shared.handler = previousHandler
+            CommandDispatcher.shared.appCommandRouter = previousRouter
+        }
+
+        let inboxAtom = InboxNotificationAtom()
+        try await withMainSplitViewControllerHarness(
+            withRepos: true,
+            inboxAtom: inboxAtom,
+            body: { harness in
+                let targetPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Target"))
+                let targetTab = Tab(paneId: targetPane.id)
+                harness.store.appendTab(targetTab)
+                let activePane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Active"))
+                let activeTab = Tab(paneId: activePane.id)
+                harness.store.appendTab(activeTab)
+                harness.store.setActiveTab(activeTab.id)
+                let notification = makePaneInboxNotification(paneId: targetPane.id, title: "Focusable")
+                inboxAtom.append(notification)
+                let commandHandler = MainSplitViewControllerCommandHandlerProbe()
+                CommandDispatcher.shared.handler = commandHandler
+                CommandDispatcher.shared.appCommandRouter = nil
+
+                let hostingView = makePaneInboxPopoverHostingView(
+                    presentation: harness.controller.makePaneInboxPresentation(),
+                    parentPaneId: targetPane.id,
+                    paneIds: [targetPane.id]
+                )
+                let popoverWindow = makePopoverWindow(hostingView: hostingView)
+                defer { popoverWindow.orderOut(nil) }
+
+                let row = try #require(
+                    findAccessibleElement(
+                        in: hostingView,
+                        identifier: "paneInboxNotificationRow.\(notification.id.uuidString)"
+                    )
+                )
+
+                pressAccessibleElement(row)
+
+                #expect(commandHandler.executedTargets.isEmpty)
+                #expect(harness.store.activeTabId == targetTab.id)
+                #expect(inboxAtom.notifications.first?.isRead == true)
+                #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == true)
+            }
+        )
+    }
+
 }
 
 struct DelayedInboxTestSidebarView: View {
@@ -210,4 +307,126 @@ struct DelayedInboxTestSidebarView: View {
         }
         .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
     }
+}
+
+@MainActor
+private final class MainSplitViewControllerCommandHandlerProbe: WorkspaceCommandHandling {
+    var executedCommands: [AppCommand] = []
+    var executedTargets: [(command: AppCommand, target: UUID, targetType: SearchItemType)] = []
+
+    func execute(_ command: AppCommand) {
+        executedCommands.append(command)
+    }
+
+    func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
+        executedTargets.append((command, target, targetType))
+    }
+
+    func canExecute(_: AppCommand) -> Bool {
+        true
+    }
+
+    func canExecute(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
+        true
+    }
+
+    func executeExtractPaneToTab(tabId _: UUID, paneId _: UUID, targetTabIndex _: Int?) {}
+
+    func executeMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
+}
+
+@MainActor
+private func makePaneInboxPopoverHostingView(
+    presentation: PaneInboxPresentation,
+    parentPaneId: UUID,
+    paneIds: [UUID]
+) -> NSHostingView<AnyView> {
+    NSHostingView(
+        rootView: AnyView(
+            presentation.popoverContent(parentPaneId, paneIds, {})
+                .frame(width: 360, height: 240)
+        )
+    )
+}
+
+@MainActor
+private func makePopoverWindow(hostingView: NSView) -> NSWindow {
+    let window = NSWindow(
+        contentRect: CGRect(x: 0, y: 0, width: 360, height: 240),
+        styleMask: [.titled, .closable],
+        backing: .buffered,
+        defer: false
+    )
+    window.contentView = hostingView
+    window.makeKeyAndOrderFront(nil)
+    hostingView.layoutSubtreeIfNeeded()
+    return window
+}
+
+@MainActor
+private func makePaneInboxNotification(paneId: UUID, title: String) -> InboxNotification {
+    InboxNotification(
+        id: UUID(),
+        timestamp: Date(timeIntervalSince1970: 100),
+        kind: .agentRpc,
+        title: title,
+        body: nil,
+        source: .pane(.init(paneId: paneId)),
+        isRead: false,
+        isDismissedFromPaneInbox: false
+    )
+}
+
+@MainActor
+private func findAccessibleElement(in root: AnyObject, identifier: String) -> AnyObject? {
+    var visited: Set<ObjectIdentifier> = []
+    return findAccessibleElement(in: root, identifier: identifier, visited: &visited)
+}
+
+@MainActor
+private func findAccessibleElement(
+    in element: AnyObject,
+    identifier: String,
+    visited: inout Set<ObjectIdentifier>
+) -> AnyObject? {
+    let objectIdentifier = ObjectIdentifier(element)
+    guard visited.insert(objectIdentifier).inserted else { return nil }
+
+    if accessibilityIdentifier(of: element) == identifier {
+        return element
+    }
+
+    for child in accessibilityChildren(of: element) {
+        if let match = findAccessibleElement(in: child, identifier: identifier, visited: &visited) {
+            return match
+        }
+    }
+
+    for subview in (element as? NSView)?.subviews ?? [] {
+        if let match = findAccessibleElement(in: subview, identifier: identifier, visited: &visited) {
+            return match
+        }
+    }
+
+    return nil
+}
+
+@MainActor
+private func accessibilityIdentifier(of element: AnyObject) -> String? {
+    if let view = element as? NSView, let identifier = view.identifier?.rawValue {
+        return identifier
+    }
+    return element.accessibilityIdentifier?()
+}
+
+@MainActor
+private func accessibilityChildren(of element: AnyObject) -> [AnyObject] {
+    guard let children = element.accessibilityChildren?() else { return [] }
+    return children.compactMap { $0 as? NSObject }
+}
+
+@MainActor
+private func pressAccessibleElement(_ element: AnyObject) {
+    guard element.accessibilityPerformPress?() != true else { return }
+    (element as? NSButton)?.performClick(nil)
 }

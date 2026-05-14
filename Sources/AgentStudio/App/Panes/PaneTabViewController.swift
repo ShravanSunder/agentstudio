@@ -2058,6 +2058,11 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return
         }
 
+        if isPaneInboxCommand(command), isPaneInboxTargetType(targetType) {
+            handleTargetedPaneInboxCommand(command, target: target, targetType: targetType)
+            return
+        }
+
         if command == .focusPane && (targetType == .pane || targetType == .floatingTerminal) {
             focusTargetedPane(target)
             return
@@ -2332,6 +2337,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        if isPaneInboxCommand(command), isPaneInboxTargetType(targetType) {
+            return paneInboxPresentation != nil && paneInboxTarget(anchorPaneId: target) != nil
+        }
+
         if let action = targetedAction(command: command, target: target, targetType: targetType) {
             let snapshot = WorkspaceCommandResolver.snapshot(
                 from: store.tabLayoutAtom.tabs,
@@ -2479,13 +2488,44 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         }
     }
 
+    private func handleTargetedPaneInboxCommand(
+        _ command: AppCommand,
+        target targetId: UUID,
+        targetType: SearchItemType
+    ) {
+        guard isPaneInboxCommand(command), isPaneInboxTargetType(targetType) else { return }
+        guard let paneInboxPresentation, let target = paneInboxTarget(anchorPaneId: targetId) else { return }
+
+        switch command {
+        case .showPaneInboxNotifications:
+            paneInboxPresentation.toggle(target.parentPaneId, target.paneIds)
+        case .clearPaneInboxNotifications:
+            paneInboxPresentation.clear(target.parentPaneId, target.paneIds)
+        default:
+            return
+        }
+    }
+
     private func activePaneInboxTarget() -> PaneInboxCommandTarget? {
         guard let parentPaneId = activePaneInboxParentPaneId() else { return nil }
+        return paneInboxTarget(anchorPaneId: parentPaneId)
+    }
+
+    private func paneInboxTarget(anchorPaneId: UUID) -> PaneInboxCommandTarget? {
+        guard store.paneAtom.pane(anchorPaneId) != nil else { return nil }
         let scope = PaneInboxScopeResolver.resolve(
-            anchorPaneId: parentPaneId,
+            anchorPaneId: anchorPaneId,
             pane: { store.paneAtom.pane($0) }
         )
         return PaneInboxCommandTarget(parentPaneId: scope.parentPaneId, paneIds: scope.paneIds)
+    }
+
+    private func isPaneInboxCommand(_ command: AppCommand) -> Bool {
+        command == .showPaneInboxNotifications || command == .clearPaneInboxNotifications
+    }
+
+    private func isPaneInboxTargetType(_ targetType: SearchItemType) -> Bool {
+        targetType == .pane || targetType == .floatingTerminal
     }
 
     private func activePaneInboxParentPaneId() -> UUID? {

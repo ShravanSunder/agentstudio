@@ -1,10 +1,12 @@
+import AppKit
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import AgentStudio
 
 @MainActor
-@Suite("PaneInboxNotificationPopover")
+@Suite("PaneInboxNotificationPopover", .serialized)
 struct PaneInboxNotificationPopoverTests {
     @Test("popover filters to pane-scope notifications not dismissed from pane inbox")
     func popoverFiltersRelevantNotifications() {
@@ -193,8 +195,9 @@ struct PaneInboxNotificationPopoverTests {
             paneIds: [parentPaneId],
             inboxAtom: inboxAtom,
             presentationAtom: presentationAtom,
-            dispatcher: CommandDispatcher.shared,
             onActivate: { _ in },
+            onFocusPane: { _ in },
+            onClear: {},
             onClose: { didClose = true }
         )
 
@@ -206,10 +209,175 @@ struct PaneInboxNotificationPopoverTests {
         #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == false)
     }
 
+    @Test("mounted pane inbox clear button clears through local window scoped closure")
+    func mountedPaneInboxClearButtonClearsThroughLocalWindowScopedClosure() throws {
+        let previousHandler = CommandDispatcher.shared.handler
+        let previousRouter = CommandDispatcher.shared.appCommandRouter
+        defer {
+            CommandDispatcher.shared.handler = previousHandler
+            CommandDispatcher.shared.appCommandRouter = previousRouter
+        }
+
+        let parentPaneId = UUID()
+        let notification = makeNotification(paneId: parentPaneId, title: "Clearable")
+        let inboxAtom = InboxNotificationAtom()
+        let commandHandler = PaneInboxCommandHandlerProbe()
+        inboxAtom.append(notification)
+        CommandDispatcher.shared.handler = commandHandler
+        CommandDispatcher.shared.appCommandRouter = nil
+        var didClearLocally = false
+
+        let hostingView = NSHostingView(
+            rootView: PaneInboxNotificationPopover(
+                parentPaneId: parentPaneId,
+                paneIds: [parentPaneId],
+                inboxAtom: inboxAtom,
+                presentationAtom: PaneInboxPresentationAtom(),
+                onActivate: { _ in },
+                onFocusPane: { _ in },
+                onClear: {
+                    didClearLocally = true
+                    inboxAtom.clearPaneInbox(paneIds: [parentPaneId])
+                },
+                onClose: {}
+            )
+            .frame(width: 360, height: 240)
+        )
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        hostingView.layoutSubtreeIfNeeded()
+
+        let clearButton = try #require(
+            findAccessibleElement(in: hostingView, identifier: "paneInboxClearButton")
+        )
+
+        pressAccessibleElement(clearButton)
+
+        #expect(didClearLocally)
+        #expect(commandHandler.executedTargets.isEmpty)
+        #expect(inboxAtom.notifications.first?.isRead == true)
+        #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == true)
+    }
+
+    @Test("mounted pane inbox row activation focuses through local window scoped closure")
+    func mountedPaneInboxRowActivationFocusesThroughLocalWindowScopedClosure() throws {
+        let previousHandler = CommandDispatcher.shared.handler
+        let previousRouter = CommandDispatcher.shared.appCommandRouter
+        defer {
+            CommandDispatcher.shared.handler = previousHandler
+            CommandDispatcher.shared.appCommandRouter = previousRouter
+        }
+
+        let parentPaneId = UUID()
+        let notification = makeNotification(paneId: parentPaneId, title: "Focusable")
+        let inboxAtom = InboxNotificationAtom()
+        let commandHandler = PaneInboxCommandHandlerProbe()
+        inboxAtom.append(notification)
+        CommandDispatcher.shared.handler = commandHandler
+        CommandDispatcher.shared.appCommandRouter = nil
+        var activatedNotificationIds: [UUID] = []
+        var locallyFocusedPaneIds: [UUID] = []
+        var didClose = false
+
+        let hostingView = NSHostingView(
+            rootView: PaneInboxNotificationPopover(
+                parentPaneId: parentPaneId,
+                paneIds: [parentPaneId],
+                inboxAtom: inboxAtom,
+                presentationAtom: PaneInboxPresentationAtom(),
+                onActivate: { activatedNotificationIds.append($0.id) },
+                onFocusPane: { locallyFocusedPaneIds.append($0) },
+                onClear: {},
+                onClose: { didClose = true }
+            )
+            .frame(width: 360, height: 240)
+        )
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        hostingView.layoutSubtreeIfNeeded()
+
+        let row = try #require(
+            findAccessibleElement(
+                in: hostingView,
+                identifier: "paneInboxNotificationRow.\(notification.id.uuidString)"
+            )
+        )
+
+        pressAccessibleElement(row)
+
+        #expect(activatedNotificationIds == [notification.id])
+        #expect(locallyFocusedPaneIds == [parentPaneId])
+        #expect(commandHandler.executedTargets.isEmpty)
+        #expect(inboxAtom.notifications.first?.isRead == true)
+        #expect(inboxAtom.notifications.first?.isDismissedFromPaneInbox == true)
+        #expect(didClose)
+    }
+
+    @Test("mounted pane inbox row accessibility label uses display fallback")
+    func mountedPaneInboxRowAccessibilityLabelUsesDisplayFallback() throws {
+        let parentPaneId = UUID()
+        let notification = makeNotification(paneId: parentPaneId, title: "   ", body: "Body fallback")
+        let inboxAtom = InboxNotificationAtom()
+        inboxAtom.append(notification)
+
+        let hostingView = NSHostingView(
+            rootView: PaneInboxNotificationPopover(
+                parentPaneId: parentPaneId,
+                paneIds: [parentPaneId],
+                inboxAtom: inboxAtom,
+                presentationAtom: PaneInboxPresentationAtom(),
+                onActivate: { _ in },
+                onFocusPane: { _ in },
+                onClear: {},
+                onClose: {}
+            )
+            .frame(width: 360, height: 240)
+        )
+        let window = NSWindow(
+            contentRect: CGRect(x: 0, y: 0, width: 360, height: 240),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = hostingView
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        hostingView.layoutSubtreeIfNeeded()
+
+        let row = try #require(
+            findAccessibleElement(
+                in: hostingView,
+                identifier: "paneInboxNotificationRow.\(notification.id.uuidString)"
+            )
+        )
+
+        #expect(accessibilityLabel(of: row) == "Body fallback")
+    }
+
+    @Test("popover uses repo-matched background")
+    func popoverUsesRepoMatchedBackground() {
+        #expect(PaneInboxNotificationPopover.surfaceBackground == .windowBackgroundColor)
+    }
+
     private func makeNotification(
         id: UUID = UUID(),
         paneId: UUID?,
         title: String = "Notification",
+        body: String? = nil,
         timestamp: Date? = nil,
         isRead: Bool = false,
         isDismissedFromPaneInbox: Bool = false
@@ -219,7 +387,7 @@ struct PaneInboxNotificationPopoverTests {
             timestamp: timestamp ?? Date(timeIntervalSince1970: isDismissedFromPaneInbox ? 50 : 100),
             kind: .agentRpc,
             title: title,
-            body: nil,
+            body: body,
             source: paneId.map { .pane(.init(paneId: $0)) } ?? .global,
             isRead: isRead,
             isDismissedFromPaneInbox: isDismissedFromPaneInbox
@@ -255,4 +423,88 @@ struct PaneInboxNotificationPopoverTests {
             drawerPane.id: drawerPane,
         ]
     }
+}
+
+@MainActor
+private final class PaneInboxCommandHandlerProbe: WorkspaceCommandHandling {
+    var executedCommands: [AppCommand] = []
+    var executedTargets: [(command: AppCommand, target: UUID, targetType: SearchItemType)] = []
+
+    func execute(_ command: AppCommand) {
+        executedCommands.append(command)
+    }
+
+    func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) {
+        executedTargets.append((command, target, targetType))
+    }
+
+    func canExecute(_: AppCommand) -> Bool {
+        true
+    }
+
+    func canExecute(_: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
+        true
+    }
+
+    func executeExtractPaneToTab(tabId _: UUID, paneId _: UUID, targetTabIndex _: Int?) {}
+
+    func executeMovePaneToTab(sourcePaneId _: UUID, sourceTabId _: UUID?, targetTabId _: UUID) {}
+}
+
+@MainActor
+private func findAccessibleElement(in root: AnyObject, identifier: String) -> AnyObject? {
+    var visited: Set<ObjectIdentifier> = []
+    return findAccessibleElement(in: root, identifier: identifier, visited: &visited)
+}
+
+@MainActor
+private func findAccessibleElement(
+    in element: AnyObject,
+    identifier: String,
+    visited: inout Set<ObjectIdentifier>
+) -> AnyObject? {
+    let objectIdentifier = ObjectIdentifier(element)
+    guard visited.insert(objectIdentifier).inserted else { return nil }
+
+    if accessibilityIdentifier(of: element) == identifier {
+        return element
+    }
+
+    for child in accessibilityChildren(of: element) {
+        if let match = findAccessibleElement(in: child, identifier: identifier, visited: &visited) {
+            return match
+        }
+    }
+
+    for subview in (element as? NSView)?.subviews ?? [] {
+        if let match = findAccessibleElement(in: subview, identifier: identifier, visited: &visited) {
+            return match
+        }
+    }
+
+    return nil
+}
+
+private func accessibilityIdentifier(of element: AnyObject) -> String? {
+    let selector = NSSelectorFromString("accessibilityIdentifier")
+    guard element.responds(to: selector) else { return nil }
+    return element.perform(selector)?.takeUnretainedValue() as? String
+}
+
+private func accessibilityLabel(of element: AnyObject) -> String? {
+    let selector = NSSelectorFromString("accessibilityLabel")
+    guard element.responds(to: selector) else { return nil }
+    return element.perform(selector)?.takeUnretainedValue() as? String
+}
+
+private func accessibilityChildren(of element: AnyObject) -> [AnyObject] {
+    let selector = NSSelectorFromString("accessibilityChildren")
+    guard element.responds(to: selector) else { return [] }
+    return element.perform(selector)?.takeUnretainedValue() as? [AnyObject] ?? []
+}
+
+private func pressAccessibleElement(_ element: AnyObject) {
+    let selector = NSSelectorFromString("accessibilityPerformPress")
+    guard element.responds(to: selector) else { return }
+    _ = element.perform(selector)
 }

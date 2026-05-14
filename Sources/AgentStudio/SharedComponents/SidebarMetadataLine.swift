@@ -37,7 +37,7 @@ struct SidebarMetadataLine: View {
     }
 }
 
-enum SidebarMetadataProminence {
+enum SidebarMetadataProminence: Equatable {
     case primary
     case secondary
     case tertiary
