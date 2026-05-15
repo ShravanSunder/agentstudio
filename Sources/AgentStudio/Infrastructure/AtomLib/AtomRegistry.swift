@@ -97,6 +97,14 @@ final class AtomRegistry {
         ArrangementDerived()
     }
 
+    var arrangementView: WorkspaceArrangementViewDerived {
+        WorkspaceArrangementViewDerived(
+            tabLayoutAtom: workspaceTabLayout,
+            paneAtom: workspacePane,
+            managementLayerAtom: managementLayer
+        )
+    }
+
     var workspaceTab: WorkspaceTabDerived {
         WorkspaceTabDerived(
             shellAtom: workspaceTabShell,

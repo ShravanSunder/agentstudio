@@ -28,7 +28,7 @@ struct Pane: Codable, Identifiable, Hashable {
         content: PaneContent,
         metadata: PaneMetadata,
         residency: SessionResidency = .active,
-        kind: PaneKind = .layout(drawer: Drawer())
+        kind: PaneKind? = nil
     ) {
         let normalizedMetadata = metadata.canonicalizedIdentity(
             paneId: PaneId(uuid: id),
@@ -39,7 +39,7 @@ struct Pane: Codable, Identifiable, Hashable {
         self.content = content
         self.metadata = normalizedMetadata
         self.residency = residency
-        self.kind = kind
+        self.kind = kind ?? .layout(drawer: Drawer(parentPaneId: id))
     }
 
     // MARK: - Codable

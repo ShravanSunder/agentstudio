@@ -6,26 +6,34 @@ enum TabArrangementMutationRules {
         paneIds: Set<UUID>,
         from state: TabArrangementState
     ) -> PaneArrangement? {
-        guard !paneIds.isEmpty else { return nil }
         let tabPaneSet = Set(state.allPaneIds)
         guard paneIds.isSubset(of: tabPaneSet) else { return nil }
 
-        let defaultArrangement = defaultArrangement(in: state)
         let activeArrangement = activeArrangement(in: state)
-        let paneIdsToRemove = Set(defaultArrangement.layout.paneIds).subtracting(paneIds)
-        var filteredLayout = defaultArrangement.layout
-        for removeId in paneIdsToRemove {
-            if let newLayout = filteredLayout.removing(paneId: removeId, sizingMode: .halveTarget) {
-                filteredLayout = newLayout
-            }
-        }
+        let orderedPaneIds =
+            activeArrangement.layout.paneIds.filter { paneIds.contains($0) }
+            + state.allPaneIds.filter { paneIds.contains($0) && !activeArrangement.layout.contains($0) }
+        guard !orderedPaneIds.isEmpty else { return nil }
+        let arrangementLayout = Layout.autoTiled(orderedPaneIds)
+        let arrangementMinimizedPaneIds = activeArrangement.minimizedPaneIds.intersection(paneIds)
 
         return PaneArrangement(
             name: name,
             isDefault: false,
-            layout: filteredLayout,
-            visiblePaneIds: paneIds,
-            minimizedPaneIds: activeArrangement.minimizedPaneIds.intersection(paneIds)
+            layout: arrangementLayout,
+            minimizedPaneIds: arrangementMinimizedPaneIds,
+            showsMinimizedPanes: activeArrangement.showsMinimizedPanes,
+            activePaneId: TabArrangementSelectionRules.fallbackActivePaneId(
+                currentActivePaneId: activeArrangement.activePaneId,
+                in: PaneArrangement(
+                    name: name,
+                    isDefault: false,
+                    layout: arrangementLayout,
+                    minimizedPaneIds: arrangementMinimizedPaneIds,
+                    showsMinimizedPanes: activeArrangement.showsMinimizedPanes
+                )
+            ),
+            drawerViews: activeArrangement.drawerViews
         )
     }
 
@@ -41,13 +49,6 @@ enum TabArrangementMutationRules {
         if updated.activeArrangementId == arrangementId {
             let defaultArrangement = defaultArrangement(in: updated)
             updated.activeArrangementId = defaultArrangement.id
-            if let activePaneId = updated.activePaneId, !defaultArrangement.layout.contains(activePaneId) {
-                updated.activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(in: defaultArrangement)
-            } else if let activePaneId = updated.activePaneId,
-                defaultArrangement.minimizedPaneIds.contains(activePaneId)
-            {
-                updated.activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(in: defaultArrangement)
-            }
         }
         updated.arrangements.remove(at: arrangementIndex)
         return updated
@@ -57,7 +58,6 @@ enum TabArrangementMutationRules {
         arrangements.map { arrangement in
             var updated = arrangement
             guard updated.layout.contains(paneId) else {
-                updated.visiblePaneIds.remove(paneId)
                 updated.minimizedPaneIds.remove(paneId)
                 return updated
             }
@@ -66,8 +66,10 @@ enum TabArrangementMutationRules {
             } else {
                 updated.layout = Layout()
             }
-            updated.visiblePaneIds.remove(paneId)
             updated.minimizedPaneIds.remove(paneId)
+            if updated.activePaneId == paneId {
+                updated.activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(in: updated)
+            }
             return updated
         }
     }
@@ -79,9 +81,10 @@ enum TabArrangementMutationRules {
         var updated = state
         updated.zoomedPaneId = nil
         updated.activeArrangementId = arrangementId
-        updated.activePaneId = TabArrangementSelectionRules.fallbackActivePaneId(
-            currentActivePaneId: updated.activePaneId,
-            in: activeArrangement(in: updated)
+        let arrangementIndex = activeArrangementIndex(in: updated)
+        updated.arrangements[arrangementIndex].activePaneId = TabArrangementSelectionRules.fallbackActivePaneId(
+            currentActivePaneId: updated.arrangements[arrangementIndex].activePaneId,
+            in: updated.arrangements[arrangementIndex]
         )
         return updated
     }
@@ -94,11 +97,11 @@ enum TabArrangementMutationRules {
         var updated = state
         let arrangementIndex = activeArrangementIndex(in: updated)
         updated.arrangements[arrangementIndex].minimizedPaneIds.insert(paneId)
-        if updated.activePaneId == paneId {
+        if updated.arrangements[arrangementIndex].activePaneId == paneId {
             let nonMinimized = visiblePaneIds.filter {
                 !updated.arrangements[arrangementIndex].minimizedPaneIds.contains($0)
             }
-            updated.activePaneId = nonMinimized.first
+            updated.arrangements[arrangementIndex].activePaneId = nonMinimized.first
         }
         if updated.zoomedPaneId == paneId {
             updated.zoomedPaneId = nil
@@ -111,7 +114,7 @@ enum TabArrangementMutationRules {
         let arrangementIndex = activeArrangementIndex(in: updated)
         guard updated.arrangements[arrangementIndex].minimizedPaneIds.contains(paneId) else { return state }
         updated.arrangements[arrangementIndex].minimizedPaneIds.remove(paneId)
-        updated.activePaneId = paneId
+        updated.arrangements[arrangementIndex].activePaneId = paneId
         return updated
     }
 
@@ -126,7 +129,6 @@ enum TabArrangementMutationRules {
                 allPaneIds: tab.allPaneIds,
                 arrangements: tab.arrangements,
                 activeArrangementId: tab.activeArrangementId,
-                activePaneId: tab.activePaneId,
                 zoomedPaneId: tab.zoomedPaneId
             )
         }
@@ -146,11 +148,6 @@ enum TabArrangementMutationRules {
 
         updated.arrangements = removingUserPane(paneId, from: updated.arrangements)
         updated.allPaneIds.removeAll { $0 == paneId }
-        if updated.activePaneId == paneId {
-            updated.activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(
-                in: activeArrangement(in: updated)
-            )
-        }
 
         let newTab = Tab(paneId: paneId)
         let extractedState = TabArrangementState(
@@ -158,7 +155,6 @@ enum TabArrangementMutationRules {
             allPaneIds: newTab.allPaneIds,
             arrangements: newTab.arrangements,
             activeArrangementId: newTab.activeArrangementId,
-            activePaneId: newTab.activePaneId,
             zoomedPaneId: newTab.zoomedPaneId
         )
         return (updated, extractedState)
@@ -191,7 +187,6 @@ enum TabArrangementMutationRules {
                 )
             else { return nil }
             updated.arrangements[targetArrangementIndex].layout = updatedActiveLayout
-            updated.arrangements[targetArrangementIndex].visiblePaneIds.insert(paneId)
             if targetArrangementIndex != defaultArrangementIndex {
                 if let updatedDefaultLayout = updated.arrangements[defaultArrangementIndex].layout.inserting(
                     paneId: paneId,
@@ -201,7 +196,6 @@ enum TabArrangementMutationRules {
                     sizingMode: .halveTarget
                 ) {
                     updated.arrangements[defaultArrangementIndex].layout = updatedDefaultLayout
-                    updated.arrangements[defaultArrangementIndex].visiblePaneIds.insert(paneId)
                 }
             }
             if !updated.allPaneIds.contains(paneId) {

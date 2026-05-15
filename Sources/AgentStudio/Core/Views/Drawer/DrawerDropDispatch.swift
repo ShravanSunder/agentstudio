@@ -139,8 +139,10 @@ enum DrawerDropDispatch {
     private static func drawerLayoutByParentPaneId(store: WorkspaceStore) -> [UUID: DrawerGridLayout] {
         Dictionary(
             uniqueKeysWithValues: store.paneAtom.panes.values.compactMap { pane in
-                guard let drawer = pane.drawer else { return nil }
-                return (pane.id, drawer.layout)
+                guard pane.drawer != nil, let drawerView = atom(\.arrangementView).drawerView(forParent: pane.id) else {
+                    return nil
+                }
+                return (pane.id, drawerView.layout)
             }
         )
     }

@@ -192,8 +192,12 @@ extension PaneCoordinator {
         }
 
         if pane.isDrawerChild, let parentPaneId = pane.parentPaneId {
+            let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId
             teardownView(for: paneId)
             store.paneAtom.removeDrawerPane(paneId, from: parentPaneId)
+            if let drawerId {
+                store.tabArrangementAtom.removeDrawerPaneView(drawerId: drawerId, drawerPaneId: paneId, inTab: tabId)
+            }
             viewRegistry.retireSlot(for: paneId)
             return
         }

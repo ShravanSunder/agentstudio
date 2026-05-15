@@ -1,68 +1,44 @@
 import Foundation
 
-/// A container holding child panes in a layout, attached to a parent layout pane.
-/// Mirrors Tab's container capabilities: layout splits, minimize, focus tracking.
+/// A drawer container attached to a parent layout pane.
+/// View state such as layout, focus, and minimized panes lives on `PaneArrangement`.
 struct Drawer: Codable, Hashable {
+    let drawerId: UUID
+    let parentPaneId: UUID
     /// Pane IDs owned by this drawer, in insertion order.
     var paneIds: [UUID]
-    /// Spatial arrangement of panes within the drawer's local grid.
-    var layout: DrawerGridLayout
-    /// Currently focused pane in the drawer. Nil only when empty.
-    var activeChildId: UUID?
     /// Whether the drawer panel is expanded (visible) or collapsed.
     var isExpanded: Bool
-    /// Panes currently minimized to narrow vertical bars. Transient — not persisted.
-    var minimizedPaneIds: Set<UUID>
 
     init(
+        drawerId: UUID = UUID(),
+        parentPaneId: UUID,
         paneIds: [UUID] = [],
-        layout: DrawerGridLayout = DrawerGridLayout(),
-        activeChildId: UUID? = nil,
-        isExpanded: Bool = false,
-        minimizedPaneIds: Set<UUID> = []
+        isExpanded: Bool = false
     ) {
+        self.drawerId = drawerId
+        self.parentPaneId = parentPaneId
         self.paneIds = paneIds
-        self.layout = layout
-        self.activeChildId = Self.normalizedActiveChildId(activeChildId, paneIds: paneIds)
         self.isExpanded = isExpanded
-        self.minimizedPaneIds = minimizedPaneIds
     }
 
-    enum CodingKeys: CodingKey {
-        case paneIds, layout, activeChildId, activePaneId, isExpanded
-        // minimizedPaneIds excluded — transient, not persisted
+    enum CodingKeys: String, CodingKey {
+        case drawerId, parentPaneId, paneIds, isExpanded
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        drawerId = try container.decode(UUID.self, forKey: .drawerId)
+        parentPaneId = try container.decode(UUID.self, forKey: .parentPaneId)
         paneIds = try container.decode([UUID].self, forKey: .paneIds)
-        layout = try container.decode(DrawerGridLayout.self, forKey: .layout)
-        if container.contains(.activePaneId), !container.contains(.activeChildId) {
-            throw DecodingError.dataCorruptedError(
-                forKey: .activePaneId,
-                in: container,
-                debugDescription: "Drawer activePaneId is unsupported; expected activeChildId"
-            )
-        }
-        activeChildId = Self.normalizedActiveChildId(
-            try container.decodeIfPresent(UUID.self, forKey: .activeChildId),
-            paneIds: paneIds
-        )
         isExpanded = try container.decode(Bool.self, forKey: .isExpanded)
-        minimizedPaneIds = []  // transient — always starts empty on decode
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(drawerId, forKey: .drawerId)
+        try container.encode(parentPaneId, forKey: .parentPaneId)
         try container.encode(paneIds, forKey: .paneIds)
-        try container.encode(layout, forKey: .layout)
-        try container.encodeIfPresent(activeChildId, forKey: .activeChildId)
         try container.encode(isExpanded, forKey: .isExpanded)
-    }
-
-    private static func normalizedActiveChildId(_ activeChildId: UUID?, paneIds: [UUID]) -> UUID? {
-        guard !paneIds.isEmpty else { return nil }
-        guard let activeChildId, paneIds.contains(activeChildId) else { return paneIds[0] }
-        return activeChildId
     }
 }

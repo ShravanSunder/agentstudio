@@ -5,6 +5,11 @@ import Testing
 
 @Suite(.serialized)
 struct TabArrangementMutationRulesTests {
+    private func activeArrangementActivePaneId(in state: TabArrangementState?) -> UUID? {
+        guard let state else { return nil }
+        return state.arrangements.first { $0.id == state.activeArrangementId }?.activePaneId
+    }
+
     @Test
     func createArrangement_inheritsOnlyIncludedMinimizedPanes() {
         let paneA = UUID()
@@ -70,7 +75,7 @@ struct TabArrangementMutationRulesTests {
         let updated = TabArrangementMutationRules.switchingArrangement(to: focusArrangement.id, in: state)
 
         #expect(updated.activeArrangementId == focusArrangement.id)
-        #expect(updated.activePaneId == nil)
+        #expect(activeArrangementActivePaneId(in: updated) == nil)
         #expect(updated.zoomedPaneId == nil)
     }
 
@@ -99,10 +104,10 @@ struct TabArrangementMutationRulesTests {
         let expanded = minimized.map { TabArrangementMutationRules.expandingPane(paneA, in: $0) }
 
         #expect(minimized?.arrangements[0].minimizedPaneIds == Set([paneA]))
-        #expect(minimized?.activePaneId == paneB)
+        #expect(activeArrangementActivePaneId(in: minimized) == paneB)
         #expect(minimized?.zoomedPaneId == nil)
         #expect(expanded?.arrangements[0].minimizedPaneIds.isEmpty == true)
-        #expect(expanded?.activePaneId == paneA)
+        #expect(activeArrangementActivePaneId(in: expanded) == paneA)
     }
 
     @Test
@@ -407,7 +412,7 @@ struct TabArrangementMutationRulesTests {
         let updated = TabArrangementMutationRules.removingArrangement(focusArrangement.id, from: state)
 
         #expect(updated.activeArrangementId == defaultArrangement.id)
-        #expect(updated.activePaneId == paneB)
+        #expect(activeArrangementActivePaneId(in: updated) == paneB)
         #expect(updated.arrangements.count == 1)
     }
 
@@ -436,7 +441,7 @@ struct TabArrangementMutationRulesTests {
         let result = TabArrangementMutationRules.extractingPane(paneB, from: state)
 
         #expect(result?.updatedState.allPaneIds == [paneA])
-        #expect(result?.updatedState.activePaneId == paneA)
+        #expect(activeArrangementActivePaneId(in: result?.updatedState) == paneA)
         #expect(result?.updatedState.zoomedPaneId == nil)
         #expect(result?.updatedState.arrangements[0].minimizedPaneIds.isEmpty == true)
         #expect(result?.extractedState.allPaneIds == [paneB])

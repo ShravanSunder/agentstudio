@@ -69,6 +69,7 @@ final class InboxNotificationRouter {
     private let traceRuntime: AgentStudioTraceRuntime?
     private let traceQueue: AgentStudioTraceEventQueue?
     private let onPaneActivityObserved: @MainActor (UUID) -> Void
+    private let drawerView: @MainActor (UUID) -> DrawerView?
 
     private var busTask: Task<Void, Never>?
     private var focusTask: Task<Void, Never>?
@@ -101,6 +102,9 @@ final class InboxNotificationRouter {
         terminalActivity: TerminalActivityAtom? = nil,
         autoClearPolicy: PaneInboxAutoClearPolicy = .init(),
         traceRuntime: AgentStudioTraceRuntime? = nil,
+        drawerView: @escaping @MainActor (UUID) -> DrawerView? = {
+            atom(\.arrangementView).drawerView(forParent: $0)
+        },
         onPaneActivityObserved: @escaping @MainActor (UUID) -> Void = { _ in }
     ) {
         self.bus = bus
@@ -114,6 +118,7 @@ final class InboxNotificationRouter {
         self.autoClearPolicy = autoClearPolicy
         self.traceRuntime = traceRuntime
         self.traceQueue = traceRuntime.map(AgentStudioTraceEventQueue.init(traceRuntime:))
+        self.drawerView = drawerView
         self.onPaneActivityObserved = onPaneActivityObserved
     }
 
@@ -586,7 +591,8 @@ final class InboxNotificationRouter {
     private func currentAttendedPaneId() -> UUID? {
         PaneObservationResolver.currentAttendedPaneId(
             attendedPaneId: attendedPane.attendedPaneId,
-            pane: { paneAtom.pane($0) }
+            pane: { paneAtom.pane($0) },
+            drawerView: drawerView
         )
     }
 
@@ -594,7 +600,8 @@ final class InboxNotificationRouter {
         PaneObservationResolver.currentObservedPaneIds(
             attendedPaneId: attendedPane.attendedPaneId,
             activeTab: tabLayout.activeTab,
-            pane: { paneAtom.pane($0) }
+            pane: { paneAtom.pane($0) },
+            drawerView: drawerView
         )
     }
 

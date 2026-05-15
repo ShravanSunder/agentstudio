@@ -215,7 +215,7 @@ final class WorkspaceStoreArrangementTests {
 
     @Test
 
-    func test_switchArrangement_keepActivePaneIfInNewArrangement() {
+    func test_switchArrangement_restoresTargetArrangementActivePane() {
         let (tab, paneIds) = createTabWithPanes(3)
         let arrId = store.createArrangement(
             name: "Focus",
@@ -228,7 +228,7 @@ final class WorkspaceStoreArrangementTests {
 
         store.switchArrangement(to: arrId, inTab: tab.id)
 
-        #expect(store.tab(tab.id)!.activePaneId == paneIds[1])
+        #expect(store.tab(tab.id)!.activePaneId == paneIds[0])
     }
 
     @Test
@@ -357,7 +357,8 @@ final class WorkspaceStoreArrangementTests {
 
         let updatedTab = store.tab(tab.id)!
         #expect(updatedTab.activeArrangementId == updatedTab.defaultArrangement.id)
-        #expect(updatedTab.activePaneId == paneIds[1])
+        #expect(updatedTab.activePaneId == paneIds[2])
+        #expect(updatedTab.defaultArrangement.minimizedPaneIds.contains(paneIds[0]))
     }
 
     @Test

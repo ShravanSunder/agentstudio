@@ -543,10 +543,8 @@ final class PaneTests {
         let childId = UUID()
         pane.withDrawer { drawer in
             drawer.paneIds.append(childId)
-            drawer.activeChildId = childId
         }
         #expect(pane.drawer?.paneIds == [childId])
-        #expect(pane.drawer?.activeChildId == childId)
     }
 
     @Test

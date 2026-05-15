@@ -51,6 +51,13 @@ extension WorkspaceStore {
 
     func pane(_ id: UUID) -> Pane? { paneAtom.pane(id) }
     func tab(_ id: UUID) -> Tab? { tabLayoutAtom.tab(id) }
+    func drawerView(forParent parentPaneId: UUID) -> DrawerView? {
+        guard let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
+            let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId,
+            let tab = tabLayoutAtom.tab(tabId)
+        else { return nil }
+        return tab.activeArrangement.drawerViews[drawerId]
+    }
     func repo(_ id: UUID) -> Repo? { repositoryTopologyAtom.repo(id) }
     func worktree(_ id: UUID) -> Worktree? { repositoryTopologyAtom.worktree(id) }
     func repo(containing worktreeId: UUID) -> Repo? { repositoryTopologyAtom.repo(containing: worktreeId) }
@@ -169,7 +176,20 @@ extension WorkspaceStore {
     @discardableResult
     func addDrawerPane(to parentPaneId: UUID) -> Pane? {
         let fallbackCWD = paneAtom.pane(parentPaneId)?.worktreeId.flatMap(repositoryTopologyAtom.worktree)?.path
-        return paneAtom.addDrawerPane(to: parentPaneId, parentFallbackCWD: fallbackCWD)
+        guard let drawerPane = paneAtom.addDrawerPane(to: parentPaneId, parentFallbackCWD: fallbackCWD) else {
+            return nil
+        }
+        if let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
+            let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId
+        {
+            tabArrangementAtom.addDrawerPaneView(
+                drawerId: drawerId,
+                parentPaneId: parentPaneId,
+                drawerPaneId: drawerPane.id,
+                inTab: tabId
+            )
+        }
+        return drawerPane
     }
     @discardableResult
     func insertDrawerPane(
@@ -187,13 +207,29 @@ extension WorkspaceStore {
             case (.vertical, .after): .down
             }
         let fallbackCWD = paneAtom.pane(parentPaneId)?.worktreeId.flatMap(repositoryTopologyAtom.worktree)?.path
-        return paneAtom.insertDrawerPane(
-            in: parentPaneId,
-            at: targetDrawerPaneId,
-            direction: splitDirection,
-            sizingMode: sizingMode,
-            parentFallbackCWD: fallbackCWD
-        )
+        guard
+            let drawerPane = paneAtom.insertDrawerPane(
+                in: parentPaneId,
+                at: targetDrawerPaneId,
+                direction: splitDirection,
+                sizingMode: sizingMode,
+                parentFallbackCWD: fallbackCWD
+            )
+        else { return nil }
+        if let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
+            let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId
+        {
+            tabArrangementAtom.addDrawerPaneView(
+                drawerId: drawerId,
+                parentPaneId: parentPaneId,
+                drawerPaneId: drawerPane.id,
+                inTab: tabId,
+                targetDrawerPaneId: targetDrawerPaneId,
+                direction: splitDirection,
+                sizingMode: sizingMode
+            )
+        }
+        return drawerPane
     }
     func moveDrawerPane(
         _ drawerPaneId: UUID,
@@ -201,31 +237,57 @@ extension WorkspaceStore {
         target: DrawerRearrangeTarget,
         sizingMode: DropSizingMode
     ) {
-        paneAtom.moveDrawerPane(
+        guard let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
+            let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId
+        else { return }
+        tabArrangementAtom.moveDrawerPane(
             drawerPaneId,
-            in: parentPaneId,
+            drawerId: drawerId,
+            tabId: tabId,
             target: target,
             sizingMode: sizingMode
         )
     }
     func removeDrawerPane(_ drawerPaneId: UUID, from parentPaneId: UUID) {
+        let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId
+        let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id
         paneAtom.removeDrawerPane(drawerPaneId, from: parentPaneId)
+        if let drawerId, let tabId {
+            tabArrangementAtom.removeDrawerPaneView(drawerId: drawerId, drawerPaneId: drawerPaneId, inTab: tabId)
+        }
     }
     func toggleDrawer(for paneId: UUID) { paneAtom.toggleDrawer(for: paneId) }
     func collapseAllDrawers() { paneAtom.collapseAllDrawers() }
     func setActiveDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) {
-        paneAtom.setActiveDrawerPane(drawerPaneId, in: parentPaneId)
+        guard let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
+            let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId
+        else { return }
+        tabArrangementAtom.setActiveDrawerPane(drawerPaneId, drawerId: drawerId, inTab: tabId)
     }
     func resizeDrawerPane(parentPaneId: UUID, splitId: UUID, ratio: Double) {
-        paneAtom.resizeDrawerPane(parentPaneId: parentPaneId, splitId: splitId, ratio: ratio)
+        guard let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
+            let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId
+        else { return }
+        tabArrangementAtom.resizeDrawerPane(drawerId: drawerId, tabId: tabId, splitId: splitId, ratio: ratio)
     }
-    func equalizeDrawerPanes(parentPaneId: UUID) { paneAtom.equalizeDrawerPanes(parentPaneId: parentPaneId) }
+    func equalizeDrawerPanes(parentPaneId: UUID) {
+        guard let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
+            let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId
+        else { return }
+        tabArrangementAtom.equalizeDrawerPanes(drawerId: drawerId, tabId: tabId)
+    }
     @discardableResult
     func minimizeDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) -> Bool {
-        paneAtom.minimizeDrawerPane(drawerPaneId, in: parentPaneId)
+        guard let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
+            let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId
+        else { return false }
+        return tabArrangementAtom.minimizeDrawerPane(drawerPaneId, drawerId: drawerId, tabId: tabId)
     }
     func expandDrawerPane(_ drawerPaneId: UUID, in parentPaneId: UUID) {
-        paneAtom.expandDrawerPane(drawerPaneId, in: parentPaneId)
+        guard let tabId = tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
+            let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId
+        else { return }
+        tabArrangementAtom.expandDrawerPane(drawerPaneId, drawerId: drawerId, tabId: tabId)
     }
     func toggleZoom(paneId: UUID, inTab tabId: UUID) { tabLayoutAtom.toggleZoom(paneId: paneId, inTab: tabId) }
     @discardableResult

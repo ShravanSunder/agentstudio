@@ -223,7 +223,6 @@ final class WorkspaceTabLayoutAtom {
             allPaneIds: tab.allPaneIds,
             arrangements: tab.arrangements,
             activeArrangementId: tab.activeArrangementId,
-            activePaneId: tab.activePaneId,
             zoomedPaneId: tab.zoomedPaneId
         )
     }

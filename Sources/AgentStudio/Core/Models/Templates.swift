@@ -120,14 +120,13 @@ struct WorktreeTemplate: Codable, Identifiable, Hashable {
             name: "Default",
             isDefault: true,
             layout: layout,
-            visiblePaneIds: Set(paneIds)
+            activePaneId: first.id
         )
         let tab = Tab(
             name: first.title,
             panes: paneIds,
             arrangements: [arrangement],
-            activeArrangementId: arrangement.id,
-            activePaneId: first.id
+            activeArrangementId: arrangement.id
         )
         return (panes: panes, tab: tab)
     }

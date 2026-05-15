@@ -63,6 +63,14 @@ final class PaneCoordinator {
     var filesystemLastActivePaneWorktreeId: UUID?
     var derivedFilesystemPublishTasks: [UUID: Task<Void, Never>] = [:]
 
+    var arrangementView: WorkspaceArrangementViewDerived {
+        WorkspaceArrangementViewDerived(
+            tabLayoutAtom: store.tabLayoutAtom,
+            paneAtom: store.paneAtom,
+            managementLayerAtom: atom(\.managementLayer)
+        )
+    }
+
     /// Unified undo stack — holds both tab and pane close entries, chronologically ordered.
     /// NOTE: Undo stack owned here (not in a store) because undo is fundamentally
     /// orchestration logic: it coordinates across WorkspaceStore, ViewRegistry, and

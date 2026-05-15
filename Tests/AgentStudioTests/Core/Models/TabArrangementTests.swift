@@ -255,7 +255,7 @@ final class TabArrangementTests {
 
     @Test
 
-    func test_paneArrangement_visiblePaneIds_canBeSubset() {
+    func test_paneArrangement_layoutDefinesArrangementMembership() {
         let paneA = UUID()
         let paneB = UUID()
         let layout = Layout(paneId: paneA)
@@ -264,11 +264,12 @@ final class TabArrangementTests {
         let arr = PaneArrangement(
             name: "Subset",
             isDefault: false,
-            layout: layout,
-            visiblePaneIds: [paneA]
+            layout: Layout(paneId: paneA)
         )
 
         #expect(arr.visiblePaneIds == [paneA])
+        #expect(arr.layout.paneIds == [paneA])
+        #expect(layout.paneIds == [paneA, paneB])
     }
 
     @Test
@@ -298,7 +299,7 @@ final class TabArrangementTests {
     }
 
     @Test
-    func test_paneArrangement_decodeMissingMinimizedPaneIds_defaultsToEmpty() throws {
+    func test_paneArrangement_decodeMissingViewFieldsIsRejected() throws {
         let paneA = UUID()
         let data = Data(
             """
@@ -312,9 +313,8 @@ final class TabArrangementTests {
             """.utf8
         )
 
-        let decoded = try JSONDecoder().decode(PaneArrangement.self, from: data)
-
-        #expect(decoded.visiblePaneIds == [paneA])
-        #expect(decoded.minimizedPaneIds.isEmpty)
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(PaneArrangement.self, from: data)
+        }
     }
 }

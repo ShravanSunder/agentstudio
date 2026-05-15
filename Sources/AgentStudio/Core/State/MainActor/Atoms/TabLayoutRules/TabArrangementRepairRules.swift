@@ -11,8 +11,10 @@ enum TabArrangementRepairRules {
             } else if updated.layout.contains(paneId) {
                 updated.layout = Layout()
             }
-            updated.visiblePaneIds.remove(paneId)
             updated.minimizedPaneIds.remove(paneId)
+            if updated.activePaneId == paneId {
+                updated.activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(in: updated)
+            }
             return updated
         }
     }
@@ -30,8 +32,10 @@ enum TabArrangementRepairRules {
                 } else {
                     updated.layout = Layout()
                 }
-                updated.visiblePaneIds.remove(paneId)
                 updated.minimizedPaneIds.remove(paneId)
+                if updated.activePaneId == paneId {
+                    updated.activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(in: updated)
+                }
             }
             return updated
         }

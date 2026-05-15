@@ -4,19 +4,22 @@ enum PaneObservationResolver {
     static func isPaneCurrentlyAttended(
         paneId: UUID,
         attendedPaneId: UUID?,
-        pane: (UUID) -> Pane?
+        pane: (UUID) -> Pane?,
+        drawerView: (UUID) -> DrawerView? = { _ in nil }
     ) -> Bool {
-        currentAttendedPaneId(attendedPaneId: attendedPaneId, pane: pane) == paneId
+        currentAttendedPaneId(attendedPaneId: attendedPaneId, pane: pane, drawerView: drawerView) == paneId
     }
 
     static func currentAttendedPaneId(
         attendedPaneId: UUID?,
-        pane: (UUID) -> Pane?
+        pane: (UUID) -> Pane?,
+        drawerView: (UUID) -> DrawerView? = { _ in nil }
     ) -> UUID? {
         guard let attendedPaneId else { return nil }
         if let drawer = pane(attendedPaneId)?.drawer, drawer.isExpanded {
-            guard let activeChildId = drawer.activeChildId,
-                !drawer.minimizedPaneIds.contains(activeChildId)
+            guard let view = drawerView(attendedPaneId),
+                let activeChildId = view.activeChildId,
+                !view.minimizedPaneIds.contains(activeChildId)
             else {
                 return nil
             }
@@ -28,15 +31,17 @@ enum PaneObservationResolver {
     static func currentObservedPaneIds(
         attendedPaneId: UUID?,
         activeTab: Tab?,
-        pane: (UUID) -> Pane?
+        pane: (UUID) -> Pane?,
+        drawerView: (UUID) -> DrawerView? = { _ in nil }
     ) -> Set<UUID> {
         guard let attendedPaneId else { return [] }
         let activePaneIds = currentRenderedPaneIds(activeTab: activeTab, fallbackPaneId: attendedPaneId)
         var observedPaneIds = Set<UUID>()
         for paneId in activePaneIds {
             if let drawer = pane(paneId)?.drawer, drawer.isExpanded {
-                if let activeChildId = drawer.activeChildId,
-                    !drawer.minimizedPaneIds.contains(activeChildId)
+                if let view = drawerView(paneId),
+                    let activeChildId = view.activeChildId,
+                    !view.minimizedPaneIds.contains(activeChildId)
                 {
                     observedPaneIds.insert(activeChildId)
                 }

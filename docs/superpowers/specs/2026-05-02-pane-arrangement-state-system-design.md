@@ -564,8 +564,8 @@ remove main pane from tab
   chooseNewActivePaneId(arr) selection rule (covers all edge cases):
     1. if arr.layout.paneIds is empty:
          return nil  (layout has no panes; tab is conceptually empty
-                      until next add; UI shows empty-tab placeholder
-                      — see §10 empty-arrangement UI rule)
+                      until next add; UI shows empty-arrangement
+                      placeholder — see Q6 rule below)
     2. else if there is any pane in arr.layout.paneIds NOT in
        arr.minimizedPaneIds:
          return the first such pane (left-to-right in layout)
@@ -582,17 +582,13 @@ Empty-visible arrangement rule (Q6 / user decision 2026-05-14):
   area shows an empty-arrangement PLACEHOLDER, mirroring the
   existing empty-drawer hint.
 
-  Authorized shortcut in this state (user-confirmed 2026-05-14):
-
-      P  ──►  add a new pane (analogous to the existing
-              ShortcutContext.emptyDrawer behavior on the empty
-              drawer panel; same shortcut, different context).
-
-  No other shortcuts (minimize, unminimize, switch arrangement,
-  etc.) are added by this spec. Wiring P through AppShortcut /
-  ShortcutContext / AppCommand is implementation detail for the
-  empty-arrangement state — done in PR 1 using the existing
-  contextual-alternate pattern.
+  No special shortcut or command contract is added for this state.
+  Existing global pane-creation commands continue to behave according
+  to their existing command contexts, but Spec 1 does NOT introduce an
+  empty-arrangement ShortcutContext, a new contextual alternate, or a
+  validator guard that prevents reaching this state. For now, the UI
+  simply tells the user that no panes are visible; recovery happens
+  through the existing arrangement / pane controls.
 
   Placeholder shape (illustrative; final copy + count display
   owned by the tab content view layer):
@@ -600,7 +596,8 @@ Empty-visible arrangement rule (Q6 / user decision 2026-05-14):
       ┌──────────────────────────────────────────────┐
       │                                              │
       │   (empty-arrangement placeholder)            │
-      │   "Press P to add a pane"                    │
+      │   "No panes visible"                         │
+      │   "Minimized panes are hidden here."          │
       │   optional count of minimized panes when     │
       │   showsMinimizedPanes is false               │
       │                                              │
@@ -611,13 +608,14 @@ Empty-visible arrangement rule (Q6 / user decision 2026-05-14):
   last visible pane) is ALLOWED. The placeholder is a UI affordance,
   not a guard.
 
-  Owned by the tab content view layer (NOT this spec). This spec
-  just guarantees:
+  Owned by the tab content view layer. The state/model contract
+  guarantees:
     - activePaneId computation is well-defined in this case
     - WorkspaceArrangementViewDerived.activeVisiblePaneIds returns
       an empty array
-    - the tab is not in a broken state — switching to another tab
-      or unminimizing snaps it back to a normal render
+    - the tab is not in a broken state — switching to an arrangement
+      with visible panes, toggling showsMinimizedPanes back on, or
+      unminimizing snaps it back to a normal render
 
 add drawer pane (parent has drawer; was empty OR already populated)
   Drawer.paneIds.append(drawerPaneId)
@@ -1356,6 +1354,14 @@ ShowsMinimizedPanesUITests (PR 2)
   ▸ ships in PR 2 (depends on PR 1's per-arrangement
     persistence)
 
+EmptyArrangementPlaceholderUITests (PR 2)
+  ▸ when activeVisiblePaneIds is empty, tab content renders the
+    empty-arrangement placeholder instead of a broken/blank layout
+  ▸ placeholder copy communicates "no panes visible" and does NOT
+    advertise a new shortcut
+  ▸ toggling showsMinimizedPanes back on or unminimizing a pane
+    restores the normal pane render
+
 VisiblePaneIdsDerivationTests
   ▸ given (layout, minimized, showsMinimized), derived
     visiblePaneIds matches §6.2 rule
@@ -1493,6 +1499,7 @@ PR 1 — State shape refactor + derived atom + calibration
     ▸ ManagementModeOverrideTests
     ▸ ShowsMinimizedPanesTests (per-arrangement behavior)
     ▸ VisiblePaneIdsDerivationTests
+    ▸ EmptyArrangementPlaceholderTests (model-side Q6 behavior)
     ▸ WorkspacePaneAtomDrawerStrippedTests
     ▸ FreshStateDecodeTests (round-trip; old shape fails decode)
     ▸ ObservabilityTests (records emitted, correlation
@@ -1537,6 +1544,13 @@ PR 2 — New user behaviors enabled by PR 1
     ▸ Per-arrangement persistence (already wired in PR 1)
     ▸ Per-drawer toggle in drawer header UI
 
+  Empty visible arrangement placeholder
+    ▸ Tab content view renders the empty-arrangement placeholder
+      whenever WorkspaceArrangementViewDerived.activeVisiblePaneIds
+      returns [] for the active arrangement
+    ▸ No new shortcut context or command alternate is introduced
+      for this placeholder in Spec 1
+
   Drag layer wiring
     ▸ Cross-tab drag handling in drag coordinator
     ▸ Source-filter rejects forbidden cross-container moves
@@ -1545,6 +1559,7 @@ PR 2 — New user behaviors enabled by PR 1
     ▸ CrossTabPaneMoveTests
     ▸ TabReorderTests
     ▸ ShowsMinimizedPanesUITests (toggle in UI)
+    ▸ EmptyArrangementPlaceholderUITests
     ▸ Trace assertions for cross-tab + tab close paths
 ```
 

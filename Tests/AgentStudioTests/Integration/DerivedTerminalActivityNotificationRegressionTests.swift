@@ -156,6 +156,16 @@ struct DerivedTerminalActivityNotificationRegressionTests {
         let clock = TestPushClock()
         let terminalRouterBox = TerminalRouterBox()
         let paneActivityObservationRecorder = PaneActivityObservationRecorder()
+        let drawerView: @MainActor (UUID) -> DrawerView? = { parentPaneId in
+            guard let drawer = paneAtom.pane(parentPaneId)?.drawer,
+                let tabId = tabLayout.tabContaining(paneId: parentPaneId)?.id
+            else {
+                return nil
+            }
+            return tabLayout.arrangementAtom.arrangementState(tabId)?.arrangements
+                .first { $0.id == tabLayout.tab(tabId)?.activeArrangementId }?
+                .drawerViews[drawer.drawerId]
+        }
         let inboxRouter = InboxNotificationRouter(
             bus: bus,
             inboxAtom: inboxAtom,
@@ -165,6 +175,7 @@ struct DerivedTerminalActivityNotificationRegressionTests {
             attendedPane: attendedPane,
             focusTracker: tracker,
             terminalActivity: terminalActivity,
+            drawerView: drawerView,
             onPaneActivityObserved: { paneId in
                 paneActivityObservationRecorder.record(paneId)
                 terminalRouterBox.router?.markUnseenActivityObserved(paneId: paneId)
@@ -178,7 +189,8 @@ struct DerivedTerminalActivityNotificationRegressionTests {
                 PaneObservationResolver.isPaneCurrentlyAttended(
                     paneId: $0,
                     attendedPaneId: attendedPane.attendedPaneId,
-                    pane: { paneAtom.pane($0) }
+                    pane: { paneAtom.pane($0) },
+                    drawerView: drawerView
                 )
             },
             unseenActivityDebounceDuration: AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration,

@@ -636,7 +636,7 @@ enum CommandBarDataSource {
                 return CommandBarItem(
                     id: "target-arrangement-\(arrangement.id.uuidString)",
                     title: arrangement.name,
-                    subtitle: arrangement.isDefault ? "Default" : "\(arrangement.visiblePaneIds.count) panes",
+                    subtitle: arrangement.isDefault ? "Default" : "\(arrangement.layout.paneIds.count) panes",
                     icon: arrangement.isDefault ? .system(.rectangle3Group) : .system(.rectangle3GroupFill),
                     group: "Arrangements",
                     groupPriority: 0,
@@ -670,11 +670,12 @@ enum CommandBarDataSource {
             let tab = workspaceTab.tab(activeTabId),
             let activePaneId = tab.activePaneId,
             let pane = workspacePane.pane(activePaneId),
-            let drawer = pane.drawer
+            let drawer = pane.drawer,
+            let drawerView = atom(\.arrangementView).drawerView(forParent: activePaneId)
         {
             items = drawer.paneIds.enumerated().compactMap { index, drawerPaneId -> CommandBarItem? in
                 guard let drawerPane = workspacePane.pane(drawerPaneId) else { return nil }
-                let isActive = drawer.activeChildId == drawerPaneId
+                let isActive = drawerView.activeChildId == drawerPaneId
                 return CommandBarItem(
                     id: "target-drawer-\(drawerPaneId.uuidString)",
                     title: paneDisplayLabel(for: drawerPane, store: store, repoCache: repoCache),

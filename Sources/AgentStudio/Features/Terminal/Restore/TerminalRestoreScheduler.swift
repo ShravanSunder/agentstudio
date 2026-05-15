@@ -73,8 +73,9 @@ final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolving {
             activeTab.activePaneIds.contains(parentPaneId),
             let drawer = store.paneAtom.pane(parentPaneId)?.drawer,
             drawer.isExpanded,
-            drawer.layout.contains(paneId.uuid),
-            !drawer.minimizedPaneIds.contains(paneId.uuid)
+            let drawerView = atom(\.arrangementView).drawerView(forParent: parentPaneId),
+            drawerView.layout.contains(paneId.uuid),
+            !drawerView.minimizedPaneIds.contains(paneId.uuid)
         else {
             return false
         }
@@ -88,7 +89,7 @@ final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolving {
                 guard let drawer = store.paneAtom.pane(paneId)?.drawer, drawer.isExpanded else {
                     return nil
                 }
-                return drawer.activeChildId
+                return atom(\.arrangementView).drawerView(forParent: paneId)?.activeChildId
             }
         )
     }

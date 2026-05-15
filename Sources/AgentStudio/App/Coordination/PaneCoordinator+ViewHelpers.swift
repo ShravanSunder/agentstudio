@@ -107,6 +107,20 @@ extension PaneCoordinator {
             return
         }
 
+        if let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
+            let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId
+        {
+            store.tabArrangementAtom.addDrawerPaneView(
+                drawerId: drawerId,
+                parentPaneId: parentPaneId,
+                drawerPaneId: drawerPane.id,
+                inTab: tabId,
+                targetDrawerPaneId: targetDrawerPaneId,
+                direction: direction,
+                sizingMode: sizingMode
+            )
+        }
+
         viewRegistry.ensureSlot(for: drawerPane.id)
         ensureTerminalPaneView(drawerPane)
         focusVisiblePaneHost(drawerPane.id)
