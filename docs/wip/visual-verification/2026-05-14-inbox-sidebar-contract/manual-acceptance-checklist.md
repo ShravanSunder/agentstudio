@@ -66,4 +66,3 @@ Capture guidance:
   - Inbox with Other sources visible.
   - PaneInbox open over a pane with parent + drawer-child notifications.
 - Attach the successful screenshots to this folder or the PR description.
-
