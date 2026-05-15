@@ -1,28 +1,74 @@
 import SwiftUI
 
 struct InboxNotificationGroupHeader: View {
-    let label: String
+    let header: InboxNotificationListSectionHeader
     let unreadCount: Int
     let isCollapsed: Bool
+    var showsUnreadCount = true
     let onToggle: () -> Void
 
+    static func chromePolicy(for _: InboxNotificationListSectionHeader.Style) -> SidebarHeaderChromePolicy {
+        SidebarSourceGroupHeader<EmptyView>.chromePolicy
+    }
+
+    static func icon(
+        for sourceKind: InboxNotificationListSectionHeader.SourceKind,
+        accentColorHex: String?
+    ) -> AppEntityIcon {
+        switch sourceKind {
+        case .repo:
+            if let accentColorHex {
+                return .coloredRepo(colorHex: accentColorHex)
+            }
+            return .repo
+        case .pane:
+            return .pane
+        case .tab:
+            return .tab
+        case .workspace:
+            return .workspace
+        case .otherSources:
+            return .otherSources
+        }
+    }
+
+    static func icon(for sourceKind: InboxNotificationListSectionHeader.SourceKind) -> AppEntityIcon {
+        icon(for: sourceKind, accentColorHex: nil)
+    }
+
     var body: some View {
-        SidebarSectionHeader(
-            title: label,
-            isExpanded: !isCollapsed,
+        SidebarSourceGroupHeader(
+            isCollapsed: isCollapsed,
+            icon: Self.icon(for: header.sourceKind, accentColorHex: header.accentColorHex),
+            title: header.title,
+            secondaryTitle: header.secondaryTitle,
+            accessibilityIdentifier: nil,
             onToggle: onToggle
         ) {
-            if unreadCount > 0 {
-                Text("\(unreadCount)")
-                    .font(.system(size: AppStyles.Shell.Sidebar.chipFontSize, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, AppStyles.Shell.Sidebar.countBadgeHorizontalPadding)
-                    .padding(.vertical, AppStyles.Shell.Sidebar.countBadgeVerticalPadding)
-                    .background(
-                        Capsule()
-                            .fill(Color.accentColor.opacity(AppStyles.Shell.Sidebar.countBadgeBackgroundOpacity))
-                    )
-            }
+            unreadBadge()
+        }
+        .accessibilityHidden(true)
+        .background(
+            AccessibilityPressBridge(
+                identifier: "inboxSourceGroupHeader",
+                label: accessibilityLabel,
+                action: { onToggle() }
+            )
+        )
+    }
+
+    private var accessibilityLabel: String {
+        guard let secondaryTitle = header.secondaryTitle, !secondaryTitle.isEmpty else {
+            return header.title
+        }
+        return "\(header.title), \(secondaryTitle)"
+    }
+
+    @ViewBuilder
+    private func unreadBadge() -> some View {
+        if unreadCount > 0, showsUnreadCount {
+            UnreadCountBadge(text: "\(unreadCount)")
+                .accessibilityIdentifier("inboxGroupUnreadBadge")
         }
     }
 }

@@ -1,0 +1,38 @@
+{
+  "data" : {
+    "windows" : [
+      {
+        "window_index" : 0,
+        "window_title" : "AgentStudio",
+        "window_id" : 173973,
+        "bounds" : {
+          "x" : 0,
+          "y" : 30,
+          "width" : 3008,
+          "height" : 1239
+        },
+        "is_on_screen" : true
+      },
+      {
+        "window_index" : 7,
+        "window_title" : "",
+        "window_id" : 173974,
+        "bounds" : {
+          "x" : 0,
+          "y" : 769,
+          "width" : 500,
+          "height" : 500
+        },
+        "is_on_screen" : true
+      }
+    ],
+    "target_application_info" : {
+      "pid" : 81387,
+      "app_name" : "AgentStudio"
+    }
+  },
+  "debug_logs" : [
+    "[2026-05-14T12:50:42.435Z] DEBUG: Runtime host: local (in-process)"
+  ],
+  "success" : true
+}

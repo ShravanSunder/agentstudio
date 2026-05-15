@@ -14,7 +14,14 @@ struct InboxNotificationListModelTests {
         var worktreeName: String?
         var branchName: String?
         var tabDisplayLabel: String?
+        var tabOrdinal: Int?
         var paneDisplayLabel: String?
+        var paneOrdinal: Int?
+        var paneRole: InboxNotification.PaneSource.PaneRole = .main
+        var parentPaneId: UUID?
+        var parentPaneDisplayLabel: String?
+        var parentPaneOrdinal: Int?
+        var drawerOrdinal: Int?
         var runtimeDisplayLabel: String?
     }
 
@@ -31,7 +38,14 @@ struct InboxNotificationListModelTests {
         worktreeName: String? = nil,
         branchName: String? = nil,
         tabDisplayLabel: String? = nil,
+        tabOrdinal: Int? = nil,
         paneDisplayLabel: String? = nil,
+        paneOrdinal: Int? = nil,
+        paneRole: InboxNotification.PaneSource.PaneRole = .main,
+        parentPaneId: UUID? = nil,
+        parentPaneDisplayLabel: String? = nil,
+        parentPaneOrdinal: Int? = nil,
+        drawerOrdinal: Int? = nil,
         runtimeDisplayLabel: String? = nil,
         isRead: Bool = false
     ) -> InboxNotification {
@@ -51,7 +65,14 @@ struct InboxNotificationListModelTests {
                     worktreeName: worktreeName,
                     branchName: branchName,
                     tabDisplayLabel: tabDisplayLabel,
+                    tabOrdinal: tabOrdinal,
                     paneDisplayLabel: paneDisplayLabel,
+                    paneOrdinal: paneOrdinal,
+                    paneRole: paneRole,
+                    parentPaneId: parentPaneId,
+                    parentPaneDisplayLabel: parentPaneDisplayLabel,
+                    parentPaneOrdinal: parentPaneOrdinal,
+                    drawerOrdinal: drawerOrdinal,
                     runtimeDisplayLabel: runtimeDisplayLabel
                 )
             ),
@@ -75,12 +96,19 @@ struct InboxNotificationListModelTests {
                 paneId: context.paneId ?? UUID(),
                 tabId: context.tabId,
                 tabDisplayLabel: context.tabDisplayLabel,
+                tabOrdinal: context.tabOrdinal,
                 repoId: context.repoId,
                 repoName: context.repoName,
                 worktreeId: context.worktreeId,
                 worktreeName: context.worktreeName,
                 branchName: context.branchName,
                 paneDisplayLabel: context.paneDisplayLabel,
+                paneOrdinal: context.paneOrdinal,
+                paneRole: context.paneRole,
+                parentPaneId: context.parentPaneId,
+                parentPaneDisplayLabel: context.parentPaneDisplayLabel,
+                parentPaneOrdinal: context.parentPaneOrdinal,
+                drawerOrdinal: context.drawerOrdinal,
                 runtimeDisplayLabel: context.runtimeDisplayLabel
             )
         )
@@ -169,6 +197,30 @@ struct InboxNotificationListModelTests {
         #expect(model.sections.flatMap(\.notifications).map(\.id) == [matching.id])
     }
 
+    @Test("unread-only filter keeps unread entries")
+    func unreadOnlyFilterKeepsUnreadEntries() {
+        let unread = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Unread",
+            isRead: false
+        )
+        let read = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 200),
+            title: "Read",
+            isRead: true
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [unread, read],
+            grouping: .none,
+            sort: .oldestFirst,
+            searchText: "",
+            unreadOnly: true
+        )
+
+        #expect(model.sections.flatMap(\.notifications).map(\.id) == [unread.id])
+    }
+
     @Test("missing repo names use pane label instead of UUID prefix")
     func missingRepoNamesUsePaneLabelInsteadOfUUIDPrefix() {
         let repoId = UUID()
@@ -219,6 +271,55 @@ struct InboxNotificationListModelTests {
 
         #expect(model.sections.map(\.id) == [tabId.uuidString])
         #expect(model.sections.map(\.label) == ["Work"])
+    }
+
+    @Test("by tab group headers use tab display label with tab number secondary text")
+    func byTabGroupHeadersUseTabDisplayLabelWithTabNumber() {
+        let tabId = UUID()
+        let notification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Claude Code",
+            paneId: UUID(),
+            tabId: tabId,
+            tabDisplayLabel: "askluna",
+            tabOrdinal: 1,
+            paneDisplayLabel: "Ready (askluna)",
+            paneOrdinal: 2
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [notification],
+            grouping: .byTab,
+            sort: .oldestFirst,
+            searchText: ""
+        )
+
+        #expect(model.sections.first?.header?.title == "askluna")
+        #expect(model.sections.first?.header?.secondaryTitle == "Tab 1")
+    }
+
+    @Test("by pane group headers use pane display label with pane number secondary text")
+    func byPaneGroupHeadersUsePaneDisplayLabelWithPaneNumber() {
+        let paneId = UUID()
+        let notification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Claude Code",
+            paneId: paneId,
+            tabDisplayLabel: "askluna",
+            tabOrdinal: 1,
+            paneDisplayLabel: "Ready (askluna)",
+            paneOrdinal: 2
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [notification],
+            grouping: .byPane,
+            sort: .oldestFirst,
+            searchText: ""
+        )
+
+        #expect(model.sections.first?.header?.title == "Ready (askluna)")
+        #expect(model.sections.first?.header?.secondaryTitle == "Pane 2")
     }
 
     @Test("search uses source display text")
@@ -301,6 +402,150 @@ struct InboxNotificationListModelTests {
             ])
     }
 
+    @Test("repo pane tab and fallback groups all produce source group headers")
+    func allGroupedSectionsProduceSourceGroupHeaders() {
+        let repoId = UUID()
+        let paneId = UUID()
+        let tabId = UUID()
+        let repoNotification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Repo event",
+            paneId: paneId,
+            tabId: tabId,
+            repoId: repoId,
+            repoName: "agent-studio",
+            worktreeName: "notification-inbox-redesign",
+            tabDisplayLabel: "Tab 2",
+            paneDisplayLabel: "Pane 1"
+        )
+        let globalNotification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 120),
+            title: "Workspace event"
+        )
+
+        let byRepo = InboxNotificationListModel(
+            notifications: [repoNotification, globalNotification],
+            grouping: .byRepo,
+            sort: .newestFirst,
+            searchText: ""
+        )
+        let byPane = InboxNotificationListModel(
+            notifications: [repoNotification],
+            grouping: .byPane,
+            sort: .newestFirst,
+            searchText: ""
+        )
+        let byTab = InboxNotificationListModel(
+            notifications: [repoNotification],
+            grouping: .byTab,
+            sort: .newestFirst,
+            searchText: ""
+        )
+
+        #expect(byRepo.sections.allSatisfy { $0.header?.style == .sourceGroup })
+        #expect(byPane.sections.allSatisfy { $0.header?.style == .sourceGroup })
+        #expect(byTab.sections.allSatisfy { $0.header?.style == .sourceGroup })
+        #expect(byRepo.sections.contains { $0.header?.title == "Other sources" })
+        #expect(byRepo.sections.contains { $0.header?.sourceKind == .otherSources })
+        #expect(byPane.sections.first?.header?.sourceKind == .pane)
+        #expect(byTab.sections.first?.header?.sourceKind == .tab)
+    }
+
+    @Test("repo groups default to neutral source presentation without repo resolver")
+    func repoGroupsDefaultToNeutralSourcePresentation() {
+        let repoId = UUID()
+        let notification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Repo event",
+            repoId: repoId,
+            repoName: "agent-studio"
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [notification],
+            grouping: .byRepo,
+            sort: .oldestFirst,
+            searchText: ""
+        )
+
+        #expect(model.sections.first?.header?.title == "agent-studio")
+        #expect(model.sections.first?.header?.secondaryTitle == nil)
+        #expect(model.sections.first?.header?.sourceKind == .repo(organizationName: nil))
+        #expect(model.sections.first?.header?.accentColorHex == nil)
+    }
+
+    @Test("repo resolver supplies source group title owner and accent color")
+    func repoResolverSuppliesSourceGroupTitleOwnerAndAccentColor() {
+        let repoId = UUID()
+        let notification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Repo event",
+            repoId: repoId,
+            repoName: "filesystem-name"
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [notification],
+            grouping: .byRepo,
+            sort: .oldestFirst,
+            searchText: "",
+            repoPresentation: { requestedRepoId in
+                guard requestedRepoId == repoId else { return nil }
+                return InboxNotificationRepoGroupPresentation(
+                    title: "agent-studio",
+                    organizationName: "ShravanSunder",
+                    accentColorHex: "#EAC54F"
+                )
+            }
+        )
+
+        #expect(model.sections.first?.header?.title == "agent-studio")
+        #expect(model.sections.first?.header?.secondaryTitle == "ShravanSunder")
+        #expect(model.sections.first?.header?.sourceKind == .repo(organizationName: "ShravanSunder"))
+        #expect(model.sections.first?.header?.accentColorHex == "#EAC54F")
+    }
+
+    @Test("repo resolver group id collapses repo buckets into one source group")
+    func repoResolverGroupIdCollapsesRepoBucketsIntoOneSourceGroup() {
+        let firstRepoId = UUID()
+        let secondRepoId = UUID()
+        let firstNotification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "First repo event",
+            repoId: firstRepoId,
+            repoName: "filesystem-a"
+        )
+        let secondNotification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 200),
+            title: "Second repo event",
+            repoId: secondRepoId,
+            repoName: "filesystem-b"
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [firstNotification, secondNotification],
+            grouping: .byRepo,
+            sort: .oldestFirst,
+            searchText: "",
+            repoPresentation: { repoId in
+                guard repoId == firstRepoId || repoId == secondRepoId else { return nil }
+                return InboxNotificationRepoGroupPresentation(
+                    groupId: "remote:ShravanSunder/agent-studio",
+                    title: "agent-studio",
+                    organizationName: "ShravanSunder",
+                    accentColorHex: "#EAC54F"
+                )
+            }
+        )
+
+        #expect(model.sections.count == 1)
+        #expect(model.sections.first?.id == "repoGroup:remote:ShravanSunder/agent-studio")
+        #expect(model.sections.first?.header?.title == "agent-studio")
+        #expect(model.sections.first?.header?.secondaryTitle == "ShravanSunder")
+        #expect(model.sections.first?.header?.accentColorHex == "#EAC54F")
+        #expect(model.sections.first?.notifications.map(\.id) == [firstNotification.id, secondNotification.id])
+    }
+
     @Test("finds group boundary target from focused row")
     func findsGroupBoundaryTargetFromFocusedRow() {
         let firstPane = UUID()
@@ -342,6 +587,73 @@ struct InboxNotificationListModelTests {
                 direction: InboxNotificationListNavigationDirection.next
             ) == nil
         )
+    }
+
+    @Test("by pane grouping rolls drawer children up to their parent pane")
+    func byPaneGroupingRollsDrawerChildrenUpToParentPane() {
+        let parentPaneId = UUID()
+        let drawerPaneId = UUID()
+        let siblingPaneId = UUID()
+        let parentNotification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Parent",
+            paneId: parentPaneId,
+            paneDisplayLabel: "Claude"
+        )
+        let drawerNotification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 200),
+            title: "Drawer",
+            paneId: drawerPaneId,
+            paneDisplayLabel: "Gemini",
+            paneRole: .drawerChild,
+            parentPaneId: parentPaneId,
+            parentPaneDisplayLabel: "Claude",
+            drawerOrdinal: 1
+        )
+        let siblingNotification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 300),
+            title: "Sibling",
+            paneId: siblingPaneId,
+            paneDisplayLabel: "Terminal"
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [siblingNotification, drawerNotification, parentNotification],
+            grouping: .byPane,
+            sort: .oldestFirst,
+            searchText: ""
+        )
+
+        #expect(model.sections.map(\.id) == [parentPaneId.uuidString, siblingPaneId.uuidString])
+        #expect(model.sections.map(\.label) == ["Claude", "Terminal"])
+        #expect(model.sections[0].notifications.map(\.title) == ["Parent", "Drawer"])
+    }
+
+    @Test("group label uses newest source label independent of visible sort")
+    func groupLabelUsesNewestSourceLabelIndependentOfVisibleSort() {
+        let paneId = UUID()
+        let older = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Older",
+            paneId: paneId,
+            paneDisplayLabel: "Old Label"
+        )
+        let newer = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 200),
+            title: "Newer",
+            paneId: paneId,
+            paneDisplayLabel: "New Label"
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [newer, older],
+            grouping: .byPane,
+            sort: .oldestFirst,
+            searchText: ""
+        )
+
+        #expect(model.sections.map(\.label) == ["New Label"])
+        #expect(model.sections[0].notifications.map(\.title) == ["Older", "Newer"])
     }
 
     @Test("group boundary navigation skips collapsed groups")

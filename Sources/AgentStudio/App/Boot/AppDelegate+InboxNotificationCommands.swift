@@ -12,9 +12,6 @@ extension AppDelegate {
                 clearReadHistory: { inboxAtom.clearReadHistory() },
                 clearAll: { inboxAtom.clearAll() },
                 setGrouping: { grouping in prefsAtom.setGrouping(grouping) },
-                toggleSort: {
-                    prefsAtom.setSort(prefsAtom.sort == .newestFirst ? .oldestFirst : .newestFirst)
-                },
                 toggleBellEnabled: {
                     prefsAtom.setBellEnabled(!prefsAtom.bellEnabled)
                 },

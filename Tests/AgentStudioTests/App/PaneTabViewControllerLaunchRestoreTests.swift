@@ -56,7 +56,8 @@ struct PaneTabViewControllerLaunchRestoreTests {
             appLifecycleStore: appLifecycleStore,
             executor: executor,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
-            viewRegistry: viewRegistry
+            viewRegistry: viewRegistry,
+            registersAsCommandHandler: false
         )
         let window = NSWindow(
             contentRect: NSRect(x: -10_000, y: -10_000, width: 1200, height: 800),

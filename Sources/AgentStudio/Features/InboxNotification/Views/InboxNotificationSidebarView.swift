@@ -13,7 +13,9 @@ private struct InboxNotificationListModelKey: Equatable {
     let sort: InboxNotificationSort
     let searchText: String
     let filter: InboxFilter?
+    let unreadOnly: Bool
     let collapsedGroups: Set<InboxNotificationGroupKey>
+    let repoPresentationFingerprint: String
 }
 
 @MainActor
@@ -28,6 +30,8 @@ struct InboxNotificationSidebarView: View {
     let sidebarCache: SidebarCacheAtom
     let inboxFilterDraft: InboxFilterDraftAtom
     let workspacePaneAtom: WorkspacePaneAtom
+    let workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom
+    let repoCache: RepoCacheAtom
     let dispatcher: CommandDispatcher
     let onRefocusActivePane: @MainActor @Sendable () -> Void
 
@@ -37,6 +41,7 @@ struct InboxNotificationSidebarView: View {
     @State private var groupingMenuOpen = false
     @State private var flashingRowIds: Set<UUID> = []
     @State private var activeFilter: InboxFilter?
+    @State private var unreadOnly = false
     @FocusState private var focusedField: InboxFocus?
 
     private let flashClock = ContinuousClock()
@@ -48,6 +53,8 @@ struct InboxNotificationSidebarView: View {
         sidebarCache: SidebarCacheAtom,
         inboxFilterDraft: InboxFilterDraftAtom,
         workspacePaneAtom: WorkspacePaneAtom,
+        workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        repoCache: RepoCacheAtom,
         dispatcher: CommandDispatcher,
         onRefocusActivePane: @escaping @MainActor @Sendable () -> Void
     ) {
@@ -57,15 +64,26 @@ struct InboxNotificationSidebarView: View {
         self.sidebarCache = sidebarCache
         self.inboxFilterDraft = inboxFilterDraft
         self.workspacePaneAtom = workspacePaneAtom
+        self.workspaceRepositoryTopologyAtom = workspaceRepositoryTopologyAtom
+        self.repoCache = repoCache
         self.dispatcher = dispatcher
         self.onRefocusActivePane = onRefocusActivePane
+        let initialRepoPresentationByRepoId = Self.repoPresentationByRepoId(
+            repos: workspaceRepositoryTopologyAtom.repos,
+            repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId,
+            checkoutColors: sidebarCache.checkoutColors
+        )
         let initialKey = InboxNotificationListModelKey(
             notifications: inboxAtom.notifications,
             grouping: prefsAtom.grouping,
             sort: prefsAtom.sort,
             searchText: "",
             filter: nil,
-            collapsedGroups: sidebarCache.collapsedInboxGroups
+            unreadOnly: false,
+            collapsedGroups: sidebarCache.collapsedInboxGroups,
+            repoPresentationFingerprint: Self.repoPresentationFingerprint(
+                initialRepoPresentationByRepoId
+            )
         )
         self._cachedListModelKey = State(initialValue: initialKey)
         self._cachedListModel = State(
@@ -74,8 +92,13 @@ struct InboxNotificationSidebarView: View {
                 grouping: prefsAtom.grouping,
                 sort: prefsAtom.sort,
                 searchText: "",
+                unreadOnly: false,
                 filter: nil,
-                collapsedGroups: sidebarCache.collapsedInboxGroups
+                collapsedGroups: sidebarCache.collapsedInboxGroups,
+                repoPresentation: { repoId in
+                    guard let repoId else { return nil }
+                    return initialRepoPresentationByRepoId[repoId]
+                }
             )
         )
     }
@@ -85,6 +108,8 @@ struct InboxNotificationSidebarView: View {
             uiState: uiState,
             searchText: $searchText,
             activeFilter: activeFilter,
+            activeFilterLabel: activeFilterLabel,
+            unreadOnly: unreadOnly,
             sort: prefsAtom.sort,
             groupingMenuOpen: $groupingMenuOpen,
             grouping: prefsAtom.grouping,
@@ -94,8 +119,10 @@ struct InboxNotificationSidebarView: View {
             actions: .init(
                 onEscape: handleEscape,
                 onToggleSort: toggleSort,
+                onToggleUnreadOnly: { unreadOnly.toggle() },
                 onClearFilter: clearFilter,
-                onClearReadHistory: { inboxAtom.clearReadHistory() },
+                onClearReadHistory: clearReadInboxNotifications,
+                onClearAllHistory: clearAllInboxNotifications,
                 onSelectGrouping: { prefsAtom.setGrouping($0) },
                 onToggleGroupCollapse: toggleGroupCollapse,
                 onMoveGroupBoundary: moveFocusToGroupBoundary,
@@ -109,7 +136,9 @@ struct InboxNotificationSidebarView: View {
         .onChange(of: prefsAtom.sort) { _, _ in refreshListModel() }
         .onChange(of: searchText) { _, _ in refreshListModel() }
         .onChange(of: activeFilter) { _, _ in refreshListModel() }
+        .onChange(of: unreadOnly) { _, _ in refreshListModel() }
         .onChange(of: sidebarCache.collapsedInboxGroups) { _, _ in refreshListModel() }
+        .onChange(of: repoPresentationFingerprint) { _, _ in refreshListModel() }
         .onChange(of: inboxFilterDraft.pendingFilter) { _, _ in
             applyPendingFilterDraft()
         }
@@ -122,14 +151,55 @@ struct InboxNotificationSidebarView: View {
         cachedListModel
     }
 
+    private var activeFilterLabel: String? {
+        Self.activeFilterLabel(activeFilter: activeFilter, notifications: inboxAtom.notifications)
+    }
+
+    private var repoPresentationByRepoId: [UUID: InboxNotificationRepoGroupPresentation] {
+        Self.repoPresentationByRepoId(
+            repos: workspaceRepositoryTopologyAtom.repos,
+            repoEnrichmentByRepoId: repoCache.repoEnrichmentByRepoId,
+            checkoutColors: sidebarCache.checkoutColors
+        )
+    }
+
+    private var repoPresentationFingerprint: String {
+        Self.repoPresentationFingerprint(repoPresentationByRepoId)
+    }
+
+    static func activeFilterLabel(
+        activeFilter: InboxFilter?,
+        notifications: [InboxNotification]
+    ) -> String? {
+        guard let activeFilter else { return nil }
+        return notifications
+            .lazy
+            .compactMap { notification in
+                InboxNotificationSourceDisplay(notification: notification).filterLabel(for: activeFilter)
+            }
+            .first ?? fallbackFilterLabel(for: activeFilter)
+    }
+
+    private static func fallbackFilterLabel(for filter: InboxFilter) -> String {
+        switch filter {
+        case .worktree:
+            return "Filtered worktree"
+        case .repo:
+            return "Filtered repo"
+        }
+    }
+
     private func refreshListModel() {
+        let resolvedRepoPresentationByRepoId = repoPresentationByRepoId
         let key = InboxNotificationListModelKey(
             notifications: inboxAtom.notifications,
             grouping: prefsAtom.grouping,
             sort: prefsAtom.sort,
             searchText: searchText,
             filter: activeFilter,
-            collapsedGroups: sidebarCache.collapsedInboxGroups
+            unreadOnly: unreadOnly,
+            collapsedGroups: sidebarCache.collapsedInboxGroups,
+            repoPresentationFingerprint: Self.repoPresentationFingerprint(resolvedRepoPresentationByRepoId)
         )
         guard key != cachedListModelKey else { return }
         cachedListModelKey = key
@@ -138,9 +208,73 @@ struct InboxNotificationSidebarView: View {
             grouping: key.grouping,
             sort: key.sort,
             searchText: key.searchText,
+            unreadOnly: key.unreadOnly,
             filter: key.filter,
-            collapsedGroups: key.collapsedGroups
+            collapsedGroups: key.collapsedGroups,
+            repoPresentation: { repoId in
+                guard let repoId else { return nil }
+                return resolvedRepoPresentationByRepoId[repoId]
+            }
         )
+    }
+
+    static func repoPresentationByRepoId(
+        repos: [Repo],
+        repoEnrichmentByRepoId: [UUID: RepoEnrichment],
+        checkoutColors: [SidebarCheckoutColorKey: String]
+    ) -> [UUID: InboxNotificationRepoGroupPresentation] {
+        let sidebarRepos = repos.map(RepoPresentationItem.init(repo:))
+        let repoMetadataById = RepoPresentationColoring.buildRepoMetadata(
+            repos: sidebarRepos,
+            repoEnrichmentByRepoId: repoEnrichmentByRepoId
+        )
+        let resolvedGroups = RepoPresentationGrouping.buildGroups(
+            repos: sidebarRepos,
+            metadataByRepoId: repoMetadataById
+        )
+        let checkoutColorOverrides = Dictionary(
+            uniqueKeysWithValues: checkoutColors.map { key, value in
+                (key.rawValue, value)
+            }
+        )
+        let originalReposByGroupId = Dictionary(grouping: sidebarRepos) { repo in
+            repoMetadataById[repo.id]?.groupKey ?? "path:\(repo.repoPath.standardizedFileURL.path)"
+        }
+
+        var presentationsByRepoId: [UUID: InboxNotificationRepoGroupPresentation] = [:]
+        for group in resolvedGroups {
+            let sourceGroupAccentColorHex = RepoPresentationColoring.sourceGroupColorHex(
+                for: group,
+                checkoutColorOverrides: checkoutColorOverrides
+            )
+            for repo in originalReposByGroupId[group.id] ?? group.repos {
+                presentationsByRepoId[repo.id] = InboxNotificationRepoGroupPresentation(
+                    groupId: group.id,
+                    title: group.repoTitle,
+                    organizationName: group.organizationName,
+                    accentColorHex: sourceGroupAccentColorHex
+                )
+            }
+        }
+        return presentationsByRepoId
+    }
+
+    static func repoPresentationFingerprint(
+        _ presentationsByRepoId: [UUID: InboxNotificationRepoGroupPresentation]
+    ) -> String {
+        presentationsByRepoId
+            .map { repoId, presentation in
+                [
+                    repoId.uuidString,
+                    presentation.groupId ?? "",
+                    presentation.title,
+                    presentation.organizationName ?? "",
+                    presentation.accentColorHex ?? "",
+                ]
+                .joined(separator: ":")
+            }
+            .sorted()
+            .joined(separator: "|")
     }
 
     @discardableResult
@@ -172,9 +306,15 @@ struct InboxNotificationSidebarView: View {
     }
 
     private func toggleSort() {
-        let nextSort: InboxNotificationSort =
-            prefsAtom.sort == .newestFirst ? .oldestFirst : .newestFirst
-        prefsAtom.setSort(nextSort)
+        dispatcher.dispatch(.toggleInboxNotificationSort)
+    }
+
+    func clearReadInboxNotifications() {
+        dispatcher.dispatch(.clearReadInboxNotifications)
+    }
+
+    func clearAllInboxNotifications() {
+        dispatcher.dispatch(.clearAllInboxNotifications)
     }
 
     private func clearFilter() {

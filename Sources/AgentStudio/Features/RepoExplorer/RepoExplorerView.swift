@@ -29,6 +29,8 @@ struct RepoExplorerView: View {
     let onRefocusActivePane: () -> Void
     let onShowNotificationsForWorktree: (Worktree) -> Void
     let unreadCount: (Worktree) -> Int
+    static let surfaceListPolicy = SidebarSurfaceListPolicy.nativeSidebarList
+    static let groupHeaderChromePolicy = SidebarRepoGroupHeader<EmptyView>.chromePolicy
 
     private var repoCache: RepoCacheAtom {
         atom(\.repoCache)
@@ -103,9 +105,7 @@ struct RepoExplorerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if uiState.isFilterVisible {
-                filterBar
-            }
+            filterBar
 
             if sidebarProjection.showsNoResults {
                 noResultsView
@@ -113,9 +113,6 @@ struct RepoExplorerView: View {
                 groupList
             }
         }
-        .frame(minWidth: 200)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .shadow(color: .black.opacity(0.2), radius: 4, x: 2, y: 0)
         .animation(.easeOut(duration: 0.15), value: uiState.isFilterVisible)
         .task {
             filterText = uiState.filterText
@@ -207,21 +204,17 @@ struct RepoExplorerView: View {
             ForEach(resolvedListEntries) { entry in
                 switch entry {
                 case .resolvedGroupHeader(let group):
-                    Button {
-                        toggleGroupExpansion(group.id)
-                    } label: {
-                        RepoExplorerResolvedGroupHeaderRow(
-                            isExpanded: isGroupExpanded(group.id),
-                            repoTitle: group.repoTitle,
-                            organizationName: group.organizationName
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .contentShape(Rectangle())
+                    SidebarRepoGroupHeader(
+                        isCollapsed: !isGroupExpanded(group.id),
+                        icon: iconForGroup(group),
+                        repoTitle: group.repoTitle,
+                        organizationName: group.organizationName,
+                        onToggle: { toggleGroupExpansion(group.id) }
+                    )
                     .listRowInsets(
                         EdgeInsets(
                             top: 0,
-                            leading: AppStyles.Shell.Sidebar.listRowLeadingInset,
+                            leading: 0,
                             bottom: 0,
                             trailing: 0
                         )
@@ -326,7 +319,7 @@ struct RepoExplorerView: View {
                 }
             }
         }
-        .listStyle(.sidebar)
+        .sidebarSurfaceListStyle(Self.surfaceListPolicy)
         .id(sidebarProjectionFingerprint)
         .transition(.opacity.animation(.easeOut(duration: 0.12)))
     }
@@ -336,6 +329,13 @@ struct RepoExplorerView: View {
             for: repo, in: group, checkoutColorOverrides: checkoutColorOverrides
         )
         return Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
+    }
+
+    private func iconForGroup(_ group: RepoPresentationGroup) -> AppEntityIcon {
+        Self.sourceGroupIcon(
+            for: group,
+            checkoutColorOverrides: checkoutColorOverrides
+        )
     }
 
     private func isGroupExpanded(_ groupId: String) -> Bool {
@@ -505,6 +505,23 @@ extension RepoExplorerView {
         )
     }
 
+    static func sourceGroupIcon(
+        for group: RepoPresentationGroup,
+        checkoutColorOverrides: [String: String] = [:]
+    ) -> AppEntityIcon {
+        guard
+            let colorHex = RepoPresentationColoring.sourceGroupColorHex(
+                for: group,
+                checkoutColorOverrides: checkoutColorOverrides
+            )
+        else {
+            return .repo
+        }
+        return .coloredRepo(
+            colorHex: colorHex
+        )
+    }
+
     static func buildRepoMetadata(
         repos: [RepoPresentationItem],
         repoEnrichmentByRepoId: [UUID: RepoEnrichment]
@@ -634,25 +651,7 @@ extension RepoExplorerView {
     }
 
     static func primaryRepoForGroup(_ group: RepoPresentationGroup) -> RepoPresentationItem? {
-        group.repos.max { lhs, rhs in
-            let lhsScore = primaryRepoScore(lhs)
-            let rhsScore = primaryRepoScore(rhs)
-            if lhsScore != rhsScore {
-                return lhsScore < rhsScore
-            }
-            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedDescending
-        }
-    }
-
-    private static func primaryRepoScore(_ repo: RepoPresentationItem) -> Int {
-        let normalizedRepoPath = repo.repoPath.standardizedFileURL.path
-        if repo.worktrees.contains(where: { $0.path.standardizedFileURL.path == normalizedRepoPath }) {
-            return 2
-        }
-        if repo.worktrees.contains(where: \.isMainWorktree) {
-            return 1
-        }
-        return 0
+        RepoPresentationColoring.primaryRepoForSourceGroup(group)
     }
 
     static func mergeBranchStatuses(

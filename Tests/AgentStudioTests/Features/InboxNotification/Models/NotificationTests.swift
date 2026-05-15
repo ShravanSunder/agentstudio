@@ -129,10 +129,11 @@ struct NotificationTests {
 
     @Test("InboxNotificationGrouping enumerates expected cases")
     func groupingCases() {
-        let _: InboxNotificationGrouping = .none
+        #expect(InboxNotificationGrouping.allCases == [.byTab, .byRepo, .byPane, .none])
         let _: InboxNotificationGrouping = .byRepo
         let _: InboxNotificationGrouping = .byPane
         let _: InboxNotificationGrouping = .byTab
+        let _: InboxNotificationGrouping = .none
     }
 
     @Test("InboxNotificationSort enumerates expected cases")

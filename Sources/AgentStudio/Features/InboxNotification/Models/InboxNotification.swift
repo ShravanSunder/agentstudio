@@ -19,13 +19,16 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
         let paneId: UUID
         let tabId: UUID?
         let tabDisplayLabel: String?
+        let tabOrdinal: Int?
         let repo: NamedSource?
         let worktree: NamedSource?
         let branchName: String?
         let paneDisplayLabel: String?
+        let paneOrdinal: Int?
         let paneRole: PaneRole
         let parentPaneId: UUID?
         let parentPaneDisplayLabel: String?
+        let parentPaneOrdinal: Int?
         let drawerOrdinal: Int?
         let runtimeDisplayLabel: String?
 
@@ -33,13 +36,16 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
             case paneId
             case tabId
             case tabDisplayLabel
+            case tabOrdinal
             case repo
             case worktree
             case branchName
             case paneDisplayLabel
+            case paneOrdinal
             case paneRole
             case parentPaneId
             case parentPaneDisplayLabel
+            case parentPaneOrdinal
             case drawerOrdinal
             case runtimeDisplayLabel
         }
@@ -48,21 +54,25 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
             paneId: UUID,
             tabId: UUID? = nil,
             tabDisplayLabel: String? = nil,
+            tabOrdinal: Int? = nil,
             repoId: UUID? = nil,
             repoName: String? = nil,
             worktreeId: UUID? = nil,
             worktreeName: String? = nil,
             branchName: String? = nil,
             paneDisplayLabel: String? = nil,
+            paneOrdinal: Int? = nil,
             paneRole: PaneRole = .main,
             parentPaneId: UUID? = nil,
             parentPaneDisplayLabel: String? = nil,
+            parentPaneOrdinal: Int? = nil,
             drawerOrdinal: Int? = nil,
             runtimeDisplayLabel: String? = nil
         ) {
             self.paneId = paneId
             self.tabId = tabId
             self.tabDisplayLabel = tabDisplayLabel
+            self.tabOrdinal = tabOrdinal
             self.repo = NamedSource(
                 id: repoId,
                 name: repoName
@@ -73,9 +83,11 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
             )
             self.branchName = branchName
             self.paneDisplayLabel = paneDisplayLabel
+            self.paneOrdinal = paneOrdinal
             self.paneRole = paneRole
             self.parentPaneId = parentPaneId
             self.parentPaneDisplayLabel = parentPaneDisplayLabel
+            self.parentPaneOrdinal = parentPaneOrdinal
             self.drawerOrdinal = drawerOrdinal
             self.runtimeDisplayLabel = runtimeDisplayLabel
         }
@@ -85,13 +97,16 @@ struct InboxNotification: Identifiable, Sendable, Codable, Equatable {
             self.paneId = try container.decode(UUID.self, forKey: .paneId)
             self.tabId = try container.decodeIfPresent(UUID.self, forKey: .tabId)
             self.tabDisplayLabel = try container.decodeIfPresent(String.self, forKey: .tabDisplayLabel)
+            self.tabOrdinal = try container.decodeIfPresent(Int.self, forKey: .tabOrdinal)
             self.repo = try container.decodeIfPresent(NamedSource.self, forKey: .repo)
             self.worktree = try container.decodeIfPresent(NamedSource.self, forKey: .worktree)
             self.branchName = try container.decodeIfPresent(String.self, forKey: .branchName)
             self.paneDisplayLabel = try container.decodeIfPresent(String.self, forKey: .paneDisplayLabel)
+            self.paneOrdinal = try container.decodeIfPresent(Int.self, forKey: .paneOrdinal)
             self.paneRole = try container.decodeIfPresent(PaneRole.self, forKey: .paneRole) ?? .main
             self.parentPaneId = try container.decodeIfPresent(UUID.self, forKey: .parentPaneId)
             self.parentPaneDisplayLabel = try container.decodeIfPresent(String.self, forKey: .parentPaneDisplayLabel)
+            self.parentPaneOrdinal = try container.decodeIfPresent(Int.self, forKey: .parentPaneOrdinal)
             self.drawerOrdinal = try container.decodeIfPresent(Int.self, forKey: .drawerOrdinal)
             self.runtimeDisplayLabel = try container.decodeIfPresent(String.self, forKey: .runtimeDisplayLabel)
         }
