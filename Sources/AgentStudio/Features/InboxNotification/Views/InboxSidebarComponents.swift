@@ -187,8 +187,14 @@ struct InboxSidebarHeader: View {
                 .menuIndicator(.hidden)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Delete inbox notifications")
-                .accessibilityIdentifier("inboxSidebarDeleteMenu")
                 .help("\(clearReadInboxSpec.helpText). \(clearAllInboxSpec.helpText).")
+                .background(
+                    AccessibilityPressBridge(
+                        identifier: "inboxSidebarDeleteMenu",
+                        label: "Delete inbox notifications",
+                        action: {}
+                    )
+                )
             }
 
             if let activeFilter {

@@ -103,7 +103,7 @@ struct InboxNotificationSourceDisplayTests {
         let display = InboxNotificationSourceDisplay(notification: notification, rowContext: .globalInbox)
 
         #expect(display.sourceLine == "askluna · askluna")
-        #expect(display.placementLine == "Tab Work · Pane Claude · Drawer Gemini")
+        #expect(display.placementLine == "Tab Work · Pane Claude · Drawer 2 · Gemini")
         #expect(display.groupLabel(for: .byPane) == "Claude")
     }
 
