@@ -331,7 +331,7 @@ struct RepoExplorerView: View {
         return Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
     }
 
-    private func iconForGroup(_ group: RepoPresentationGroup) -> SidebarSourceGroupIcon {
+    private func iconForGroup(_ group: RepoPresentationGroup) -> AppEntityIcon {
         Self.sourceGroupIcon(
             for: group,
             checkoutColorOverrides: checkoutColorOverrides
@@ -508,7 +508,7 @@ extension RepoExplorerView {
     static func sourceGroupIcon(
         for group: RepoPresentationGroup,
         checkoutColorOverrides: [String: String] = [:]
-    ) -> SidebarSourceGroupIcon {
+    ) -> AppEntityIcon {
         guard
             let colorHex = RepoPresentationColoring.sourceGroupColorHex(
                 for: group,

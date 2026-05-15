@@ -168,10 +168,12 @@ struct InboxNotificationSidebarViewTests {
 
     @Test("inbox header controls use distinct symbols and grouped row indentation")
     func inboxHeaderControlsUseDistinctSymbolsAndGroupedRowIndentation() {
-        #expect(InboxSidebarHeader.sortIconName == "arrow.up.arrow.down")
+        let sortIcon = AppCommand.toggleInboxNotificationSort.definition.icon
+
+        #expect(sortIcon == .system(.arrowUpArrowDown))
         #expect(InboxSidebarHeader.groupIconName == "square.stack.3d.up")
         #expect(InboxSidebarHeader.filterIconName == "line.3.horizontal.decrease.circle")
-        #expect(InboxSidebarHeader.sortIconName != InboxSidebarHeader.groupIconName)
+        #expect(sortIcon != .system(.rectangle3GroupFill))
         #expect(InboxSidebarHeader.groupIconName != InboxSidebarHeader.filterIconName)
         #expect(InboxSidebarRootContainer.surfaceBackground == .windowBackgroundColor)
         #expect(InboxSidebarContent.surfaceBackground == .windowBackgroundColor)

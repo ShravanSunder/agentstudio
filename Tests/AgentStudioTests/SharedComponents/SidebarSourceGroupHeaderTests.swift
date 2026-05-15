@@ -24,11 +24,11 @@ struct SidebarSourceGroupHeaderTests {
         )
     }
 
-    @Test("source group icons describe fixed sidebar icon slots")
-    func sourceGroupIconsDescribeFixedSidebarIconSlots() {
-        #expect(SidebarSourceGroupIcon.repo.symbolName == "octicon-repo")
-        #expect(SidebarSourceGroupIcon.otherSources.symbolName == "tray")
-        #expect(SidebarSourceGroupIcon.pane.symbolName == "rectangle.split.2x1")
-        #expect(SidebarSourceGroupIcon.tab.symbolName == "macwindow")
+    @Test("app entity icons describe fixed sidebar icon slots")
+    func appEntityIconsDescribeFixedSidebarIconSlots() {
+        #expect(AppEntityIcon.repo.symbol == .octicon(.repo))
+        #expect(AppEntityIcon.otherSources.symbol == .system(.tray))
+        #expect(AppEntityIcon.pane.symbol == .system(.rectangleSplit2x1))
+        #expect(AppEntityIcon.tab.symbol == .system(.squareStackFill))
     }
 }

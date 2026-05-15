@@ -2,7 +2,7 @@ import SwiftUI
 
 struct SidebarSourceGroupHeader<TrailingContent: View>: View {
     let isCollapsed: Bool
-    let icon: SidebarSourceGroupIcon
+    let icon: AppEntityIcon
     let title: String
     let secondaryTitle: String?
     let accessibilityIdentifier: String?
@@ -78,23 +78,14 @@ struct SidebarSourceGroupHeader<TrailingContent: View>: View {
 
     @ViewBuilder
     private var headerIcon: some View {
-        switch icon.symbolKind {
-        case .system:
-            Image(systemName: icon.symbolName)
-                .font(.system(size: AppStyles.Shell.Sidebar.groupIconSize, weight: .medium))
-                .foregroundStyle(icon.foregroundStyle)
-        case .octicon:
-            OcticonImage(name: icon.symbolName, size: AppStyles.Shell.Sidebar.groupIconSize)
-                .foregroundStyle(icon.foregroundStyle)
-                .rotationEffect(.degrees(icon.rotationDegrees))
-        }
+        icon.swiftUIImage(size: AppStyles.Shell.Sidebar.groupIconSize)
     }
 }
 
 extension SidebarSourceGroupHeader where TrailingContent == EmptyView {
     init(
         isCollapsed: Bool,
-        icon: SidebarSourceGroupIcon,
+        icon: AppEntityIcon,
         title: String,
         secondaryTitle: String?,
         accessibilityIdentifier: String? = nil,

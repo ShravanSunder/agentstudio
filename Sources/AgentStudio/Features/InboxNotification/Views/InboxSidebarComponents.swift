@@ -111,10 +111,10 @@ struct InboxSidebarHeader: View {
     let grouping: InboxNotificationGrouping
     let focusedField: FocusState<InboxFocus?>.Binding
     let actions: InboxSidebarActions
-    static let sortIconName = "arrow.up.arrow.down"
     static let groupIconName = "square.stack.3d.up"
     static let unreadOnlyIconName = "envelope.badge"
     static let filterIconName = "line.3.horizontal.decrease.circle"
+    private let toggleSortSpec = AppCommand.toggleInboxNotificationSort.definition
     private let clearReadInboxSpec = AppCommand.clearReadInboxNotifications.definition
     private let clearAllInboxSpec = AppCommand.clearAllInboxNotifications.definition
 
@@ -138,10 +138,10 @@ struct InboxSidebarHeader: View {
                 )
 
                 Button(action: actions.onToggleSort) {
-                    Image(systemName: Self.sortIconName)
+                    toggleSortSpec.icon.swiftUIImage()
                 }
                 .buttonStyle(.borderless)
-                .help("Toggle inbox sort")
+                .help(toggleSortSpec.controlToolTip)
 
                 Button(action: actions.onToggleUnreadOnly) {
                     Image(systemName: Self.unreadOnlyIconName)

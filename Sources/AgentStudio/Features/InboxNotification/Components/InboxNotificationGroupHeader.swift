@@ -14,7 +14,7 @@ struct InboxNotificationGroupHeader: View {
     static func icon(
         for sourceKind: InboxNotificationListSectionHeader.SourceKind,
         accentColorHex: String?
-    ) -> SidebarSourceGroupIcon {
+    ) -> AppEntityIcon {
         switch sourceKind {
         case .repo:
             if let accentColorHex {
@@ -32,7 +32,7 @@ struct InboxNotificationGroupHeader: View {
         }
     }
 
-    static func icon(for sourceKind: InboxNotificationListSectionHeader.SourceKind) -> SidebarSourceGroupIcon {
+    static func icon(for sourceKind: InboxNotificationListSectionHeader.SourceKind) -> AppEntityIcon {
         icon(for: sourceKind, accentColorHex: nil)
     }
 

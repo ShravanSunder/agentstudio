@@ -2,7 +2,7 @@ import SwiftUI
 
 struct SidebarRepoGroupHeader<TrailingContent: View>: View {
     let isCollapsed: Bool
-    let icon: SidebarSourceGroupIcon
+    let icon: AppEntityIcon
     let repoTitle: String
     let organizationName: String?
     let onToggle: () -> Void
@@ -18,7 +18,7 @@ struct SidebarRepoGroupHeader<TrailingContent: View>: View {
 
     init(
         isCollapsed: Bool,
-        icon: SidebarSourceGroupIcon = .repo,
+        icon: AppEntityIcon = .repo,
         repoTitle: String,
         organizationName: String?,
         onToggle: @escaping () -> Void,
@@ -49,7 +49,7 @@ struct SidebarRepoGroupHeader<TrailingContent: View>: View {
 extension SidebarRepoGroupHeader where TrailingContent == EmptyView {
     init(
         isCollapsed: Bool,
-        icon: SidebarSourceGroupIcon = .repo,
+        icon: AppEntityIcon = .repo,
         repoTitle: String,
         organizationName: String?,
         onToggle: @escaping () -> Void
