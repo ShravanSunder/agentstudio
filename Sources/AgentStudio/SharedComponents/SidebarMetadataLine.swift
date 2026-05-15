@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SidebarMetadataLine: View {
     let iconSystemName: String?
+    let reservesIconColumn: Bool
     let text: String
     let prominence: SidebarMetadataProminence
 
@@ -11,10 +12,12 @@ struct SidebarMetadataLine: View {
 
     init(
         iconSystemName: String? = nil,
+        reservesIconColumn: Bool = true,
         text: String,
         prominence: SidebarMetadataProminence = .secondary
     ) {
         self.iconSystemName = iconSystemName
+        self.reservesIconColumn = reservesIconColumn
         self.text = text
         self.prominence = prominence
     }
@@ -25,7 +28,7 @@ struct SidebarMetadataLine: View {
                 Image(systemName: iconSystemName)
                     .font(.system(size: AppStyles.Shell.Sidebar.branchIconSize, weight: .medium))
                     .frame(width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth, alignment: .leading)
-            } else {
+            } else if reservesIconColumn {
                 Color.clear
                     .frame(
                         width: AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth,

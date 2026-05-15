@@ -213,6 +213,11 @@ final class InboxNotificationAtom {
         recalculateGlobalUnreadCount()
     }
 
+    func clearUnreadHistory() {
+        notifications.removeAll { !$0.isRead }
+        recalculateGlobalUnreadCount()
+    }
+
     func clearAll() {
         notifications.removeAll()
         recalculateGlobalUnreadCount()

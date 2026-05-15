@@ -124,8 +124,8 @@ struct InboxNotificationSidebarViewTests {
         )
     }
 
-    @Test("mounted inbox sidebar clear button dispatches clear read command")
-    func mountedInboxSidebarClearButtonDispatchesClearReadCommand() async throws {
+    @Test("mounted inbox sidebar delete menu replaces the clear button")
+    func mountedInboxSidebarDeleteMenuReplacesClearButton() async throws {
         let router = MockAppCommandRouter()
         router.appCommands = [.clearReadInboxNotifications]
         try await withIsolatedCommandDispatcher(
@@ -160,13 +160,8 @@ struct InboxNotificationSidebarViewTests {
                 defer { window.orderOut(nil) }
                 hostingView.layoutSubtreeIfNeeded()
 
-                let clearButton = try #require(
-                    inboxSidebarAccessibleElement(in: hostingView, identifier: "inboxSidebarClearButton")
-                )
-
-                #expect(inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarClearButton") == 1)
-                pressInboxSidebarAccessibleElement(clearButton)
-                #expect(router.handledCommands == [.clearReadInboxNotifications])
+                #expect(inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarDeleteMenu") == 1)
+                #expect(inboxSidebarAccessibleElementCount(in: hostingView, identifier: "inboxSidebarClearButton") == 0)
             }
         )
     }
@@ -863,6 +858,7 @@ private struct InboxSidebarRootHarness: View {
             searchText: $searchText,
             activeFilter: activeFilter,
             activeFilterLabel: activeFilterLabel,
+            unreadOnly: false,
             sort: .newestFirst,
             groupingMenuOpen: $groupingMenuOpen,
             grouping: grouping,
@@ -872,8 +868,11 @@ private struct InboxSidebarRootHarness: View {
             actions: .init(
                 onEscape: {},
                 onToggleSort: {},
+                onToggleUnreadOnly: {},
                 onClearFilter: {},
                 onClearReadHistory: {},
+                onClearUnreadHistory: {},
+                onClearAllHistory: {},
                 onSelectGrouping: { _ in },
                 onToggleGroupCollapse: { _ in },
                 onMoveGroupBoundary: { _ in false },

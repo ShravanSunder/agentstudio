@@ -299,6 +299,20 @@ struct InboxNotificationAtomTests {
         #expect(atom.notifications[0].isRead == false)
     }
 
+    @Test("clearUnreadHistory removes unread entries, keeps read")
+    func clearUnreadHistory() {
+        let atom = InboxNotificationAtom()
+        atom.append(makeInboxNotification(isRead: true))
+        atom.append(makeInboxNotification(isRead: false))
+        atom.append(makeInboxNotification(isRead: false))
+
+        atom.clearUnreadHistory()
+
+        #expect(atom.notifications.count == 1)
+        #expect(atom.notifications[0].isRead)
+        #expect(atom.globalUnreadCount == 0)
+    }
+
     @Test("clearAll removes everything")
     func clearAll() {
         let atom = InboxNotificationAtom()

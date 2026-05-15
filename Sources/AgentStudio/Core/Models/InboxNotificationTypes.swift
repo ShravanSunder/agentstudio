@@ -2,10 +2,10 @@ import Foundation
 
 // swiftlint:disable discouraged_none_name
 enum InboxNotificationGrouping: String, Sendable, Codable, Equatable, CaseIterable {
-    case none
+    case byTab
     case byRepo
     case byPane
-    case byTab
+    case none
 }
 // swiftlint:enable discouraged_none_name
 

@@ -1,6 +1,11 @@
 import Foundation
 
 struct InboxNotificationSourceDisplay: Sendable, Equatable {
+    struct GroupHeaderText: Sendable, Equatable {
+        let primary: String
+        let secondary: String?
+    }
+
     enum RowContext: Sendable, Equatable {
         case globalInbox
         case paneInbox(parentPaneId: UUID)
@@ -13,18 +18,19 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
     let searchText: String
 
     private let repoGroupLabel: String
-    private let paneGroupLabel: String
-    private let tabGroupLabel: String
+    private let paneGroupHeaderText: GroupHeaderText
+    private let tabGroupHeaderText: GroupHeaderText
     private let filterLabels: [InboxFilter: String]
 
     init(
         notification: InboxNotification,
-        rowContext: RowContext = .globalInbox
+        rowContext: RowContext = .globalInbox,
+        grouping: InboxNotificationGrouping = .none
     ) {
         let title = notification.title.trimmedNonEmpty
         let body = notification.body.trimmedNonEmpty
         self.primaryText = title ?? body ?? Self.kindLabel(notification.kind)
-        self.detailText = title == nil ? nil : body
+        self.detailText = title == nil ? nil : Self.detailText(for: body)
         switch notification.source {
         case .global:
             self.sourceLine = "Workspace event"
@@ -35,17 +41,19 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
                 "Workspace event",
             ])
             self.repoGroupLabel = "Workspace"
-            self.paneGroupLabel = "Workspace"
-            self.tabGroupLabel = "Workspace"
+            self.paneGroupHeaderText = .init(primary: "Workspace", secondary: nil)
+            self.tabGroupHeaderText = .init(primary: "Workspace", secondary: nil)
             self.filterLabels = [:]
         case .pane(let source):
-            let sourceLine = Self.sourceLine(for: source)
-            let placementLine = Self.placementLine(for: source, rowContext: rowContext)
+            let sourceLine = Self.sourceLine(for: source, grouping: grouping)
+            let placementLine = Self.placementLine(for: source, rowContext: rowContext, grouping: grouping)
             self.sourceLine = sourceLine
             self.placementLine = placementLine
             self.searchText = Self.joinSearchTerms([
                 primaryText,
                 detailText,
+                Self.sourceLine(for: source),
+                Self.defaultPlacementLine(for: source, rowContext: rowContext),
                 sourceLine,
                 placementLine,
                 source.runtimeDisplayLabel,
@@ -54,8 +62,8 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
                 source.parentPaneDisplayLabel,
             ])
             self.repoGroupLabel = (source.repo?.name).trimmedNonEmpty ?? "Pane"
-            self.paneGroupLabel = Self.paneGroupLabel(for: source)
-            self.tabGroupLabel = source.tabDisplayLabel.trimmedNonEmpty ?? "Pane"
+            self.paneGroupHeaderText = Self.paneGroupHeaderText(for: source)
+            self.tabGroupHeaderText = Self.tabGroupHeaderText(for: source)
             self.filterLabels = Self.filterLabels(for: source)
         }
     }
@@ -67,9 +75,22 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
         case .byRepo:
             return repoGroupLabel
         case .byPane:
-            return paneGroupLabel
+            return paneGroupHeaderText.primary
         case .byTab:
-            return tabGroupLabel
+            return tabGroupHeaderText.primary
+        }
+    }
+
+    func groupHeaderText(for grouping: InboxNotificationGrouping) -> GroupHeaderText? {
+        switch grouping {
+        case .none:
+            return nil
+        case .byRepo:
+            return GroupHeaderText(primary: repoGroupLabel, secondary: nil)
+        case .byPane:
+            return paneGroupHeaderText
+        case .byTab:
+            return tabGroupHeaderText
         }
     }
 
@@ -77,7 +98,22 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
         filterLabels[filter]
     }
 
-    private static func sourceLine(for source: InboxNotification.PaneSource) -> String {
+    private static func detailText(for body: String?) -> String? {
+        guard body != "Output appeared while you were away" else { return nil }
+        return body
+    }
+
+    private static func sourceLine(
+        for source: InboxNotification.PaneSource,
+        grouping: InboxNotificationGrouping = .none
+    ) -> String {
+        if grouping == .byRepo, let tabLine = tabPlacementLine(for: source) {
+            return tabLine
+        }
+        return repoSourceLine(for: source)
+    }
+
+    private static func repoSourceLine(for source: InboxNotification.PaneSource) -> String {
         if let repoName = (source.repo?.name).trimmedNonEmpty {
             if let worktreeName = (source.worktree?.name).trimmedNonEmpty {
                 if let branchName = source.branchName.trimmedNonEmpty, branchName != worktreeName {
@@ -108,64 +144,148 @@ struct InboxNotificationSourceDisplay: Sendable, Equatable {
 
     private static func placementLine(
         for source: InboxNotification.PaneSource,
+        rowContext: RowContext,
+        grouping: InboxNotificationGrouping = .none
+    ) -> String? {
+        guard case .globalInbox = rowContext else {
+            return paneInboxPlacementLine(for: source, rowContext: rowContext)
+        }
+        switch grouping {
+        case .none:
+            return defaultPlacementLine(for: source, rowContext: rowContext)
+        case .byRepo, .byTab:
+            return panePlacementLine(for: source)
+        case .byPane:
+            var parts: [String] = []
+            if let tabLine = tabPlacementLine(for: source) {
+                parts.append(tabLine)
+            }
+            if source.paneRole == .drawerChild, let drawerLine = drawerPlacementLine(for: source) {
+                parts.append(drawerLine)
+            }
+            return parts.isEmpty ? nil : parts.joined(separator: " · ")
+        }
+    }
+
+    private static func defaultPlacementLine(
+        for source: InboxNotification.PaneSource,
         rowContext: RowContext
     ) -> String? {
         var parts: [String] = []
         switch rowContext {
         case .globalInbox:
-            if let tabDisplayLabel = source.tabDisplayLabel.trimmedNonEmpty {
-                parts.append("Tab \(tabDisplayLabel)")
+            if let tabLine = tabPlacementLine(for: source) {
+                parts.append(tabLine)
             }
-            appendPanePlacement(for: source, to: &parts)
+            if let paneLine = panePlacementLine(for: source) {
+                parts.append(paneLine)
+            }
         case .paneInbox(let parentPaneId):
-            if source.paneRole == .drawerChild,
-                source.parentPaneId == parentPaneId,
-                let paneDisplayLabel = source.paneDisplayLabel.trimmedNonEmpty
+            if let paneInboxPlacementLine = paneInboxPlacementLine(
+                for: source, rowContext: .paneInbox(parentPaneId: parentPaneId))
             {
-                parts.append("Drawer \(paneDisplayLabel)")
+                parts.append(paneInboxPlacementLine)
             }
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
-    private static func appendPanePlacement(
+    private static func paneInboxPlacementLine(
         for source: InboxNotification.PaneSource,
-        to parts: inout [String]
-    ) {
+        rowContext: RowContext
+    ) -> String? {
+        guard case .paneInbox(let parentPaneId) = rowContext else { return nil }
+        guard source.paneRole == .drawerChild, source.parentPaneId == parentPaneId else { return nil }
+        return drawerPlacementLine(for: source)
+    }
+
+    private static func tabPlacementLine(for source: InboxNotification.PaneSource) -> String? {
+        guard let tabDisplayLabel = source.tabDisplayLabel.trimmedNonEmpty else { return nil }
+        if let tabOrdinal = source.tabOrdinal {
+            return "Tab \(tabOrdinal) · \(tabDisplayLabel)"
+        }
+        return "Tab \(tabDisplayLabel)"
+    }
+
+    private static func panePlacementLine(for source: InboxNotification.PaneSource) -> String? {
         switch source.paneRole {
         case .main:
-            if let paneDisplayLabel = source.paneDisplayLabel.trimmedNonEmpty {
-                parts.append("Pane \(paneDisplayLabel)")
-            }
+            return labelledOrdinalLine(
+                ordinalPrefix: "Pane",
+                ordinal: source.paneOrdinal,
+                displayLabel: source.paneDisplayLabel.trimmedNonEmpty
+            )
         case .drawerChild:
-            if let parentPaneDisplayLabel = source.parentPaneDisplayLabel.trimmedNonEmpty {
-                parts.append("Pane \(parentPaneDisplayLabel)")
+            var parts: [String] = []
+            if let parentLine = labelledOrdinalLine(
+                ordinalPrefix: "Pane",
+                ordinal: source.parentPaneOrdinal,
+                displayLabel: source.parentPaneDisplayLabel.trimmedNonEmpty
+            ) {
+                parts.append(parentLine)
             }
-            if let paneDisplayLabel = source.paneDisplayLabel.trimmedNonEmpty {
-                parts.append("Drawer \(paneDisplayLabel)")
-            } else if let drawerOrdinal = source.drawerOrdinal {
-                parts.append("Drawer \(drawerOrdinal)")
-            } else {
-                parts.append("Drawer")
+            if let drawerLine = drawerPlacementLine(for: source) {
+                parts.append(drawerLine)
             }
+            return parts.isEmpty ? nil : parts.joined(separator: " · ")
         }
     }
 
-    private static func paneGroupLabel(for source: InboxNotification.PaneSource) -> String {
+    private static func drawerPlacementLine(for source: InboxNotification.PaneSource) -> String? {
+        if let paneDisplayLabel = source.paneDisplayLabel.trimmedNonEmpty {
+            return labelledOrdinalLine(
+                ordinalPrefix: "Drawer",
+                ordinal: source.drawerOrdinal,
+                displayLabel: paneDisplayLabel
+            )
+        }
+        if let drawerOrdinal = source.drawerOrdinal {
+            return "Drawer \(drawerOrdinal)"
+        }
+        return source.paneRole == .drawerChild ? "Drawer" : nil
+    }
+
+    private static func labelledOrdinalLine(
+        ordinalPrefix: String,
+        ordinal: Int?,
+        displayLabel: String?
+    ) -> String? {
+        guard let displayLabel else {
+            guard let ordinal else { return nil }
+            return "\(ordinalPrefix) \(ordinal)"
+        }
+        guard let ordinal else { return "\(ordinalPrefix) \(displayLabel)" }
+        return "\(ordinalPrefix) \(ordinal) · \(displayLabel)"
+    }
+
+    private static func paneGroupHeaderText(for source: InboxNotification.PaneSource) -> GroupHeaderText {
         switch source.paneRole {
         case .main:
-            return source.paneDisplayLabel.trimmedNonEmpty
-                ?? (source.worktree?.name).trimmedNonEmpty
-                ?? source.branchName.trimmedNonEmpty
-                ?? source.runtimeDisplayLabel.trimmedNonEmpty
-                ?? "Pane"
+            return GroupHeaderText(
+                primary: source.paneDisplayLabel.trimmedNonEmpty
+                    ?? (source.worktree?.name).trimmedNonEmpty
+                    ?? source.branchName.trimmedNonEmpty
+                    ?? source.runtimeDisplayLabel.trimmedNonEmpty
+                    ?? "Pane",
+                secondary: source.paneOrdinal.map { "Pane \($0)" }
+            )
         case .drawerChild:
-            return source.parentPaneDisplayLabel.trimmedNonEmpty
-                ?? (source.worktree?.name).trimmedNonEmpty
-                ?? source.branchName.trimmedNonEmpty
-                ?? source.runtimeDisplayLabel.trimmedNonEmpty
-                ?? "Pane"
+            return GroupHeaderText(
+                primary: source.parentPaneDisplayLabel.trimmedNonEmpty
+                    ?? (source.worktree?.name).trimmedNonEmpty
+                    ?? source.branchName.trimmedNonEmpty
+                    ?? source.runtimeDisplayLabel.trimmedNonEmpty
+                    ?? "Pane",
+                secondary: source.parentPaneOrdinal.map { "Pane \($0)" }
+            )
         }
+    }
+
+    private static func tabGroupHeaderText(for source: InboxNotification.PaneSource) -> GroupHeaderText {
+        GroupHeaderText(
+            primary: source.tabDisplayLabel.trimmedNonEmpty ?? "Pane",
+            secondary: source.tabOrdinal.map { "Tab \($0)" }
+        )
     }
 
     private static func filterLabels(for source: InboxNotification.PaneSource) -> [InboxFilter: String] {

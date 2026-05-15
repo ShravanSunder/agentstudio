@@ -105,9 +105,7 @@ struct RepoExplorerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if uiState.isFilterVisible {
-                filterBar
-            }
+            filterBar
 
             if sidebarProjection.showsNoResults {
                 noResultsView

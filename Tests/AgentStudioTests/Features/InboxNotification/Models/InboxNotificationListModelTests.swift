@@ -14,10 +14,13 @@ struct InboxNotificationListModelTests {
         var worktreeName: String?
         var branchName: String?
         var tabDisplayLabel: String?
+        var tabOrdinal: Int?
         var paneDisplayLabel: String?
+        var paneOrdinal: Int?
         var paneRole: InboxNotification.PaneSource.PaneRole = .main
         var parentPaneId: UUID?
         var parentPaneDisplayLabel: String?
+        var parentPaneOrdinal: Int?
         var drawerOrdinal: Int?
         var runtimeDisplayLabel: String?
     }
@@ -35,10 +38,13 @@ struct InboxNotificationListModelTests {
         worktreeName: String? = nil,
         branchName: String? = nil,
         tabDisplayLabel: String? = nil,
+        tabOrdinal: Int? = nil,
         paneDisplayLabel: String? = nil,
+        paneOrdinal: Int? = nil,
         paneRole: InboxNotification.PaneSource.PaneRole = .main,
         parentPaneId: UUID? = nil,
         parentPaneDisplayLabel: String? = nil,
+        parentPaneOrdinal: Int? = nil,
         drawerOrdinal: Int? = nil,
         runtimeDisplayLabel: String? = nil,
         isRead: Bool = false
@@ -59,10 +65,13 @@ struct InboxNotificationListModelTests {
                     worktreeName: worktreeName,
                     branchName: branchName,
                     tabDisplayLabel: tabDisplayLabel,
+                    tabOrdinal: tabOrdinal,
                     paneDisplayLabel: paneDisplayLabel,
+                    paneOrdinal: paneOrdinal,
                     paneRole: paneRole,
                     parentPaneId: parentPaneId,
                     parentPaneDisplayLabel: parentPaneDisplayLabel,
+                    parentPaneOrdinal: parentPaneOrdinal,
                     drawerOrdinal: drawerOrdinal,
                     runtimeDisplayLabel: runtimeDisplayLabel
                 )
@@ -87,15 +96,18 @@ struct InboxNotificationListModelTests {
                 paneId: context.paneId ?? UUID(),
                 tabId: context.tabId,
                 tabDisplayLabel: context.tabDisplayLabel,
+                tabOrdinal: context.tabOrdinal,
                 repoId: context.repoId,
                 repoName: context.repoName,
                 worktreeId: context.worktreeId,
                 worktreeName: context.worktreeName,
                 branchName: context.branchName,
                 paneDisplayLabel: context.paneDisplayLabel,
+                paneOrdinal: context.paneOrdinal,
                 paneRole: context.paneRole,
                 parentPaneId: context.parentPaneId,
                 parentPaneDisplayLabel: context.parentPaneDisplayLabel,
+                parentPaneOrdinal: context.parentPaneOrdinal,
                 drawerOrdinal: context.drawerOrdinal,
                 runtimeDisplayLabel: context.runtimeDisplayLabel
             )
@@ -185,6 +197,30 @@ struct InboxNotificationListModelTests {
         #expect(model.sections.flatMap(\.notifications).map(\.id) == [matching.id])
     }
 
+    @Test("unread-only filter keeps unread entries")
+    func unreadOnlyFilterKeepsUnreadEntries() {
+        let unread = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Unread",
+            isRead: false
+        )
+        let read = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 200),
+            title: "Read",
+            isRead: true
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [unread, read],
+            grouping: .none,
+            sort: .oldestFirst,
+            searchText: "",
+            unreadOnly: true
+        )
+
+        #expect(model.sections.flatMap(\.notifications).map(\.id) == [unread.id])
+    }
+
     @Test("missing repo names use pane label instead of UUID prefix")
     func missingRepoNamesUsePaneLabelInsteadOfUUIDPrefix() {
         let repoId = UUID()
@@ -235,6 +271,55 @@ struct InboxNotificationListModelTests {
 
         #expect(model.sections.map(\.id) == [tabId.uuidString])
         #expect(model.sections.map(\.label) == ["Work"])
+    }
+
+    @Test("by tab group headers use tab display label with tab number secondary text")
+    func byTabGroupHeadersUseTabDisplayLabelWithTabNumber() {
+        let tabId = UUID()
+        let notification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Claude Code",
+            paneId: UUID(),
+            tabId: tabId,
+            tabDisplayLabel: "askluna",
+            tabOrdinal: 1,
+            paneDisplayLabel: "Ready (askluna)",
+            paneOrdinal: 2
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [notification],
+            grouping: .byTab,
+            sort: .oldestFirst,
+            searchText: ""
+        )
+
+        #expect(model.sections.first?.header?.title == "askluna")
+        #expect(model.sections.first?.header?.secondaryTitle == "Tab 1")
+    }
+
+    @Test("by pane group headers use pane display label with pane number secondary text")
+    func byPaneGroupHeadersUsePaneDisplayLabelWithPaneNumber() {
+        let paneId = UUID()
+        let notification = makeInboxNotification(
+            timestamp: Date(timeIntervalSince1970: 100),
+            title: "Claude Code",
+            paneId: paneId,
+            tabDisplayLabel: "askluna",
+            tabOrdinal: 1,
+            paneDisplayLabel: "Ready (askluna)",
+            paneOrdinal: 2
+        )
+
+        let model = InboxNotificationListModel(
+            notifications: [notification],
+            grouping: .byPane,
+            sort: .oldestFirst,
+            searchText: ""
+        )
+
+        #expect(model.sections.first?.header?.title == "Ready (askluna)")
+        #expect(model.sections.first?.header?.secondaryTitle == "Pane 2")
     }
 
     @Test("search uses source display text")

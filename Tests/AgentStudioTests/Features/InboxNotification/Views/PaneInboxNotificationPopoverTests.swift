@@ -374,7 +374,7 @@ struct PaneInboxNotificationPopoverTests {
     @Test("pane inbox row uses same metadata leading alignment as global inbox")
     func paneInboxRowUsesSameMetadataLeadingAlignmentAsGlobalInbox() {
         #expect(PaneInboxNotificationPopover.rowChromePolicy == .sidebarRowShell)
-        #expect(InboxRow.usesReservedMetadataIconColumn)
+        #expect(InboxRow.metadataLine(text: "Pane").reservesIconColumn == false)
     }
 
     private func makeNotification(

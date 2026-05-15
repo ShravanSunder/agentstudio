@@ -133,16 +133,18 @@ struct InboxNotificationListModel: Equatable {
         grouping: InboxNotificationGrouping,
         sort: InboxNotificationSort,
         searchText: String,
+        unreadOnly: Bool = false,
         filter: InboxFilter? = nil,
         collapsedGroups: Set<InboxNotificationGroupKey> = [],
         repoPresentation: (UUID?) -> InboxNotificationRepoGroupPresentation? = { _ in nil }
     ) {
         let sortedNotifications = Self.sortNotifications(notifications, sort: sort)
-        let sourceFilteredNotifications = Self.filterNotifications(
+        let filteredNotifications = Self.filterNotifications(
             sortedNotifications,
+            unreadOnly: unreadOnly,
             filter: filter
         )
-        let sourceItems = sourceFilteredNotifications.map(InboxNotificationListItem.init)
+        let sourceItems = filteredNotifications.map(InboxNotificationListItem.init)
         let textFilteredItems = Self.filterItems(
             sourceItems,
             searchText: searchText
@@ -210,11 +212,13 @@ struct InboxNotificationListModel: Equatable {
 
     private static func filterNotifications(
         _ notifications: [InboxNotification],
+        unreadOnly: Bool,
         filter: InboxFilter?
     ) -> [InboxNotification] {
-        guard let filter else { return notifications }
-        return notifications.filter {
-            filter.matches(worktreeId: $0.worktreeId, repoId: $0.repoId)
+        notifications.filter { notification in
+            if unreadOnly, notification.isRead { return false }
+            guard let filter else { return true }
+            return filter.matches(worktreeId: notification.worktreeId, repoId: notification.repoId)
         }
     }
 
@@ -303,9 +307,10 @@ struct InboxNotificationListModel: Equatable {
                     paneGroupingKey(for: item.notification)
                 },
                 header: { _, items in
-                    .sourceGroup(
-                        title: bestGroupLabel(for: items, grouping: .byPane, placeholder: "Other panes"),
-                        secondaryTitle: nil,
+                    let headerText = bestGroupHeaderText(for: items, grouping: .byPane, placeholder: "Other panes")
+                    return .sourceGroup(
+                        title: headerText.primary,
+                        secondaryTitle: headerText.secondary,
                         sourceKind: .pane,
                         accentColorHex: nil
                     )
@@ -321,9 +326,10 @@ struct InboxNotificationListModel: Equatable {
                     return .tab(id: tabId)
                 },
                 header: { _, items in
-                    .sourceGroup(
-                        title: bestGroupLabel(for: items, grouping: .byTab, placeholder: "Untitled Tab"),
-                        secondaryTitle: nil,
+                    let headerText = bestGroupHeaderText(for: items, grouping: .byTab, placeholder: "Untitled Tab")
+                    return .sourceGroup(
+                        title: headerText.primary,
+                        secondaryTitle: headerText.secondary,
                         sourceKind: .tab,
                         accentColorHex: nil
                     )
@@ -372,20 +378,28 @@ struct InboxNotificationListModel: Equatable {
         grouping: InboxNotificationGrouping,
         placeholder: String
     ) -> String {
+        bestGroupHeaderText(for: items, grouping: grouping, placeholder: placeholder).primary
+    }
+
+    private static func bestGroupHeaderText(
+        for items: [InboxNotificationListItem],
+        grouping: InboxNotificationGrouping,
+        placeholder: String
+    ) -> InboxNotificationSourceDisplay.GroupHeaderText {
         items
             .lazy
-            .compactMap { item -> (timestamp: Date, label: String)? in
+            .compactMap { item -> (timestamp: Date, text: InboxNotificationSourceDisplay.GroupHeaderText)? in
                 guard
-                    let label = item.sourceDisplay.groupLabel(for: grouping),
-                    !label.isEmpty,
-                    label != placeholder
+                    let text = item.sourceDisplay.groupHeaderText(for: grouping),
+                    !text.primary.isEmpty,
+                    text.primary != placeholder
                 else {
                     return nil
                 }
-                return (timestamp: item.notification.timestamp, label: label)
+                return (timestamp: item.notification.timestamp, text: text)
             }
             .max { left, right in left.timestamp < right.timestamp }?
-            .label ?? placeholder
+            .text ?? .init(primary: placeholder, secondary: nil)
     }
 }
 

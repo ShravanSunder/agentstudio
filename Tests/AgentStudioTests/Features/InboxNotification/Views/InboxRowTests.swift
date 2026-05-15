@@ -6,11 +6,6 @@ import Testing
 @MainActor
 @Suite("InboxRow")
 struct InboxRowTests {
-    @Test("row reserves the shared sidebar leading column")
-    func rowReservesSharedSidebarLeadingColumn() {
-        #expect(InboxRow.leadingIndicatorColumnWidth == AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth)
-    }
-
     @Test("row renders metadata with the shared sidebar line primitive")
     func rowRendersMetadataWithSharedSidebarLinePrimitive() {
         let sourceLine = InboxRow.metadataLine(text: "askluna · askluna")
@@ -19,7 +14,7 @@ struct InboxRowTests {
             text: "Tab Terminal · Pane project-dev",
             prominence: .secondary
         )
-        let detailLine = InboxRow.metadataLine(text: "Output appeared while you were away", prominence: .tertiary)
+        let detailLine = InboxRow.metadataLine(text: "3 files changed", prominence: .tertiary)
 
         #expect(String(describing: type(of: sourceLine)) == "SidebarMetadataLine")
         #expect(sourceLine.iconSystemName == nil)
@@ -28,13 +23,18 @@ struct InboxRowTests {
         #expect(placementLine.iconSystemName == nil)
         #expect(placementLine.text == "Tab Terminal · Pane project-dev")
         #expect(placementLine.prominence == .secondary)
-        #expect(detailLine.text == "Output appeared while you were away")
+        #expect(detailLine.text == "3 files changed")
         #expect(detailLine.prominence == .tertiary)
     }
 
-    @Test("placement metadata keeps reserved title column without terminal leading icon")
-    func placementMetadataKeepsReservedTitleColumnWithoutTerminalLeadingIcon() {
+    @Test("placement metadata removes the unread indicator column")
+    func placementMetadataRemovesUnreadIndicatorColumn() {
         #expect(InboxRow.placementMetadataIconSystemName == nil)
-        #expect(InboxRow.usesReservedMetadataIconColumn)
+        #expect(InboxRow.metadataLine(text: "askluna").reservesIconColumn == false)
+    }
+
+    @Test("unread only control uses a message badge icon")
+    func unreadOnlyControlUsesMessageBadgeIcon() {
+        #expect(InboxSidebarHeader.unreadOnlyIconName == "envelope.badge")
     }
 }

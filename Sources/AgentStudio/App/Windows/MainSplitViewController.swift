@@ -145,8 +145,8 @@ class MainSplitViewController: NSSplitViewController {
         self.sidebarHostingController = sidebarHosting
 
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarHosting)
-        sidebarItem.minimumThickness = 200
-        sidebarItem.maximumThickness = 400
+        sidebarItem.minimumThickness = 250
+        sidebarItem.maximumThickness = 450
         sidebarItem.canCollapse = true
         sidebarItem.collapseBehavior = NSSplitViewItem.CollapseBehavior.preferResizingSiblingsWithFixedSplitView
         addSplitViewItem(sidebarItem)
@@ -396,15 +396,9 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     func showSidebarFilter() {
-        // Why: until inbox has its own search affordance, ⌘F should preserve the
-        // current surface instead of silently flipping the user back to repos.
+        // Contract: the sidebar filter command focuses the always-visible repo search
+        // without silently flipping the user out of another sidebar surface.
         guard uiState.sidebarSurface == .repos else { return }
-        if uiState.isFilterVisible {
-            uiState.setFilterVisible(false)
-            refocusActivePane()
-            return
-        }
-
         expandSidebar()
         uiState.setFilterVisible(true)
     }

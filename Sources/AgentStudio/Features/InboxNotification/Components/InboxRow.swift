@@ -4,28 +4,26 @@ struct InboxRow: View {
     let notification: InboxNotification
     let now: Date
     let rowContext: InboxNotificationSourceDisplay.RowContext
-
-    static var leadingIndicatorColumnWidth: CGFloat {
-        AppStyles.Shell.Sidebar.rowLeadingIconColumnWidth
-    }
+    var grouping: InboxNotificationGrouping = .none
 
     static let placementMetadataIconSystemName: String? = nil
-    static let usesReservedMetadataIconColumn = true
 
     static func metadataLine(
         iconSystemName: String? = nil,
         text: String,
         prominence: SidebarMetadataProminence = .secondary
     ) -> SidebarMetadataLine {
-        SidebarMetadataLine(iconSystemName: iconSystemName, text: text, prominence: prominence)
+        SidebarMetadataLine(
+            iconSystemName: iconSystemName,
+            reservesIconColumn: false,
+            text: text,
+            prominence: prominence
+        )
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
             HStack(spacing: AppStyles.General.Spacing.tight) {
-                unreadIndicator
-                    .frame(width: Self.leadingIndicatorColumnWidth, alignment: .leading)
-
                 Text(display.primaryText)
                     .font(
                         .system(
@@ -39,14 +37,7 @@ struct InboxRow: View {
 
                 Spacer(minLength: AppStyles.General.Spacing.standard)
 
-                Text(relativeTime)
-                    .font(
-                        .system(
-                            size: AppStyles.Shell.Sidebar.notificationRowTimestampSize,
-                            weight: .semibold
-                        )
-                    )
-                    .foregroundStyle(.secondary)
+                timestampCluster
             }
 
             Self.metadataLine(text: display.sourceLine)
@@ -66,21 +57,30 @@ struct InboxRow: View {
     }
 
     @ViewBuilder
-    private var unreadIndicator: some View {
-        if notification.isRead {
-            Color.clear
-        } else {
-            Circle()
-                .fill(.red)
-                .frame(
-                    width: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize,
-                    height: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize
+    private var timestampCluster: some View {
+        HStack(spacing: AppStyles.General.Spacing.tight) {
+            if !notification.isRead {
+                Circle()
+                    .fill(.red)
+                    .frame(
+                        width: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize,
+                        height: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize
+                    )
+            }
+
+            Text(relativeTime)
+                .font(
+                    .system(
+                        size: AppStyles.Shell.Sidebar.notificationRowTimestampSize,
+                        weight: .semibold
+                    )
                 )
+                .foregroundStyle(.secondary)
         }
     }
 
     private var display: InboxNotificationSourceDisplay {
-        InboxNotificationSourceDisplay(notification: notification, rowContext: rowContext)
+        InboxNotificationSourceDisplay(notification: notification, rowContext: rowContext, grouping: grouping)
     }
 
     private var relativeTime: String {

@@ -3,8 +3,11 @@ import SwiftUI
 struct InboxSidebarActions {
     let onEscape: @MainActor @Sendable () -> Void
     let onToggleSort: () -> Void
+    let onToggleUnreadOnly: () -> Void
     let onClearFilter: @MainActor @Sendable () -> Void
     let onClearReadHistory: @MainActor @Sendable () -> Void
+    let onClearUnreadHistory: @MainActor @Sendable () -> Void
+    let onClearAllHistory: @MainActor @Sendable () -> Void
     let onSelectGrouping: (InboxNotificationGrouping) -> Void
     let onToggleGroupCollapse: (String) -> Void
     let onMoveGroupBoundary: (InboxNotificationListNavigationDirection) -> Bool
@@ -18,6 +21,7 @@ struct InboxSidebarRootContainer: View {
     @Binding var searchText: String
     let activeFilter: InboxFilter?
     let activeFilterLabel: String?
+    let unreadOnly: Bool
     let sort: InboxNotificationSort
     @Binding var groupingMenuOpen: Bool
     let grouping: InboxNotificationGrouping
@@ -76,6 +80,7 @@ struct InboxSidebarRootContainer: View {
                 searchText: $searchText,
                 activeFilter: activeFilter,
                 activeFilterLabel: activeFilterLabel,
+                unreadOnly: unreadOnly,
                 sort: sort,
                 groupingMenuOpen: $groupingMenuOpen,
                 grouping: grouping,
@@ -101,6 +106,7 @@ struct InboxSidebarHeader: View {
     @Binding var searchText: String
     let activeFilter: InboxFilter?
     let activeFilterLabel: String?
+    let unreadOnly: Bool
     let sort: InboxNotificationSort
     @Binding var groupingMenuOpen: Bool
     let grouping: InboxNotificationGrouping
@@ -108,6 +114,7 @@ struct InboxSidebarHeader: View {
     let actions: InboxSidebarActions
     static let sortIconName = "arrow.up.arrow.down.circle"
     static let groupIconName = "square.stack.3d.up"
+    static let unreadOnlyIconName = "envelope.badge"
     static let filterIconName = "line.3.horizontal.decrease.circle"
     private let clearReadInboxSpec = AppCommand.clearReadInboxNotifications.definition
 
@@ -136,6 +143,13 @@ struct InboxSidebarHeader: View {
                 .buttonStyle(.borderless)
                 .help("Toggle inbox sort")
 
+                Button(action: actions.onToggleUnreadOnly) {
+                    Image(systemName: Self.unreadOnlyIconName)
+                }
+                .buttonStyle(.borderless)
+                .foregroundStyle(unreadOnly ? Color.accentColor : Color.secondary)
+                .help(unreadOnly ? "Show all inbox notifications" : "Show unread only")
+
                 Button {
                     groupingMenuOpen.toggle()
                 } label: {
@@ -162,22 +176,20 @@ struct InboxSidebarHeader: View {
                     .padding(8)
                 }
 
-                Button(action: actions.onClearReadHistory) {
+                Menu {
+                    Button("Delete Read", action: actions.onClearReadHistory)
+                    Button("Delete Unread", action: actions.onClearUnreadHistory)
+                    Divider()
+                    Button("Delete All", role: .destructive, action: actions.onClearAllHistory)
+                } label: {
                     clearReadInboxSpec.icon.swiftUIImage()
                 }
-                .buttonStyle(.borderless)
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .accessibilityElement(children: .ignore)
-                .accessibilityLabel(clearReadInboxSpec.label)
-                .accessibilityIdentifier("inboxSidebarClearButton")
-                .accessibilityHidden(true)
+                .accessibilityLabel("Delete inbox notifications")
+                .accessibilityIdentifier("inboxSidebarDeleteMenu")
                 .help(clearReadInboxSpec.controlToolTip)
-                .background(
-                    AccessibilityPressBridge(
-                        identifier: "inboxSidebarClearButton",
-                        label: clearReadInboxSpec.label,
-                        action: actions.onClearReadHistory
-                    )
-                )
             }
 
             if let activeFilter {
@@ -277,6 +289,7 @@ struct InboxSidebarContent: View {
                                 now: context.date,
                                 focusedField: focusedField,
                                 isFlashing: flashingRowIds.contains(notification.id),
+                                grouping: grouping,
                                 actions: actions
                             )
                             .listRowInsets(
@@ -312,6 +325,7 @@ struct InboxSidebarNotificationRow: View {
     let now: Date
     let focusedField: FocusState<InboxFocus?>.Binding
     let isFlashing: Bool
+    let grouping: InboxNotificationGrouping
     let actions: InboxSidebarActions
     static let rowChromePolicy = SidebarRowShell<InboxRow>.chromePolicy
     @State private var isHovering = false
@@ -324,7 +338,8 @@ struct InboxSidebarNotificationRow: View {
             InboxRow(
                 notification: notification,
                 now: now,
-                rowContext: .globalInbox
+                rowContext: .globalInbox,
+                grouping: grouping
             )
         }
         .focused(focusedField, equals: .row(notification.id))

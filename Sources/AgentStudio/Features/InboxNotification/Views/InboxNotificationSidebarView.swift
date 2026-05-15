@@ -13,6 +13,7 @@ private struct InboxNotificationListModelKey: Equatable {
     let sort: InboxNotificationSort
     let searchText: String
     let filter: InboxFilter?
+    let unreadOnly: Bool
     let collapsedGroups: Set<InboxNotificationGroupKey>
     let repoPresentationFingerprint: String
 }
@@ -40,6 +41,7 @@ struct InboxNotificationSidebarView: View {
     @State private var groupingMenuOpen = false
     @State private var flashingRowIds: Set<UUID> = []
     @State private var activeFilter: InboxFilter?
+    @State private var unreadOnly = false
     @FocusState private var focusedField: InboxFocus?
 
     private let flashClock = ContinuousClock()
@@ -77,6 +79,7 @@ struct InboxNotificationSidebarView: View {
             sort: prefsAtom.sort,
             searchText: "",
             filter: nil,
+            unreadOnly: false,
             collapsedGroups: sidebarCache.collapsedInboxGroups,
             repoPresentationFingerprint: Self.repoPresentationFingerprint(
                 initialRepoPresentationByRepoId
@@ -89,6 +92,7 @@ struct InboxNotificationSidebarView: View {
                 grouping: prefsAtom.grouping,
                 sort: prefsAtom.sort,
                 searchText: "",
+                unreadOnly: false,
                 filter: nil,
                 collapsedGroups: sidebarCache.collapsedInboxGroups,
                 repoPresentation: { repoId in
@@ -105,6 +109,7 @@ struct InboxNotificationSidebarView: View {
             searchText: $searchText,
             activeFilter: activeFilter,
             activeFilterLabel: activeFilterLabel,
+            unreadOnly: unreadOnly,
             sort: prefsAtom.sort,
             groupingMenuOpen: $groupingMenuOpen,
             grouping: prefsAtom.grouping,
@@ -114,8 +119,11 @@ struct InboxNotificationSidebarView: View {
             actions: .init(
                 onEscape: handleEscape,
                 onToggleSort: toggleSort,
+                onToggleUnreadOnly: { unreadOnly.toggle() },
                 onClearFilter: clearFilter,
                 onClearReadHistory: clearReadInboxNotifications,
+                onClearUnreadHistory: { inboxAtom.clearUnreadHistory() },
+                onClearAllHistory: { inboxAtom.clearAll() },
                 onSelectGrouping: { prefsAtom.setGrouping($0) },
                 onToggleGroupCollapse: toggleGroupCollapse,
                 onMoveGroupBoundary: moveFocusToGroupBoundary,
@@ -129,6 +137,7 @@ struct InboxNotificationSidebarView: View {
         .onChange(of: prefsAtom.sort) { _, _ in refreshListModel() }
         .onChange(of: searchText) { _, _ in refreshListModel() }
         .onChange(of: activeFilter) { _, _ in refreshListModel() }
+        .onChange(of: unreadOnly) { _, _ in refreshListModel() }
         .onChange(of: sidebarCache.collapsedInboxGroups) { _, _ in refreshListModel() }
         .onChange(of: repoPresentationFingerprint) { _, _ in refreshListModel() }
         .onChange(of: inboxFilterDraft.pendingFilter) { _, _ in
@@ -189,6 +198,7 @@ struct InboxNotificationSidebarView: View {
             sort: prefsAtom.sort,
             searchText: searchText,
             filter: activeFilter,
+            unreadOnly: unreadOnly,
             collapsedGroups: sidebarCache.collapsedInboxGroups,
             repoPresentationFingerprint: Self.repoPresentationFingerprint(resolvedRepoPresentationByRepoId)
         )
@@ -199,6 +209,7 @@ struct InboxNotificationSidebarView: View {
             grouping: key.grouping,
             sort: key.sort,
             searchText: key.searchText,
+            unreadOnly: key.unreadOnly,
             filter: key.filter,
             collapsedGroups: key.collapsedGroups,
             repoPresentation: { repoId in
