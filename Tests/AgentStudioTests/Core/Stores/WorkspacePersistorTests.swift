@@ -726,7 +726,9 @@ final class WorkspacePersistorTests {
         try Data(json.utf8).write(to: uiURL, options: .atomic)
 
         // Act & Assert — UI composition fields default without corrupting the whole file.
-        #expect(persistor.loadUI(for: workspaceId).value?.showMinimizedBars == true)
+        let loaded = persistor.loadUI(for: workspaceId).value
+        #expect(loaded?.sidebarCollapsed == false)
+        #expect(loaded?.sidebarSurface == .repos)
     }
 
     @Test
@@ -750,7 +752,6 @@ final class WorkspacePersistorTests {
 
         #expect(loaded?.filterText.isEmpty == true)
         #expect(loaded?.isFilterVisible == false)
-        #expect(loaded?.showMinimizedBars == false)
         #expect(loaded?.sidebarCollapsed == true)
         #expect(loaded?.sidebarSurface == .inbox)
     }

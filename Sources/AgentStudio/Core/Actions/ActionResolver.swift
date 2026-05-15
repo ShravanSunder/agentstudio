@@ -162,30 +162,22 @@ enum WorkspaceCommandResolver {
 
         switch payload.kind {
         case .existingTab(let tabId):
-            // Look up source tab by ID
-            guard let sourceTab = state.tab(tabId) else { return nil }
-
-            if sourceTab.isSplit {
-                // Multi-pane tab: merge entire tab into target
-                return .mergeTab(
-                    sourceTabId: tabId,
-                    targetTabId: destinationTabId,
-                    targetPaneId: destinationPaneId,
-                    direction: direction
-                )
-            } else {
-                // Single pane: move individual pane
-                guard let firstPaneId = sourceTab.visiblePaneIds.first else { return nil }
-                return .insertPane(
-                    source: .existingPane(paneId: firstPaneId, sourceTabId: tabId),
-                    targetTabId: destinationTabId,
-                    targetPaneId: destinationPaneId,
-                    direction: direction,
-                    sizingMode: sizingMode
-                )
-            }
+            RestoreTrace.log("WorkspaceCommandResolver rejected tab payload for split drop tab=\(tabId)")
+            return nil
 
         case .existingPane(let paneId, let sourceTabId):
+            if sourceTabId != destinationTabId {
+                return .movePaneAcrossTabs(
+                    CrossTabPaneMoveRequest(
+                        paneId: paneId,
+                        sourceTabId: sourceTabId,
+                        destTabId: destinationTabId,
+                        targetPaneId: destinationPaneId,
+                        direction: layoutDirection(for: direction),
+                        position: layoutPosition(for: direction)
+                    )
+                )
+            }
             return .insertPane(
                 source: .existingPane(paneId: paneId, sourceTabId: sourceTabId),
                 targetTabId: destinationTabId,
@@ -291,6 +283,24 @@ enum WorkspaceCommandResolver {
         switch zone {
         case .left: return .left
         case .right: return .right
+        }
+    }
+
+    private static func layoutDirection(for direction: SplitNewDirection) -> Layout.SplitDirection {
+        switch direction {
+        case .left, .right:
+            return .horizontal
+        case .up, .down:
+            return .vertical
+        }
+    }
+
+    private static func layoutPosition(for direction: SplitNewDirection) -> Layout.Position {
+        switch direction {
+        case .left, .up:
+            return .before
+        case .right, .down:
+            return .after
         }
     }
 }

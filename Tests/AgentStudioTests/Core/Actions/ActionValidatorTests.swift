@@ -467,6 +467,38 @@ final class WorkspaceCommandValidatorTests {
         Issue.record("Expected singlePaneTab error")
     }
 
+    // MARK: - reorderTab
+
+    @Test
+
+    func test_reorderTab_validIndex_succeeds() {
+        let (firstTab, firstTabId, _) = makeSinglePaneTab()
+        let (secondTab, _, _) = makeSinglePaneTab()
+        let snapshot = makeSnapshot(tabs: [firstTab, secondTab])
+
+        let result = WorkspaceCommandValidator.validate(
+            .reorderTab(tabId: firstTabId, newIndex: 1),
+            state: snapshot
+        )
+
+        #expect((try? result.get()) != nil)
+    }
+
+    @Test
+
+    func test_reorderTab_outOfRange_fails() {
+        let (tab, tabId, _) = makeSinglePaneTab()
+        let snapshot = makeSnapshot(tabs: [tab])
+
+        let result = WorkspaceCommandValidator.validate(
+            .reorderTab(tabId: tabId, newIndex: 1),
+            state: snapshot
+        )
+
+        if case .failure(.tabReorderIndexOutOfRange(index: 1)) = result { return }
+        Issue.record("Expected tabReorderIndexOutOfRange error")
+    }
+
     // MARK: - insertPane (self-insertion bug fix)
 
     @Test

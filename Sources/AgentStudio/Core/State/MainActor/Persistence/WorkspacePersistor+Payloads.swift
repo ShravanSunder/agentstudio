@@ -302,7 +302,6 @@ extension WorkspacePersistor {
         var workspaceId: UUID
         var filterText: String
         var isFilterVisible: Bool
-        var showMinimizedBars: Bool
         var sidebarCollapsed: Bool
         var sidebarSurface: SidebarSurface
         var editorChooserState: PersistedEditorChooserState
@@ -311,7 +310,6 @@ extension WorkspacePersistor {
             workspaceId: UUID,
             filterText: String = "",
             isFilterVisible: Bool = false,
-            showMinimizedBars: Bool = true,
             sidebarCollapsed: Bool = false,
             sidebarSurface: SidebarSurface = .repos,
             editorChooserState: PersistedEditorChooserState = .init()
@@ -320,7 +318,6 @@ extension WorkspacePersistor {
             self.workspaceId = workspaceId
             self.filterText = filterText
             self.isFilterVisible = isFilterVisible
-            self.showMinimizedBars = showMinimizedBars
             self.sidebarCollapsed = sidebarCollapsed
             self.sidebarSurface = sidebarSurface
             self.editorChooserState = editorChooserState
@@ -331,7 +328,6 @@ extension WorkspacePersistor {
             case workspaceId
             case filterText
             case isFilterVisible
-            case showMinimizedBars
             case sidebarCollapsed
             case sidebarSurface
             case editorChooserState
@@ -367,14 +363,6 @@ extension WorkspacePersistor {
                 schemaVersion: schemaVersion,
                 payloadName: "PersistableUIState",
                 default: false
-            )
-            self.showMinimizedBars = decodeRecoverableField(
-                Bool.self,
-                from: container,
-                forKey: .showMinimizedBars,
-                schemaVersion: schemaVersion,
-                payloadName: "PersistableUIState",
-                default: true
             )
             self.sidebarCollapsed = decodeRecoverableField(
                 Bool.self,

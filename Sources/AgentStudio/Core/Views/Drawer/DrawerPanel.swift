@@ -50,6 +50,7 @@ struct DrawerPanel: View {
     let tabId: UUID
     let activeChildId: UUID?
     let minimizedPaneIds: Set<UUID>
+    let showsMinimizedPanes: Bool
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let height: CGFloat
     let store: WorkspaceStore
@@ -87,6 +88,7 @@ struct DrawerPanel: View {
         tabId: UUID,
         activeChildId: UUID?,
         minimizedPaneIds: Set<UUID>,
+        showsMinimizedPanes: Bool,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         height: CGFloat,
         store: WorkspaceStore,
@@ -107,6 +109,7 @@ struct DrawerPanel: View {
         self.tabId = tabId
         self.activeChildId = activeChildId
         self.minimizedPaneIds = minimizedPaneIds
+        self.showsMinimizedPanes = showsMinimizedPanes
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.height = height
         self.store = store
@@ -169,7 +172,7 @@ struct DrawerPanel: View {
             tabId: tabId,
             activePaneId: activeChildId,
             minimizedPaneIds: minimizedPaneIds,
-            collapsedPaneWidth: CollapsedPaneBar.barWidth,
+            collapsedPaneWidth: managementLayer.isActive || showsMinimizedPanes ? CollapsedPaneBar.barWidth : 0,
             onSaveArrangement: nil,
             closeTransitionCoordinator: closeTransitionCoordinator,
             actionDispatcher: drawerActionDispatcher,
@@ -218,6 +221,41 @@ struct DrawerPanel: View {
         .help(LocalActionSpec.addDrawerTerminal.actionSpec.helpText)
     }
 
+    @ViewBuilder
+    private var drawerHeader: some View {
+        HStack(spacing: AppStyles.General.Spacing.standard) {
+            Spacer()
+
+            Text("Show minimized panes")
+                .font(.system(size: AppStyles.General.Typography.textXs))
+                .foregroundStyle(.secondary)
+
+            let minimizedCount = minimizedPaneIds.count
+            if minimizedCount > 0 {
+                Text("\(minimizedCount)")
+                    .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, AppStyles.General.Spacing.tight)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(Color.white.opacity(AppStyles.General.Fill.hover)))
+                    .fixedSize()
+            }
+
+            Toggle(
+                "",
+                isOn: Binding(
+                    get: { showsMinimizedPanes },
+                    set: { action(.setShowsMinimizedDrawerPanes(parentPaneId: parentPaneId, value: $0)) }
+                )
+            )
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .labelsHidden()
+        }
+        .padding(.horizontal, DrawerLayout.panelContentPadding)
+        .padding(.bottom, AppStyles.General.Spacing.tight)
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let containerBounds = CGRect(origin: .zero, size: geometry.size)
@@ -227,6 +265,8 @@ struct DrawerPanel: View {
                     DrawerResizeHandle(onDrag: onResize)
 
                     if !layout.isEmpty {
+                        drawerHeader
+
                         // Row-to-row spacing matches horizontal pane gap so the
                         // grid reads as a uniform 2x2 arrangement instead of
                         // two visually separate strips.
@@ -325,6 +365,7 @@ private struct DrawerSurfaceRegistrationModifier: ViewModifier {
                     tabId: UUID(),
                     activeChildId: nil,
                     minimizedPaneIds: [],
+                    showsMinimizedPanes: true,
                     closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
                     height: 200,
                     store: WorkspaceStore(

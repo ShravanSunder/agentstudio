@@ -504,7 +504,10 @@ final class PaneTests {
             isExpanded: true
         )
         let currentJSON = try #require(String(data: try encoder.encode(drawer), encoding: .utf8))
-        let legacyJSON = currentJSON.replacingOccurrences(of: "activeChildId", with: "activePaneId")
+        let legacyJSON = currentJSON.replacingOccurrences(
+            of: "\"isExpanded\"",
+            with: "\"activePaneId\":\"\(id.uuidString)\",\"isExpanded\""
+        )
 
         #expect(throws: DecodingError.self) {
             try decoder.decode(Drawer.self, from: Data(legacyJSON.utf8))

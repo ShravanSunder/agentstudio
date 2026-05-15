@@ -269,12 +269,15 @@ final class PaneDropPlannerTests {
             result
                 == .eligible(
                     .paneAction(
-                        .insertPane(
-                            source: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
-                            targetTabId: targetTabId,
-                            targetPaneId: targetPaneId,
-                            direction: .right,
-                            sizingMode: .halveTarget
+                        .movePaneAcrossTabs(
+                            CrossTabPaneMoveRequest(
+                                paneId: sourcePaneId,
+                                sourceTabId: sourceTabId,
+                                destTabId: targetTabId,
+                                targetPaneId: targetPaneId,
+                                direction: .horizontal,
+                                position: .after
+                            )
                         )
                     )
                 )
@@ -379,7 +382,7 @@ final class PaneDropPlannerTests {
     }
 
     @Test
-    func selfMerge_split_returnsIneligible() {
+    func tabPayload_split_returnsIneligible() {
         let tabId = UUID()
         let paneA = UUID()
         let paneB = UUID()
@@ -404,7 +407,7 @@ final class PaneDropPlannerTests {
             state: state
         )
 
-        #expect(result.isIneligible)
+        #expect(result == .ineligible(.unresolvedDrop))
     }
 
     @Test

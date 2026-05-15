@@ -7,6 +7,8 @@ struct FlatTabStripContainer: View {
     let activePaneId: UUID?
     let zoomedPaneId: UUID?
     let minimizedPaneIds: Set<UUID>
+    let visiblePaneIds: [UUID]?
+    let showsMinimizedPanes: Bool
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
@@ -41,6 +43,8 @@ struct FlatTabStripContainer: View {
         activePaneId: UUID?,
         zoomedPaneId: UUID?,
         minimizedPaneIds: Set<UUID>,
+        visiblePaneIds: [UUID]? = nil,
+        showsMinimizedPanes: Bool = true,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
@@ -56,6 +60,8 @@ struct FlatTabStripContainer: View {
         self.activePaneId = activePaneId
         self.zoomedPaneId = zoomedPaneId
         self.minimizedPaneIds = minimizedPaneIds
+        self.visiblePaneIds = visiblePaneIds
+        self.showsMinimizedPanes = showsMinimizedPanes
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
         self.onPaneFocusTrigger = onPaneFocusTrigger
@@ -87,8 +93,13 @@ struct FlatTabStripContainer: View {
         GeometryReader { tabGeometry in
             let containerBounds = CGRect(origin: .zero, size: tabGeometry.size)
             let isInactivePersistentTab = store.tabLayoutAtom.activeTabId != tabId
-            let showMinimizedBars = managementLayer.isActive || atom(\.uiState).showMinimizedBars
-            let effectiveCollapsedWidth: CGFloat = showMinimizedBars ? CollapsedPaneBar.barWidth : 0
+            let rendersMinimizedBars = managementLayer.isActive || showsMinimizedPanes
+            let effectiveCollapsedWidth: CGFloat = rendersMinimizedBars ? CollapsedPaneBar.barWidth : 0
+            let effectiveVisiblePaneIds =
+                visiblePaneIds
+                ?? layout.paneIds.filter { paneId in
+                    !minimizedPaneIds.contains(paneId) || rendersMinimizedBars
+                }
             let expandedDrawerParentPaneId = DrawerDragOwnershipPolicy.expandedDrawerParentPaneId(
                 tabId: tabId,
                 tabLayoutAtom: store.tabLayoutAtom,
@@ -110,10 +121,12 @@ struct FlatTabStripContainer: View {
                 if let zoomedPaneId {
                     return [zoomedPaneId]
                 }
-                if metrics.allMinimized {
-                    return showMinimizedBars ? Set(layout.paneIds) : []
+                if effectiveVisiblePaneIds.isEmpty {
+                    return []
+                } else if metrics.allMinimized {
+                    return rendersMinimizedBars ? Set(layout.paneIds) : []
                 }
-                return Set(metrics.paneSegments.map(\.paneId))
+                return Set(effectiveVisiblePaneIds)
             }()
             let closingPaneIds = closeTransitionCoordinator.closingPaneIds
 
@@ -134,8 +147,10 @@ struct FlatTabStripContainer: View {
                             .padding(AppStyles.General.Spacing.loose)
                             .allowsHitTesting(false)
                     }
+                } else if effectiveVisiblePaneIds.isEmpty {
+                    EmptyArrangementPlaceholderView()
                 } else if metrics.allMinimized {
-                    if showMinimizedBars {
+                    if rendersMinimizedBars {
                         HStack(spacing: 0) {
                             ForEach(layout.paneIds, id: \.self) { paneId in
                                 CollapsedPaneBar(
@@ -277,7 +292,10 @@ struct FlatTabStripContainer: View {
                 stopDrawerDropTargetMouseUpMonitor()
             }
         }
-        .animation(.easeOut(duration: AppStyles.General.Animation.standard), value: atom(\.uiState).showMinimizedBars)
+        .animation(
+            .easeOut(duration: AppStyles.General.Animation.standard),
+            value: managementLayer.isActive || showsMinimizedPanes
+        )
         .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: managementLayer.isActive)
         .coordinateSpace(name: "tabContainer")
     }

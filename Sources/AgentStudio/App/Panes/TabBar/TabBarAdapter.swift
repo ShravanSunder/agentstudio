@@ -14,6 +14,7 @@ struct TabBarItem: Identifiable, Equatable {
     var panes: [PaneVisibilityInfo]
     var arrangements: [ArrangementInfo]
     var minimizedCount: Int
+    var showsMinimizedPanes: Bool
 }
 
 /// Derives tab bar display state from the workspace atoms.
@@ -162,7 +163,8 @@ final class TabBarAdapter {
                 arrangementCount: tab.arrangements.count,
                 panes: paneInfos,
                 arrangements: arrangementInfos,
-                minimizedCount: tab.activeMinimizedPaneIds.count
+                minimizedCount: tab.activeMinimizedPaneIds.count,
+                showsMinimizedPanes: activeArrangement.showsMinimizedPanes
             )
         }
 

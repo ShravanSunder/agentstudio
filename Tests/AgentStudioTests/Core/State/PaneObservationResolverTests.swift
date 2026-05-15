@@ -19,7 +19,10 @@ struct PaneObservationResolverTests {
 
         let resolved = PaneObservationResolver.currentAttendedPaneId(
             attendedPaneId: parentId,
-            pane: { panes[$0] }
+            pane: { panes[$0] },
+            drawerView: { _ in
+                DrawerView(layout: DrawerGridLayout(topRow: Layout(paneId: childId)), activeChildId: childId)
+            }
         )
 
         #expect(resolved == childId)
@@ -27,7 +30,10 @@ struct PaneObservationResolverTests {
             PaneObservationResolver.isPaneCurrentlyAttended(
                 paneId: childId,
                 attendedPaneId: parentId,
-                pane: { panes[$0] }
+                pane: { panes[$0] },
+                drawerView: { _ in
+                    DrawerView(layout: DrawerGridLayout(topRow: Layout(paneId: childId)), activeChildId: childId)
+                }
             )
         )
     }
@@ -51,7 +57,14 @@ struct PaneObservationResolverTests {
 
         let resolved = PaneObservationResolver.currentAttendedPaneId(
             attendedPaneId: parentId,
-            pane: { panes[$0] }
+            pane: { panes[$0] },
+            drawerView: { _ in
+                DrawerView(
+                    layout: DrawerGridLayout(topRow: Layout(paneId: childId)),
+                    activeChildId: childId,
+                    minimizedPaneIds: [childId]
+                )
+            }
         )
 
         #expect(resolved == nil)
@@ -75,7 +88,10 @@ struct PaneObservationResolverTests {
         let observedPaneIds = PaneObservationResolver.currentObservedPaneIds(
             attendedPaneId: parentId,
             activeTab: tab,
-            pane: { panes[$0] }
+            pane: { panes[$0] },
+            drawerView: { _ in
+                DrawerView(layout: DrawerGridLayout(topRow: Layout(paneId: childId)), activeChildId: childId)
+            }
         )
 
         #expect(observedPaneIds == Set([childId, siblingId]))

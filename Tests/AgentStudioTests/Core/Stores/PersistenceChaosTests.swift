@@ -103,7 +103,7 @@ struct PersistenceChaosTests {
                         {"schemaVersion":1,"workspaceId":"\(workspaceId.uuidString)"}
                         """,
                     sliceTypeErrorJSON: """
-                        {"schemaVersion":1,"workspaceId":"\(workspaceId.uuidString)","showMinimizedBars":"bad"}
+                        {"schemaVersion":1,"workspaceId":"\(workspaceId.uuidString)","sidebarCollapsed":"bad"}
                         """,
                     sliceUnknownEnumJSON: uiJSON(
                         workspaceId: workspaceId,
@@ -295,7 +295,6 @@ struct PersistenceChaosTests {
             "workspaceId": "\(workspaceId.uuidString)",
             "filterText": "",
             "isFilterVisible": false,
-            "showMinimizedBars": true,
             "sidebarCollapsed": false,
             "sidebarSurface": "\(sidebarSurface)",
             "editorChooserState": {}

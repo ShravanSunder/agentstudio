@@ -70,6 +70,12 @@ final class WorkspaceTabLayoutAtom {
         shellAtom.moveTab(fromId: fromId, toIndex: toIndex)
     }
 
+    func reorderTab(_ tabId: UUID, to newIndex: Int) {
+        guard shellAtom.tabShell(tabId) != nil else { return }
+        guard newIndex >= 0 && newIndex < shellAtom.tabShells.count else { return }
+        shellAtom.moveTab(fromId: tabId, toIndex: newIndex)
+    }
+
     func moveTabByDelta(tabId: UUID, delta: Int) {
         shellAtom.moveTabByDelta(tabId: tabId, delta: delta)
     }
@@ -136,6 +142,10 @@ final class WorkspaceTabLayoutAtom {
         arrangementAtom.renameArrangement(arrangementId, name: name, inTab: tabId)
     }
 
+    func setShowsMinimizedPanes(_ value: Bool, inTab tabId: UUID) {
+        arrangementAtom.setShowsMinimizedPanes(value, inTab: tabId)
+    }
+
     func renameTab(_ tabId: UUID, name: String) {
         shellAtom.renameTab(tabId, name: name)
     }
@@ -176,6 +186,18 @@ final class WorkspaceTabLayoutAtom {
         shellAtom.insertTabShell(TabShell(id: newState.tabId, name: "Tab"), at: sourceIndex + 1)
         shellAtom.setActiveTab(newState.tabId)
         return derived.tab(newState.tabId)
+    }
+
+    @discardableResult
+    func movePaneAcrossTabs(_ mutation: CrossTabPaneMoveMutation) -> CrossTabPaneMoveResult? {
+        guard let result = arrangementAtom.movePaneAcrossTabs(mutation) else { return nil }
+
+        if result.sourceTabClosed {
+            shellAtom.removeTabShell(mutation.request.sourceTabId)
+            arrangementAtom.removeState(mutation.request.sourceTabId)
+        }
+        shellAtom.setActiveTab(mutation.request.destTabId)
+        return result
     }
 
     func mergeTab(

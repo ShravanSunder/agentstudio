@@ -338,6 +338,10 @@ extension PaneCoordinator {
         case .moveTab(let tabId, let delta):
             store.tabLayoutAtom.moveTabByDelta(tabId: tabId, delta: delta)
 
+        case .reorderTab(let tabId, let newIndex):
+            store.tabLayoutAtom.reorderTab(tabId, to: newIndex)
+            store.tabLayoutAtom.setActiveTab(tabId)
+
         case .minimizePane(let tabId, let paneId):
             if store.tabLayoutAtom.minimizePane(paneId, inTab: tabId) {
                 detachForViewSwitch(paneId: paneId)
@@ -360,6 +364,9 @@ extension PaneCoordinator {
                 targetPaneId: targetPaneId,
                 direction: direction
             )
+
+        case .movePaneAcrossTabs(let request):
+            executeMovePaneAcrossTabs(request)
 
         case .createArrangement(let tabId, let name, let paneIds):
             if store.tabLayoutAtom.createArrangement(name: name, paneIds: paneIds, inTab: tabId) == nil {
@@ -413,6 +420,15 @@ extension PaneCoordinator {
 
         case .renameArrangement(let tabId, let arrangementId, let name):
             store.tabLayoutAtom.renameArrangement(arrangementId, name: name, inTab: tabId)
+
+        case .setShowsMinimizedPanes(let tabId, let value):
+            let previousVisiblePaneIds = Set(arrangementView.activeVisiblePaneIds(forTab: tabId))
+            store.tabLayoutAtom.setShowsMinimizedPanes(value, inTab: tabId)
+            let newVisiblePaneIds = Set(arrangementView.activeVisiblePaneIds(forTab: tabId))
+            reconcileVisiblePaneTransition(
+                previousVisiblePaneIds: previousVisiblePaneIds,
+                newVisiblePaneIds: newVisiblePaneIds
+            )
 
         case .backgroundPane(let paneId):
             store.mutationCoordinator.backgroundPane(paneId)
@@ -585,6 +601,19 @@ extension PaneCoordinator {
             restoreVisiblePaneIfNeeded(drawerPaneId, forceWhenBoundsExist: true)
             if viewRegistry.terminalView(for: drawerPaneId) != nil {
                 reattachForViewSwitch(paneId: drawerPaneId)
+            }
+
+        case .setShowsMinimizedDrawerPanes(let parentPaneId, let value):
+            if let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
+                let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId
+            {
+                let previousVisiblePaneIds = Set(arrangementView.drawerVisiblePaneIds(forParent: parentPaneId))
+                store.tabArrangementAtom.setShowsMinimizedDrawerPanes(value, drawerId: drawerId, inTab: tabId)
+                let newVisiblePaneIds = Set(arrangementView.drawerVisiblePaneIds(forParent: parentPaneId))
+                reconcileVisiblePaneTransition(
+                    previousVisiblePaneIds: previousVisiblePaneIds,
+                    newVisiblePaneIds: newVisiblePaneIds
+                )
             }
 
         case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction, let sizingMode):

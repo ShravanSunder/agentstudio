@@ -10,7 +10,7 @@ struct ArrangementPanel: View {
     @Bindable var inlineRenameState: ArrangementInlineRenameState
     let onPaneAction: (PaneActionCommand) -> Void
     let onSaveArrangement: () -> Void
-    let showMinimizedBarsBinding: Binding<Bool>
+    let showsMinimizedPanesBinding: Binding<Bool>
     var highlightPaneId: UUID?
     var showsMinimizedBarToggle = true
 
@@ -101,14 +101,14 @@ struct ArrangementPanel: View {
 
                         Toggle(
                             "",
-                            isOn: showMinimizedBarsBinding
+                            isOn: showsMinimizedPanesBinding
                         )
                         .toggleStyle(.switch)
                         .controlSize(.mini)
                         .labelsHidden()
                     }
 
-                    if !showMinimizedBarsBinding.wrappedValue && atom(\.managementLayer).isActive {
+                    if !showsMinimizedPanesBinding.wrappedValue && atom(\.managementLayer).isActive {
                         Text("Minimized panes are always shown in management mode")
                             .font(.system(size: AppStyles.General.Typography.textXs))
                             .foregroundStyle(.tertiary)

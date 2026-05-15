@@ -1073,8 +1073,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         case .paneAction(let action):
             dispatchAction(action)
         case .moveTab(let tabId, let toIndex):
-            store.tabLayoutAtom.moveTab(fromId: tabId, toIndex: toIndex)
-            store.tabLayoutAtom.setActiveTab(tabId)
+            dispatchAction(.reorderTab(tabId: tabId, newIndex: toIndex))
         case .extractPaneToTabThenMove(let paneId, let sourceTabId, let toIndex):
             let tabCountBefore = store.tabLayoutAtom.tabs.count
             dispatchAction(.extractPaneToTab(tabId: sourceTabId, paneId: paneId))
@@ -1084,8 +1083,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             else {
                 return
             }
-            store.tabLayoutAtom.moveTab(fromId: extractedTabId, toIndex: toIndex)
-            store.tabLayoutAtom.setActiveTab(extractedTabId)
+            dispatchAction(.reorderTab(tabId: extractedTabId, newIndex: toIndex))
         }
     }
 
@@ -1123,8 +1121,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         case .existingPane(let sourcePaneId, _):
             guard let sourcePane = store.paneAtom.pane(sourcePaneId) else { return false }
             return sourcePane.parentPaneId == nil
-        case .existingTab, .newTerminal:
+        case .newTerminal:
             return true
+        case .existingTab:
+            return false
         }
     }
 
@@ -1784,7 +1784,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     // MARK: - Tab Reordering
 
     private func handleTabReorder(fromId: UUID, toIndex: Int) {
-        store.tabLayoutAtom.moveTab(fromId: fromId, toIndex: toIndex)
+        dispatchAction(.reorderTab(tabId: fromId, newIndex: toIndex))
     }
 
     // MARK: - Drag Payload
@@ -1832,8 +1832,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             sourceTab.activePaneIds.count == 1
         {
             if let targetTabIndex {
-                store.tabLayoutAtom.moveTab(fromId: tabId, toIndex: targetTabIndex)
-                store.tabLayoutAtom.setActiveTab(tabId)
+                dispatchAction(.reorderTab(tabId: tabId, newIndex: targetTabIndex))
             }
             return
         }
@@ -1849,8 +1848,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return
         }
 
-        store.tabLayoutAtom.moveTab(fromId: extractedTabId, toIndex: targetTabIndex)
-        store.tabLayoutAtom.setActiveTab(extractedTabId)
+        dispatchAction(.reorderTab(tabId: extractedTabId, newIndex: targetTabIndex))
     }
 
     private func dispatchMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
@@ -1881,12 +1879,15 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         guard let targetTab = store.tabLayoutAtom.tab(targetTabId) else { return nil }
         guard let targetPaneId = targetTab.activePaneId ?? targetTab.activePaneIds.first else { return nil }
 
-        return .insertPane(
-            source: .existingPane(paneId: sourcePaneId, sourceTabId: resolvedSourceTabId),
-            targetTabId: targetTabId,
-            targetPaneId: targetPaneId,
-            direction: .right,
-            sizingMode: .halveTarget
+        return .movePaneAcrossTabs(
+            CrossTabPaneMoveRequest(
+                paneId: sourcePaneId,
+                sourceTabId: resolvedSourceTabId,
+                destTabId: targetTabId,
+                targetPaneId: targetPaneId,
+                direction: .horizontal,
+                position: .after
+            )
         )
     }
 
