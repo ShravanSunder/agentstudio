@@ -33,11 +33,14 @@ struct InboxRow: View {
                     )
                     .foregroundStyle(notification.isRead ? .secondary : .primary)
                     .lineLimit(1)
-                    .layoutPriority(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(0)
 
                 Spacer(minLength: AppStyles.General.Spacing.standard)
 
                 timestampCluster
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(2)
             }
 
             Self.metadataLine(text: display.sourceLine)

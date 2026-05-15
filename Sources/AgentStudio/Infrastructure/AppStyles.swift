@@ -92,7 +92,11 @@ enum AppStyles {
             static let rowVerticalInset: CGFloat = 6
             static let listRowLeadingInset: CGFloat = 2
             static let groupIconSize: CGFloat = 14
+            static let groupIconColumnWidth: CGFloat = 18
+            static let groupIconTitleSpacing: CGFloat = AppStyles.General.Spacing.standard
             static let rowLeadingIconColumnWidth: CGFloat = AppStyles.General.Typography.textBase
+            static let sectionHeaderChevronColumnWidth: CGFloat = AppStyles.General.Typography.textBase
+            static let sectionHeaderChevronLabelSpacing: CGFloat = AppStyles.General.Spacing.tight
             static let groupOrganizationFontSize: CGFloat = AppStyles.General.Typography.textSm
             static let groupTitleSpacing: CGFloat = AppStyles.General.Spacing.tight
             static let groupOrganizationMaxWidth: CGFloat = 120

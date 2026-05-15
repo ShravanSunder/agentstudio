@@ -5,7 +5,7 @@ struct SidebarGroupRow: View {
     let organizationName: String?
 
     var body: some View {
-        HStack(spacing: AppStyles.General.Spacing.standard) {
+        HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
             OcticonImage(name: "octicon-repo", size: AppStyles.Shell.Sidebar.groupIconSize)
                 .foregroundStyle(.secondary)
 

@@ -16,7 +16,9 @@ extension CommandBarDataSource {
 
         let actions = commands.actions
         let snapshot = commands.snapshot()
+        let toggleSortSpec = AppCommand.toggleInboxNotificationSort.definition
         let clearReadInboxSpec = AppCommand.clearReadInboxNotifications.definition
+        let clearAllInboxSpec = AppCommand.clearAllInboxNotifications.definition
         var items: [CommandBarItem] = []
         items.append(
             CommandBarItem(
@@ -44,12 +46,13 @@ extension CommandBarDataSource {
         items.append(
             CommandBarItem(
                 id: "inbox.clearAll",
-                title: "Clear all notifications",
-                icon: .system(.deleteLeft),
+                title: clearAllInboxSpec.label,
+                icon: clearAllInboxSpec.icon,
                 group: Group.inboxCommands,
                 groupPriority: Priority.commands,
                 keywords: ["inbox", "notification", "clear", "delete"],
-                action: inboxCommandAction(actions.clearAll)
+                action: .dispatch(.clearAllInboxNotifications),
+                command: .clearAllInboxNotifications
             )
         )
 
@@ -72,12 +75,13 @@ extension CommandBarDataSource {
         items.append(
             CommandBarItem(
                 id: "inbox.toggleSort",
-                title: "Toggle sort order",
-                icon: .system(.arrowUpArrowDown),
+                title: toggleSortSpec.label,
+                icon: toggleSortSpec.icon,
                 group: Group.inboxCommands,
                 groupPriority: Priority.commands,
                 keywords: ["inbox", "notification", "sort"],
-                action: inboxCommandAction(actions.toggleSort)
+                action: .dispatch(.toggleInboxNotificationSort),
+                command: .toggleInboxNotificationSort
             )
         )
         items.append(

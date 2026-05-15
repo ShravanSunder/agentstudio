@@ -122,8 +122,7 @@ struct InboxNotificationSidebarView: View {
                 onToggleUnreadOnly: { unreadOnly.toggle() },
                 onClearFilter: clearFilter,
                 onClearReadHistory: clearReadInboxNotifications,
-                onClearUnreadHistory: { inboxAtom.clearUnreadHistory() },
-                onClearAllHistory: { inboxAtom.clearAll() },
+                onClearAllHistory: clearAllInboxNotifications,
                 onSelectGrouping: { prefsAtom.setGrouping($0) },
                 onToggleGroupCollapse: toggleGroupCollapse,
                 onMoveGroupBoundary: moveFocusToGroupBoundary,
@@ -307,13 +306,15 @@ struct InboxNotificationSidebarView: View {
     }
 
     private func toggleSort() {
-        let nextSort: InboxNotificationSort =
-            prefsAtom.sort == .newestFirst ? .oldestFirst : .newestFirst
-        prefsAtom.setSort(nextSort)
+        dispatcher.dispatch(.toggleInboxNotificationSort)
     }
 
     func clearReadInboxNotifications() {
         dispatcher.dispatch(.clearReadInboxNotifications)
+    }
+
+    func clearAllInboxNotifications() {
+        dispatcher.dispatch(.clearAllInboxNotifications)
     }
 
     private func clearFilter() {

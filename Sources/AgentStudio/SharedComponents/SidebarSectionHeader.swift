@@ -6,11 +6,11 @@ struct SidebarSectionHeaderRow<Content: View, TrailingContent: View>: View {
     @ViewBuilder let trailingContent: () -> TrailingContent
 
     var body: some View {
-        HStack(spacing: AppStyles.General.Spacing.tight) {
+        HStack(spacing: AppStyles.Shell.Sidebar.sectionHeaderChevronLabelSpacing) {
             Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
                 .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
                 .foregroundStyle(.secondary)
-                .frame(width: AppStyles.General.Typography.textBase, alignment: .center)
+                .frame(width: AppStyles.Shell.Sidebar.sectionHeaderChevronColumnWidth, alignment: .center)
 
             content()
 

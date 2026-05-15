@@ -168,7 +168,7 @@ struct InboxNotificationSidebarViewTests {
 
     @Test("inbox header controls use distinct symbols and grouped row indentation")
     func inboxHeaderControlsUseDistinctSymbolsAndGroupedRowIndentation() {
-        #expect(InboxSidebarHeader.sortIconName == "arrow.up.arrow.down.circle")
+        #expect(InboxSidebarHeader.sortIconName == "arrow.up.arrow.down")
         #expect(InboxSidebarHeader.groupIconName == "square.stack.3d.up")
         #expect(InboxSidebarHeader.filterIconName == "line.3.horizontal.decrease.circle")
         #expect(InboxSidebarHeader.sortIconName != InboxSidebarHeader.groupIconName)
@@ -871,7 +871,6 @@ private struct InboxSidebarRootHarness: View {
                 onToggleUnreadOnly: {},
                 onClearFilter: {},
                 onClearReadHistory: {},
-                onClearUnreadHistory: {},
                 onClearAllHistory: {},
                 onSelectGrouping: { _ in },
                 onToggleGroupCollapse: { _ in },

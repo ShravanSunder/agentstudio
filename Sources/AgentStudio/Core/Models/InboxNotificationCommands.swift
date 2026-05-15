@@ -8,7 +8,6 @@ struct InboxNotificationCommands {
         var clearReadHistory: @MainActor @Sendable () -> Void
         var clearAll: @MainActor @Sendable () -> Void
         var setGrouping: @MainActor @Sendable (InboxNotificationGrouping) -> Void
-        var toggleSort: @MainActor @Sendable () -> Void
         var toggleBellEnabled: @MainActor @Sendable () -> Void
         var returnToWorktreeSidebar: @MainActor @Sendable () -> Void
     }

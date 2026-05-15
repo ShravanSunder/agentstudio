@@ -6,7 +6,6 @@ struct InboxSidebarActions {
     let onToggleUnreadOnly: () -> Void
     let onClearFilter: @MainActor @Sendable () -> Void
     let onClearReadHistory: @MainActor @Sendable () -> Void
-    let onClearUnreadHistory: @MainActor @Sendable () -> Void
     let onClearAllHistory: @MainActor @Sendable () -> Void
     let onSelectGrouping: (InboxNotificationGrouping) -> Void
     let onToggleGroupCollapse: (String) -> Void
@@ -112,11 +111,12 @@ struct InboxSidebarHeader: View {
     let grouping: InboxNotificationGrouping
     let focusedField: FocusState<InboxFocus?>.Binding
     let actions: InboxSidebarActions
-    static let sortIconName = "arrow.up.arrow.down.circle"
+    static let sortIconName = "arrow.up.arrow.down"
     static let groupIconName = "square.stack.3d.up"
     static let unreadOnlyIconName = "envelope.badge"
     static let filterIconName = "line.3.horizontal.decrease.circle"
     private let clearReadInboxSpec = AppCommand.clearReadInboxNotifications.definition
+    private let clearAllInboxSpec = AppCommand.clearAllInboxNotifications.definition
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -178,7 +178,6 @@ struct InboxSidebarHeader: View {
 
                 Menu {
                     Button("Delete Read", action: actions.onClearReadHistory)
-                    Button("Delete Unread", action: actions.onClearUnreadHistory)
                     Divider()
                     Button("Delete All", role: .destructive, action: actions.onClearAllHistory)
                 } label: {
@@ -189,7 +188,7 @@ struct InboxSidebarHeader: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Delete inbox notifications")
                 .accessibilityIdentifier("inboxSidebarDeleteMenu")
-                .help(clearReadInboxSpec.controlToolTip)
+                .help("\(clearReadInboxSpec.helpText). \(clearAllInboxSpec.helpText).")
             }
 
             if let activeFilter {

@@ -22,7 +22,7 @@ enum SidebarSourceGroupIcon: Equatable {
         case .checkout(_, let isMain):
             return isMain ? "octicon-star-fill" : "octicon-git-worktree"
         case .pane:
-            return "rectangle.inset.filled"
+            return "rectangle.split.2x1"
         case .tab:
             return "macwindow"
         case .workspace:

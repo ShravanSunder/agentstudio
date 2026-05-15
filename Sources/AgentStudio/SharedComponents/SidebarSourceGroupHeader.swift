@@ -20,10 +20,10 @@ struct SidebarSourceGroupHeader<TrailingContent: View>: View {
     var body: some View {
         Button(action: onToggle) {
             SidebarSectionHeaderRow(isCollapsed: isCollapsed) {
-                HStack(spacing: AppStyles.General.Spacing.standard) {
+                HStack(spacing: AppStyles.Shell.Sidebar.groupIconTitleSpacing) {
                     headerIcon
                         .frame(
-                            width: AppStyles.Shell.Sidebar.groupIconSize,
+                            width: AppStyles.Shell.Sidebar.groupIconColumnWidth,
                             alignment: .leading
                         )
 

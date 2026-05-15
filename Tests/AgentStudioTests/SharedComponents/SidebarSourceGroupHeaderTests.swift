@@ -28,7 +28,7 @@ struct SidebarSourceGroupHeaderTests {
     func sourceGroupIconsDescribeFixedSidebarIconSlots() {
         #expect(SidebarSourceGroupIcon.repo.symbolName == "octicon-repo")
         #expect(SidebarSourceGroupIcon.otherSources.symbolName == "tray")
-        #expect(SidebarSourceGroupIcon.pane.symbolName == "rectangle.inset.filled")
+        #expect(SidebarSourceGroupIcon.pane.symbolName == "rectangle.split.2x1")
         #expect(SidebarSourceGroupIcon.tab.symbolName == "macwindow")
     }
 }
