@@ -530,7 +530,7 @@ final class WorkspaceCommandValidatorTests {
 
     @Test
 
-    func test_insertPane_existingPane_differentTarget_succeeds() {
+    func test_insertPane_existingPane_crossTab_failsWithRetiredPath() {
         // Arrange
         let sourcePaneId = UUID()
         let targetPaneId = UUID()
@@ -561,7 +561,15 @@ final class WorkspaceCommandValidatorTests {
         let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
-        #expect((try? result.get()) != nil)
+        if case .failure(
+            .retiredCrossTabInsertPane(
+                paneId: sourcePaneId,
+                sourceTabId: sourceTabId,
+                targetTabId: targetTabId)
+        ) = result {
+            return
+        }
+        Issue.record("Expected retiredCrossTabInsertPane error")
     }
 
     @Test
@@ -635,7 +643,7 @@ final class WorkspaceCommandValidatorTests {
         let (tab, tabId, paneId) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
         let action = PaneActionCommand.insertPane(
-            source: .existingPane(paneId: UUID(), sourceTabId: UUID()),
+            source: .existingPane(paneId: UUID(), sourceTabId: tabId),
             targetTabId: tabId,
             targetPaneId: paneId,
             direction: .right,

@@ -184,8 +184,6 @@ final class PaneTests {
         let drawerPaneId = UUID()
         let drawer = Drawer(
             paneIds: [drawerPaneId],
-            layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)),
-            activeChildId: drawerPaneId,
             isExpanded: false
         )
         let pane = Pane(
@@ -200,7 +198,6 @@ final class PaneTests {
         #expect((decoded.drawer) != nil)
         #expect(decoded.drawer!.paneIds.count == 1)
         #expect(decoded.drawer!.paneIds[0] == drawerPaneId)
-        #expect(decoded.drawer!.activeChildId == drawerPaneId)
         #expect(!(decoded.drawer!.isExpanded))
     }
 
@@ -254,8 +251,6 @@ final class PaneTests {
         let drawerPaneId = UUID()
         let drawer = Drawer(
             paneIds: [drawerPaneId],
-            layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)),
-            activeChildId: drawerPaneId,
             isExpanded: true
         )
         let pane = Pane(
@@ -461,26 +456,15 @@ final class PaneTests {
     func test_drawer_codable_roundTrip() throws {
         let id1 = UUID()
         let id2 = UUID()
-        let layout = DrawerGridLayout(
-            topRow: Layout(paneId: id1).inserting(
-                paneId: id2,
-                at: id1,
-                direction: .horizontal,
-                position: .after, sizingMode: .halveTarget
-            )!
-        )
-        let drawer = Drawer(paneIds: [id1, id2], layout: layout, activeChildId: id2, isExpanded: false)
+        let drawer = Drawer(paneIds: [id1, id2], isExpanded: false)
 
         let data = try encoder.encode(drawer)
         let decoded = try decoder.decode(Drawer.self, from: data)
 
         #expect(decoded.paneIds.count == 2)
-        #expect(decoded.activeChildId == id2)
         #expect(!(decoded.isExpanded))
         #expect(decoded.paneIds[0] == id1)
         #expect(decoded.paneIds[1] == id2)
-        // minimizedPaneIds is transient — always empty after decode
-        #expect(decoded.minimizedPaneIds.isEmpty)
     }
 
     @Test
@@ -489,9 +473,7 @@ final class PaneTests {
         let drawer = Drawer()
 
         #expect(drawer.paneIds.isEmpty)
-        #expect((drawer.activeChildId) == nil)
         #expect(!(drawer.isExpanded))
-        #expect(drawer.minimizedPaneIds.isEmpty)
     }
 
     @Test
@@ -499,8 +481,6 @@ final class PaneTests {
         let id = UUID()
         let drawer = Drawer(
             paneIds: [id],
-            layout: DrawerGridLayout(topRow: Layout(paneId: id)),
-            activeChildId: id,
             isExpanded: true
         )
         let currentJSON = try #require(String(data: try encoder.encode(drawer), encoding: .utf8))

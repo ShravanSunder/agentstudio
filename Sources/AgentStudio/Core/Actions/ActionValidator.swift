@@ -31,6 +31,7 @@ enum ActionValidationError: Error, Equatable {
     case crossTabDestNotFound(tabId: UUID)
     case crossTabTargetNotFound(paneId: UUID, tabId: UUID)
     case tabReorderIndexOutOfRange(index: Int)
+    case retiredCrossTabInsertPane(paneId: UUID, sourceTabId: UUID, targetTabId: UUID)
 }
 
 enum DrawerLayoutValidationFailure: Error, Equatable, Sendable, CustomStringConvertible {
@@ -123,6 +124,15 @@ enum WorkspaceCommandValidator {
                 return .failure(.paneNotFound(paneId: request.targetPaneId, tabId: request.targetTabId))
             }
             if case .existingPane(let sourcePaneId, let sourceTabId) = request.source {
+                guard sourceTabId == request.targetTabId else {
+                    return .failure(
+                        .retiredCrossTabInsertPane(
+                            paneId: sourcePaneId,
+                            sourceTabId: sourceTabId,
+                            targetTabId: request.targetTabId
+                        )
+                    )
+                }
                 guard state.tabOwnsPane(sourceTabId, paneId: sourcePaneId) else {
                     return .failure(
                         .sourcePaneNotFound(
@@ -236,7 +246,7 @@ enum WorkspaceCommandValidator {
             return .success(ValidatedAction(action))
 
         // Arrangement actions — validate tab exists
-        case .createArrangement(let tabId, _, _),
+        case .createArrangement(let tabId, _),
             .removeArrangement(let tabId, _),
             .switchArrangement(let tabId, _),
             .renameArrangement(let tabId, _, _),

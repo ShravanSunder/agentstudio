@@ -389,11 +389,11 @@ struct Luna295DirectZmxAttachIntegrationTests {
             source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
-        let drawerPane = try #require(harness.store.addDrawerPane(to: pane.id))
 
         let tab = Tab(paneId: pane.id, name: "Visible")
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: pane.id))
 
         await harness.coordinator.restoreAllViews(
             in: CGRect(x: 0, y: 0, width: 1000, height: 600)

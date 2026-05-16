@@ -12,7 +12,7 @@ struct PaneObservationResolverTests {
         let panes = [
             parentId: makeLayoutPane(
                 id: parentId,
-                drawer: .init(paneIds: [childId], activeChildId: childId, isExpanded: true)
+                drawer: .init(paneIds: [childId], isExpanded: true)
             ),
             childId: makeDrawerChildPane(id: childId, parentPaneId: parentId),
         ]
@@ -47,9 +47,7 @@ struct PaneObservationResolverTests {
                 id: parentId,
                 drawer: .init(
                     paneIds: [childId],
-                    activeChildId: childId,
-                    isExpanded: true,
-                    minimizedPaneIds: [childId]
+                    isExpanded: true
                 )
             ),
             childId: makeDrawerChildPane(id: childId, parentPaneId: parentId),
@@ -78,7 +76,7 @@ struct PaneObservationResolverTests {
         let panes = [
             parentId: makeLayoutPane(
                 id: parentId,
-                drawer: .init(paneIds: [childId], activeChildId: childId, isExpanded: true)
+                drawer: .init(paneIds: [childId], isExpanded: true)
             ),
             childId: makeDrawerChildPane(id: childId, parentPaneId: parentId),
             siblingId: makeLayoutPane(id: siblingId, drawer: .init()),

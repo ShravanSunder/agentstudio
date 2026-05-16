@@ -103,13 +103,13 @@ final class WorkspaceTabLayoutAtom {
         )
     }
 
-    func removePaneFromLayout(_ paneId: UUID, inTab tabId: UUID) {
-        arrangementAtom.removePaneFromLayout(paneId, inTab: tabId)
+    func removePaneFromLayout(_ paneId: UUID, inTab tabId: UUID, removingDrawerId drawerId: UUID? = nil) {
+        arrangementAtom.removePaneFromLayout(paneId, inTab: tabId, removingDrawerId: drawerId)
         removeEmptyTabs()
     }
 
-    func removePaneReferences(_ paneId: UUID) {
-        arrangementAtom.removePaneReferences(paneId)
+    func removePaneReferences(_ paneId: UUID, removingDrawerIds drawerIds: Set<UUID> = []) {
+        arrangementAtom.removePaneReferences(paneId, removingDrawerIds: drawerIds)
         removeEmptyTabs()
     }
 
@@ -126,8 +126,8 @@ final class WorkspaceTabLayoutAtom {
     }
 
     @discardableResult
-    func createArrangement(name: String, paneIds: Set<UUID>, inTab tabId: UUID) -> UUID? {
-        arrangementAtom.createArrangement(name: name, paneIds: paneIds, inTab: tabId)
+    func createArrangement(name: String, inTab tabId: UUID) -> UUID? {
+        arrangementAtom.createArrangement(name: name, inTab: tabId)
     }
 
     func removeArrangement(_ arrangementId: UUID, inTab tabId: UUID) {

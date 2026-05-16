@@ -3,19 +3,15 @@ import Foundation
 enum TabArrangementMutationRules {
     static func createArrangement(
         name: String,
-        paneIds: Set<UUID>,
         from state: TabArrangementState
     ) -> PaneArrangement? {
-        let tabPaneSet = Set(state.allPaneIds)
-        guard paneIds.isSubset(of: tabPaneSet) else { return nil }
-
         let activeArrangement = activeArrangement(in: state)
         let orderedPaneIds =
-            activeArrangement.layout.paneIds.filter { paneIds.contains($0) }
-            + state.allPaneIds.filter { paneIds.contains($0) && !activeArrangement.layout.contains($0) }
+            activeArrangement.layout.paneIds
+            + state.allPaneIds.filter { !activeArrangement.layout.contains($0) }
         guard !orderedPaneIds.isEmpty else { return nil }
         let arrangementLayout = Layout.autoTiled(orderedPaneIds)
-        let arrangementMinimizedPaneIds = activeArrangement.minimizedPaneIds.intersection(paneIds)
+        let arrangementMinimizedPaneIds = activeArrangement.minimizedPaneIds.intersection(Set(orderedPaneIds))
 
         return PaneArrangement(
             name: name,
@@ -54,9 +50,16 @@ enum TabArrangementMutationRules {
         return updated
     }
 
-    static func removingUserPane(_ paneId: UUID, from arrangements: [PaneArrangement]) -> [PaneArrangement] {
+    static func removingUserPane(
+        _ paneId: UUID,
+        removingDrawerId drawerId: UUID? = nil,
+        from arrangements: [PaneArrangement]
+    ) -> [PaneArrangement] {
         arrangements.map { arrangement in
             var updated = arrangement
+            if let drawerId {
+                updated.drawerViews.removeValue(forKey: drawerId)
+            }
             guard updated.layout.contains(paneId) else {
                 updated.minimizedPaneIds.remove(paneId)
                 return updated

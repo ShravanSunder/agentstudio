@@ -249,7 +249,8 @@ struct DrawerPanelOverlay: View {
                     tabId: tabId,
                     activeChildId: info.drawerView.activeChildId,
                     minimizedPaneIds: info.drawerView.minimizedPaneIds,
-                    showsMinimizedPanes: info.drawerView.showsMinimizedPanes,
+                    showsMinimizedPanes: atom(\.arrangementView)
+                        .effectiveShowsMinimizedDrawerPanes(forParent: paneId),
                     closeTransitionCoordinator: closeTransitionCoordinator,
                     height: panelHeight,
                     store: store,
