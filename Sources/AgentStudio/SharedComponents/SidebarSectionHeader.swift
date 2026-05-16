@@ -1,73 +1,99 @@
 import SwiftUI
 
-struct SidebarSectionHeader<TrailingContent: View>: View {
-    let title: String
-    let subtitle: String?
-    let isExpanded: Bool
-    let onToggle: () -> Void
-    let trailingContent: TrailingContent
+struct SidebarSectionHeaderRow<Content: View, TrailingContent: View>: View {
+    let isCollapsed: Bool
+    @ViewBuilder let content: () -> Content
+    @ViewBuilder let trailingContent: () -> TrailingContent
 
+    var body: some View {
+        HStack(spacing: AppStyles.Shell.Sidebar.sectionHeaderChevronLabelSpacing) {
+            Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: AppStyles.Shell.Sidebar.sectionHeaderChevronColumnWidth, alignment: .center)
+
+            content()
+
+            Spacer(minLength: AppStyles.General.Spacing.standard)
+
+            trailingContent()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+extension SidebarSectionHeaderRow where TrailingContent == EmptyView {
     init(
-        title: String,
-        subtitle: String? = nil,
-        isExpanded: Bool,
-        onToggle: @escaping () -> Void,
-        @ViewBuilder trailingContent: () -> TrailingContent
+        isCollapsed: Bool,
+        @ViewBuilder content: @escaping () -> Content
     ) {
-        self.title = title
-        self.subtitle = subtitle
-        self.isExpanded = isExpanded
-        self.onToggle = onToggle
-        self.trailingContent = trailingContent()
+        self.isCollapsed = isCollapsed
+        self.content = content
+        self.trailingContent = { EmptyView() }
+    }
+}
+
+struct SidebarSectionHeader<LabelContent: View, TrailingContent: View>: View {
+    let isCollapsed: Bool
+    let onToggle: () -> Void
+    @ViewBuilder let label: () -> LabelContent
+    @ViewBuilder let trailingContent: () -> TrailingContent
+
+    static var chromePolicy: SidebarHeaderChromePolicy {
+        .plainSectionHeader
     }
 
     var body: some View {
         Button(action: onToggle) {
-            HStack(spacing: AppStyles.General.Spacing.standard) {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: AppStyles.Shell.Sidebar.groupIconSize)
-
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(title)
-                        .font(.system(size: AppStyles.General.Typography.textBase, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-
-                    if let subtitle, !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(.system(size: AppStyles.Shell.Sidebar.groupOrganizationFontSize))
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                    }
-                }
-
-                Spacer(minLength: AppStyles.General.Spacing.standard)
-                trailingContent
+            SidebarSectionHeaderRow(isCollapsed: isCollapsed) {
+                label()
+            } trailingContent: {
+                trailingContent()
             }
+            .padding(.horizontal, AppStyles.General.Spacing.loose)
             .padding(.vertical, AppStyles.Shell.Sidebar.groupRowVerticalPadding)
-            .padding(.horizontal, AppStyles.Shell.Sidebar.rowHorizontalInset)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .contentShape(Rectangle())
+    }
+}
+
+struct SidebarSectionHeaderTextLabel: View {
+    let label: String
+
+    var body: some View {
+        Text(label)
+            .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+    }
+}
+
+extension SidebarSectionHeader where LabelContent == SidebarSectionHeaderTextLabel, TrailingContent == EmptyView {
+    init(
+        label: String,
+        isCollapsed: Bool,
+        onToggle: @escaping () -> Void
+    ) {
+        self.isCollapsed = isCollapsed
+        self.onToggle = onToggle
+        self.label = {
+            SidebarSectionHeaderTextLabel(label: label)
+        }
+        self.trailingContent = { EmptyView() }
     }
 }
 
 extension SidebarSectionHeader where TrailingContent == EmptyView {
     init(
-        title: String,
-        subtitle: String? = nil,
-        isExpanded: Bool,
-        onToggle: @escaping () -> Void
+        isCollapsed: Bool,
+        onToggle: @escaping () -> Void,
+        @ViewBuilder label: @escaping () -> LabelContent
     ) {
-        self.init(
-            title: title,
-            subtitle: subtitle,
-            isExpanded: isExpanded,
-            onToggle: onToggle
-        ) {
-            EmptyView()
-        }
+        self.isCollapsed = isCollapsed
+        self.onToggle = onToggle
+        self.label = label
+        self.trailingContent = { EmptyView() }
     }
 }

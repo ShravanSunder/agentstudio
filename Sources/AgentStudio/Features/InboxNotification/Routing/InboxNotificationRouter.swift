@@ -289,12 +289,15 @@ final class InboxNotificationRouter {
     private func handle(_ envelope: RuntimeEnvelope) {
         guard case .pane(let paneEnvelope) = envelope else { return }
         if case .terminal(.scrollbarChanged(let scrollbarState)) = paneEnvelope.event {
+            let wasPinnedToBottom = pinnedToBottomByPaneId[paneEnvelope.paneId.uuid] == true
             pinnedToBottomByPaneId[paneEnvelope.paneId.uuid] = scrollbarState.isPinnedToBottom
-            clearObservedPaneInboxRowsIfNeeded(
-                paneId: paneEnvelope.paneId.uuid,
-                scrollbarState: scrollbarState,
-                traceKeepOnly: false
-            )
+            if scrollbarState.isPinnedToBottom && !wasPinnedToBottom {
+                clearObservedPaneInboxRowsIfNeeded(
+                    paneId: paneEnvelope.paneId.uuid,
+                    scrollbarState: scrollbarState,
+                    traceKeepOnly: false
+                )
+            }
         }
         let decision = classify(paneEnvelope)
         traceEventBusDelivery(decision, envelope: paneEnvelope)
@@ -833,15 +836,18 @@ extension InboxNotificationRouter {
             paneId: paneId,
             tabId: resolvedContext?.tabId,
             tabDisplayLabel: resolvedContext?.tabDisplayLabel,
+            tabOrdinal: resolvedContext?.tabOrdinal,
             repoId: resolvedContext?.repoId,
             repoName: resolvedContext?.repoName,
             worktreeId: resolvedContext?.worktreeId,
             worktreeName: resolvedContext?.worktreeName,
             branchName: resolvedContext?.branchName,
             paneDisplayLabel: resolvedContext?.paneDisplayLabel,
+            paneOrdinal: resolvedContext?.paneOrdinal,
             paneRole: resolvedContext?.paneRole ?? .main,
             parentPaneId: resolvedContext?.parentPaneId,
             parentPaneDisplayLabel: resolvedContext?.parentPaneDisplayLabel,
+            parentPaneOrdinal: resolvedContext?.parentPaneOrdinal,
             drawerOrdinal: resolvedContext?.drawerOrdinal,
             runtimeDisplayLabel: resolvedContext?.runtimeDisplayLabel
         )
@@ -859,20 +865,30 @@ extension InboxNotificationRouter {
 
     private func resolveContext(for paneId: UUID) -> ResolvedPaneContext? {
         guard let pane = paneAtom.pane(paneId) else { return nil }
-        let tab = tabLayout.tabContaining(paneId: paneId)
+        let owningPaneId = pane.parentPaneId ?? paneId
+        let tab = tabLayout.tabContaining(paneId: owningPaneId)
+        let tabIndex = tab.flatMap { tab in
+            tabLayout.tabs.firstIndex { $0.id == tab.id }
+        }
+        let owningPaneIndex = tab.flatMap { tab in
+            tab.activePaneIds.firstIndex(of: owningPaneId)
+        }
         let parentPane = pane.parentPaneId.flatMap { paneAtom.pane($0) }
         return ResolvedPaneContext(
             tabId: tab?.id,
             tabDisplayLabel: tab.flatMap(Self.displayLabel(for:)),
+            tabOrdinal: tabIndex.map { $0 + 1 },
             repoId: pane.repoId,
             repoName: pane.metadata.repoName,
             worktreeId: pane.worktreeId,
             worktreeName: pane.metadata.worktreeName,
             branchName: pane.metadata.checkoutRef,
             paneDisplayLabel: Self.displayLabel(for: pane),
+            paneOrdinal: pane.isDrawerChild ? nil : owningPaneIndex.map { $0 + 1 },
             paneRole: pane.isDrawerChild ? .drawerChild : .main,
             parentPaneId: pane.parentPaneId,
             parentPaneDisplayLabel: parentPane.flatMap(Self.displayLabel(for:)),
+            parentPaneOrdinal: pane.isDrawerChild ? owningPaneIndex.map { $0 + 1 } : nil,
             drawerOrdinal: drawerOrdinal(for: paneId, parentPane: parentPane),
             runtimeDisplayLabel: Self.runtimeDisplayLabel(for: pane)
         )
@@ -917,15 +933,18 @@ extension InboxNotificationRouter {
 private struct ResolvedPaneContext {
     let tabId: UUID?
     let tabDisplayLabel: String?
+    let tabOrdinal: Int?
     let repoId: UUID?
     let repoName: String?
     let worktreeId: UUID?
     let worktreeName: String?
     let branchName: String?
     let paneDisplayLabel: String?
+    let paneOrdinal: Int?
     let paneRole: InboxNotification.PaneSource.PaneRole
     let parentPaneId: UUID?
     let parentPaneDisplayLabel: String?
+    let parentPaneOrdinal: Int?
     let drawerOrdinal: Int?
     let runtimeDisplayLabel: String?
 }

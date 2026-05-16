@@ -530,7 +530,7 @@ struct PaneTabViewControllerDrawerCommandTests {
     }
 
     @Test("dispatcher targeted detachDrawerPane works even when drawer pane is not the global focus owner")
-    func dispatcherTargetedDetachDrawerPane_detachesClickedDrawerPaneWithoutDrawerPaneFocus() throws {
+    func dispatcherTargetedDetachDrawerPane_detachesClickedDrawerPaneWithoutDrawerPaneFocus() async throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -548,10 +548,18 @@ struct PaneTabViewControllerDrawerCommandTests {
         _ = try #require(harness.store.addDrawerPane(to: parent.id))
         atom(\.workspaceFocusOwner).focusMainPane(parent.id)
 
-        CommandDispatcher.shared.dispatch(
-            .detachDrawerPane,
-            target: firstDrawerPane.id,
-            targetType: .pane
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                CommandDispatcher.shared.handler = harness.controller
+                CommandDispatcher.shared.appCommandRouter = nil
+            },
+            body: {
+                CommandDispatcher.shared.dispatch(
+                    .detachDrawerPane,
+                    target: firstDrawerPane.id,
+                    targetType: .pane
+                )
+            }
         )
 
         #expect(harness.store.pane(firstDrawerPane.id)?.parentPaneId == nil)

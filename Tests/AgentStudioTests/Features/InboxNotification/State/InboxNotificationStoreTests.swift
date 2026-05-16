@@ -155,7 +155,7 @@ struct InboxNotificationStoreTests {
         try store.load()
 
         #expect(atom.notifications.isEmpty)
-        #expect(prefs.grouping == .none)
+        #expect(prefs.grouping == .byTab)
         #expect(prefs.bellEnabled == false)
     }
 
@@ -177,7 +177,7 @@ struct InboxNotificationStoreTests {
 
         #expect(!FileManager.default.fileExists(atPath: url.path))
         #expect(atom.notifications.isEmpty)
-        #expect(prefs.grouping == .none)
+        #expect(prefs.grouping == .byTab)
         #expect(prefs.bellEnabled == false)
 
         let quarantinedFiles = try FileManager.default.contentsOfDirectory(
@@ -222,7 +222,7 @@ struct InboxNotificationStoreTests {
             try store.load()
         }
 
-        #expect(prefs.grouping == .none)
+        #expect(prefs.grouping == .byTab)
         #expect(prefs.bellEnabled == false)
         #expect(reportedRecovery?.store == .notificationInbox)
         #expect(reportedRecovery?.recovery == .quarantinedAndReset)
@@ -304,7 +304,7 @@ struct InboxNotificationStoreTests {
 
         #expect(!FileManager.default.fileExists(atPath: url.path))
         #expect(atom.notifications.isEmpty)
-        #expect(prefs.grouping == .none)
+        #expect(prefs.grouping == .byTab)
         #expect(prefs.sort == .newestFirst)
         #expect(!prefs.bellEnabled)
         #expect(reportedRecovery?.store == .notificationInbox)
@@ -337,7 +337,7 @@ struct InboxNotificationStoreTests {
         try store.load()
 
         #expect(atom.notifications.isEmpty)
-        #expect(prefs.grouping == .none)
+        #expect(prefs.grouping == .byTab)
         #expect(prefs.sort == .oldestFirst)
         #expect(prefs.bellEnabled)
     }

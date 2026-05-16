@@ -87,6 +87,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     private let tabRenamePopoverState: TabRenamePopoverState
     private let arrangementInlineRenameState: ArrangementInlineRenameState
+    private let registersAsCommandHandler: Bool
     private let installedEditorTargetsProvider: @MainActor () -> [ExternalEditorTarget]
     private let openEditorHandler: OpenEditorHandler
     private let openFinderHandler: @MainActor (URL) -> Bool
@@ -188,7 +189,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         },
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
         tabRenamePopoverState: TabRenamePopoverState = TabRenamePopoverState(),
-        arrangementInlineRenameState: ArrangementInlineRenameState = ArrangementInlineRenameState()
+        arrangementInlineRenameState: ArrangementInlineRenameState = ArrangementInlineRenameState(),
+        registersAsCommandHandler: Bool = true
     ) {
         self.store = store
         self.repoCache = repoCache
@@ -204,6 +206,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.tabRenamePopoverState = tabRenamePopoverState
         self.arrangementInlineRenameState = arrangementInlineRenameState
+        self.registersAsCommandHandler = registersAsCommandHandler
         super.init(nibName: nil, bundle: nil)
         setupNotificationObservers()
     }
@@ -334,8 +337,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        // Register as command handler
-        CommandDispatcher.shared.handler = self
+        if registersAsCommandHandler {
+            CommandDispatcher.shared.handler = self
+        }
 
         syncTabContentHosts()
         updateVisibleTabHost()
@@ -587,7 +591,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 if self.store.tabLayoutAtom.activeTabId != tabId {
                     self.selectTabAndRestoreVisibleViews(tabId)
                 }
-                if let tab = self.store.tabLayoutAtom.tab(tabId), tab.activeMinimizedPaneIds.contains(paneId) {
+                self.revealArrangementContainingPane(tabId: tabId, paneId: paneId)
+                if let tab = self.store.tabLayoutAtom.tab(tabId),
+                    tab.activeMinimizedPaneIds.contains(paneId)
+                {
                     self.executor.execute(.expandPane(tabId: tabId, paneId: paneId))
                 }
                 self.store.tabLayoutAtom.setActivePane(paneId, inTab: tabId)
@@ -1985,7 +1992,9 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             guard let activeTabId = store.tabLayoutAtom.activeTabId else { break }
             tabRenamePopoverState.present(for: activeTabId)
         case .watchFolder, .toggleSidebar, .filterSidebar,
-            .showInboxNotifications, .showPaneInboxNotifications, .clearPaneInboxNotifications, .showWorktreeSidebar,
+            .showInboxNotifications, .toggleInboxNotificationSort,
+            .clearReadInboxNotifications, .clearAllInboxNotifications,
+            .showPaneInboxNotifications, .clearPaneInboxNotifications, .showWorktreeSidebar,
             .signInGitHub, .signInGoogle:
             break
         case .enterDrawer:
@@ -2070,6 +2079,11 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return
         }
 
+        if isPaneInboxCommand(command), isPaneInboxTargetType(targetType) {
+            handleTargetedPaneInboxCommand(command, target: target, targetType: targetType)
+            return
+        }
+
         if command == .focusPane && (targetType == .pane || targetType == .floatingTerminal) {
             focusTargetedPane(target)
             return
@@ -2124,13 +2138,24 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return
         }
 
-        guard let tab = store.tabLayoutAtom.tabs.first(where: { $0.activePaneIds.contains(paneId) }) else { return }
+        guard let tab = store.tabLayoutAtom.tabContaining(paneId: paneId) else { return }
         handlePaneFocusTrigger(.command(.focusPane(tabId: tab.id, paneId: paneId)))
+    }
+
+    private func revealArrangementContainingPane(tabId: UUID, paneId: UUID) {
+        guard let tab = store.tabLayoutAtom.tab(tabId),
+            !tab.activeArrangement.layout.contains(paneId),
+            let containingArrangement = tab.arrangements.first(where: { $0.layout.contains(paneId) })
+        else {
+            return
+        }
+
+        store.tabLayoutAtom.switchArrangement(to: containingArrangement.id, inTab: tabId)
     }
 
     private func focusTargetedDrawerPane(parentPaneId: UUID, drawerPaneId: UUID) {
         guard
-            let tab = store.tabLayoutAtom.tabs.first(where: { $0.paneIds.contains(parentPaneId) }),
+            let tab = store.tabLayoutAtom.tabContaining(paneId: parentPaneId),
             store.paneAtom.pane(parentPaneId)?.drawer?.paneIds.contains(drawerPaneId) == true
         else {
             return
@@ -2344,6 +2369,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     }
 
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool {
+        if isPaneInboxCommand(command), isPaneInboxTargetType(targetType) {
+            return paneInboxPresentation != nil && paneInboxTarget(anchorPaneId: target) != nil
+        }
+
         if let action = targetedAction(command: command, target: target, targetType: targetType) {
             let snapshot = WorkspaceCommandResolver.snapshot(
                 from: store.tabLayoutAtom.tabs,
@@ -2491,13 +2520,48 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         }
     }
 
+    private func handleTargetedPaneInboxCommand(
+        _ command: AppCommand,
+        target targetId: UUID,
+        targetType: SearchItemType
+    ) {
+        guard isPaneInboxCommand(command), isPaneInboxTargetType(targetType) else { return }
+        guard let paneInboxPresentation, let target = paneInboxTarget(anchorPaneId: targetId) else { return }
+
+        switch command {
+        case .showPaneInboxNotifications:
+            focusTargetedPane(targetId)
+            paneInboxPresentation.toggle(target.parentPaneId, target.paneIds)
+        case .clearPaneInboxNotifications:
+            paneInboxPresentation.clear(target.parentPaneId, target.paneIds)
+        default:
+            return
+        }
+    }
+
     private func activePaneInboxTarget() -> PaneInboxCommandTarget? {
         guard let parentPaneId = activePaneInboxParentPaneId() else { return nil }
+        return paneInboxTarget(anchorPaneId: parentPaneId)
+    }
+
+    private func paneInboxTarget(anchorPaneId: UUID) -> PaneInboxCommandTarget? {
+        guard store.paneAtom.pane(anchorPaneId) != nil else { return nil }
         let scope = PaneInboxScopeResolver.resolve(
-            anchorPaneId: parentPaneId,
+            anchorPaneId: anchorPaneId,
             pane: { store.paneAtom.pane($0) }
         )
+        guard store.tabLayoutAtom.tabContaining(paneId: scope.parentPaneId) != nil else {
+            return nil
+        }
         return PaneInboxCommandTarget(parentPaneId: scope.parentPaneId, paneIds: scope.paneIds)
+    }
+
+    private func isPaneInboxCommand(_ command: AppCommand) -> Bool {
+        command == .showPaneInboxNotifications || command == .clearPaneInboxNotifications
+    }
+
+    private func isPaneInboxTargetType(_ targetType: SearchItemType) -> Bool {
+        targetType == .pane || targetType == .floatingTerminal
     }
 
     private func activePaneInboxParentPaneId() -> UUID? {

@@ -12,10 +12,22 @@ struct SidebarSurfaceHost: View {
     let inboxFilterDraft: InboxFilterDraftAtom
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
+    let repoCache: RepoCacheAtom
     let onRefocusActivePane: () -> Void
     let onDismissInbox: @MainActor @Sendable () -> Void
 
+    static var surfaceChromePolicy: SidebarSurfaceChromePolicy {
+        SidebarSurfaceChrome<EmptyView>.policy
+    }
+
     var body: some View {
+        SidebarSurfaceChrome {
+            currentSurface
+        }
+    }
+
+    @ViewBuilder
+    private var currentSurface: some View {
         switch uiState.sidebarSurface {
         case .repos:
             RepoExplorerView(
@@ -40,6 +52,8 @@ struct SidebarSurfaceHost: View {
                 sidebarCache: sidebarCache,
                 inboxFilterDraft: inboxFilterDraft,
                 workspacePaneAtom: store.paneAtom,
+                workspaceRepositoryTopologyAtom: store.repositoryTopologyAtom,
+                repoCache: repoCache,
                 dispatcher: .shared,
                 onRefocusActivePane: onDismissInbox
             )

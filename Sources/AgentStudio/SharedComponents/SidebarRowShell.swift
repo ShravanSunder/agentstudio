@@ -6,6 +6,10 @@ struct SidebarRowShell<Content: View>: View {
     let isHovering: Bool
     let content: Content
 
+    static var chromePolicy: SidebarRowChromePolicy {
+        .sidebarRowShell
+    }
+
     init(
         isSelected: Bool = false,
         isFlashing: Bool = false,
@@ -20,18 +24,30 @@ struct SidebarRowShell<Content: View>: View {
 
     var body: some View {
         content
-            .padding(.vertical, AppStyles.Shell.Sidebar.rowVerticalInset)
-            .padding(.horizontal, AppStyles.Shell.Sidebar.rowHorizontalInset)
+            .padding(.vertical, Self.contentVerticalInset)
+            .padding(.horizontal, Self.contentHorizontalInset)
             .background(rowBackground)
             .contentShape(Rectangle())
     }
 
     private var rowBackground: some View {
-        RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.rowCornerRadius)
+        RoundedRectangle(cornerRadius: Self.rowCornerRadius)
             .fill(rowFill)
     }
 
     private var rowFill: Color {
+        Self.backgroundColor(
+            isSelected: isSelected,
+            isFlashing: isFlashing,
+            isHovering: isHovering
+        )
+    }
+
+    static func backgroundColor(
+        isSelected: Bool,
+        isFlashing: Bool,
+        isHovering: Bool
+    ) -> Color {
         if isFlashing {
             return Color.accentColor.opacity(AppStyles.General.Fill.selected)
         }
@@ -42,5 +58,17 @@ struct SidebarRowShell<Content: View>: View {
             return Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity)
         }
         return Color.clear
+    }
+
+    static var contentVerticalInset: CGFloat {
+        AppStyles.Shell.Sidebar.rowVerticalInset
+    }
+
+    static var contentHorizontalInset: CGFloat {
+        AppStyles.Shell.Sidebar.rowHorizontalInset
+    }
+
+    static var rowCornerRadius: CGFloat {
+        AppStyles.Shell.Sidebar.rowCornerRadius
     }
 }

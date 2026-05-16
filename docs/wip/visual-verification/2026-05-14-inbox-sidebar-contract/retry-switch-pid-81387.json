@@ -1,0 +1,10 @@
+{
+  "error" : {
+    "code" : "UNKNOWN_ERROR",
+    "message" : "App switch verification failed: frontmost is loginwindow"
+  },
+  "success" : false,
+  "debug_logs" : [
+    "[2026-05-14T12:50:40.792Z] DEBUG: Runtime host: local (in-process)"
+  ]
+}

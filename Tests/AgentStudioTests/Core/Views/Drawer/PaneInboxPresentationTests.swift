@@ -91,7 +91,7 @@ struct PaneInboxPresentationTests {
             setPresented: { _, _, _ in },
             pendingRequest: { nil },
             clearRequest: { _ in },
-            popoverContent: { _, _, _ in AnyView(EmptyView()) },
+            popoverContent: { _, _, _, _ in AnyView(EmptyView()) },
             pruneFilterModes: { _ in }
         )
         var isPopoverPresented = false

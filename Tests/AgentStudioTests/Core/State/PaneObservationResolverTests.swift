@@ -16,13 +16,12 @@ struct PaneObservationResolverTests {
             ),
             childId: makeDrawerChildPane(id: childId, parentPaneId: parentId),
         ]
+        let drawerView = DrawerView(layout: .init(topRow: .init(paneId: childId)), activeChildId: childId)
 
         let resolved = PaneObservationResolver.currentAttendedPaneId(
             attendedPaneId: parentId,
             pane: { panes[$0] },
-            drawerView: { _ in
-                DrawerView(layout: DrawerGridLayout(topRow: Layout(paneId: childId)), activeChildId: childId)
-            }
+            drawerView: { $0 == parentId ? drawerView : nil }
         )
 
         #expect(resolved == childId)
@@ -31,9 +30,7 @@ struct PaneObservationResolverTests {
                 paneId: childId,
                 attendedPaneId: parentId,
                 pane: { panes[$0] },
-                drawerView: { _ in
-                    DrawerView(layout: DrawerGridLayout(topRow: Layout(paneId: childId)), activeChildId: childId)
-                }
+                drawerView: { $0 == parentId ? drawerView : nil }
             )
         )
     }
@@ -52,17 +49,16 @@ struct PaneObservationResolverTests {
             ),
             childId: makeDrawerChildPane(id: childId, parentPaneId: parentId),
         ]
+        let drawerView = DrawerView(
+            layout: .init(topRow: .init(paneId: childId)),
+            activeChildId: childId,
+            minimizedPaneIds: [childId]
+        )
 
         let resolved = PaneObservationResolver.currentAttendedPaneId(
             attendedPaneId: parentId,
             pane: { panes[$0] },
-            drawerView: { _ in
-                DrawerView(
-                    layout: DrawerGridLayout(topRow: Layout(paneId: childId)),
-                    activeChildId: childId,
-                    minimizedPaneIds: [childId]
-                )
-            }
+            drawerView: { $0 == parentId ? drawerView : nil }
         )
 
         #expect(resolved == nil)
@@ -82,14 +78,13 @@ struct PaneObservationResolverTests {
             siblingId: makeLayoutPane(id: siblingId, drawer: .init()),
         ]
         let tab = makeTab(paneIds: [parentId, siblingId], activePaneId: parentId)
+        let drawerView = DrawerView(layout: .init(topRow: .init(paneId: childId)), activeChildId: childId)
 
         let observedPaneIds = PaneObservationResolver.currentObservedPaneIds(
             attendedPaneId: parentId,
             activeTab: tab,
             pane: { panes[$0] },
-            drawerView: { _ in
-                DrawerView(layout: DrawerGridLayout(topRow: Layout(paneId: childId)), activeChildId: childId)
-            }
+            drawerView: { $0 == parentId ? drawerView : nil }
         )
 
         #expect(observedPaneIds == Set([childId, siblingId]))
