@@ -15,6 +15,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var uiState: UIStateAtom! { atomStore.uiState }
     var inboxNotificationAtom: InboxNotificationAtom!
     var inboxNotificationPrefsAtom: InboxNotificationPrefsAtom!
+    var inboxSidebarStateAtom: InboxSidebarStateAtom!
     var inboxNotificationStore: InboxNotificationStore!
     var inboxNotificationRouter: InboxNotificationRouter!
     var inboxPaneFocusTracker: PaneFocusTracker!
@@ -118,6 +119,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         )
         inboxNotificationAtom = InboxNotificationAtom()
         inboxNotificationPrefsAtom = InboxNotificationPrefsAtom()
+        inboxSidebarStateAtom = InboxSidebarStateAtom()
         traceRuntime = .fromEnvironment()
         paneInboxNotificationPresenter = PaneInboxNotificationPresenter(traceRuntime: traceRuntime)
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
@@ -375,6 +377,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             viewRegistry: viewRegistry,
             inboxAtom: inboxNotificationAtom,
             inboxPrefsAtom: inboxNotificationPrefsAtom,
+            inboxSidebarStateAtom: inboxSidebarStateAtom,
             paneInboxPresenter: paneInboxNotificationPresenter,
             closeTransitionCoordinator: closeTransitionCoordinator
         )
@@ -557,6 +560,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 viewRegistry: viewRegistry,
                 inboxAtom: inboxNotificationAtom,
                 inboxPrefsAtom: inboxNotificationPrefsAtom,
+                inboxSidebarStateAtom: inboxSidebarStateAtom,
                 paneInboxPresenter: paneInboxNotificationPresenter,
                 closeTransitionCoordinator: closeTransitionCoordinator
             )

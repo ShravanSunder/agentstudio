@@ -7,6 +7,7 @@ extension AppDelegate {
         inboxNotificationStore = InboxNotificationStore(
             inboxAtom: inboxNotificationAtom,
             prefsAtom: inboxNotificationPrefsAtom,
+            sidebarStateAtom: inboxSidebarStateAtom,
             fileURL: fileURL,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
@@ -67,6 +68,7 @@ extension AppDelegate {
             _ = inboxNotificationPrefsAtom.grouping
             _ = inboxNotificationPrefsAtom.sort
             _ = inboxNotificationPrefsAtom.bellEnabled
+            _ = inboxSidebarStateAtom.collapsedGroups
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }

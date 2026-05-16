@@ -14,7 +14,6 @@ final class AtomRegistry {
     let editorChooser: EditorChooserAtom
     let paneInboxPresentationState: PaneInboxPresentationAtom
     let uiState: UIStateAtom
-    let inboxFilterDraft: InboxFilterDraftAtom
     let managementLayer: ManagementLayerAtom
     let workspaceFocusOwner: WorkspaceFocusOwnerAtom
     let sessionRuntime: SessionRuntimeAtom
@@ -34,7 +33,6 @@ final class AtomRegistry {
         editorChooser: EditorChooserAtom = .init(),
         paneInboxPresentationState: PaneInboxPresentationAtom = .init(),
         uiState: UIStateAtom = .init(),
-        inboxFilterDraft: InboxFilterDraftAtom = .init(),
         managementLayer: ManagementLayerAtom = .init(),
         workspaceFocusOwner: WorkspaceFocusOwnerAtom = .init(),
         sessionRuntime: SessionRuntimeAtom = .init(),
@@ -64,7 +62,6 @@ final class AtomRegistry {
         self.editorChooser = editorChooser
         self.paneInboxPresentationState = paneInboxPresentationState
         self.uiState = uiState
-        self.inboxFilterDraft = inboxFilterDraft
         self.managementLayer = managementLayer
         self.workspaceFocusOwner = workspaceFocusOwner
         self.sessionRuntime = sessionRuntime

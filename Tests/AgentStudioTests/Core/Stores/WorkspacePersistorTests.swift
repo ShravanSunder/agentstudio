@@ -367,8 +367,7 @@ final class WorkspacePersistorTests {
                 "schemaVersion": 99999,
                 "workspaceId": "\(workspaceId.uuidString)",
                 "expandedGroups": ["repo:agent-studio"],
-                "checkoutColors": {},
-                "collapsedInboxGroups": []
+                "checkoutColors": {}
             }
             """
         let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
@@ -384,8 +383,7 @@ final class WorkspacePersistorTests {
             {
                 "schemaVersion": 1,
                 "expandedGroups": ["repo:agent-studio"],
-                "checkoutColors": {},
-                "collapsedInboxGroups": []
+                "checkoutColors": {}
             }
             """
         let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
@@ -541,8 +539,7 @@ final class WorkspacePersistorTests {
         let sidebarCache = WorkspacePersistor.PersistableSidebarCache(
             workspaceId: workspaceId,
             expandedGroups: [SidebarGroupKey("askluna"), SidebarGroupKey("personal")],
-            checkoutColors: [SidebarCheckoutColorKey("repoA"): "#22cc88"],
-            collapsedInboxGroups: [InboxNotificationGroupKey("kind:terminal")]
+            checkoutColors: [SidebarCheckoutColorKey("repoA"): "#22cc88"]
         )
 
         try persistor.saveSidebarCache(sidebarCache)
@@ -551,7 +548,6 @@ final class WorkspacePersistorTests {
         #expect(loaded?.workspaceId == workspaceId)
         #expect(loaded?.expandedGroups == [SidebarGroupKey("askluna"), SidebarGroupKey("personal")])
         #expect(loaded?.checkoutColors[SidebarCheckoutColorKey("repoA")] == "#22cc88")
-        #expect(loaded?.collapsedInboxGroups == [InboxNotificationGroupKey("kind:terminal")])
     }
 
     @Test
@@ -763,8 +759,7 @@ final class WorkspacePersistorTests {
                 "schemaVersion": 1,
                 "workspaceId": "\(workspaceId.uuidString)",
                 "expandedGroups": 42,
-                "checkoutColors": {"repoA": "#22cc88"},
-                "collapsedInboxGroups": ["kind:terminal"]
+                "checkoutColors": {"repoA": "#22cc88"}
             }
             """
         let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
@@ -774,7 +769,6 @@ final class WorkspacePersistorTests {
 
         #expect(loaded?.expandedGroups.isEmpty == true)
         #expect(loaded?.checkoutColors == [SidebarCheckoutColorKey("repoA"): "#22cc88"])
-        #expect(loaded?.collapsedInboxGroups == [InboxNotificationGroupKey("kind:terminal")])
     }
 
 }
