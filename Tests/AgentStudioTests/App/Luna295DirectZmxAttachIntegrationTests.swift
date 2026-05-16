@@ -279,7 +279,6 @@ struct Luna295DirectZmxAttachIntegrationTests {
         harness.store.appendTab(hiddenTab)
         let hiddenDrawerPane = try #require(harness.store.addDrawerPane(to: hiddenParentPane.id))
         harness.store.setActiveTab(visibleTab.id)
-        let hiddenDrawerPane = try #require(harness.store.addDrawerPane(to: hiddenParentPane.id))
 
         let liveSessionId = ZmxBackend.drawerSessionId(
             parentPaneId: hiddenParentPane.id,
@@ -327,7 +326,6 @@ struct Luna295DirectZmxAttachIntegrationTests {
         harness.store.appendTab(hiddenTab)
         let hiddenDrawerPane = try #require(harness.store.addDrawerPane(to: hiddenParentPane.id))
         harness.store.setActiveTab(visibleTab.id)
-        let hiddenDrawerPane = try #require(harness.store.addDrawerPane(to: hiddenParentPane.id))
 
         let liveSessionId = ZmxBackend.drawerSessionId(
             parentPaneId: hiddenParentPane.id,
