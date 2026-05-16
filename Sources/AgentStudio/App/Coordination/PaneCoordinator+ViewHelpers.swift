@@ -184,7 +184,7 @@ extension PaneCoordinator {
 
     @discardableResult
     func clearFirstResponderToWindowContent(for paneId: UUID) -> Bool {
-        let window = viewRegistry.view(for: paneId)?.window ?? NSApp.keyWindow
+        let window = viewRegistry.view(for: paneId)?.window ?? NSApplication.shared.keyWindow
         guard let window, let contentView = window.contentView else { return false }
         pendingFocusPaneIds.remove(paneId)
         return window.makeFirstResponder(contentView)

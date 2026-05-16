@@ -178,7 +178,7 @@ final class TabBarAdapterTests {
         let tab = makeTab(paneIds: [firstPane.id, secondPane.id], activePaneId: firstPane.id)
         store.appendTab(tab)
         let arrangementId = try #require(
-            store.createArrangement(name: "#1", paneIds: [firstPane.id], inTab: tab.id),
+            store.createArrangement(name: "#1", inTab: tab.id),
             "Expected arrangement to be created"
         )
         store.switchArrangement(to: arrangementId, inTab: tab.id)
@@ -197,9 +197,9 @@ final class TabBarAdapterTests {
         let secondPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         let tab = makeTab(paneIds: [firstPane.id, secondPane.id], activePaneId: firstPane.id)
         store.appendTab(tab)
-        _ = store.createArrangement(name: "#1", paneIds: [firstPane.id], inTab: tab.id)
+        _ = store.createArrangement(name: "#1", inTab: tab.id)
         let secondArrangementId = try #require(
-            store.createArrangement(name: "#2", paneIds: [secondPane.id], inTab: tab.id),
+            store.createArrangement(name: "#2", inTab: tab.id),
             "Expected second arrangement to be created"
         )
         store.switchArrangement(to: secondArrangementId, inTab: tab.id)
@@ -219,7 +219,7 @@ final class TabBarAdapterTests {
         let tab = makeTab(paneIds: [firstPane.id, secondPane.id], activePaneId: firstPane.id)
         store.appendTab(tab)
         let arrangementId = try #require(
-            store.createArrangement(name: "coding", paneIds: [firstPane.id], inTab: tab.id),
+            store.createArrangement(name: "coding", inTab: tab.id),
             "Expected arrangement to be created"
         )
         store.switchArrangement(to: arrangementId, inTab: tab.id)

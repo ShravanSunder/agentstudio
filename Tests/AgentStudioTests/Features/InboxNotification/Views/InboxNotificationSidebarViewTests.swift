@@ -226,7 +226,7 @@ struct InboxNotificationSidebarViewTests {
                 source: .floating(launchDirectory: nil, title: nil),
                 title: "Parent"
             ),
-            kind: .layout(drawer: Drawer(paneIds: [drawerPaneId], activeChildId: drawerPaneId))
+            kind: .layout(drawer: Drawer(paneIds: [drawerPaneId]))
         )
         let drawerPane = Pane(
             id: drawerPaneId,

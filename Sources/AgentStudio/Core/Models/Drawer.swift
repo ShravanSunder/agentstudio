@@ -26,7 +26,20 @@ struct Drawer: Codable, Hashable {
         case drawerId, parentPaneId, paneIds, isExpanded
     }
 
+    private enum LegacyCodingKeys: String, CodingKey {
+        case activePaneId
+    }
+
     init(from decoder: Decoder) throws {
+        let legacyContainer = try decoder.container(keyedBy: LegacyCodingKeys.self)
+        if legacyContainer.contains(.activePaneId) {
+            throw DecodingError.dataCorruptedError(
+                forKey: .activePaneId,
+                in: legacyContainer,
+                debugDescription: "Drawer active pane state must be stored on per-arrangement DrawerView"
+            )
+        }
+
         let container = try decoder.container(keyedBy: CodingKeys.self)
         drawerId = try container.decode(UUID.self, forKey: .drawerId)
         parentPaneId = try container.decode(UUID.self, forKey: .parentPaneId)

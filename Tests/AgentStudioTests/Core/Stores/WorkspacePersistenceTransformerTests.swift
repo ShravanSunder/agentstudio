@@ -200,21 +200,20 @@ struct WorkspacePersistenceTransformerTests {
         paneAtom.addPane(persistentPane)
         paneAtom.addPane(temporaryPane)
 
-        let tab = makeTab(
+        var tab = makeTab(
             paneIds: [persistentPane.id, temporaryPane.id],
             activePaneId: temporaryPane.id
         )
+        let customArrangement = PaneArrangement(
+            name: "Temporary Only",
+            isDefault: false,
+            layout: Layout(paneId: temporaryPane.id),
+            activePaneId: temporaryPane.id
+        )
+        tab.arrangements.append(customArrangement)
+        tab.activeArrangementId = customArrangement.id
         tabLayoutAtom.appendTab(tab)
         tabLayoutAtom.setActiveTab(tab.id)
-
-        let customArrangementId = try #require(
-            tabLayoutAtom.createArrangement(
-                name: "Temporary Only",
-                paneIds: [temporaryPane.id],
-                inTab: tab.id
-            )
-        )
-        tabLayoutAtom.switchArrangement(to: customArrangementId, inTab: tab.id)
 
         let state = WorkspacePersistenceTransformer.makePersistableState(
             metadataAtom: metadataAtom,

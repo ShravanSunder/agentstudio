@@ -204,6 +204,20 @@ extension PaneCoordinator {
             viewRegistry.removeSlot(for: pane.id)
             return nil
         }
+        guard let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
+            let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId
+        else {
+            Self.logger.error("Contextual drawer webview calibration failed for parent pane \(parentPaneId)")
+            store.paneAtom.removeDrawerPane(pane.id, from: parentPaneId)
+            viewRegistry.removeSlot(for: pane.id)
+            return nil
+        }
+        store.tabArrangementAtom.addDrawerPaneView(
+            drawerId: drawerId,
+            parentPaneId: parentPaneId,
+            drawerPaneId: pane.id,
+            inTab: tabId
+        )
 
         focusVisiblePaneHost(pane.id)
         Self.logger.info("Opened contextual drawer webview pane \(pane.id) from parent pane \(parentPaneId)")
@@ -361,8 +375,8 @@ extension PaneCoordinator {
                 direction: direction
             )
 
-        case .createArrangement(let tabId, let name, let paneIds):
-            if store.tabLayoutAtom.createArrangement(name: name, paneIds: paneIds, inTab: tabId) == nil {
+        case .createArrangement(let tabId, let name):
+            if store.tabLayoutAtom.createArrangement(name: name, inTab: tabId) == nil {
                 Self.logger.warning(
                     "createArrangement: failed to create arrangement '\(name)' in tab \(tabId)")
             }
@@ -477,20 +491,25 @@ extension PaneCoordinator {
             focusVisiblePaneHost(drawerPaneId)
 
         case .addDrawerPane(let parentPaneId):
+            guard let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id else {
+                Self.logger.error("addDrawerPane: parent pane \(parentPaneId) has no owning tab")
+                break
+            }
             let fallbackCWD = store.paneAtom.pane(parentPaneId)?.worktreeId.flatMap(
                 store.repositoryTopologyAtom.worktree)?
                 .path
             if let drawerPane = store.paneAtom.addDrawerPane(to: parentPaneId, parentFallbackCWD: fallbackCWD) {
-                if let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
-                    let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId
-                {
-                    store.tabArrangementAtom.addDrawerPaneView(
-                        drawerId: drawerId,
-                        parentPaneId: parentPaneId,
-                        drawerPaneId: drawerPane.id,
-                        inTab: tabId
-                    )
+                guard let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId else {
+                    Self.logger.error("addDrawerPane: parent pane \(parentPaneId) has no drawer after pane creation")
+                    store.paneAtom.removeDrawerPane(drawerPane.id, from: parentPaneId)
+                    break
                 }
+                store.tabArrangementAtom.addDrawerPaneView(
+                    drawerId: drawerId,
+                    parentPaneId: parentPaneId,
+                    drawerPaneId: drawerPane.id,
+                    inTab: tabId
+                )
                 viewRegistry.ensureSlot(for: drawerPane.id)
                 ensureTerminalPaneView(drawerPane)
                 focusVisiblePaneHost(drawerPane.id)
@@ -545,43 +564,38 @@ extension PaneCoordinator {
             }
 
         case .setActiveDrawerPane(let parentPaneId, let drawerPaneId):
-            if let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
-                let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId
-            {
-                store.tabArrangementAtom.setActiveDrawerPane(drawerPaneId, drawerId: drawerId, inTab: tabId)
-            }
+            guard let drawerContext = drawerCommandContext(parentPaneId: parentPaneId, command: "setActiveDrawerPane")
+            else { break }
+            store.tabArrangementAtom.setActiveDrawerPane(
+                drawerPaneId, drawerId: drawerContext.drawerId, inTab: drawerContext.tabId)
             restoreViewsForActiveTabIfNeeded()
             focusVisiblePaneHost(drawerPaneId)
 
         case .resizeDrawerPane(let parentPaneId, let splitId, let ratio):
-            if let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
-                let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId
-            {
-                store.tabArrangementAtom.resizeDrawerPane(
-                    drawerId: drawerId, tabId: tabId, splitId: splitId, ratio: ratio)
-            }
+            guard let drawerContext = drawerCommandContext(parentPaneId: parentPaneId, command: "resizeDrawerPane")
+            else { break }
+            store.tabArrangementAtom.resizeDrawerPane(
+                drawerId: drawerContext.drawerId, tabId: drawerContext.tabId, splitId: splitId, ratio: ratio)
 
         case .equalizeDrawerPanes(let parentPaneId):
-            if let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
-                let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId
-            {
-                store.tabArrangementAtom.equalizeDrawerPanes(drawerId: drawerId, tabId: tabId)
-            }
+            guard let drawerContext = drawerCommandContext(parentPaneId: parentPaneId, command: "equalizeDrawerPanes")
+            else { break }
+            store.tabArrangementAtom.equalizeDrawerPanes(drawerId: drawerContext.drawerId, tabId: drawerContext.tabId)
 
         case .minimizeDrawerPane(let parentPaneId, let drawerPaneId):
-            if let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
-                let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId,
-                store.tabArrangementAtom.minimizeDrawerPane(drawerPaneId, drawerId: drawerId, tabId: tabId)
-            {
-                detachForViewSwitch(paneId: drawerPaneId)
-            }
+            guard let drawerContext = drawerCommandContext(parentPaneId: parentPaneId, command: "minimizeDrawerPane")
+            else { break }
+            guard
+                store.tabArrangementAtom.minimizeDrawerPane(
+                    drawerPaneId, drawerId: drawerContext.drawerId, tabId: drawerContext.tabId)
+            else { break }
+            detachForViewSwitch(paneId: drawerPaneId)
 
         case .expandDrawerPane(let parentPaneId, let drawerPaneId):
-            if let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
-                let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId
-            {
-                store.tabArrangementAtom.expandDrawerPane(drawerPaneId, drawerId: drawerId, tabId: tabId)
-            }
+            guard let drawerContext = drawerCommandContext(parentPaneId: parentPaneId, command: "expandDrawerPane")
+            else { break }
+            store.tabArrangementAtom.expandDrawerPane(
+                drawerPaneId, drawerId: drawerContext.drawerId, tabId: drawerContext.tabId)
             restoreVisiblePaneIfNeeded(drawerPaneId, forceWhenBoundsExist: true)
             if viewRegistry.terminalView(for: drawerPaneId) != nil {
                 reattachForViewSwitch(paneId: drawerPaneId)
@@ -596,17 +610,15 @@ extension PaneCoordinator {
             )
 
         case .moveDrawerPane(let parentPaneId, let drawerPaneId, let target, let sizingMode):
-            if let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
-                let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId
-            {
-                store.tabArrangementAtom.moveDrawerPane(
-                    drawerPaneId,
-                    drawerId: drawerId,
-                    tabId: tabId,
-                    target: target,
-                    sizingMode: sizingMode
-                )
-            }
+            guard let drawerContext = drawerCommandContext(parentPaneId: parentPaneId, command: "moveDrawerPane")
+            else { break }
+            store.tabArrangementAtom.moveDrawerPane(
+                drawerPaneId,
+                drawerId: drawerContext.drawerId,
+                tabId: drawerContext.tabId,
+                target: target,
+                sizingMode: sizingMode
+            )
             focusVisiblePaneHost(drawerPaneId)
 
         case .expireUndoEntry:
@@ -834,7 +846,7 @@ extension PaneCoordinator {
             viewRegistry.retireSlot(for: drawerPaneId)
         }
 
-        store.tabLayoutAtom.removePaneFromLayout(paneId, inTab: tabId)
+        store.tabLayoutAtom.removePaneFromLayout(paneId, inTab: tabId, removingDrawerId: closingPane.drawer?.drawerId)
         for drawerPaneId in drawerChildIds {
             store.paneAtom.removeDrawerPane(drawerPaneId, from: paneId)
         }
@@ -920,6 +932,18 @@ extension PaneCoordinator {
             )
             ensureTerminalPaneView(pane)
         }
+    }
+
+    private func drawerCommandContext(parentPaneId: UUID, command: String) -> (tabId: UUID, drawerId: UUID)? {
+        guard let tabId = store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id else {
+            Self.logger.error("\(command): parent pane \(parentPaneId) has no owning tab")
+            return nil
+        }
+        guard let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId else {
+            Self.logger.error("\(command): parent pane \(parentPaneId) has no drawer")
+            return nil
+        }
+        return (tabId, drawerId)
     }
 
 }

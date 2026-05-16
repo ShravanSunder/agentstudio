@@ -73,7 +73,6 @@ final class PaneRemovalCascadeTests {
         // Create a custom arrangement containing panes 0 and 1
         let arrId = store.createArrangement(
             name: "Focus",
-            paneIds: Set([paneIds[0], paneIds[1]]),
             inTab: tab.id
         )!
 
@@ -200,7 +199,6 @@ final class PaneRemovalCascadeTests {
         // Create and switch to custom arrangement
         let arrId = store.createArrangement(
             name: "Focus",
-            paneIds: Set([paneIds[0], paneIds[1]]),
             inTab: tab.id
         )!
         store.switchArrangement(to: arrId, inTab: tab.id)
@@ -225,12 +223,10 @@ final class PaneRemovalCascadeTests {
 
         let focusLeftId = store.createArrangement(
             name: "Focus Left",
-            paneIds: Set([paneIds[0], paneIds[1]]),
             inTab: tab.id
         )!
         let focusRightId = store.createArrangement(
             name: "Focus Right",
-            paneIds: Set([paneIds[1], paneIds[2]]),
             inTab: tab.id
         )!
         store.switchArrangement(to: focusLeftId, inTab: tab.id)
@@ -253,7 +249,6 @@ final class PaneRemovalCascadeTests {
 
         let soloArrangementId = store.createArrangement(
             name: "Solo",
-            paneIds: Set([paneIds[1]]),
             inTab: tab.id
         )!
         store.switchArrangement(to: soloArrangementId, inTab: tab.id)

@@ -130,7 +130,6 @@ struct PaneCoordinatorHardeningTests {
         guard
             let focusArrangementId = harness.store.createArrangement(
                 name: "Focus AB",
-                paneIds: Set([paneA.id, paneB.id]),
                 inTab: tab.id
             )
         else {
@@ -592,7 +591,7 @@ struct PaneCoordinatorHardeningTests {
         let drawer = try #require(harness.store.pane(parent.id)?.drawer)
         #expect(drawer.isExpanded)
         #expect(drawer.paneIds.isEmpty)
-        #expect(drawer.activeChildId == nil)
+        #expect(harness.store.drawerView(forParent: parent.id) == nil)
     }
 
     @Test("repair recreateSurface registers preparing placeholder when geometry is unavailable")
@@ -738,7 +737,6 @@ struct PaneCoordinatorHardeningTests {
         guard
             let terminalOnlyArrangementId = harness.store.createArrangement(
                 name: "Terminal only",
-                paneIds: Set([terminalPane.id]),
                 inTab: tab.id
             )
         else {
@@ -805,7 +803,6 @@ struct PaneCoordinatorHardeningTests {
         guard
             let terminalOnlyArrangementId = harness.store.createArrangement(
                 name: "Terminal only",
-                paneIds: Set([terminalPane.id]),
                 inTab: tab.id
             )
         else {

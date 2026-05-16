@@ -79,18 +79,25 @@ final class WorkspaceTabArrangementAtom {
         }
 
         arrangementStates[tabIndex].zoomedPaneId = nil
-        arrangementStates[tabIndex].arrangements[arrIndex].layout = updatedActiveLayout
-        arrangementStates[tabIndex].arrangements[arrIndex].activePaneId = paneId
-
-        if !arrangementStates[tabIndex].arrangements[arrIndex].isDefault {
-            let defIdx = defaultArrangementIndex(for: tabIndex)
-            if arrangementStates[tabIndex].arrangements[defIdx].layout.contains(targetPaneId) {
-                if let updatedDefaultLayout = arrangementStates[tabIndex].arrangements[defIdx].layout.inserting(
-                    paneId: paneId, at: targetPaneId, direction: direction, position: position, sizingMode: sizingMode)
-                {
-                    arrangementStates[tabIndex].arrangements[defIdx].layout = updatedDefaultLayout
+        for arrangementIndex in arrangementStates[tabIndex].arrangements.indices {
+            if arrangementIndex == arrIndex {
+                arrangementStates[tabIndex].arrangements[arrangementIndex].layout = updatedActiveLayout
+                arrangementStates[tabIndex].arrangements[arrangementIndex].activePaneId = paneId
+            } else if !arrangementStates[tabIndex].arrangements[arrangementIndex].layout.contains(paneId) {
+                guard
+                    let updatedLayout = Self.appendingPane(
+                        paneId,
+                        to: arrangementStates[tabIndex].arrangements[arrangementIndex].layout
+                    )
+                else {
+                    workspaceTabArrangementLogger.warning(
+                        "insertPane: failed appending pane \(paneId) to arrangement \(arrangementIndex)"
+                    )
+                    return false
                 }
+                arrangementStates[tabIndex].arrangements[arrangementIndex].layout = updatedLayout
             }
+            arrangementStates[tabIndex].arrangements[arrangementIndex].minimizedPaneIds.remove(paneId)
         }
 
         if !arrangementStates[tabIndex].allPaneIds.contains(paneId) {
@@ -99,7 +106,7 @@ final class WorkspaceTabArrangementAtom {
         return true
     }
 
-    func removePaneFromLayout(_ paneId: UUID, inTab tabId: UUID) {
+    func removePaneFromLayout(_ paneId: UUID, inTab tabId: UUID, removingDrawerId drawerId: UUID? = nil) {
         guard let tabIndex = findTabIndex(tabId) else {
             workspaceTabArrangementLogger.warning("removePaneFromLayout: tab \(tabId) not found")
             return
@@ -111,6 +118,7 @@ final class WorkspaceTabArrangementAtom {
 
         arrangementStates[tabIndex].arrangements = TabArrangementMutationRules.removingUserPane(
             paneId,
+            removingDrawerId: drawerId,
             from: arrangementStates[tabIndex].arrangements
         )
 
@@ -121,11 +129,12 @@ final class WorkspaceTabArrangementAtom {
         arrangementStates[tabIndex].allPaneIds.removeAll { $0 == paneId }
     }
 
-    func removePaneReferences(_ paneId: UUID) {
+    func removePaneReferences(_ paneId: UUID, removingDrawerIds drawerIds: Set<UUID> = []) {
         for tabIndex in arrangementStates.indices {
             arrangementStates[tabIndex].allPaneIds.removeAll { $0 == paneId }
             arrangementStates[tabIndex].arrangements = TabArrangementRepairRules.removingPane(
                 paneId,
+                removingDrawerIds: drawerIds,
                 from: arrangementStates[tabIndex].arrangements
             )
             if arrangementStates[tabIndex].zoomedPaneId == paneId {
@@ -171,25 +180,15 @@ final class WorkspaceTabArrangementAtom {
     }
 
     @discardableResult
-    func createArrangement(name: String, paneIds: Set<UUID>, inTab tabId: UUID) -> UUID? {
+    func createArrangement(name: String, inTab tabId: UUID) -> UUID? {
         guard let tabIndex = findTabIndex(tabId) else {
             workspaceTabArrangementLogger.warning("createArrangement: tab \(tabId) not found")
-            return nil
-        }
-        guard !paneIds.isEmpty else {
-            workspaceTabArrangementLogger.warning("createArrangement: empty paneIds")
-            return nil
-        }
-        let tabPaneSet = Set(arrangementStates[tabIndex].allPaneIds)
-        guard paneIds.isSubset(of: tabPaneSet) else {
-            workspaceTabArrangementLogger.warning("createArrangement: paneIds not all in tab \(tabId)")
             return nil
         }
 
         guard
             let arrangement = TabArrangementMutationRules.createArrangement(
                 name: name,
-                paneIds: paneIds,
                 from: arrangementStates[tabIndex]
             )
         else {
@@ -598,5 +597,16 @@ final class WorkspaceTabArrangementAtom {
 
     private func activeArrangement(for tabIndex: Int) -> PaneArrangement {
         arrangementStates[tabIndex].arrangements[activeArrangementIndex(for: tabIndex)]
+    }
+
+    private static func appendingPane(_ paneId: UUID, to layout: Layout) -> Layout? {
+        guard let anchorPaneId = layout.paneIds.last else { return Layout(paneId: paneId) }
+        return layout.inserting(
+            paneId: paneId,
+            at: anchorPaneId,
+            direction: .horizontal,
+            position: .after,
+            sizingMode: .halveTarget
+        )
     }
 }

@@ -161,8 +161,8 @@ extension WorkspaceStore {
     func equalizePanes(tabId: UUID) { tabLayoutAtom.equalizePanes(tabId: tabId) }
     func setActivePane(_ paneId: UUID?, inTab tabId: UUID) { tabLayoutAtom.setActivePane(paneId, inTab: tabId) }
     @discardableResult
-    func createArrangement(name: String, paneIds: Set<UUID>, inTab tabId: UUID) -> UUID? {
-        tabLayoutAtom.createArrangement(name: name, paneIds: paneIds, inTab: tabId)
+    func createArrangement(name: String, inTab tabId: UUID) -> UUID? {
+        tabLayoutAtom.createArrangement(name: name, inTab: tabId)
     }
     func removeArrangement(_ arrangementId: UUID, inTab tabId: UUID) {
         tabLayoutAtom.removeArrangement(arrangementId, inTab: tabId)

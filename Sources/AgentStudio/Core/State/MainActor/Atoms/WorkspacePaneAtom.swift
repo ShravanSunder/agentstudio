@@ -292,8 +292,14 @@ final class WorkspacePaneAtom {
         }
 
         if panes[parentPaneId]!.drawer!.paneIds.isEmpty {
-            let wasExpanded = panes[parentPaneId]!.drawer!.isExpanded
-            panes[parentPaneId]!.kind = .layout(drawer: Drawer(parentPaneId: parentPaneId, isExpanded: wasExpanded))
+            let previousDrawer = panes[parentPaneId]!.drawer!
+            panes[parentPaneId]!.kind = .layout(
+                drawer: Drawer(
+                    drawerId: previousDrawer.drawerId,
+                    parentPaneId: parentPaneId,
+                    isExpanded: previousDrawer.isExpanded
+                )
+            )
         }
 
         panes.removeValue(forKey: drawerPaneId)
@@ -318,7 +324,13 @@ final class WorkspacePaneAtom {
         }
 
         if panes[parentPaneId]!.drawer?.paneIds.isEmpty == true {
-            panes[parentPaneId]!.kind = .layout(drawer: Drawer(parentPaneId: parentPaneId, isExpanded: wasExpanded))
+            panes[parentPaneId]!.kind = .layout(
+                drawer: Drawer(
+                    drawerId: existingDrawer.drawerId,
+                    parentPaneId: parentPaneId,
+                    isExpanded: wasExpanded
+                )
+            )
         }
 
         drawerPane.kind = .layout(drawer: Drawer(parentPaneId: drawerPaneId))

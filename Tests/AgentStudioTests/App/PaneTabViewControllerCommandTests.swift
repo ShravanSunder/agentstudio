@@ -108,7 +108,6 @@ struct PaneTabViewControllerCommandTests {
         guard
             let customArrangementId = harness.store.createArrangement(
                 name: "Layout 1",
-                paneIds: [firstPane.id],
                 inTab: tab.id
             )
         else {
@@ -146,7 +145,6 @@ struct PaneTabViewControllerCommandTests {
         guard
             let customArrangementId = harness.store.createArrangement(
                 name: "Layout 1",
-                paneIds: [secondTabPaneA.id],
                 inTab: secondTab.id
             )
         else {
@@ -525,7 +523,6 @@ struct PaneTabViewControllerCommandTests {
         )
         let focusArrangementId = harness.store.createArrangement(
             name: "Focus Visible",
-            paneIds: [visiblePane.id],
             inTab: tab.id
         )!
         harness.store.switchArrangement(to: focusArrangementId, inTab: tab.id)
@@ -608,7 +605,6 @@ struct PaneTabViewControllerCommandTests {
         }
         let focusedVisibleArrangementId = harness.store.createArrangement(
             name: "Visible only",
-            paneIds: Set([visiblePane.id]),
             inTab: tab.id
         )!
         harness.store.switchArrangement(to: focusedVisibleArrangementId, inTab: tab.id)

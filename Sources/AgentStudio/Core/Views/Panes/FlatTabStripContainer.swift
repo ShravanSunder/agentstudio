@@ -76,8 +76,7 @@ struct FlatTabStripContainer: View {
             actionDispatcher.dispatch(
                 .createArrangement(
                     tabId: tabId,
-                    name: arrangementName,
-                    paneIds: Set(tab.activePaneIds)
+                    name: arrangementName
                 )
             )
         }

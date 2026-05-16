@@ -11,7 +11,7 @@ struct TabArrangementMutationRulesTests {
     }
 
     @Test
-    func createArrangement_inheritsOnlyIncludedMinimizedPanes() {
+    func createArrangement_inheritsCompleteLayoutAndMinimizedPanes() {
         let paneA = UUID()
         let paneB = UUID()
         let paneC = UUID()
@@ -36,12 +36,11 @@ struct TabArrangementMutationRulesTests {
 
         let created = TabArrangementMutationRules.createArrangement(
             name: "#1",
-            paneIds: [paneA, paneB],
             from: state
         )
 
-        #expect(created?.visiblePaneIds == Set([paneA, paneB]))
-        #expect(created?.minimizedPaneIds == Set([paneB]))
+        #expect(created?.visiblePaneIds == Set([paneA, paneB, paneC]))
+        #expect(created?.minimizedPaneIds == Set([paneB, paneC]))
     }
 
     @Test

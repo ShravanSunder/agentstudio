@@ -269,10 +269,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             onSaveArrangement: { [weak self] tabId in
                 guard let self, let tab = self.store.tabLayoutAtom.tab(tabId) else { return }
                 let name = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
-                self.dispatchAction(
-                    .createArrangement(
-                        tabId: tabId, name: name, paneIds: Set(tab.activePaneIds)
-                    ))
+                self.dispatchAction(.createArrangement(tabId: tabId, name: name))
             },
             onOpenRepoInTab: {
                 CommandDispatcher.shared.dispatch(.showCommandBarRepos)
@@ -1769,9 +1766,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             // Direct action — save current layout as a new arrangement
             guard let tab = store.tabLayoutAtom.tab(tabId) else { return }
             let name = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
-            action = .createArrangement(
-                tabId: tabId, name: name, paneIds: Set(tab.activePaneIds)
-            )
+            action = .createArrangement(tabId: tabId, name: name)
         default:
             action = nil
         }
@@ -2026,10 +2021,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 let tab = store.tabLayoutAtom.tab(tabId)
             else { break }
             let name = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
-            dispatchAction(
-                .createArrangement(
-                    tabId: tabId, name: name, paneIds: Set(tab.activePaneIds)
-                ))
+            dispatchAction(.createArrangement(tabId: tabId, name: name))
 
         case .newTerminalInTab:
             guard let activeTabId = store.tabLayoutAtom.activeTabId,

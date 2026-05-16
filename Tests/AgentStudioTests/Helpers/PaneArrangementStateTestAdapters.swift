@@ -105,24 +105,8 @@ extension TabArrangementState {
 extension Drawer {
     init(
         paneIds: [UUID] = [],
-        layout _: DrawerGridLayout = DrawerGridLayout(),
-        activeChildId _: UUID? = nil,
-        isExpanded: Bool = false,
-        minimizedPaneIds _: Set<UUID> = []
+        isExpanded: Bool = false
     ) {
         self.init(parentPaneId: UUID(), paneIds: paneIds, isExpanded: isExpanded)
-    }
-
-    var layout: DrawerGridLayout {
-        guard let firstPaneId = paneIds.first else { return DrawerGridLayout() }
-        return DrawerGridLayout(topRow: Layout.autoTiled(paneIds.isEmpty ? [firstPaneId] : paneIds))
-    }
-
-    var activeChildId: UUID? {
-        paneIds.last
-    }
-
-    var minimizedPaneIds: Set<UUID> {
-        []
     }
 }
