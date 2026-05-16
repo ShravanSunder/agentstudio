@@ -17,6 +17,10 @@ struct AppStylesNamespaceTests {
     func shellNamespaceOwnsSidebarPaneChromeAndManagementLayerTokens() {
         #expect(AppStyles.Shell.Sidebar.rowVerticalInset == 6)
         #expect(AppStyles.Shell.Sidebar.groupIconSize == 14)
+        #expect(AppStyles.Shell.Sidebar.groupIconColumnWidth == 18)
+        #expect(AppStyles.Shell.Sidebar.groupIconTitleSpacing == 6)
+        #expect(AppStyles.Shell.Sidebar.sectionHeaderChevronColumnWidth == 13)
+        #expect(AppStyles.Shell.Sidebar.sectionHeaderChevronLabelSpacing == 4)
         #expect(AppStyles.Shell.PaneChrome.inactivePaneDimmingDepth == 120)
         #expect(AppStyles.Shell.ManagementLayer.actionSize == 28)
     }

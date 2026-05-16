@@ -12,9 +12,12 @@ struct PaneInboxNotificationPopover: View {
     let paneIds: [UUID]
     let inboxAtom: InboxNotificationAtom
     let presentationAtom: PaneInboxPresentationAtom
-    let dispatcher: CommandDispatcher
     let onActivate: @MainActor (InboxNotification) -> Void
+    let onFocusPane: @MainActor (UUID) -> Void
+    let onClear: @MainActor @Sendable () -> Void
     let onClose: @MainActor @Sendable () -> Void
+    static let rowChromePolicy = PaneInboxNotificationRow.rowChromePolicy
+    static let surfaceBackground = SidebarSurfaceBackground.windowBackgroundColor
 
     @State private var selectedNotificationId: UUID?
 
@@ -28,6 +31,7 @@ struct PaneInboxNotificationPopover: View {
             width: AppStyles.Components.PaneInbox.popoverWidth,
             height: AppStyles.Components.PaneInbox.popoverHeight
         )
+        .background(Self.surfaceBackground.color)
         .background(
             SelectablePopoverKeyboardBridge(
                 items: Self.keyboardItems(for: relevantNotifications),
@@ -98,8 +102,18 @@ struct PaneInboxNotificationPopover: View {
                 clearPaneInboxSpec.icon.swiftUIImage()
             }
             .buttonStyle(.borderless)
+            .accessibilityElement(children: .ignore)
             .accessibilityLabel(clearPaneInboxSpec.label)
+            .accessibilityIdentifier("paneInboxClearButton")
+            .accessibilityHidden(true)
             .help(clearPaneInboxSpec.controlToolTip)
+            .background(
+                AccessibilityPressBridge(
+                    identifier: "paneInboxClearButton",
+                    label: clearPaneInboxSpec.label,
+                    action: clearPaneInbox
+                )
+            )
 
             Button(action: toggleFilterMode) {
                 HStack(spacing: AppStyles.General.Spacing.tight) {
@@ -157,22 +171,20 @@ struct PaneInboxNotificationPopover: View {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(relevantNotifications) { notification in
-                            SidebarRowShell(
-                                isSelected: selectedNotificationId == notification.id
-                            ) {
-                                InboxRow(
-                                    notification: notification,
-                                    now: Date(),
-                                    rowContext: .paneInbox(parentPaneId: parentPaneId)
-                                )
-                            }
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                activate(notification)
-                            }
+                            PaneInboxNotificationRow(
+                                notification: notification,
+                                now: Date(),
+                                parentPaneId: parentPaneId,
+                                isSelected: selectedNotificationId == notification.id,
+                                onActivate: {
+                                    activate(notification)
+                                },
+                                accessibilityLabel: rowAccessibilityLabel(for: notification)
+                            )
                         }
                     }
                 }
+                .background(Self.surfaceBackground.color)
             }
         }
     }
@@ -194,8 +206,16 @@ struct PaneInboxNotificationPopover: View {
     }
 
     private func clearPaneInbox() {
-        inboxAtom.clearPaneInbox(paneIds: paneIds)
+        onClear()
         repairSelection()
+    }
+
+    private func rowAccessibilityLabel(for notification: InboxNotification) -> String {
+        InboxNotificationSourceDisplay(
+            notification: notification,
+            rowContext: .paneInbox(parentPaneId: parentPaneId)
+        )
+        .primaryText
     }
 
     private func activate(notificationId: UUID) {
@@ -220,8 +240,45 @@ struct PaneInboxNotificationPopover: View {
             )
         }
         if let paneId = notification.paneId {
-            dispatcher.dispatch(.focusPane, target: paneId, targetType: .pane)
+            onFocusPane(paneId)
         }
         onClose()
+    }
+}
+
+private struct PaneInboxNotificationRow: View {
+    let notification: InboxNotification
+    let now: Date
+    let parentPaneId: UUID
+    let isSelected: Bool
+    let onActivate: @MainActor () -> Void
+    let accessibilityLabel: String
+    static let rowChromePolicy = SidebarRowShell<InboxRow>.chromePolicy
+
+    @State private var isHovering = false
+
+    var body: some View {
+        SidebarRowShell(
+            isSelected: isSelected,
+            isHovering: isHovering
+        ) {
+            InboxRow(
+                notification: notification,
+                now: now,
+                rowContext: .paneInbox(parentPaneId: parentPaneId)
+            )
+        }
+        .contentShape(Rectangle())
+        .onHover { isHovering = $0 }
+        .onTapGesture {
+            onActivate()
+        }
+        .background(
+            AccessibilityPressBridge(
+                identifier: "paneInboxNotificationRow.\(notification.id.uuidString)",
+                label: accessibilityLabel,
+                action: onActivate
+            )
+        )
     }
 }

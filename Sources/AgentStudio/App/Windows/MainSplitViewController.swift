@@ -8,6 +8,7 @@ struct SidebarRootViewDependencies {
     let inboxFilterDraft: InboxFilterDraftAtom
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
+    let repoCache: RepoCacheAtom
     let onRefocusActivePane: () -> Void
     let onDismissInbox: @MainActor @Sendable () -> Void
 }
@@ -29,6 +30,7 @@ class MainSplitViewController: NSSplitViewController {
                 inboxFilterDraft: dependencies.inboxFilterDraft,
                 inboxAtom: dependencies.inboxAtom,
                 prefsAtom: dependencies.prefsAtom,
+                repoCache: dependencies.repoCache,
                 onRefocusActivePane: dependencies.onRefocusActivePane,
                 onDismissInbox: dependencies.onDismissInbox
             )
@@ -58,6 +60,7 @@ class MainSplitViewController: NSSplitViewController {
     private let paneInboxPresenter: PaneInboxNotificationPresenter
     private let sidebarRootViewBuilder: SidebarRootViewBuilder
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
+    private let paneTabRegistersAsCommandHandler: Bool
 
     func syncVisibleTerminalGeometry(reason: StaticString) {
         paneTabViewController?.syncVisibleTerminalGeometry(reason: reason)
@@ -75,7 +78,8 @@ class MainSplitViewController: NSSplitViewController {
         paneInboxPresenter: PaneInboxNotificationPresenter,
         sidebarRootViewBuilder: @escaping SidebarRootViewBuilder = MainSplitViewController
             .defaultSidebarRootViewBuilder,
-        closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
+        closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator(),
+        paneTabRegistersAsCommandHandler: Bool = true
     ) {
         self.store = store
         self.actionExecutor = actionExecutor
@@ -88,6 +92,7 @@ class MainSplitViewController: NSSplitViewController {
         self.paneInboxPresenter = paneInboxPresenter
         self.sidebarRootViewBuilder = sidebarRootViewBuilder
         self.closeTransitionCoordinator = closeTransitionCoordinator
+        self.paneTabRegistersAsCommandHandler = paneTabRegistersAsCommandHandler
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -107,7 +112,8 @@ class MainSplitViewController: NSSplitViewController {
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry,
             paneInboxPresentation: makePaneInboxPresentation(),
-            closeTransitionCoordinator: closeTransitionCoordinator
+            closeTransitionCoordinator: closeTransitionCoordinator,
+            registersAsCommandHandler: paneTabRegistersAsCommandHandler
         )
         self.paneTabViewController = paneTabVC
 
@@ -124,6 +130,7 @@ class MainSplitViewController: NSSplitViewController {
                 inboxFilterDraft: atom(\.inboxFilterDraft),
                 inboxAtom: inboxAtom,
                 prefsAtom: inboxPrefsAtom,
+                repoCache: repoCache,
                 onRefocusActivePane: { [weak paneTabVC] in
                     paneTabVC?.refocusActivePane()
                 },
@@ -138,8 +145,8 @@ class MainSplitViewController: NSSplitViewController {
         self.sidebarHostingController = sidebarHosting
 
         let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarHosting)
-        sidebarItem.minimumThickness = 200
-        sidebarItem.maximumThickness = 400
+        sidebarItem.minimumThickness = 250
+        sidebarItem.maximumThickness = 450
         sidebarItem.canCollapse = true
         sidebarItem.collapseBehavior = NSSplitViewItem.CollapseBehavior.preferResizingSiblingsWithFixedSplitView
         addSplitViewItem(sidebarItem)
@@ -234,7 +241,7 @@ class MainSplitViewController: NSSplitViewController {
         return width
     }
 
-    private func makePaneInboxPresentation() -> PaneInboxPresentation {
+    func makePaneInboxPresentation() -> PaneInboxPresentation {
         let inbox = inboxAtom
         let presenter = paneInboxPresenter
         let paneInboxState = atom(\.paneInboxPresentationState)
@@ -260,17 +267,20 @@ class MainSplitViewController: NSSplitViewController {
             clearRequest: { request in
                 presenter.clearRequest(request)
             },
-            popoverContent: { parentPaneId, paneIds, onClose in
+            popoverContent: { parentPaneId, paneIds, onClear, onClose in
                 AnyView(
                     PaneInboxNotificationPopover(
                         parentPaneId: parentPaneId,
                         paneIds: paneIds,
                         inboxAtom: inbox,
                         presentationAtom: paneInboxState,
-                        dispatcher: CommandDispatcher.shared,
                         onActivate: { notification in
                             presenter.recordRowActivation(notification: notification, paneIds: paneIds)
                         },
+                        onFocusPane: { [weak self] paneId in
+                            self?.paneTabViewController?.execute(.focusPane, target: paneId, targetType: .pane)
+                        },
+                        onClear: onClear,
                         onClose: onClose
                     )
                 )
@@ -386,15 +396,9 @@ class MainSplitViewController: NSSplitViewController {
     }
 
     func showSidebarFilter() {
-        // Why: until inbox has its own search affordance, ⌘F should preserve the
-        // current surface instead of silently flipping the user back to repos.
+        // Contract: the sidebar filter command focuses the always-visible repo search
+        // without silently flipping the user out of another sidebar surface.
         guard uiState.sidebarSurface == .repos else { return }
-        if uiState.isFilterVisible {
-            uiState.setFilterVisible(false)
-            refocusActivePane()
-            return
-        }
-
         expandSidebar()
         uiState.setFilterVisible(true)
     }

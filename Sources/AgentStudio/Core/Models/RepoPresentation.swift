@@ -266,4 +266,38 @@ enum RepoPresentationColoring {
             seed: "\(group.id)|\(repo.stableKey)|\(repo.id.uuidString)"
         )
     }
+
+    static func sourceGroupColorHex(
+        for group: RepoPresentationGroup,
+        checkoutColorOverrides: [String: String] = [:]
+    ) -> String? {
+        guard let primaryRepo = primaryRepoForSourceGroup(group) else { return nil }
+        return checkoutColorHex(
+            for: primaryRepo,
+            in: group,
+            checkoutColorOverrides: checkoutColorOverrides
+        )
+    }
+
+    static func primaryRepoForSourceGroup(_ group: RepoPresentationGroup) -> RepoPresentationItem? {
+        group.repos.max { lhs, rhs in
+            let lhsScore = sourceGroupPrimaryScore(lhs)
+            let rhsScore = sourceGroupPrimaryScore(rhs)
+            if lhsScore != rhsScore {
+                return lhsScore < rhsScore
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedDescending
+        }
+    }
+
+    private static func sourceGroupPrimaryScore(_ repo: RepoPresentationItem) -> Int {
+        let normalizedRepoPath = repo.repoPath.standardizedFileURL.path
+        if repo.worktrees.contains(where: { $0.path.standardizedFileURL.path == normalizedRepoPath }) {
+            return 2
+        }
+        if repo.worktrees.contains(where: \.isMainWorktree) {
+            return 1
+        }
+        return 0
+    }
 }

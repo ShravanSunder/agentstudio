@@ -7,7 +7,7 @@ import Observation
 @MainActor
 @Observable
 final class InboxNotificationPrefsAtom {
-    private(set) var grouping: InboxNotificationGrouping = .none
+    private(set) var grouping: InboxNotificationGrouping = .byTab
     private(set) var sort: InboxNotificationSort = .newestFirst
     private(set) var bellEnabled: Bool = false
 

@@ -51,6 +51,7 @@ struct SidebarSearchField<FocusValue: Hashable>: View {
                 .onKeyPress(.downArrow) {
                     onDownArrow?() ?? .ignored
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             if !text.isEmpty {
                 Button {
@@ -83,5 +84,11 @@ struct SidebarSearchField<FocusValue: Hashable>: View {
                     lineWidth: AppStyles.Shell.Sidebar.SearchField.borderWidth
                 )
         )
+        .contentShape(
+            RoundedRectangle(cornerRadius: AppStyles.Shell.Sidebar.SearchField.cornerRadius)
+        )
+        .onTapGesture {
+            focusedField.wrappedValue = focusValue
+        }
     }
 }

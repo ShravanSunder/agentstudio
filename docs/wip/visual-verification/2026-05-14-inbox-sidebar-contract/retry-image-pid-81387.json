@@ -1,0 +1,12 @@
+{
+  "debug_logs" : [
+    "[2026-05-14T12:50:43.200Z] DEBUG: Runtime host: local (in-process)",
+    "[2026-05-14T12:50:43.200Z] VERBOSE [Operation]: Starting operation {pid=81387, mode=window, app=none, operation=image_command, hasAnalyzePrompt=false}",
+    "[2026-05-14T12:50:43.200Z] VERBOSE [Performance]: Starting timer 'image_command'"
+  ],
+  "success" : false,
+  "error" : {
+    "code" : "CAPTURE_FAILED",
+    "message" : "Capture failed: Window is not on any available display"
+  }
+}

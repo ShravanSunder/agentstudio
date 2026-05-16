@@ -148,6 +148,47 @@ struct RepoExplorerViewTests {
         #expect(RepoExplorerView.checkoutIconKind(for: worktree, in: repo) == .mainCheckout)
     }
 
+    @Test("source group icon uses same checkout color contract as worktree rows")
+    func sourceGroupIconUsesCheckoutColorContract() {
+        let repoId = UUID()
+        let repo = RepoPresentationItem(
+            id: repoId,
+            name: "agent-studio",
+            repoPath: URL(fileURLWithPath: "/tmp/agent-studio"),
+            stableKey: "agent-studio",
+            worktrees: [
+                Worktree(
+                    repoId: repoId,
+                    name: "notification-inbox-redesign",
+                    path: URL(fileURLWithPath: "/tmp/agent-studio.notification-inbox-redesign")
+                )
+            ]
+        )
+        let group = RepoPresentationGroup(
+            id: "remote:ShravanSunder/agent-studio",
+            repoTitle: "agent-studio",
+            organizationName: "ShravanSunder",
+            repos: [repo]
+        )
+
+        let icon = RepoExplorerView.sourceGroupIcon(
+            for: group,
+            checkoutColorOverrides: [repoId.uuidString: "#EAC54F"]
+        )
+
+        let expectedColorHex = RepoPresentationColoring.checkoutColorHex(
+            for: repo,
+            in: group,
+            checkoutColorOverrides: [repoId.uuidString: "#EAC54F"]
+        )
+
+        if case .coloredRepo(let colorHex) = icon {
+            #expect(colorHex == expectedColorHex)
+        } else {
+            Issue.record("Expected RepoExplorer group header to use colored repo source icon")
+        }
+    }
+
     @Test("checkout icon kind uses git-worktree for a secondary worktree")
     func checkoutIconKindUsesGitWorktreeForSecondaryWorktree() {
         let repoId = UUID()

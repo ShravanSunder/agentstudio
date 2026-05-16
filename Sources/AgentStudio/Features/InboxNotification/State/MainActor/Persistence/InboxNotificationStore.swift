@@ -46,7 +46,7 @@ final class InboxNotificationStore {
         var prefs: Prefs
 
         struct Prefs: Codable {
-            var grouping: InboxNotificationGrouping = .none
+            var grouping: InboxNotificationGrouping = .byTab
             var sort: InboxNotificationSort = .newestFirst
             var bellEnabled: Bool = false
 
@@ -57,7 +57,7 @@ final class InboxNotificationStore {
             }
 
             init(
-                grouping: InboxNotificationGrouping = .none,
+                grouping: InboxNotificationGrouping = .byTab,
                 sort: InboxNotificationSort = .newestFirst,
                 bellEnabled: Bool = false
             ) {
@@ -72,7 +72,7 @@ final class InboxNotificationStore {
                     InboxNotificationGrouping.self,
                     from: container,
                     forKey: .grouping,
-                    default: .none
+                    default: .byTab
                 )
                 self.sort = decodeRecoverablePreferenceField(
                     InboxNotificationSort.self,

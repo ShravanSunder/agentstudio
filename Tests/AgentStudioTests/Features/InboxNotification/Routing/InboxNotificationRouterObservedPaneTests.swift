@@ -411,7 +411,7 @@ struct InboxNotificationRouterObservedPaneTests {
     @Test("scrollbar does not retrace kept user-action-required rows")
     func scrollbarDoesNotRetraceKeptUserActionRequiredRows() async throws {
         let traceRuntime = makeTraceRuntime(name: "inbox-scrollbar-keep", processIdentifier: 412)
-        let fixture = await makeFixture(traceRuntime: traceRuntime)
+        let fixture = await makeFixture(traceRuntime: traceRuntime, startRouter: false)
         let paneId = PaneId()
         _ = addTerminalPane(paneId, to: fixture)
         makeWindowKey(fixture.windowLifecycle)
@@ -420,11 +420,22 @@ struct InboxNotificationRouterObservedPaneTests {
         }
         let outputFileURL = try #require(traceRuntime.outputFileURL)
 
-        _ = await fixture.bus.post(
-            runtimeEnvelope(
-                paneId: paneId,
-                event: .terminal(.secureInputChanged(true))
-            )
+        fixture.inboxAtom.append(
+            makeNotification(kind: .terminalSecureInputRequested, paneId: paneId.uuid)
+        )
+        await fixture.router.start()
+        await assertEventuallyMain("startup should trace the kept user-action-required row") {
+            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+                .contains("\"body\":\"inbox.observedPaneCleared\"") == true
+        }
+        await assertEventuallyMain("focus processing should settle before scrollbar events") {
+            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+                .contains("\"body\":\"inbox.focusGainedObservedPane\"") == true
+        }
+        let beforeScrollbarContents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        let observedClearCountBeforeScrollbar = Self.countOccurrences(
+            of: "\"body\":\"inbox.observedPaneCleared\"",
+            in: beforeScrollbarContents
         )
         _ = await fixture.bus.post(
             runtimeEnvelope(
@@ -440,20 +451,26 @@ struct InboxNotificationRouterObservedPaneTests {
                 seq: 3
             )
         )
-
-        await assertEventuallyMain("secure input notification should be appended") {
-            fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 1
+        _ = await fixture.bus.post(
+            runtimeEnvelope(
+                paneId: paneId,
+                event: .terminal(.secureInputChanged(false)),
+                seq: 4
+            )
+        )
+        await assertEventuallyMain("barrier event should prove scrollbar events were consumed") {
+            (try? String(contentsOf: outputFileURL, encoding: .utf8))?
+                .contains("\"agentstudio.envelope.seq\":4") == true
         }
         #expect(fixture.inboxAtom.visiblePaneInboxUnreadCount(forPaneIds: [paneId.uuid]) == 1)
         await stop(fixture)
 
         let afterScrollbarContents = try String(contentsOf: outputFileURL, encoding: .utf8)
-        #expect(afterScrollbarContents.contains("\"body\":\"inbox.notification.appended\""))
         #expect(
             Self.countOccurrences(
                 of: "\"body\":\"inbox.observedPaneCleared\"",
                 in: afterScrollbarContents
-            ) == 1
+            ) == observedClearCountBeforeScrollbar
         )
     }
 
