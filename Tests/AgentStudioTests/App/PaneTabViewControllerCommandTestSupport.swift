@@ -102,7 +102,7 @@ func makePaneTabViewControllerCommandHarness(
             clearRequest: { request in
                 paneInboxPresenter.clearRequest(request)
             },
-            popoverContent: { _, _, _ in AnyView(EmptyView()) },
+            popoverContent: { _, _, _, _ in AnyView(EmptyView()) },
             pruneFilterModes: { _ in }
         ),
         installedEditorTargetsProvider: { [.cursor, .vscode] },
@@ -116,7 +116,8 @@ func makePaneTabViewControllerCommandHarness(
         },
         closeTransitionCoordinator: closeTransitionCoordinator,
         tabRenamePopoverState: tabRenamePopoverState,
-        arrangementInlineRenameState: arrangementInlineRenameState
+        arrangementInlineRenameState: arrangementInlineRenameState,
+        registersAsCommandHandler: false
     )
     return PaneTabViewControllerCommandHarness(
         store: store,

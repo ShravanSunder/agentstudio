@@ -1,0 +1,18 @@
+{
+  "debug_logs" : [
+    "[2026-05-14T12:50:42.624Z] DEBUG: Runtime host: local (in-process)",
+    "[2026-05-14T12:50:42.625Z] VERBOSE [Operation]: Starting operation {hasAnalyzePrompt=false, menubar=false, app=none, mode=auto, annotate=false, operation=see_command}",
+    "[2026-05-14T12:50:42.625Z] VERBOSE [Performance]: Starting timer 'see_command'",
+    "[2026-05-14T12:50:42.625Z] VERBOSE [Capture]: Starting capture and detection phase",
+    "[2026-05-14T12:50:42.625Z] VERBOSE [Capture]: Using desktop observation pipeline {target=pid:81387}",
+    "[2026-05-14T12:50:42.625Z] VERBOSE [Operation]: Starting operation {mode=window, operation=capture_phase}",
+    "[2026-05-14T12:50:42.625Z] VERBOSE [Performance]: Starting timer 'capture_phase'",
+    "[2026-05-14T12:50:43.153Z] VERBOSE [Operation]: Operation completed {success=false, operation=see_command, error=Capture failed: Window is not on any available display}",
+    "[2026-05-14T12:50:43.153Z] VERBOSE [Performance]: Timer 'see_command' completed {duration_ms=528}"
+  ],
+  "success" : false,
+  "error" : {
+    "message" : "Capture failed: Window is not on any available display",
+    "code" : "CAPTURE_FAILED"
+  }
+}

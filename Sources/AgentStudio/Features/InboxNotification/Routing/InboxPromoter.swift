@@ -147,7 +147,7 @@ final class InboxPromoter {
             timestamp: now(),
             kind: .unseenActivity,
             title: "New terminal activity",
-            body: "Output appeared while you were away",
+            body: nil,
             source: .pane(context),
             activityContext: .init(
                 burstWindowId: activity.burstWindowId,

@@ -4,7 +4,7 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("SidebarSurfaceHost")
+@Suite("SidebarSurfaceHost", .serialized)
 struct SidebarSurfaceHostTests {
     @Test("repos surface maps to repo explorer child")
     func childKindRepos() {
@@ -54,19 +54,9 @@ struct SidebarSurfaceHostTests {
     }
 
     @Test("worktree notification action sets draft before dispatching inbox command")
-    func worktreeNotificationActionSetsDraftBeforeDispatch() {
-        let previousRouter = CommandDispatcher.shared.appCommandRouter
-        let previousHandler = CommandDispatcher.shared.handler
-        defer {
-            CommandDispatcher.shared.appCommandRouter = previousRouter
-            CommandDispatcher.shared.handler = previousHandler
-        }
-
+    func worktreeNotificationActionSetsDraftBeforeDispatch() async throws {
         let router = MockAppCommandRouter()
         router.appCommands = [.showInboxNotifications]
-        CommandDispatcher.shared.appCommandRouter = router
-        CommandDispatcher.shared.handler = nil
-
         let worktree = Worktree(
             id: UUID(),
             repoId: UUID(),
@@ -75,13 +65,21 @@ struct SidebarSurfaceHostTests {
         )
         let draft = InboxFilterDraftAtom()
 
-        SidebarSurfaceHost.showNotifications(
-            for: worktree,
-            inboxFilterDraft: draft,
-            dispatcher: .shared
-        )
+        try await withIsolatedCommandDispatcher(
+            configure: {
+                CommandDispatcher.shared.appCommandRouter = router
+                CommandDispatcher.shared.handler = nil
+            },
+            body: {
+                SidebarSurfaceHost.showNotifications(
+                    for: worktree,
+                    inboxFilterDraft: draft,
+                    dispatcher: .shared
+                )
 
-        #expect(draft.peek() == .worktree(id: worktree.id))
-        #expect(router.handledCommands == [.showInboxNotifications])
+                #expect(draft.peek() == .worktree(id: worktree.id))
+                #expect(router.handledCommands == [.showInboxNotifications])
+            }
+        )
     }
 }

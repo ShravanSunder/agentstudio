@@ -163,6 +163,8 @@ final class ZmxTestHarness: @unchecked Sendable {
         process.standardInput = Pipe()
         var env = ProcessInfo.processInfo.environment
         env["ZMX_DIR"] = zmxDir
+        env["ZMX_SESSION"] = ""
+        env["ZMX_SESSION_PREFIX"] = ""
         process.environment = env
         try process.run()
 

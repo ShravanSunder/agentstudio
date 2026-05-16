@@ -47,7 +47,8 @@ struct PaneTabViewControllerTabRetentionTests {
             appLifecycleStore: appLifecycleStore,
             executor: ActionExecutor(coordinator: coordinator, store: store),
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
-            viewRegistry: viewRegistry
+            viewRegistry: viewRegistry,
+            registersAsCommandHandler: false
         )
         PaneViewRepresentable.onDismantleForTesting = { [weak controller] in
             controller?.recordPaneRepresentableDismantleForTesting()

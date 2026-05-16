@@ -152,26 +152,22 @@ struct RepoExplorerWorktreeRow: View {
     let onOpenNew: () -> Void
     let onOpenInPane: () -> Void
     let onSetIconColor: (String?) -> Void
+    static let rowChromePolicy = SidebarRowShell<RepoExplorerWorktreeRowContent>.chromePolicy
 
     @State private var isHovering = false
 
     var body: some View {
-        RepoExplorerWorktreeRowContent(
-            checkoutTitle: checkoutTitle,
-            branchName: branchName,
-            checkoutIconKind: checkoutIconKind,
-            iconColor: iconColor,
-            branchStatus: branchStatus,
-            unreadCount: unreadCount,
-            onUnreadPillTap: onUnreadPillTap
-        )
-        .padding(.vertical, AppStyles.Shell.Sidebar.rowVerticalInset)
-        .padding(.horizontal, AppStyles.General.Spacing.tight / 2)
-        .background(
-            RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.bar)
-                .fill(isHovering ? Color.accentColor.opacity(AppStyles.Shell.Sidebar.rowHoverOpacity) : Color.clear)
-        )
-        .contentShape(Rectangle())
+        SidebarRowShell(isHovering: isHovering) {
+            RepoExplorerWorktreeRowContent(
+                checkoutTitle: checkoutTitle,
+                branchName: branchName,
+                checkoutIconKind: checkoutIconKind,
+                iconColor: iconColor,
+                branchStatus: branchStatus,
+                unreadCount: unreadCount,
+                onUnreadPillTap: onUnreadPillTap
+            )
+        }
         .onHover { isHovering = $0 }
         .onTapGesture(count: 2) {
             onOpen()

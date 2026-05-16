@@ -8,7 +8,7 @@ struct InboxNotificationPrefsAtomTests {
     @Test("defaults")
     func defaults() {
         let atom = InboxNotificationPrefsAtom()
-        #expect(atom.grouping == .none)
+        #expect(atom.grouping == .byTab)
         #expect(atom.sort == .newestFirst)
         #expect(atom.bellEnabled == false)
     }

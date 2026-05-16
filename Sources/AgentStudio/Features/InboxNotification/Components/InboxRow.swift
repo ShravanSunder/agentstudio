@@ -4,19 +4,26 @@ struct InboxRow: View {
     let notification: InboxNotification
     let now: Date
     let rowContext: InboxNotificationSourceDisplay.RowContext
+    var grouping: InboxNotificationGrouping = .none
+
+    static let placementMetadataIconSystemName: String? = nil
+
+    static func metadataLine(
+        iconSystemName: String? = nil,
+        text: String,
+        prominence: SidebarMetadataProminence = .secondary
+    ) -> SidebarMetadataLine {
+        SidebarMetadataLine(
+            iconSystemName: iconSystemName,
+            reservesIconColumn: false,
+            text: text,
+            prominence: prominence
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
-            HStack(spacing: AppStyles.General.Spacing.standard) {
-                if !notification.isRead {
-                    Circle()
-                        .fill(.red)
-                        .frame(
-                            width: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize,
-                            height: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize
-                        )
-                }
-
+            HStack(spacing: AppStyles.General.Spacing.tight) {
                 Text(display.primaryText)
                     .font(
                         .system(
@@ -26,43 +33,57 @@ struct InboxRow: View {
                     )
                     .foregroundStyle(notification.isRead ? .secondary : .primary)
                     .lineLimit(1)
-                    .layoutPriority(1)
+                    .truncationMode(.tail)
+                    .layoutPriority(0)
 
                 Spacer(minLength: AppStyles.General.Spacing.standard)
 
-                Text(relativeTime)
-                    .font(
-                        .system(
-                            size: AppStyles.Shell.Sidebar.notificationRowTimestampSize,
-                            weight: .semibold
-                        )
-                    )
-                    .foregroundStyle(.secondary)
+                timestampCluster
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(2)
             }
 
-            Text(display.sourceLine)
-                .font(.system(size: AppStyles.Shell.Sidebar.notificationRowSourceSize, weight: .medium))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            Self.metadataLine(text: display.sourceLine)
 
             if let placementLine = display.placementLine {
-                Text(placementLine)
-                    .font(.system(size: AppStyles.Shell.Sidebar.notificationRowDetailSize))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                Self.metadataLine(
+                    iconSystemName: Self.placementMetadataIconSystemName,
+                    text: placementLine,
+                    prominence: .secondary
+                )
             }
 
             if let detailText = display.detailText {
-                Text(detailText)
-                    .font(.system(size: AppStyles.Shell.Sidebar.notificationRowDetailSize))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
+                Self.metadataLine(text: detailText, prominence: .tertiary)
             }
         }
     }
 
+    @ViewBuilder
+    private var timestampCluster: some View {
+        HStack(spacing: AppStyles.General.Spacing.tight) {
+            if !notification.isRead {
+                Circle()
+                    .fill(.red)
+                    .frame(
+                        width: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize,
+                        height: AppStyles.Shell.Sidebar.notificationRowUnreadDotSize
+                    )
+            }
+
+            Text(relativeTime)
+                .font(
+                    .system(
+                        size: AppStyles.Shell.Sidebar.notificationRowTimestampSize,
+                        weight: .semibold
+                    )
+                )
+                .foregroundStyle(.secondary)
+        }
+    }
+
     private var display: InboxNotificationSourceDisplay {
-        InboxNotificationSourceDisplay(notification: notification, rowContext: rowContext)
+        InboxNotificationSourceDisplay(notification: notification, rowContext: rowContext, grouping: grouping)
     }
 
     private var relativeTime: String {
@@ -78,5 +99,4 @@ struct InboxRow: View {
         }
         return "\(Int(delta / 86_400))d"
     }
-
 }

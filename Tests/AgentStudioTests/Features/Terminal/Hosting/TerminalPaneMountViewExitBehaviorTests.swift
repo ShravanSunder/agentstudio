@@ -53,7 +53,8 @@ struct TerminalPaneMountViewExitBehaviorTests {
             appLifecycleStore: appLifecycleStore,
             executor: executor,
             tabBarAdapter: TabBarAdapter(store: store, repoCache: RepoCacheAtom()),
-            viewRegistry: viewRegistry
+            viewRegistry: viewRegistry,
+            registersAsCommandHandler: false
         )
         return PaneTabControllerHarness(
             store: store,
