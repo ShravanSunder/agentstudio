@@ -98,7 +98,13 @@ struct TerminalSemanticArtifactExtractor: Sendable {
     }
 
     private static func trimTrailingPunctuation(_ value: String) -> String {
-        value.trimmingCharacters(in: trailingPunctuation)
+        var trimmedValue = value
+        while let lastScalar = trimmedValue.unicodeScalars.last,
+            trailingPunctuation.contains(lastScalar)
+        {
+            trimmedValue.removeLast()
+        }
+        return trimmedValue
     }
 
     private static func makeExpression(pattern: String) -> NSRegularExpression {
