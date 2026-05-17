@@ -232,7 +232,7 @@ final class TabBarAdapterTests {
     }
 
     @Test
-    func test_activeArrangementName_nilForDefaultArrangement() async throws {
+    func test_activeArrangementName_isDefaultForDefaultArrangement() async throws {
         resetFixture()
 
         let pane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
@@ -242,7 +242,7 @@ final class TabBarAdapterTests {
         await waitForAdapterRefresh()
 
         let tabItem = try #require(adapter.tabs[safe: 0], "Expected derived tab to exist")
-        #expect(tabItem.activeArrangementName == nil)
+        #expect(tabItem.activeArrangementName == "Default")
     }
 
     @Test

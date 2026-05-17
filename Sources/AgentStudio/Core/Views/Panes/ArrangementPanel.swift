@@ -75,9 +75,6 @@ struct ArrangementPanel: View {
                 }
 
                 if displayState.showsMinimizedBarToggle {
-                    Divider()
-                        .padding(.vertical, 2)
-
                     HStack(spacing: 6) {
                         Text("Show minimized panes")
                             .font(.system(size: AppStyles.General.Typography.textXs))
@@ -107,6 +104,7 @@ struct ArrangementPanel: View {
                         .controlSize(.mini)
                         .labelsHidden()
                     }
+                    .padding(.top, AppStyles.General.Spacing.standard)
 
                     if !showsMinimizedPanesBinding.wrappedValue && atom(\.managementLayer).isActive {
                         Text("Minimized panes are always shown in management mode")

@@ -32,10 +32,12 @@ struct WorkspaceArrangementViewDerived {
     func drawerView(forParent parentPaneId: UUID) -> DrawerView? {
         guard
             let tab = tabLayoutAtom.tabContaining(paneId: parentPaneId),
-            let drawer = paneAtom.pane(parentPaneId)?.drawer,
-            !drawer.paneIds.isEmpty
+            let drawer = paneAtom.pane(parentPaneId)?.drawer
         else { return nil }
-        return tab.activeArrangement.drawerViews[drawer.drawerId]
+        if let drawerView = tab.activeArrangement.drawerViews[drawer.drawerId] {
+            return drawerView
+        }
+        return drawer.paneIds.isEmpty ? DrawerView() : nil
     }
 
     func drawerVisiblePaneIds(forParent parentPaneId: UUID) -> [UUID] {

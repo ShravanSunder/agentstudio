@@ -11,6 +11,10 @@ struct TabBarArrangementChip: View {
         index != nil && name != nil
     }
 
+    var showsArrangementName: Bool {
+        name != nil
+    }
+
     var chipFillOpacity: CGFloat {
         if isPressed { return AppStyles.General.Fill.active }
         if isHovered { return AppStyles.General.Fill.pressed }
@@ -27,14 +31,16 @@ struct TabBarArrangementChip: View {
                 .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
                 .foregroundStyle(isHovered ? .primary : .secondary)
 
-            if let index, let name {
+            if let name {
                 HStack(spacing: 4) {
-                    Text("\(index)")
-                        .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                    Text("·")
-                        .font(.system(size: AppStyles.General.Typography.textXs))
-                        .foregroundStyle(.tertiary)
+                    if let index {
+                        Text("\(index)")
+                            .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        Text("·")
+                            .font(.system(size: AppStyles.General.Typography.textXs))
+                            .foregroundStyle(.tertiary)
+                    }
                     Text(name)
                         .font(.system(size: AppStyles.General.Typography.textXs))
                         .foregroundStyle(.secondary)
@@ -46,14 +52,14 @@ struct TabBarArrangementChip: View {
         }
         .fixedSize(horizontal: true, vertical: false)
         .frame(height: AppStyles.General.Button.toolbar)
-        .padding(.horizontal, hasCustomArrangement ? 8 : 0)
+        .padding(.horizontal, showsArrangementName ? 8 : 0)
         .frame(minWidth: AppStyles.General.Button.toolbar)
         .background(
             Capsule()
                 .fill(Color.white.opacity(chipFillOpacity))
         )
         .contentShape(Capsule())
-        .animation(.easeInOut(duration: AppStyles.General.Animation.standard), value: hasCustomArrangement)
+        .animation(.easeInOut(duration: AppStyles.General.Animation.standard), value: showsArrangementName)
         .animation(.easeInOut(duration: AppStyles.General.Animation.standard), value: name)
     }
 }

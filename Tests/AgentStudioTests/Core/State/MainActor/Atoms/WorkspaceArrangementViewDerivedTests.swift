@@ -113,6 +113,81 @@ struct WorkspaceArrangementViewDerivedTests {
         #expect(derived.effectiveShowsMinimizedDrawerPanes(forParent: parentWithDrawerPanes.id) == true)
     }
 
+    @Test
+    func drawerView_returnsEmptyViewForExpandedEmptyDrawer() {
+        var parentPane = makePane(id: UUIDv7.generate())
+        parentPane.withDrawer { drawer in
+            drawer.isExpanded = true
+            drawer.paneIds = []
+        }
+        let drawerId = parentPane.drawer!.drawerId
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: parentPane.id),
+            activePaneId: parentPane.id
+        )
+        let tab = Tab(
+            name: "Tab",
+            allPaneIds: [parentPane.id],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id
+        )
+        let tabLayout = WorkspaceTabLayoutAtom()
+        let paneAtom = WorkspacePaneAtom()
+        let managementLayer = ManagementLayerAtom()
+        paneAtom.addPane(parentPane)
+        tabLayout.appendTab(tab)
+        let derived = WorkspaceArrangementViewDerived(
+            tabLayoutAtom: tabLayout,
+            paneAtom: paneAtom,
+            managementLayerAtom: managementLayer
+        )
+
+        let drawerView = derived.drawerView(forParent: parentPane.id)
+
+        #expect(drawerView?.layout.isEmpty == true)
+        #expect(drawerView?.activeChildId == nil)
+        #expect(derived.drawerVisiblePaneIds(forParent: parentPane.id).isEmpty)
+        #expect(derived.effectiveShowsMinimizedDrawerPanes(forParent: parentPane.id) == true)
+        #expect(tab.activeArrangement.drawerViews[drawerId] == nil)
+    }
+
+    @Test
+    func drawerView_returnsNilForNonEmptyDrawerWithoutArrangementView() {
+        var parentPane = makePane(id: UUIDv7.generate())
+        let drawerPane = makeDrawerChild(id: UUIDv7.generate(), parentPaneId: parentPane.id)
+        parentPane.withDrawer { drawer in
+            drawer.isExpanded = true
+            drawer.paneIds = [drawerPane.id]
+        }
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: parentPane.id),
+            activePaneId: parentPane.id
+        )
+        let tab = Tab(
+            name: "Tab",
+            allPaneIds: [parentPane.id],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id
+        )
+        let tabLayout = WorkspaceTabLayoutAtom()
+        let paneAtom = WorkspacePaneAtom()
+        let managementLayer = ManagementLayerAtom()
+        paneAtom.addPane(parentPane)
+        paneAtom.addPane(drawerPane)
+        tabLayout.appendTab(tab)
+        let derived = WorkspaceArrangementViewDerived(
+            tabLayoutAtom: tabLayout,
+            paneAtom: paneAtom,
+            managementLayerAtom: managementLayer
+        )
+
+        #expect(derived.drawerView(forParent: parentPane.id) == nil)
+    }
+
     private func makePane(id: UUID) -> Pane {
         Pane(
             id: id,
