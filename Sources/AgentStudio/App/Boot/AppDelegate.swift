@@ -13,9 +13,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var store: WorkspaceStore!
     var repoCache: RepoCacheAtom! { atomStore.repoCache }
     var uiState: UIStateAtom! { atomStore.uiState }
-    var inboxNotificationAtom: InboxNotificationAtom!
-    var inboxNotificationPrefsAtom: InboxNotificationPrefsAtom!
-    var inboxSidebarStateAtom: InboxSidebarStateAtom!
     var inboxNotificationStore: InboxNotificationStore!
     var inboxNotificationRouter: InboxNotificationRouter!
     var inboxPaneFocusTracker: PaneFocusTracker!
@@ -117,9 +114,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 self?.recordPersistenceRecovery(event)
             }
         )
-        inboxNotificationAtom = InboxNotificationAtom()
-        inboxNotificationPrefsAtom = InboxNotificationPrefsAtom()
-        inboxSidebarStateAtom = InboxSidebarStateAtom()
         traceRuntime = .fromEnvironment()
         paneInboxNotificationPresenter = PaneInboxNotificationPresenter(traceRuntime: traceRuntime)
         Ghostty.ActionRouter.bindTraceRuntime(traceRuntime)
@@ -375,9 +369,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             appLifecycleStore: appLifecycleStore,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry,
-            inboxAtom: inboxNotificationAtom,
-            inboxPrefsAtom: inboxNotificationPrefsAtom,
-            inboxSidebarStateAtom: inboxSidebarStateAtom,
+            inboxAtom: atomStore.inboxNotification,
+            inboxPrefsAtom: atomStore.inboxNotificationPrefs,
+            inboxSidebarStateAtom: atomStore.inboxSidebarState,
             paneInboxPresenter: paneInboxNotificationPresenter,
             closeTransitionCoordinator: closeTransitionCoordinator
         )
@@ -558,9 +552,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 appLifecycleStore: appLifecycleStore,
                 tabBarAdapter: tabBarAdapter,
                 viewRegistry: viewRegistry,
-                inboxAtom: inboxNotificationAtom,
-                inboxPrefsAtom: inboxNotificationPrefsAtom,
-                inboxSidebarStateAtom: inboxSidebarStateAtom,
+                inboxAtom: atomStore.inboxNotification,
+                inboxPrefsAtom: atomStore.inboxNotificationPrefs,
+                inboxSidebarStateAtom: atomStore.inboxSidebarState,
                 paneInboxPresenter: paneInboxNotificationPresenter,
                 closeTransitionCoordinator: closeTransitionCoordinator
             )

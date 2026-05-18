@@ -125,7 +125,8 @@
 │    WorkspaceLookupDerived        lookup helpers                      │
 │    DynamicViewDerived            view composition                    │
 │                                                                      │
-│  Everything builds through AtomRegistry (Infrastructure/AtomLib/).   │
+│  Everything builds through root AtomRegistry.swift.                  │
+│  Generic atom access helpers stay in Infrastructure/AtomLib/.        │
 │                                                                      │
 └──────────────────────────────────────────────────────────────────────┘
 ```

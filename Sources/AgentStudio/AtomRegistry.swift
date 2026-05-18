@@ -12,6 +12,9 @@ final class AtomRegistry {
     let sidebarCache: SidebarCacheAtom
     let terminalActivity: TerminalActivityAtom
     let editorChooser: EditorChooserAtom
+    let inboxNotification: InboxNotificationAtom
+    let inboxNotificationPrefs: InboxNotificationPrefsAtom
+    let inboxSidebarState: InboxSidebarStateAtom
     let paneInboxPresentationState: PaneInboxPresentationAtom
     let uiState: UIStateAtom
     let managementLayer: ManagementLayerAtom
@@ -31,6 +34,9 @@ final class AtomRegistry {
         sidebarCache: SidebarCacheAtom = .init(),
         terminalActivity: TerminalActivityAtom = .init(),
         editorChooser: EditorChooserAtom = .init(),
+        inboxNotification: InboxNotificationAtom = .init(),
+        inboxNotificationPrefs: InboxNotificationPrefsAtom = .init(),
+        inboxSidebarState: InboxSidebarStateAtom = .init(),
         paneInboxPresentationState: PaneInboxPresentationAtom = .init(),
         uiState: UIStateAtom = .init(),
         managementLayer: ManagementLayerAtom = .init(),
@@ -60,6 +66,9 @@ final class AtomRegistry {
         self.sidebarCache = sidebarCache
         self.terminalActivity = terminalActivity
         self.editorChooser = editorChooser
+        self.inboxNotification = inboxNotification
+        self.inboxNotificationPrefs = inboxNotificationPrefs
+        self.inboxSidebarState = inboxSidebarState
         self.paneInboxPresentationState = paneInboxPresentationState
         self.uiState = uiState
         self.managementLayer = managementLayer
