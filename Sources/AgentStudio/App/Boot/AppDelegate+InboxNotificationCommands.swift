@@ -3,8 +3,8 @@ import Foundation
 @MainActor
 extension AppDelegate {
     func makeInboxNotificationCommands() -> InboxNotificationCommands {
-        let inboxAtom = inboxNotificationAtom!
-        let prefsAtom = inboxNotificationPrefsAtom!
+        let inboxAtom = atomStore.inboxNotification
+        let prefsAtom = atomStore.inboxNotificationPrefs
         let uiState = uiState!
         return InboxNotificationCommands(
             actions: .init(

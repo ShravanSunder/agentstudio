@@ -58,7 +58,7 @@ Run these in one AgentStudio debug session. Switch focus away from the pane befo
 | Shell long command | `sleep 12; echo done` | `inbox.classify` notify for `commandFinished` if pane unattended. |
 | Shell short command | `sleep 2; echo done` | `inbox.classify` ignore with `below_duration_threshold`. |
 | Bell | `printf '\\a'` | `inbox.classify` `bell_disabled` unless bell pref is enabled. |
-| OSC notification | Emit Ghostty-supported desktop notification OSC if available. | `ghostty.action.*`; `inbox.classify` notify if it reaches `.desktopNotificationRequested`. |
+| OSC notification | `printf '\\033]777;notify;Agent Studio Smoke;OSC reached inbox\\a'` | `terminal.activity.observed`, `inbox.classify`, `inbox.promote`, and `inbox.notification.appended` for `.desktopNotificationRequested`. |
 | High-output command | `yes trace-smoke | head -1000` | Debounced `terminal.activity.unseenWindow*`, not per-line or per-scroll records. |
 
 ## jq Checks
@@ -80,6 +80,24 @@ Show notification decisions:
 ```bash
 jq 'select(.body=="inbox.classify") | {time_unix_nano, decision: .attributes["agentstudio.inbox.decision"], reason: .attributes["agentstudio.inbox.reason"], kind: .attributes["agentstudio.inbox.kind"], event: .attributes["agentstudio.runtime.event"], pane: .attributes["agentstudio.pane.id"]}' "$TRACE_FILE"
 ```
+
+Verify the OSC desktop notification trace contract:
+
+```bash
+scripts/verify-notification-osc-smoke.sh "$TRACE_FILE"
+```
+
+Verify the bell notification path when the bell preference was enabled for the
+smoke run:
+
+```bash
+scripts/verify-notification-osc-smoke.sh "$TRACE_FILE" --expect-bell-notified
+```
+
+This verifier proves the trace pipeline from Ghostty's desktop notification
+action into terminal activity tracing, inbox classification, promotion, and row
+append. It does not prove final pixels; keep a screenshot or manual note when
+the smoke run is also used for visual acceptance.
 
 Show eventbus delivery summaries:
 

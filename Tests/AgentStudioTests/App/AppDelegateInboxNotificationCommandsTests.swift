@@ -10,9 +10,7 @@ struct AppDelegateInboxNotificationCommandsTests {
     func shellClearReadCommandRoutesThroughInboxNotificationCommands() {
         let delegate = AppDelegate()
         let inboxAtom = InboxNotificationAtom()
-        delegate.atomStore = AtomRegistry()
-        delegate.inboxNotificationAtom = inboxAtom
-        delegate.inboxNotificationPrefsAtom = InboxNotificationPrefsAtom()
+        delegate.atomStore = AtomRegistry(inboxNotification: inboxAtom)
         inboxAtom.append(makeReadNotification())
 
         #expect(delegate.canExecute(.clearReadInboxNotifications))
@@ -34,9 +32,7 @@ struct AppDelegateInboxNotificationCommandsTests {
     func shellToggleInboxSortCommandRoutesThroughInboxNotificationPrefs() {
         let delegate = AppDelegate()
         let prefsAtom = InboxNotificationPrefsAtom()
-        delegate.atomStore = AtomRegistry()
-        delegate.inboxNotificationAtom = InboxNotificationAtom()
-        delegate.inboxNotificationPrefsAtom = prefsAtom
+        delegate.atomStore = AtomRegistry(inboxNotificationPrefs: prefsAtom)
 
         #expect(delegate.canExecute(.toggleInboxNotificationSort))
         let didExecute = delegate.execute(.toggleInboxNotificationSort)
@@ -57,9 +53,7 @@ struct AppDelegateInboxNotificationCommandsTests {
     func shellClearAllCommandRoutesThroughInboxNotificationCommands() {
         let delegate = AppDelegate()
         let inboxAtom = InboxNotificationAtom()
-        delegate.atomStore = AtomRegistry()
-        delegate.inboxNotificationAtom = inboxAtom
-        delegate.inboxNotificationPrefsAtom = InboxNotificationPrefsAtom()
+        delegate.atomStore = AtomRegistry(inboxNotification: inboxAtom)
         inboxAtom.append(makeReadNotification())
 
         #expect(delegate.canExecute(.clearAllInboxNotifications))

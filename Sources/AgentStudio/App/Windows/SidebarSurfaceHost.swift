@@ -9,7 +9,7 @@ struct SidebarSurfaceHost: View {
     let store: WorkspaceStore
     let uiState: UIStateAtom
     let sidebarCache: SidebarCacheAtom
-    let inboxFilterDraft: InboxFilterDraftAtom
+    let inboxSidebarState: InboxSidebarStateAtom
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
     let repoCache: RepoCacheAtom
@@ -36,7 +36,7 @@ struct SidebarSurfaceHost: View {
                 onShowNotificationsForWorktree: { worktree in
                     Self.showNotifications(
                         for: worktree,
-                        inboxFilterDraft: inboxFilterDraft,
+                        inboxSidebarState: inboxSidebarState,
                         dispatcher: .shared
                     )
                 },
@@ -50,7 +50,7 @@ struct SidebarSurfaceHost: View {
                 prefsAtom: prefsAtom,
                 uiState: uiState,
                 sidebarCache: sidebarCache,
-                inboxFilterDraft: inboxFilterDraft,
+                inboxSidebarState: inboxSidebarState,
                 workspacePaneAtom: store.paneAtom,
                 workspaceRepositoryTopologyAtom: store.repositoryTopologyAtom,
                 repoCache: repoCache,
@@ -78,10 +78,10 @@ struct SidebarSurfaceHost: View {
 
     static func showNotifications(
         for worktree: Worktree,
-        inboxFilterDraft: InboxFilterDraftAtom,
+        inboxSidebarState: InboxSidebarStateAtom,
         dispatcher: CommandDispatcher
     ) {
-        inboxFilterDraft.set(.worktree(id: worktree.id))
+        inboxSidebarState.setPendingFilter(.worktree(id: worktree.id))
         dispatcher.dispatch(.showInboxNotifications)
     }
 }

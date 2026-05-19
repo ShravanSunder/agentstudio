@@ -21,10 +21,12 @@ struct InboxNotificationStoreTests {
         let url = makeTempURL()
         let atom1 = InboxNotificationAtom()
         let prefs1 = InboxNotificationPrefsAtom()
+        let sidebarState1 = InboxSidebarStateAtom()
         let clock = TestPushClock()
         let store1 = InboxNotificationStore(
             inboxAtom: atom1,
             prefsAtom: prefs1,
+            sidebarStateAtom: sidebarState1,
             fileURL: url,
             clock: clock
         )
@@ -44,13 +46,16 @@ struct InboxNotificationStoreTests {
         prefs1.setGrouping(.byRepo)
         prefs1.setSort(.oldestFirst)
         prefs1.setBellEnabled(true)
+        sidebarState1.setGroupCollapsed(InboxNotificationGroupKey("repo:agent-studio"), isCollapsed: true)
         try await store1.save()
 
         let atom2 = InboxNotificationAtom()
         let prefs2 = InboxNotificationPrefsAtom()
+        let sidebarState2 = InboxSidebarStateAtom()
         let store2 = InboxNotificationStore(
             inboxAtom: atom2,
             prefsAtom: prefs2,
+            sidebarStateAtom: sidebarState2,
             fileURL: url,
             clock: clock
         )
@@ -61,10 +66,11 @@ struct InboxNotificationStoreTests {
         #expect(prefs2.grouping == .byRepo)
         #expect(prefs2.sort == .oldestFirst)
         #expect(prefs2.bellEnabled == true)
+        #expect(sidebarState2.collapsedGroups == [InboxNotificationGroupKey("repo:agent-studio")])
     }
 
-    @Test("save writes schema version two for inbox display fields")
-    func saveWritesSchemaVersionTwoForInboxDisplayFields() async throws {
+    @Test("save writes schema version three for feature sidebar state")
+    func saveWritesSchemaVersionThreeForFeatureSidebarState() async throws {
         let url = makeTempURL()
         let atom = InboxNotificationAtom()
         let prefs = InboxNotificationPrefsAtom()
@@ -78,7 +84,8 @@ struct InboxNotificationStoreTests {
 
         let data = try Data(contentsOf: url)
         let payload = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-        #expect(payload["schemaVersion"] as? Int == 2)
+        #expect(payload["schemaVersion"] as? Int == 3)
+        #expect(payload["sidebarState"] != nil)
     }
 
     @Test("load accepts schema one pane source without denormalized display fields")

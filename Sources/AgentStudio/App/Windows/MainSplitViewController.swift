@@ -5,7 +5,7 @@ struct SidebarRootViewDependencies {
     let store: WorkspaceStore
     let uiState: UIStateAtom
     let sidebarCache: SidebarCacheAtom
-    let inboxFilterDraft: InboxFilterDraftAtom
+    let inboxSidebarState: InboxSidebarStateAtom
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
     let repoCache: RepoCacheAtom
@@ -27,7 +27,7 @@ class MainSplitViewController: NSSplitViewController {
                 store: dependencies.store,
                 uiState: dependencies.uiState,
                 sidebarCache: dependencies.sidebarCache,
-                inboxFilterDraft: dependencies.inboxFilterDraft,
+                inboxSidebarState: dependencies.inboxSidebarState,
                 inboxAtom: dependencies.inboxAtom,
                 prefsAtom: dependencies.prefsAtom,
                 repoCache: dependencies.repoCache,
@@ -57,6 +57,7 @@ class MainSplitViewController: NSSplitViewController {
     private let viewRegistry: ViewRegistry
     private let inboxAtom: InboxNotificationAtom
     private let inboxPrefsAtom: InboxNotificationPrefsAtom
+    private let inboxSidebarStateAtom: InboxSidebarStateAtom
     private let paneInboxPresenter: PaneInboxNotificationPresenter
     private let sidebarRootViewBuilder: SidebarRootViewBuilder
     private let closeTransitionCoordinator: PaneCloseTransitionCoordinator
@@ -75,6 +76,7 @@ class MainSplitViewController: NSSplitViewController {
         viewRegistry: ViewRegistry,
         inboxAtom: InboxNotificationAtom,
         inboxPrefsAtom: InboxNotificationPrefsAtom,
+        inboxSidebarStateAtom: InboxSidebarStateAtom,
         paneInboxPresenter: PaneInboxNotificationPresenter,
         sidebarRootViewBuilder: @escaping SidebarRootViewBuilder = MainSplitViewController
             .defaultSidebarRootViewBuilder,
@@ -89,6 +91,7 @@ class MainSplitViewController: NSSplitViewController {
         self.viewRegistry = viewRegistry
         self.inboxAtom = inboxAtom
         self.inboxPrefsAtom = inboxPrefsAtom
+        self.inboxSidebarStateAtom = inboxSidebarStateAtom
         self.paneInboxPresenter = paneInboxPresenter
         self.sidebarRootViewBuilder = sidebarRootViewBuilder
         self.closeTransitionCoordinator = closeTransitionCoordinator
@@ -127,7 +130,7 @@ class MainSplitViewController: NSSplitViewController {
                 store: store,
                 uiState: uiState,
                 sidebarCache: atom(\.sidebarCache),
-                inboxFilterDraft: atom(\.inboxFilterDraft),
+                inboxSidebarState: inboxSidebarStateAtom,
                 inboxAtom: inboxAtom,
                 prefsAtom: inboxPrefsAtom,
                 repoCache: repoCache,
