@@ -1,136 +1,686 @@
-# Ordinal Pane Shortcuts Implementation Plan
+# Ordinal Pane Shortcuts And Keyboard Surface Refactor Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development`
+> or `superpowers:executing-plans` to implement this plan task-by-task. Steps use
+> checkbox (`- [ ]`) syntax for tracking.
 
-**Linear:** LUNA-373 — Ordinal pane focus shortcuts and pane number badges
+**Goal:** Add ordinal pane shortcuts and badges while tightening the keyboard
+surface model so app-owned shortcuts, focus-scoped keys, sidebar surfaces, and
+empty-drawer shortcuts all have explicit ownership. Also move tab and
+arrangement keyboard navigation onto exact app-owned shortcuts:
+`Cmd+Option+J`, `Cmd+Option+L`, and `Cmd+Option+I`.
 
-**Goal:** Add `Cmd+Shift+1...9` shortcuts for current-tab panes, `Cmd+Shift+Option+1...9` shortcuts for drawer panes, and matching pane ordinal badges.
+**Architecture:** `AppCommand` remains the command vocabulary, `AppShortcut`
+remains exact keyboard ingress, `KeyboardOwner.current(...)` names the current
+keyboard owner, `WorkspacePaneFocus` remains command visibility state, and all
+pane-affecting focus exits through `PaneFocusTrigger -> PaneFocusDecision ->
+PaneFocusExecutor`. The plan fixes the dead global shortcut policy and routes
+empty-drawer `P` through command dispatch before adding new ordinal commands.
 
-**Architecture:** Keep ordinal focus in the existing command/shortcut and pane-focus systems. `AppShortcut` owns key bindings, `AppCommand+Catalog` owns command metadata, `PaneTabViewController` resolves the target pane/drawer pane, and existing focus triggers apply focus. Do not add a validator plane or new `PaneActionCommand` for focus-only behavior; use existing expand actions only when a minimized target must be expanded before focus.
-
-**Tech Stack:** Swift 6.2, AppKit, SwiftUI, Observation, Swift Testing, `mise`.
+**Tech Stack:** Swift 6.2, Swift Testing, SwiftUI/AppKit, existing atom system,
+Peekaboo for visual validation.
 
 ---
 
-## Prerequisites
+## Current Branch State
 
-- [ ] Rebase or merge the implementation branch onto current `origin/main` before editing.
-- [ ] Confirm `docs/architecture/commands_and_shortcuts.md` exists locally after syncing main.
-- [ ] Confirm the command catalog split is present:
-  - `Sources/AgentStudio/App/Commands/AppCommand.swift`
-  - `Sources/AgentStudio/App/Commands/AppShortcut.swift`
-  - `Sources/AgentStudio/App/Commands/AppCommand+Catalog.swift`
-- [ ] Confirm `DrawerGridLayout` is present and drawer rendering is split across:
-  - `Sources/AgentStudio/Core/Models/DrawerGridLayout.swift`
-  - `Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift`
-  - `Sources/AgentStudio/Core/Views/Drawer/DrawerPanelOverlay.swift`
-  - `Sources/AgentStudio/Core/Views/Drawer/DrawerIconBar.swift`
+This is still a plan branch. The branch was refreshed from `origin/main`; the
+only intended branch artifact before implementation is this plan file.
 
-This plan was written from `origin/main` at `d0d96511` on 2026-05-02. The local `pane-shortcuts` worktree was 155 commits behind at the time, so do not implement against the unsynced branch shape.
+Current known branch diff:
 
-## Decisions
+- `docs/plans/2026-05-02-luna373-ordinal-pane-shortcuts.md`
 
-### Shortcut contracts
+## Source-Of-Truth Model
 
-- Top-level current-tab panes: `Cmd+Shift+1` through `Cmd+Shift+9`.
-- Drawer panes: `Cmd+Shift+Option+1` through `Cmd+Shift+Option+9`.
-- Use `.global` and `.terminalAppOwned` contexts so shortcuts work while terminal content owns key focus.
-- Add explicit allow-list handling in `PaneTabViewController.shouldDispatchGlobalShortcut(...)`.
+The prior interaction model has landed in code, but the names differ slightly
+from older specs. Use the live names below.
 
-### Ordinal ordering
+### Keyboard And Command Vocabulary
 
-- Main panes: active arrangement layout order, `tab.activeArrangement.layout.paneIds` / `tab.activePaneIds`.
-- Drawer panes: `drawer.layout.paneIds`, not `drawer.paneIds`.
-- `DrawerGridLayout.paneIds` is row-major visual order: top row left-to-right, then bottom row left-to-right.
-- Do not use `PaneTabViewController.visibleDrawerPaneIds(for:)` for ordinal resolution because it filters minimized panes.
+- `AppCommand`
+  - Location: `Sources/AgentStudio/App/Commands/AppCommand.swift`
+  - Job: semantic command identity.
+  - It answers: "what action can be dispatched?"
+- `AppShortcut`
+  - Location: `Sources/AgentStudio/App/Commands/AppShortcut.swift`
+  - Job: exact key binding plus the contexts where that binding fires.
+  - It answers: "which keystroke maps to which command in this routing context?"
+- `CommandSpec`
+  - Location: `Sources/AgentStudio/App/Commands/AppCommand.swift`
+  - Job: command presentation, shortcut display, visibility requirements, and
+    command-bar grouping.
+  - It answers: "how does this command appear in menus and command bar?"
+- `CommandDispatcher`
+  - Location: `Sources/AgentStudio/App/Commands/AppCommand.swift`
+  - Job: common execution point for menus, command bar, shortcuts, toolbar
+    actions, and targeted command actions.
+  - It answers: "which owner executes this command right now?"
+- `KeyboardOwner.current(...)`
+  - Location: `Sources/AgentStudio/Core/Models/KeyboardOwner.swift`
+  - Job: derived value naming who owns keyboard interpretation now.
+  - Live cases: `.otherWindow`, `.managementLayer`, `.sidebar(SidebarSurface)`,
+    `.mainWindowChain`.
+  - It is not persisted and not manually toggled.
+- `WorkspacePaneFocus`
+  - Location: `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspacePaneFocus.swift`
+  - Job: command visibility snapshot.
+  - It answers: "what workspace/pane state is active?"
+  - It must not become keyboard ownership state.
+- `WorkspaceFocusOwner`
+  - Location: `Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceFocusOwnerAtom.swift`
+  - Job: pane-scope focus identity for the workspace surface.
+  - Live cases: `.mainPane(UUID)`, `.emptyDrawer(parentPaneId: UUID)`,
+    `.drawerPane(parentPaneId: UUID, drawerPaneId: UUID)`.
+  - Drawer ordinal resolution must use the normalized workspace navigation scope,
+    not a raw active-pane fallback.
+- `PaneFocusTrigger`
+  - Location: `Sources/AgentStudio/Infrastructure/PaneFocus/PaneFocusTrigger.swift`
+  - Job: typed ingress for pane-affecting focus.
+  - Command focus cases already support `.focusPane(tabId:paneId)` and
+    `.selectTab(UUID)`.
 
-### Minimized and zoom behavior
+### Shortcut Resolution Flow
 
-- Minimized panes count in the ordinal model and keep their badge number.
-- Activating a minimized main pane dispatches `expandPane(tabId:paneId:)`, then applies focus.
-- Activating a minimized drawer pane dispatches `expandDrawerPane(parentPaneId:drawerPaneId:)`, then applies drawer focus.
-- While zoomed, keep underlying active arrangement ordinals. The zoomed pane badge shows its underlying ordinal. Ordinal shortcuts targeting any non-zoomed pane no-op; do not implicitly unzoom in this ticket.
+```text
+Key event
+  |
+  +-- CommandBar or other key window handles first
+  |
+  +-- ManagementLayerMonitor handles raw management keys
+  |     - Command-modified shortcuts pass through by existing contract
+  |
+  +-- Focus-scoped surface keys handle locally
+  |     - Sidebar inbox row/search keys
+  |     - Repo sidebar filter focus
+  |     - SwiftUI/AppKit responder chain
+  |
+  +-- App-owned shortcut ingress
+        - ShortcutDecoder
+        - AppShortcutDispatchPolicy
+        - CommandDispatcher
+        - PaneFocusTrigger when command affects pane focus
+```
 
-### Badge behavior
+### The Four Distinct Questions
 
-- Badges are always visible for addressable panes, including in management layer.
-- Badges are non-interactive and must not cover terminal input, pane controls, drawer controls, editor chooser controls, or inbox controls.
-- Main minimized/collapsed pane bars must show badges too.
-- Drawer badges must use a drawer-wide ordinal map; do not reset numbering per row when `DrawerPanel` renders top and bottom rows separately.
+Do not collapse these into one state object.
 
-## File Structure
+| Question | Owner | Current live code |
+| --- | --- | --- |
+| Which command exists? | `AppCommand` | `App/Commands/AppCommand.swift` |
+| Which key fires it? | `AppShortcut` | `App/Commands/AppShortcut.swift` |
+| Should it be visible? | `WorkspacePaneFocus` + `CommandSpec.visibleWhen` | `Core/State/MainActor/Atoms/WorkspacePaneFocus.swift` |
+| Who owns keyboard interpretation? | `KeyboardOwner.current(...)` | `Core/Models/KeyboardOwner.swift` |
 
-Create:
+### Compile-Time Safety Rules
 
-- `Sources/AgentStudio/Core/Views/Panes/PaneOrdinalBadge.swift`
+This refactor is only successful if adding a new command or shortcut forces an
+explicit routing decision at compile time.
 
-Modify:
+- `AppShortcutDispatchPolicy` must switch exhaustively over `AppShortcut` for
+  sidebar-owned keyboard states. Do not use `default` or `@unknown default`.
+- Each later task that adds `AppShortcut` cases must update
+  `AppShortcutDispatchPolicy` in the same changeset.
+- Every `AppCommand` must have a `CommandSpec` covered by command-spec contract
+  tests.
+- Every `AppShortcut` must map to an `AppCommand`, except the existing explicit
+  `.newTab -> .showCommandBarRepos` alias.
+- Focus-only commands must be explicitly excluded from
+  `WorkspaceCommandResolver` so they cannot accidentally become structural pane
+  mutations.
+- Keyboard ingress should be visible in one of three places:
+  `AppShortcut`, `scopeAwarePaneCommand(for:)`, or a local SwiftUI/AppKit
+  control with documented local ownership. New view-local `.keyboardShortcut`
+  usages are out of scope for this refactor unless the plan names why they are
+  local and not app-owned.
+- No key event path should call `dispatchAction(...)` directly when an
+  `AppCommand` already exists. Use `CommandDispatcher` first, then resolve to
+  `PaneActionCommand` or `PaneFocusTrigger` at the owning boundary.
 
-- `Sources/AgentStudio/App/Commands/AppCommand.swift`
-- `Sources/AgentStudio/App/Commands/AppCommand+Catalog.swift`
-- `Sources/AgentStudio/App/Commands/AppShortcut.swift`
-- `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
-- `Sources/AgentStudio/Core/Actions/ActionResolver.swift`
-- `Sources/AgentStudio/Core/Views/Panes/FlatPaneStripContent.swift`
-- `Sources/AgentStudio/Core/Views/Panes/PaneLeafContainer.swift`
-- `Sources/AgentStudio/Core/Views/Panes/CollapsedPaneBar.swift`
-- `Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift`
+## Findings This Plan Must Fix
 
-Tests:
+### Finding 1: `shouldDispatchGlobalShortcut(...)` Is Not Production Wiring
 
-- `Tests/AgentStudioTests/App/ShortcutCatalogTests.swift`
-- `Tests/AgentStudioTests/App/CommandSpecContractTests.swift`
-- `Tests/AgentStudioTests/App/PaneTabViewControllerGlobalShortcutRoutingTests.swift`
-- `Tests/AgentStudioTests/App/PaneTabViewControllerCommandTests.swift`
-- `Tests/AgentStudioTests/App/PaneTabViewControllerDrawerCommandTests.swift`
-- Add a focused view-model/pure-helper test file if badge ordinal maps are extracted.
+`PaneTabViewController.shouldDispatchGlobalShortcut(...)` currently encodes
+policy, but `handleAppOwnedKeyEvent(...)` does not call it before dispatching a
+global `AppShortcut`. The current tests cover the helper, not the production
+path.
 
-## Task 1: Command And Shortcut Catalog
+Implementation must either delete/replace the helper or wire it into production.
+This plan replaces it with an explicit `AppShortcutDispatchPolicy` and calls the
+policy from `handleAppOwnedKeyEvent(...)`.
+
+### Finding 2: Empty-Drawer `P` Uses The Shortcut Catalog But Bypasses Command Dispatch
+
+Raw `P` in `.emptyDrawer` is modeled as an alternate trigger for
+`AppShortcut.addDrawerPane`, but the event path currently resolves the parent
+pane and directly calls `dispatchAction(.addDrawerPane(parentPaneId: ...))`.
+
+That shortcut needs a consistent command path:
+
+```text
+raw P in empty drawer
+  -> ShortcutDecoder.shortcut(..., in: .emptyDrawer) == .addDrawerPane
+  -> resolve parent pane
+  -> CommandDispatcher.dispatch(.addDrawerPane, target: parentPaneId, targetType: .pane)
+  -> PaneTabViewController.targetedAction(...)
+  -> PaneActionCommand.addDrawerPane(parentPaneId:)
+  -> validated action execution
+```
+
+### Finding 3: Ordinal Pane Shortcuts Are Exact Commands, Not Focus-Scoped Keys
+
+`Cmd+Shift+1...9` and `Cmd+Shift+Option+1...9` each map to exactly one semantic
+command in every listed context. They belong in `AppShortcut`.
+
+They still must obey `KeyboardOwner` at dispatch time:
+
+- When `KeyboardOwner` is `.mainWindowChain`, pane ordinal shortcuts are allowed.
+- When `KeyboardOwner` is `.managementLayer`, command-modified shortcuts keep
+  the existing management-layer pass-through behavior.
+- When `KeyboardOwner` is `.sidebar(.repos)` or `.sidebar(.inbox)`, pane ordinal
+  shortcuts must not steal focus from the sidebar surface.
+- When `KeyboardOwner` is `.otherWindow`, app-owned pane shortcuts must not fire.
+
+### Finding 4: Inbox Sidebar Focus Publication Is A Sharp Edge
+
+The inbox has a focus bridge for first responder handoff, but its SwiftUI focus
+container currently clears `sidebarHasFocus` on nil and does not publish true
+when focus moves to real inbox controls. That can make
+`KeyboardOwner.current(...)` fall back to `.mainWindowChain`.
+
+This is not required to add ordinal pane shortcuts, but it is required to trust
+`KeyboardOwner` for surface ownership. This plan includes a small focus
+publication fix before relying on the owner for routing.
+
+### Finding 5: Existing Focus `PaneActionCommand` Cases Are Legacy Residue
+
+`PaneActionCommand` still contains drawer focus cases, but the live controller
+routes drawer focus through `PaneFocusTrigger.drawer(.selectPane(...))`.
+
+Do not add new focus `PaneActionCommand` cases. New ordinal focus commands must
+enter through `PaneTabViewController.handlePaneFocusCommand(_:)` and emit
+`PaneFocusTrigger` values.
+
+### Finding 6: Tab And Arrangement Cycling Need Exact Shortcut Ownership
+
+`Option+I/J/K/L` is a scope-aware pane/drawer movement surface handled locally by
+`PaneTabViewController.scopeAwarePaneCommand(for:)`. The new
+`Cmd+Option+I/J/L` bindings are different: they are exact app-owned commands and
+must live in `AppShortcut`.
+
+Use the existing tab commands for horizontal tab switching:
+
+- `Cmd+Option+J` -> `AppCommand.prevTab`
+- `Cmd+Option+L` -> `AppCommand.nextTab`
+
+Arrangement cycling needs one new semantic command because the existing
+`AppCommand.switchArrangement` is targeted at a specific arrangement. Add
+`AppCommand.cycleArrangement`, resolve it against the active tab's arrangement
+order, then execute the existing `PaneActionCommand.switchArrangement`.
+
+## Product Behavior
+
+### Main Pane Ordinals
+
+- `Cmd+Shift+1...9` targets main panes in active arrangement order.
+- The order source is `Tab.activePaneIds`, which follows
+  `activeArrangement.layout.paneIds`.
+- Minimized panes keep their ordinal and remain addressable.
+- If the target main pane is minimized, expand it before focusing it.
+- If the tab is zoomed and the target is not the current zoomed pane, set zoom to
+  the target pane and then focus it. This preserves zoom mode while making every
+  ordinal meaningful.
+- If the ordinal is out of range, the command is unavailable and dispatch no-ops.
+
+### Tab And Arrangement Cycling
+
+- `Cmd+Option+J` switches to the previous tab.
+- `Cmd+Option+L` switches to the next tab.
+- These are a hard cutover for `AppShortcut.nextTab` and
+  `AppShortcut.prevTab`; do not keep bracket shortcuts as alternate triggers in
+  this refactor.
+- `Cmd+Option+I` cycles the active tab to the next arrangement in
+  `tab.arrangements` order.
+- Arrangement cycling wraps from the final arrangement back to the first.
+- If there is no active tab or the active tab has fewer than two arrangements,
+  `cycleArrangement` is unavailable and dispatch no-ops.
+- `cycleArrangement` must execute through the existing
+  `PaneActionCommand.switchArrangement(tabId:arrangementId:)`; do not create a
+  new pane-action case.
+- `Cmd+Option+I/J/L` are app-owned shortcuts and obey
+  `AppShortcutDispatchPolicy`. They are allowed in `.mainWindowChain` and
+  `.managementLayer`, and blocked while `.sidebar(.repos)`, `.sidebar(.inbox)`,
+  or `.otherWindow` owns keyboard interpretation.
+
+### Drawer Pane Ordinals
+
+- `Cmd+Shift+Option+1...9` targets drawer panes by drawer-wide order.
+- The order source is `DrawerGridLayout.paneIds`.
+- Top and bottom drawer rows must not each restart at `1`.
+- Minimized drawer panes keep their ordinal and remain addressable.
+- If focus is already in a drawer, drawer ordinals target that drawer's parent.
+- If focus is in an empty drawer, drawer ordinals target that drawer's parent
+  but remain unavailable until the drawer has an addressable child pane.
+- If focus is in a main pane, drawer ordinals target the active main pane's
+  drawer.
+- If the target drawer pane is minimized, expand it before focusing it.
+- If the parent drawer is collapsed but populated, open it before selecting the
+  target child pane.
+- If no drawer, no parent, or out-of-range ordinal exists, the command is
+  unavailable and dispatch no-ops.
+- Do not use `visibleDrawerPaneIds(for:)` for ordinal resolution because it
+  filters minimized panes.
+
+### Focus Restoration Contract
+
+- Pane focus restoration is `WorkspaceFocusOwner`-driven.
+- In main-pane scope, the active main pane is the visible focus target.
+- In drawer-pane scope, the visible focused drawer child is the focus identity,
+  not the parent main pane.
+- In empty-drawer scope, the parent pane owns the empty drawer surface and drawer
+  ordinal commands do not synthesize a hidden child target.
+- Command execution should use `normalizedWorkspaceNavigationScopeState()` and
+  the pane-focus pipeline so `WorkspacePaneFocusDerived` stays consistent with
+  the responder target.
+
+### Badges
+
+- Badges render for every currently rendered addressable pane.
+- Badge numbers must match the shortcut target exactly.
+- Main badges use `Tab.activePaneIds` ordinals.
+- Drawer badges use `DrawerGridLayout.paneIds` ordinals.
+- Minimized bars keep their badge.
+- Zoomed content shows the zoomed pane's underlying ordinal.
+- Badges are visible in management layer.
+- Badges are non-interactive and accessibility-hidden.
+- Badges must not cover terminal input, pane chrome controls, drawer controls,
+  editor chooser controls, pane inbox controls, management controls, or split
+  handles.
+
+## Implementation Tasks
+
+### Task 1: Global Shortcut Dispatch Policy
+
+**Files:**
+
+- Create: `Sources/AgentStudio/App/Commands/AppShortcutDispatchPolicy.swift`
+- Modify: `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
+- Modify: `Tests/AgentStudioTests/App/PaneTabViewControllerGlobalShortcutRoutingTests.swift`
+
+- [ ] **Step 1: Write policy tests that fail against current production behavior**
+
+Add tests that prove the policy allows and blocks by `KeyboardOwner`.
+
+Required cases:
+
+- `.mainWindowChain` allows pane-affecting exact shortcuts.
+- `.sidebar(.repos)` blocks pane-affecting exact shortcuts.
+- `.sidebar(.inbox)` blocks pane-affecting exact shortcuts.
+- `.sidebar(.repos)` still allows sidebar surface commands such as
+  `.showInboxNotifications`, `.showWorktreeSidebar`, `.toggleSidebar`, and
+  command-bar launchers.
+- `.sidebar(.inbox)` does not allow `.filterSidebar`.
+- `.sidebar(.repos)` and `.sidebar(.inbox)` block `.prevTab`, `.nextTab`, and
+  `.cycleArrangement` for the same reason they block pane ordinals: sidebar
+  focus owns keyboard interpretation.
+- The policy uses no `default` branch, so new `AppShortcut` cases fail to
+  compile until they choose an explicit routing row.
+- `.managementLayer` preserves existing command-modified pass-through behavior,
+  so ordinal shortcuts remain active while management chrome is visible.
+- The production `handleAppOwnedKeyEvent(...)` / `performKeyEquivalent(with:)`
+  path calls the policy before dispatching `.global` shortcuts. Do not treat
+  `shouldDispatchGlobalShortcut(...)` as proof unless it delegates to the new
+  policy and is exercised by the production ingress tests.
+
+- [ ] **Step 2: Add the policy type**
+
+Suggested shape:
+
+```swift
+@MainActor
+enum AppShortcutDispatchPolicy {
+    static func shouldDispatchGlobalShortcut(
+        _ shortcut: AppShortcut,
+        keyboardOwner: KeyboardOwner
+    ) -> Bool {
+        switch keyboardOwner {
+        case .otherWindow:
+            return false
+        case .managementLayer:
+            return true
+        case .mainWindowChain:
+            return true
+        case .sidebar(let surface):
+            return sidebarOwnedPolicy(shortcut, surface: surface)
+        }
+    }
+
+    private static func sidebarOwnedPolicy(
+        _ shortcut: AppShortcut,
+        surface: SidebarSurface
+    ) -> Bool {
+        switch shortcut {
+        case .toggleSidebar,
+            .showInboxNotifications,
+            .showWorktreeSidebar,
+            .showCommandBarEverything,
+            .showCommandBarCommands,
+            .showCommandBarPanes:
+            return true
+        case .filterSidebar:
+            return surface == .repos
+        case .closeTab,
+            .newTab,
+            .undoCloseTab,
+            .nextTab,
+            .prevTab,
+            .addDrawerPane,
+            .toggleDrawer,
+            .scrollToBottom,
+            .openPaneLocationInBookmarkedEditor,
+            .openPaneLocationInFinder,
+            .openPaneLocationInEditorMenu,
+            .toggleManagementLayer,
+            .showPaneInboxNotifications,
+            .newWindow,
+            .closeWindow,
+            .selectTab1,
+            .selectTab2,
+            .selectTab3,
+            .selectTab4,
+            .selectTab5,
+            .selectTab6,
+            .selectTab7,
+            .selectTab8,
+            .selectTab9,
+            .managementLayerFocusLeft,
+            .managementLayerFocusRight,
+            .managementLayerEnterDrawer,
+            .managementLayerExitDrawer,
+            .managementLayerOpenDrawer,
+            .managementLayerCreateTerminal,
+            .managementLayerCreateBrowser,
+            .managementLayerExit:
+            return false
+        }
+    }
+}
+```
+
+The exact allow-list must be explicit. New shortcuts must choose a policy row.
+This policy intentionally blocks pane ordinals, tab cycling, and arrangement
+cycling while a sidebar surface owns focus.
+
+- [ ] **Step 3: Wire production dispatch through the policy**
+
+In `PaneTabViewController.handleAppOwnedKeyEvent(...)`, after resolving a
+`.global` shortcut and before `CommandDispatcher.shared.canDispatch(...)`, compute:
+
+```swift
+let owner = KeyboardOwner.current(
+    windowLifecycle: atom(\.windowLifecycle),
+    managementLayer: atom(\.managementLayer),
+    uiState: atom(\.uiState)
+)
+guard AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(
+    shortcut,
+    keyboardOwner: owner
+) else {
+    return false
+}
+```
+
+- [ ] **Step 4: Remove or replace stale helper tests**
+
+If `PaneTabViewController.shouldDispatchGlobalShortcut(...)` remains, it must
+delegate to `AppShortcutDispatchPolicy`. Prefer deleting it if no call sites
+remain after the policy lands.
+
+- [ ] **Step 5: Verify**
+
+Run:
+
+```bash
+mise run test -- --filter "PaneTabViewControllerGlobalShortcutRoutingTests|ShortcutCatalogTests"
+```
+
+Expected: pass.
+
+### Task 2: Command Boundary Exhaustiveness
+
+**Files:**
+
+- Modify: `Sources/AgentStudio/App/Boot/AppDelegate+ShellCommandHandling.swift`
+- Modify: `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
+- Modify: `Sources/AgentStudio/Core/Actions/ActionResolver.swift`
+- Test: `Tests/AgentStudioTests/App/AppDelegateInboxNotificationCommandsTests.swift`
+- Test: `Tests/AgentStudioTests/App/AppCommandTests.swift`
+- Test: `Tests/AgentStudioTests/Core/Actions/ActionResolverTests.swift`
+- Test: `Tests/AgentStudioTests/Architecture/CoordinationPlaneArchitectureTests.swift`
+
+- [ ] **Step 1: Write failing command-boundary tests**
+
+Add coverage for commands that arrived from current `origin/main` and can be
+missed by default branches:
+
+- `toggleInboxNotificationSort` is shell-owned and never resolves through
+  `WorkspaceCommandResolver`.
+- `clearReadInboxNotifications` is shell-owned and never resolves through
+  `WorkspaceCommandResolver`.
+- `clearAllInboxNotifications` is shell-owned and never resolves through
+  `WorkspaceCommandResolver`.
+- `showPaneInboxNotifications` and `clearPaneInboxNotifications` remain
+  workspace-owned pane-inbox commands, not shell commands.
+- `AppDelegate+ShellCommandHandling` does not use `default` in its command
+  routing switches.
+- `WorkspaceCommandResolver.isNonPaneCommand(...)` does not use `default`.
+
+- [ ] **Step 2: Make shell command ownership exhaustive**
+
+In `AppDelegate+ShellCommandHandling.swift`, replace `default: false` and
+`default: return false` with exhaustive false rows. This makes any future
+`AppCommand` addition choose whether the shell owns it.
+
+The true row must include:
+
+```swift
+.watchFolder,
+.toggleSidebar,
+.filterSidebar,
+.showInboxNotifications,
+.toggleInboxNotificationSort,
+.clearReadInboxNotifications,
+.clearAllInboxNotifications,
+.showWorktreeSidebar,
+.signInGitHub,
+.signInGoogle,
+.newWindow,
+.closeWindow,
+.showCommandBarEverything,
+.showCommandBarCommands,
+.showCommandBarPanes,
+.showCommandBarRepos
+```
+
+- [ ] **Step 3: Make resolver ownership exhaustive**
+
+In `WorkspaceCommandResolver.isNonPaneCommand(...)`, remove the `default` branch
+and explicitly classify every `AppCommand`.
+
+The non-pane row must include the current inbox commands:
+
+```swift
+.toggleInboxNotificationSort,
+.clearReadInboxNotifications,
+.clearAllInboxNotifications
+```
+
+Focus-only commands, including the new ordinal commands, must also be explicit
+non-pane resolver commands so structural validation cannot accidentally claim
+them.
+
+- [ ] **Step 4: Keep pane controller fallbacks explicit**
+
+Where `PaneTabViewController` intentionally ignores shell-owned commands in
+`handleDirectCommand(_:)`, keep those commands in a named exhaustive row instead
+of relying on accidental fallthrough. The post-merge inbox commands must remain
+in that row:
+
+```swift
+.showInboxNotifications,
+.toggleInboxNotificationSort,
+.clearReadInboxNotifications,
+.clearAllInboxNotifications
+```
+
+- [ ] **Step 5: Verify**
+
+Run:
+
+```bash
+mise run test -- --filter "AppCommandTests|AppDelegateInboxNotificationCommandsTests|ActionResolverTests|CoordinationPlaneArchitectureTests"
+```
+
+Expected: pass.
+
+### Task 3: Inbox Sidebar Focus Publication
+
+**Files:**
+
+- Modify: `Sources/AgentStudio/Features/InboxNotification/Views/InboxSidebarComponents.swift`
+- Test: `Tests/AgentStudioTests/Features/InboxNotification/Views/InboxNotificationSidebarViewTests.swift`
+- Test: `Tests/AgentStudioTests/Core/State/MainActor/Atoms/KeyboardOwnerDerivedTests.swift`
+
+- [ ] **Step 1: Write failing focus publication tests**
+
+Add coverage for:
+
+- Focus entering inbox search publishes `uiState.sidebarHasFocus == true`.
+- Focus entering an inbox row publishes `uiState.sidebarHasFocus == true`.
+- Focus becoming nil publishes `uiState.sidebarHasFocus == false`.
+- With `sidebarSurface == .inbox` and inbox focus true,
+  `KeyboardOwner.current(...) == .sidebar(.inbox)`.
+
+- [ ] **Step 2: Publish non-nil inbox focus**
+
+Update `InboxSidebarRootContainer` so its `focusedField` change mirrors
+`RepoExplorerFocusPublisher` behavior:
+
+```swift
+.onChange(of: focusedField.wrappedValue) { _, newValue in
+    uiState.setSidebarHasFocus(newValue != nil)
+}
+```
+
+Keep `InboxNotificationSidebarFocusBridge` as the initial AppKit focus target.
+
+- [ ] **Step 3: Verify**
+
+Run:
+
+```bash
+mise run test -- --filter "InboxNotificationSidebarViewTests|KeyboardOwnerDerivedTests|CommandBarInboxScopeDefaultingTests"
+```
+
+Expected: pass.
+
+### Task 4: Empty-Drawer `P` Through Targeted Command Dispatch
+
+**Files:**
+
+- Modify: `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
+- Modify: `Sources/AgentStudio/Core/Actions/ActionResolver.swift` if pure
+  resolver support is useful for tests.
+- Test: `Tests/AgentStudioTests/App/PaneTabViewControllerEmptyDrawerShortcutTests.swift`
+- Test: `Tests/AgentStudioTests/App/PaneTabViewControllerDrawerCommandTests.swift`
+
+- [ ] **Step 1: Write failing tests for the command path**
+
+Add tests proving:
+
+- Raw `P` in `.emptyDrawer` still adds a drawer pane.
+- Raw `P` does not fire when a text responder owns focus.
+- `Cmd+Shift+D` still adds a drawer pane.
+- Empty-drawer raw `P` reaches `CommandDispatcher.dispatch(_:target:targetType:)`
+  semantics by exercising targeted `.addDrawerPane` support.
+
+- [ ] **Step 2: Add targeted `.addDrawerPane` support**
+
+In `PaneTabViewController.targetedAction(command:target:targetType:)`, add:
+
+```swift
+case (.addDrawerPane, .pane), (.addDrawerPane, .floatingTerminal):
+    return .addDrawerPane(parentPaneId: target)
+```
+
+Validation already knows how to validate `PaneActionCommand.addDrawerPane`.
+
+- [ ] **Step 3: Route empty-drawer `P` through dispatcher**
+
+Replace the direct action dispatch in `handleAppOwnedKeyEvent(...)`:
+
+```swift
+CommandDispatcher.shared.dispatch(
+    .addDrawerPane,
+    target: parentPaneId,
+    targetType: .pane
+)
+```
+
+Do not call `dispatchAction(.addDrawerPane(parentPaneId: ...))` directly from
+the key event path.
+
+- [ ] **Step 4: Verify**
+
+Run:
+
+```bash
+mise run test -- --filter "PaneTabViewControllerEmptyDrawerShortcutTests|PaneTabViewControllerDrawerCommandTests|ActionValidatorTests"
+```
+
+Expected: pass.
+
+### Task 5: Command Catalog For Ordinal Pane Shortcuts
 
 **Files:**
 
 - Modify: `Sources/AgentStudio/App/Commands/AppCommand.swift`
 - Modify: `Sources/AgentStudio/App/Commands/AppCommand+Catalog.swift`
 - Modify: `Sources/AgentStudio/App/Commands/AppShortcut.swift`
-- Modify: `Tests/AgentStudioTests/App/ShortcutCatalogTests.swift`
-- Modify: `Tests/AgentStudioTests/App/CommandSpecContractTests.swift`
+- Modify: `Sources/AgentStudio/App/Commands/AppShortcutDispatchPolicy.swift`
+- Modify: `Sources/AgentStudio/Core/Actions/ActionResolver.swift`
+- Test: `Tests/AgentStudioTests/App/ShortcutCatalogTests.swift`
+- Test: `Tests/AgentStudioTests/App/CommandSpecContractTests.swift`
+- Test: `Tests/AgentStudioTests/Core/Actions/ActionResolverTests.swift`
+- Test: `Tests/AgentStudioTests/Features/Terminal/Ghostty/GhosttySurfaceShortcutTests.swift`
+- Test: `Tests/AgentStudioTests/Features/CommandBar/CommandBarDataSourceTests.swift`
 
-- [ ] **Step 1: Add failing shortcut decode tests**
+- [ ] **Step 1: Write failing catalog tests**
 
-Add coverage that decodes every pane and drawer ordinal shortcut in both `.global` and `.terminalAppOwned` contexts.
+Add tests for:
 
-Expected assertions:
+- `focusPane1...focusPane9` commands exist.
+- `focusDrawerPane1...focusDrawerPane9` commands exist.
+- `Cmd+Shift+1...9` decode in `.global` and `.terminalAppOwned`.
+- `Cmd+Shift+Option+1...9` decode in `.global` and `.terminalAppOwned`.
+- `Ghostty.SurfaceView.appOwnedShortcuts` includes the new ordinal shortcuts so
+  terminal focus uses the same app-owned shortcut path.
+- Every new `AppShortcut` maps to the matching `AppCommand`.
+- Every new command has a hidden `CommandSpec`.
+- The command-bar data source does not surface any of the 18 hidden ordinal
+  commands in `.commands` results.
+- `WorkspaceCommandResolver.resolve(command:...)` returns nil for every new
+  focus-only ordinal command.
+- `AppShortcutDispatchPolicy` blocks the new pane ordinal shortcuts while
+  `KeyboardOwner` is `.sidebar(.repos)` or `.sidebar(.inbox)`.
+- `AppShortcutDispatchPolicy.sidebarOwnedPolicy(...)` remains exhaustive and
+  contains no `default` branch after adding the new ordinal shortcut cases.
 
-```swift
-#expect(
-    ShortcutDecoder.shortcut(
-        for: .init(key: .character(.digit1), modifiers: [.command, .shift]),
-        in: .global
-    ) == .focusPane1
-)
-#expect(
-    ShortcutDecoder.shortcut(
-        for: .init(key: .character(.digit1), modifiers: [.command, .shift, .option]),
-        in: .terminalAppOwned
-    ) == .focusDrawerPane1
-)
-```
+- [ ] **Step 2: Add command cases**
 
-Repeat or loop for digits 1 through 9.
-
-- [ ] **Step 2: Run the catalog tests and confirm they fail**
-
-Run:
-
-```bash
-swift test --build-path ".build-agent-$PPID" --filter "ShortcutCatalogTests|CommandSpecContractTests"
-```
-
-Expected: failure because `AppShortcut.focusPane1` and `AppShortcut.focusDrawerPane1` do not exist yet.
-
-- [ ] **Step 3: Add command identities**
-
-Add `AppCommand` cases:
+Add:
 
 ```swift
 case focusPane1, focusPane2, focusPane3, focusPane4, focusPane5
@@ -139,7 +689,9 @@ case focusDrawerPane1, focusDrawerPane2, focusDrawerPane3, focusDrawerPane4, foc
 case focusDrawerPane6, focusDrawerPane7, focusDrawerPane8, focusDrawerPane9
 ```
 
-Add ordered helpers near `selectTabCommands`:
+- [ ] **Step 3: Add ordered command helpers**
+
+Add helpers near `selectTabCommands`:
 
 ```swift
 static let focusPaneCommands: [AppCommand] = [
@@ -148,25 +700,15 @@ static let focusPaneCommands: [AppCommand] = [
 ]
 
 static let focusDrawerPaneCommands: [AppCommand] = [
-    .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3, .focusDrawerPane4, .focusDrawerPane5,
-    .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
+    .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3,
+    .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
+    .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9,
 ]
 ```
 
-- [ ] **Step 4: Add shortcut cases and specs**
+- [ ] **Step 4: Add shortcut cases and digit helpers**
 
-Add matching `AppShortcut` cases. Use helper methods so digit-to-index mapping is not repeated by hand.
-
-Shape:
-
-```swift
-case .focusPane1:
-    return Self.focusPaneSpec(key: .digit1)
-case .focusDrawerPane1:
-    return Self.focusDrawerPaneSpec(key: .digit1)
-```
-
-Helper shape:
+Add 18 `AppShortcut` cases and helper specs:
 
 ```swift
 fileprivate static func focusPaneSpec(key: ShortcutCharacterKey) -> AppShortcutSpec {
@@ -184,252 +726,420 @@ fileprivate static func focusDrawerPaneSpec(key: ShortcutCharacterKey) -> AppSho
 }
 ```
 
-- [ ] **Step 5: Add command definitions**
+- [ ] **Step 5: Add hidden command specs**
 
-Add hidden definitions in `AppCommand+Catalog.swift` unless product explicitly wants 18 visible command-bar rows.
+Use hidden command specs so the shortcuts exist in menus/metadata but do not add
+18 noisy command-bar rows.
 
-Helper shape:
+Requirements:
+
+- Main labels: `Focus Pane 1` through `Focus Pane 9`.
+- Drawer labels: `Focus Drawer Pane 1` through `Focus Drawer Pane 9`.
+- Main visible requirements: `.hasActiveTab`.
+- Drawer visible requirements: `.hasActivePane`.
+- `isHiddenInCommandBar: true`.
+
+- [ ] **Step 6: Keep structural resolver out of focus**
+
+Update `WorkspaceCommandResolver.isNonPaneCommand(...)` or switch cases so all
+new ordinal focus commands resolve to nil.
+
+- [ ] **Step 7: Update the exhaustive shortcut policy**
+
+Add every new ordinal `AppShortcut` case to the false/blocking row in
+`AppShortcutDispatchPolicy.sidebarOwnedPolicy(...)`. This is intentionally
+compile-time noisy: the app should not compile after adding the cases until the
+policy chooses whether each new shortcut is sidebar-owned or app-owned.
+
+- [ ] **Step 8: Verify**
+
+Run:
+
+```bash
+mise run test -- --filter "ShortcutCatalogTests|CommandSpecContractTests|ActionResolverTests|PaneTabViewControllerGlobalShortcutRoutingTests|GhosttySurfaceShortcutTests|CommandBarDataSourceTests"
+```
+
+Expected: pass.
+
+### Task 6: Tab And Arrangement Cycling Shortcuts
+
+**Files:**
+
+- Modify: `Sources/AgentStudio/App/Commands/AppCommand.swift`
+- Modify: `Sources/AgentStudio/App/Commands/AppCommand+Catalog.swift`
+- Modify: `Sources/AgentStudio/App/Commands/AppShortcut.swift`
+- Modify: `Sources/AgentStudio/App/Commands/AppShortcutDispatchPolicy.swift`
+- Modify: `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
+- Modify: `Sources/AgentStudio/Core/Actions/ActionResolver.swift`
+- Test: `Tests/AgentStudioTests/App/ShortcutCatalogTests.swift`
+- Test: `Tests/AgentStudioTests/App/CommandSpecContractTests.swift`
+- Test: `Tests/AgentStudioTests/App/PaneTabViewControllerCommandTests.swift`
+- Test: `Tests/AgentStudioTests/App/PaneTabViewControllerGlobalShortcutRoutingTests.swift`
+- Test: `Tests/AgentStudioTests/Core/Actions/ActionResolverTests.swift`
+- Test: `Tests/AgentStudioTests/Features/Terminal/Ghostty/GhosttySurfaceShortcutTests.swift`
+
+- [ ] **Step 1: Write failing shortcut and command tests**
+
+Add tests proving:
+
+- `AppShortcut.prevTab` decodes `Cmd+Option+J` in `.global` and
+  `.terminalAppOwned`.
+- `AppShortcut.nextTab` decodes `Cmd+Option+L` in `.global` and
+  `.terminalAppOwned`.
+- `AppShortcut.cycleArrangement` decodes `Cmd+Option+I` in `.global` and
+  `.terminalAppOwned`.
+- `Cmd+Shift+[` and `Cmd+Shift+]` no longer decode as tab switching shortcuts.
+- `Ghostty.SurfaceView.appOwnedShortcuts` includes the tab and arrangement
+  cycling shortcuts.
+- `AppShortcutDispatchPolicy` blocks `.prevTab`, `.nextTab`, and
+  `.cycleArrangement` while `KeyboardOwner` is `.sidebar(.repos)` or
+  `.sidebar(.inbox)`.
+- `AppShortcutDispatchPolicy.sidebarOwnedPolicy(...)` remains exhaustive and
+  contains no `default` branch after adding `.cycleArrangement`.
+
+- [ ] **Step 2: Move tab shortcut bindings**
+
+Update `AppShortcut.nextTab` and `AppShortcut.prevTab`:
 
 ```swift
-private func hiddenPaneOrdinalFocusDefinition(index: Int, shortcut: AppShortcut) -> CommandSpec {
-    CommandSpec(
+case .nextTab:
+    return .init(
+        trigger: .init(key: .character(.l), modifiers: [.command, .option]),
+        contexts: [.global, .terminalAppOwned]
+    )
+case .prevTab:
+    return .init(
+        trigger: .init(key: .character(.j), modifiers: [.command, .option]),
+        contexts: [.global, .terminalAppOwned]
+    )
+```
+
+Do not add the old bracket shortcuts as alternates.
+
+- [ ] **Step 3: Add `cycleArrangement` to command and shortcut catalogs**
+
+Add `case cycleArrangement` to `AppCommand` near the arrangement commands and
+`case cycleArrangement` to `AppShortcut`.
+
+Add the shortcut spec:
+
+```swift
+case .cycleArrangement:
+    return .init(
+        trigger: .init(key: .character(.i), modifiers: [.command, .option]),
+        contexts: [.global, .terminalAppOwned]
+    )
+```
+
+Add a visible command spec:
+
+```swift
+case .cycleArrangement:
+    return CommandSpec(
         command: self,
-        shortcut: shortcut,
-        label: "Focus Pane \(index)",
-        icon: .system(.rectangleSplit2x1),
-        helpText: "Focus pane \(index) in the current tab",
-        appliesTo: [.pane],
-        visibleWhen: [.hasActivePane],
-        commandBarGroupName: "Pane",
-        commandBarGroupPriority: CommandBarGroupPriority.pane,
-        isHiddenInCommandBar: true
+        shortcut: .cycleArrangement,
+        label: "Cycle Arrangement",
+        icon: .system(.rectangle3Group),
+        helpText: "Switch the active tab to the next saved arrangement",
+        appliesTo: [.tab],
+        visibleWhen: [.hasActiveTab],
+        commandBarGroupName: "Tab",
+        commandBarGroupPriority: CommandBarGroupPriority.tab
     )
+```
+
+- [ ] **Step 4: Keep resolver boundaries explicit**
+
+Add `.cycleArrangement` to `WorkspaceCommandResolver.isNonPaneCommand(...)`.
+The pure resolver should not guess which arrangement is next because that logic
+depends on the live active tab.
+
+- [ ] **Step 5: Update the exhaustive shortcut policy**
+
+Add `.cycleArrangement` to the false/blocking row in
+`AppShortcutDispatchPolicy.sidebarOwnedPolicy(...)`. Keep `.nextTab` and
+`.prevTab` blocked while sidebar focus owns keyboard interpretation. Do not add
+a `default` branch to quiet the compiler.
+
+- [ ] **Step 6: Execute arrangement cycling from the pane controller**
+
+Add a helper in `PaneTabViewController`:
+
+```swift
+private func resolveNextArrangementTarget() -> (tabId: UUID, arrangementId: UUID)? {
+    guard
+        let tabId = store.tabLayoutAtom.activeTabId,
+        let tab = store.tabLayoutAtom.tab(tabId),
+        tab.arrangements.count > 1,
+        let currentIndex = tab.arrangements.firstIndex(where: { $0.id == tab.activeArrangementId })
+    else { return nil }
+
+    let nextIndex = (currentIndex + 1) % tab.arrangements.count
+    return (tabId, tab.arrangements[nextIndex].id)
 }
 ```
 
-Use a parallel helper for drawer ordinals with label `Focus Drawer Pane \(index)` and drawer-specific help text.
+Handle the command in `execute(_:)`:
 
-- [ ] **Step 6: Keep focus-only commands out of the action resolver**
+```swift
+case .cycleArrangement:
+    guard let target = resolveNextArrangementTarget() else { break }
+    dispatchAction(.switchArrangement(tabId: target.tabId, arrangementId: target.arrangementId))
+```
 
-Add the new commands to `ActionResolver.isNonPaneCommand(...)` or the equivalent nil-return path so `ActionResolver.resolve(command:...)` returns `nil`. These commands are handled by `PaneTabViewController`, not `PaneActionCommand`.
+Handle availability in `canExecute(_:)`:
 
-- [ ] **Step 7: Re-run catalog and contract tests**
+```swift
+case .cycleArrangement:
+    return resolveNextArrangementTarget() != nil
+```
+
+- [ ] **Step 7: Preserve tab switching through the existing focus path**
+
+Keep `.nextTab` and `.prevTab` in `handlePaneFocusCommand(_:)` so tab switching
+continues through `PaneFocusTrigger.command(.selectTab(...))` and restores the
+visible responder correctly.
+
+- [ ] **Step 8: Verify**
 
 Run:
 
 ```bash
-swift test --build-path ".build-agent-$PPID" --filter "ShortcutCatalogTests|CommandSpecContractTests"
+mise run test -- --filter "ShortcutCatalogTests|CommandSpecContractTests|PaneTabViewControllerCommandTests|PaneTabViewControllerGlobalShortcutRoutingTests|ActionResolverTests|GhosttySurfaceShortcutTests"
 ```
 
 Expected: pass.
 
-## Task 2: Main Pane Ordinal Focus
+### Task 7: Shared Ordinal Model
+
+**Files:**
+
+- Create: `Sources/AgentStudio/Core/Models/PaneOrdinalMap.swift`
+- Test: `Tests/AgentStudioTests/Core/Models/PaneOrdinalMapTests.swift`
+
+- [ ] **Step 1: Write pure failing tests**
+
+Add tests for:
+
+- Main pane ordinal map preserves `Tab.activePaneIds` order.
+- Main pane ordinal target returns nil for out-of-range ordinals.
+- Drawer ordinal map preserves `DrawerGridLayout.paneIds`.
+- Drawer top and bottom rows produce one continuous sequence.
+
+- [ ] **Step 2: Add pure helper**
+
+Suggested shape:
+
+```swift
+struct PaneOrdinalMap: Equatable, Sendable {
+    let paneIdByOrdinal: [Int: UUID]
+    let ordinalByPaneId: [UUID: Int]
+
+    init(orderedPaneIds: [UUID]) {
+        var paneIdByOrdinal: [Int: UUID] = [:]
+        var ordinalByPaneId: [UUID: Int] = [:]
+        for (index, paneId) in orderedPaneIds.prefix(9).enumerated() {
+            let ordinal = index + 1
+            paneIdByOrdinal[ordinal] = paneId
+            ordinalByPaneId[paneId] = ordinal
+        }
+        self.paneIdByOrdinal = paneIdByOrdinal
+        self.ordinalByPaneId = ordinalByPaneId
+    }
+
+    func paneId(forOrdinal ordinal: Int) -> UUID? {
+        paneIdByOrdinal[ordinal]
+    }
+
+    func ordinal(forPaneId paneId: UUID) -> Int? {
+        ordinalByPaneId[paneId]
+    }
+}
+```
+
+Keep this helper pure and UI-free. Command resolution and badge rendering must
+share it.
+
+- [ ] **Step 3: Verify**
+
+Run:
+
+```bash
+mise run test -- --filter "PaneOrdinalMapTests"
+```
+
+Expected: pass.
+
+### Task 8: Main Pane Ordinal Focus
 
 **Files:**
 
 - Modify: `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
-- Modify: `Tests/AgentStudioTests/App/PaneTabViewControllerGlobalShortcutRoutingTests.swift`
-- Modify: `Tests/AgentStudioTests/App/PaneTabViewControllerCommandTests.swift`
+- Test: `Tests/AgentStudioTests/App/PaneTabViewControllerCommandTests.swift`
 
-- [ ] **Step 1: Add failing routing tests**
+- [ ] **Step 1: Write failing command tests**
 
-Add assertions that all `focusPaneN` and `focusDrawerPaneN` shortcuts are allowed by `PaneTabViewController.shouldDispatchGlobalShortcut(...)`.
+Add tests proving:
 
-Expected assertion shape:
+- `focusPane1` focuses the first active-arrangement pane.
+- `focusPane3` focuses the third active-arrangement pane.
+- Out-of-range ordinal no-ops and `canExecute` is false.
+- Minimized target expands before focus.
+- If split zoom is active and target differs from current zoomed pane, zoom
+  moves to the target and focus follows.
+- The final focus action goes through the pane focus pipeline.
 
-```swift
-#expect(
-    PaneTabViewController.shouldDispatchGlobalShortcut(
-        .focusPane1,
-        uiState: uiState,
-        managementLayer: managementLayer
-    )
-)
-```
+- [ ] **Step 2: Add main ordinal resolution**
 
-- [ ] **Step 2: Add failing command tests for main ordinals**
-
-Cover:
-
-- `focusPane1` focuses the first active arrangement pane.
-- `focusPane3` focuses the third active arrangement pane.
-- Out-of-range ordinal no-ops.
-- Minimized target dispatches expand before focus.
-- Zoomed state no-ops when the target is not the zoomed pane.
-
-Use the existing `PaneTabViewControllerCommandTestSupport` helpers rather than creating new ad hoc fixtures.
-
-- [ ] **Step 3: Allow global routing**
-
-Update `PaneTabViewController.shouldDispatchGlobalShortcut(...)` to return `true` for all new ordinal shortcuts. Keep the existing special-case behavior for `filterSidebar`.
-
-- [ ] **Step 4: Add ordinal index helpers**
-
-Add helpers in `PaneTabViewController` that map command cases to zero-based ordinals:
+Add helpers:
 
 ```swift
-private func paneOrdinalIndex(for command: AppCommand) -> Int? {
-    AppCommand.focusPaneCommands.firstIndex(of: command)
+private func mainPaneOrdinal(for command: AppCommand) -> Int? {
+    AppCommand.focusPaneCommands.firstIndex(of: command).map { $0 + 1 }
 }
 
-private func drawerPaneOrdinalIndex(for command: AppCommand) -> Int? {
-    AppCommand.focusDrawerPaneCommands.firstIndex(of: command)
+private func resolveMainPaneOrdinalTarget(for command: AppCommand) -> (tabId: UUID, paneId: UUID)? {
+    guard
+        let ordinal = mainPaneOrdinal(for: command),
+        let tabId = store.tabLayoutAtom.activeTabId,
+        let tab = store.tabLayoutAtom.tab(tabId)
+    else { return nil }
+
+    let ordinalMap = PaneOrdinalMap(orderedPaneIds: tab.activePaneIds)
+    guard let paneId = ordinalMap.paneId(forOrdinal: ordinal) else { return nil }
+    return (tabId, paneId)
 }
 ```
 
-- [ ] **Step 5: Implement main-pane resolution**
+- [ ] **Step 3: Execute via existing focus pipeline**
 
-Resolution contract:
+In `handlePaneFocusCommand(_:)`, handle main ordinal commands:
 
-```text
-active tab missing                  -> no-op
-ordinal index out of range          -> no-op
-tab.zoomedPaneId != nil and target
-  is not zoomed pane                -> no-op
-target minimized                    -> dispatch expandPane, then focus
-target not minimized                -> focus
-```
+- Resolve target.
+- If minimized, dispatch `.expandPane(tabId:paneId:)`.
+- If zoomed to a different pane, dispatch `.toggleSplitZoom(tabId:paneId:)`
+  for the target so zoom switches to the target.
+- Call `handlePaneFocusTrigger(.command(.focusPane(tabId:paneId)))`.
 
-Use existing focus trigger:
+- [ ] **Step 4: Add `canExecute` support**
 
-```swift
-handlePaneFocusTrigger(.command(.focusPane(tabId: tab.id, paneId: targetPaneId)))
-```
+`canExecute(_:)` returns true for main ordinal commands only when
+`resolveMainPaneOrdinalTarget(for:)` returns a target.
 
-- [ ] **Step 6: Wire execution and availability**
-
-In `handlePaneFocusCommand(_:)`, handle `focusPane1...focusPane9` before returning false. In `canExecute(_:)`, return true only when resolution finds an executable target under the current zoom/minimized rules.
-
-- [ ] **Step 7: Run pane command tests**
+- [ ] **Step 5: Verify**
 
 Run:
 
 ```bash
-swift test --build-path ".build-agent-$PPID" --filter "PaneTabViewControllerCommandTests|PaneTabViewControllerGlobalShortcutRoutingTests"
+mise run test -- --filter "PaneTabViewControllerCommandTests|PaneCommandFocusDeciderTests|PaneFocusExecutorTests"
 ```
 
 Expected: pass.
 
-## Task 3: Drawer Pane Ordinal Focus
+### Task 9: Drawer Pane Ordinal Focus
 
 **Files:**
 
 - Modify: `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
-- Modify: `Tests/AgentStudioTests/App/PaneTabViewControllerDrawerCommandTests.swift`
+- Test: `Tests/AgentStudioTests/App/PaneTabViewControllerDrawerCommandTests.swift`
 
-- [ ] **Step 1: Add failing drawer ordinal tests**
+- [ ] **Step 1: Write failing drawer ordinal tests**
 
-Cover:
+Add tests proving:
 
-- Drawer ordinal order uses `drawer.layout.paneIds`.
-- Top row panes are numbered before bottom row panes.
-- Minimized drawer panes count and expand before focus.
-- Collapsed drawer expands before focus.
-- Out-of-range ordinal no-ops.
-- If focus is already in a drawer, ordinals target that drawer's parent.
-- If focus is in a main pane, ordinals target that active main pane's drawer.
+- `focusDrawerPane1` targets first drawer pane by `DrawerGridLayout.paneIds`.
+- `focusDrawerPane3` targets third drawer pane by `DrawerGridLayout.paneIds`.
+- Top and bottom drawer rows share one ordinal sequence.
+- Minimized drawer panes remain addressable.
+- Minimized target expands before focus.
+- Out-of-range ordinal no-ops and `canExecute` is false.
+- Drawer ordinals use current drawer parent when focus owner is `.drawerPane`.
+- Drawer ordinals use current drawer parent when focus owner is `.emptyDrawer`,
+  but return unavailable/no-op when that drawer has no child pane for the
+  requested ordinal.
+- Drawer ordinals use active main pane when focus owner is `.mainPane`.
+- No parent drawer means command unavailable/no-op.
 
-- [ ] **Step 2: Implement drawer parent resolution**
+- [ ] **Step 2: Add drawer ordinal helpers**
 
-Resolution contract:
-
-```text
-workspace focus owner is drawerPane/emptyDrawer -> use that parentPaneId
-otherwise active main pane exists               -> use active main pane id
-otherwise                                       -> no-op
-```
-
-Use the current `workspaceFocusOwner` / normalized navigation scope helpers already in `PaneTabViewController`; do not introduce a second focus-owner model.
-
-- [ ] **Step 3: Resolve drawer target from row-major layout order**
-
-Use:
+Add:
 
 ```swift
-let orderedDrawerPaneIds = drawer.layout.paneIds
+private func drawerPaneOrdinal(for command: AppCommand) -> Int? {
+    AppCommand.focusDrawerPaneCommands.firstIndex(of: command).map { $0 + 1 }
+}
+
+private func drawerOrdinalParentPaneId() -> UUID? {
+    switch normalizedWorkspaceNavigationScopeState() {
+    case .drawerPane(let parentPaneId, _), .emptyDrawer(let parentPaneId):
+        return parentPaneId
+    case .mainPane:
+        return activeMainPaneId()
+    }
+}
+
+private func resolveDrawerPaneOrdinalTarget(
+    for command: AppCommand
+) -> (parentPaneId: UUID, drawerPaneId: UUID)? {
+    guard
+        let ordinal = drawerPaneOrdinal(for: command),
+        let parentPaneId = drawerOrdinalParentPaneId(),
+        let drawer = store.paneAtom.pane(parentPaneId)?.drawer
+    else { return nil }
+
+    let ordinalMap = PaneOrdinalMap(orderedPaneIds: drawer.layout.paneIds)
+    guard let drawerPaneId = ordinalMap.paneId(forOrdinal: ordinal) else { return nil }
+    return (parentPaneId, drawerPaneId)
+}
 ```
 
-Do not use:
+- [ ] **Step 3: Execute via existing focus pipeline**
 
-```swift
-drawer.paneIds
-visibleDrawerPaneIds(for:)
-```
+In `handlePaneFocusCommand(_:)`, handle drawer ordinal commands:
 
-- [ ] **Step 4: Sequence expand and focus**
+- Resolve target.
+- If target is minimized, dispatch
+  `.expandDrawerPane(parentPaneId:drawerPaneId:)`.
+- If the parent drawer is collapsed, dispatch `.toggleDrawer(paneId:)` before
+  selecting the drawer child.
+- Focus parent first via `.command(.focusPane(tabId:paneId:))` when needed.
+- Focus child via `.drawer(.selectPane(parentPaneId:drawerPaneId:))`.
 
-If the drawer is collapsed, dispatch:
+Prefer reusing `focusTargetedDrawerPane(parentPaneId:drawerPaneId:)` if its
+current behavior satisfies the tests after minimized expansion is added.
 
-```swift
-dispatchAction(.toggleDrawer(paneId: parentPaneId))
-```
+- [ ] **Step 4: Add `canExecute` support**
 
-If the target drawer pane is minimized, dispatch:
+`canExecute(_:)` returns true for drawer ordinal commands only when
+`resolveDrawerPaneOrdinalTarget(for:)` returns a target.
 
-```swift
-dispatchAction(.expandDrawerPane(parentPaneId: parentPaneId, drawerPaneId: targetDrawerPaneId))
-```
-
-Then focus with:
-
-```swift
-handlePaneFocusTrigger(
-    .drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: targetDrawerPaneId))
-)
-```
-
-- [ ] **Step 5: Wire execution and availability**
-
-Handle `focusDrawerPane1...focusDrawerPane9` in `handlePaneFocusCommand(_:)` or an adjacent drawer-command branch. `canExecute(_:)` should be true only when a parent drawer exists and the ordinal resolves in `drawer.layout.paneIds`.
-
-- [ ] **Step 6: Run drawer command tests**
+- [ ] **Step 5: Verify**
 
 Run:
 
 ```bash
-swift test --build-path ".build-agent-$PPID" --filter "PaneTabViewControllerDrawerCommandTests"
+mise run test -- --filter "PaneTabViewControllerDrawerCommandTests|PaneDrawerFocusDeciderTests|PaneFocusExecutorTests"
 ```
 
 Expected: pass.
 
-## Task 4: Badge Model And Shared View
+### Task 10: Badge Rendering
 
 **Files:**
 
-- Create: `Sources/AgentStudio/Core/Views/Panes/PaneOrdinalBadge.swift`
+- Create: `Sources/AgentStudio/SharedComponents/PaneOrdinalBadge.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Panes/FlatPaneStripContent.swift`
+- Modify: `Sources/AgentStudio/Core/Views/Panes/FlatTabStripContainer.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Panes/PaneLeafContainer.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Panes/CollapsedPaneBar.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Drawer/DrawerPanel.swift`
-- Test: focused pure-helper tests if ordinal maps are extracted
+- Test: `Tests/AgentStudioTests/Core/Models/PaneOrdinalMapTests.swift`
+- Add view-level tests only where current test utilities can assert the ordinal
+  propagation without brittle pixel checks.
 
-- [ ] **Step 1: Extract ordinal maps before rendering**
+- [ ] **Step 1: Add badge component**
 
-Main pane badge map:
-
-```swift
-let paneOrdinalById = Dictionary(
-    uniqueKeysWithValues: layout.paneIds.enumerated().map { index, paneId in
-        (paneId, index + 1)
-    }
-)
-```
-
-Drawer badge map must be drawer-wide, not per-row:
-
-```swift
-let drawerOrdinalById = Dictionary(
-    uniqueKeysWithValues: layout.paneIds.enumerated().map { index, paneId in
-        (paneId, index + 1)
-    }
-)
-```
-
-Pass the already-computed ordinal into row rendering so top and bottom rows share one numbering sequence.
-
-- [ ] **Step 2: Create the badge view**
-
-Create a small reusable badge. Keep it non-interactive:
+Create a small shared visual component:
 
 ```swift
 struct PaneOrdinalBadge: View {
@@ -437,111 +1147,213 @@ struct PaneOrdinalBadge: View {
 
     var body: some View {
         Text("\(ordinal)")
-            .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
-            .foregroundStyle(.primary)
-            .frame(width: 16, height: 16)
-            .background(
-                RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.badge)
-                    .fill(Color.primary.opacity(0.06))
-            )
+            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .monospacedDigit()
+            .frame(minWidth: 18, minHeight: 18)
+            .background(.thinMaterial, in: Circle())
+            .overlay(Circle().stroke(.separator.opacity(0.55), lineWidth: 1))
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
 }
 ```
 
-If `AppStyles.General.CornerRadius.badge` does not exist, use the closest existing compact badge token rather than adding a new style token for this ticket.
+Use existing style constants where there is already a local constant for badge
+size, typography, or material. Do not create a separate visual language.
 
-- [ ] **Step 3: Render main expanded pane badges**
+- [ ] **Step 2: Thread main ordinals from the active tab boundary**
 
-Thread `ordinal: Int?` through `FlatPaneStripContent` into `PaneSegmentSlotView` and `PaneLeafContainer`. Overlay near the same top-left area shown in the annotated screenshot, but ensure it does not overlap management-layer minimize/close controls.
+Compute:
 
-- [ ] **Step 4: Render minimized pane badges**
+```swift
+let mainOrdinalMap = PaneOrdinalMap(orderedPaneIds: tab.activePaneIds)
+```
 
-Add the badge to `CollapsedPaneBar`. The minimized/collapsed bar must still show the same ordinal as the expanded pane would.
+Pass `ordinal: Int?` through the pane rendering chain so the same map drives:
 
-- [ ] **Step 5: Render drawer pane badges**
+- normal split content,
+- all-minimized content,
+- collapsed/minimized bars,
+- zoomed content.
 
-In `DrawerPanel`, compute one drawer-wide ordinal map from `DrawerGridLayout.paneIds` and pass row-specific ordinals into each `FlatPaneStripContent` call. Do not let each row start at 1.
+- [ ] **Step 3: Thread drawer ordinals from `DrawerPanel`**
 
-- [ ] **Step 6: Verify visual behavior manually before full app verification**
+For each drawer:
 
-Run the narrowest view/unit tests available for the touched view helpers. If no suitable view tests exist, rely on the Peekaboo task below.
+```swift
+let drawerOrdinalMap = PaneOrdinalMap(orderedPaneIds: drawer.layout.paneIds)
+```
 
-## Task 5: Full Verification
+Pass each drawer pane's ordinal into row rendering. Do not compute row-local
+ordinals inside the top or bottom row.
 
-**Files:**
+- [ ] **Step 4: Place badges safely with explicit surface ownership**
 
-- No additional source files expected.
+Badge placement requirements:
 
-- [ ] **Step 1: Run focused tests**
+- Does not intercept clicks.
+- Does not overlap pane close/minimize/management controls.
+- Does not overlap pane inbox badges.
+- Does not overlap drawer editor chooser affordances.
+- Does not cover terminal input text in normal or zoomed states.
+- Remains legible on active and inactive panes.
+
+Use this ownership strategy unless implementation evidence proves a better one:
+
+- Normal split panes:
+  - Thread the ordinal through the nested `PaneSegmentSlotView` inside
+    `FlatPaneStripContent.swift`.
+  - Render the badge from the split-slot composition layer, not from terminal
+    content, so the badge is tied to pane geometry and not runtime content.
+  - Anchor away from split handles and reserve enough inset that terminal text
+    remains readable.
+- Zoomed panes:
+  - Render the badge from `FlatTabStripContainer.swift` in the zoom shell.
+  - Avoid the existing zoom ribbon at the top-right; choose a different corner
+    or an inset that cannot collide with `ZoomedIndicator`.
+- Management layer:
+  - Do not place the badge in `PaneLeafContainer` top-left, top-center, or
+    top-right chrome because those anchors are already owned by management
+    controls, the drag handle, and edge actions.
+  - Keep badges visible while management layer is active, but subordinate their
+    placement to the management controls.
+- Collapsed/minimized bars:
+  - Render the badge in `CollapsedPaneBar.swift` as part of the bar chrome, not
+    as an overlay on hidden content.
+- Drawer children:
+  - Compute ordinals in `DrawerPanel.swift` from `DrawerGridLayout.paneIds`.
+  - Pass the child ordinal into row rendering and avoid the drawer editor chooser
+    and drawer controls.
+
+- [ ] **Step 5: Verify build**
 
 Run:
 
 ```bash
-swift test --build-path ".build-agent-$PPID" --filter "ShortcutCatalogTests|CommandSpecContractTests|PaneTabViewControllerGlobalShortcutRoutingTests|PaneTabViewControllerCommandTests|PaneTabViewControllerDrawerCommandTests"
+mise run test -- --filter "PaneOrdinalMapTests|TabBar|Drawer|PaneInbox"
+mise run build
+```
+
+Expected: tests and build pass.
+
+### Task 11: Visual Frontend Validation Packet
+
+**Files:**
+
+- Create: `docs/wip/debugging/2026-05-15-pane-ordinal-shortcuts-visual-validation.md`
+
+- [ ] **Step 1: Launch isolated debug app**
+
+Run:
+
+```bash
+mise run build
+```
+
+Launch the debug app from the build slot reported by `mise run build`, then use
+the repo's visual-verification guide to capture Peekaboo screenshots for that
+debug instance. Keep process-launch mechanics in the validation note instead of
+hard-coding them in this feature plan.
+
+- [ ] **Step 2: Capture required screenshots**
+
+Capture and document screenshots for:
+
+- one tab with three visible main panes,
+- a minimized middle pane with badge still visible,
+- split zoom on pane 2 with badge `2`,
+- split zoom switched to pane 3 by `Cmd+Shift+3`,
+- drawer with at least four panes split across top/bottom rows,
+- minimized drawer pane with badge still visible,
+- management layer with badges visible and unobstructed,
+- inbox/sidebar focused with pane ordinal shortcuts blocked.
+
+- [ ] **Step 3: Record visual acceptance notes**
+
+The validation doc must include:
+
+- debug app identifier,
+- build slot,
+- commands run,
+- screenshot paths,
+- pass/fail notes for every scenario,
+- any overlap or readability concerns.
+
+Do not claim visual completion from unit tests alone.
+
+### Task 12: Full Verification
+
+- [ ] **Step 1: Focused test pass**
+
+Run:
+
+```bash
+mise run test -- --filter "ShortcutCatalogTests|CommandSpecContractTests|PaneTabViewControllerGlobalShortcutRoutingTests|PaneTabViewControllerEmptyDrawerShortcutTests|PaneTabViewControllerCommandTests|PaneTabViewControllerDrawerCommandTests|PaneOrdinalMapTests|ActionResolverTests|KeyboardOwnerDerivedTests|CommandBarInboxScopeDefaultingTests|GhosttySurfaceShortcutTests|CommandBarDataSourceTests|AppDelegateInboxNotificationCommandsTests|CoordinationPlaneArchitectureTests"
 ```
 
 Expected: pass.
 
-- [ ] **Step 2: Run full test suite**
+- [ ] **Step 2: Full project pass**
 
 Run:
 
 ```bash
 mise run test
-```
-
-Expected: pass with zero failures.
-
-- [ ] **Step 3: Run lint**
-
-Run:
-
-```bash
 mise run lint
 ```
 
-Expected: pass with zero errors.
+Expected: pass with zero lint errors.
 
-- [ ] **Step 4: Build and launch a debug app for visual verification**
+- [ ] **Step 3: Final sanity grep**
 
 Run:
 
 ```bash
-BUILD_PATH=".build-agent-$PPID"
-swift build --build-path "$BUILD_PATH"
-"$BUILD_PATH/debug/AgentStudio" &
-APP_PID=$!
-peekaboo see --app "PID:$APP_PID" --json
+rg -n "focusPane[1-9]|focusDrawerPane[1-9]|cycleArrangement|nextTab|prevTab|shouldDispatchGlobalShortcut|displayShortcutTrigger|keyboardShortcut" Sources/AgentStudio Tests/AgentStudioTests
 ```
 
-Expected: app launches and Peekaboo returns a screenshot/state payload.
+Expected:
 
-- [ ] **Step 5: Verify badge states with Peekaboo**
-
-Capture at least these states:
-
-- main split with two or more panes
-- a minimized main pane
-- an expanded drawer with a top row only
-- an expanded drawer with top and bottom rows
-- a minimized drawer pane
-- a narrow pane where the badge could overlap controls
-
-Expected: badges are visible, stable, non-overlapping, and match the shortcut ordinal model.
+- New ordinal commands appear in command, shortcut, catalog, tests, and
+  `PaneTabViewController` execution.
+- Tab switching shortcuts are `Cmd+Option+J/L` and old bracket shortcuts are not
+  retained as alternates.
+- `cycleArrangement` appears in command, shortcut, catalog, policy, controller,
+  and tests.
+- No stale production dependency remains on the dead
+  `shouldDispatchGlobalShortcut(...)` helper.
+- Existing `displayShortcutTrigger` use for scope-aware `Option+I/J/K/L` is
+  documented and unchanged.
+- Existing view-local `.keyboardShortcut` usages are either unrelated local
+  controls or documented out of scope.
 
 ## Definition Of Done
 
-- [ ] Linear ticket LUNA-373 points at this plan.
-- [ ] All ordinal shortcuts decode in `.global` and `.terminalAppOwned`.
-- [ ] `Cmd+Shift+1...9` focuses main panes by active arrangement layout order.
-- [ ] `Cmd+Shift+Option+1...9` focuses drawer panes by `DrawerGridLayout.paneIds`.
-- [ ] Minimized main and drawer panes expand before focus.
-- [ ] Zoom behavior matches the no-implicit-unzoom contract.
-- [ ] Badges render for expanded and minimized main panes.
-- [ ] Badges render for drawer panes using drawer-wide row-major numbering.
-- [ ] Focused tests pass.
-- [ ] `mise run test` passes.
-- [ ] `mise run lint` passes.
-- [ ] Peekaboo verification captures the required UI states.
+- `AppShortcutDispatchPolicy` exists and is used by production global shortcut
+  dispatch.
+- `AppShortcutDispatchPolicy.sidebarOwnedPolicy(...)` uses an exhaustive switch
+  with no `default`.
+- Shell command ownership and resolver non-pane ownership are exhaustive enough
+  that new `AppCommand` cases must choose a boundary.
+- Sidebar-owned keyboard states block pane ordinal shortcuts.
+- Inbox focus publishes `sidebarHasFocus` correctly for real focused controls.
+- Empty-drawer `P` routes through targeted command dispatch.
+- `Cmd+Option+J` switches to the previous tab.
+- `Cmd+Option+L` switches to the next tab.
+- `Cmd+Option+I` cycles to the next arrangement through
+  `PaneActionCommand.switchArrangement`.
+- Old bracket tab-switching shortcuts are removed from `AppShortcut`.
+- All 18 ordinal commands exist in `AppCommand`.
+- All 18 ordinal shortcuts exist in `AppShortcut`.
+- New commands are hidden from command bar but have catalog metadata.
+- New focus-only ordinal commands do not create new `PaneActionCommand` focus
+  cases.
+- Main pane ordinals use active arrangement order.
+- Drawer pane ordinals use `DrawerGridLayout.paneIds`.
+- Minimized main and drawer panes remain addressable.
+- Zoomed main pane ordinals switch zoom to the requested pane before focusing.
+- Badges render in normal, minimized, zoomed, drawer, and management states.
+- Peekaboo visual validation is captured for the debug app instance.
+- Focused tests pass.
+- `mise run test` passes.
+- `mise run lint` passes.

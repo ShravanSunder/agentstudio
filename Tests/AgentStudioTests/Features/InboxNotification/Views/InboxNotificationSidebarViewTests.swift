@@ -680,6 +680,25 @@ struct InboxNotificationSidebarViewSourceGroupTests {
 @MainActor
 @Suite("InboxNotificationSidebarView focus and activation", .serialized)
 struct InboxSidebarFocusActivationTests {
+    @Test("publishing non-nil inbox focus flips sidebarHasFocus true")
+    func nonNilInboxFocusPublishesTrue() {
+        let uiState = UIStateAtom()
+        #expect(uiState.sidebarHasFocus == false)
+
+        InboxSidebarFocusPublisher.publish(focusedField: .search, into: uiState)
+
+        #expect(uiState.sidebarHasFocus == true)
+    }
+
+    @Test("publishing nil inbox focus flips sidebarHasFocus false")
+    func nilInboxFocusPublishesFalse() {
+        let uiState = UIStateAtom()
+        uiState.setSidebarHasFocus(true)
+
+        InboxSidebarFocusPublisher.publish(focusedField: nil, into: uiState)
+
+        #expect(uiState.sidebarHasFocus == false)
+    }
 
     @Test("focus bridge publishes sidebar focus and escape callback through mounted view")
     func focusBridgePublishesMountedViewEvents() async throws {

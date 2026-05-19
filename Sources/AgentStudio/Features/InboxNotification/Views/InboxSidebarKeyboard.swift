@@ -8,6 +8,13 @@ enum InboxFocus: Hashable {
     case groupingMenu
 }
 
+enum InboxSidebarFocusPublisher {
+    @MainActor
+    static func publish(focusedField: InboxFocus?, into uiState: UIStateAtom) {
+        uiState.setSidebarHasFocus(focusedField != nil)
+    }
+}
+
 enum InboxSidebarRootKeyAction: Equatable {
     case focusSearch
     case toggleGroupingMenu

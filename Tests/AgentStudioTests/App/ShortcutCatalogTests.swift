@@ -99,6 +99,51 @@ struct ShortcutCatalogTests {
     }
 
     @Test
+    func shortcutDecoder_decodesTabAndArrangementCyclingShortcuts() {
+        let previousTab = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.j), modifiers: [.command, .option]),
+            in: .global
+        )
+        let nextTab = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.l), modifiers: [.command, .option]),
+            in: .global
+        )
+        let cycleArrangement = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.i), modifiers: [.command, .option]),
+            in: .global
+        )
+
+        #expect(previousTab == .prevTab)
+        #expect(nextTab == .nextTab)
+        #expect(cycleArrangement == .cycleArrangement)
+    }
+
+    @Test
+    func shortcutDecoder_decodesPaneOrdinalShortcuts() {
+        let firstMainPane = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.digit1), modifiers: [.command, .shift]),
+            in: .global
+        )
+        let ninthMainPaneFromTerminal = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.digit9), modifiers: [.command, .shift]),
+            in: .terminalAppOwned
+        )
+        let firstDrawerPane = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.digit1), modifiers: [.command, .shift, .option]),
+            in: .global
+        )
+        let ninthDrawerPaneFromTerminal = ShortcutDecoder.shortcut(
+            for: .init(key: .character(.digit9), modifiers: [.command, .shift, .option]),
+            in: .terminalAppOwned
+        )
+
+        #expect(firstMainPane == .focusPane1)
+        #expect(ninthMainPaneFromTerminal == .focusPane9)
+        #expect(firstDrawerPane == .focusDrawerPane1)
+        #expect(ninthDrawerPaneFromTerminal == .focusDrawerPane9)
+    }
+
+    @Test
     func shortcutDecoder_decodesPaneInboxShortcut() {
         let showPaneInbox = ShortcutDecoder.shortcut(
             for: .init(key: .character(.i), modifiers: [.command, .shift]),

@@ -33,9 +33,7 @@ struct InboxSidebarRootContainer: View {
     var body: some View {
         baseChrome
             .onChange(of: focusedField.wrappedValue) { _, newValue in
-                if newValue == nil {
-                    uiState.setSidebarHasFocus(false)
-                }
+                InboxSidebarFocusPublisher.publish(focusedField: newValue, into: uiState)
             }
             .onKeyPress(phases: [.down]) { event in
                 handleKeyPress(event)

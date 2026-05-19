@@ -105,6 +105,7 @@ struct FlatTabStripContainer: View {
                 minimizedPaneIds: minimizedPaneIds,
                 collapsedPaneWidth: effectiveCollapsedWidth
             )
+            let mainOrdinalMap = PaneOrdinalMap(orderedPaneIds: layout.paneIds)
             let surfaceId = "tab:\(tabId)"
             let renderedPaneIds: Set<UUID> = {
                 if let zoomedPaneId {
@@ -119,20 +120,34 @@ struct FlatTabStripContainer: View {
 
             ZStack(alignment: .topLeading) {
                 if let zoomedPane = zoomedPaneLeafContainer() {
-                    ZStack(alignment: .topTrailing) {
+                    ZStack(alignment: .topLeading) {
                         zoomedPane
                             .id(zoomedPaneId)
                             .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
-                        Text("ZOOM")
-                            .font(
-                                .system(size: AppStyles.General.Typography.textSm, weight: .medium, design: .monospaced)
-                            )
-                            .foregroundStyle(.white.opacity(AppStyles.General.Foreground.secondary))
-                            .padding(.horizontal, AppStyles.General.Spacing.standard)
-                            .padding(.vertical, AppStyles.General.Layout.paneGap)
-                            .background(Capsule().fill(.white.opacity(AppStyles.General.Stroke.muted)))
-                            .padding(AppStyles.General.Spacing.loose)
-                            .allowsHitTesting(false)
+                        if let zoomedPaneId, let ordinal = mainOrdinalMap.ordinal(forPaneId: zoomedPaneId) {
+                            PaneOrdinalBadge(ordinal: ordinal)
+                                .padding(AppStyles.General.Spacing.loose)
+                        }
+                        VStack {
+                            HStack {
+                                Spacer()
+                                Text("ZOOM")
+                                    .font(
+                                        .system(
+                                            size: AppStyles.General.Typography.textSm,
+                                            weight: .medium,
+                                            design: .monospaced
+                                        )
+                                    )
+                                    .foregroundStyle(.white.opacity(AppStyles.General.Foreground.secondary))
+                                    .padding(.horizontal, AppStyles.General.Spacing.standard)
+                                    .padding(.vertical, AppStyles.General.Layout.paneGap)
+                                    .background(Capsule().fill(.white.opacity(AppStyles.General.Stroke.muted)))
+                                    .padding(AppStyles.General.Spacing.loose)
+                                    .allowsHitTesting(false)
+                            }
+                            Spacer()
+                        }
                     }
                 } else if metrics.allMinimized {
                     if showMinimizedBars {
@@ -144,7 +159,8 @@ struct FlatTabStripContainer: View {
                                     closeTransitionCoordinator: closeTransitionCoordinator,
                                     actionDispatcher: actionDispatcher,
                                     onSaveArrangement: onSaveArrangement,
-                                    dropTargetCoordinateSpace: "tabContainer"
+                                    dropTargetCoordinateSpace: "tabContainer",
+                                    ordinal: mainOrdinalMap.ordinal(forPaneId: paneId)
                                 )
                                 .frame(width: CollapsedPaneBar.barWidth)
                             }
@@ -157,6 +173,7 @@ struct FlatTabStripContainer: View {
                         tabId: tabId,
                         activePaneId: activePaneId,
                         minimizedPaneIds: minimizedPaneIds,
+                        ordinalMap: mainOrdinalMap,
                         collapsedPaneWidth: effectiveCollapsedWidth,
                         onSaveArrangement: onSaveArrangement,
                         closeTransitionCoordinator: closeTransitionCoordinator,

@@ -169,6 +169,7 @@ struct DrawerPanel: View {
             tabId: tabId,
             activePaneId: activeChildId,
             minimizedPaneIds: minimizedPaneIds,
+            ordinalMap: PaneOrdinalMap(orderedPaneIds: layout.paneIds),
             collapsedPaneWidth: CollapsedPaneBar.barWidth,
             onSaveArrangement: nil,
             closeTransitionCoordinator: closeTransitionCoordinator,

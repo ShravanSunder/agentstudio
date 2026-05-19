@@ -121,7 +121,8 @@ enum WorkspaceCommandResolver {
     private static func isNonPaneCommand(_ command: AppCommand) -> Bool {
         switch command {
         case .watchFolder, .removeRepo,
-            .toggleSidebar, .showInboxNotifications, .clearReadInboxNotifications, .showPaneInboxNotifications,
+            .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
+            .clearReadInboxNotifications, .clearAllInboxNotifications, .showPaneInboxNotifications,
             .clearPaneInboxNotifications,
             .showWorktreeSidebar,
             .newFloatingTerminal,
@@ -133,8 +134,14 @@ enum WorkspaceCommandResolver {
             .openPaneLocationInEditorMenu,
             .openWebview, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab, .openWorktree, .openWorktreeInPane,
-            .switchArrangement, .saveArrangement,
+            .switchArrangement, .cycleArrangement, .saveArrangement,
             .deleteArrangement, .renameArrangement,
+            .enterDrawer, .focusDrawerPaneUp, .focusDrawerPaneLeft, .focusDrawerPaneDown,
+            .focusDrawerPaneRight,
+            .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3, .focusDrawerPane4,
+            .focusDrawerPane5, .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8,
+            .focusDrawerPane9,
+            .detachDrawerPane,
             .addDrawerPane, .toggleDrawer,
             .navigateDrawerPane, .closeDrawerPane,
             .toggleManagementLayer,
@@ -143,7 +150,18 @@ enum WorkspaceCommandResolver {
             .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
             .managementLayerExit:
             return true
-        default:
+        case .closeTab, .breakUpTab,
+            .selectTab, .nextTab, .prevTab,
+            .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
+            .selectTab6, .selectTab7, .selectTab8, .selectTab9,
+            .closePane, .focusPane, .scrollToBottom, .extractPaneToTab, .movePaneToTab,
+            .equalizePanes,
+            .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown,
+            .focusNextPane, .focusPrevPane,
+            .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
+            .focusPane6, .focusPane7, .focusPane8, .focusPane9,
+            .splitRight, .splitLeft,
+            .toggleSplitZoom, .minimizePane, .expandPane:
             return false
         }
     }

@@ -380,36 +380,15 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         uiState: UIStateAtom,
         managementLayer: ManagementLayerAtom
     ) -> Bool {
-        // Why: sidebar shortcuts are intentionally opt-in here. An
-        // exhaustive switch makes new global shortcuts choose a routing policy
-        // explicitly instead of inheriting accidental process-wide behavior.
-        switch shortcut {
-        case .toggleSidebar,
-            .closeTab, .newTab, .undoCloseTab, .nextTab, .prevTab,
-            .addDrawerPane, .toggleDrawer, .openPaneLocationInBookmarkedEditor,
-            .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
-            .toggleManagementLayer, .showInboxNotifications, .showPaneInboxNotifications, .showWorktreeSidebar,
-            .newWindow, .closeWindow, .showCommandBarEverything,
-            .showCommandBarCommands, .showCommandBarPanes, .selectTab1,
-            .selectTab2, .selectTab3, .selectTab4, .selectTab5, .selectTab6,
-            .selectTab7, .selectTab8, .selectTab9, .managementLayerFocusLeft,
-            .managementLayerFocusRight, .managementLayerEnterDrawer,
-            .managementLayerExitDrawer, .managementLayerOpenDrawer,
-            .managementLayerCreateTerminal, .managementLayerCreateBrowser,
-            .managementLayerExit:
-            return true
-        case .filterSidebar:
-            // Contract: returning false does not drop the key event. It allows the
-            // normal responder chain to keep Terminal Find and future inbox search
-            // bindings alive instead of globally stealing ⌘F.
-            return
-                !managementLayer.isActive
-                && !uiState.sidebarCollapsed
-                && uiState.sidebarHasFocus
-                && uiState.sidebarSurface == .repos
-        case .scrollToBottom:
-            return false
-        }
+        let keyboardOwner: KeyboardOwner =
+            if managementLayer.isActive {
+                .managementLayer
+            } else if !uiState.sidebarCollapsed && uiState.sidebarHasFocus {
+                .sidebar(uiState.sidebarSurface)
+            } else {
+                .mainWindowChain
+            }
+        return AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(shortcut, keyboardOwner: keyboardOwner)
     }
 
     private func setupAppNotificationObservers() {
@@ -1246,7 +1225,16 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             event: event,
             requiresNeutralFocus: trigger.modifiers.isEmpty || !allowsModifiedEmptyDrawerShortcutWithTextFocus
         ) {
-            dispatchAction(.addDrawerPane(parentPaneId: parentPaneId))
+            guard
+                CommandDispatcher.shared.canDispatch(
+                    .addDrawerPane,
+                    target: parentPaneId,
+                    targetType: .pane
+                )
+            else {
+                return false
+            }
+            CommandDispatcher.shared.dispatch(.addDrawerPane, target: parentPaneId, targetType: .pane)
             return true
         }
 
@@ -1259,9 +1247,23 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return true
         }
 
-        if let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .global),
-            CommandDispatcher.shared.canDispatch(shortcut.command)
-        {
+        if let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .global) {
+            let keyboardOwner = KeyboardOwner.current(
+                windowLifecycle: atom(\.windowLifecycle),
+                managementLayer: atom(\.managementLayer),
+                uiState: atom(\.uiState)
+            )
+            guard
+                AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(
+                    shortcut,
+                    keyboardOwner: keyboardOwner
+                )
+            else {
+                return false
+            }
+            guard CommandDispatcher.shared.canDispatch(shortcut.command) else {
+                return false
+            }
             CommandDispatcher.shared.dispatch(shortcut.command)
             return true
         }
@@ -1526,6 +1528,35 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         else { return }
 
         handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: targetPaneId)))
+    }
+
+    private func focusDrawerPaneOrdinal(command: AppCommand) -> Bool {
+        guard let target = resolveDrawerPaneOrdinalTarget(for: command) else { return false }
+        if target.drawer.minimizedPaneIds.contains(target.drawerPaneId) {
+            dispatchAction(.expandDrawerPane(parentPaneId: target.parentPaneId, drawerPaneId: target.drawerPaneId))
+        }
+        focusTargetedDrawerPane(parentPaneId: target.parentPaneId, drawerPaneId: target.drawerPaneId)
+        return true
+    }
+
+    private func resolveDrawerPaneOrdinalTarget(for command: AppCommand) -> (
+        parentPaneId: UUID,
+        drawer: Drawer,
+        drawerPaneId: UUID
+    )? {
+        guard
+            let ordinal = drawerPaneOrdinal(for: command),
+            let parentPaneId = activeMainPaneId(),
+            let drawer = store.paneAtom.pane(parentPaneId)?.drawer,
+            let drawerPaneId = PaneOrdinalMap(orderedPaneIds: drawer.layout.paneIds).paneId(forOrdinal: ordinal)
+        else {
+            return nil
+        }
+        return (parentPaneId, drawer, drawerPaneId)
+    }
+
+    private func drawerPaneOrdinal(for command: AppCommand) -> Int? {
+        AppCommand.focusDrawerPaneCommands.firstIndex(of: command).map { $0 + 1 }
     }
 
     private func handleManagementCreateTerminal() {
@@ -1908,7 +1939,21 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return
         }
 
+        if handleArrangementCommand(command) {
+            return
+        }
+
         handleDirectCommand(command)
+    }
+
+    private func handleArrangementCommand(_ command: AppCommand) -> Bool {
+        switch command {
+        case .cycleArrangement:
+            cycleActiveArrangement()
+            return true
+        default:
+            return false
+        }
     }
 
     private func handleManagementCommand(_ command: AppCommand) -> Bool {
@@ -2156,8 +2201,57 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)))
     }
 
+    private func focusMainPaneOrdinal(command: AppCommand) -> Bool {
+        guard let target = resolveMainPaneOrdinalTarget(for: command) else { return false }
+        if target.tab.activeMinimizedPaneIds.contains(target.paneId) {
+            dispatchAction(.expandPane(tabId: target.tab.id, paneId: target.paneId))
+        }
+        if let zoomedPaneId = target.tab.zoomedPaneId, zoomedPaneId != target.paneId {
+            dispatchAction(.toggleSplitZoom(tabId: target.tab.id, paneId: target.paneId))
+        }
+        handlePaneFocusTrigger(.command(.focusPane(tabId: target.tab.id, paneId: target.paneId)))
+        return true
+    }
+
+    private func resolveMainPaneOrdinalTarget(for command: AppCommand) -> (tab: Tab, paneId: UUID)? {
+        guard
+            let ordinal = mainPaneOrdinal(for: command),
+            let activeTabId = store.tabLayoutAtom.activeTabId,
+            let tab = store.tabLayoutAtom.tab(activeTabId),
+            let paneId = PaneOrdinalMap(orderedPaneIds: tab.activePaneIds).paneId(forOrdinal: ordinal)
+        else {
+            return nil
+        }
+        return (tab, paneId)
+    }
+
+    private func mainPaneOrdinal(for command: AppCommand) -> Int? {
+        AppCommand.focusPaneCommands.firstIndex(of: command).map { $0 + 1 }
+    }
+
+    private func cycleActiveArrangement() {
+        guard
+            let activeTabId = store.tabLayoutAtom.activeTabId,
+            let tab = store.tabLayoutAtom.tab(activeTabId),
+            tab.arrangements.count > 1,
+            let activeIndex = tab.arrangements.firstIndex(where: { $0.id == tab.activeArrangementId })
+        else {
+            return
+        }
+
+        let nextArrangement = tab.arrangements[(activeIndex + 1) % tab.arrangements.count]
+        dispatchAction(.switchArrangement(tabId: tab.id, arrangementId: nextArrangement.id))
+    }
+
     private func handlePaneFocusCommand(_ command: AppCommand) -> Bool {
         switch command {
+        case .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
+            .focusPane6, .focusPane7, .focusPane8, .focusPane9:
+            return focusMainPaneOrdinal(command: command)
+        case .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3, .focusDrawerPane4,
+            .focusDrawerPane5, .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8,
+            .focusDrawerPane9:
+            return focusDrawerPaneOrdinal(command: command)
         case .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown, .focusNextPane, .focusPrevPane:
             guard let trigger = makePaneKeyboardFocusTrigger(for: command) else { return false }
             handlePaneFocusTrigger(.keyboard(trigger))
@@ -2278,6 +2372,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         target: UUID,
         targetType: SearchItemType
     ) -> PaneActionCommand? {
+        if let repositoryAction = targetedRepositoryAction(command: command, target: target, targetType: targetType) {
+            return repositoryAction
+        }
+
         switch (command, targetType) {
         case (.selectTab, .tab):
             return .selectTab(tabId: target)
@@ -2320,6 +2418,8 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         case (.detachDrawerPane, .pane):
             guard let parentPaneId = store.paneAtom.pane(target)?.parentPaneId else { return nil }
             return .detachDrawerPane(parentPaneId: parentPaneId, drawerPaneId: target)
+        case (.addDrawerPane, .pane), (.addDrawerPane, .floatingTerminal):
+            return .addDrawerPane(parentPaneId: target)
         case (.newTerminalInTab, .tab):
             guard let tab = store.tabLayoutAtom.tab(target), let targetPaneId = tab.activePaneId else { return nil }
             return .insertPane(
@@ -2329,6 +2429,19 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 direction: .right,
                 sizingMode: .halveTarget
             )
+        case (.renameArrangement, .tab):
+            return nil
+        default:
+            return nil
+        }
+    }
+
+    private func targetedRepositoryAction(
+        command: AppCommand,
+        target: UUID,
+        targetType: SearchItemType
+    ) -> PaneActionCommand? {
+        switch (command, targetType) {
         case (.removeRepo, .repo):
             return .removeRepo(repoId: target)
         case (.openWorktree, .worktree):
@@ -2337,8 +2450,6 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return .openNewTerminalInTab(worktreeId: target, launchDirectory: nil, title: nil)
         case (.openWorktreeInPane, .worktree):
             return .openWorktreeInPane(worktreeId: target)
-        case (.renameArrangement, .tab):
-            return nil
         default:
             return nil
         }
@@ -2408,6 +2519,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 return store.paneAtom.pane(parentPaneId)?.drawer?.activeChildId != nil
             }
             return false
+        case .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3, .focusDrawerPane4,
+            .focusDrawerPane5, .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8,
+            .focusDrawerPane9:
+            return resolveDrawerPaneOrdinalTarget(for: command) != nil
         case .navigateDrawerPane:
             guard let parentPaneId = activeMainPaneId() else { return false }
             return !(store.paneAtom.pane(parentPaneId)?.drawer?.paneIds.isEmpty ?? true)
@@ -2418,12 +2533,23 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             return false
         case .focusPaneLeft, .focusPaneRight, .focusPaneUp, .focusPaneDown, .focusNextPane, .focusPrevPane:
             return makePaneKeyboardFocusTrigger(for: command) != nil
+        case .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5,
+            .focusPane6, .focusPane7, .focusPane8, .focusPane9:
+            return resolveMainPaneOrdinalTarget(for: command) != nil
         case .nextTab, .prevTab,
             .selectTab1, .selectTab2, .selectTab3, .selectTab4, .selectTab5,
             .selectTab6, .selectTab7, .selectTab8, .selectTab9:
             return resolvePaneFocusTabSelectionTarget(for: command) != nil
         case .renameTab:
             return store.tabLayoutAtom.activeTabId != nil
+        case .cycleArrangement:
+            guard
+                let activeTabId = store.tabLayoutAtom.activeTabId,
+                let tab = store.tabLayoutAtom.tab(activeTabId)
+            else {
+                return false
+            }
+            return tab.arrangements.count > 1
         case .addDrawerPane, .toggleDrawer, .closeDrawerPane:
             return canExecuteContextualCommand(command)
         case .showPaneInboxNotifications, .clearPaneInboxNotifications:

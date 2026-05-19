@@ -9,6 +9,7 @@ struct CollapsedPaneBar: View {
     let onSaveArrangement: (() -> Void)?
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
+    let ordinal: Int?
 
     @State private var isHovered = false
     @State private var isExpandHovered = false
@@ -27,7 +28,8 @@ struct CollapsedPaneBar: View {
         actionDispatcher: PaneActionDispatching,
         onSaveArrangement: (() -> Void)? = nil,
         dropTargetCoordinateSpace: String? = nil,
-        useDrawerFramePreference: Bool = false
+        useDrawerFramePreference: Bool = false,
+        ordinal: Int? = nil
     ) {
         self.paneId = paneId
         self.tabId = tabId
@@ -36,6 +38,7 @@ struct CollapsedPaneBar: View {
         self.onSaveArrangement = onSaveArrangement
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
+        self.ordinal = ordinal
     }
 
     private var isClosing: Bool {
@@ -56,6 +59,10 @@ struct CollapsedPaneBar: View {
             ?? Color.secondary.opacity(0.92)
 
         VStack(spacing: AppStyles.General.Spacing.standard) {
+            if let ordinal {
+                PaneOrdinalBadge(ordinal: ordinal)
+            }
+
             expandButton
 
             if !isDrawerChild {
