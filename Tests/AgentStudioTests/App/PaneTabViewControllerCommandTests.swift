@@ -51,8 +51,8 @@ struct PaneTabViewControllerCommandTests {
         )
     }
 
-    @Test("targeted renameTab presents the anchored popover for the selected tab")
-    func executeRenameTab_targetedTab_presentsRenamePopoverForSelectedTab() {
+    @Test("targeted renameTab presents the anchored popover after command surfaces unwind")
+    func executeRenameTab_targetedTab_defersRenamePopoverPresentation() {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -66,9 +66,40 @@ struct PaneTabViewControllerCommandTests {
 
         harness.controller.execute(.renameTab, target: secondTab.id, targetType: .tab)
 
-        #expect(harness.tabRenamePopoverState.presentedTabId == secondTab.id)
         #expect(harness.store.activeTabId == secondTab.id)
+        #expect(harness.tabRenamePopoverState.presentedTabId == nil)
+
+        runMainRunLoop(mode: .default)
+
+        #expect(harness.tabRenamePopoverState.presentedTabId == secondTab.id)
         #expect(harness.store.tab(secondTab.id)?.name == "Second Tab")
+    }
+
+    @Test("tab context menu rename selects the tab and presents after the menu closes")
+    func executeTabContextMenuRename_selectsTabAndDefersPopoverPresentation() async {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let firstPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+        let secondPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        let firstTab = Tab(paneId: firstPane.id, name: "First Tab")
+        let secondTab = Tab(paneId: secondPane.id, name: "Second Tab")
+        harness.store.appendTab(firstTab)
+        harness.store.appendTab(secondTab)
+        harness.store.setActiveTab(firstTab.id)
+
+        harness.controller.executeTabContextMenuCommand(.renameTab, tabId: secondTab.id)
+
+        #expect(harness.store.activeTabId == secondTab.id)
+        #expect(harness.tabRenamePopoverState.presentedTabId == nil)
+
+        runMainRunLoop(mode: .eventTracking)
+
+        #expect(harness.tabRenamePopoverState.presentedTabId == nil)
+
+        runMainRunLoop(mode: .default)
+
+        #expect(harness.tabRenamePopoverState.presentedTabId == secondTab.id)
     }
 
     @Test("targeted renameTab ignores stale tab targets")
@@ -685,4 +716,11 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.store.tab(tab.id)?.activePaneId == first.id)
     }
 
+}
+
+private func runMainRunLoop(mode: RunLoop.Mode) {
+    RunLoop.main.perform(inModes: [mode]) {
+        CFRunLoopStop(CFRunLoopGetMain())
+    }
+    CFRunLoopRunInMode(CFRunLoopMode(mode.rawValue as CFString), 1, true)
 }

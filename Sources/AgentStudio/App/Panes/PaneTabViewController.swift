@@ -62,7 +62,7 @@ private struct PaneInboxCommandTarget {
 /// local. It also handles direct tab-order updates (`store.moveTab`) from drag
 /// interactions as a UI-only mutation.
 @MainActor
-class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
+class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceCommandHandling {
     typealias OpenEditorHandler =
         @MainActor (_ id: EditorTargetId, _ path: URL, _ installedTargets: [ExternalEditorTarget]) -> Bool
 
@@ -88,6 +88,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
     private let tabRenamePopoverState: TabRenamePopoverState
     private let arrangementInlineRenameState: ArrangementInlineRenameState
     private let registersAsCommandHandler: Bool
+    private var tabRenamePopover: NSPopover?
     private let installedEditorTargetsProvider: @MainActor () -> [ExternalEditorTarget]
     private let openEditorHandler: OpenEditorHandler
     private let openFinderHandler: @MainActor (URL) -> Bool
@@ -235,7 +236,6 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         // Create custom tab bar AFTER (so it's on top visually)
         let tabBar = CustomTabBar(
             adapter: tabBarAdapter,
-            renamePopoverState: tabRenamePopoverState,
             arrangementInlineRenameState: arrangementInlineRenameState,
             onSelect: { [weak self] tabId in
                 self?.handlePaneFocusTrigger(.tabClick(PaneTabClickFocusTrigger(targetTabId: tabId)))
@@ -245,10 +245,6 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             },
             onCommand: { [weak self] command, tabId in
                 self?.handleTabCommand(command, tabId: tabId)
-            },
-            onRenameCommit: { [weak self] tabId, name in
-                self?.dispatchAction(.renameTab(tabId: tabId, name: name))
-                self?.tabRenamePopoverState.dismiss()
             },
             onTabFramesChanged: { [weak self] frames in
                 self?.tabBarHostingView?.updateTabFrames(frames)
@@ -1711,10 +1707,18 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
     // MARK: - Tab Commands
 
+    func executeTabContextMenuCommand(_ command: AppCommand, tabId: UUID) {
+        handleTabCommand(command, tabId: tabId)
+    }
+
     /// Route tab context menu commands through the validated pipeline.
     private func handleTabCommand(_ command: AppCommand, tabId: UUID) {
         if command == .renameTab {
-            tabRenamePopoverState.present(for: tabId)
+            guard store.tabLayoutAtom.tab(tabId) != nil else {
+                Self.logger.warning("renameTab context menu command ignored: tab \(tabId) not found")
+                return
+            }
+            requestTabRenamePresentation(for: tabId)
             return
         }
 
@@ -1766,6 +1770,78 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
         if let action {
             dispatchAction(action)
         }
+    }
+
+    private func requestTabRenamePresentation(for tabId: UUID) {
+        guard store.tabLayoutAtom.tab(tabId) != nil else {
+            Self.logger.warning("renameTab presentation ignored: tab \(tabId) not found")
+            return
+        }
+        if store.tabLayoutAtom.activeTabId != tabId {
+            dispatchAction(.selectTab(tabId: tabId))
+        }
+
+        tabRenamePopoverState.dismiss()
+
+        // Context menus and command-bar dispatch both run while another transient
+        // AppKit surface is unwinding. Move the editor presentation to default
+        // run-loop mode and let the controller own the AppKit popover anchor.
+        RunLoop.main.perform(inModes: [.default]) { [weak self] in
+            MainActor.assumeIsolated {
+                self?.presentTabRenamePopover(for: tabId)
+            }
+        }
+    }
+
+    private func presentTabRenamePopover(for tabId: UUID) {
+        guard let tab = store.tabLayoutAtom.tab(tabId) else {
+            Self.logger.warning("renameTab presentation ignored after defer: tab \(tabId) not found")
+            return
+        }
+
+        closeTabRenamePopover(updateState: false)
+        tabRenamePopoverState.present(for: tabId)
+
+        guard isViewLoaded, let tabBarHostingView, tabBarHostingView.window != nil else {
+            return
+        }
+
+        let popover = NSPopover()
+        popover.behavior = .semitransient
+        popover.delegate = self
+        popover.contentViewController = NSHostingController(
+            rootView: TabRenamePopover(
+                currentTitle: tabBarAdapter.tabs.first(where: { $0.id == tabId })?.displayTitle ?? tab.name,
+                onCommit: { [weak self] name in
+                    guard let self else { return }
+                    self.dispatchAction(.renameTab(tabId: tabId, name: name))
+                    self.closeTabRenamePopover()
+                },
+                onCancel: { [weak self] in
+                    self?.closeTabRenamePopover()
+                }
+            )
+        )
+        tabRenamePopover = popover
+
+        let anchorRect = tabBarHostingView.tabFrameInView(for: tabId) ?? tabBarHostingView.bounds
+        popover.show(relativeTo: anchorRect, of: tabBarHostingView, preferredEdge: .minY)
+    }
+
+    private func closeTabRenamePopover(updateState: Bool = true) {
+        let popover = tabRenamePopover
+        tabRenamePopover = nil
+        popover?.delegate = nil
+        popover?.close()
+        if updateState {
+            tabRenamePopoverState.dismiss()
+        }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        guard notification.object as? NSPopover === tabRenamePopover else { return }
+        tabRenamePopover = nil
+        tabRenamePopoverState.dismiss()
     }
 
     // MARK: - Tab Reordering
@@ -1974,7 +2050,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             handleUndoCloseTab()
         case .renameTab:
             guard let activeTabId = store.tabLayoutAtom.activeTabId else { break }
-            tabRenamePopoverState.present(for: activeTabId)
+            requestTabRenamePresentation(for: activeTabId)
         case .watchFolder, .toggleSidebar, .filterSidebar,
             .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications,
@@ -2089,10 +2165,7 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 Self.logger.warning("renameTab targeted command ignored: tab \(target) not found")
                 return
             }
-            if store.tabLayoutAtom.activeTabId != target {
-                dispatchAction(.selectTab(tabId: target))
-            }
-            tabRenamePopoverState.present(for: target)
+            requestTabRenamePresentation(for: target)
         case (.renameArrangement, .tab):
             guard
                 let tab = store.tabLayoutAtom.tabs.first(where: { tab in
