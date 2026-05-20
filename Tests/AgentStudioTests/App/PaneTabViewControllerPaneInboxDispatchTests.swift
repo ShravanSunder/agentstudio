@@ -41,29 +41,32 @@ struct PaneTabViewControllerPaneInboxDispatchTests {
 
     @Test("Cmd-Shift-I app-owned key event reaches PaneInbox command dispatch")
     func cmdShiftIKeyEventOpensPaneInboxForActiveParentScope() async throws {
-        let harness = makeHarness()
-        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        try await withAsyncTestAtomRegistry { atoms in
+            let harness = makeHarness()
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            configureMainWindowKeyboardOwner(atoms)
 
-        try await withIsolatedCommandDispatcher(
-            configure: {
-                CommandDispatcher.shared.handler = harness.controller
-                CommandDispatcher.shared.appCommandRouter = nil
-            },
-            body: {
-                let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
-                let tab = Tab(paneId: parentPane.id)
-                harness.store.appendTab(tab)
-                harness.store.setActiveTab(tab.id)
-                let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
-                let event = try #require(cmdShiftIEvent())
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    CommandDispatcher.shared.handler = harness.controller
+                    CommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    let parentPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+                    let tab = Tab(paneId: parentPane.id)
+                    harness.store.appendTab(tab)
+                    harness.store.setActiveTab(tab.id)
+                    let drawerPane = try #require(harness.store.addDrawerPane(to: parentPane.id))
+                    let event = try #require(cmdShiftIEvent())
 
-                #expect(harness.controller.handleAppOwnedKeyEvent(event))
+                    #expect(harness.controller.handleAppOwnedKeyEvent(event))
 
-                #expect(harness.paneInboxPresenter.request?.parentPaneId == parentPane.id)
-                #expect(harness.paneInboxPresenter.request?.paneIds == [parentPane.id, drawerPane.id])
-                #expect(harness.paneInboxPresenter.request?.intent == .open)
-            }
-        )
+                    #expect(harness.paneInboxPresenter.request?.parentPaneId == parentPane.id)
+                    #expect(harness.paneInboxPresenter.request?.paneIds == [parentPane.id, drawerPane.id])
+                    #expect(harness.paneInboxPresenter.request?.intent == .open)
+                }
+            )
+        }
     }
 
     private func cmdShiftIEvent() -> NSEvent? {

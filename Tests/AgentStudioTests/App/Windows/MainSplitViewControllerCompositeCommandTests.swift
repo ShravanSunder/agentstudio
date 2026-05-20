@@ -91,6 +91,27 @@ struct MainSplitViewControllerCompositeCommandTests {
         )
     }
 
+    @Test("repos focus target publishes sidebar keyboard ownership")
+    func focusSidebarReposSurfacePublishesKeyboardOwnership() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            sidebarRootViewBuilder: { uiState, onEscape in
+                AnyView(ReposFocusTargetTestSidebarView(uiState: uiState, onEscape: onEscape))
+            },
+            body: { harness in
+                harness.atoms.uiState.setSidebarSurface(.repos)
+                harness.atoms.uiState.setSidebarHasFocus(false)
+
+                await eventually("repos focus bridge should become first responder") {
+                    harness.controller.focusSidebar()
+                        && harness.atoms.uiState.sidebarHasFocus
+                        && (harness.window.firstResponder as? NSView)?.identifier
+                            == RepoExplorerView.focusTargetIdentifier
+                }
+            }
+        )
+    }
+
     @Test("showInboxNotifications toggles a visible inbox sidebar closed")
     func showInboxNotificationsTogglesVisibleInboxClosed() async {
         await withMainSplitViewControllerHarness(
@@ -301,6 +322,27 @@ struct DelayedInboxTestSidebarView: View {
                             isInboxMounted = true
                         }
                 }
+            }
+        }
+        .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct ReposFocusTargetTestSidebarView: View {
+    let uiState: UIStateAtom
+    let onEscape: @MainActor @Sendable () -> Void
+
+    var body: some View {
+        Group {
+            switch uiState.sidebarSurface {
+            case .repos:
+                RepoExplorerFocusBridge(uiState: uiState)
+                    .frame(width: 12, height: 12)
+            case .inbox:
+                MainSplitViewControllerTestInboxView(
+                    uiState: uiState,
+                    onEscape: onEscape
+                )
             }
         }
         .frame(minWidth: 200, maxWidth: .infinity, maxHeight: .infinity)

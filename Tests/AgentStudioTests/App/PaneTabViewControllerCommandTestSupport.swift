@@ -137,6 +137,21 @@ func makePaneTabViewControllerCommandHarness(
 }
 
 @MainActor
+func configureMainWindowKeyboardOwner(_ atoms: AtomRegistry) {
+    let windowId = UUID()
+    atoms.windowLifecycle.recordWindowRegistered(windowId)
+    atoms.windowLifecycle.recordWindowBecameKey(windowId)
+    atoms.uiState.setSidebarCollapsed(false)
+    atoms.uiState.setSidebarHasFocus(false)
+    atoms.managementLayer.deactivate()
+}
+
+@MainActor
+func configureMainWindowKeyboardOwner() {
+    configureMainWindowKeyboardOwner(AtomScope.store)
+}
+
+@MainActor
 func makeRepoAndWorktree(_ store: WorkspaceStore, root: URL) -> (Repo, Worktree) {
     makePaneTabViewControllerCommandRepoAndWorktree(store, root: root)
 }

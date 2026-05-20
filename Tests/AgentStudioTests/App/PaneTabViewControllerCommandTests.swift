@@ -119,6 +119,28 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.store.activeTabId == tab.id)
     }
 
+    @Test("targeted renameTab rejects wrong target type instead of falling back to active tab")
+    func executeRenameTab_wrongTargetType_doesNotRenameActiveTab() {
+        let harness = makeHarness()
+        defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+        let firstPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+        let secondPane = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+        let firstTab = Tab(paneId: firstPane.id, name: "First Tab")
+        let secondTab = Tab(paneId: secondPane.id, name: "Second Tab")
+        harness.store.appendTab(firstTab)
+        harness.store.appendTab(secondTab)
+        harness.store.setActiveTab(firstTab.id)
+
+        #expect(!harness.controller.canExecute(.renameTab, target: secondTab.id, targetType: .pane))
+
+        harness.controller.execute(.renameTab, target: secondTab.id, targetType: .pane)
+        runMainRunLoop(mode: .default)
+
+        #expect(harness.store.activeTabId == firstTab.id)
+        #expect(harness.tabRenamePopoverState.presentedTabId == nil)
+    }
+
     @Test("targeted renameArrangement begins inline edit on arrangement in the active tab")
     func executeRenameArrangement_activeTabArrangement_beginsInlineEdit() {
         let harness = makeHarness()

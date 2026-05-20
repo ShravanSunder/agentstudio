@@ -367,7 +367,14 @@ class MainSplitViewController: NSSplitViewController {
 
         switch uiState.sidebarSurface {
         case .repos:
-            return window.makeFirstResponder(sidebarHostingController?.view)
+            guard
+                let focusTarget = sidebarHostingController?.view.descendantView(
+                    matching: RepoExplorerView.focusTargetIdentifier
+                )
+            else {
+                return false
+            }
+            return window.makeFirstResponder(focusTarget)
         case .inbox:
             guard
                 let focusTarget = sidebarHostingController?.view.descendantView(

@@ -68,36 +68,118 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
 
     @Test("production global key path consults keyboard owner policy")
     func productionGlobalKeyPathConsultsKeyboardOwnerPolicy() async throws {
-        let harness = makeHarness()
-        let handler = MockCommandHandler()
-        let windowId = UUID()
-        atom(\.windowLifecycle).recordWindowRegistered(windowId)
-        atom(\.windowLifecycle).recordWindowBecameKey(windowId)
-        atom(\.uiState).setSidebarCollapsed(false)
-        atom(\.uiState).setSidebarSurface(.inbox)
-        atom(\.uiState).setSidebarHasFocus(true)
+        try await withAsyncTestAtomRegistry { atoms in
+            let harness = makeHarness()
+            let handler = MockCommandHandler()
+            configureMainWindowKeyboardOwner(atoms)
+            atoms.uiState.setSidebarCollapsed(false)
+            atoms.uiState.setSidebarSurface(.inbox)
+            atoms.uiState.setSidebarHasFocus(true)
 
-        let event = try #require(
-            makeKeyEvent(
-                modifierFlags: [.command, .option],
-                characters: "l",
-                charactersIgnoringModifiers: "l",
-                keyCode: 37
+            let event = try #require(
+                makeKeyEvent(
+                    modifierFlags: [.command, .option],
+                    characters: "l",
+                    charactersIgnoringModifiers: "l",
+                    keyCode: 37
+                )
             )
-        )
-        let trigger = try #require(ShortcutDecoder.decode(event: event))
-        #expect(ShortcutDecoder.shortcut(for: trigger, in: .global) == .nextTab)
+            let trigger = try #require(ShortcutDecoder.decode(event: event))
+            #expect(ShortcutDecoder.shortcut(for: trigger, in: .global) == .nextTab)
 
-        try await withIsolatedCommandDispatcher(
-            configure: {
-                CommandDispatcher.shared.handler = handler
-                CommandDispatcher.shared.appCommandRouter = nil
-            },
-            body: {
-                #expect(!harness.controller.handleAppOwnedKeyEvent(event))
-                #expect(handler.executedCommands.isEmpty)
-            }
-        )
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    CommandDispatcher.shared.handler = handler
+                    CommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    #expect(!harness.controller.handleAppOwnedKeyEvent(event))
+                    #expect(handler.executedCommands.isEmpty)
+                }
+            )
+        }
+    }
+
+    @Test("scope-aware pane shortcuts are blocked while sidebar owns keyboard")
+    func scopeAwarePaneShortcutsAreBlockedBySidebarOwnership() async throws {
+        try await withAsyncTestAtomRegistry { atoms in
+            let harness = makeHarness()
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            configureMainWindowKeyboardOwner(atoms)
+            atoms.uiState.setSidebarSurface(.repos)
+            atoms.uiState.setSidebarHasFocus(true)
+
+            let first = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+            let second = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+            let tab = Tab(paneId: first.id)
+            harness.store.appendTab(tab)
+            harness.store.insertPane(
+                second.id,
+                inTab: tab.id,
+                at: first.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+            harness.store.setActiveTab(tab.id)
+            harness.store.setActivePane(second.id, inTab: tab.id)
+            atoms.workspaceFocusOwner.focusMainPane(second.id)
+
+            let event = try #require(
+                makeKeyEvent(
+                    modifierFlags: [.option],
+                    characters: "j",
+                    charactersIgnoringModifiers: "j",
+                    keyCode: 38
+                )
+            )
+
+            #expect(!harness.controller.handleAppOwnedKeyEvent(event))
+            #expect(harness.store.tab(tab.id)?.activePaneId == second.id)
+        }
+    }
+
+    @Test("scope-aware pane shortcuts do not steal text input")
+    func scopeAwarePaneShortcutsDoNotStealTextInput() async throws {
+        try await withAsyncTestAtomRegistry { atoms in
+            let harness = makeHarness()
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            configureMainWindowKeyboardOwner(atoms)
+
+            let first = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+            let second = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+            let tab = Tab(paneId: first.id)
+            harness.store.appendTab(tab)
+            harness.store.insertPane(
+                second.id,
+                inTab: tab.id,
+                at: first.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+            harness.store.setActiveTab(tab.id)
+            harness.store.setActivePane(second.id, inTab: tab.id)
+            atoms.workspaceFocusOwner.focusMainPane(second.id)
+
+            let window = makePaneTabViewControllerCommandWindow(for: harness.controller)
+            let textView = NSTextView()
+            window.contentView?.addSubview(textView)
+            #expect(window.makeFirstResponder(textView))
+
+            let event = try #require(
+                makeKeyEvent(
+                    modifierFlags: [.option],
+                    characters: "j",
+                    charactersIgnoringModifiers: "j",
+                    keyCode: 38,
+                    windowNumber: window.windowNumber
+                )
+            )
+
+            #expect(!harness.controller.handleAppOwnedKeyEvent(event))
+            #expect(harness.store.tab(tab.id)?.activePaneId == second.id)
+        }
     }
 
     @Test("old tab cycling shortcut is not decoded after migration")

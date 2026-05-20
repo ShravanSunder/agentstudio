@@ -268,10 +268,11 @@ struct PaneTabViewControllerDrawerCommandTests {
         #expect(harness.store.tab(tab.id)?.activePaneId == parent.id)
     }
 
-    @Test("option-k in main row is consumed without opening the drawer")
-    func optionK_mainPane_isConsumedWithoutEnteringDrawer() throws {
+    @Test("option-k in main row falls through without a concrete pane command")
+    func optionK_mainPane_fallsThroughWithoutConcreteCommand() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        configureMainWindowKeyboardOwner()
 
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
         let tab = Tab(paneId: parent.id)
@@ -295,15 +296,17 @@ struct PaneTabViewControllerDrawerCommandTests {
             )
         )
 
-        #expect(harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: false))
+        #expect(
+            !harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: false))
         #expect(harness.store.pane(parent.id)?.drawer?.isExpanded == false)
         #expect(atom(\.workspaceFocusOwner).owner == .mainPane(paneId: parent.id))
     }
 
-    @Test("option-i in main row is consumed without app-owned navigation")
-    func optionI_mainPane_isConsumedWithoutNavigation() throws {
+    @Test("option-i in main row falls through without a concrete pane command")
+    func optionI_mainPane_fallsThroughWithoutConcreteCommand() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        configureMainWindowKeyboardOwner()
 
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
         let tab = Tab(paneId: parent.id)
@@ -327,7 +330,8 @@ struct PaneTabViewControllerDrawerCommandTests {
             )
         )
 
-        #expect(harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: false))
+        #expect(
+            !harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: false))
         #expect(atom(\.workspaceFocusOwner).owner == .mainPane(paneId: parent.id))
     }
 
@@ -335,6 +339,7 @@ struct PaneTabViewControllerDrawerCommandTests {
     func optionJ_afterClosingEmptyDrawer_movesMainRow() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        configureMainWindowKeyboardOwner()
 
         let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
@@ -432,6 +437,7 @@ struct PaneTabViewControllerDrawerCommandTests {
     func optionIJKL_afterDirectDrawerSelection_staysInDrawerScope() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        configureMainWindowKeyboardOwner()
 
         let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
@@ -480,6 +486,7 @@ struct PaneTabViewControllerDrawerCommandTests {
     func targetedNavigateDrawerPane_updatesFocusOwnerAndDrawerKeyboardScope() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+        configureMainWindowKeyboardOwner()
 
         let left = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Left"))
         let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))

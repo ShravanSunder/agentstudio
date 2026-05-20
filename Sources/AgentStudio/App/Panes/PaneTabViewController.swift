@@ -371,22 +371,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         setupAppNotificationObservers()
     }
 
-    static func shouldDispatchGlobalShortcut(
-        _ shortcut: AppShortcut,
-        uiState: UIStateAtom,
-        managementLayer: ManagementLayerAtom
-    ) -> Bool {
-        let keyboardOwner: KeyboardOwner =
-            if managementLayer.isActive {
-                .managementLayer
-            } else if !uiState.sidebarCollapsed && uiState.sidebarHasFocus {
-                .sidebar(uiState.sidebarSurface)
-            } else {
-                .mainWindowChain
-            }
-        return AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(shortcut, keyboardOwner: keyboardOwner)
-    }
-
     private func setupAppNotificationObservers() {
         notificationTasks.append(
             Task { [weak self] in
@@ -1234,21 +1218,21 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return true
         }
 
-        if let command = scopeAwarePaneCommand(for: trigger) {
+        let keyboardOwner = KeyboardOwner.current(
+            windowLifecycle: atom(\.windowLifecycle),
+            managementLayer: atom(\.managementLayer),
+            uiState: atom(\.uiState)
+        )
+
+        if shouldHandleScopeAwarePaneTrigger(event: event, keyboardOwner: keyboardOwner),
+            let command = scopeAwarePaneCommand(for: trigger),
+            canExecute(command)
+        {
             execute(command)
             return true
         }
 
-        if shouldConsumeScopeAwarePaneTrigger(trigger) {
-            return true
-        }
-
         if let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .global) {
-            let keyboardOwner = KeyboardOwner.current(
-                windowLifecycle: atom(\.windowLifecycle),
-                managementLayer: atom(\.managementLayer),
-                uiState: atom(\.uiState)
-            )
             guard
                 AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(
                     shortcut,
@@ -1304,14 +1288,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
     }
 
-    private func shouldConsumeScopeAwarePaneTrigger(_ trigger: ShortcutTrigger) -> Bool {
-        switch trigger {
-        case .init(key: .character(.i), modifiers: [.option]),
-            .init(key: .character(.k), modifiers: [.option]):
-            return true
-        default:
-            return scopeAwarePaneCommand(for: trigger) != nil
-        }
+    private func shouldHandleScopeAwarePaneTrigger(
+        event: NSEvent,
+        keyboardOwner: KeyboardOwner
+    ) -> Bool {
+        guard keyboardOwner == .mainWindowChain else { return false }
+        return !rawCharacterHasTextResponder(for: event)
     }
 
     private func firstDrawerPaneParentId(
@@ -1499,8 +1481,15 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func moveDrawerFocus(_ command: AppCommand) {
-        guard case .drawer(let parentPaneId) = normalizedWorkspaceNavigationFocusScope() else { return }
-        guard let drawerPaneId = store.paneAtom.pane(parentPaneId)?.drawer?.activeChildId else { return }
+        guard let target = drawerFocusNeighbor(for: command) else { return }
+        handlePaneFocusTrigger(
+            .drawer(.selectPane(parentPaneId: target.parentPaneId, drawerPaneId: target.drawerPaneId)))
+    }
+
+    private func drawerFocusNeighbor(for command: AppCommand) -> (parentPaneId: UUID, drawerPaneId: UUID)? {
+        guard case .drawerPane(let parentPaneId, let drawerPaneId) = normalizedWorkspaceNavigationScopeState() else {
+            return nil
+        }
 
         let direction: FocusDirection
         switch command {
@@ -1513,7 +1502,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .focusDrawerPaneRight:
             direction = .right
         default:
-            return
+            return nil
         }
 
         guard
@@ -1521,9 +1510,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 .drawer?
                 .layout
                 .neighbor(of: drawerPaneId, direction: direction)
-        else { return }
+        else { return nil }
 
-        handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: targetPaneId)))
+        return (parentPaneId, targetPaneId)
     }
 
     private func focusDrawerPaneOrdinal(command: AppCommand) -> Bool {
@@ -2234,7 +2223,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 isDefault: arrangement.isDefault
             )
         default:
-            execute(command)
+            Self.logger.warning(
+                "Targeted command ignored for unsupported target pair command=\(String(describing: command), privacy: .public) targetType=\(targetType.rawValue, privacy: .public)"
+            )
         }
     }
 
@@ -2575,7 +2566,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             }
             return !arrangement.isDefault
         default:
-            return canExecute(command)
+            return false
         }
     }
 
@@ -2588,10 +2579,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .enterDrawer:
             return activeMainPaneId() != nil
         case .focusDrawerPaneUp, .focusDrawerPaneLeft, .focusDrawerPaneDown, .focusDrawerPaneRight:
-            if case .drawerPane(let parentPaneId, _) = normalizedWorkspaceNavigationScopeState() {
-                return store.paneAtom.pane(parentPaneId)?.drawer?.activeChildId != nil
-            }
-            return false
+            return drawerFocusNeighbor(for: command) != nil
         case .focusDrawerPane1, .focusDrawerPane2, .focusDrawerPane3, .focusDrawerPane4,
             .focusDrawerPane5, .focusDrawerPane6, .focusDrawerPane7, .focusDrawerPane8,
             .focusDrawerPane9:

@@ -24,12 +24,39 @@ Peekaboo for visual validation.
 
 ## Current Branch State
 
-This is still a plan branch. The branch was refreshed from `origin/main`; the
-only intended branch artifact before implementation is this plan file.
+This branch is no longer plan-only. As of 2026-05-20 it has been merged with
+current `origin/main` at `c1490278` (`Fix tab rename popover presentation`) and
+contains the shortcut, command-routing, focus-publication, ordinal-resolution,
+and badge implementation described below.
 
-Current known branch diff:
+Current intended branch diff:
 
 - `docs/plans/2026-05-02-luna373-ordinal-pane-shortcuts.md`
+- command vocabulary, shortcut catalog, dispatch policy, shell/workspace command
+  boundary, and pane controller routing updates
+- `PaneOrdinalMap` plus pane/drawer ordinal badge rendering
+- focused tests for command boundaries, shortcut decoding, keyboard ownership,
+  empty-drawer raw `P`, tab/arrangement cycling, pane ordinals, drawer ordinals,
+  and sidebar focus publication
+
+Post-merge verification status:
+
+- Latest base sync: `origin/main` at `c1490278`.
+- Code audit: `renameTab` remains pane-owned and routes through
+  `PaneTabViewController`.
+- Focused shortcut/command/surface packet:
+  `swift test --build-path .build-agent-1 --skip-build --filter ...`, 266 tests
+  in 24 suites passed.
+- Lint: `mise run lint`, exit 0. SwiftLint reported 0 violations across 835
+  files and the Core boundary import check passed.
+- Full local test: `mise run test` reached the WebKit serialized lane and then
+  failed because `WebKitSerializedTests/BridgeContentWorldIsolationTests`
+  exits with signal 11 after Swift Testing reports the test passed. The same
+  single filtered test also reproduced this signal-11-after-pass behavior in
+  the clean local main worktree at `c1490278`, so this is tracked as local
+  WebKit teardown instability rather than a shortcut-routing regression.
+- Visual validation remains separate from unit/lint proof. Do not treat green
+  tests as proof that badge placement is visually accepted.
 
 ## Source-Of-Truth Model
 
@@ -102,6 +129,79 @@ Key event
         - PaneFocusTrigger when command affects pane focus
 ```
 
+### Surface Model In Current Code
+
+The surface concept is implemented as typed ownership axes rather than one
+single global "surface enum":
+
+- Sidebar composition is explicit: `SidebarSurface` has `.repos` and `.inbox`,
+  `UIStateAtom.sidebarSurface` persists the active sidebar surface, and
+  `SidebarSurfaceHost` renders the matching child.
+- Sidebar keyboard ownership is runtime-only: `UIStateAtom.sidebarHasFocus` is
+  published by the repo sidebar and inbox sidebar focus bridges, then read by
+  `KeyboardOwner.current(...)`.
+- App-owned shortcut dispatch is gated by `KeyboardOwner` through
+  `AppShortcutDispatchPolicy`.
+- Scope-aware pane navigation keys (`Option+I/J/K/L`) are local pane-surface
+  keys, not `AppShortcut` cases. They run only when `KeyboardOwner` is
+  `.mainWindowChain`, text input does not own the responder chain, and the
+  resolved pane/drawer command is currently executable.
+- Workspace pane/drawer focus is separate: `WorkspaceFocusOwner` and
+  `WorkspacePaneFocus` describe active pane, drawer pane, and empty-drawer
+  state for command visibility and pane focus routing.
+- Empty drawer is therefore not a `SidebarSurface`; it is a workspace-focus
+  surface plus `ShortcutContext.emptyDrawer`.
+- Tab rename is also not a `SidebarSurface`. It is a pane-owned transient
+  editor surface presented by `PaneTabViewController`. Its keyboard handling
+  belongs inside the AppKit popover/editor, and its command entry points must
+  still target the pane controller.
+
+This is enough structure for the current refactor: sidebar surfaces decide
+whether sidebar-owned keyboard focus can block app-owned shortcuts, workspace
+focus decides which pane/drawer commands are visible and viable, and transient
+editors consume their own local editing keys.
+
+### Post-Review Command-Surface Invariants
+
+The current branch includes the following post-review hardening:
+
+- Scope-aware pane keys must not bypass `KeyboardOwner`. Sidebar-owned focus,
+  management-layer ownership, other-window ownership, and active `NSText`
+  responders all cause these local pane keys to fall through.
+- Scope-aware pane keys must not be consumed unless they map to a concrete,
+  executable pane/drawer command. Main-row `Option+I` and `Option+K` now fall
+  through because they do not currently resolve to a real pane movement.
+- Targeted pane-controller dispatch must reject unsupported
+  `(AppCommand, SearchItemType)` pairs. It must not fall back to contextual
+  `execute(command)` or `canExecute(command)`, because that can mutate the
+  active tab/pane when the caller passed the wrong target type.
+- The repo sidebar participates in keyboard ownership through an AppKit focus
+  bridge, matching the inbox surface pattern. `focusSidebar()` targets the repo
+  focus bridge instead of the hosting view so `.sidebar(.repos)` can be derived
+  consistently.
+
+### Post-`c1490278` Rename Invariants
+
+Current `origin/main` moved tab rename presentation out of SwiftUI popover state
+inside `CustomTabBar` and into `PaneTabViewController`. The shortcut refactor
+must preserve these invariants:
+
+- `ShellCommandHandling` must return false for `.renameTab` in contextual and
+  targeted dispatch. `AppDelegate` does not own tab rename.
+- Tab context menu rename must call into `PaneTabViewController`, select the
+  target tab when needed, then defer popover presentation until default run-loop
+  mode after the context menu unwinds.
+- Command-bar targeted `.renameTab` must dispatch with the selected tab target
+  and preserve targeted pane-controller handling.
+- `WorkspaceCommandResolver` must keep `.renameTab` out of structural resolution.
+  Presentation starts from `PaneTabViewController`; the actual mutation is
+  `PaneActionCommand.renameTab(tabId:name:)` after the editor commits.
+- `TabRenamePopover` owns its text editor keys. Return, Cmd-Return, keypad
+  Enter, and Escape are consumed by the editor and must not propagate upward
+  into `KeyboardOwner`, `AppShortcutDispatchPolicy`, or app command handling.
+- `.renameTab` intentionally has no `AppShortcut` case. Keyboard policy should
+  have no rename row until a real app-owned rename shortcut is designed.
+
 ### The Four Distinct Questions
 
 Do not collapse these into one state object.
@@ -142,14 +242,14 @@ explicit routing decision at compile time.
 
 ### Finding 1: `shouldDispatchGlobalShortcut(...)` Is Not Production Wiring
 
-`PaneTabViewController.shouldDispatchGlobalShortcut(...)` currently encodes
-policy, but `handleAppOwnedKeyEvent(...)` does not call it before dispatching a
-global `AppShortcut`. The current tests cover the helper, not the production
-path.
+Before this refactor, `PaneTabViewController.shouldDispatchGlobalShortcut(...)`
+encoded policy, but `handleAppOwnedKeyEvent(...)` did not call it before
+dispatching a global `AppShortcut`. The tests covered the helper, not the
+production path.
 
-Implementation must either delete/replace the helper or wire it into production.
-This plan replaces it with an explicit `AppShortcutDispatchPolicy` and calls the
-policy from `handleAppOwnedKeyEvent(...)`.
+The implementation deletes that stale helper, replaces it with explicit
+`AppShortcutDispatchPolicy`, and calls the policy from
+`handleAppOwnedKeyEvent(...)`.
 
 ### Finding 2: Empty-Drawer `P` Uses The Shortcut Catalog But Bypasses Command Dispatch
 
