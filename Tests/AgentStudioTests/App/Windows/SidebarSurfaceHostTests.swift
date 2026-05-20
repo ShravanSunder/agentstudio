@@ -53,7 +53,7 @@ struct SidebarSurfaceHostTests {
         #expect(SidebarSurfaceHost.unreadCount(for: worktree, inboxAtom: inboxAtom) == 1)
     }
 
-    @Test("worktree notification action sets draft before dispatching inbox command")
+    @Test("worktree notification action sets sidebar state before dispatching inbox command")
     func worktreeNotificationActionSetsDraftBeforeDispatch() async throws {
         let router = MockAppCommandRouter()
         router.appCommands = [.showInboxNotifications]
@@ -63,7 +63,7 @@ struct SidebarSurfaceHostTests {
             name: "main",
             path: URL(fileURLWithPath: "/tmp/repo")
         )
-        let draft = InboxFilterDraftAtom()
+        let sidebarState = InboxSidebarStateAtom()
 
         try await withIsolatedCommandDispatcher(
             configure: {
@@ -73,11 +73,11 @@ struct SidebarSurfaceHostTests {
             body: {
                 SidebarSurfaceHost.showNotifications(
                     for: worktree,
-                    inboxFilterDraft: draft,
+                    inboxSidebarState: sidebarState,
                     dispatcher: .shared
                 )
 
-                #expect(draft.peek() == .worktree(id: worktree.id))
+                #expect(sidebarState.peekPendingFilter() == .worktree(id: worktree.id))
                 #expect(router.handledCommands == [.showInboxNotifications])
             }
         )

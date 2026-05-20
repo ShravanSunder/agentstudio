@@ -5,8 +5,9 @@ extension AppDelegate {
     func bootLoadInboxNotificationStore(persistor: WorkspacePersistor) {
         let fileURL = persistor.notificationInboxFileURL(for: store.metadataAtom.workspaceId)
         inboxNotificationStore = InboxNotificationStore(
-            inboxAtom: inboxNotificationAtom,
-            prefsAtom: inboxNotificationPrefsAtom,
+            inboxAtom: atomStore.inboxNotification,
+            prefsAtom: atomStore.inboxNotificationPrefs,
+            sidebarStateAtom: atomStore.inboxSidebarState,
             fileURL: fileURL,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
@@ -29,8 +30,8 @@ extension AppDelegate {
         )
         inboxNotificationRouter = InboxNotificationRouter(
             bus: bus,
-            inboxAtom: inboxNotificationAtom,
-            prefsAtom: inboxNotificationPrefsAtom,
+            inboxAtom: atomStore.inboxNotification,
+            prefsAtom: atomStore.inboxNotificationPrefs,
             paneAtom: store.paneAtom,
             tabLayout: store.tabLayoutAtom,
             attendedPane: atomStore.attendedPane,
@@ -63,10 +64,11 @@ extension AppDelegate {
 
     private func observeInboxNotificationPersistence() {
         withObservationTracking {
-            _ = inboxNotificationAtom.notifications
-            _ = inboxNotificationPrefsAtom.grouping
-            _ = inboxNotificationPrefsAtom.sort
-            _ = inboxNotificationPrefsAtom.bellEnabled
+            _ = atomStore.inboxNotification.notifications
+            _ = atomStore.inboxNotificationPrefs.grouping
+            _ = atomStore.inboxNotificationPrefs.sort
+            _ = atomStore.inboxNotificationPrefs.bellEnabled
+            _ = atomStore.inboxSidebarState.collapsedGroups
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -81,7 +83,7 @@ extension AppDelegate {
             pendingPersistenceRecoveryEvents.append(event)
             return
         }
-        inboxNotificationAtom.append(.persistenceRecovery(event))
+        atomStore.inboxNotification.append(.persistenceRecovery(event))
     }
 
     func flushPersistenceRecoveryNotifications() {
@@ -89,7 +91,7 @@ extension AppDelegate {
         let pendingEvents = pendingPersistenceRecoveryEvents
         pendingPersistenceRecoveryEvents.removeAll()
         for event in pendingEvents {
-            inboxNotificationAtom.append(.persistenceRecovery(event))
+            atomStore.inboxNotification.append(.persistenceRecovery(event))
         }
     }
 

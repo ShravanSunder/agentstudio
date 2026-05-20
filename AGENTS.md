@@ -42,6 +42,8 @@ Instead:
 
 AppKit-main architecture hosting SwiftUI views. Shared app state is actor-bound and accessed through `AtomRegistry` + `AtomScope`, with `atom(\.foo)` as the primary read path. Canonical mutable state lives in `@MainActor @Observable` atoms under `Core/State/MainActor/Atoms`, and persistence wrappers live under `Core/State/MainActor/Persistence`. Two coordinators handle cross-slice sequencing. An `EventBus<RuntimeEnvelope>` connects runtime actors to the main-actor state system, and a separate app lifecycle monitor owns AppKit ingress.
 
+`AtomRegistry` is the single root-level composition file at `Sources/AgentStudio/AtomRegistry.swift`. It may compose Core and Feature atoms. `Infrastructure/AtomLib` owns only the generic access helpers (`atom(\...)`, `AtomScope`, `AtomReader`, `Derived`, `DerivedSelector`) and must not own product atoms or feature-specific registry fields.
+
 ### Folder Arcs
 
 Use these broad ownership rules first, then consult [Directory Structure](docs/architecture/directory_structure.md) for exact placement:
@@ -55,7 +57,7 @@ Use these broad ownership rules first, then consult [Directory Structure](docs/a
 - `Features/`
   User-facing capability slices such as Terminal, Bridge, CommandBar, Sidebar, and Webview. Features own capability-specific behavior that is broader than a reusable component.
 - `Infrastructure/`
-  Domain-agnostic utilities and external integrations. Organize these in subfolders by concern, such as `AtomLib/`, `Extensions/`, `Icons/`, `StateMachine/`, and integration-specific folders like `ExternalApps/`.
+  Domain-agnostic utilities and external integrations. Organize these in subfolders by concern, such as `AtomLib/`, `Extensions/`, `Icons/`, `StateMachine/`, and integration-specific folders like `ExternalApps/`. `Infrastructure/AtomLib` holds generic atom access helpers only; the concrete `AtomRegistry` lives at the source root because it composes Core and Feature atoms.
 
 ### Shared UI, Styles, And Policies
 
@@ -76,7 +78,7 @@ Before adding or changing a command, read [Commands and Shortcuts](docs/architec
 
 | Component | Owns | Location |
 |-----------|------|----------|
-| `AtomRegistry` | composition root for shared main-actor atoms and derived helpers | `Infrastructure/AtomLib/AtomRegistry.swift` |
+| `AtomRegistry` | concrete root composition file for Core and Feature atoms plus derived helpers | `Sources/AgentStudio/AtomRegistry.swift` |
 | `WorkspaceMetadataAtom` | workspace identity plus persisted window/sidebar metadata | `Core/State/MainActor/Atoms/WorkspaceMetadataAtom.swift` |
 | `WorkspaceRepositoryTopologyAtom` | repos, worktrees, watched paths, availability | `Core/State/MainActor/Atoms/WorkspaceRepositoryTopologyAtom.swift` |
 | `WorkspacePaneAtom` | panes, pane metadata/content/residency, drawer state | `Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` |

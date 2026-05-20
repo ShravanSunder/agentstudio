@@ -67,4 +67,19 @@ struct DraggableTabBarGeometryTests {
 
         #expect(result == tabB)
     }
+
+    @Test
+    func nsViewRect_flipsSwiftUICoordinatesIntoHostingViewCoordinates() throws {
+        let rect = try #require(
+            DraggableTabBarGeometry.nsViewRect(
+                for: tabB,
+                boundsHeight: 36,
+                tabFrames: [
+                    tabB: CGRect(x: 100, y: 4, width: 120, height: 28)
+                ]
+            )
+        )
+
+        #expect(rect == CGRect(x: 100, y: 4, width: 120, height: 28))
+    }
 }

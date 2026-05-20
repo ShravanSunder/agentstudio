@@ -1470,7 +1470,7 @@ Expected:
 This plan intentionally leaves four product decisions as explicit decision points:
 
 - Whether grouping/sorting remain final product controls or temporary discovery/debug affordances.
-- Whether existing Core inbox state smells are in scope for this PR.
+- Existing Core inbox state smells are in scope for this PR and have been moved into feature-owned inbox sidebar state.
 - Final row hierarchy after implementation screenshots: whether notification rows settle on two lines or three lines for source, placement, and body.
 - Branch placement after visual review: primary source line, placement line, or shown only when it disambiguates the worktree.
 

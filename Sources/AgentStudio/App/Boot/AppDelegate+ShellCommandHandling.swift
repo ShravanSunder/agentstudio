@@ -55,17 +55,16 @@ extension AppDelegate: ShellCommandHandling {
             mainWindowController?.showInboxNotifications(commandBarIsKey: commandBarController.isKeyWindow)
             return true
         case .toggleInboxNotificationSort:
-            if let inboxNotificationPrefsAtom {
-                inboxNotificationPrefsAtom.setSort(
-                    inboxNotificationPrefsAtom.sort == .newestFirst ? .oldestFirst : .newestFirst
-                )
-            }
+            guard let atomStore else { return true }
+            atomStore.inboxNotificationPrefs.setSort(
+                atomStore.inboxNotificationPrefs.sort == .newestFirst ? .oldestFirst : .newestFirst
+            )
             return true
         case .clearReadInboxNotifications:
-            inboxNotificationAtom?.clearReadHistory()
+            atomStore?.inboxNotification.clearReadHistory()
             return true
         case .clearAllInboxNotifications:
-            inboxNotificationAtom?.clearAll()
+            atomStore?.inboxNotification.clearAll()
             return true
         case .showWorktreeSidebar:
             mainWindowController?.showWorktreeSidebar()

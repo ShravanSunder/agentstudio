@@ -123,6 +123,14 @@ class DraggableTabBarHostingView: NSView, NSDraggingSource {
         tabFrames.merge(frames) { _, new in new }
     }
 
+    func tabFrameInView(for tabId: UUID) -> NSRect? {
+        DraggableTabBarGeometry.nsViewRect(
+            for: tabId,
+            boundsHeight: bounds.height,
+            tabFrames: currentTabFrames
+        )
+    }
+
     /// Get current tab frames, preferring local cache but falling back to TabBarAdapter
     private var currentTabFrames: [UUID: CGRect] {
         if !tabFrames.isEmpty {

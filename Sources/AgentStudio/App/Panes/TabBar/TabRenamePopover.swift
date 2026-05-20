@@ -50,7 +50,7 @@ struct TabRenamePopover: View {
                 }
             }
 
-            Text("Long names wrap while editing. The saved tab title stays on one line.")
+            Text("Saved titles display on one line.")
                 .font(.system(size: AppStyles.General.Typography.textSm))
                 .foregroundStyle(.tertiary)
 
@@ -110,54 +110,29 @@ struct RenameWrappingTextField: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: RenameWrappingTextFieldContainer, context: Context) {
+        context.coordinator.parent = self
+        nsView.coordinator = context.coordinator
         nsView.placeholder = placeholder
         nsView.updateText(text)
     }
 
-    final class Coordinator: NSObject, NSTextFieldDelegate {
+    final class Coordinator {
         var parent: RenameWrappingTextField
 
         init(_ parent: RenameWrappingTextField) {
             self.parent = parent
         }
-
-        @MainActor
-        func textDidBeginEditing(_ notification: Notification) {
-            parent.isFocused = true
-        }
-
-        @MainActor
-        func textDidEndEditing(_ notification: Notification) {
-            parent.isFocused = false
-        }
-
-        func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField else { return }
-            parent.text = field.stringValue
-        }
-
-        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            switch commandSelector {
-            case #selector(NSResponder.insertNewline(_:)),
-                #selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)):
-                parent.onCommit()
-                control.window?.makeFirstResponder(nil)
-                return true
-            case #selector(NSResponder.cancelOperation(_:)):
-                parent.onCancel()
-                control.window?.makeFirstResponder(nil)
-                return true
-            default:
-                return false
-            }
-        }
     }
 }
 
 final class RenameWrappingTextFieldContainer: NSView {
-    private let textField = RenameWrappingField()
+    private let textView = RenameWrappingTextView()
     private let placeholderLabel = NSTextField(labelWithString: "")
-    private weak var coordinator: RenameWrappingTextField.Coordinator?
+    var coordinator: RenameWrappingTextField.Coordinator {
+        didSet {
+            configureTextViewCallbacks()
+        }
+    }
 
     var placeholder: String {
         get { placeholderLabel.stringValue }
@@ -179,67 +154,74 @@ final class RenameWrappingTextFieldContainer: NSView {
     override var acceptsFirstResponder: Bool { true }
 
     func updateText(_ newText: String) {
-        guard textField.stringValue != newText else { return }
-        textField.stringValue = newText
+        guard textView.string != newText else { return }
+        textView.string = newText
         syncPlaceholderVisibility()
     }
 
     func focusAndSelectAll() {
-        guard window?.makeFirstResponder(textField) == true else { return }
-        textField.selectText(nil)
+        guard window?.makeFirstResponder(textView) == true else { return }
+        textView.setSelectedRange(NSRange(location: 0, length: (textView.string as NSString).length))
     }
 
     func focusCaretAtEnd() {
-        guard window?.makeFirstResponder(textField) == true else { return }
-        guard let editor = textField.currentEditor() as? NSTextView else { return }
-        let textLength = textField.stringValue.count
-        editor.setSelectedRange(NSRange(location: textLength, length: 0))
+        guard window?.makeFirstResponder(textView) == true else { return }
+        let textLength = (textView.string as NSString).length
+        textView.setSelectedRange(NSRange(location: textLength, length: 0))
     }
 
-    var textFieldForTesting: NSTextField {
-        textField
+    var textEditorForTesting: NSTextView {
+        textView
     }
 
     var selectedRangeForTesting: NSRange {
-        (textField.currentEditor() as? NSTextView)?.selectedRange() ?? NSRange(location: NSNotFound, length: 0)
+        textView.selectedRange()
     }
 
     private func configureViewHierarchy() {
         wantsLayer = true
         translatesAutoresizingMaskIntoConstraints = false
 
-        textField.translatesAutoresizingMaskIntoConstraints = false
-        textField.delegate = coordinator
-        textField.font = .systemFont(ofSize: AppStyles.General.Typography.textLg, weight: .medium)
-        textField.textColor = .labelColor
-        textField.alignment = .left
-        textField.placeholderString = placeholder
-        textField.focusRingType = .none
-        textField.isBordered = false
-        textField.drawsBackground = false
-        textField.cell?.wraps = true
-        textField.cell?.isScrollable = false
-        textField.cell?.lineBreakMode = .byWordWrapping
-        textField.lineBreakMode = .byWordWrapping
-        textField.maximumNumberOfLines = 0
-        textField.usesSingleLineMode = false
-        textField.coordinator = coordinator
+        textView.translatesAutoresizingMaskIntoConstraints = false
+        textView.font = .systemFont(ofSize: AppStyles.General.Typography.textLg, weight: .medium)
+        textView.textColor = .labelColor
+        textView.insertionPointColor = .labelColor
+        textView.backgroundColor = .clear
+        textView.drawsBackground = false
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.allowsUndo = true
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = true
+        textView.autoresizingMask = [.width]
+        textView.textContainerInset = NSSize(width: 12, height: 10)
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.containerSize = NSSize(
+            width: 0,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        configureTextViewCallbacks()
 
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
         placeholderLabel.font = .systemFont(ofSize: AppStyles.General.Typography.textLg, weight: .medium)
         placeholderLabel.textColor = .tertiaryLabelColor
         placeholderLabel.lineBreakMode = .byWordWrapping
+        placeholderLabel.isEditable = false
+        placeholderLabel.isSelectable = false
 
-        addSubview(textField)
+        addSubview(textView)
         addSubview(placeholderLabel)
 
         NSLayoutConstraint.activate([
-            textField.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            textField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            textField.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
-            textField.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -12),
+            textView.topAnchor.constraint(equalTo: topAnchor),
+            textView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            textView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            textView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            placeholderLabel.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            placeholderLabel.topAnchor.constraint(equalTo: topAnchor, constant: 10),
             placeholderLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             placeholderLabel.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
         ])
@@ -247,8 +229,33 @@ final class RenameWrappingTextFieldContainer: NSView {
         syncPlaceholderVisibility()
     }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        textView.consumeRenameCommand(from: event)
+    }
+
     private func syncPlaceholderVisibility() {
-        placeholderLabel.isHidden = !textField.stringValue.isEmpty
+        placeholderLabel.isHidden = !textView.string.isEmpty
+    }
+
+    private func configureTextViewCallbacks() {
+        textView.onTextChanged = { [weak self] newText in
+            guard let self else { return }
+            coordinator.parent.text = newText
+            syncPlaceholderVisibility()
+        }
+        textView.onCommit = { [weak self] in
+            guard let self else { return }
+            coordinator.parent.onCommit()
+            window?.makeFirstResponder(nil)
+        }
+        textView.onCancel = { [weak self] in
+            guard let self else { return }
+            coordinator.parent.onCancel()
+            window?.makeFirstResponder(nil)
+        }
+        textView.onFocusChanged = { [weak self] isFocused in
+            self?.coordinator.parent.isFocused = isFocused
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -256,19 +263,78 @@ final class RenameWrappingTextFieldContainer: NSView {
     }
 }
 
-final class RenameWrappingField: NSTextField {
-    weak var coordinator: RenameWrappingTextField.Coordinator?
+final class RenameWrappingTextView: NSTextView {
+    var onTextChanged: ((String) -> Void)?
+    var onCommit: (() -> Void)?
+    var onCancel: (() -> Void)?
+    var onFocusChanged: ((Bool) -> Void)?
 
     override func becomeFirstResponder() -> Bool {
         let didBecomeFirstResponder = super.becomeFirstResponder()
         if didBecomeFirstResponder {
-            coordinator?.parent.isFocused = true
+            onFocusChanged?(true)
         }
         return didBecomeFirstResponder
     }
 
-    override func textDidEndEditing(_ notification: Notification) {
-        super.textDidEndEditing(notification)
-        coordinator?.parent.isFocused = false
+    override func didChangeText() {
+        super.didChangeText()
+        onTextChanged?(string)
     }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        consumeRenameCommand(from: event) || super.performKeyEquivalent(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if consumeRenameCommand(from: event) {
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func insertNewline(_ sender: Any?) {
+        onCommit?()
+    }
+
+    override func insertNewlineIgnoringFieldEditor(_ sender: Any?) {
+        onCommit?()
+    }
+
+    override func cancelOperation(_ sender: Any?) {
+        onCancel?()
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let didResignFirstResponder = super.resignFirstResponder()
+        if didResignFirstResponder {
+            onFocusChanged?(false)
+        }
+        return didResignFirstResponder
+    }
+
+    @discardableResult
+    func consumeRenameCommand(from event: NSEvent) -> Bool {
+        guard event.type == .keyDown,
+            let charactersIgnoringModifiers = event.charactersIgnoringModifiers
+        else { return false }
+
+        if RenameEditorKey.commitCharacters.contains(charactersIgnoringModifiers) {
+            onCommit?()
+            return true
+        }
+
+        if charactersIgnoringModifiers == RenameEditorKey.cancelCharacter {
+            onCancel?()
+            return true
+        }
+
+        return false
+    }
+
+}
+
+private enum RenameEditorKey {
+    static let commitCharacters: Set<String> = ["\r", "\u{3}"]
+    static let cancelCharacter = "\u{1b}"
 }
