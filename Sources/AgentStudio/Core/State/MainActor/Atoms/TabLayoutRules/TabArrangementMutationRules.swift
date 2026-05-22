@@ -6,12 +6,14 @@ enum TabArrangementMutationRules {
         from state: TabArrangementState
     ) -> PaneArrangement? {
         let activeArrangement = activeArrangement(in: state)
-        let orderedPaneIds =
-            activeArrangement.layout.paneIds
-            + state.allPaneIds.filter { !activeArrangement.layout.contains($0) }
-        guard !orderedPaneIds.isEmpty else { return nil }
-        let arrangementLayout = Layout.autoTiled(orderedPaneIds)
-        let arrangementMinimizedPaneIds = activeArrangement.minimizedPaneIds.intersection(Set(orderedPaneIds))
+        guard
+            let arrangementLayout = layoutForNewArrangement(
+                basedOn: activeArrangement.layout,
+                allPaneIds: state.allPaneIds
+            )
+        else { return nil }
+        let arrangementPaneIds = Set(arrangementLayout.paneIds)
+        let arrangementMinimizedPaneIds = activeArrangement.minimizedPaneIds.intersection(arrangementPaneIds)
 
         return PaneArrangement(
             name: name,
@@ -56,24 +58,13 @@ enum TabArrangementMutationRules {
         from arrangements: [PaneArrangement]
     ) -> [PaneArrangement] {
         arrangements.map { arrangement in
-            var updated = arrangement
-            if let drawerId {
-                updated.drawerViews.removeValue(forKey: drawerId)
-            }
-            guard updated.layout.contains(paneId) else {
-                updated.minimizedPaneIds.remove(paneId)
-                return updated
-            }
-            if let newLayout = updated.layout.removing(paneId: paneId, sizingMode: .proportional) {
-                updated.layout = newLayout
-            } else {
-                updated.layout = Layout()
-            }
-            updated.minimizedPaneIds.remove(paneId)
-            if updated.activePaneId == paneId {
-                updated.activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(in: updated)
-            }
-            return updated
+            let drawerIds = drawerId.map { Set([$0]) } ?? []
+            return TabArrangementRepairRules.removingPane(
+                paneId,
+                removingDrawerIds: drawerIds,
+                layoutSizingMode: .proportional,
+                from: [arrangement]
+            )[0]
         }
     }
 
@@ -217,6 +208,39 @@ enum TabArrangementMutationRules {
 
     private static func activeArrangement(in state: TabArrangementState) -> PaneArrangement {
         state.arrangements[activeArrangementIndex(in: state)]
+    }
+
+    private static func layoutForNewArrangement(
+        basedOn activeLayout: Layout,
+        allPaneIds: [UUID]
+    ) -> Layout? {
+        guard !allPaneIds.isEmpty else { return nil }
+
+        var layout = activeLayout
+        let tabPaneIds = Set(allPaneIds)
+        for paneId in layout.paneIds where !tabPaneIds.contains(paneId) {
+            layout = layout.removing(paneId: paneId, sizingMode: .halveTarget) ?? Layout()
+        }
+
+        for paneId in allPaneIds where !layout.contains(paneId) {
+            guard let updatedLayout = appendingPane(paneId, to: layout) else {
+                return Layout.autoTiled(allPaneIds)
+            }
+            layout = updatedLayout
+        }
+
+        return layout.isEmpty ? Layout.autoTiled(allPaneIds) : layout
+    }
+
+    private static func appendingPane(_ paneId: UUID, to layout: Layout) -> Layout? {
+        guard let anchorPaneId = layout.paneIds.last else { return Layout(paneId: paneId) }
+        return layout.inserting(
+            paneId: paneId,
+            at: anchorPaneId,
+            direction: .horizontal,
+            position: .after,
+            sizingMode: .halveTarget
+        )
     }
 
     private static func defaultArrangementIndex(in state: TabArrangementState) -> Int {
