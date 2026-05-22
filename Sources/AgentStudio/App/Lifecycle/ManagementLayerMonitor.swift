@@ -103,7 +103,7 @@ final class ManagementLayerMonitor {
             transientKeyboardSurface: transientKeyboardSurface
         )
         guard AppShortcutDispatchPolicy.shouldRouteAppOwnedKeyEvent(context: keyboardContext) else {
-            return .consume
+            return .passThrough
         }
 
         if keyCode == 53 {

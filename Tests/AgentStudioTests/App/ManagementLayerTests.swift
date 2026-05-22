@@ -145,7 +145,7 @@ struct ManagementLayerTests {
                 charactersIgnoringModifiers: "p"
             )
 
-            #expect(decision == .consume)
+            #expect(decision == .passThrough)
         }
     }
 
