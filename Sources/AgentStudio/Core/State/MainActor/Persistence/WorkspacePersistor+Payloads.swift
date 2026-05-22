@@ -424,19 +424,16 @@ extension WorkspacePersistor {
         var workspaceId: UUID
         var expandedGroups: Set<SidebarGroupKey>
         var checkoutColors: [SidebarCheckoutColorKey: String]
-        var collapsedInboxGroups: Set<InboxNotificationGroupKey>
 
         init(
             workspaceId: UUID,
             expandedGroups: Set<SidebarGroupKey> = [],
-            checkoutColors: [SidebarCheckoutColorKey: String] = [:],
-            collapsedInboxGroups: Set<InboxNotificationGroupKey> = []
+            checkoutColors: [SidebarCheckoutColorKey: String] = [:]
         ) {
             self.schemaVersion = WorkspacePersistor.currentSchemaVersion
             self.workspaceId = workspaceId
             self.expandedGroups = expandedGroups
             self.checkoutColors = checkoutColors
-            self.collapsedInboxGroups = collapsedInboxGroups
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -444,7 +441,6 @@ extension WorkspacePersistor {
             case workspaceId
             case expandedGroups
             case checkoutColors
-            case collapsedInboxGroups
         }
 
         init(from decoder: Decoder) throws {
@@ -483,14 +479,6 @@ extension WorkspacePersistor {
                     (SidebarCheckoutColorKey(key), value)
                 }
             )
-            self.collapsedInboxGroups = decodeRecoverableField(
-                Set<InboxNotificationGroupKey>.self,
-                from: container,
-                forKey: .collapsedInboxGroups,
-                schemaVersion: schemaVersion,
-                payloadName: "PersistableSidebarCache",
-                default: []
-            )
         }
 
         func encode(to encoder: Encoder) throws {
@@ -502,7 +490,6 @@ extension WorkspacePersistor {
                 Dictionary(uniqueKeysWithValues: checkoutColors.map { key, value in (key.rawValue, value) }),
                 forKey: .checkoutColors
             )
-            try container.encode(collapsedInboxGroups, forKey: .collapsedInboxGroups)
         }
     }
 }

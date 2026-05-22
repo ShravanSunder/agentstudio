@@ -9,8 +9,7 @@ struct AppDelegatePersistenceRecoveryTests {
     @Test("boot-time recovery events flush into inbox after inbox store loads")
     func bootTimeRecoveryEventsFlushIntoInboxAfterInboxStoreLoads() {
         let delegate = AppDelegate()
-        delegate.inboxNotificationAtom = InboxNotificationAtom()
-        delegate.inboxNotificationPrefsAtom = InboxNotificationPrefsAtom()
+        delegate.atomStore = AtomRegistry()
         let event = PersistenceRecoveryEvent(
             store: .sidebarCache,
             workspaceId: UUID(),
@@ -19,13 +18,13 @@ struct AppDelegatePersistenceRecoveryTests {
         )
 
         delegate.recordPersistenceRecovery(event)
-        #expect(delegate.inboxNotificationAtom.notifications.isEmpty)
+        #expect(delegate.atomStore.inboxNotification.notifications.isEmpty)
 
         delegate.hasLoadedInboxNotificationStore = true
         delegate.flushPersistenceRecoveryNotifications()
 
         #expect(delegate.pendingPersistenceRecoveryEvents.isEmpty)
-        #expect(delegate.inboxNotificationAtom.notifications.count == 1)
-        #expect(delegate.inboxNotificationAtom.notifications.first?.kind == .persistenceRecovery)
+        #expect(delegate.atomStore.inboxNotification.notifications.count == 1)
+        #expect(delegate.atomStore.inboxNotification.notifications.first?.kind == .persistenceRecovery)
     }
 }

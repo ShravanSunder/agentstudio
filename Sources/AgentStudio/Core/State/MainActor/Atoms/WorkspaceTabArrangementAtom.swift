@@ -574,6 +574,8 @@ final class WorkspaceTabArrangementAtom {
 
         var sourceState = arrangementStates[sourceIndex]
         var destState = arrangementStates[destIndex]
+        let movedPaneIds = [paneId] + drawerPaneIds
+        let movedPaneIdSet = Set(movedPaneIds)
         guard sourceState.allPaneIds.contains(paneId), destState.allPaneIds.contains(targetPaneId) else {
             workspaceTabArrangementLogger.warning(
                 "movePaneAcrossTabs: pane \(paneId) or target \(targetPaneId) not owned by requested tabs")
@@ -597,7 +599,7 @@ final class WorkspaceTabArrangementAtom {
                 sourceState.arrangements[arrangementIndex].drawerViews.removeValue(forKey: drawerId)
             }
         }
-        sourceState.allPaneIds.removeAll { $0 == paneId }
+        sourceState.allPaneIds.removeAll { movedPaneIdSet.contains($0) }
         if Self.activeArrangement(in: sourceState).layout.isEmpty
             && !Self.defaultArrangement(in: sourceState).layout.isEmpty
         {
@@ -605,8 +607,8 @@ final class WorkspaceTabArrangementAtom {
         }
 
         destState.zoomedPaneId = nil
-        if !destState.allPaneIds.contains(paneId) {
-            destState.allPaneIds.append(paneId)
+        for movedPaneId in movedPaneIds where !destState.allPaneIds.contains(movedPaneId) {
+            destState.allPaneIds.append(movedPaneId)
         }
         let seededDrawerView = Self.drawerViewSeed(drawerId: drawerId, drawerPaneIds: drawerPaneIds)
         for arrangementIndex in destState.arrangements.indices {

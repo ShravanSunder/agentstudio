@@ -39,9 +39,48 @@ struct TabArrangementMutationRulesTests {
             from: state
         )
 
-        #expect(created?.layout.paneIds == [paneA, paneB, paneC])
+        #expect(created?.layout == layout)
         #expect(created?.minimizedPaneIds == Set([paneB, paneC]))
         #expect(created?.showsMinimizedPanes == false)
+    }
+
+    @Test
+    func removingUserPane_removesDrawerChildFromDrawerViews() {
+        let parentPane = UUID()
+        let drawerPaneA = UUID()
+        let drawerPaneB = UUID()
+        let drawerId = UUID()
+        let drawerLayout = DrawerGridLayout(
+            topRow: Layout(paneId: drawerPaneA)
+                .inserting(
+                    paneId: drawerPaneB,
+                    at: drawerPaneA,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )!)
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: parentPane),
+            drawerViews: [
+                drawerId: DrawerView(
+                    layout: drawerLayout,
+                    activeChildId: drawerPaneB,
+                    minimizedPaneIds: [drawerPaneB]
+                )
+            ]
+        )
+
+        let updated = TabArrangementMutationRules.removingUserPane(
+            drawerPaneB,
+            from: [arrangement]
+        )
+
+        let drawerView = updated[0].drawerViews[drawerId]
+        #expect(drawerView?.layout.paneIds == [drawerPaneA])
+        #expect(drawerView?.activeChildId == drawerPaneA)
+        #expect(drawerView?.minimizedPaneIds.isEmpty == true)
     }
 
     @Test

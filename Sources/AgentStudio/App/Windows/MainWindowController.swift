@@ -40,6 +40,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         viewRegistry: ViewRegistry,
         inboxAtom: InboxNotificationAtom,
         inboxPrefsAtom: InboxNotificationPrefsAtom,
+        inboxSidebarStateAtom: InboxSidebarStateAtom,
         paneInboxPresenter: PaneInboxNotificationPresenter,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
     ) {
@@ -79,6 +80,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             viewRegistry: viewRegistry,
             inboxAtom: inboxAtom,
             inboxPrefsAtom: inboxPrefsAtom,
+            inboxSidebarStateAtom: inboxSidebarStateAtom,
             paneInboxPresenter: paneInboxPresenter,
             closeTransitionCoordinator: closeTransitionCoordinator
         )

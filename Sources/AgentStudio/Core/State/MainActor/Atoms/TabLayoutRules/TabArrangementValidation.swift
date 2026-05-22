@@ -56,7 +56,10 @@ enum TabArrangementValidation {
                 }
             }
 
-            let allArrangementPaneIds = Set(updatedStates[tabIndex].arrangements.flatMap { $0.layout.paneIds })
+            let allArrangementPaneIds = Set(
+                updatedStates[tabIndex].arrangements.flatMap { arrangement in
+                    arrangement.layout.paneIds + arrangement.drawerViews.flatMap { $0.value.layout.paneIds }
+                })
             updatedStates[tabIndex].allPaneIds = Array(allArrangementPaneIds)
 
             let duplicatePaneIds = allArrangementPaneIds.intersection(seenPaneIds)
@@ -65,33 +68,20 @@ enum TabArrangementValidation {
                     "validating: removing \(duplicatePaneIds.count) duplicate pane(s) from tab \(updatedStates[tabIndex].tabId)"
                 )
                 updatedStates[tabIndex].allPaneIds.removeAll { duplicatePaneIds.contains($0) }
-                for arrangementIndex in updatedStates[tabIndex].arrangements.indices {
-                    for paneId in duplicatePaneIds {
-                        updatedStates[tabIndex].arrangements[arrangementIndex].minimizedPaneIds.remove(paneId)
-                        if updatedStates[tabIndex].arrangements[arrangementIndex].activePaneId == paneId {
-                            updatedStates[tabIndex].arrangements[arrangementIndex].activePaneId =
-                                TabArrangementSelectionRules.firstUnminimizedPaneId(
-                                    in: updatedStates[tabIndex].arrangements[arrangementIndex]
-                                )
-                        }
-                        guard updatedStates[tabIndex].arrangements[arrangementIndex].layout.contains(paneId) else {
-                            continue
-                        }
-                        if let newLayout = updatedStates[tabIndex].arrangements[arrangementIndex].layout.removing(
-                            paneId: paneId,
-                            sizingMode: .halveTarget
-                        ) {
-                            updatedStates[tabIndex].arrangements[arrangementIndex].layout = newLayout
-                        } else {
-                            updatedStates[tabIndex].arrangements[arrangementIndex].layout = Layout()
-                        }
-                    }
-                }
+                updatedStates[tabIndex].arrangements = TabArrangementRepairRules.pruningInvalidPaneIds(
+                    validPaneIds: Set(updatedStates[tabIndex].allPaneIds),
+                    from: updatedStates[tabIndex].arrangements
+                )
             }
 
             let validPaneIds = Set(updatedStates[tabIndex].allPaneIds)
             for arrangementIndex in updatedStates[tabIndex].arrangements.indices {
                 let arrangementPaneIds = Set(updatedStates[tabIndex].arrangements[arrangementIndex].layout.paneIds)
+                updatedStates[tabIndex].arrangements[arrangementIndex].drawerViews =
+                    TabArrangementRepairRules.pruningInvalidDrawerViewPaneIds(
+                        validPaneIds: validPaneIds,
+                        from: updatedStates[tabIndex].arrangements[arrangementIndex].drawerViews
+                    )
                 updatedStates[tabIndex].arrangements[arrangementIndex].minimizedPaneIds.formIntersection(validPaneIds)
                 updatedStates[tabIndex].arrangements[arrangementIndex].minimizedPaneIds.formIntersection(
                     arrangementPaneIds)

@@ -4,6 +4,7 @@ enum TabArrangementRepairRules {
     static func removingPane(
         _ paneId: UUID,
         removingDrawerIds drawerIds: Set<UUID> = [],
+        layoutSizingMode: DropSizingMode = .halveTarget,
         from arrangements: [PaneArrangement]
     ) -> [PaneArrangement] {
         arrangements.map { arrangement in
@@ -11,27 +12,12 @@ enum TabArrangementRepairRules {
             for drawerId in drawerIds {
                 updated.drawerViews.removeValue(forKey: drawerId)
             }
-            for drawerId in updated.drawerViews.keys {
-                guard var drawerView = updated.drawerViews[drawerId] else { continue }
-                drawerView.minimizedPaneIds.remove(paneId)
-                if drawerView.layout.contains(paneId) {
-                    drawerView.layout =
-                        drawerView.layout.removing(paneId: paneId, sizingMode: .proportional)
-                        ?? DrawerGridLayout()
-                }
-                if drawerView.layout.isEmpty {
-                    updated.drawerViews.removeValue(forKey: drawerId)
-                } else {
-                    if drawerView.activeChildId == paneId {
-                        drawerView.activeChildId = drawerView.layout.paneIds.first {
-                            !drawerView.minimizedPaneIds.contains($0)
-                        }
-                    }
-                    updated.drawerViews[drawerId] = drawerView
-                }
-            }
+            updated.drawerViews = pruningInvalidDrawerViewPaneIds(
+                validPaneIds: Set(updated.drawerViews.flatMap { $0.value.layout.paneIds }.filter { $0 != paneId }),
+                from: updated.drawerViews
+            )
             if updated.layout.contains(paneId),
-                let newLayout = updated.layout.removing(paneId: paneId, sizingMode: .halveTarget)
+                let newLayout = updated.layout.removing(paneId: paneId, sizingMode: layoutSizingMode)
             {
                 updated.layout = newLayout
             } else if updated.layout.contains(paneId) {
@@ -53,38 +39,29 @@ enum TabArrangementRepairRules {
             var updated = arrangement
             let invalidIds = updated.layout.paneIds.filter { !validPaneIds.contains($0) }
             for paneId in invalidIds {
-                if let newLayout = updated.layout.removing(paneId: paneId, sizingMode: .halveTarget) {
-                    updated.layout = newLayout
-                } else {
-                    updated.layout = Layout()
-                }
                 updated.minimizedPaneIds.remove(paneId)
                 if updated.activePaneId == paneId {
                     updated.activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(in: updated)
                 }
             }
-            updated.drawerViews = pruningInvalidDrawerPaneIds(validPaneIds: validPaneIds, from: updated.drawerViews)
+            updated.layout = pruningInvalidPaneIds(validPaneIds: validPaneIds, from: updated.layout)
+            updated.drawerViews = pruningInvalidDrawerViewPaneIds(validPaneIds: validPaneIds, from: updated.drawerViews)
             return updated
         }
     }
 
-    private static func pruningInvalidDrawerPaneIds(
+    static func pruningInvalidDrawerViewPaneIds(
         validPaneIds: Set<UUID>,
         from drawerViews: [UUID: DrawerView]
     ) -> [UUID: DrawerView] {
-        var updatedDrawerViews = drawerViews
-        for drawerId in updatedDrawerViews.keys {
-            guard var drawerView = updatedDrawerViews[drawerId] else { continue }
-            let invalidIds = drawerView.layout.paneIds.filter { !validPaneIds.contains($0) }
-            for paneId in invalidIds {
-                drawerView.layout =
-                    drawerView.layout.removing(paneId: paneId, sizingMode: .proportional)
-                    ?? DrawerGridLayout()
-            }
-            drawerView.minimizedPaneIds = drawerView.minimizedPaneIds.intersection(drawerView.layout.paneIds)
+        var updated = drawerViews
+        for drawerId in Array(updated.keys) {
+            guard var drawerView = updated[drawerId] else { continue }
+            drawerView.layout = pruningInvalidPaneIds(validPaneIds: validPaneIds, from: drawerView.layout)
+            drawerView.minimizedPaneIds.formIntersection(drawerView.layout.paneIds)
 
-            guard !drawerView.layout.isEmpty else {
-                updatedDrawerViews.removeValue(forKey: drawerId)
+            if drawerView.layout.isEmpty {
+                updated.removeValue(forKey: drawerId)
                 continue
             }
 
@@ -92,15 +69,44 @@ enum TabArrangementRepairRules {
                 drawerView.layout.contains(activeChildId),
                 !drawerView.minimizedPaneIds.contains(activeChildId)
             {
-                updatedDrawerViews[drawerId] = drawerView
+                updated[drawerId] = drawerView
                 continue
             }
 
             drawerView.activeChildId = drawerView.layout.paneIds.first {
                 !drawerView.minimizedPaneIds.contains($0)
             }
-            updatedDrawerViews[drawerId] = drawerView
+            updated[drawerId] = drawerView
         }
-        return updatedDrawerViews
+        return updated
+    }
+
+    private static func pruningInvalidPaneIds(validPaneIds: Set<UUID>, from layout: Layout) -> Layout {
+        var updated = layout
+        let invalidIds = updated.paneIds.filter { !validPaneIds.contains($0) }
+        for paneId in invalidIds {
+            if let newLayout = updated.removing(paneId: paneId, sizingMode: .halveTarget) {
+                updated = newLayout
+            } else {
+                updated = Layout()
+            }
+        }
+        return updated
+    }
+
+    private static func pruningInvalidPaneIds(
+        validPaneIds: Set<UUID>,
+        from layout: DrawerGridLayout
+    ) -> DrawerGridLayout {
+        let topRow = pruningInvalidPaneIds(validPaneIds: validPaneIds, from: layout.topRow)
+        let bottomRow = layout.bottomRow.map { pruningInvalidPaneIds(validPaneIds: validPaneIds, from: $0) }
+        if topRow.isEmpty, let bottomRow, !bottomRow.isEmpty {
+            return DrawerGridLayout(topRow: bottomRow, rowSplitRatio: layout.rowSplitRatio)
+        }
+        return DrawerGridLayout(
+            topRow: topRow,
+            bottomRow: bottomRow?.isEmpty == true ? nil : bottomRow,
+            rowSplitRatio: layout.rowSplitRatio
+        )
     }
 }

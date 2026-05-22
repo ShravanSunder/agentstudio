@@ -35,8 +35,12 @@ extension PaneCoordinator {
             )
         )
         let newVisiblePaneIds = Set(arrangementView.activeVisiblePaneIds(forTab: destTabId))
+        let movedPaneIds = Set([paneId] + (drawer?.paneIds ?? []))
+        for movedPaneId in movedPaneIds {
+            detachForViewSwitch(paneId: movedPaneId)
+        }
         reconcileVisiblePaneTransition(
-            previousVisiblePaneIds: previousVisiblePaneIds,
+            previousVisiblePaneIds: previousVisiblePaneIds.subtracting(movedPaneIds),
             newVisiblePaneIds: newVisiblePaneIds
         )
         restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)

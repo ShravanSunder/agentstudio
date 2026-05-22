@@ -33,7 +33,7 @@ struct CrossTabPaneMoveTests {
         )
         let sourceTab = Tab(
             name: "Source",
-            allPaneIds: [sourcePaneId, sourceSiblingId],
+            allPaneIds: [sourcePaneId, sourceSiblingId] + drawerPaneIds,
             arrangements: [sourceDefault, sourceCustom],
             activeArrangementId: sourceCustom.id
         )
@@ -77,12 +77,13 @@ struct CrossTabPaneMoveTests {
         #expect(result?.sourceTabClosed == false)
         let updatedSource = try #require(tabLayout.tab(sourceTab.id))
         #expect(updatedSource.allPaneIds == [sourceSiblingId])
+        #expect(drawerPaneIds.allSatisfy { !updatedSource.allPaneIds.contains($0) })
         #expect(updatedSource.arrangements.allSatisfy { !$0.layout.contains(sourcePaneId) })
         #expect(updatedSource.arrangements.allSatisfy { !$0.minimizedPaneIds.contains(sourcePaneId) })
         #expect(updatedSource.arrangements.allSatisfy { $0.drawerViews[drawerId] == nil })
 
         let updatedDestination = try #require(tabLayout.tab(destinationTab.id))
-        #expect(updatedDestination.allPaneIds == [targetPaneId, targetSiblingId, sourcePaneId])
+        #expect(updatedDestination.allPaneIds == [targetPaneId, targetSiblingId, sourcePaneId] + drawerPaneIds)
         #expect(updatedDestination.activePaneId == sourcePaneId)
         #expect(updatedDestination.activePaneIds == [targetPaneId, sourcePaneId])
         let updatedDestinationDefault = try #require(updatedDestination.arrangements.first { $0.isDefault })

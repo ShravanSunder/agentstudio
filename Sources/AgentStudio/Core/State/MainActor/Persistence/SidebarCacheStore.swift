@@ -38,8 +38,7 @@ final class SidebarCacheStore {
             isRestoringState = true
             atom.hydrate(
                 expandedGroups: state.expandedGroups,
-                checkoutColors: state.checkoutColors,
-                collapsedInboxGroups: state.collapsedInboxGroups
+                checkoutColors: state.checkoutColors
             )
             isRestoringState = false
         case .missing:
@@ -71,7 +70,6 @@ final class SidebarCacheStore {
         withObservationTracking {
             _ = atom.expandedGroups
             _ = atom.checkoutColors
-            _ = atom.collapsedInboxGroups
         } onChange: { [weak self] in
             MainActor.assumeIsolated {
                 // SidebarCacheAtom is @MainActor; this traps if that ownership changes.
@@ -109,8 +107,7 @@ final class SidebarCacheStore {
                 .init(
                     workspaceId: workspaceId,
                     expandedGroups: atom.expandedGroups,
-                    checkoutColors: atom.checkoutColors,
-                    collapsedInboxGroups: atom.collapsedInboxGroups
+                    checkoutColors: atom.checkoutColors
                 )
             )
         } catch {

@@ -82,9 +82,9 @@ Legend:
 - [x] `PaneInboxPresentationAtom` was removed from `AtomRegistry`.
 - [x] Shared components added in this branch are stateless and atom-free.
 - [x] `InboxNotificationAtom` remains feature-owned under `Features/InboxNotification`.
-- [ ] Existing Core `SidebarCacheAtom.collapsedInboxGroups` remains an inbox-specific Core property.
-- [ ] Existing Core `InboxFilterDraftAtom` remains an inbox-specific Core atom.
-- [?] Decide whether the two Core inbox state smells are in-scope for this PR or must be split into a named follow-up before merge.
+- [x] Existing Core `SidebarCacheAtom.collapsedInboxGroups` was moved into feature-owned inbox sidebar state.
+- [x] Existing Core `InboxFilterDraftAtom` was replaced by feature-owned inbox sidebar state.
+- [x] The two Core inbox state smells are in scope for this PR and are covered by feature-owned tests/persistence.
 
 ### H. Event / Runtime Coverage
 

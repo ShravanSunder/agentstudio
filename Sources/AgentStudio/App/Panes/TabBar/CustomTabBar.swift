@@ -57,12 +57,10 @@ private struct ScrollOverflowDetector: ViewModifier {
 /// Custom Ghostty-style tab bar with pill-shaped tabs
 struct CustomTabBar: View {
     @Bindable var adapter: TabBarAdapter
-    @Bindable var renamePopoverState: TabRenamePopoverState
     @Bindable var arrangementInlineRenameState: ArrangementInlineRenameState
     var onSelect: (UUID) -> Void
     var onClose: (UUID) -> Void
     var onCommand: ((AppCommand, UUID) -> Void)?
-    var onRenameCommit: ((UUID, String) -> Void)?
     var onTabFramesChanged: (([UUID: CGRect]) -> Void)?
     var onAdd: (() -> Void)?
     var onOpenGitHub: (() -> Void)?
@@ -140,11 +138,9 @@ struct CustomTabBar: View {
                                             && adapter.draggingTabId != tab.id,
                                         showInsertAfter: index == adapter.tabs.count - 1
                                             && adapter.dropTargetIndex == adapter.tabs.count,
-                                        renamePopoverState: renamePopoverState,
                                         onSelect: { onSelect(tab.id) },
                                         onClose: { onClose(tab.id) },
-                                        onCommand: { command in onCommand?(command, tab.id) },
-                                        onRenameCommit: { name in onRenameCommit?(tab.id, name) }
+                                        onCommand: { command in onCommand?(command, tab.id) }
                                     )
                                     .id(tab.id)
                                     .background(frameReporter(for: tab.id))
@@ -627,11 +623,9 @@ struct TabPillView: View {
     let tabWidth: CGFloat
     let showInsertBefore: Bool
     let showInsertAfter: Bool
-    @Bindable var renamePopoverState: TabRenamePopoverState
     let onSelect: () -> Void
     let onClose: () -> Void
     let onCommand: (AppCommand) -> Void
-    let onRenameCommit: (String) -> Void
     @State private var isHovering = false
 
     /// Clear zone in the mask for the close button (button frame + buffer).
@@ -650,24 +644,6 @@ struct TabPillView: View {
             tabContent
                 .scaleEffect(isDragging ? 1.05 : 1.0)
                 .opacity(isDragging ? 0.6 : 1.0)
-                .popover(
-                    isPresented: Binding(
-                        get: { renamePopoverState.isPresented(for: tab.id) },
-                        set: { isPresented in
-                            if !isPresented && renamePopoverState.isPresented(for: tab.id) {
-                                renamePopoverState.dismiss()
-                            }
-                        }
-                    ),
-                    attachmentAnchor: .point(.bottom),
-                    arrowEdge: .top
-                ) {
-                    TabRenamePopover(
-                        currentTitle: tab.displayTitle,
-                        onCommit: onRenameCommit,
-                        onCancel: { renamePopoverState.dismiss() }
-                    )
-                }
                 .contextMenu {
                     Button(AppCommand.renameTab.definition.label) { onCommand(.renameTab) }
 
@@ -862,12 +838,10 @@ struct TabBarEmptyState: View {
             return VStack(spacing: 0) {
                 CustomTabBar(
                     adapter: adapter,
-                    renamePopoverState: TabRenamePopoverState(),
                     arrangementInlineRenameState: ArrangementInlineRenameState(),
                     onSelect: { _ in },
                     onClose: { _ in },
                     onCommand: { _, _ in },
-                    onRenameCommit: { _, _ in },
                     onAdd: {},
                     onPaneAction: { _ in },
                     onSaveArrangement: { _ in }

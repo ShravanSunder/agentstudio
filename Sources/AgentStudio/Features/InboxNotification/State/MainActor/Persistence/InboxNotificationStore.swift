@@ -8,12 +8,13 @@ private let inboxNotificationStoreLogger = Logger(
 
 /// Persistence wrapper over the notification-inbox feature atoms.
 ///
-/// One store owns one JSON file that persists both the inbox log and inbox
-/// preferences together.
+/// One store owns one JSON file that persists the inbox log, preferences, and
+/// sidebar presentation state together.
 @MainActor
 final class InboxNotificationStore {
     let inboxAtom: InboxNotificationAtom
     let prefsAtom: InboxNotificationPrefsAtom
+    let sidebarStateAtom: InboxSidebarStateAtom
 
     private let fileURL: URL
     private let clock: any Clock<Duration>
@@ -24,6 +25,7 @@ final class InboxNotificationStore {
     init(
         inboxAtom: InboxNotificationAtom,
         prefsAtom: InboxNotificationPrefsAtom,
+        sidebarStateAtom: InboxSidebarStateAtom = .init(),
         fileURL: URL,
         clock: any Clock<Duration> = ContinuousClock(),
         debounceDuration: Duration = .milliseconds(500),
@@ -31,6 +33,7 @@ final class InboxNotificationStore {
     ) {
         self.inboxAtom = inboxAtom
         self.prefsAtom = prefsAtom
+        self.sidebarStateAtom = sidebarStateAtom
         self.fileURL = fileURL
         self.clock = clock
         self.debounceDuration = debounceDuration
@@ -38,12 +41,13 @@ final class InboxNotificationStore {
     }
 
     private struct Payload: Codable {
-        static let currentSchemaVersion = 2
+        static let currentSchemaVersion = 3
         static let supportedSchemaVersions = 1...currentSchemaVersion
 
         var schemaVersion: Int = currentSchemaVersion
         var notifications: [InboxNotification]
         var prefs: Prefs
+        var sidebarState: SidebarState
 
         struct Prefs: Codable {
             var grouping: InboxNotificationGrouping = .byTab
@@ -89,20 +93,27 @@ final class InboxNotificationStore {
             }
         }
 
+        struct SidebarState: Codable {
+            var collapsedGroups: Set<InboxNotificationGroupKey> = []
+        }
+
         private enum CodingKeys: String, CodingKey {
             case schemaVersion
             case notifications
             case prefs
+            case sidebarState
         }
 
         init(
             schemaVersion: Int = currentSchemaVersion,
             notifications: [InboxNotification],
-            prefs: Prefs
+            prefs: Prefs,
+            sidebarState: SidebarState
         ) {
             self.schemaVersion = schemaVersion
             self.notifications = notifications
             self.prefs = prefs
+            self.sidebarState = sidebarState
         }
 
         init(from decoder: Decoder) throws {
@@ -125,6 +136,12 @@ final class InboxNotificationStore {
                 Prefs.self,
                 from: container,
                 forKey: .prefs,
+                default: .init()
+            )
+            self.sidebarState = decodeRecoverablePayloadField(
+                SidebarState.self,
+                from: container,
+                forKey: .sidebarState,
                 default: .init()
             )
         }
@@ -172,6 +189,7 @@ final class InboxNotificationStore {
         prefsAtom.setGrouping(payload.prefs.grouping)
         prefsAtom.setSort(payload.prefs.sort)
         prefsAtom.setBellEnabled(payload.prefs.bellEnabled)
+        sidebarStateAtom.hydrate(collapsedGroups: payload.sidebarState.collapsedGroups)
     }
 
     func save() async throws {
@@ -202,6 +220,9 @@ final class InboxNotificationStore {
                 grouping: prefsAtom.grouping,
                 sort: prefsAtom.sort,
                 bellEnabled: prefsAtom.bellEnabled
+            ),
+            sidebarState: .init(
+                collapsedGroups: sidebarStateAtom.collapsedGroups
             )
         )
 

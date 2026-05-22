@@ -7,17 +7,17 @@ import Testing
 @MainActor
 @Suite("InboxNotificationSidebarView", .serialized)
 struct InboxNotificationSidebarViewTests {
-    @Test("preseeded filter draft is consumed when the inbox mounts")
+    @Test("preseeded filter state is consumed when the inbox mounts")
     func preseededFilterDraftIsConsumedOnMount() async {
-        let inboxFilterDraft = InboxFilterDraftAtom()
-        inboxFilterDraft.set(.worktree(id: UUID()))
+        let inboxSidebarState = InboxSidebarStateAtom()
+        inboxSidebarState.setPendingFilter(.worktree(id: UUID()))
         let hostingView = NSHostingView(
             rootView: InboxNotificationSidebarView(
                 inboxAtom: InboxNotificationAtom(),
                 prefsAtom: InboxNotificationPrefsAtom(),
                 uiState: UIStateAtom(),
                 sidebarCache: SidebarCacheAtom(),
-                inboxFilterDraft: inboxFilterDraft,
+                inboxSidebarState: inboxSidebarState,
                 workspacePaneAtom: WorkspacePaneAtom(),
                 workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
                 repoCache: RepoCacheAtom(),
@@ -29,8 +29,8 @@ struct InboxNotificationSidebarViewTests {
 
         hostingView.layoutSubtreeIfNeeded()
 
-        await assertEventuallyMain("mounted inbox should consume pending filter draft") {
-            inboxFilterDraft.peek() == nil
+        await assertEventuallyMain("mounted inbox should consume pending filter state") {
+            inboxSidebarState.peekPendingFilter() == nil
         }
     }
 
@@ -109,7 +109,7 @@ struct InboxNotificationSidebarViewTests {
                     prefsAtom: InboxNotificationPrefsAtom(),
                     uiState: UIStateAtom(),
                     sidebarCache: SidebarCacheAtom(),
-                    inboxFilterDraft: InboxFilterDraftAtom(),
+                    inboxSidebarState: InboxSidebarStateAtom(),
                     workspacePaneAtom: WorkspacePaneAtom(),
                     workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
                     repoCache: RepoCacheAtom(),
@@ -140,7 +140,7 @@ struct InboxNotificationSidebarViewTests {
                         prefsAtom: InboxNotificationPrefsAtom(),
                         uiState: UIStateAtom(),
                         sidebarCache: SidebarCacheAtom(),
-                        inboxFilterDraft: InboxFilterDraftAtom(),
+                        inboxSidebarState: InboxSidebarStateAtom(),
                         workspacePaneAtom: WorkspacePaneAtom(),
                         workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
                         repoCache: RepoCacheAtom(),
@@ -559,7 +559,7 @@ struct InboxNotificationSidebarViewSourceGroupTests {
                 prefsAtom: prefsAtom,
                 uiState: UIStateAtom(),
                 sidebarCache: SidebarCacheAtom(),
-                inboxFilterDraft: InboxFilterDraftAtom(),
+                inboxSidebarState: InboxSidebarStateAtom(),
                 workspacePaneAtom: WorkspacePaneAtom(),
                 workspaceRepositoryTopologyAtom: repositoryTopologyAtom,
                 repoCache: repoCache,
@@ -627,7 +627,7 @@ struct InboxNotificationSidebarViewSourceGroupTests {
                 prefsAtom: prefsAtom,
                 uiState: UIStateAtom(),
                 sidebarCache: SidebarCacheAtom(),
-                inboxFilterDraft: InboxFilterDraftAtom(),
+                inboxSidebarState: InboxSidebarStateAtom(),
                 workspacePaneAtom: WorkspacePaneAtom(),
                 workspaceRepositoryTopologyAtom: repositoryTopologyAtom,
                 repoCache: repoCache,
@@ -692,7 +692,7 @@ struct InboxSidebarFocusActivationTests {
                 prefsAtom: InboxNotificationPrefsAtom(),
                 uiState: uiState,
                 sidebarCache: SidebarCacheAtom(),
-                inboxFilterDraft: InboxFilterDraftAtom(),
+                inboxSidebarState: InboxSidebarStateAtom(),
                 workspacePaneAtom: workspacePaneAtom,
                 workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
                 repoCache: RepoCacheAtom(),

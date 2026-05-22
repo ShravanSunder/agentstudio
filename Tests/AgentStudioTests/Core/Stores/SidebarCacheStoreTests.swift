@@ -24,7 +24,6 @@ struct SidebarCacheStoreTests {
 
         atom.setGroupExpanded("repo:agent-studio", isExpanded: true)
         atom.setCheckoutColor("#ff6600", for: SidebarCheckoutColorKey("repo:agent-studio"))
-        atom.setInboxGroupCollapsed(InboxNotificationGroupKey("kind:terminal"), isCollapsed: true)
 
         try store.flush(for: workspaceId)
 
@@ -33,7 +32,6 @@ struct SidebarCacheStoreTests {
 
         #expect(restoredAtom.expandedGroups == [SidebarGroupKey("repo:agent-studio")])
         #expect(restoredAtom.checkoutColors == [SidebarCheckoutColorKey("repo:agent-studio"): "#ff6600"])
-        #expect(restoredAtom.collapsedInboxGroups == [InboxNotificationGroupKey("kind:terminal")])
     }
 
     @Test
@@ -75,7 +73,6 @@ struct SidebarCacheStoreTests {
 
         #expect(atom.expandedGroups.isEmpty)
         #expect(atom.checkoutColors.isEmpty)
-        #expect(atom.collapsedInboxGroups.isEmpty)
         #expect(reportedRecovery?.store == .sidebarCache)
         #expect(reportedRecovery?.workspaceId == workspaceId)
         #expect(reportedRecovery?.recovery == .quarantinedAndReset)
@@ -98,7 +95,6 @@ struct SidebarCacheStoreTests {
 
         #expect(atom.expandedGroups.isEmpty)
         #expect(atom.checkoutColors.isEmpty)
-        #expect(atom.collapsedInboxGroups.isEmpty)
     }
 
     @Test
@@ -142,6 +138,5 @@ struct SidebarCacheStoreTests {
 
         #expect(atom.expandedGroups.isEmpty)
         #expect(atom.checkoutColors == [SidebarCheckoutColorKey("repo:agent-studio"): "#ff6600"])
-        #expect(atom.collapsedInboxGroups.isEmpty)
     }
 }
