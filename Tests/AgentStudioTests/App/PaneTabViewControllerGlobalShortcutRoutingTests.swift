@@ -205,12 +205,12 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
     func tabRenameTransientSurfaceBlocksAppShortcutDispatch() {
         let workspaceWindowId = UUID()
         let context = KeyboardRoutingContext(
-            keyboardOwner: .mainWindowChain,
-            workspaceWindowId: workspaceWindowId,
-            transientSurface: .tabRename(tabId: UUID())
+            stableOwner: .mainWindowChain,
+            activeSurface: .transient(.tabRename(tabId: UUID())),
+            workspaceWindowId: workspaceWindowId
         )
 
-        for shortcut in AppShortcut.allCases {
+        for shortcut in AppShortcut.allCases where !AppShortcutDispatchPolicy.isCommandBarActivationShortcut(shortcut) {
             #expect(
                 !AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(shortcut, context: context),
                 "\(shortcut) should not dispatch while tab rename owns keyboard input"
@@ -221,12 +221,65 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
     @Test("transient surface does not affect another workspace window")
     func transientSurfaceDoesNotAffectAnotherWorkspaceWindow() {
         let context = KeyboardRoutingContext(
-            keyboardOwner: .mainWindowChain,
-            workspaceWindowId: UUID(),
-            transientSurface: nil
+            stableOwner: .mainWindowChain,
+            activeSurface: .stable(.mainWindowChain),
+            workspaceWindowId: UUID()
         )
 
         #expect(AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(.nextTab, context: context))
+    }
+
+    @Test("command bar activation shortcuts are allowed through transient surfaces")
+    func commandBarActivationShortcutsAreAllowedThroughTransientSurfaces() {
+        let context = KeyboardRoutingContext(
+            stableOwner: .managementLayer,
+            activeSurface: .transient(.arrangementPanel(tabId: UUID())),
+            workspaceWindowId: UUID()
+        )
+
+        for shortcut in [
+            AppShortcut.newTab,
+            .showCommandBarEverything,
+            .showCommandBarCommands,
+            .showCommandBarPanes,
+        ] {
+            #expect(
+                AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(shortcut, context: context),
+                "\(shortcut) should remain reserved for command bar activation"
+            )
+        }
+    }
+
+    @Test("non command bar shortcuts are blocked while command bar owns keyboard")
+    func nonCommandBarShortcutsAreBlockedWhileCommandBarOwnsKeyboard() {
+        let context = KeyboardRoutingContext(
+            stableOwner: .mainWindowChain,
+            activeSurface: .commandBar(scope: .everything),
+            workspaceWindowId: UUID()
+        )
+
+        for shortcut in AppShortcut.allCases where !AppShortcutDispatchPolicy.isCommandBarActivationShortcut(shortcut) {
+            #expect(
+                !AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(shortcut, context: context),
+                "\(shortcut) should not dispatch while command bar owns keyboard input"
+            )
+        }
+    }
+
+    @Test("non command bar shortcuts are blocked while arrangement owns keyboard")
+    func nonCommandBarShortcutsAreBlockedWhileArrangementOwnsKeyboard() {
+        let context = KeyboardRoutingContext(
+            stableOwner: .mainWindowChain,
+            activeSurface: .transient(.arrangementPanel(tabId: UUID())),
+            workspaceWindowId: UUID()
+        )
+
+        for shortcut in AppShortcut.allCases where !AppShortcutDispatchPolicy.isCommandBarActivationShortcut(shortcut) {
+            #expect(
+                !AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(shortcut, context: context),
+                "\(shortcut) should not dispatch while arrangement owns keyboard input"
+            )
+        }
     }
 
     @Test("production global key path consults transient surface policy")

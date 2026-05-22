@@ -1,16 +1,5 @@
 import SwiftUI
 
-// MARK: - CommandBarScope
-
-/// Scope of the command bar, determined by prefix character in the search input.
-enum CommandBarScope {
-    case everything  // no prefix — shows recents, tabs, panes, commands, worktrees
-    case commands  // ">" prefix — shows only commands grouped by category
-    case panes  // "$" prefix — shows only panes grouped by tab
-    case repos  // "#" prefix — shows repos and worktrees for opening
-    case inbox
-}
-
 // MARK: - CommandBarAppMode
 
 /// Global app mode displayed in the command bar status strip.

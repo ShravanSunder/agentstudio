@@ -3,23 +3,78 @@ import Foundation
 @MainActor
 enum AppShortcutDispatchPolicy {
     static func shouldRouteAppOwnedKeyEvent(context: KeyboardRoutingContext) -> Bool {
-        guard let transientSurface = context.transientSurface else {
+        switch context.activeSurface {
+        case .commandBar:
+            return false
+        case .transient(let surface):
+            return shouldDispatchFromTransientSurface(surface: surface)
+        case .stable:
             return true
         }
-        return shouldDispatchFromTransientSurface(surface: transientSurface)
     }
 
     static func shouldDispatchGlobalShortcut(
         _ shortcut: AppShortcut,
         context: KeyboardRoutingContext
     ) -> Bool {
-        if let transientSurface = context.transientSurface,
-            !shouldDispatchFromTransientSurface(surface: transientSurface)
-        {
-            return false
+        if isCommandBarActivationShortcut(shortcut) {
+            return context.stableOwner != .otherWindow
         }
 
-        return shouldDispatchGlobalShortcut(shortcut, keyboardOwner: context.keyboardOwner)
+        switch context.activeSurface {
+        case .commandBar:
+            return false
+        case .transient(let surface):
+            guard shouldDispatchFromTransientSurface(surface: surface) else { return false }
+            return shouldDispatchGlobalShortcut(shortcut, keyboardOwner: context.stableOwner)
+        case .stable(let owner):
+            return shouldDispatchGlobalShortcut(shortcut, keyboardOwner: owner)
+        }
+    }
+
+    static func shouldDispatchTerminalAppOwnedShortcut(
+        _ shortcut: AppShortcut,
+        context: KeyboardRoutingContext
+    ) -> Bool {
+        if isCommandBarActivationShortcut(shortcut) {
+            return context.stableOwner != .otherWindow
+        }
+
+        switch context.activeSurface {
+        case .commandBar:
+            return false
+        case .transient(let surface):
+            guard shouldDispatchFromTransientSurface(surface: surface) else { return false }
+            return shortcut.spec.contexts.contains(.terminalAppOwned)
+        case .stable(let owner):
+            switch owner {
+            case .mainWindowChain, .managementLayer:
+                return shortcut.spec.contexts.contains(.terminalAppOwned)
+            case .sidebar, .otherWindow:
+                return false
+            }
+        }
+    }
+
+    static func isCommandBarActivationShortcut(_ shortcut: AppShortcut) -> Bool {
+        switch shortcut {
+        case .newTab, .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes:
+            return true
+        case .closeTab, .undoCloseTab, .nextTab, .prevTab, .cycleArrangement, .addDrawerPane,
+            .toggleDrawer, .scrollToBottom, .openPaneLocationInBookmarkedEditor,
+            .openPaneLocationInFinder, .openPaneLocationInEditorMenu, .toggleManagementLayer,
+            .toggleSidebar, .filterSidebar, .showInboxNotifications, .showPaneInboxNotifications,
+            .showWorktreeSidebar, .newWindow, .closeWindow, .selectTab1, .selectTab2, .selectTab3,
+            .selectTab4, .selectTab5, .selectTab6, .selectTab7, .selectTab8, .selectTab9,
+            .focusPane1, .focusPane2, .focusPane3, .focusPane4, .focusPane5, .focusPane6,
+            .focusPane7, .focusPane8, .focusPane9, .focusDrawerPane1, .focusDrawerPane2,
+            .focusDrawerPane3, .focusDrawerPane4, .focusDrawerPane5, .focusDrawerPane6,
+            .focusDrawerPane7, .focusDrawerPane8, .focusDrawerPane9, .managementLayerFocusLeft,
+            .managementLayerFocusRight, .managementLayerEnterDrawer, .managementLayerExitDrawer,
+            .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
+            .managementLayerExit:
+            return false
+        }
     }
 
     static func shouldDispatchGlobalShortcut(
@@ -38,7 +93,7 @@ enum AppShortcutDispatchPolicy {
 
     private static func shouldDispatchFromTransientSurface(surface: TransientKeyboardSurfaceKind) -> Bool {
         switch surface {
-        case .tabRename:
+        case .tabRename, .arrangementPanel, .arrangementRename, .paneInbox, .editorChooser:
             return false
         }
     }

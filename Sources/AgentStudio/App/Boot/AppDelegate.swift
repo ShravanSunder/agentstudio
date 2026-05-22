@@ -189,7 +189,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             store: store,
             repoCache: repoCache,
             dispatcher: .shared,
-            notificationInboxCommands: makeInboxNotificationCommands()
+            notificationInboxCommands: makeInboxNotificationCommands(),
+            commandBarSurface: atomStore.commandBarSurface
         )
         bootStartInboxNotificationRouter(bus: paneRuntimeBus)
         bootStartTerminalActivityRouter(bus: paneRuntimeBus)

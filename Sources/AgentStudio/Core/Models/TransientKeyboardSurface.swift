@@ -10,6 +10,10 @@ struct TransientKeyboardSurfaceToken: Equatable, Hashable, Sendable {
 
 enum TransientKeyboardSurfaceKind: Equatable, Sendable {
     case tabRename(tabId: UUID)
+    case arrangementPanel(tabId: UUID)
+    case arrangementRename(tabId: UUID, arrangementId: UUID)
+    case paneInbox(parentPaneId: UUID)
+    case editorChooser(paneId: UUID)
 }
 
 struct TransientKeyboardSurface: Equatable, Identifiable, Sendable {

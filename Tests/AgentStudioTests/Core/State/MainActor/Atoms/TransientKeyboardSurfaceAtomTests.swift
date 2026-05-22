@@ -46,4 +46,37 @@ struct TransientKeyboardSurfaceAtomTests {
         #expect(atom.topSurface(for: firstWindowId)?.kind == .tabRename(tabId: firstTabId))
         #expect(atom.topSurface(for: UUID()) == nil)
     }
+
+    @Test("mixed transient kinds remain token scoped and window scoped")
+    func mixedTransientKindsRemainTokenScopedAndWindowScoped() {
+        let atom = TransientKeyboardSurfaceAtom()
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
+        let tabId = UUID()
+        let arrangementId = UUID()
+        let parentPaneId = UUID()
+        let editorPaneId = UUID()
+
+        let arrangementToken = atom.present(.arrangementPanel(tabId: tabId), workspaceWindowId: firstWindowId)
+        let renameToken = atom.present(
+            .arrangementRename(tabId: tabId, arrangementId: arrangementId),
+            workspaceWindowId: firstWindowId
+        )
+        let inboxToken = atom.present(.paneInbox(parentPaneId: parentPaneId), workspaceWindowId: secondWindowId)
+        let editorToken = atom.present(.editorChooser(paneId: editorPaneId), workspaceWindowId: firstWindowId)
+
+        #expect(atom.surfaces.map(\.token) == [arrangementToken, renameToken, inboxToken, editorToken])
+        #expect(atom.topAnySurface?.kind == .editorChooser(paneId: editorPaneId))
+        #expect(atom.topSurface(for: firstWindowId)?.kind == .editorChooser(paneId: editorPaneId))
+        #expect(atom.topSurface(for: secondWindowId)?.kind == .paneInbox(parentPaneId: parentPaneId))
+
+        atom.dismiss(editorToken)
+
+        #expect(
+            atom.topSurface(for: firstWindowId)?.kind
+                == .arrangementRename(
+                    tabId: tabId,
+                    arrangementId: arrangementId
+                ))
+    }
 }

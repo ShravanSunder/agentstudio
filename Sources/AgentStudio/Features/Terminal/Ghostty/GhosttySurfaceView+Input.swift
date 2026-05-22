@@ -70,11 +70,24 @@ extension Ghostty.SurfaceView {
             let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .terminalAppOwned),
             Self.appOwnedShortcuts.contains(shortcut)
         {
-            if CommandDispatcher.shared.canDispatch(shortcut.command) {
-                CommandDispatcher.shared.dispatch(shortcut.command)
-                return true
+            let keyboardContext = KeyboardRoutingContext.current(
+                windowLifecycle: atom(\.windowLifecycle),
+                managementLayer: atom(\.managementLayer),
+                uiState: atom(\.uiState),
+                commandBarSurface: atom(\.commandBarSurface),
+                transientKeyboardSurface: atom(\.transientKeyboardSurface)
+            )
+            guard
+                AppShortcutDispatchPolicy.shouldDispatchTerminalAppOwnedShortcut(
+                    shortcut,
+                    context: keyboardContext
+                ),
+                CommandDispatcher.shared.canDispatch(shortcut.command)
+            else {
+                return false
             }
-            return false
+            CommandDispatcher.shared.dispatch(shortcut.command)
+            return true
         }
 
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)

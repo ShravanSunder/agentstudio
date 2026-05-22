@@ -1203,14 +1203,32 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         guard let trigger = ShortcutDecoder.decode(event: event) else {
             return false
         }
+        let globalShortcut = ShortcutDecoder.shortcut(for: trigger, in: .global)
 
         let keyboardContext = KeyboardRoutingContext.current(
             windowLifecycle: atom(\.windowLifecycle),
             managementLayer: atom(\.managementLayer),
             uiState: atom(\.uiState),
+            commandBarSurface: atom(\.commandBarSurface),
             transientKeyboardSurface: atom(\.transientKeyboardSurface),
             workspaceWindowId: workspaceWindowId
         )
+
+        if let shortcut = globalShortcut,
+            AppShortcutDispatchPolicy.isCommandBarActivationShortcut(shortcut)
+        {
+            guard
+                AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(
+                    shortcut,
+                    context: keyboardContext
+                ),
+                CommandDispatcher.shared.canDispatch(shortcut.command)
+            else {
+                return false
+            }
+            CommandDispatcher.shared.dispatch(shortcut.command)
+            return true
+        }
 
         guard AppShortcutDispatchPolicy.shouldRouteAppOwnedKeyEvent(context: keyboardContext) else {
             return false
@@ -1234,7 +1252,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return true
         }
 
-        let keyboardOwner = keyboardContext.keyboardOwner
+        let keyboardOwner = keyboardContext.stableOwner
 
         if shouldHandleScopeAwarePaneTrigger(event: event, keyboardOwner: keyboardOwner),
             let command = scopeAwarePaneCommand(for: trigger),
@@ -1244,7 +1262,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return true
         }
 
-        if let shortcut = ShortcutDecoder.shortcut(for: trigger, in: .global) {
+        if let shortcut = globalShortcut {
             guard
                 AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(
                     shortcut,

@@ -22,6 +22,7 @@ final class CommandBarPanelController {
     private let repoCache: RepoCacheAtom
     private let dispatcher: CommandDispatcher
     private let notificationInboxCommands: InboxNotificationCommands?
+    private let commandBarSurface: CommandBarSurfaceAtom
 
     // MARK: - Panel
 
@@ -41,12 +42,14 @@ final class CommandBarPanelController {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom,
         dispatcher: CommandDispatcher,
-        notificationInboxCommands: InboxNotificationCommands? = nil
+        notificationInboxCommands: InboxNotificationCommands? = nil,
+        commandBarSurface: CommandBarSurfaceAtom = CommandBarSurfaceAtom()
     ) {
         self.store = store
         self.repoCache = repoCache
         self.dispatcher = dispatcher
         self.notificationInboxCommands = notificationInboxCommands
+        self.commandBarSurface = commandBarSurface
         state.loadRecents()
     }
 
@@ -83,6 +86,7 @@ final class CommandBarPanelController {
                 }
 
             if currentPrefix == normalizedRequestedPrefix {
+                publishCurrentSurface()
                 return
             } else {
                 switch mode {
@@ -91,6 +95,7 @@ final class CommandBarPanelController {
                 case .defaultScope:
                     state.show(defaultScope: defaultRootScope(for: mode))
                 }
+                publishCurrentSurface()
                 return
             }
         }
@@ -102,6 +107,7 @@ final class CommandBarPanelController {
         case .defaultScope(let defaultRootScope):
             state.show(defaultScope: defaultRootScope)
         }
+        publishCurrentSurface()
         presentPanel(parentWindow: parentWindow)
     }
 
@@ -110,7 +116,12 @@ final class CommandBarPanelController {
         guard state.isVisible else { return }
 
         state.dismiss()
+        commandBarSurface.dismiss()
         dismissPanel()
+    }
+
+    private func publishCurrentSurface() {
+        commandBarSurface.present(scope: state.currentScope)
     }
 
     // MARK: - Panel Presentation

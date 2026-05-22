@@ -77,6 +77,37 @@ struct CommandBarPanelControllerTests {
         #expect(controller.state.activeScope == .panes)
     }
 
+    @Test
+    func test_show_publishesCommandBarSurfaceScope() {
+        let commandBarSurface = CommandBarSurfaceAtom()
+        let controller = CommandBarPanelController(
+            store: WorkspaceStore(),
+            repoCache: RepoCacheAtom(),
+            dispatcher: .shared,
+            commandBarSurface: commandBarSurface
+        )
+
+        controller.show(prefix: ">", parentWindow: window)
+
+        #expect(commandBarSurface.activeScope == .commands)
+    }
+
+    @Test
+    func test_switchPrefix_updatesCommandBarSurfaceScope() {
+        let commandBarSurface = CommandBarSurfaceAtom()
+        let controller = CommandBarPanelController(
+            store: WorkspaceStore(),
+            repoCache: RepoCacheAtom(),
+            dispatcher: .shared,
+            commandBarSurface: commandBarSurface
+        )
+
+        controller.show(prefix: ">", parentWindow: window)
+        controller.show(prefix: "$", parentWindow: window)
+
+        #expect(commandBarSurface.activeScope == .panes)
+    }
+
     // MARK: - Dismiss via Public API
 
     @Test
@@ -95,6 +126,22 @@ struct CommandBarPanelControllerTests {
         // Assert
         #expect(!controller.state.isVisible)
         #expect(controller.state.rawInput.isEmpty)
+    }
+
+    @Test
+    func test_dismiss_clearsCommandBarSurfaceScope() {
+        let commandBarSurface = CommandBarSurfaceAtom()
+        let controller = CommandBarPanelController(
+            store: WorkspaceStore(),
+            repoCache: RepoCacheAtom(),
+            dispatcher: .shared,
+            commandBarSurface: commandBarSurface
+        )
+        controller.show(parentWindow: window)
+
+        controller.dismiss()
+
+        #expect(commandBarSurface.activeScope == nil)
     }
 
     @Test

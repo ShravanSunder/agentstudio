@@ -229,7 +229,7 @@ enum AppShortcut: String, CaseIterable {
         case .newTab:
             return .init(
                 trigger: .init(key: .character(.t), modifiers: [.command]),
-                contexts: [.global]
+                contexts: [.global, .terminalAppOwned]
             )
         case .undoCloseTab:
             return .init(

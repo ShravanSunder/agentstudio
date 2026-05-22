@@ -100,6 +100,7 @@ final class ManagementLayerMonitor {
             windowLifecycle: windowLifecycle,
             managementLayer: managementLayer,
             uiState: atom(\.uiState),
+            commandBarSurface: atom(\.commandBarSurface),
             transientKeyboardSurface: transientKeyboardSurface
         )
         guard AppShortcutDispatchPolicy.shouldRouteAppOwnedKeyEvent(context: keyboardContext) else {
