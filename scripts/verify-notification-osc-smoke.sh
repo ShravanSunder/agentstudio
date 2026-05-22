@@ -71,6 +71,7 @@ require_record() {
   case "$jq_status" in
     0)
       ;;
+    # jq 1.8 returns 4 when select(...) emits no records for a valid JSONL file.
     1 | 4)
       rm -f "$jq_error"
       echo "missing: $description" >&2
