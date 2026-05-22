@@ -170,7 +170,6 @@ struct PersistenceChaosTests {
             ).restore(for: workspaceId)
 
             #expect(atom.expandedGroups.count <= 1)
-            #expect(atom.collapsedInboxGroups.count <= 1)
             assertRecoveryEvents(
                 recoveryEvents,
                 flavor: flavor,
@@ -309,8 +308,7 @@ struct PersistenceChaosTests {
             "schemaVersion": \(schemaVersion),
             "workspaceId": "\(workspaceId.uuidString)",
             "expandedGroups": ["repo:agent-studio"],
-            "checkoutColors": {"repo:agent-studio": "#ff6600"},
-            "collapsedInboxGroups": ["__ungrouped__"]
+            "checkoutColors": {"repo:agent-studio": "#ff6600"}
         }
         """
     }

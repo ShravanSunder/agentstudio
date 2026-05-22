@@ -18,4 +18,14 @@ enum DraggableTabBarGeometry {
 
         return containingTabs.first?.key
     }
+
+    static func nsViewRect(for tabId: UUID, boundsHeight: CGFloat, tabFrames: [UUID: CGRect]) -> CGRect? {
+        guard let frame = tabFrames[tabId] else { return nil }
+        return CGRect(
+            x: frame.minX,
+            y: boundsHeight - frame.maxY,
+            width: frame.width,
+            height: frame.height
+        )
+    }
 }

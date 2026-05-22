@@ -11,7 +11,6 @@ struct SidebarCacheAtomTests {
 
         #expect(atom.expandedGroups.isEmpty)
         #expect(atom.checkoutColors.isEmpty)
-        #expect(atom.collapsedInboxGroups.isEmpty)
     }
 
     @Test("group expansion adds and removes keys")
@@ -36,34 +35,17 @@ struct SidebarCacheAtomTests {
         #expect(atom.checkoutColors[SidebarCheckoutColorKey("repoKey")] == nil)
     }
 
-    @Test("inbox groups default expanded and track collapsed keys only")
-    func inboxGroupsDefaultExpandedAndTrackCollapsedKeysOnly() {
-        let atom = SidebarCacheAtom()
-
-        #expect(!atom.isInboxGroupCollapsed(InboxNotificationGroupKey("today")))
-
-        atom.setInboxGroupCollapsed(InboxNotificationGroupKey("today"), isCollapsed: true)
-        #expect(atom.collapsedInboxGroups == [InboxNotificationGroupKey("today")])
-        #expect(atom.isInboxGroupCollapsed(InboxNotificationGroupKey("today")))
-
-        atom.toggleInboxGroupCollapse(InboxNotificationGroupKey("today"))
-        #expect(!atom.isInboxGroupCollapsed(InboxNotificationGroupKey("today")))
-        #expect(atom.collapsedInboxGroups.isEmpty)
-    }
-
     @Test("hydrate replaces every cache slice")
     func hydrateReplacesEveryCacheSlice() {
         let atom = SidebarCacheAtom()
 
         atom.hydrate(
             expandedGroups: [SidebarGroupKey("repo:a")],
-            checkoutColors: [SidebarCheckoutColorKey("repo:a"): "#111111"],
-            collapsedInboxGroups: [InboxNotificationGroupKey("kind:terminal")]
+            checkoutColors: [SidebarCheckoutColorKey("repo:a"): "#111111"]
         )
 
         #expect(atom.expandedGroups == [SidebarGroupKey("repo:a")])
         #expect(atom.checkoutColors == [SidebarCheckoutColorKey("repo:a"): "#111111"])
-        #expect(atom.collapsedInboxGroups == [InboxNotificationGroupKey("kind:terminal")])
     }
 
     @Test("clear returns to empty memory")
@@ -71,14 +53,12 @@ struct SidebarCacheAtomTests {
         let atom = SidebarCacheAtom()
         atom.hydrate(
             expandedGroups: [SidebarGroupKey("repo:a")],
-            checkoutColors: [SidebarCheckoutColorKey("repo:a"): "#111111"],
-            collapsedInboxGroups: [InboxNotificationGroupKey("kind:terminal")]
+            checkoutColors: [SidebarCheckoutColorKey("repo:a"): "#111111"]
         )
 
         atom.clear()
 
         #expect(atom.expandedGroups.isEmpty)
         #expect(atom.checkoutColors.isEmpty)
-        #expect(atom.collapsedInboxGroups.isEmpty)
     }
 }

@@ -28,7 +28,7 @@ struct InboxNotificationSidebarView: View {
     let prefsAtom: InboxNotificationPrefsAtom
     let uiState: UIStateAtom
     let sidebarCache: SidebarCacheAtom
-    let inboxFilterDraft: InboxFilterDraftAtom
+    let inboxSidebarState: InboxSidebarStateAtom
     let workspacePaneAtom: WorkspacePaneAtom
     let workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom
     let repoCache: RepoCacheAtom
@@ -51,7 +51,7 @@ struct InboxNotificationSidebarView: View {
         prefsAtom: InboxNotificationPrefsAtom,
         uiState: UIStateAtom,
         sidebarCache: SidebarCacheAtom,
-        inboxFilterDraft: InboxFilterDraftAtom,
+        inboxSidebarState: InboxSidebarStateAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
         repoCache: RepoCacheAtom,
@@ -62,7 +62,7 @@ struct InboxNotificationSidebarView: View {
         self.prefsAtom = prefsAtom
         self.uiState = uiState
         self.sidebarCache = sidebarCache
-        self.inboxFilterDraft = inboxFilterDraft
+        self.inboxSidebarState = inboxSidebarState
         self.workspacePaneAtom = workspacePaneAtom
         self.workspaceRepositoryTopologyAtom = workspaceRepositoryTopologyAtom
         self.repoCache = repoCache
@@ -80,7 +80,7 @@ struct InboxNotificationSidebarView: View {
             searchText: "",
             filter: nil,
             unreadOnly: false,
-            collapsedGroups: sidebarCache.collapsedInboxGroups,
+            collapsedGroups: inboxSidebarState.collapsedGroups,
             repoPresentationFingerprint: Self.repoPresentationFingerprint(
                 initialRepoPresentationByRepoId
             )
@@ -94,7 +94,7 @@ struct InboxNotificationSidebarView: View {
                 searchText: "",
                 unreadOnly: false,
                 filter: nil,
-                collapsedGroups: sidebarCache.collapsedInboxGroups,
+                collapsedGroups: inboxSidebarState.collapsedGroups,
                 repoPresentation: { repoId in
                     guard let repoId else { return nil }
                     return initialRepoPresentationByRepoId[repoId]
@@ -137,9 +137,9 @@ struct InboxNotificationSidebarView: View {
         .onChange(of: searchText) { _, _ in refreshListModel() }
         .onChange(of: activeFilter) { _, _ in refreshListModel() }
         .onChange(of: unreadOnly) { _, _ in refreshListModel() }
-        .onChange(of: sidebarCache.collapsedInboxGroups) { _, _ in refreshListModel() }
+        .onChange(of: inboxSidebarState.collapsedGroups) { _, _ in refreshListModel() }
         .onChange(of: repoPresentationFingerprint) { _, _ in refreshListModel() }
-        .onChange(of: inboxFilterDraft.pendingFilter) { _, _ in
+        .onChange(of: inboxSidebarState.pendingFilter) { _, _ in
             applyPendingFilterDraft()
         }
         .task {
@@ -198,7 +198,7 @@ struct InboxNotificationSidebarView: View {
             searchText: searchText,
             filter: activeFilter,
             unreadOnly: unreadOnly,
-            collapsedGroups: sidebarCache.collapsedInboxGroups,
+            collapsedGroups: inboxSidebarState.collapsedGroups,
             repoPresentationFingerprint: Self.repoPresentationFingerprint(resolvedRepoPresentationByRepoId)
         )
         guard key != cachedListModelKey else { return }
@@ -318,17 +318,17 @@ struct InboxNotificationSidebarView: View {
     }
 
     private func clearFilter() {
-        inboxFilterDraft.clear()
+        inboxSidebarState.clearPendingFilter()
         activeFilter = nil
     }
 
     private func applyPendingFilterDraft() {
-        guard let filter = inboxFilterDraft.consume() else { return }
+        guard let filter = inboxSidebarState.consumePendingFilter() else { return }
         activeFilter = filter
     }
 
     private func toggleGroupCollapse(_ sectionId: String) {
-        sidebarCache.toggleInboxGroupCollapse(InboxNotificationGroupKey(sectionId))
+        inboxSidebarState.toggleGroupCollapse(InboxNotificationGroupKey(sectionId))
     }
 
     private func handleEscape() {

@@ -18,6 +18,7 @@ The hybrid approach (inspired by Ghostty's own codebase structure) keeps infrast
 
 ```
 Sources/AgentStudio/
+├── AtomRegistry.swift                # Single concrete registry composing Core + Feature atoms
 ├── App/                              # Composition root — wires everything together
 │   ├── Boot/                         # Launch restore, lifecycle routing, boot sequencing
 │   ├── Commands/                     # App-owned command entry points
@@ -84,7 +85,8 @@ Sources/AgentStudio/
 │   └── EditorChooser/                # Editor chooser menu content + row item model
 │
 ├── Infrastructure/                   # Utilities used by anyone, domain-agnostic
-│   ├── AtomLib/                      # AtomRegistry, AtomScope, AtomReader, Derived, DerivedSelector
+│   ├── AtomLib/                      # Generic atom access helpers: AtomScope, AtomReader,
+│   │                                 #   Derived, DerivedSelector. No product atom ownership.
 │   ├── Diagnostics/                  # RestoreTrace
 │   ├── Extensions/                   # Foundation/AppKit extensions, UniformType, NSColor+Hex
 │   ├── Icons/                        # OcticonImage, OcticonLoader
@@ -184,7 +186,7 @@ If you are tempted to add a feature-specific property to `UIStateAtom`, that pro
 
 #### The Core-imports-nothing-from-Features rule
 
-Feature atoms cannot be registered in `AtomRegistry` (which lives in `Infrastructure/` and must not import Features). Feature atoms are instantiated at the composition root (`App/Boot/`) and injected into the feature's views and routers. Views outside the feature slice — e.g., composition views in `App/` that host the feature — receive the feature's atom through the same injection path.
+Feature atoms may be registered in `AtomRegistry` because the concrete registry is the single root-level composition file at `Sources/AgentStudio/AtomRegistry.swift`, outside `Core/`, `Features/`, and `Infrastructure/`. The atom type and behavior still belong to the owning feature slice. Do not store feature atoms as ad hoc fields on `AppDelegate`; add app-wide feature atoms to the root `AtomRegistry.swift` and wire views, routers, and stores from there.
 
 Core views (e.g., `DrawerOverlay`, `DrawerIconBar`) that need to display feature-owned data take that data as props (struct parameters). The caller that supplies the props lives in a layer that *can* import the feature — usually `App/` or a different feature if called from there (which would then require the caller to be in `App/` per the cross-feature rule).
 
