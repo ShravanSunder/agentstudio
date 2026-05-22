@@ -147,12 +147,9 @@ private struct PaneSegmentSlotView: View {
     let viewRegistry: ViewRegistry
     @Bindable var paneSlot: ViewRegistry.PaneViewSlot
     let ordinal: Int?
-    private var managementLayer: ManagementLayerAtom {
-        atom(\.managementLayer)
-    }
 
     var body: some View {
-        ZStack(alignment: badgeAlignment) {
+        ZStack {
             if segment.isMinimized {
                 if collapsedPaneWidth > 0 {
                     CollapsedPaneBar(
@@ -181,7 +178,8 @@ private struct PaneSegmentSlotView: View {
                     onOpenPaneGitHub: onOpenPaneGitHub,
                     dropTargetCoordinateSpace: coordinateSpaceName,
                     useDrawerFramePreference: useDrawerFramePreference,
-                    paneInboxPresentation: paneInboxPresentation
+                    paneInboxPresentation: paneInboxPresentation,
+                    ordinal: ordinal
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
             } else {
@@ -203,16 +201,7 @@ private struct PaneSegmentSlotView: View {
                     UnexpectedMissingPaneHostPlaceholder(paneId: segment.paneId)
                 }
             }
-
-            if !segment.isMinimized, let ordinal {
-                PaneOrdinalBadge(ordinal: ordinal)
-                    .padding(AppStyles.General.Spacing.standard)
-            }
         }
-    }
-
-    private var badgeAlignment: Alignment {
-        managementLayer.isActive ? .bottomLeading : .topLeading
     }
 }
 

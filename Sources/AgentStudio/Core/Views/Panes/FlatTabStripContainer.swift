@@ -124,10 +124,6 @@ struct FlatTabStripContainer: View {
                         zoomedPane
                             .id(zoomedPaneId)
                             .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
-                        if let zoomedPaneId, let ordinal = mainOrdinalMap.ordinal(forPaneId: zoomedPaneId) {
-                            PaneOrdinalBadge(ordinal: ordinal)
-                                .padding(AppStyles.General.Spacing.loose)
-                        }
                         VStack {
                             HStack {
                                 Spacer()
@@ -353,6 +349,7 @@ struct FlatTabStripContainer: View {
         guard let zoomedPaneId, let zoomedView = viewRegistry.view(for: zoomedPaneId) else {
             return nil
         }
+        let ordinal = PaneOrdinalMap(orderedPaneIds: layout.paneIds).ordinal(forPaneId: zoomedPaneId)
 
         return PaneLeafContainer(
             paneHost: zoomedView,
@@ -366,7 +363,8 @@ struct FlatTabStripContainer: View {
             actionDispatcher: actionDispatcher,
             onPaneFocusTrigger: onPaneFocusTrigger,
             onOpenPaneGitHub: onOpenPaneGitHub,
-            paneInboxPresentation: paneInboxPresentation
+            paneInboxPresentation: paneInboxPresentation,
+            ordinal: ordinal
         )
     }
 

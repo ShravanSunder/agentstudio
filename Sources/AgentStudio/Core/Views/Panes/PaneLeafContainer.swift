@@ -30,6 +30,7 @@ struct PaneLeafContainer: View {
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
     let paneInboxPresentation: PaneInboxPresentation?
+    let ordinal: Int?
 
     @State private var isHovered: Bool = false
     @State private var paneInboxPopoverOpen = false
@@ -57,7 +58,8 @@ struct PaneLeafContainer: View {
         onOpenPaneGitHub: @escaping (UUID) -> Void,
         dropTargetCoordinateSpace: String? = "tabContainer",
         useDrawerFramePreference: Bool = false,
-        paneInboxPresentation: PaneInboxPresentation? = nil
+        paneInboxPresentation: PaneInboxPresentation? = nil,
+        ordinal: Int? = nil
     ) {
         self.paneHost = paneHost
         self.tabId = tabId
@@ -73,6 +75,7 @@ struct PaneLeafContainer: View {
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
         self.paneInboxPresentation = paneInboxPresentation
+        self.ordinal = ordinal
     }
 
     /// Whether this pane is a drawer child (no drag, no drop, no sub-drawer).
@@ -343,7 +346,7 @@ struct PaneLeafContainer: View {
                     }
                 }
 
-                // Pane controls: minimize + close (top-left, management layer)
+                // Pane controls: minimize + shortcut ordinal + close (top-left, management layer)
                 if managementLayer.isActive && !isSplitResizing && !suppressMainPaneManagementInteraction {
                     VStack {
                         HStack(spacing: AppStyles.General.Spacing.standard) {
@@ -372,6 +375,10 @@ struct PaneLeafContainer: View {
                             .buttonStyle(.plain)
                             .onHover { isMinimizeHovered = $0 }
                             .help(AppCommand.minimizePane.definition.controlToolTip)
+
+                            if let ordinal {
+                                ManagementOrdinalShortcutHint(ordinal: ordinal)
+                            }
 
                             Button {
                                 beginCloseTransition()

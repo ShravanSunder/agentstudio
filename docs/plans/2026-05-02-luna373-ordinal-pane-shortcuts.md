@@ -4,10 +4,10 @@
 > or `superpowers:executing-plans` to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add ordinal pane shortcuts and badges while tightening the keyboard
-surface model so app-owned shortcuts, focus-scoped keys, sidebar surfaces, and
-empty-drawer shortcuts all have explicit ownership. Also move tab and
-arrangement keyboard navigation onto exact app-owned shortcuts:
+**Goal:** Add ordinal pane shortcuts and management-layer ordinal hints while
+tightening the keyboard surface model so app-owned shortcuts, focus-scoped keys,
+sidebar surfaces, and empty-drawer shortcuts all have explicit ownership. Also
+move tab and arrangement keyboard navigation onto exact app-owned shortcuts:
 `Cmd+Option+J`, `Cmd+Option+L`, and `Cmd+Option+I`.
 
 **Architecture:** `AppCommand` remains the command vocabulary, `AppShortcut`
@@ -27,14 +27,14 @@ Peekaboo for visual validation.
 This branch is no longer plan-only. As of 2026-05-20 it has been merged with
 current `origin/main` at `c1490278` (`Fix tab rename popover presentation`) and
 contains the shortcut, command-routing, focus-publication, ordinal-resolution,
-and badge implementation described below.
+and management ordinal hint implementation described below.
 
 Current intended branch diff:
 
 - `docs/plans/2026-05-02-luna373-ordinal-pane-shortcuts.md`
 - command vocabulary, shortcut catalog, dispatch policy, shell/workspace command
   boundary, and pane controller routing updates
-- `PaneOrdinalMap` plus pane/drawer ordinal badge rendering
+- `PaneOrdinalMap` plus pane/drawer management ordinal hint rendering
 - focused tests for command boundaries, shortcut decoding, keyboard ownership,
   empty-drawer raw `P`, tab/arrangement cycling, pane ordinals, drawer ordinals,
   and sidebar focus publication
@@ -56,7 +56,7 @@ Post-merge verification status:
   the clean local main worktree at `c1490278`, so this is tracked as local
   WebKit teardown instability rather than a shortcut-routing regression.
 - Visual validation remains separate from unit/lint proof. Do not treat green
-  tests as proof that badge placement is visually accepted.
+  tests as proof that management ordinal hint placement is visually accepted.
 
 ## Source-Of-Truth Model
 
@@ -385,19 +385,20 @@ order, then execute the existing `PaneActionCommand.switchArrangement`.
   the pane-focus pipeline so `WorkspacePaneFocusDerived` stays consistent with
   the responder target.
 
-### Badges
+### Management Ordinal Shortcut Hints
 
-- Badges render for every currently rendered addressable pane.
-- Badge numbers must match the shortcut target exactly.
-- Main badges use `Tab.activePaneIds` ordinals.
-- Drawer badges use `DrawerGridLayout.paneIds` ordinals.
-- Minimized bars keep their badge.
-- Zoomed content shows the zoomed pane's underlying ordinal.
-- Badges are visible in management layer.
-- Badges are non-interactive and accessibility-hidden.
-- Badges must not cover terminal input, pane chrome controls, drawer controls,
-  editor chooser controls, pane inbox controls, management controls, or split
-  handles.
+- Ordinal shortcut hints render only while the management layer is active.
+- Hints render in existing management chrome, not as overlays on terminal or
+  runtime content.
+- Hint numbers must match the shortcut target exactly.
+- Main hints use `Tab.activePaneIds` ordinals.
+- Drawer hints use `DrawerGridLayout.paneIds` ordinals.
+- Minimized bars keep their hint while the management layer is active.
+- Zoomed content exposes the zoomed pane's underlying ordinal through its
+  management controls.
+- Hints are non-interactive and accessibility-hidden.
+- Hints must not cover terminal input, drawer controls, editor chooser
+  controls, pane inbox controls, management controls, or split handles.
 
 ## Implementation Tasks
 
@@ -1057,8 +1058,8 @@ struct PaneOrdinalMap: Equatable, Sendable {
 }
 ```
 
-Keep this helper pure and UI-free. Command resolution and badge rendering must
-share it.
+Keep this helper pure and UI-free. Command resolution and management ordinal
+hint rendering must share it.
 
 - [ ] **Step 3: Verify**
 
@@ -1223,11 +1224,11 @@ mise run test -- --filter "PaneTabViewControllerDrawerCommandTests|PaneDrawerFoc
 
 Expected: pass.
 
-### Task 10: Badge Rendering
+### Task 10: Management Ordinal Shortcut Hint Rendering
 
 **Files:**
 
-- Create: `Sources/AgentStudio/SharedComponents/PaneOrdinalBadge.swift`
+- Create: `Sources/AgentStudio/Core/Views/Panes/ManagementOrdinalShortcutHint.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Panes/FlatPaneStripContent.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Panes/FlatTabStripContainer.swift`
 - Modify: `Sources/AgentStudio/Core/Views/Panes/PaneLeafContainer.swift`
@@ -1237,29 +1238,38 @@ Expected: pass.
 - Add view-level tests only where current test utilities can assert the ordinal
   propagation without brittle pixel checks.
 
-- [ ] **Step 1: Add badge component**
+- [ ] **Step 1: Add management ordinal hint component**
 
-Create a small shared visual component:
+Create a small management-layer visual component:
 
 ```swift
-struct PaneOrdinalBadge: View {
+struct ManagementOrdinalShortcutHint: View {
     let ordinal: Int
 
     var body: some View {
         Text("\(ordinal)")
-            .font(.system(size: 11, weight: .semibold, design: .rounded))
+            .font(.system(
+                size: AppStyles.Shell.ManagementLayer.actionIconSize,
+                weight: .bold,
+                design: .rounded
+            ))
             .monospacedDigit()
-            .frame(minWidth: 18, minHeight: 18)
-            .background(.thinMaterial, in: Circle())
-            .overlay(Circle().stroke(.separator.opacity(0.55), lineWidth: 1))
+            .foregroundStyle(.white.opacity(AppStyles.Shell.ManagementLayer.iconOpacity(isHovered: false)))
+            .frame(
+                width: AppStyles.Shell.ManagementLayer.actionSize,
+                height: AppStyles.Shell.ManagementLayer.actionSize
+            )
+            .background(Circle().fill(Color.black.opacity(
+                AppStyles.Shell.ManagementLayer.backgroundOpacity(isHovered: false)
+            )))
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
 }
 ```
 
-Use existing style constants where there is already a local constant for badge
-size, typography, or material. Do not create a separate visual language.
+Use the existing black management-control style. Do not create a separate
+floating badge visual language.
 
 - [ ] **Step 2: Thread main ordinals from the active tab boundary**
 
@@ -1287,12 +1297,12 @@ let drawerOrdinalMap = PaneOrdinalMap(orderedPaneIds: drawer.layout.paneIds)
 Pass each drawer pane's ordinal into row rendering. Do not compute row-local
 ordinals inside the top or bottom row.
 
-- [ ] **Step 4: Place badges safely with explicit surface ownership**
+- [ ] **Step 4: Place hints safely with explicit surface ownership**
 
-Badge placement requirements:
+Hint placement requirements:
 
 - Does not intercept clicks.
-- Does not overlap pane close/minimize/management controls.
+- Does not overlap existing pane close/minimize/management controls.
 - Does not overlap pane inbox badges.
 - Does not overlap drawer editor chooser affordances.
 - Does not cover terminal input text in normal or zoomed states.
@@ -1303,23 +1313,20 @@ Use this ownership strategy unless implementation evidence proves a better one:
 - Normal split panes:
   - Thread the ordinal through the nested `PaneSegmentSlotView` inside
     `FlatPaneStripContent.swift`.
-  - Render the badge from the split-slot composition layer, not from terminal
-    content, so the badge is tied to pane geometry and not runtime content.
-  - Anchor away from split handles and reserve enough inset that terminal text
-    remains readable.
+  - Pass the ordinal into `PaneLeafContainer`.
+  - Render the hint inside the existing top-left management-control row between
+    minimize and close.
+  - Do not render a floating overlay on terminal/runtime content.
 - Zoomed panes:
-  - Render the badge from `FlatTabStripContainer.swift` in the zoom shell.
-  - Avoid the existing zoom ribbon at the top-right; choose a different corner
-    or an inset that cannot collide with `ZoomedIndicator`.
+  - Pass the zoomed pane's underlying ordinal into `PaneLeafContainer`.
+  - Render the hint through the same management-control row as normal panes.
 - Management layer:
-  - Do not place the badge in `PaneLeafContainer` top-left, top-center, or
-    top-right chrome because those anchors are already owned by management
-    controls, the drag handle, and edge actions.
-  - Keep badges visible while management layer is active, but subordinate their
-    placement to the management controls.
+  - Hints are part of the management layer only.
+  - They are non-interactive and must not change existing button actions,
+    hit-testing, hover states, or shortcut dispatch.
 - Collapsed/minimized bars:
-  - Render the badge in `CollapsedPaneBar.swift` as part of the bar chrome, not
-    as an overlay on hidden content.
+  - Render the hint in `CollapsedPaneBar.swift` as part of the bar chrome, not as
+    an overlay on hidden content.
 - Drawer children:
   - Compute ordinals in `DrawerPanel.swift` from `DrawerGridLayout.paneIds`.
   - Pass the child ordinal into row rendering and avoid the drawer editor chooser
@@ -1360,12 +1367,12 @@ hard-coding them in this feature plan.
 Capture and document screenshots for:
 
 - one tab with three visible main panes,
-- a minimized middle pane with badge still visible,
-- split zoom on pane 2 with badge `2`,
+- a minimized middle pane with the management ordinal hint still visible,
+- split zoom on pane 2 with hint `2`,
 - split zoom switched to pane 3 by `Cmd+Shift+3`,
 - drawer with at least four panes split across top/bottom rows,
-- minimized drawer pane with badge still visible,
-- management layer with badges visible and unobstructed,
+- minimized drawer pane with the management ordinal hint still visible,
+- management layer with hints visible and unobstructed,
 - inbox/sidebar focused with pane ordinal shortcuts blocked.
 
 - [ ] **Step 3: Record visual acceptance notes**
@@ -1452,7 +1459,8 @@ Expected:
 - Drawer pane ordinals use `DrawerGridLayout.paneIds`.
 - Minimized main and drawer panes remain addressable.
 - Zoomed main pane ordinals switch zoom to the requested pane before focusing.
-- Badges render in normal, minimized, zoomed, drawer, and management states.
+- Management ordinal hints render only in management-layer chrome for normal,
+  minimized, zoomed, and drawer states.
 - Peekaboo visual validation is captured for the debug app instance.
 - Focused tests pass.
 - `mise run test` passes.

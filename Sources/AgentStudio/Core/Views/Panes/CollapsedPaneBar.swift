@@ -17,6 +17,9 @@ struct CollapsedPaneBar: View {
     @State private var isArrangementPanelPresented = false
     @State private var arrangementPopoverToggleGate = PopoverToggleGate()
     @State private var arrangementInlineRenameState = ArrangementInlineRenameState()
+    private var managementLayer: ManagementLayerAtom {
+        atom(\.managementLayer)
+    }
 
     static let barWidth: CGFloat = AppStyles.Shell.PaneChrome.collapsedBarWidth
     static let barHeight: CGFloat = AppStyles.Shell.PaneChrome.collapsedBarWidth
@@ -59,8 +62,8 @@ struct CollapsedPaneBar: View {
             ?? Color.secondary.opacity(0.92)
 
         VStack(spacing: AppStyles.General.Spacing.standard) {
-            if let ordinal {
-                PaneOrdinalBadge(ordinal: ordinal)
+            if managementLayer.isActive, let ordinal {
+                ManagementOrdinalShortcutHint(ordinal: ordinal)
             }
 
             expandButton
