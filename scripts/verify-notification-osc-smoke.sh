@@ -14,23 +14,37 @@ smoke run enabled bell notifications.
 USAGE
 }
 
-trace_file="${1:-}"
+trace_file=""
 expect_bell_notified=0
-if [[ "${2:-}" == "--expect-bell-notified" ]]; then
-  expect_bell_notified=1
-elif [[ -n "${2:-}" ]]; then
-  echo "unknown option: $2" >&2
-  usage
-  exit 2
-fi
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --expect-bell-notified)
+      expect_bell_notified=1
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit 2
+      ;;
+    --*)
+      echo "unknown option: $1" >&2
+      usage
+      exit 2
+      ;;
+    *)
+      if [[ -n "$trace_file" ]]; then
+        echo "too many trace files: $1" >&2
+        usage
+        exit 2
+      fi
+      trace_file="$1"
+      shift
+      ;;
+  esac
+done
 
-if [[ -n "${3:-}" ]]; then
-  echo "too many arguments" >&2
-  usage
-  exit 2
-fi
-
-if [[ -z "$trace_file" || "$trace_file" == "-h" || "$trace_file" == "--help" ]]; then
+if [[ -z "$trace_file" ]]; then
+  echo "missing trace file" >&2
   usage
   exit 2
 fi
@@ -48,10 +62,28 @@ fi
 require_record() {
   local description="$1"
   local filter="$2"
-  if ! jq -e "$filter" "$trace_file" >/dev/null; then
-    echo "missing: $description" >&2
-    exit 1
-  fi
+  local jq_error
+  jq_error="$(mktemp)"
+  set +e
+  jq -e "$filter" "$trace_file" >/dev/null 2>"$jq_error"
+  local jq_status=$?
+  set -e
+  case "$jq_status" in
+    0)
+      ;;
+    1 | 4)
+      rm -f "$jq_error"
+      echo "missing: $description" >&2
+      exit 1
+      ;;
+    *)
+      echo "jq failed while checking: $description" >&2
+      cat "$jq_error" >&2
+      rm -f "$jq_error"
+      exit 2
+      ;;
+  esac
+  rm -f "$jq_error"
   echo "ok: $description"
 }
 
