@@ -664,6 +664,11 @@ enum CommandBarDataSource {
             arrangementAtom: store.tabArrangementAtom
         )
         let workspacePane = store.paneAtom
+        let arrangementView = WorkspaceArrangementViewDerived(
+            tabLayoutAtom: store.tabLayoutAtom,
+            paneAtom: store.paneAtom,
+            managementLayerAtom: atom(\.managementLayer)
+        )
         var items: [CommandBarItem] = []
 
         if let activeTabId = store.tabShellAtom.activeTabId,
@@ -671,7 +676,7 @@ enum CommandBarDataSource {
             let activePaneId = tab.activePaneId,
             let pane = workspacePane.pane(activePaneId),
             let drawer = pane.drawer,
-            let drawerView = atom(\.arrangementView).drawerView(forParent: activePaneId)
+            let drawerView = arrangementView.drawerView(forParent: activePaneId)
         {
             items = drawer.paneIds.enumerated().compactMap { index, drawerPaneId -> CommandBarItem? in
                 guard let drawerPane = workspacePane.pane(drawerPaneId) else { return nil }

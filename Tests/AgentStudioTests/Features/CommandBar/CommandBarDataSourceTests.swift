@@ -47,6 +47,7 @@ struct CommandBarDataSourceTests {
         store.insertPane(
             paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
         _ = store.addDrawerPane(to: paneA.id)
+        store.setActivePane(paneA.id, inTab: tab.id)
 
         return store
     }
