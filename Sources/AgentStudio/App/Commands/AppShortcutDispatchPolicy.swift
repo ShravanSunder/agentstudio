@@ -2,6 +2,26 @@ import Foundation
 
 @MainActor
 enum AppShortcutDispatchPolicy {
+    static func shouldRouteAppOwnedKeyEvent(context: KeyboardRoutingContext) -> Bool {
+        guard let transientSurface = context.transientSurface else {
+            return true
+        }
+        return shouldDispatchFromTransientSurface(surface: transientSurface)
+    }
+
+    static func shouldDispatchGlobalShortcut(
+        _ shortcut: AppShortcut,
+        context: KeyboardRoutingContext
+    ) -> Bool {
+        if let transientSurface = context.transientSurface,
+            !shouldDispatchFromTransientSurface(surface: transientSurface)
+        {
+            return false
+        }
+
+        return shouldDispatchGlobalShortcut(shortcut, keyboardOwner: context.keyboardOwner)
+    }
+
     static func shouldDispatchGlobalShortcut(
         _ shortcut: AppShortcut,
         keyboardOwner: KeyboardOwner
@@ -13,6 +33,13 @@ enum AppShortcutDispatchPolicy {
             return shouldDispatchFromMainWindowChain(shortcut)
         case .sidebar(let surface):
             return shouldDispatchFromSidebar(shortcut, surface: surface)
+        }
+    }
+
+    private static func shouldDispatchFromTransientSurface(surface: TransientKeyboardSurfaceKind) -> Bool {
+        switch surface {
+        case .tabRename:
+            return false
         }
     }
 

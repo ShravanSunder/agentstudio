@@ -80,6 +80,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let repoCache: RepoCacheAtom
     private let applicationLifecycleMonitor: ApplicationLifecycleMonitor
     private let appLifecycleStore: AppLifecycleAtom
+    private let workspaceWindowId: UUID?
     private let executor: ActionExecutor
     private let tabBarAdapter: TabBarAdapter
     private let viewRegistry: ViewRegistry
@@ -89,6 +90,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let arrangementInlineRenameState: ArrangementInlineRenameState
     private let registersAsCommandHandler: Bool
     private var tabRenamePopover: NSPopover?
+    private var tabRenameTransientSurfaceToken: TransientKeyboardSurfaceToken?
     private let installedEditorTargetsProvider: @MainActor () -> [ExternalEditorTarget]
     private let openEditorHandler: OpenEditorHandler
     private let openFinderHandler: @MainActor (URL) -> Bool
@@ -164,6 +166,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         repoCache: RepoCacheAtom,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         appLifecycleStore: AppLifecycleAtom,
+        workspaceWindowId: UUID? = nil,
         executor: ActionExecutor,
         tabBarAdapter: TabBarAdapter,
         viewRegistry: ViewRegistry,
@@ -190,6 +193,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         self.repoCache = repoCache
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
         self.appLifecycleStore = appLifecycleStore
+        self.workspaceWindowId = workspaceWindowId
         self.executor = executor
         self.tabBarAdapter = tabBarAdapter
         self.viewRegistry = viewRegistry
@@ -1200,6 +1204,18 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return false
         }
 
+        let keyboardContext = KeyboardRoutingContext.current(
+            windowLifecycle: atom(\.windowLifecycle),
+            managementLayer: atom(\.managementLayer),
+            uiState: atom(\.uiState),
+            transientKeyboardSurface: atom(\.transientKeyboardSurface),
+            workspaceWindowId: workspaceWindowId
+        )
+
+        guard AppShortcutDispatchPolicy.shouldRouteAppOwnedKeyEvent(context: keyboardContext) else {
+            return false
+        }
+
         if let parentPaneId = firstDrawerPaneParentId(
             for: trigger,
             event: event,
@@ -1218,11 +1234,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return true
         }
 
-        let keyboardOwner = KeyboardOwner.current(
-            windowLifecycle: atom(\.windowLifecycle),
-            managementLayer: atom(\.managementLayer),
-            uiState: atom(\.uiState)
-        )
+        let keyboardOwner = keyboardContext.keyboardOwner
 
         if shouldHandleScopeAwarePaneTrigger(event: event, keyboardOwner: keyboardOwner),
             let command = scopeAwarePaneCommand(for: trigger),
@@ -1236,7 +1248,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             guard
                 AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(
                     shortcut,
-                    keyboardOwner: keyboardOwner
+                    context: keyboardContext
                 )
             else {
                 return false
@@ -1843,12 +1855,21 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             )
         )
         tabRenamePopover = popover
+        if let workspaceWindowId = workspaceWindowId ?? atom(\.windowLifecycle).focusedWindowId
+            ?? atom(\.windowLifecycle).keyWindowId
+        {
+            tabRenameTransientSurfaceToken = atom(\.transientKeyboardSurface).present(
+                .tabRename(tabId: tabId),
+                workspaceWindowId: workspaceWindowId
+            )
+        }
 
         let anchorRect = tabBarHostingView.tabFrameInView(for: tabId) ?? tabBarHostingView.bounds
         popover.show(relativeTo: anchorRect, of: tabBarHostingView, preferredEdge: .minY)
     }
 
     private func closeTabRenamePopover(updateState: Bool = true) {
+        dismissTabRenameTransientSurface()
         let popover = tabRenamePopover
         tabRenamePopover = nil
         popover?.delegate = nil
@@ -1860,8 +1881,15 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     func popoverDidClose(_ notification: Notification) {
         guard notification.object as? NSPopover === tabRenamePopover else { return }
+        dismissTabRenameTransientSurface()
         tabRenamePopover = nil
         tabRenamePopoverState.dismiss()
+    }
+
+    private func dismissTabRenameTransientSurface() {
+        guard let tabRenameTransientSurfaceToken else { return }
+        atom(\.transientKeyboardSurface).dismiss(tabRenameTransientSurfaceToken)
+        self.tabRenameTransientSurfaceToken = nil
     }
 
     // MARK: - Tab Reordering

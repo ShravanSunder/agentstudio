@@ -200,4 +200,110 @@ struct PaneTabViewControllerGlobalShortcutRoutingTests {
             )
         )
     }
+
+    @Test("tab rename transient surface blocks app shortcut dispatch")
+    func tabRenameTransientSurfaceBlocksAppShortcutDispatch() {
+        let workspaceWindowId = UUID()
+        let context = KeyboardRoutingContext(
+            keyboardOwner: .mainWindowChain,
+            workspaceWindowId: workspaceWindowId,
+            transientSurface: .tabRename(tabId: UUID())
+        )
+
+        for shortcut in AppShortcut.allCases {
+            #expect(
+                !AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(shortcut, context: context),
+                "\(shortcut) should not dispatch while tab rename owns keyboard input"
+            )
+        }
+    }
+
+    @Test("transient surface does not affect another workspace window")
+    func transientSurfaceDoesNotAffectAnotherWorkspaceWindow() {
+        let context = KeyboardRoutingContext(
+            keyboardOwner: .mainWindowChain,
+            workspaceWindowId: UUID(),
+            transientSurface: nil
+        )
+
+        #expect(AppShortcutDispatchPolicy.shouldDispatchGlobalShortcut(.nextTab, context: context))
+    }
+
+    @Test("production global key path consults transient surface policy")
+    func productionGlobalKeyPathConsultsTransientSurfacePolicy() async throws {
+        try await withAsyncTestAtomRegistry { atoms in
+            let harness = makeHarness()
+            let handler = MockCommandHandler()
+            configureMainWindowKeyboardOwner(atoms)
+            let workspaceWindowId = try #require(atoms.windowLifecycle.focusedWindowId)
+            _ = atoms.transientKeyboardSurface.present(
+                .tabRename(tabId: UUID()),
+                workspaceWindowId: workspaceWindowId
+            )
+
+            let event = try #require(
+                makeKeyEvent(
+                    modifierFlags: [.command, .option],
+                    characters: "l",
+                    charactersIgnoringModifiers: "l",
+                    keyCode: 37
+                )
+            )
+            let trigger = try #require(ShortcutDecoder.decode(event: event))
+            #expect(ShortcutDecoder.shortcut(for: trigger, in: .global) == .nextTab)
+
+            try await withIsolatedCommandDispatcher(
+                configure: {
+                    CommandDispatcher.shared.handler = handler
+                    CommandDispatcher.shared.appCommandRouter = nil
+                },
+                body: {
+                    #expect(!harness.controller.handleAppOwnedKeyEvent(event))
+                    #expect(handler.executedCommands.isEmpty)
+                }
+            )
+        }
+    }
+
+    @Test("transient surface blocks scope-aware pane shortcuts")
+    func transientSurfaceBlocksScopeAwarePaneShortcuts() async throws {
+        try await withAsyncTestAtomRegistry { atoms in
+            let harness = makeHarness()
+            defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+            configureMainWindowKeyboardOwner(atoms)
+            let workspaceWindowId = try #require(atoms.windowLifecycle.focusedWindowId)
+            _ = atoms.transientKeyboardSurface.present(
+                .tabRename(tabId: UUID()),
+                workspaceWindowId: workspaceWindowId
+            )
+
+            let first = harness.store.createPane(source: .floating(launchDirectory: nil, title: "First"))
+            let second = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Second"))
+            let tab = Tab(paneId: first.id)
+            harness.store.appendTab(tab)
+            harness.store.insertPane(
+                second.id,
+                inTab: tab.id,
+                at: first.id,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )
+            harness.store.setActiveTab(tab.id)
+            harness.store.setActivePane(second.id, inTab: tab.id)
+            atoms.workspaceFocusOwner.focusMainPane(second.id)
+
+            let event = try #require(
+                makeKeyEvent(
+                    modifierFlags: [.option],
+                    characters: "j",
+                    charactersIgnoringModifiers: "j",
+                    keyCode: 38
+                )
+            )
+
+            #expect(!harness.controller.handleAppOwnedKeyEvent(event))
+            #expect(harness.store.tab(tab.id)?.activePaneId == second.id)
+        }
+    }
 }

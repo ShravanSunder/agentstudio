@@ -18,6 +18,7 @@ final class AtomRegistry {
     let paneInboxPresentationState: PaneInboxPresentationAtom
     let uiState: UIStateAtom
     let managementLayer: ManagementLayerAtom
+    let transientKeyboardSurface: TransientKeyboardSurfaceAtom
     let workspaceFocusOwner: WorkspaceFocusOwnerAtom
     let sessionRuntime: SessionRuntimeAtom
     let welcome: WelcomeAtom
@@ -40,6 +41,7 @@ final class AtomRegistry {
         paneInboxPresentationState: PaneInboxPresentationAtom = .init(),
         uiState: UIStateAtom = .init(),
         managementLayer: ManagementLayerAtom = .init(),
+        transientKeyboardSurface: TransientKeyboardSurfaceAtom = .init(),
         workspaceFocusOwner: WorkspaceFocusOwnerAtom = .init(),
         sessionRuntime: SessionRuntimeAtom = .init(),
         welcome: WelcomeAtom = .init()
@@ -72,6 +74,7 @@ final class AtomRegistry {
         self.paneInboxPresentationState = paneInboxPresentationState
         self.uiState = uiState
         self.managementLayer = managementLayer
+        self.transientKeyboardSurface = transientKeyboardSurface
         self.workspaceFocusOwner = workspaceFocusOwner
         self.sessionRuntime = sessionRuntime
         self.welcome = welcome

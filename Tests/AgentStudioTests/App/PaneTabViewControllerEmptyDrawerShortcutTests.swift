@@ -80,6 +80,48 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
             })
     }
 
+    @Test("transient surface blocks raw p empty drawer shortcut")
+    func rawP_openEmptyDrawerWithTransientSurface_fallsThrough() async throws {
+        try await withIsolatedCommandDispatcher(
+            configure: {},
+            body: {
+                try withTestAtomRegistry { atoms in
+                    let harness = makeHarness()
+                    let handler = MockCommandHandler()
+                    defer { try? FileManager.default.removeItem(at: harness.tempDir) }
+
+                    let workspaceWindowId = UUID()
+                    atoms.windowLifecycle.recordWindowRegistered(workspaceWindowId)
+                    atoms.windowLifecycle.recordWindowBecameKey(workspaceWindowId)
+                    _ = atoms.transientKeyboardSurface.present(
+                        .tabRename(tabId: UUID()),
+                        workspaceWindowId: workspaceWindowId
+                    )
+
+                    let parent = harness.store.createPane(source: .floating(launchDirectory: nil, title: "Parent"))
+                    let tab = Tab(paneId: parent.id)
+                    harness.store.appendTab(tab)
+                    harness.store.setActiveTab(tab.id)
+                    harness.store.setActivePane(parent.id, inTab: tab.id)
+                    harness.store.toggleDrawer(for: parent.id)
+                    atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parent.id)
+                    CommandDispatcher.shared.handler = handler
+                    CommandDispatcher.shared.appCommandRouter = nil
+
+                    let event = try #require(rawPEvent(windowNumber: 0))
+
+                    #expect(
+                        !harness.controller.handleAppOwnedKeyEvent(
+                            event,
+                            allowsModifiedEmptyDrawerShortcutWithTextFocus: false
+                        )
+                    )
+                    #expect(handler.executedCommands.isEmpty)
+                    #expect(harness.store.pane(parent.id)?.drawer?.paneIds.isEmpty == true)
+                }
+            })
+    }
+
     @Test("p does not create first drawer pane while text input owns focus")
     func rawP_openEmptyDrawerWithTextInputFocus_fallsThrough() throws {
         try withTestAtomRegistry { _ in

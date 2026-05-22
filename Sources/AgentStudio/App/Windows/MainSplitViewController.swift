@@ -48,6 +48,7 @@ class MainSplitViewController: NSSplitViewController {
     // MARK: - Dependencies (injected)
 
     private let store: WorkspaceStore
+    private let workspaceWindowId: UUID?
     private var repoCache: RepoCacheAtom { atom(\.repoCache) }
     private var uiState: UIStateAtom { atom(\.uiState) }
     private let actionExecutor: ActionExecutor
@@ -69,6 +70,7 @@ class MainSplitViewController: NSSplitViewController {
 
     init(
         store: WorkspaceStore,
+        workspaceWindowId: UUID? = nil,
         actionExecutor: ActionExecutor,
         applicationLifecycleMonitor: ApplicationLifecycleMonitor,
         appLifecycleStore: AppLifecycleAtom,
@@ -84,6 +86,7 @@ class MainSplitViewController: NSSplitViewController {
         paneTabRegistersAsCommandHandler: Bool = true
     ) {
         self.store = store
+        self.workspaceWindowId = workspaceWindowId
         self.actionExecutor = actionExecutor
         self.applicationLifecycleMonitor = applicationLifecycleMonitor
         self.appLifecycleStore = appLifecycleStore
@@ -111,6 +114,7 @@ class MainSplitViewController: NSSplitViewController {
             repoCache: repoCache,
             applicationLifecycleMonitor: applicationLifecycleMonitor,
             appLifecycleStore: appLifecycleStore,
+            workspaceWindowId: workspaceWindowId,
             executor: actionExecutor,
             tabBarAdapter: tabBarAdapter,
             viewRegistry: viewRegistry,

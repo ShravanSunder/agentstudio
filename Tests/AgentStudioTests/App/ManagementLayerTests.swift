@@ -127,6 +127,28 @@ struct ManagementLayerTests {
         }
     }
 
+    @Test("transient surface suppresses management layer plain command dispatch")
+    func test_managementLayer_keyPolicy_transientSurfaceSuppressesPlainCommandDispatch() async {
+        withTestAtomRegistry { atoms in
+            let monitor = makeMonitor()
+            let workspaceWindowId = UUID()
+            atoms.windowLifecycle.recordWindowRegistered(workspaceWindowId)
+            atoms.windowLifecycle.recordWindowBecameKey(workspaceWindowId)
+            _ = atoms.transientKeyboardSurface.present(
+                .tabRename(tabId: UUID()),
+                workspaceWindowId: workspaceWindowId
+            )
+
+            let decision = monitor.keyDownDecision(
+                keyCode: 35,
+                modifierFlags: [],
+                charactersIgnoringModifiers: "p"
+            )
+
+            #expect(decision == .consume)
+        }
+    }
+
     @Test("management layer key policy dispatches B to create browser")
     func test_managementLayer_keyPolicy_dispatchesCreateBrowser() async {
         withTestAtomRegistry { _ in
