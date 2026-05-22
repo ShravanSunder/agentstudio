@@ -137,6 +137,53 @@ Add a new context only when an existing one would cause cross-routing
 "nice to organize" reasons — the routing layer enumerates contexts to
 find a match, so each new context is a small cost on every keystroke.
 
+## Keyboard Surface Contract
+
+Keyboard interpretation resolves in this precedence order:
+
+1. `ActiveKeyboardSurface.commandBar(scope:)`
+2. `ActiveKeyboardSurface.transient(kind:)`
+3. `ActiveKeyboardSurface.stable(owner:)`
+
+Stable owners are long-lived focus regions:
+
+- `.mainWindowChain`
+- `.managementLayer`
+- `.sidebar(.repos)`
+- `.sidebar(.inbox)`
+- `.otherWindow`
+
+Command bar is a privileged overlay surface. While active, it owns keyboard
+interpretation through its AppKit panel and local command-bar router. Its
+activation shortcuts remain available from workspace-owned surfaces even when a
+pane-local transient surface is active.
+
+The `⌘T` repo command-bar activation is named `AppShortcut.newTab` at the
+shortcut layer but dispatches `AppCommand.showCommandBarRepos`. It belongs in
+both `.global` and `.terminalAppOwned` contexts so a focused terminal pane can
+decode it directly rather than relying on AppKit main-menu fallback.
+
+Transient surfaces are temporary pane-local keyboard islands:
+
+- `.tabRename(tabId:)`
+- `.arrangementPanel(tabId:)`
+- `.arrangementRename(tabId:arrangementId:)`
+- `.paneInbox(parentPaneId:)`
+- `.editorChooser(paneId:)`
+
+Transient surfaces suppress app/global/management shortcuts while their local
+responder handles local keys such as Return, Escape, arrows, and number
+selection.
+
+This suppression intentionally includes destructive global shortcuts such as
+`closeWindow`. When a transient popover or editor is open, local cancellation
+or close behavior belongs to that responder; the workspace window should not
+close from an app-level shortcut underneath it.
+
+Repo sidebar and inbox sidebar are separate stable keyboard surfaces. They are
+tested by setting sidebar visibility, selected surface, and sidebar focus; they
+do not require a shortcut that creates the surface.
+
 ## Displaying the bound key in the UI
 
 Use the helper, never reach for the raw character:

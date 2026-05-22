@@ -734,8 +734,7 @@ extension AppCommand {
                 icon: .system(.magnifyingglass),
                 helpText: "Open quick find",
                 commandBarGroupName: "Commands",
-                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
-                isHiddenInCommandBar: true
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
             )
         case .showCommandBarCommands:
             return CommandSpec(
@@ -745,8 +744,7 @@ extension AppCommand {
                 icon: .system(.command),
                 helpText: "Open the command palette",
                 commandBarGroupName: "Commands",
-                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
-                isHiddenInCommandBar: true
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
             )
         case .showCommandBarPanes:
             return CommandSpec(
@@ -756,8 +754,7 @@ extension AppCommand {
                 icon: .system(.terminal),
                 helpText: "Open the pane picker",
                 commandBarGroupName: "Commands",
-                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
-                isHiddenInCommandBar: true
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
             )
         case .showCommandBarRepos:
             return CommandSpec(
@@ -767,8 +764,7 @@ extension AppCommand {
                 icon: .system(.folder),
                 helpText: "Open the repo and worktree picker",
                 commandBarGroupName: "Commands",
-                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous,
-                isHiddenInCommandBar: true
+                commandBarGroupPriority: CommandBarGroupPriority.miscellaneous
             )
         case .openWebview:
             return CommandSpec(

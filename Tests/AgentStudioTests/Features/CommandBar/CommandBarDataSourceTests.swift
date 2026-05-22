@@ -104,11 +104,13 @@ struct CommandBarDataSourceTests {
         let items = CommandBarDataSource.items(
             scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
 
-        // Assert — selectTab1..9 and command bar launcher commands should be hidden
+        // Assert — tab ordinals are hidden, command-bar launcher commands are visible.
         let ids = items.map(\.id)
         #expect(!ids.contains("cmd-selectTab1"))
-        #expect(!ids.contains("cmd-showCommandBarEverything"))
-        #expect(!ids.contains("cmd-showCommandBarCommands"))
+        #expect(ids.contains("cmd-showCommandBarEverything"))
+        #expect(ids.contains("cmd-showCommandBarCommands"))
+        #expect(ids.contains("cmd-showCommandBarPanes"))
+        #expect(ids.contains("cmd-showCommandBarRepos"))
     }
 
     @Test
