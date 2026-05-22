@@ -99,7 +99,7 @@ Sources/AgentStudio/
 └── Package.swift
 ```
 
-> **Note on existing feature directories:** the tree above shows the target convention. Existing features like `Features/Bridge/State/` (without the `MainActor/` subpath) are grandfathered — they predate the convention and migrate in follow-up tickets. All NEW features adopt the full `State/MainActor/{Atoms,Persistence}/` path from day one.
+> **Note on existing feature directories:** the tree above shows the target convention. Existing features like `Features/Bridge/State/` (without the `MainActor/` subpath), `Features/InboxNotification/State/`, and `Features/EditorChooser/State/` are grandfathered — they predate the convention and migrate in follow-up tickets. All NEW features adopt the full `State/MainActor/{Atoms,Persistence}/` path from day one.
 
 ---
 
@@ -181,6 +181,8 @@ There are two kinds of state. They live in different places:
 - **Feature state** — domain data owned by one feature. Examples: notification log, inbox view prefs, repo-explorer expanded groups. Lives in feature atoms inside the feature slice. Never leaks into Core.
 
 If you are tempted to add a feature-specific property to `UIStateAtom`, that property belongs in a feature atom instead. If you are tempted to add a feature type to `Core/Models/`, test it: does *multiple features* and *cross-cutting composition* consume it? If only one feature uses it, it belongs in that feature.
+
+Current exception to watch: `PaneContent.bridgePanel(BridgePaneState)` stores bridge-pane payload in `Core/Models/PaneContent.swift`. This exists because the persisted pane union is currently defined in Core while pane content variants are decoded from workspace state. Treat it as a transitional persistence boundary, not a precedent for adding more feature-owned types to Core. New bridge domain state still belongs in `Features/Bridge/State/...`; any future cleanup should move toward a Core-owned content descriptor or feature registration seam instead of widening Core's knowledge of Bridge internals.
 
 #### The Core-imports-nothing-from-Features rule
 

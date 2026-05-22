@@ -53,7 +53,7 @@ Use these broad ownership rules first, then consult [Directory Structure](docs/a
 - `SharedComponents/`
   Reusable UI building blocks that are not themselves product features and do not own host placement. Use this for reusable menu content, row rendering, and small UI-facing models.
 - `Features/`
-  User-facing capability slices such as Terminal, Bridge, CommandBar, Sidebar, and Webview. Features own capability-specific behavior that is broader than a reusable component.
+  User-facing capability slices such as Terminal, Bridge, Webview, CodeViewer, CommandBar, RepoExplorer, InboxNotification, and feature-owned EditorChooser state. Features own capability-specific behavior that is broader than a reusable component.
 - `Infrastructure/`
   Domain-agnostic utilities and external integrations. Organize these in subfolders by concern, such as `AtomLib/`, `Extensions/`, `Icons/`, `StateMachine/`, and integration-specific folders like `ExternalApps/`.
 
@@ -122,7 +122,9 @@ Each doc owns a specific concern. See [Architecture Overview](docs/architecture/
 | [App Architecture](docs/architecture/appkit_swiftui_architecture.md) | AppKit+SwiftUI hybrid, controllers, events |
 | [Commands and Shortcuts](docs/architecture/commands_and_shortcuts.md) | The four-file system (AppCommand / AppShortcut / CommandSpec / LocalActionSpec), execution-owner decision tree (`AppDelegate` shell vs `PaneTabViewController` pane/drawer), contexts, alternateTriggers, and where constants live (AppShortcut vs AppPolicies vs AppStyles vs LocalActionSpec) |
 | [Directory Structure](docs/architecture/directory_structure.md) | Module boundaries, Core vs Features, import rule, component placement |
+| [Swift-React Bridge](docs/architecture/swift_react_bridge_design.md) | Bridge architecture, content-delivery status, JSON-RPC/push contracts, read-only CodeView/Shiki review surface, and LUNA-337 completion boundary |
 | [Style Guide](docs/guides/style_guide.md) | macOS design conventions and visual standards |
+| [Agent Resources](docs/guides/agent_resources.md) | Bootstrap, official Swift/macOS docs, DeepWiki sources, and research guidance |
 
 ### Plans
 
@@ -288,7 +290,6 @@ agent-studio/
 │   │   ├── Windows/MainWindowController.swift
 │   │   ├── Coordination/PaneCoordinator.swift  # Cross-feature sequencing and orchestration
 │   │   └── Panes/                    # Pane tab management and NSView registry
-│   ├── SharedComponents/             # Reusable UI building blocks
 │   ├── Core/                         # Shared domain — models, stores, pane system
 │   │   ├── Models/                   # Layout, Tab, Pane, Repo, Worktree, SidebarSurface,
 │   │   │                             #   KeyboardOwner, ...
