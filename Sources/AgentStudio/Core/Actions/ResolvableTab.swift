@@ -9,6 +9,8 @@ protocol ResolvableTab: Identifiable where ID == UUID {
     var visiblePaneIds: [UUID] { get }
     var ownedPaneIds: [UUID] { get }
     var isSplit: Bool { get }
+    var validationActiveArrangementId: UUID? { get }
+    var arrangementSnapshots: [ArrangementSnapshot] { get }
 
     /// Find the neighbor pane ID in the given direction.
     func neighborPaneId(of paneId: UUID, direction: SplitFocusDirection) -> UUID?
@@ -20,11 +22,20 @@ protocol ResolvableTab: Identifiable where ID == UUID {
     func previousPaneId(before paneId: UUID) -> UUID?
 }
 
+extension ResolvableTab {
+    var validationActiveArrangementId: UUID? { nil }
+    var arrangementSnapshots: [ArrangementSnapshot] { [] }
+}
+
 // MARK: - Tab Conformance
 
 extension Tab: ResolvableTab {
     var visiblePaneIds: [UUID] { activePaneIds }
     var ownedPaneIds: [UUID] { allPaneIds }
+    var validationActiveArrangementId: UUID? { activeArrangementId }
+    var arrangementSnapshots: [ArrangementSnapshot] {
+        arrangements.map { ArrangementSnapshot(id: $0.id, isDefault: $0.isDefault) }
+    }
 
     func neighborPaneId(of paneId: UUID, direction: SplitFocusDirection) -> UUID? {
         layout.neighbor(of: paneId, direction: direction.toFocusDirection)
