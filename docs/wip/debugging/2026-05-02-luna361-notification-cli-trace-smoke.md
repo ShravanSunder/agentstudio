@@ -66,7 +66,8 @@ Run these in one AgentStudio debug session. Switch focus away from the pane befo
 Find the trace file:
 
 ```bash
-ls -t tmp/luna361-notification-traces/*.jsonl | head -1
+TRACE_FILE=$(ls -t tmp/luna361-notification-traces/*.jsonl | head -1)
+echo "$TRACE_FILE"
 ```
 
 Count record types:
@@ -96,8 +97,9 @@ scripts/verify-notification-osc-smoke.sh "$TRACE_FILE" --expect-bell-notified
 
 This verifier proves the trace pipeline from Ghostty's desktop notification
 action into terminal activity tracing, inbox classification, promotion, and row
-append. It does not prove final pixels; keep a screenshot or manual note when
-the smoke run is also used for visual acceptance.
+append. It does not prove macOS NotificationCenter delivery or final pixels;
+keep a screenshot or manual note when the smoke run is also used for visual
+acceptance.
 
 Show eventbus delivery summaries:
 
