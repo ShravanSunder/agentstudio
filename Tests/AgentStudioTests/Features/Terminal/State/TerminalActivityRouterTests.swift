@@ -754,8 +754,7 @@ struct TerminalActivityRouterTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: Layout(paneId: activePaneId),
-            visiblePaneIds: [activePaneId]
+            layout: Layout(paneId: activePaneId)
         )
         let tab = Tab(
             name: "Tab",

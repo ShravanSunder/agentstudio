@@ -137,7 +137,62 @@ struct WorkspacePersistenceTransformerTests {
 
         #expect(state.tabs[0].activeMinimizedPaneIds == Set([persistentPane.id]))
         #expect(state.tabs[0].activeArrangement.layout.paneIds == [persistentPane.id])
-        #expect(state.tabs[0].activeArrangement.visiblePaneIds == Set([persistentPane.id]))
+    }
+
+    @Test
+    func makePersistableState_prunesTemporaryPanesFromDrawerViews() throws {
+        let metadataAtom = WorkspaceMetadataAtom()
+        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let paneAtom = WorkspacePaneAtom()
+        let tabLayoutAtom = WorkspaceTabLayoutAtom()
+
+        metadataAtom.hydrate(
+            workspaceId: UUID(),
+            workspaceName: "Workspace",
+            createdAt: Date(timeIntervalSince1970: 1000),
+            sidebarWidth: 250,
+            windowFrame: nil
+        )
+
+        let parentPane = makePane(title: "Parent")
+        let persistentDrawerPane = makePane(title: "Persistent Drawer")
+        let temporaryDrawerPane = makePane(title: "Temporary Drawer", lifetime: .temporary)
+        paneAtom.addPane(parentPane)
+        paneAtom.addPane(persistentDrawerPane)
+        paneAtom.addPane(temporaryDrawerPane)
+
+        var tab = makeTab(paneIds: [parentPane.id], activePaneId: parentPane.id)
+        let drawerId = UUID()
+        let drawerLayout = DrawerGridLayout(
+            topRow: Layout(paneId: persistentDrawerPane.id)
+                .inserting(
+                    paneId: temporaryDrawerPane.id,
+                    at: persistentDrawerPane.id,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )!
+        )
+        tab.arrangements[tab.activeArrangementIndex].drawerViews[drawerId] = DrawerView(
+            layout: drawerLayout,
+            activeChildId: temporaryDrawerPane.id,
+            minimizedPaneIds: [temporaryDrawerPane.id]
+        )
+        tabLayoutAtom.appendTab(tab)
+        tabLayoutAtom.setActiveTab(tab.id)
+
+        let state = WorkspacePersistenceTransformer.makePersistableState(
+            metadataAtom: metadataAtom,
+            repositoryTopologyAtom: topologyAtom,
+            workspacePaneAtom: paneAtom,
+            workspaceTabLayoutAtom: tabLayoutAtom,
+            persistedAt: Date(timeIntervalSince1970: 2000)
+        )
+
+        let drawerView = try #require(state.tabs[0].arrangements[0].drawerViews[drawerId])
+        #expect(drawerView.layout.paneIds == [persistentDrawerPane.id])
+        #expect(drawerView.minimizedPaneIds.isEmpty)
+        #expect(drawerView.activeChildId == persistentDrawerPane.id)
     }
 
     @Test
@@ -200,21 +255,20 @@ struct WorkspacePersistenceTransformerTests {
         paneAtom.addPane(persistentPane)
         paneAtom.addPane(temporaryPane)
 
-        let tab = makeTab(
+        var tab = makeTab(
             paneIds: [persistentPane.id, temporaryPane.id],
             activePaneId: temporaryPane.id
         )
+        let customArrangement = PaneArrangement(
+            name: "Temporary Only",
+            isDefault: false,
+            layout: Layout(paneId: temporaryPane.id),
+            activePaneId: temporaryPane.id
+        )
+        tab.arrangements.append(customArrangement)
+        tab.activeArrangementId = customArrangement.id
         tabLayoutAtom.appendTab(tab)
         tabLayoutAtom.setActiveTab(tab.id)
-
-        let customArrangementId = try #require(
-            tabLayoutAtom.createArrangement(
-                name: "Temporary Only",
-                paneIds: [temporaryPane.id],
-                inTab: tab.id
-            )
-        )
-        tabLayoutAtom.switchArrangement(to: customArrangementId, inTab: tab.id)
 
         let state = WorkspacePersistenceTransformer.makePersistableState(
             metadataAtom: metadataAtom,

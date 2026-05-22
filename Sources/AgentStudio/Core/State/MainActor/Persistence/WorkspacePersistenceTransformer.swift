@@ -134,39 +134,25 @@ enum WorkspacePersistenceTransformer {
         for tabIndex in tabs.indices {
             tabs[tabIndex].panes.removeAll { !validPaneIds.contains($0) }
 
-            for arrIndex in tabs[tabIndex].arrangements.indices {
-                let invalidIds = tabs[tabIndex].arrangements[arrIndex].layout.paneIds.filter {
-                    !validPaneIds.contains($0)
-                }
-                for paneId in invalidIds {
-                    if let newLayout = tabs[tabIndex].arrangements[arrIndex].layout.removing(
-                        paneId: paneId,
-                        sizingMode: .halveTarget
-                    ) {
-                        tabs[tabIndex].arrangements[arrIndex].layout = newLayout
-                    } else {
-                        tabs[tabIndex].arrangements[arrIndex].layout = Layout()
-                    }
-                    tabs[tabIndex].arrangements[arrIndex].visiblePaneIds.remove(paneId)
-                    tabs[tabIndex].arrangements[arrIndex].minimizedPaneIds.remove(paneId)
-                }
-            }
+            tabs[tabIndex].arrangements = TabArrangementRepairRules.pruningInvalidPaneIds(
+                validPaneIds: validPaneIds,
+                from: tabs[tabIndex].arrangements
+            )
 
             if tabs[tabIndex].activeArrangement.layout.isEmpty && !tabs[tabIndex].defaultArrangement.layout.isEmpty {
                 tabs[tabIndex].activeArrangementId = tabs[tabIndex].defaultArrangement.id
             }
 
-            if let activePaneId = tabs[tabIndex].activePaneId, !validPaneIds.contains(activePaneId) {
-                tabs[tabIndex].activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(
-                    in: tabs[tabIndex].activeArrangement
-                )
-            } else if let activePaneId = tabs[tabIndex].activePaneId,
-                !tabs[tabIndex].activeArrangement.layout.contains(activePaneId)
-                    || tabs[tabIndex].activeArrangement.minimizedPaneIds.contains(activePaneId)
+            let activeArrangementIndex = tabs[tabIndex].activeArrangementIndex
+            if let activePaneId = tabs[tabIndex].arrangements[activeArrangementIndex].activePaneId,
+                !validPaneIds.contains(activePaneId)
+                    || !tabs[tabIndex].arrangements[activeArrangementIndex].layout.contains(activePaneId)
+                    || tabs[tabIndex].arrangements[activeArrangementIndex].minimizedPaneIds.contains(activePaneId)
             {
-                tabs[tabIndex].activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(
-                    in: tabs[tabIndex].activeArrangement
-                )
+                tabs[tabIndex].arrangements[activeArrangementIndex].activePaneId =
+                    TabArrangementSelectionRules.firstUnminimizedPaneId(
+                        in: tabs[tabIndex].arrangements[activeArrangementIndex]
+                    )
             }
         }
 

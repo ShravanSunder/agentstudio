@@ -18,7 +18,7 @@ final class TabArrangementTests {
         #expect(tab.arrangements[0].isDefault)
         #expect(tab.arrangements[0].name == "Default")
         #expect(tab.arrangements[0].layout.paneIds == [paneId])
-        #expect(tab.arrangements[0].visiblePaneIds == [paneId])
+        #expect(tab.arrangements[0].minimizedPaneIds.isEmpty)
     }
 
     @Test
@@ -28,10 +28,8 @@ final class TabArrangementTests {
         let paneB = UUID()
         let defaultLayout = Layout(paneId: paneA)
             .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
-        let defaultArr = PaneArrangement(
-            name: "Default", isDefault: true, layout: defaultLayout, visiblePaneIds: Set(defaultLayout.paneIds))
-        let customArr = PaneArrangement(
-            name: "Focus", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
+        let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: defaultLayout)
+        let customArr = PaneArrangement(name: "Focus", isDefault: false, layout: Layout.autoTiled([paneB, paneA]))
 
         let tab = Tab(
             panes: defaultLayout.paneIds,
@@ -53,8 +51,7 @@ final class TabArrangementTests {
         let defaultLayout = Layout(paneId: paneA)
             .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: defaultLayout)
-        let customArr = PaneArrangement(
-            name: "Solo", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
+        let customArr = PaneArrangement(name: "Solo", isDefault: false, layout: Layout.autoTiled([paneB, paneA]))
 
         let tab = Tab(
             panes: defaultLayout.paneIds,
@@ -88,7 +85,7 @@ final class TabArrangementTests {
 
     @Test
 
-    func test_paneIds_comesFromActiveArrangement() {
+    func test_paneIds_comesFromActiveArrangementLayoutOrder() {
         let paneA = UUID()
         let paneB = UUID()
         let paneC = UUID()
@@ -97,7 +94,10 @@ final class TabArrangementTests {
             .inserting(paneId: paneC, at: paneB, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: fullLayout)
         let focusArr = PaneArrangement(
-            name: "Focus", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
+            name: "Focus",
+            isDefault: false,
+            layout: Layout.autoTiled([paneC, paneA, paneB])
+        )
 
         // Active is the focus arrangement
         let tab = Tab(
@@ -107,8 +107,8 @@ final class TabArrangementTests {
             activePaneId: paneA
         )
 
-        #expect(tab.paneIds == [paneA])  // from focus arrangement
-        #expect(!(tab.isSplit))
+        #expect(tab.paneIds == [paneC, paneA, paneB])
+        #expect(tab.isSplit)
     }
 
     @Test
@@ -145,8 +145,7 @@ final class TabArrangementTests {
 
     func test_defaultArrangementIndex_findsCorrectIndex() {
         let paneA = UUID()
-        let customArr = PaneArrangement(
-            name: "Custom", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
+        let customArr = PaneArrangement(name: "Custom", isDefault: false, layout: Layout(paneId: paneA))
         let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: Layout(paneId: paneA))
 
         let tab = Tab(
@@ -164,8 +163,7 @@ final class TabArrangementTests {
     func test_activeArrangementIndex_findsCorrectIndex() {
         let paneA = UUID()
         let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: Layout(paneId: paneA))
-        let customArr = PaneArrangement(
-            name: "Custom", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
+        let customArr = PaneArrangement(name: "Custom", isDefault: false, layout: Layout(paneId: paneA))
 
         let tab = Tab(
             panes: [paneA],
@@ -203,8 +201,7 @@ final class TabArrangementTests {
         let splitLayout = Layout(paneId: paneA)
             .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
         let defaultArr = PaneArrangement(name: "Default", isDefault: true, layout: splitLayout)
-        let customArr = PaneArrangement(
-            name: "Focus", isDefault: false, layout: Layout(paneId: paneA), visiblePaneIds: [paneA])
+        let customArr = PaneArrangement(name: "Focus", isDefault: false, layout: Layout.autoTiled([paneB, paneA]))
 
         let tab = Tab(
             panes: [paneA, paneB],
@@ -218,7 +215,7 @@ final class TabArrangementTests {
 
         #expect(decoded.arrangements.count == 2)
         #expect(decoded.activeArrangementId == customArr.id)
-        #expect(decoded.paneIds == [paneA])  // active arrangement is focus
+        #expect(decoded.paneIds == [paneB, paneA])
         #expect(decoded.arrangements.contains { $0.isDefault })
         #expect(decoded.arrangements.first { !$0.isDefault }?.name == "Focus")
     }
@@ -242,7 +239,7 @@ final class TabArrangementTests {
 
     @Test
 
-    func test_paneArrangement_visiblePaneIds_defaultsToLayoutPanes() {
+    func test_paneArrangement_layoutOwnsOrderedPaneMembership() {
         let paneA = UUID()
         let paneB = UUID()
         let layout = Layout(paneId: paneA)
@@ -250,25 +247,26 @@ final class TabArrangementTests {
 
         let arr = PaneArrangement(name: "Test", isDefault: false, layout: layout)
 
-        #expect(arr.visiblePaneIds == Set(layout.paneIds))
+        #expect(arr.layout.paneIds == [paneA, paneB])
     }
 
     @Test
 
-    func test_paneArrangement_visiblePaneIds_canBeSubset() {
+    func test_paneArrangement_layoutCanOwnDifferentOrderForSamePaneSet() {
         let paneA = UUID()
         let paneB = UUID()
-        let layout = Layout(paneId: paneA)
-            .inserting(paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!
+        let defaultLayout = Layout.autoTiled([paneA, paneB])
+        let reorderedLayout = Layout.autoTiled([paneB, paneA])
 
         let arr = PaneArrangement(
-            name: "Subset",
+            name: "Reordered",
             isDefault: false,
-            layout: layout,
-            visiblePaneIds: [paneA]
+            layout: reorderedLayout
         )
 
-        #expect(arr.visiblePaneIds == [paneA])
+        #expect(Set(arr.layout.paneIds) == Set(defaultLayout.paneIds))
+        #expect(arr.layout.paneIds == [paneB, paneA])
+        #expect(defaultLayout.paneIds == [paneA, paneB])
     }
 
     @Test
@@ -282,23 +280,23 @@ final class TabArrangementTests {
             name: "Focus",
             isDefault: false,
             layout: layout,
-            visiblePaneIds: [paneA, paneB],
             minimizedPaneIds: [paneB]
         )
 
         let data = try JSONEncoder().encode(arr)
+        let encoded = try #require(String(data: data, encoding: .utf8))
         let decoded = try JSONDecoder().decode(PaneArrangement.self, from: data)
 
         #expect(decoded.id == arr.id)
         #expect(decoded.name == "Focus")
         #expect(!(decoded.isDefault))
-        #expect(decoded.visiblePaneIds == [paneA, paneB])
         #expect(decoded.minimizedPaneIds == [paneB])
         #expect(decoded.layout.paneIds == [paneA, paneB])
+        #expect(!encoded.contains("visiblePaneIds"))
     }
 
     @Test
-    func test_paneArrangement_decodeMissingMinimizedPaneIds_defaultsToEmpty() throws {
+    func test_paneArrangement_decodeMissingViewFieldsIsRejected() throws {
         let paneA = UUID()
         let data = Data(
             """
@@ -312,9 +310,8 @@ final class TabArrangementTests {
             """.utf8
         )
 
-        let decoded = try JSONDecoder().decode(PaneArrangement.self, from: data)
-
-        #expect(decoded.visiblePaneIds == [paneA])
-        #expect(decoded.minimizedPaneIds.isEmpty)
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(PaneArrangement.self, from: data)
+        }
     }
 }

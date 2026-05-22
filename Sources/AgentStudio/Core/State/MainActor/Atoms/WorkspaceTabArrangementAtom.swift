@@ -5,6 +5,16 @@ import os.log
 private let workspaceTabArrangementLogger = Logger(
     subsystem: "com.agentstudio", category: "WorkspaceTabArrangementAtom")
 
+struct CrossTabPaneMoveResult: Equatable {
+    let sourceTabClosed: Bool
+}
+
+struct CrossTabPaneMoveMutation: Equatable {
+    let request: CrossTabPaneMoveRequest
+    let drawerId: UUID?
+    let drawerPaneIds: [UUID]
+}
+
 @MainActor
 @Observable
 final class WorkspaceTabArrangementAtom {
@@ -17,7 +27,6 @@ final class WorkspaceTabArrangementAtom {
                 allPaneIds: tab.allPaneIds,
                 arrangements: tab.arrangements,
                 activeArrangementId: tab.activeArrangementId,
-                activePaneId: tab.activePaneId,
                 zoomedPaneId: tab.zoomedPaneId
             )
         }
@@ -80,19 +89,25 @@ final class WorkspaceTabArrangementAtom {
         }
 
         arrangementStates[tabIndex].zoomedPaneId = nil
-        arrangementStates[tabIndex].arrangements[arrIndex].layout = updatedActiveLayout
-        arrangementStates[tabIndex].arrangements[arrIndex].visiblePaneIds.insert(paneId)
-
-        if !arrangementStates[tabIndex].arrangements[arrIndex].isDefault {
-            let defIdx = defaultArrangementIndex(for: tabIndex)
-            if arrangementStates[tabIndex].arrangements[defIdx].layout.contains(targetPaneId) {
-                if let updatedDefaultLayout = arrangementStates[tabIndex].arrangements[defIdx].layout.inserting(
-                    paneId: paneId, at: targetPaneId, direction: direction, position: position, sizingMode: sizingMode)
-                {
-                    arrangementStates[tabIndex].arrangements[defIdx].layout = updatedDefaultLayout
-                    arrangementStates[tabIndex].arrangements[defIdx].visiblePaneIds.insert(paneId)
+        for arrangementIndex in arrangementStates[tabIndex].arrangements.indices {
+            if arrangementIndex == arrIndex {
+                arrangementStates[tabIndex].arrangements[arrangementIndex].layout = updatedActiveLayout
+                arrangementStates[tabIndex].arrangements[arrangementIndex].activePaneId = paneId
+            } else if !arrangementStates[tabIndex].arrangements[arrangementIndex].layout.contains(paneId) {
+                guard
+                    let updatedLayout = Self.appendingPane(
+                        paneId,
+                        to: arrangementStates[tabIndex].arrangements[arrangementIndex].layout
+                    )
+                else {
+                    workspaceTabArrangementLogger.warning(
+                        "insertPane: failed appending pane \(paneId) to arrangement \(arrangementIndex)"
+                    )
+                    return false
                 }
+                arrangementStates[tabIndex].arrangements[arrangementIndex].layout = updatedLayout
             }
+            arrangementStates[tabIndex].arrangements[arrangementIndex].minimizedPaneIds.remove(paneId)
         }
 
         if !arrangementStates[tabIndex].allPaneIds.contains(paneId) {
@@ -101,7 +116,7 @@ final class WorkspaceTabArrangementAtom {
         return true
     }
 
-    func removePaneFromLayout(_ paneId: UUID, inTab tabId: UUID) {
+    func removePaneFromLayout(_ paneId: UUID, inTab tabId: UUID, removingDrawerId drawerId: UUID? = nil) {
         guard let tabIndex = findTabIndex(tabId) else {
             workspaceTabArrangementLogger.warning("removePaneFromLayout: tab \(tabId) not found")
             return
@@ -113,37 +128,25 @@ final class WorkspaceTabArrangementAtom {
 
         arrangementStates[tabIndex].arrangements = TabArrangementMutationRules.removingUserPane(
             paneId,
+            removingDrawerId: drawerId,
             from: arrangementStates[tabIndex].arrangements
         )
 
-        if arrangementStates[tabIndex].activePaneId == paneId {
-            arrangementStates[tabIndex].activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(
-                in: activeArrangement(for: tabIndex)
-            )
-        }
-
         if activeArrangement(for: tabIndex).layout.isEmpty && !defaultArrangement(for: tabIndex).layout.isEmpty {
             arrangementStates[tabIndex].activeArrangementId = defaultArrangement(for: tabIndex).id
-            arrangementStates[tabIndex].activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(
-                in: activeArrangement(for: tabIndex)
-            )
         }
 
         arrangementStates[tabIndex].allPaneIds.removeAll { $0 == paneId }
     }
 
-    func removePaneReferences(_ paneId: UUID) {
+    func removePaneReferences(_ paneId: UUID, removingDrawerIds drawerIds: Set<UUID> = []) {
         for tabIndex in arrangementStates.indices {
             arrangementStates[tabIndex].allPaneIds.removeAll { $0 == paneId }
             arrangementStates[tabIndex].arrangements = TabArrangementRepairRules.removingPane(
                 paneId,
+                removingDrawerIds: drawerIds,
                 from: arrangementStates[tabIndex].arrangements
             )
-            if arrangementStates[tabIndex].activePaneId == paneId {
-                arrangementStates[tabIndex].activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(
-                    in: activeArrangement(for: tabIndex)
-                )
-            }
             if arrangementStates[tabIndex].zoomedPaneId == paneId {
                 arrangementStates[tabIndex].zoomedPaneId = nil
             }
@@ -182,29 +185,20 @@ final class WorkspaceTabArrangementAtom {
                 return
             }
         }
-        arrangementStates[tabIndex].activePaneId = paneId
+        let arrIndex = activeArrangementIndex(for: tabIndex)
+        arrangementStates[tabIndex].arrangements[arrIndex].activePaneId = paneId
     }
 
     @discardableResult
-    func createArrangement(name: String, paneIds: Set<UUID>, inTab tabId: UUID) -> UUID? {
+    func createArrangement(name: String, inTab tabId: UUID) -> UUID? {
         guard let tabIndex = findTabIndex(tabId) else {
             workspaceTabArrangementLogger.warning("createArrangement: tab \(tabId) not found")
-            return nil
-        }
-        guard !paneIds.isEmpty else {
-            workspaceTabArrangementLogger.warning("createArrangement: empty paneIds")
-            return nil
-        }
-        let tabPaneSet = Set(arrangementStates[tabIndex].allPaneIds)
-        guard paneIds.isSubset(of: tabPaneSet) else {
-            workspaceTabArrangementLogger.warning("createArrangement: paneIds not all in tab \(tabId)")
             return nil
         }
 
         guard
             let arrangement = TabArrangementMutationRules.createArrangement(
                 name: name,
-                paneIds: paneIds,
                 from: arrangementStates[tabIndex]
             )
         else {
@@ -271,6 +265,15 @@ final class WorkspaceTabArrangementAtom {
         arrangementStates[tabIndex].arrangements[arrIndex].name = name
     }
 
+    func setShowsMinimizedPanes(_ value: Bool, inTab tabId: UUID) {
+        guard let tabIndex = findTabIndex(tabId) else {
+            workspaceTabArrangementLogger.warning("setShowsMinimizedPanes: tab \(tabId) not found")
+            return
+        }
+        let arrangementIndex = activeArrangementIndex(for: tabIndex)
+        arrangementStates[tabIndex].arrangements[arrangementIndex].showsMinimizedPanes = value
+    }
+
     func toggleZoom(paneId: UUID, inTab tabId: UUID) {
         guard let tabIndex = findTabIndex(tabId) else {
             workspaceTabArrangementLogger.warning("toggleZoom: tab \(tabId) not found")
@@ -309,6 +312,179 @@ final class WorkspaceTabArrangementAtom {
             return
         }
         arrangementStates[tabIndex] = TabArrangementMutationRules.expandingPane(paneId, in: arrangementStates[tabIndex])
+    }
+
+    func addDrawerPaneView(
+        drawerId: UUID,
+        parentPaneId: UUID,
+        drawerPaneId: UUID,
+        inTab tabId: UUID,
+        targetDrawerPaneId: UUID? = nil,
+        direction: SplitNewDirection = .right,
+        sizingMode: DropSizingMode = .halveTarget
+    ) {
+        guard let tabIndex = findTabIndex(tabId) else {
+            workspaceTabArrangementLogger.warning("addDrawerPaneView: tab \(tabId) not found")
+            return
+        }
+
+        for arrangementIndex in arrangementStates[tabIndex].arrangements.indices {
+            guard arrangementStates[tabIndex].arrangements[arrangementIndex].layout.contains(parentPaneId) else {
+                continue
+            }
+            var drawerView =
+                arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId]
+                ?? DrawerView(layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)))
+
+            if drawerView.layout.contains(drawerPaneId) {
+                drawerView.activeChildId = drawerPaneId
+            } else if drawerView.layout.isEmpty {
+                drawerView.layout = DrawerGridLayout(topRow: Layout(paneId: drawerPaneId))
+                drawerView.activeChildId = drawerPaneId
+            } else {
+                let targetPaneId = targetDrawerPaneId ?? drawerView.layout.paneIds.last
+                if let targetPaneId,
+                    let updatedLayout = drawerView.layout.inserting(
+                        paneId: drawerPaneId,
+                        at: targetPaneId,
+                        direction: direction,
+                        sizingMode: sizingMode
+                    )
+                {
+                    drawerView.layout = updatedLayout
+                    if arrangementIndex == activeArrangementIndex(for: tabIndex) {
+                        drawerView.activeChildId = drawerPaneId
+                    }
+                }
+            }
+
+            arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
+        }
+    }
+
+    func removeDrawerPaneView(drawerId: UUID, drawerPaneId: UUID, inTab tabId: UUID) {
+        guard let tabIndex = findTabIndex(tabId) else {
+            workspaceTabArrangementLogger.warning("removeDrawerPaneView: tab \(tabId) not found")
+            return
+        }
+
+        for arrangementIndex in arrangementStates[tabIndex].arrangements.indices {
+            guard var drawerView = arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId]
+            else { continue }
+            drawerView.minimizedPaneIds.remove(drawerPaneId)
+            if drawerView.layout.contains(drawerPaneId) {
+                drawerView.layout =
+                    drawerView.layout.removing(paneId: drawerPaneId, sizingMode: .proportional)
+                    ?? DrawerGridLayout()
+            }
+            if drawerView.layout.isEmpty {
+                arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews.removeValue(forKey: drawerId)
+                continue
+            }
+            if drawerView.activeChildId == drawerPaneId {
+                drawerView.activeChildId = drawerView.layout.paneIds.first
+            }
+            arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
+        }
+    }
+
+    func setActiveDrawerPane(_ drawerPaneId: UUID, drawerId: UUID, inTab tabId: UUID) {
+        guard let tabIndex = findTabIndex(tabId) else {
+            workspaceTabArrangementLogger.warning("setActiveDrawerPane: tab \(tabId) not found")
+            return
+        }
+        let arrangementIndex = activeArrangementIndex(for: tabIndex)
+        guard var drawerView = arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId],
+            drawerView.layout.contains(drawerPaneId)
+        else {
+            workspaceTabArrangementLogger.warning("setActiveDrawerPane: drawer pane \(drawerPaneId) not found")
+            return
+        }
+        drawerView.activeChildId = drawerPaneId
+        arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
+    }
+
+    func resizeDrawerPane(drawerId: UUID, tabId: UUID, splitId: UUID, ratio: Double) {
+        guard let tabIndex = findTabIndex(tabId) else {
+            workspaceTabArrangementLogger.warning("resizeDrawerPane: tab \(tabId) not found")
+            return
+        }
+        let arrangementIndex = activeArrangementIndex(for: tabIndex)
+        guard var drawerView = arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId]
+        else { return }
+        drawerView.layout = drawerView.layout.resizing(splitId: splitId, ratio: ratio)
+        arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
+    }
+
+    func equalizeDrawerPanes(drawerId: UUID, tabId: UUID) {
+        guard let tabIndex = findTabIndex(tabId) else {
+            workspaceTabArrangementLogger.warning("equalizeDrawerPanes: tab \(tabId) not found")
+            return
+        }
+        let arrangementIndex = activeArrangementIndex(for: tabIndex)
+        guard var drawerView = arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId]
+        else { return }
+        drawerView.layout = drawerView.layout.equalized()
+        arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
+    }
+
+    @discardableResult
+    func minimizeDrawerPane(_ drawerPaneId: UUID, drawerId: UUID, tabId: UUID) -> Bool {
+        guard let tabIndex = findTabIndex(tabId) else {
+            workspaceTabArrangementLogger.warning("minimizeDrawerPane: tab \(tabId) not found")
+            return false
+        }
+        let arrangementIndex = activeArrangementIndex(for: tabIndex)
+        guard var drawerView = arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId],
+            drawerView.layout.contains(drawerPaneId)
+        else { return false }
+
+        drawerView.minimizedPaneIds.insert(drawerPaneId)
+        if drawerView.activeChildId == drawerPaneId {
+            drawerView.activeChildId = drawerView.layout.paneIds.first { !drawerView.minimizedPaneIds.contains($0) }
+        }
+        arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
+        return true
+    }
+
+    func expandDrawerPane(_ drawerPaneId: UUID, drawerId: UUID, tabId: UUID) {
+        guard let tabIndex = findTabIndex(tabId) else {
+            workspaceTabArrangementLogger.warning("expandDrawerPane: tab \(tabId) not found")
+            return
+        }
+        let arrangementIndex = activeArrangementIndex(for: tabIndex)
+        guard var drawerView = arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId]
+        else { return }
+        drawerView.minimizedPaneIds.remove(drawerPaneId)
+        drawerView.activeChildId = drawerPaneId
+        arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
+    }
+
+    func moveDrawerPane(
+        _ drawerPaneId: UUID,
+        drawerId: UUID,
+        tabId: UUID,
+        target: DrawerRearrangeTarget,
+        sizingMode: DropSizingMode
+    ) {
+        guard let tabIndex = findTabIndex(tabId) else {
+            workspaceTabArrangementLogger.warning("moveDrawerPane: tab \(tabId) not found")
+            return
+        }
+        let arrangementIndex = activeArrangementIndex(for: tabIndex)
+        guard var drawerView = arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId]
+        else { return }
+
+        switch drawerView.layout.projectedMove(paneId: drawerPaneId, target: target, sizingMode: sizingMode) {
+        case .success(let movedLayout):
+            drawerView.layout = movedLayout
+            drawerView.activeChildId = drawerPaneId
+            arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
+        case .failure(let failure):
+            workspaceTabArrangementLogger.warning(
+                "moveDrawerPane: rejected moving pane \(drawerPaneId): \(failure.description)"
+            )
+        }
     }
 
     func resizePaneByDelta(tabId: UUID, paneId: UUID, direction: SplitResizeDirection, amount: UInt16) {
@@ -372,6 +548,98 @@ final class WorkspaceTabArrangementAtom {
         let insertIndex = tabIndex + 1
         arrangementStates.insert(result.extractedState, at: min(insertIndex, arrangementStates.count))
         return result.extractedState
+    }
+
+    @discardableResult
+    func movePaneAcrossTabs(_ mutation: CrossTabPaneMoveMutation) -> CrossTabPaneMoveResult? {
+        let request = mutation.request
+        let paneId = request.paneId
+        let sourceTabId = request.sourceTabId
+        let destTabId = request.destTabId
+        let targetPaneId = request.targetPaneId
+        let direction = request.direction
+        let position = request.position
+        let drawerId = mutation.drawerId
+        let drawerPaneIds = mutation.drawerPaneIds
+
+        guard sourceTabId != destTabId else {
+            workspaceTabArrangementLogger.warning("movePaneAcrossTabs: source and destination are both \(sourceTabId)")
+            return nil
+        }
+        guard let sourceIndex = findTabIndex(sourceTabId), let destIndex = findTabIndex(destTabId) else {
+            workspaceTabArrangementLogger.warning(
+                "movePaneAcrossTabs: source \(sourceTabId) or destination \(destTabId) not found")
+            return nil
+        }
+
+        var sourceState = arrangementStates[sourceIndex]
+        var destState = arrangementStates[destIndex]
+        let movedPaneIds = [paneId] + drawerPaneIds
+        let movedPaneIdSet = Set(movedPaneIds)
+        guard sourceState.allPaneIds.contains(paneId), destState.allPaneIds.contains(targetPaneId) else {
+            workspaceTabArrangementLogger.warning(
+                "movePaneAcrossTabs: pane \(paneId) or target \(targetPaneId) not owned by requested tabs")
+            return nil
+        }
+
+        let activeDestIndex = Self.activeArrangementIndex(in: destState)
+        guard destState.arrangements[activeDestIndex].layout.contains(targetPaneId) else {
+            workspaceTabArrangementLogger.warning(
+                "movePaneAcrossTabs: target pane \(targetPaneId) not in active destination arrangement")
+            return nil
+        }
+
+        sourceState.zoomedPaneId = sourceState.zoomedPaneId == paneId ? nil : sourceState.zoomedPaneId
+        sourceState.arrangements = TabArrangementMutationRules.removingUserPane(
+            paneId,
+            from: sourceState.arrangements
+        )
+        if let drawerId {
+            for arrangementIndex in sourceState.arrangements.indices {
+                sourceState.arrangements[arrangementIndex].drawerViews.removeValue(forKey: drawerId)
+            }
+        }
+        sourceState.allPaneIds.removeAll { movedPaneIdSet.contains($0) }
+        if Self.activeArrangement(in: sourceState).layout.isEmpty
+            && !Self.defaultArrangement(in: sourceState).layout.isEmpty
+        {
+            sourceState.activeArrangementId = Self.defaultArrangement(in: sourceState).id
+        }
+
+        destState.zoomedPaneId = nil
+        for movedPaneId in movedPaneIds where !destState.allPaneIds.contains(movedPaneId) {
+            destState.allPaneIds.append(movedPaneId)
+        }
+        let seededDrawerView = Self.drawerViewSeed(drawerId: drawerId, drawerPaneIds: drawerPaneIds)
+        for arrangementIndex in destState.arrangements.indices {
+            let updatedLayout: Layout?
+            if arrangementIndex == activeDestIndex {
+                updatedLayout = destState.arrangements[arrangementIndex].layout.inserting(
+                    paneId: paneId,
+                    at: targetPaneId,
+                    direction: direction,
+                    position: position,
+                    sizingMode: .halveTarget
+                )
+                destState.arrangements[arrangementIndex].activePaneId = paneId
+            } else {
+                updatedLayout = Self.appendingPane(paneId, to: destState.arrangements[arrangementIndex].layout)
+            }
+            guard let updatedLayout else {
+                workspaceTabArrangementLogger.warning(
+                    "movePaneAcrossTabs: insertion of pane \(paneId) into destination \(destTabId) failed")
+                return nil
+            }
+            destState.arrangements[arrangementIndex].layout = updatedLayout
+            destState.arrangements[arrangementIndex].minimizedPaneIds.remove(paneId)
+            if let seededDrawerView, let drawerId {
+                destState.arrangements[arrangementIndex].drawerViews[drawerId] = seededDrawerView
+            }
+        }
+
+        arrangementStates[sourceIndex] = sourceState
+        arrangementStates[destIndex] = destState
+        return CrossTabPaneMoveResult(sourceTabClosed: sourceState.allPaneIds.isEmpty)
     }
 
     func mergeTab(
@@ -440,5 +708,43 @@ final class WorkspaceTabArrangementAtom {
 
     private func activeArrangement(for tabIndex: Int) -> PaneArrangement {
         arrangementStates[tabIndex].arrangements[activeArrangementIndex(for: tabIndex)]
+    }
+
+    private static func defaultArrangementIndex(in state: TabArrangementState) -> Int {
+        state.arrangements.firstIndex(where: \.isDefault) ?? 0
+    }
+
+    private static func activeArrangementIndex(in state: TabArrangementState) -> Int {
+        state.arrangements.firstIndex { $0.id == state.activeArrangementId } ?? defaultArrangementIndex(in: state)
+    }
+
+    private static func defaultArrangement(in state: TabArrangementState) -> PaneArrangement {
+        state.arrangements[defaultArrangementIndex(in: state)]
+    }
+
+    private static func activeArrangement(in state: TabArrangementState) -> PaneArrangement {
+        state.arrangements[activeArrangementIndex(in: state)]
+    }
+
+    private static func appendingPane(_ paneId: UUID, to layout: Layout) -> Layout? {
+        guard let lastPaneId = layout.paneIds.last else {
+            return Layout(paneId: paneId)
+        }
+        return layout.inserting(
+            paneId: paneId,
+            at: lastPaneId,
+            direction: .horizontal,
+            position: .after,
+            sizingMode: .proportional
+        )
+    }
+
+    private static func drawerViewSeed(drawerId: UUID?, drawerPaneIds: [UUID]) -> DrawerView? {
+        guard drawerId != nil, !drawerPaneIds.isEmpty else { return nil }
+        return DrawerView(
+            layout: DrawerGridLayout(topRow: Layout.autoTiled(drawerPaneIds)),
+            activeChildId: drawerPaneIds[0],
+            minimizedPaneIds: []
+        )
     }
 }

@@ -168,8 +168,7 @@ final class ActionExecutorTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: layout,
-            visiblePaneIds: Set(layout.paneIds)
+            layout: layout
         )
         let tab = Tab(
             panes: layout.paneIds,
@@ -197,8 +196,7 @@ final class ActionExecutorTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: layout,
-            visiblePaneIds: Set(layout.paneIds)
+            layout: layout
         )
         let tab = Tab(
             panes: layout.paneIds,
@@ -227,8 +225,7 @@ final class ActionExecutorTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: layout,
-            visiblePaneIds: Set(layout.paneIds)
+            layout: layout
         )
         let tab = Tab(
             panes: layout.paneIds,
@@ -254,8 +251,7 @@ final class ActionExecutorTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: layout,
-            visiblePaneIds: Set(layout.paneIds)
+            layout: layout
         )
         let tab = Tab(
             panes: layout.paneIds,
@@ -337,8 +333,7 @@ final class ActionExecutorTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: layout,
-            visiblePaneIds: Set(layout.paneIds)
+            layout: layout
         )
         let tab = Tab(
             panes: layout.paneIds,
@@ -573,7 +568,6 @@ final class ActionExecutorTests {
         // Create custom arrangement with only panes A and B
         let arrId = store.createArrangement(
             name: "Focus",
-            paneIds: Set([pA.id, pB.id]),
             inTab: tab.id
         )!
 
@@ -605,7 +599,6 @@ final class ActionExecutorTests {
 
         let customArrId = store.createArrangement(
             name: "Focus",
-            paneIds: Set([pA.id]),
             inTab: tab.id
         )!
 
@@ -676,7 +669,6 @@ final class ActionExecutorTests {
         // Create custom arrangement with only panes A and B
         let customArrId = store.createArrangement(
             name: "Focus",
-            paneIds: Set([pA.id, pB.id]),
             inTab: tab.id
         )!
 
@@ -721,7 +713,6 @@ final class ActionExecutorTests {
         // Create custom arrangement with only pane A
         let customArrId = store.createArrangement(
             name: "Solo",
-            paneIds: Set([pA.id]),
             inTab: tab.id
         )!
 

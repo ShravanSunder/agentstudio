@@ -161,7 +161,6 @@ struct PaneTabViewControllerCommandTests {
         guard
             let customArrangementId = harness.store.createArrangement(
                 name: "Layout 1",
-                paneIds: [firstPane.id],
                 inTab: tab.id
             )
         else {
@@ -199,7 +198,6 @@ struct PaneTabViewControllerCommandTests {
         guard
             let customArrangementId = harness.store.createArrangement(
                 name: "Layout 1",
-                paneIds: [secondTabPaneA.id],
                 inTab: secondTab.id
             )
         else {
@@ -233,9 +231,7 @@ struct PaneTabViewControllerCommandTests {
         )
         harness.store.setActiveTab(tab.id)
         let defaultArrangementId = tab.activeArrangementId
-        let customArrangementId = try #require(
-            harness.store.createArrangement(name: "Focus", paneIds: [firstPane.id], inTab: tab.id)
-        )
+        let customArrangementId = try #require(harness.store.createArrangement(name: "Focus", inTab: tab.id))
 
         harness.controller.execute(.cycleArrangement)
 
@@ -355,7 +351,7 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.store.activeTabId == parentTab.id)
         #expect(harness.store.tab(parentTab.id)?.activePaneId == parentPane.id)
         #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == true)
-        #expect(harness.store.pane(parentPane.id)?.drawer?.activeChildId == drawerPane.id)
+        #expect(harness.store.drawerView(forParent: parentPane.id)?.activeChildId == drawerPane.id)
         #expect(atom(\.workspaceFocusOwner).owner == .drawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id))
     }
 
@@ -512,16 +508,17 @@ struct PaneTabViewControllerCommandTests {
         )
         let focusArrangementId = harness.store.createArrangement(
             name: "Focus Visible",
-            paneIds: [visiblePane.id],
             inTab: tab.id
         )!
         harness.store.switchArrangement(to: focusArrangementId, inTab: tab.id)
+        #expect(harness.store.minimizePane(hiddenPane.id, inTab: tab.id))
+        harness.store.tabLayoutAtom.setShowsMinimizedPanes(false, inTab: tab.id)
 
         harness.controller.handleTerminalProcessTerminated(paneId: hiddenPane.id)
 
         #expect(harness.store.pane(visiblePane.id) != nil)
         #expect(harness.store.pane(hiddenPane.id) == nil)
-        #expect(harness.store.tab(tab.id)?.visiblePaneIds == [visiblePane.id])
+        #expect(harness.coordinator.arrangementView.activeVisiblePaneIds(forTab: tab.id) == [visiblePane.id])
         #expect(harness.executor.undoStack.isEmpty)
     }
 
@@ -595,10 +592,11 @@ struct PaneTabViewControllerCommandTests {
         }
         let focusedVisibleArrangementId = harness.store.createArrangement(
             name: "Visible only",
-            paneIds: Set([visiblePane.id]),
             inTab: tab.id
         )!
         harness.store.switchArrangement(to: focusedVisibleArrangementId, inTab: tab.id)
+        #expect(harness.store.minimizePane(parentPane.id, inTab: tab.id))
+        harness.store.tabLayoutAtom.setShowsMinimizedPanes(false, inTab: tab.id)
 
         harness.controller.handleTerminalProcessTerminated(paneId: drawerPane.id)
 

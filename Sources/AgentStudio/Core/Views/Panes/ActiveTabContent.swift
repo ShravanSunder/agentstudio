@@ -54,6 +54,8 @@ struct ActiveTabContent: View {
                 activePaneId: tab.activePaneId,
                 zoomedPaneId: tab.zoomedPaneId,
                 minimizedPaneIds: tab.activeMinimizedPaneIds,
+                visiblePaneIds: atom(\.arrangementView).activeVisiblePaneIds(forTab: activeTabId),
+                showsMinimizedPanes: atom(\.arrangementView).effectiveShowsMinimizedPanes(forTab: activeTabId),
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 actionDispatcher: actionDispatcher,
                 onPaneFocusTrigger: onPaneFocusTrigger,

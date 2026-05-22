@@ -152,6 +152,13 @@ struct DrawerIconBarFrameKey: PreferenceKey {
 /// Outside-click dismissal is owned by `DrawerDismissMonitor` so dismissing clicks
 /// can be consumed before they refocus underlying AppKit content.
 struct DrawerPanelOverlay: View {
+    private struct ExpandedPaneInfo {
+        let paneId: UUID
+        let frame: CGRect
+        let drawer: Drawer
+        let drawerView: DrawerView
+    }
+
     let store: WorkspaceStore
     let repoCache: RepoCacheAtom
     let viewRegistry: ViewRegistry
@@ -179,12 +186,13 @@ struct DrawerPanelOverlay: View {
 
     /// Find the pane whose drawer is currently expanded.
     /// Invariant: only one drawer can be expanded at a time (toggle behavior).
-    private var expandedPaneInfo: (paneId: UUID, frame: CGRect, drawer: Drawer)? {
+    private var expandedPaneInfo: ExpandedPaneInfo? {
         for (paneId, frame) in paneFrames {
             if let drawer = store.paneAtom.pane(paneId)?.drawer,
-                drawer.isExpanded
+                drawer.isExpanded,
+                let drawerView = atom(\.arrangementView).drawerView(forParent: paneId)
             {
-                return (paneId, frame, drawer)
+                return ExpandedPaneInfo(paneId: paneId, frame: frame, drawer: drawer, drawerView: drawerView)
             }
         }
         return nil
@@ -237,11 +245,12 @@ struct DrawerPanelOverlay: View {
             let paneId = info.paneId
             VStack(spacing: 0) {
                 DrawerPanel(
-                    layout: info.drawer.layout,
+                    layout: info.drawerView.layout,
                     parentPaneId: paneId,
                     tabId: tabId,
-                    activeChildId: info.drawer.activeChildId,
-                    minimizedPaneIds: info.drawer.minimizedPaneIds,
+                    activeChildId: info.drawerView.activeChildId,
+                    minimizedPaneIds: info.drawerView.minimizedPaneIds,
+                    showsMinimizedPanes: atom(\.arrangementView).effectiveShowsMinimizedPanes(forTab: tabId),
                     closeTransitionCoordinator: closeTransitionCoordinator,
                     height: panelHeight,
                     store: store,

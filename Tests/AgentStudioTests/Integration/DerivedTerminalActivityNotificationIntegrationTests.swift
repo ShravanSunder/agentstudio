@@ -51,7 +51,7 @@ struct DerivedActivityNotificationIntegrationTests {
         let parentPaneId = PaneId()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let drawerPane = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+            addDrawerPane(to: parentPaneId.uuid, in: fixture)
         )
         fixture.paneAtom.toggleDrawer(for: parentPaneId.uuid)
         makeWindowKey(fixture.windowLifecycle)
@@ -170,10 +170,10 @@ struct DerivedActivityNotificationIntegrationTests {
         let parentPaneId = PaneId()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let firstDrawerPane = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+            addDrawerPane(to: parentPaneId.uuid, in: fixture)
         )
         let secondDrawerPane = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+            addDrawerPane(to: parentPaneId.uuid, in: fixture)
         )
         fixture.paneAtom.toggleDrawer(for: parentPaneId.uuid)
         makeWindowKey(fixture.windowLifecycle)
@@ -214,13 +214,13 @@ struct DerivedActivityNotificationIntegrationTests {
         let parentPaneId = PaneId()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let firstDrawerPane = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+            addDrawerPane(to: parentPaneId.uuid, in: fixture)
         )
         let secondDrawerPane = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+            addDrawerPane(to: parentPaneId.uuid, in: fixture)
         )
         makeWindowKey(fixture.windowLifecycle)
-        #expect(fixture.paneAtom.pane(parentPaneId.uuid)?.drawer?.activeChildId == secondDrawerPane.id)
+        #expect(drawerView(for: parentPaneId.uuid, in: fixture)?.activeChildId == secondDrawerPane.id)
 
         await postScrollbackBurst(
             paneId: PaneId(uuid: firstDrawerPane.id),
@@ -233,7 +233,7 @@ struct DerivedActivityNotificationIntegrationTests {
                 && fixture.inboxAtom.notifications[0].isDismissedFromPaneInbox == false
         }
 
-        fixture.paneAtom.setActiveDrawerPane(firstDrawerPane.id, in: parentPaneId.uuid)
+        setActiveDrawerPane(firstDrawerPane.id, parentPaneId: parentPaneId.uuid, in: fixture)
         await assertEventuallyMain("active drawer child switch should mark that child observed") {
             fixture.paneActivityObservationRecorder.paneIds.contains(firstDrawerPane.id)
         }
@@ -289,7 +289,7 @@ struct DerivedActivityNotificationIntegrationTests {
         let parentPaneId = PaneId()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let drawerPane = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+            addDrawerPane(to: parentPaneId.uuid, in: fixture)
         )
         makeWindowKey(fixture.windowLifecycle)
         await waitForTerminalRouterAttendance(
@@ -314,7 +314,7 @@ struct DerivedActivityNotificationIntegrationTests {
         let parentPaneId = PaneId()
         _ = addTerminalPane(parentPaneId, to: fixture)
         _ = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+            addDrawerPane(to: parentPaneId.uuid, in: fixture)
         )
         makeWindowKey(fixture.windowLifecycle)
 
@@ -339,7 +339,7 @@ struct DerivedActivityNotificationIntegrationTests {
         _ = addTerminalPane(parentPaneId, to: fixture)
         addVisiblePaneToActiveTab(visibleSiblingPaneId, to: fixture)
         _ = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+            addDrawerPane(to: parentPaneId.uuid, in: fixture)
         )
         makeWindowKey(fixture.windowLifecycle)
 
@@ -464,7 +464,7 @@ struct DerivedActivityNotificationIntegrationTests {
         let parentPaneId = PaneId()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let drawerPane = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+            addDrawerPane(to: parentPaneId.uuid, in: fixture)
         )
         fixture.paneAtom.toggleDrawer(for: parentPaneId.uuid)
         makeWindowKey(fixture.windowLifecycle)
@@ -505,14 +505,14 @@ struct DerivedActivityNotificationIntegrationTests {
         let parentPaneId = PaneId()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let hiddenDrawerPane = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+            addDrawerPane(to: parentPaneId.uuid, in: fixture)
         )
         let activeDrawerPane = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+            addDrawerPane(to: parentPaneId.uuid, in: fixture)
         )
         makeWindowKey(fixture.windowLifecycle)
         #expect(fixture.paneAtom.pane(parentPaneId.uuid)?.drawer?.isExpanded == true)
-        #expect(fixture.paneAtom.pane(parentPaneId.uuid)?.drawer?.activeChildId == activeDrawerPane.id)
+        #expect(drawerView(for: parentPaneId.uuid, in: fixture)?.activeChildId == activeDrawerPane.id)
 
         await postScrollbackBurst(
             paneId: PaneId(uuid: hiddenDrawerPane.id),
@@ -617,10 +617,10 @@ struct DerivedActivityNotificationIntegrationTests {
         let parentPaneId = PaneId()
         _ = addTerminalPane(parentPaneId, to: fixture)
         let drawerPane = try #require(
-            fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
+            addDrawerPane(to: parentPaneId.uuid, in: fixture)
         )
         makeWindowKey(fixture.windowLifecycle)
-        #expect(fixture.paneAtom.minimizeDrawerPane(drawerPane.id, in: parentPaneId.uuid) == true)
+        #expect(minimizeDrawerPane(drawerPane.id, parentPaneId: parentPaneId.uuid, in: fixture) == true)
         #expect(fixture.paneAtom.pane(parentPaneId.uuid)?.drawer?.isExpanded == true)
 
         await postScrollbackBurst(paneId: parentPaneId, to: fixture)
@@ -635,7 +635,9 @@ struct DerivedActivityNotificationIntegrationTests {
 
         await fixture.shutdown()
     }
+}
 
+extension DerivedActivityNotificationIntegrationTests {
     private func makeFixture() async -> Fixture {
         let bus = EventBus<RuntimeEnvelope>()
         let inboxAtom = InboxNotificationAtom()
@@ -657,6 +659,16 @@ struct DerivedActivityNotificationIntegrationTests {
         let terminalRouterBox = TerminalRouterBox()
         let paneActivityObservationRecorder = PaneActivityObservationRecorder()
         let eventRecorder = RecordingSubscriber(stream: await bus.subscribe())
+        let drawerView: @MainActor (UUID) -> DrawerView? = { parentPaneId in
+            guard let drawer = paneAtom.pane(parentPaneId)?.drawer,
+                let tabId = tabLayout.tabContaining(paneId: parentPaneId)?.id
+            else {
+                return nil
+            }
+            return tabLayout.arrangementAtom.arrangementState(tabId)?.arrangements
+                .first { $0.id == tabLayout.tab(tabId)?.activeArrangementId }?
+                .drawerViews[drawer.drawerId]
+        }
         let inboxRouter = InboxNotificationRouter(
             bus: bus,
             inboxAtom: inboxAtom,
@@ -666,6 +678,7 @@ struct DerivedActivityNotificationIntegrationTests {
             attendedPane: attendedPane,
             focusTracker: tracker,
             terminalActivity: terminalActivity,
+            drawerView: drawerView,
             onPaneActivityObserved: { paneId in
                 paneActivityObservationRecorder.record(paneId)
                 terminalRouterBox.router?.markUnseenActivityObserved(paneId: paneId)
@@ -679,7 +692,8 @@ struct DerivedActivityNotificationIntegrationTests {
                 PaneObservationResolver.isPaneCurrentlyAttended(
                     paneId: $0,
                     attendedPaneId: attendedPane.attendedPaneId,
-                    pane: { paneAtom.pane($0) }
+                    pane: { paneAtom.pane($0) },
+                    drawerView: drawerView
                 )
             },
             unseenActivityDebounceDuration: AppPolicies.InboxNotification.terminalActivityQuietDebounceDuration,
@@ -727,8 +741,7 @@ struct DerivedActivityNotificationIntegrationTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: Layout(paneId: pane.id),
-            visiblePaneIds: [pane.id]
+            layout: Layout(paneId: pane.id)
         )
         let tab = Tab(
             name: "Tab",
@@ -739,6 +752,61 @@ struct DerivedActivityNotificationIntegrationTests {
         )
         fixture.tabLayout.appendTab(tab)
         return tab.id
+    }
+
+    private func addDrawerPane(to parentPaneId: UUID, in fixture: Fixture) -> Pane? {
+        guard let drawerPane = fixture.paneAtom.addDrawerPane(to: parentPaneId, parentFallbackCWD: nil) else {
+            return nil
+        }
+        guard let drawer = fixture.paneAtom.pane(parentPaneId)?.drawer,
+            let tabId = fixture.tabLayout.tabContaining(paneId: parentPaneId)?.id
+        else {
+            return drawerPane
+        }
+        fixture.tabLayout.arrangementAtom.addDrawerPaneView(
+            drawerId: drawer.drawerId,
+            parentPaneId: parentPaneId,
+            drawerPaneId: drawerPane.id,
+            inTab: tabId
+        )
+        return drawerPane
+    }
+
+    private func setActiveDrawerPane(_ drawerPaneId: UUID, parentPaneId: UUID, in fixture: Fixture) {
+        guard let drawer = fixture.paneAtom.pane(parentPaneId)?.drawer,
+            let tabId = fixture.tabLayout.tabContaining(paneId: parentPaneId)?.id
+        else {
+            return
+        }
+        fixture.tabLayout.arrangementAtom.setActiveDrawerPane(
+            drawerPaneId,
+            drawerId: drawer.drawerId,
+            inTab: tabId
+        )
+    }
+
+    private func minimizeDrawerPane(_ drawerPaneId: UUID, parentPaneId: UUID, in fixture: Fixture) -> Bool {
+        guard let drawer = fixture.paneAtom.pane(parentPaneId)?.drawer,
+            let tabId = fixture.tabLayout.tabContaining(paneId: parentPaneId)?.id
+        else {
+            return false
+        }
+        return fixture.tabLayout.arrangementAtom.minimizeDrawerPane(
+            drawerPaneId,
+            drawerId: drawer.drawerId,
+            tabId: tabId
+        )
+    }
+
+    private func drawerView(for parentPaneId: UUID, in fixture: Fixture) -> DrawerView? {
+        guard let drawer = fixture.paneAtom.pane(parentPaneId)?.drawer,
+            let tabId = fixture.tabLayout.tabContaining(paneId: parentPaneId)?.id
+        else {
+            return nil
+        }
+        return fixture.tabLayout.arrangementAtom.arrangementState(tabId)?.arrangements
+            .first { $0.id == fixture.tabLayout.tab(tabId)?.activeArrangementId }?
+            .drawerViews[drawer.drawerId]
     }
 
     private func addVisiblePaneToActiveTab(
@@ -797,7 +865,8 @@ struct DerivedActivityNotificationIntegrationTests {
             PaneObservationResolver.isPaneCurrentlyAttended(
                 paneId: paneId,
                 attendedPaneId: fixture.attendedPane.attendedPaneId,
-                pane: { fixture.paneAtom.pane($0) }
+                pane: { fixture.paneAtom.pane($0) },
+                drawerView: { drawerView(for: $0, in: fixture) }
             )
         }
     }

@@ -78,7 +78,7 @@ struct WorkspaceCommandValidatorOwnershipTests {
     }
 
     @Test
-    func insertPane_hiddenOwnedSource_visibleTarget_succeeds() {
+    func movePaneAcrossTabs_hiddenOwnedSource_visibleTarget_succeeds() {
         let sourceTabId = UUID()
         let visibleSourcePaneId = UUIDv7.generate()
         let hiddenSourcePaneId = UUIDv7.generate()
@@ -100,12 +100,15 @@ struct WorkspaceCommandValidatorOwnershipTests {
                 ),
             ]
         )
-        let action = PaneActionCommand.insertPane(
-            source: .existingPane(paneId: hiddenSourcePaneId, sourceTabId: sourceTabId),
-            targetTabId: targetTabId,
-            targetPaneId: targetPaneId,
-            direction: .right,
-            sizingMode: .halveTarget
+        let action = PaneActionCommand.movePaneAcrossTabs(
+            CrossTabPaneMoveRequest(
+                paneId: hiddenSourcePaneId,
+                sourceTabId: sourceTabId,
+                destTabId: targetTabId,
+                targetPaneId: targetPaneId,
+                direction: .horizontal,
+                position: .after
+            )
         )
 
         let result = WorkspaceCommandValidator.validate(action, state: snapshot)

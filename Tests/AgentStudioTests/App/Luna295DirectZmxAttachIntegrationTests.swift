@@ -272,12 +272,12 @@ struct Luna295DirectZmxAttachIntegrationTests {
             source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .ghostty
         )
-        let hiddenDrawerPane = try #require(harness.store.addDrawerPane(to: hiddenParentPane.id))
 
         let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
         let hiddenTab = Tab(paneId: hiddenParentPane.id, name: "Hidden")
         harness.store.appendTab(visibleTab)
         harness.store.appendTab(hiddenTab)
+        let hiddenDrawerPane = try #require(harness.store.addDrawerPane(to: hiddenParentPane.id))
         harness.store.setActiveTab(visibleTab.id)
 
         let liveSessionId = ZmxBackend.drawerSessionId(
@@ -319,12 +319,12 @@ struct Luna295DirectZmxAttachIntegrationTests {
             source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
-        let hiddenDrawerPane = try #require(harness.store.addDrawerPane(to: hiddenParentPane.id))
 
         let visibleTab = Tab(paneId: visiblePane.id, name: "Visible")
         let hiddenTab = Tab(paneId: hiddenParentPane.id, name: "Hidden")
         harness.store.appendTab(visibleTab)
         harness.store.appendTab(hiddenTab)
+        let hiddenDrawerPane = try #require(harness.store.addDrawerPane(to: hiddenParentPane.id))
         harness.store.setActiveTab(visibleTab.id)
 
         let liveSessionId = ZmxBackend.drawerSessionId(
@@ -389,11 +389,11 @@ struct Luna295DirectZmxAttachIntegrationTests {
             source: .worktree(worktreeId: worktree.id, repoId: repo.id, launchDirectory: worktree.path),
             provider: .zmx
         )
-        let drawerPane = try #require(harness.store.addDrawerPane(to: pane.id))
 
         let tab = Tab(paneId: pane.id, name: "Visible")
         harness.store.appendTab(tab)
         harness.store.setActiveTab(tab.id)
+        let drawerPane = try #require(harness.store.addDrawerPane(to: pane.id))
 
         await harness.coordinator.restoreAllViews(
             in: CGRect(x: 0, y: 0, width: 1000, height: 600)
@@ -433,7 +433,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
             position: .after, sizingMode: .halveTarget
         )
         _ = harness.store.minimizePane(secondPane.id, inTab: tab.id)
-        atom(\.uiState).setShowMinimizedBars(false)
+        harness.store.tabLayoutAtom.setShowsMinimizedPanes(false, inTab: tab.id)
 
         let framesByTabId = harness.coordinator.resolveInitialFramesByTabId(
             in: CGRect(x: 0, y: 0, width: 1000, height: 600)

@@ -623,8 +623,8 @@ extension PaneCoordinator {
             viewRegistry.ensureSlot(for: paneId)
         }
         for pane in store.paneAtom.panes.values {
-            if let drawer = pane.drawer {
-                for drawerPaneId in drawer.layout.paneIds {
+            if pane.drawer != nil, let drawerView = arrangementView.drawerView(forParent: pane.id) {
+                for drawerPaneId in drawerView.layout.paneIds {
                     viewRegistry.ensureSlot(for: drawerPaneId)
                 }
             }
@@ -901,6 +901,7 @@ extension PaneCoordinator {
                     let parentFrame = resolvedFrames[paneId],
                     let drawer = store.paneAtom.pane(paneId)?.drawer,
                     drawer.isExpanded,
+                    let drawerView = arrangementView.drawerView(forParent: paneId),
                     let drawerContentRect = resolvedDrawerContentRect(
                         parentPaneFrame: parentFrame,
                         tabSize: terminalContainerBounds.size
@@ -915,10 +916,10 @@ extension PaneCoordinator {
                     continue
                 }
                 let drawerFrames = TerminalPaneGeometryResolver.resolveFrames(
-                    for: drawer.layout,
+                    for: drawerView.layout,
                     in: drawerContentRect,
                     dividerThickness: AppStyles.General.Layout.paneGap,
-                    minimizedPaneIds: drawer.minimizedPaneIds,
+                    minimizedPaneIds: drawerView.minimizedPaneIds,
                     collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
                 )
 

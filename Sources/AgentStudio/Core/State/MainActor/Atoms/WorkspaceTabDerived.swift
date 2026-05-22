@@ -19,7 +19,6 @@ struct WorkspaceTabDerived {
             allPaneIds: arrangementState.allPaneIds,
             arrangements: arrangementState.arrangements,
             activeArrangementId: arrangementState.activeArrangementId,
-            activePaneId: arrangementState.activePaneId,
             zoomedPaneId: arrangementState.zoomedPaneId
         )
     }

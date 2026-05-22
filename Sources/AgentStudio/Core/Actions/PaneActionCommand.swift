@@ -44,6 +44,15 @@ struct PaneInsertRequest: Equatable, Hashable {
     let sizingMode: DropSizingMode
 }
 
+struct CrossTabPaneMoveRequest: Equatable, Hashable {
+    let paneId: UUID
+    let sourceTabId: UUID
+    let destTabId: UUID
+    let targetPaneId: UUID
+    let direction: Layout.SplitDirection
+    let position: Layout.Position
+}
+
 /// Fully resolved action with all target IDs explicit.
 /// Every action that modifies tab/pane state flows through this type.
 ///
@@ -71,6 +80,8 @@ enum PaneActionCommand: Equatable, Hashable {
 
     /// Move a tab by a relative delta (positive=right, negative=left).
     case moveTab(tabId: UUID, delta: Int)
+    /// Move a tab to an absolute tab-bar index.
+    case reorderTab(tabId: UUID, newIndex: Int)
 
     /// Resize a pane by keyboard delta (Ghostty's resize_split action).
     case resizePaneByDelta(
@@ -83,16 +94,21 @@ enum PaneActionCommand: Equatable, Hashable {
         sourceTabId: UUID, targetTabId: UUID,
         targetPaneId: UUID, direction: SplitNewDirection)
 
+    /// Move one main-layout pane from one tab into another tab.
+    case movePaneAcrossTabs(CrossTabPaneMoveRequest)
+
     // Arrangement operations
 
-    /// Create a custom arrangement from a subset of panes.
-    case createArrangement(tabId: UUID, name: String, paneIds: Set<UUID>)
+    /// Create a custom arrangement as a complete view over the tab's panes.
+    case createArrangement(tabId: UUID, name: String)
     /// Remove a custom arrangement (cannot remove default).
     case removeArrangement(tabId: UUID, arrangementId: UUID)
     /// Switch to a different arrangement in a tab.
     case switchArrangement(tabId: UUID, arrangementId: UUID)
     /// Rename an arrangement.
     case renameArrangement(tabId: UUID, arrangementId: UUID, name: String)
+    /// Set whether minimized main panes render as collapsed bars in the active arrangement.
+    case setShowsMinimizedPanes(tabId: UUID, value: Bool)
 
     // Worktree actions (routed through command pipeline for validation)
     case openWorktree(worktreeId: UUID)

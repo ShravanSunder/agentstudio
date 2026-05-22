@@ -159,8 +159,8 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         #expect(harness.paneInboxPresenter.request?.paneIds == [parentPane.id, drawerPane.id])
     }
 
-    @Test("targeted pane inbox commands accept panes owned by inactive arrangements")
-    func executePaneInboxNotificationsTargetedAcceptsInactiveArrangementPane() throws {
+    @Test("targeted pane inbox commands accept panes hidden by active arrangement visibility")
+    func executePaneInboxNotificationsTargetedAcceptsArrangementHiddenPane() throws {
         let harness = makeHarness()
         defer { try? FileManager.default.removeItem(at: harness.tempDir) }
 
@@ -179,13 +179,15 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         let visibleArrangementId = try #require(
             harness.store.createArrangement(
                 name: "Visible Only",
-                paneIds: [visiblePane.id],
                 inTab: tab.id
             )
         )
         harness.store.switchArrangement(to: visibleArrangementId, inTab: tab.id)
+        #expect(harness.store.minimizePane(hiddenPane.id, inTab: tab.id))
+        harness.store.tabLayoutAtom.setShowsMinimizedPanes(false, inTab: tab.id)
 
-        #expect(harness.store.tab(tab.id)?.activePaneIds == [visiblePane.id])
+        #expect(harness.store.tab(tab.id)?.activePaneIds == [visiblePane.id, hiddenPane.id])
+        #expect(harness.store.tab(tab.id)?.activeMinimizedPaneIds == [hiddenPane.id])
         #expect(harness.store.tab(tab.id)?.activeArrangementId == visibleArrangementId)
         #expect(harness.store.tab(tab.id)?.allPaneIds.contains(hiddenPane.id) == true)
         #expect(
@@ -209,7 +211,7 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         harness.controller.execute(.showPaneInboxNotifications, target: hiddenPane.id, targetType: .pane)
 
         let focusedTab = try #require(harness.store.tab(tab.id))
-        #expect(focusedTab.activeArrangementId == tab.defaultArrangement.id)
+        #expect(focusedTab.activeArrangementId == visibleArrangementId)
         #expect(focusedTab.activePaneIds.contains(hiddenPane.id))
         #expect(focusedTab.activePaneId == hiddenPane.id)
         #expect(harness.launchRecorder.clearedPaneInboxRequests.count == 1)
@@ -247,7 +249,7 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         #expect(harness.store.activeTabId == parentTab.id)
         #expect(harness.store.tab(parentTab.id)?.activePaneId == parentPane.id)
         #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == true)
-        #expect(harness.store.pane(parentPane.id)?.drawer?.activeChildId == drawerPane.id)
+        #expect(harness.store.drawerView(forParent: parentPane.id)?.activeChildId == drawerPane.id)
         #expect(harness.paneInboxPresenter.request?.parentPaneId == parentPane.id)
         #expect(harness.paneInboxPresenter.request?.paneIds == [parentPane.id, drawerPane.id])
     }

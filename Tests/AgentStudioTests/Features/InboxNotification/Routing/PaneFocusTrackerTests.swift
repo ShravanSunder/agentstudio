@@ -16,8 +16,7 @@ struct PaneFocusTrackerTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: Layout(paneId: activePaneId),
-            visiblePaneIds: Set(paneIds)
+            layout: Layout.autoTiled(paneIds)
         )
         return Tab(
             name: "Tab",

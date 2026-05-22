@@ -73,7 +73,6 @@ final class PaneRemovalCascadeTests {
         // Create a custom arrangement containing panes 0 and 1
         let arrId = store.createArrangement(
             name: "Focus",
-            paneIds: Set([paneIds[0], paneIds[1]]),
             inTab: tab.id
         )!
 
@@ -87,12 +86,10 @@ final class PaneRemovalCascadeTests {
         let updatedTab = store.tabs.first { $0.id == tab.id }!
         let defaultArr = updatedTab.defaultArrangement
         #expect(!(defaultArr.layout.contains(paneIds[1])))
-        #expect(!(defaultArr.visiblePaneIds.contains(paneIds[1])))
 
         // Should be removed from custom arrangement
         let customArr = updatedTab.arrangements.first { $0.id == arrId }!
         #expect(!(customArr.layout.contains(paneIds[1])))
-        #expect(!(customArr.visiblePaneIds.contains(paneIds[1])))
     }
 
     @Test
@@ -200,7 +197,6 @@ final class PaneRemovalCascadeTests {
         // Create and switch to custom arrangement
         let arrId = store.createArrangement(
             name: "Focus",
-            paneIds: Set([paneIds[0], paneIds[1]]),
             inTab: tab.id
         )!
         store.switchArrangement(to: arrId, inTab: tab.id)
@@ -225,12 +221,10 @@ final class PaneRemovalCascadeTests {
 
         let focusLeftId = store.createArrangement(
             name: "Focus Left",
-            paneIds: Set([paneIds[0], paneIds[1]]),
             inTab: tab.id
         )!
         let focusRightId = store.createArrangement(
             name: "Focus Right",
-            paneIds: Set([paneIds[1], paneIds[2]]),
             inTab: tab.id
         )!
         store.switchArrangement(to: focusLeftId, inTab: tab.id)
@@ -242,9 +236,7 @@ final class PaneRemovalCascadeTests {
         let rightArrangement = updatedTab.arrangements.first { $0.id == focusRightId }!
 
         #expect(!(leftArrangement.layout.contains(paneIds[1])))
-        #expect(!(leftArrangement.visiblePaneIds.contains(paneIds[1])))
         #expect(!(rightArrangement.layout.contains(paneIds[1])))
-        #expect(!(rightArrangement.visiblePaneIds.contains(paneIds[1])))
     }
 
     @Test
@@ -253,7 +245,6 @@ final class PaneRemovalCascadeTests {
 
         let soloArrangementId = store.createArrangement(
             name: "Solo",
-            paneIds: Set([paneIds[1]]),
             inTab: tab.id
         )!
         store.switchArrangement(to: soloArrangementId, inTab: tab.id)

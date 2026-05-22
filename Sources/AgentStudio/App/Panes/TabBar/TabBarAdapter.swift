@@ -8,12 +8,13 @@ struct TabBarItem: Identifiable, Equatable {
     var title: String
     var isSplit: Bool
     var displayTitle: String
-    var activeArrangementName: String?  // nil when only default exists
+    var activeArrangementName: String?
     var activeArrangementBadgeNumber: Int?
     var arrangementCount: Int  // total arrangements (1 = default only)
     var panes: [PaneVisibilityInfo]
     var arrangements: [ArrangementInfo]
     var minimizedCount: Int
+    var showsMinimizedPanes: Bool
 }
 
 /// Derives tab bar display state from the workspace atoms.
@@ -145,7 +146,6 @@ final class TabBarAdapter {
             let dragTitle = displayTitle
 
             let activeArrangement = tab.activeArrangement
-            let showArrangementName = tab.arrangements.count > 1 && !activeArrangement.isDefault
             let activeArrangementBadgeNumber = Self.activeArrangementBadgeNumber(for: tab)
 
             let arrangementDerived = atom(\.arrangement)
@@ -157,12 +157,13 @@ final class TabBarAdapter {
                 title: dragTitle,
                 isSplit: tab.isSplit,
                 displayTitle: displayTitle,
-                activeArrangementName: showArrangementName ? activeArrangement.name : nil,
+                activeArrangementName: Self.activeArrangementDisplayName(for: activeArrangement),
                 activeArrangementBadgeNumber: activeArrangementBadgeNumber,
                 arrangementCount: tab.arrangements.count,
                 panes: paneInfos,
                 arrangements: arrangementInfos,
-                minimizedCount: tab.activeMinimizedPaneIds.count
+                minimizedCount: tab.activeMinimizedPaneIds.count,
+                showsMinimizedPanes: activeArrangement.showsMinimizedPanes
             )
         }
 
@@ -244,5 +245,9 @@ final class TabBarAdapter {
             return nil
         }
         return index + 1
+    }
+
+    private static func activeArrangementDisplayName(for arrangement: PaneArrangement) -> String {
+        arrangement.isDefault ? "Default" : arrangement.name
     }
 }

@@ -300,8 +300,7 @@ struct WorkspacePaneFocusDerivedProjectionTests {
         let namedArrangement = PaneArrangement(
             name: "Review",
             isDefault: false,
-            layout: tab.layout,
-            visiblePaneIds: Set(tab.activePaneIds)
+            layout: tab.layout
         )
         tab.arrangements.append(namedArrangement)
         store.appendTab(tab)
@@ -309,6 +308,7 @@ struct WorkspacePaneFocusDerivedProjectionTests {
         store.insertPane(
             paneB.id, inTab: tab.id, at: paneA.id, direction: .horizontal, position: .after, sizingMode: .halveTarget)
         _ = store.addDrawerPane(to: paneA.id)
+        store.setActivePane(paneA.id, inTab: tab.id)
 
         let focus = WorkspacePaneFocusDerived().currentFocus(
             workspaceTab: workspaceTab(for: store),

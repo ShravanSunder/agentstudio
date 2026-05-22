@@ -24,7 +24,6 @@ struct UIStateStoreTests {
 
         atom.setFilterText("terminal")
         atom.setFilterVisible(true)
-        atom.setShowMinimizedBars(false)
         atom.setSidebarCollapsed(true)
         atom.setSidebarSurface(.inbox)
         atom.setSidebarHasFocus(true)
@@ -41,7 +40,6 @@ struct UIStateStoreTests {
 
         #expect(restoredAtom.filterText == "terminal")
         #expect(restoredAtom.isFilterVisible)
-        #expect(restoredAtom.showMinimizedBars == false)
         #expect(restoredAtom.sidebarCollapsed)
         #expect(restoredAtom.sidebarSurface == .inbox)
         #expect(restoredAtom.sidebarHasFocus == false)
@@ -55,7 +53,6 @@ struct UIStateStoreTests {
 
         atom.setFilterText("agent")
         atom.setFilterVisible(true)
-        atom.setShowMinimizedBars(false)
         atom.setSidebarCollapsed(true)
         atom.setSidebarSurface(.inbox)
         atom.setSidebarHasFocus(true)
@@ -71,7 +68,6 @@ struct UIStateStoreTests {
 
         #expect(restoredAtom.filterText == "agent")
         #expect(restoredAtom.isFilterVisible)
-        #expect(restoredAtom.showMinimizedBars == false)
         #expect(restoredAtom.sidebarCollapsed)
         #expect(restoredAtom.sidebarSurface == .inbox)
         #expect(restoredAtom.sidebarHasFocus == false)
@@ -96,7 +92,6 @@ struct UIStateStoreTests {
 
         #expect(atom.filterText.isEmpty)
         #expect(!atom.isFilterVisible)
-        #expect(atom.showMinimizedBars)
         #expect(atom.sidebarCollapsed == false)
         #expect(atom.sidebarSurface == .repos)
         #expect(atom.sidebarHasFocus == false)
@@ -110,22 +105,6 @@ struct UIStateStoreTests {
             $0.lastPathComponent.hasPrefix("\(workspaceId.uuidString).workspace.ui.corrupt-")
         }
         #expect(quarantinedFiles.count == 1)
-    }
-
-    @Test
-    func showMinimizedBars_defaultsToTrue() {
-        let atom = UIStateAtom()
-
-        #expect(atom.showMinimizedBars)
-    }
-
-    @Test
-    func setShowMinimizedBars_updatesValue() {
-        let atom = UIStateAtom()
-
-        atom.setShowMinimizedBars(false)
-
-        #expect(atom.showMinimizedBars == false)
     }
 
     @Test
@@ -153,14 +132,16 @@ struct UIStateStoreTests {
     }
 
     @Test
-    func restore_missingShowMinimizedBars_defaultsToTrue() throws {
+    func restore_legacyShowMinimizedBarsField_isIgnored() throws {
         let workspaceId = UUID()
         let json = """
             {
                 "schemaVersion": 1,
                 "workspaceId": "\(workspaceId.uuidString)",
                 "filterText": "",
-                "isFilterVisible": false
+                "isFilterVisible": false,
+                "showMinimizedBars": false,
+                "sidebarCollapsed": true
             }
             """
         let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
@@ -171,7 +152,7 @@ struct UIStateStoreTests {
 
         store.restore(for: workspaceId)
 
-        #expect(atom.showMinimizedBars)
+        #expect(atom.sidebarCollapsed)
     }
 
     @Test
@@ -182,8 +163,7 @@ struct UIStateStoreTests {
                 "schemaVersion": 1,
                 "workspaceId": "\(workspaceId.uuidString)",
                 "filterText": "",
-                "isFilterVisible": false,
-                "showMinimizedBars": true
+                "isFilterVisible": false
             }
             """
         let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
@@ -219,7 +199,6 @@ struct UIStateStoreTests {
 
         #expect(atom.filterText.isEmpty)
         #expect(atom.isFilterVisible == false)
-        #expect(atom.showMinimizedBars == false)
         #expect(atom.sidebarCollapsed)
         #expect(atom.sidebarSurface == .inbox)
     }
@@ -256,8 +235,7 @@ struct UIStateStoreTests {
                 "schemaVersion": 1,
                 "workspaceId": "\(workspaceId.uuidString)",
                 "filterText": "",
-                "isFilterVisible": false,
-                "showMinimizedBars": true
+                "isFilterVisible": false
             }
             """
         let uiURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.ui.json")
@@ -281,7 +259,6 @@ struct UIStateStoreTests {
                 "workspaceId": "\(workspaceId.uuidString)",
                 "filterText": "",
                 "isFilterVisible": false,
-                "showMinimizedBars": true,
                 "editorChooserState": {
                     "openForPaneId": "\(persistedPaneId.uuidString)",
                     "bookmarkedEditorId": "cursor"
@@ -308,7 +285,6 @@ struct UIStateStoreTests {
                 "workspaceId": "\(workspaceId.uuidString)",
                 "filterText": "terminal",
                 "isFilterVisible": true,
-                "showMinimizedBars": false,
                 "editorChooserState": "bad-value"
             }
             """
@@ -321,7 +297,6 @@ struct UIStateStoreTests {
 
         #expect(atom.filterText == "terminal")
         #expect(atom.isFilterVisible)
-        #expect(atom.showMinimizedBars == false)
         #expect(editorChooser.state.bookmarkedEditorId == nil)
         #expect(editorChooser.state.openForPaneId == nil)
     }

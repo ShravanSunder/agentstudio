@@ -69,8 +69,7 @@ struct WorkspacePaneFocusDerivedTests {
             let namedArrangement = PaneArrangement(
                 name: "Review",
                 isDefault: false,
-                layout: tab.layout,
-                visiblePaneIds: Set(tab.activePaneIds)
+                layout: tab.layout
             )
             tab.arrangements.append(namedArrangement)
             store.appendTab(tab)
@@ -83,6 +82,7 @@ struct WorkspacePaneFocusDerivedTests {
                 position: .after, sizingMode: .halveTarget
             )
             _ = store.addDrawerPane(to: paneA.id)
+            store.setActivePane(paneA.id, inTab: tab.id)
 
             let focus = atom(\.workspacePaneFocus).currentFocus(
                 workspaceTab: atom(\.workspaceTab),

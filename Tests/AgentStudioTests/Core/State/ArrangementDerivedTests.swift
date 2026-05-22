@@ -97,7 +97,6 @@ final class ArrangementDerivedTests {
             let arrangementId = try #require(
                 store.createArrangement(
                     name: "Focus",
-                    paneIds: [firstPane.id],
                     inTab: tab.id
                 )
             )
@@ -150,14 +149,12 @@ final class ArrangementDerivedTests {
             _ = try #require(
                 store.createArrangement(
                     name: "Layout 1",
-                    paneIds: [firstPane.id],
                     inTab: tab.id
                 )
             )
             _ = try #require(
                 store.createArrangement(
                     name: "Layout 2",
-                    paneIds: [secondPane.id],
                     inTab: tab.id
                 )
             )
@@ -196,7 +193,6 @@ final class ArrangementDerivedTests {
             let focusArrangementId = try #require(
                 store.createArrangement(
                     name: "Focus",
-                    paneIds: [firstPane.id, thirdPane.id],
                     inTab: tab.id
                 )
             )

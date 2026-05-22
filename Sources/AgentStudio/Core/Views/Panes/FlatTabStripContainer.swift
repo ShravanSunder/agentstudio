@@ -7,6 +7,8 @@ struct FlatTabStripContainer: View {
     let activePaneId: UUID?
     let zoomedPaneId: UUID?
     let minimizedPaneIds: Set<UUID>
+    let visiblePaneIds: [UUID]?
+    let showsMinimizedPanes: Bool
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let actionDispatcher: PaneActionDispatching
     let onPaneFocusTrigger: PaneFocusTriggerHandler
@@ -32,6 +34,17 @@ struct FlatTabStripContainer: View {
     /// filter (R1-R18). Only one drag is active at a time across
     /// main + drawer.
     @State private var activeDragSourcePaneId: UUID?
+
+    private struct PrimaryPaneLayerState {
+        let metrics: FlatTabStripMetrics
+        let effectiveVisiblePaneIds: [UUID]
+        let rendersMinimizedBars: Bool
+        let effectiveCollapsedWidth: CGFloat
+        let mainOrdinalMap: PaneOrdinalMap
+        let isInactivePersistentTab: Bool
+        let closingPaneIds: Set<UUID>
+    }
+
     private var managementLayer: ManagementLayerAtom {
         atom(\.managementLayer)
     }
@@ -42,6 +55,8 @@ struct FlatTabStripContainer: View {
         activePaneId: UUID?,
         zoomedPaneId: UUID?,
         minimizedPaneIds: Set<UUID>,
+        visiblePaneIds: [UUID]? = nil,
+        showsMinimizedPanes: Bool = true,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         actionDispatcher: PaneActionDispatching,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
@@ -58,6 +73,8 @@ struct FlatTabStripContainer: View {
         self.activePaneId = activePaneId
         self.zoomedPaneId = zoomedPaneId
         self.minimizedPaneIds = minimizedPaneIds
+        self.visiblePaneIds = visiblePaneIds
+        self.showsMinimizedPanes = showsMinimizedPanes
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.actionDispatcher = actionDispatcher
         self.onPaneFocusTrigger = onPaneFocusTrigger
@@ -79,8 +96,7 @@ struct FlatTabStripContainer: View {
             actionDispatcher.dispatch(
                 .createArrangement(
                     tabId: tabId,
-                    name: arrangementName,
-                    paneIds: Set(tab.activePaneIds)
+                    name: arrangementName
                 )
             )
         }
@@ -90,8 +106,13 @@ struct FlatTabStripContainer: View {
         GeometryReader { tabGeometry in
             let containerBounds = CGRect(origin: .zero, size: tabGeometry.size)
             let isInactivePersistentTab = store.tabLayoutAtom.activeTabId != tabId
-            let showMinimizedBars = managementLayer.isActive || atom(\.uiState).showMinimizedBars
-            let effectiveCollapsedWidth: CGFloat = showMinimizedBars ? CollapsedPaneBar.barWidth : 0
+            let rendersMinimizedBars = managementLayer.isActive || showsMinimizedPanes
+            let effectiveCollapsedWidth: CGFloat = rendersMinimizedBars ? CollapsedPaneBar.barWidth : 0
+            let effectiveVisiblePaneIds =
+                visiblePaneIds
+                ?? layout.paneIds.filter { paneId in
+                    !minimizedPaneIds.contains(paneId) || rendersMinimizedBars
+                }
             let expandedDrawerParentPaneId = DrawerDragOwnershipPolicy.expandedDrawerParentPaneId(
                 tabId: tabId,
                 tabLayoutAtom: store.tabLayoutAtom,
@@ -114,22 +135,26 @@ struct FlatTabStripContainer: View {
                 if let zoomedPaneId {
                     return [zoomedPaneId]
                 }
-                if metrics.allMinimized {
-                    return showMinimizedBars ? Set(layout.paneIds) : []
+                if effectiveVisiblePaneIds.isEmpty {
+                    return []
+                } else if metrics.allMinimized {
+                    return rendersMinimizedBars ? Set(layout.paneIds) : []
                 }
-                return Set(metrics.paneSegments.map(\.paneId))
+                return Set(effectiveVisiblePaneIds)
             }()
             let closingPaneIds = closeTransitionCoordinator.closingPaneIds
+            let primaryPaneLayerState = PrimaryPaneLayerState(
+                metrics: metrics,
+                effectiveVisiblePaneIds: effectiveVisiblePaneIds,
+                rendersMinimizedBars: rendersMinimizedBars,
+                effectiveCollapsedWidth: effectiveCollapsedWidth,
+                mainOrdinalMap: mainOrdinalMap,
+                isInactivePersistentTab: isInactivePersistentTab,
+                closingPaneIds: closingPaneIds
+            )
 
             ZStack(alignment: .topLeading) {
-                primaryPaneLayer(
-                    metrics: metrics,
-                    showMinimizedBars: showMinimizedBars,
-                    effectiveCollapsedWidth: effectiveCollapsedWidth,
-                    mainOrdinalMap: mainOrdinalMap,
-                    isInactivePersistentTab: isInactivePersistentTab,
-                    closingPaneIds: closingPaneIds
-                )
+                primaryPaneLayer(primaryPaneLayerState)
 
                 drawerPanelOverlay(tabSize: tabGeometry.size)
 
@@ -196,20 +221,16 @@ struct FlatTabStripContainer: View {
                 stopDrawerDropTargetMouseUpMonitor()
             }
         }
-        .animation(.easeOut(duration: AppStyles.General.Animation.standard), value: atom(\.uiState).showMinimizedBars)
+        .animation(
+            .easeOut(duration: AppStyles.General.Animation.standard),
+            value: managementLayer.isActive || showsMinimizedPanes
+        )
         .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: managementLayer.isActive)
         .coordinateSpace(name: "tabContainer")
     }
 
     @ViewBuilder
-    private func primaryPaneLayer(
-        metrics: FlatTabStripMetrics,
-        showMinimizedBars: Bool,
-        effectiveCollapsedWidth: CGFloat,
-        mainOrdinalMap: PaneOrdinalMap,
-        isInactivePersistentTab: Bool,
-        closingPaneIds: Set<UUID>
-    ) -> some View {
+    private func primaryPaneLayer(_ state: PrimaryPaneLayerState) -> some View {
         if let zoomedPane = zoomedPaneLeafContainer() {
             ZStack(alignment: .topLeading) {
                 zoomedPane
@@ -217,8 +238,10 @@ struct FlatTabStripContainer: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
                 zoomBadge()
             }
-        } else if metrics.allMinimized {
-            if showMinimizedBars {
+        } else if state.effectiveVisiblePaneIds.isEmpty {
+            EmptyArrangementPlaceholderView()
+        } else if state.metrics.allMinimized {
+            if state.rendersMinimizedBars {
                 HStack(spacing: 0) {
                     ForEach(layout.paneIds, id: \.self) { paneId in
                         CollapsedPaneBar(
@@ -228,7 +251,7 @@ struct FlatTabStripContainer: View {
                             actionDispatcher: actionDispatcher,
                             onSaveArrangement: onSaveArrangement,
                             dropTargetCoordinateSpace: "tabContainer",
-                            ordinal: mainOrdinalMap.ordinal(forPaneId: paneId),
+                            ordinal: state.mainOrdinalMap.ordinal(forPaneId: paneId),
                             workspaceWindowId: workspaceWindowId
                         )
                         .frame(width: CollapsedPaneBar.barWidth)
@@ -242,8 +265,8 @@ struct FlatTabStripContainer: View {
                 tabId: tabId,
                 activePaneId: activePaneId,
                 minimizedPaneIds: minimizedPaneIds,
-                ordinalMap: mainOrdinalMap,
-                collapsedPaneWidth: effectiveCollapsedWidth,
+                ordinalMap: state.mainOrdinalMap,
+                collapsedPaneWidth: state.effectiveCollapsedWidth,
                 onSaveArrangement: onSaveArrangement,
                 closeTransitionCoordinator: closeTransitionCoordinator,
                 actionDispatcher: actionDispatcher,
@@ -253,12 +276,12 @@ struct FlatTabStripContainer: View {
                 viewRegistry: viewRegistry,
                 coordinateSpaceName: "tabContainer",
                 useDrawerFramePreference: false,
-                isInactivePersistentTab: isInactivePersistentTab,
+                isInactivePersistentTab: state.isInactivePersistentTab,
                 paneInboxPresentation: paneInboxPresentation,
                 onOpenPaneGitHub: onOpenPaneGitHub,
                 workspaceWindowId: workspaceWindowId
             )
-            .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: closingPaneIds)
+            .animation(.easeOut(duration: AppStyles.General.Animation.fast), value: state.closingPaneIds)
             .animation(.easeInOut(duration: AppStyles.General.Animation.standard), value: minimizedPaneIds)
         }
     }
@@ -347,7 +370,8 @@ struct FlatTabStripContainer: View {
             drawerPanelFrameInTab: drawerPanelFrameInTab
         ),
             let expandedDrawerPaneId = expandedDrawerParentPaneId,
-            let expandedDrawer = store.paneAtom.pane(expandedDrawerPaneId)?.drawer,
+            store.paneAtom.pane(expandedDrawerPaneId)?.drawer != nil,
+            let expandedDrawerView = atom(\.arrangementView).drawerView(forParent: expandedDrawerPaneId),
             let captureGeometry = DrawerCaptureGeometry.make(
                 panelFrameInTab: drawerPanelFrameInTab,
                 paneFramesInDrawer: drawerPaneFramesInDrawer
@@ -360,8 +384,8 @@ struct FlatTabStripContainer: View {
             )
             DrawerSplitContainerDropCaptureOverlay(
                 paneFrames: captureGeometry.paneFramesInDrawer,
-                layout: expandedDrawer.layout,
-                minimizedPaneIds: expandedDrawer.minimizedPaneIds,
+                layout: expandedDrawerView.layout,
+                minimizedPaneIds: expandedDrawerView.minimizedPaneIds,
                 containerBounds: drawerBounds,
                 target: $drawerDropTarget,
                 sourcePaneId: $activeDragSourcePaneId,

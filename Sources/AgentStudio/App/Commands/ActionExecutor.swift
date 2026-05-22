@@ -17,6 +17,14 @@ final class ActionExecutor {
         self.store = store
     }
 
+    private var arrangementView: WorkspaceArrangementViewDerived {
+        WorkspaceArrangementViewDerived(
+            tabLayoutAtom: store.tabLayoutAtom,
+            paneAtom: store.paneAtom,
+            managementLayerAtom: atom(\.managementLayer)
+        )
+    }
+
     static func computeSwitchArrangementTransitions(
         previousVisiblePaneIds: Set<UUID>,
         previouslyMinimizedPaneIds: Set<UUID>,
@@ -104,8 +112,10 @@ final class ActionExecutor {
     private func drawerLayoutByParentPaneId() -> [UUID: DrawerGridLayout] {
         Dictionary(
             uniqueKeysWithValues: store.paneAtom.panes.values.compactMap { pane in
-                guard let drawer = pane.drawer else { return nil }
-                return (pane.id, drawer.layout)
+                guard pane.drawer != nil, let drawerView = arrangementView.drawerView(forParent: pane.id) else {
+                    return nil
+                }
+                return (pane.id, drawerView.layout)
             }
         )
     }
@@ -121,7 +131,10 @@ final class ActionExecutor {
             knownRepoIds: Set(repositoryTopology.repos.map(\.id)),
             knownWorktreeIds: Set(repositoryTopology.repos.flatMap(\.worktrees).map(\.id)),
             drawerParentByPaneId: drawerParentByPaneId(),
-            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId()
+            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
+            visiblePaneIds: { [arrangementView] tab in
+                arrangementView.activeVisiblePaneIds(forTab: tab.id)
+            }
         )
         switch WorkspaceCommandValidator.validate(action, state: snapshot) {
         case .success(let validated):

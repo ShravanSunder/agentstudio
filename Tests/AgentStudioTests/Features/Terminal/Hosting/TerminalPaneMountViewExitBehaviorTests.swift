@@ -301,7 +301,6 @@ struct TerminalPaneMountViewExitBehaviorTests {
         guard
             let focusArrangementId = harness.store.createArrangement(
                 name: "Focus",
-                paneIds: Set([paneA.id, paneB.id]),
                 inTab: tab.id
             )
         else {

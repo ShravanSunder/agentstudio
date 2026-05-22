@@ -28,11 +28,11 @@ final class WorkspaceCommandResolverTests {
         return TabSnapshot(id: tabId, visiblePaneIds: ids, ownedPaneIds: ids, activePaneId: ids.first)
     }
 
-    // MARK: - resolveDrop: Multi-pane tab → mergeTab
+    // MARK: - resolveDrop: Tab payloads are rejected for split targets
 
     @Test
 
-    func test_resolveDrop_multiPaneTab_returnsMergeTab() {
+    func test_resolveDrop_multiPaneTab_returnsNil() {
         // Arrange
         let sourceTabId = UUID()
         let targetTabId = UUID()
@@ -56,21 +56,14 @@ final class WorkspaceCommandResolverTests {
         )
 
         // Assert
-        #expect(
-            result
-                == .mergeTab(
-                    sourceTabId: sourceTabId,
-                    targetTabId: targetTabId,
-                    targetPaneId: targetPaneId,
-                    direction: SplitNewDirection.right
-                ))
+        #expect(result == nil)
     }
 
-    // MARK: - resolveDrop: Single-pane tab → insertPane
+    // MARK: - resolveDrop: Single-pane tab rejected for split targets
 
     @Test
 
-    func test_resolveDrop_singlePaneTab_returnsInsertPane() {
+    func test_resolveDrop_singlePaneTab_returnsNil() {
         // Arrange
         let sourceTabId = UUID()
         let sourcePaneId = UUID()
@@ -95,15 +88,7 @@ final class WorkspaceCommandResolverTests {
         )
 
         // Assert
-        #expect(
-            result
-                == PaneActionCommand.insertPane(
-                    source: PaneSource.existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId),
-                    targetTabId: targetTabId,
-                    targetPaneId: targetPaneId,
-                    direction: SplitNewDirection.left,
-                    sizingMode: DropSizingMode.halveTarget
-                ))
+        #expect(result == nil)
     }
 
     // MARK: - resolveDrop: New terminal → insertPane
@@ -140,6 +125,47 @@ final class WorkspaceCommandResolverTests {
                 ))
     }
 
+    // MARK: - resolveDrop: Cross-tab pane move
+
+    @Test
+
+    func test_resolveDrop_existingPaneAcrossTabs_returnsMovePaneAcrossTabs() {
+        // Arrange
+        let sourceTabId = UUID()
+        let sourcePaneId = UUID()
+        let targetTabId = UUID()
+        let targetPaneId = UUID()
+        let sourceTab = makeSinglePaneTab(tabId: sourceTabId, paneId: sourcePaneId)
+        let targetTab = makeSinglePaneTab(tabId: targetTabId, paneId: targetPaneId)
+        let snapshot = makeSnapshot(tabs: [sourceTab, targetTab])
+        let payload = SplitDropPayload(kind: .existingPane(paneId: sourcePaneId, sourceTabId: sourceTabId))
+
+        // Act
+        let result = WorkspaceCommandResolver.resolveDrop(
+            payload: payload,
+            destinationPaneId: targetPaneId,
+            destinationTabId: targetTabId,
+            zone: DropZoneSide.right,
+            sizingMode: DropSizingMode.halveTarget,
+            state: snapshot
+        )
+
+        // Assert
+        #expect(
+            result
+                == .movePaneAcrossTabs(
+                    CrossTabPaneMoveRequest(
+                        paneId: sourcePaneId,
+                        sourceTabId: sourceTabId,
+                        destTabId: targetTabId,
+                        targetPaneId: targetPaneId,
+                        direction: .horizontal,
+                        position: .after
+                    )
+                )
+        )
+    }
+
     // MARK: - resolveDrop: Source tab not found → nil
 
     @Test
@@ -169,11 +195,11 @@ final class WorkspaceCommandResolverTests {
         #expect((result) == nil)
     }
 
-    // MARK: - resolveDrop: Self-drop produces mergeTab (validator rejects)
+    // MARK: - resolveDrop: Self tab payload rejected before validation
 
     @Test
 
-    func test_resolveDrop_selfDrop_multiPane_producesMergeTab() {
+    func test_resolveDrop_selfDrop_multiPane_returnsNil() {
         // Arrange — dropping a multi-pane tab onto its own pane
         let tabId = UUID()
         let paneIds = [UUID(), UUID()]
@@ -194,20 +220,8 @@ final class WorkspaceCommandResolverTests {
             state: snapshot
         )
 
-        // Assert — resolver produces the action, validator will reject it
-        #expect(
-            result
-                == .mergeTab(
-                    sourceTabId: tabId,
-                    targetTabId: tabId,
-                    targetPaneId: paneIds[0],
-                    direction: SplitNewDirection.right
-                ))
-
-        // Verify validator rejects self-merge
-        let validation = WorkspaceCommandValidator.validate(result!, state: snapshot)
-        if case .failure(.selfTabMerge) = validation { return }
-        Issue.record("Expected selfTabMerge error from validator")
+        // Assert
+        #expect(result == nil)
     }
 
     // MARK: - resolve(command:) — Tab Lifecycle
@@ -332,6 +346,26 @@ final class WorkspaceCommandResolverTests {
 
         // Assert
         #expect(result == .closePane(tabId: tabId, paneId: paneA))
+    }
+
+    @Test
+    func test_resolve_closePane_usesProvidedVisiblePaneIds() {
+        // Arrange
+        let tabId = UUID()
+        let paneA = UUIDv7.generate()
+        let paneB = UUIDv7.generate()
+        let tab = MockTab(id: tabId, activePaneId: paneA, allPaneIds: [paneA, paneB])
+
+        // Act
+        let result = WorkspaceCommandResolver.resolve(
+            command: .closePane,
+            tabs: [tab],
+            activeTabId: tabId,
+            visiblePaneIds: { _ in [paneA] }
+        )
+
+        // Assert
+        #expect(result == .closeTab(tabId: tabId))
     }
 
     @Test
@@ -595,6 +629,25 @@ final class WorkspaceCommandResolverTests {
         #expect(snapshot.tab(tab2Id)?.activePaneId == pane2a)
         #expect(snapshot.tab(tab2Id)?.isSplit == true)
         #expect(!(snapshot.tab(tab1Id)?.isSplit == true))
+    }
+
+    @Test
+
+    func test_snapshot_usesDerivedVisiblePaneIdsWhenProvided() {
+        let tabId = UUID()
+        let paneA = UUID()
+        let paneB = UUID()
+        let tab = MockTab(id: tabId, activePaneId: paneA, allPaneIds: [paneA, paneB])
+
+        let snapshot = WorkspaceCommandResolver.snapshot(
+            from: [tab],
+            activeTabId: tabId,
+            isManagementLayerActive: false,
+            visiblePaneIds: { _ in [paneA] }
+        )
+
+        #expect(snapshot.tab(tabId)?.visiblePaneIds == [paneA])
+        #expect(snapshot.tab(tabId)?.ownedPaneIds == [paneA, paneB])
     }
 
     // MARK: - resolveDrop: Zone → direction mapping

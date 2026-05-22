@@ -50,6 +50,12 @@ struct InboxNotificationRouterObservedPaneTests {
             focusTracker: tracker,
             terminalActivity: terminalActivity,
             traceRuntime: traceRuntime,
+            drawerView: { parentPaneId in
+                guard let tab = tabLayout.tabContaining(paneId: parentPaneId),
+                    let drawerId = paneAtom.pane(parentPaneId)?.drawer?.drawerId
+                else { return nil }
+                return tab.activeArrangement.drawerViews[drawerId]
+            },
             onPaneActivityObserved: onPaneActivityObserved
         )
         if startRouter {
@@ -99,8 +105,7 @@ struct InboxNotificationRouterObservedPaneTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: Layout(paneId: pane.id),
-            visiblePaneIds: [pane.id]
+            layout: Layout(paneId: pane.id)
         )
         tabLayout.appendTab(
             Tab(
@@ -569,6 +574,14 @@ struct InboxNotificationRouterObservedPaneTests {
         let drawerPane = try #require(
             fixture.paneAtom.addDrawerPane(to: parentPaneId.uuid, parentFallbackCWD: nil)
         )
+        let parentDrawerId = try #require(fixture.paneAtom.pane(parentPaneId.uuid)?.drawer?.drawerId)
+        let tabId = try #require(fixture.tabLayout.tabContaining(paneId: parentPaneId.uuid)?.id)
+        fixture.tabLayout.arrangementAtom.addDrawerPaneView(
+            drawerId: parentDrawerId,
+            parentPaneId: parentPaneId.uuid,
+            drawerPaneId: drawerPane.id,
+            inTab: tabId
+        )
         fixture.paneAtom.toggleDrawer(for: parentPaneId.uuid)
         makeWindowKey(fixture.windowLifecycle)
         _ = await fixture.bus.post(
@@ -682,8 +695,7 @@ struct InboxNotificationRouterObservedPaneTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: Layout(paneId: pane.id),
-            visiblePaneIds: [pane.id]
+            layout: Layout(paneId: pane.id)
         )
         let tab = Tab(
             name: "Tab",

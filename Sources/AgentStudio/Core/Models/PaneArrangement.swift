@@ -1,7 +1,55 @@
 import Foundation
 
-/// A named arrangement of panes within a Tab.
-/// Each tab has exactly one default arrangement (contains all panes) and zero or more custom arrangements.
+/// Per-arrangement view state for a non-empty drawer.
+struct DrawerView: Codable, Hashable {
+    /// Spatial arrangement of panes within the drawer's local grid.
+    var layout: DrawerGridLayout
+    /// Currently focused pane in the drawer. Nil only when empty.
+    var activeChildId: UUID?
+    /// Panes currently minimized to narrow vertical bars.
+    var minimizedPaneIds: Set<UUID>
+
+    private enum CodingKeys: String, CodingKey {
+        case layout
+        case activeChildId
+        case minimizedPaneIds
+    }
+
+    init(
+        layout: DrawerGridLayout = DrawerGridLayout(),
+        activeChildId: UUID? = nil,
+        minimizedPaneIds: Set<UUID> = []
+    ) {
+        self.layout = layout
+        self.activeChildId = Self.normalizedActiveChildId(activeChildId, paneIds: layout.paneIds)
+        self.minimizedPaneIds = minimizedPaneIds.intersection(layout.paneIds)
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            layout: try container.decode(DrawerGridLayout.self, forKey: .layout),
+            activeChildId: try container.decodeIfPresent(UUID.self, forKey: .activeChildId),
+            minimizedPaneIds: try container.decode(Set<UUID>.self, forKey: .minimizedPaneIds)
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(layout, forKey: .layout)
+        try container.encodeIfPresent(activeChildId, forKey: .activeChildId)
+        try container.encode(minimizedPaneIds, forKey: .minimizedPaneIds)
+    }
+
+    private static func normalizedActiveChildId(_ activeChildId: UUID?, paneIds: [UUID]) -> UUID? {
+        guard !paneIds.isEmpty else { return nil }
+        guard let activeChildId, paneIds.contains(activeChildId) else { return paneIds[0] }
+        return activeChildId
+    }
+}
+
+/// A named complete view of panes within a Tab.
+/// Each tab has exactly one default arrangement and zero or more custom arrangements.
 struct PaneArrangement: Codable, Identifiable, Hashable {
     let id: UUID
     /// Display name for this arrangement.
@@ -10,18 +58,24 @@ struct PaneArrangement: Codable, Identifiable, Hashable {
     var isDefault: Bool
     /// The spatial layout of panes in this arrangement.
     var layout: Layout
-    /// Which pane IDs are visible in this arrangement (subset of tab's panes for custom, all for default).
-    var visiblePaneIds: Set<UUID>
-    /// Which visible pane IDs are currently minimized in this arrangement.
+    /// Pane IDs currently minimized in this arrangement.
     var minimizedPaneIds: Set<UUID>
+    /// Whether minimized panes are still rendered as collapsed bars.
+    var showsMinimizedPanes: Bool
+    /// Focused pane for this arrangement. Nil only when the arrangement has no visible candidate.
+    var activePaneId: UUID?
+    /// Per-arrangement drawer view state, keyed by `Drawer.drawerId`.
+    var drawerViews: [UUID: DrawerView]
 
     private enum CodingKeys: String, CodingKey {
         case id
         case name
         case isDefault
         case layout
-        case visiblePaneIds
         case minimizedPaneIds
+        case showsMinimizedPanes
+        case activePaneId
+        case drawerViews
     }
 
     init(
@@ -29,15 +83,20 @@ struct PaneArrangement: Codable, Identifiable, Hashable {
         name: String = "Default",
         isDefault: Bool = true,
         layout: Layout,
-        visiblePaneIds: Set<UUID>? = nil,
-        minimizedPaneIds: Set<UUID> = []
+        minimizedPaneIds: Set<UUID> = [],
+        showsMinimizedPanes: Bool = true,
+        activePaneId: UUID? = nil,
+        drawerViews: [UUID: DrawerView] = [:]
     ) {
         self.id = id
         self.name = name
         self.isDefault = isDefault
         self.layout = layout
-        self.visiblePaneIds = visiblePaneIds ?? Set(layout.paneIds)
-        self.minimizedPaneIds = minimizedPaneIds
+        self.minimizedPaneIds = minimizedPaneIds.intersection(layout.paneIds)
+        self.showsMinimizedPanes = showsMinimizedPanes
+        self.activePaneId = Self.normalizedActivePaneId(
+            activePaneId, layout: layout, minimizedPaneIds: minimizedPaneIds)
+        self.drawerViews = drawerViews
     }
 
     init(from decoder: Decoder) throws {
@@ -46,11 +105,27 @@ struct PaneArrangement: Codable, Identifiable, Hashable {
         name = try container.decode(String.self, forKey: .name)
         isDefault = try container.decode(Bool.self, forKey: .isDefault)
         layout = try container.decode(Layout.self, forKey: .layout)
-        visiblePaneIds =
-            try container.decodeIfPresent(Set<UUID>.self, forKey: .visiblePaneIds)
-            ?? Set(layout.paneIds)
         minimizedPaneIds =
-            try container.decodeIfPresent(Set<UUID>.self, forKey: .minimizedPaneIds)
-            ?? []
+            try container.decode(Set<UUID>.self, forKey: .minimizedPaneIds)
+            .intersection(layout.paneIds)
+        showsMinimizedPanes = try container.decode(Bool.self, forKey: .showsMinimizedPanes)
+        activePaneId = Self.normalizedActivePaneId(
+            try container.decodeIfPresent(UUID.self, forKey: .activePaneId),
+            layout: layout,
+            minimizedPaneIds: minimizedPaneIds
+        )
+        drawerViews = try container.decode([UUID: DrawerView].self, forKey: .drawerViews)
+    }
+
+    private static func normalizedActivePaneId(
+        _ activePaneId: UUID?,
+        layout: Layout,
+        minimizedPaneIds: Set<UUID>
+    ) -> UUID? {
+        guard !layout.isEmpty else { return nil }
+        if let activePaneId, layout.contains(activePaneId), !minimizedPaneIds.contains(activePaneId) {
+            return activePaneId
+        }
+        return layout.paneIds.first { !minimizedPaneIds.contains($0) } ?? layout.paneIds.first
     }
 }

@@ -50,6 +50,7 @@ struct DrawerPanel: View {
     let tabId: UUID
     let activeChildId: UUID?
     let minimizedPaneIds: Set<UUID>
+    let showsMinimizedPanes: Bool
     let closeTransitionCoordinator: PaneCloseTransitionCoordinator
     let height: CGFloat
     let store: WorkspaceStore
@@ -79,7 +80,12 @@ struct DrawerPanel: View {
     }
 
     private var renderedDrawerPaneIds: Set<UUID> {
-        Set(layout.paneIds)
+        Self.renderedPaneIds(
+            layout: layout,
+            minimizedPaneIds: minimizedPaneIds,
+            showsMinimizedPanes: showsMinimizedPanes,
+            isManagementLayerActive: managementLayer.isActive
+        )
     }
 
     init(
@@ -88,6 +94,7 @@ struct DrawerPanel: View {
         tabId: UUID,
         activeChildId: UUID?,
         minimizedPaneIds: Set<UUID>,
+        showsMinimizedPanes: Bool,
         closeTransitionCoordinator: PaneCloseTransitionCoordinator,
         height: CGFloat,
         store: WorkspaceStore,
@@ -109,6 +116,7 @@ struct DrawerPanel: View {
         self.tabId = tabId
         self.activeChildId = activeChildId
         self.minimizedPaneIds = minimizedPaneIds
+        self.showsMinimizedPanes = showsMinimizedPanes
         self.closeTransitionCoordinator = closeTransitionCoordinator
         self.height = height
         self.store = store
@@ -173,7 +181,7 @@ struct DrawerPanel: View {
             activePaneId: activeChildId,
             minimizedPaneIds: minimizedPaneIds,
             ordinalMap: PaneOrdinalMap(orderedPaneIds: layout.paneIds),
-            collapsedPaneWidth: CollapsedPaneBar.barWidth,
+            collapsedPaneWidth: managementLayer.isActive || showsMinimizedPanes ? CollapsedPaneBar.barWidth : 0,
             onSaveArrangement: nil,
             closeTransitionCoordinator: closeTransitionCoordinator,
             actionDispatcher: drawerActionDispatcher,
@@ -293,6 +301,18 @@ struct DrawerPanel: View {
     }
 
     private static let drawerDropCoordinateSpace = "drawerContainer"
+
+    static func renderedPaneIds(
+        layout: DrawerGridLayout,
+        minimizedPaneIds: Set<UUID>,
+        showsMinimizedPanes: Bool,
+        isManagementLayerActive: Bool
+    ) -> Set<UUID> {
+        guard !isManagementLayerActive && !showsMinimizedPanes else {
+            return Set(layout.paneIds)
+        }
+        return Set(layout.paneIds.filter { !minimizedPaneIds.contains($0) })
+    }
 }
 
 private struct DrawerSurfaceRegistrationModifier: ViewModifier {
@@ -330,6 +350,7 @@ private struct DrawerSurfaceRegistrationModifier: ViewModifier {
                     tabId: UUID(),
                     activeChildId: nil,
                     minimizedPaneIds: [],
+                    showsMinimizedPanes: true,
                     closeTransitionCoordinator: PaneCloseTransitionCoordinator(),
                     height: 200,
                     store: WorkspaceStore(

@@ -467,6 +467,38 @@ final class WorkspaceCommandValidatorTests {
         Issue.record("Expected singlePaneTab error")
     }
 
+    // MARK: - reorderTab
+
+    @Test
+
+    func test_reorderTab_validIndex_succeeds() {
+        let (firstTab, firstTabId, _) = makeSinglePaneTab()
+        let (secondTab, _, _) = makeSinglePaneTab()
+        let snapshot = makeSnapshot(tabs: [firstTab, secondTab])
+
+        let result = WorkspaceCommandValidator.validate(
+            .reorderTab(tabId: firstTabId, newIndex: 1),
+            state: snapshot
+        )
+
+        #expect((try? result.get()) != nil)
+    }
+
+    @Test
+
+    func test_reorderTab_outOfRange_fails() {
+        let (tab, tabId, _) = makeSinglePaneTab()
+        let snapshot = makeSnapshot(tabs: [tab])
+
+        let result = WorkspaceCommandValidator.validate(
+            .reorderTab(tabId: tabId, newIndex: 1),
+            state: snapshot
+        )
+
+        if case .failure(.tabReorderIndexOutOfRange(index: 1)) = result { return }
+        Issue.record("Expected tabReorderIndexOutOfRange error")
+    }
+
     // MARK: - insertPane (self-insertion bug fix)
 
     @Test
@@ -498,7 +530,7 @@ final class WorkspaceCommandValidatorTests {
 
     @Test
 
-    func test_insertPane_existingPane_differentTarget_succeeds() {
+    func test_insertPane_existingPane_crossTab_failsAsInvalidRequestShape() {
         // Arrange
         let sourcePaneId = UUID()
         let targetPaneId = UUID()
@@ -529,7 +561,15 @@ final class WorkspaceCommandValidatorTests {
         let result = WorkspaceCommandValidator.validate(action, state: snapshot)
 
         // Assert
-        #expect((try? result.get()) != nil)
+        if case .failure(
+            .crossTabInsertPaneRequest(
+                paneId: sourcePaneId,
+                sourceTabId: sourceTabId,
+                targetTabId: targetTabId)
+        ) = result {
+            return
+        }
+        Issue.record("Expected crossTabInsertPaneRequest error")
     }
 
     @Test
@@ -603,7 +643,7 @@ final class WorkspaceCommandValidatorTests {
         let (tab, tabId, paneId) = makeSinglePaneTab()
         let snapshot = makeSnapshot(tabs: [tab])
         let action = PaneActionCommand.insertPane(
-            source: .existingPane(paneId: UUID(), sourceTabId: UUID()),
+            source: .existingPane(paneId: UUID(), sourceTabId: tabId),
             targetTabId: tabId,
             targetPaneId: paneId,
             direction: .right,
