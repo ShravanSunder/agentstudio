@@ -8,6 +8,58 @@ import Testing
 @MainActor
 @Suite(.serialized)
 struct DrawerPanelOverlayStateTests {
+    // MARK: - Rendered drawer pane projection
+
+    @Test
+    func drawerPanelRenderedPaneIds_followsArrangementShowMinimizedPolicy() {
+        let visiblePaneId = UUID()
+        let minimizedPaneId = UUID()
+        let layout = DrawerGridLayout(
+            topRow: Layout(paneId: visiblePaneId)
+                .inserting(
+                    paneId: minimizedPaneId,
+                    at: visiblePaneId,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )!
+        )
+
+        let renderedPaneIds = DrawerPanel.renderedPaneIds(
+            layout: layout,
+            minimizedPaneIds: [minimizedPaneId],
+            showsMinimizedPanes: false,
+            isManagementLayerActive: false
+        )
+
+        #expect(renderedPaneIds == [visiblePaneId])
+    }
+
+    @Test
+    func drawerPanelRenderedPaneIds_managementLayerRestoresMinimizedPanes() {
+        let visiblePaneId = UUID()
+        let minimizedPaneId = UUID()
+        let layout = DrawerGridLayout(
+            topRow: Layout(paneId: visiblePaneId)
+                .inserting(
+                    paneId: minimizedPaneId,
+                    at: visiblePaneId,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )!
+        )
+
+        let renderedPaneIds = DrawerPanel.renderedPaneIds(
+            layout: layout,
+            minimizedPaneIds: [minimizedPaneId],
+            showsMinimizedPanes: false,
+            isManagementLayerActive: true
+        )
+
+        #expect(renderedPaneIds == [visiblePaneId, minimizedPaneId])
+    }
+
     // MARK: - Frame preference reducer stability
 
     @Test

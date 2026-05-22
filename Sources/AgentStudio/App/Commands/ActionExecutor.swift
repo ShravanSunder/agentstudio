@@ -131,7 +131,10 @@ final class ActionExecutor {
             knownRepoIds: Set(repositoryTopology.repos.map(\.id)),
             knownWorktreeIds: Set(repositoryTopology.repos.flatMap(\.worktrees).map(\.id)),
             drawerParentByPaneId: drawerParentByPaneId(),
-            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId()
+            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
+            visiblePaneIds: { [arrangementView] tab in
+                arrangementView.activeVisiblePaneIds(forTab: tab.id)
+            }
         )
         switch WorkspaceCommandValidator.validate(action, state: snapshot) {
         case .success(let validated):

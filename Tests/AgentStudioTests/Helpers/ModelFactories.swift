@@ -78,8 +78,7 @@ func makeTab(paneIds: [UUID], activePaneId: UUID? = nil, name: String = "Tab") -
     let arrangement = PaneArrangement(
         name: "Default",
         isDefault: true,
-        layout: layout,
-        visiblePaneIds: Set(paneIds)
+        layout: layout
     )
     return Tab(
         name: name,

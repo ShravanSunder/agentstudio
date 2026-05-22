@@ -349,6 +349,26 @@ final class WorkspaceCommandResolverTests {
     }
 
     @Test
+    func test_resolve_closePane_usesProvidedVisiblePaneIds() {
+        // Arrange
+        let tabId = UUID()
+        let paneA = UUIDv7.generate()
+        let paneB = UUIDv7.generate()
+        let tab = MockTab(id: tabId, activePaneId: paneA, allPaneIds: [paneA, paneB])
+
+        // Act
+        let result = WorkspaceCommandResolver.resolve(
+            command: .closePane,
+            tabs: [tab],
+            activeTabId: tabId,
+            visiblePaneIds: { _ in [paneA] }
+        )
+
+        // Assert
+        #expect(result == .closeTab(tabId: tabId))
+    }
+
+    @Test
 
     func test_resolve_extractPaneToTab_returnsExtractWithActivePane() {
         // Arrange
@@ -609,6 +629,25 @@ final class WorkspaceCommandResolverTests {
         #expect(snapshot.tab(tab2Id)?.activePaneId == pane2a)
         #expect(snapshot.tab(tab2Id)?.isSplit == true)
         #expect(!(snapshot.tab(tab1Id)?.isSplit == true))
+    }
+
+    @Test
+
+    func test_snapshot_usesDerivedVisiblePaneIdsWhenProvided() {
+        let tabId = UUID()
+        let paneA = UUID()
+        let paneB = UUID()
+        let tab = MockTab(id: tabId, activePaneId: paneA, allPaneIds: [paneA, paneB])
+
+        let snapshot = WorkspaceCommandResolver.snapshot(
+            from: [tab],
+            activeTabId: tabId,
+            isManagementLayerActive: false,
+            visiblePaneIds: { _ in [paneA] }
+        )
+
+        #expect(snapshot.tab(tabId)?.visiblePaneIds == [paneA])
+        #expect(snapshot.tab(tabId)?.ownedPaneIds == [paneA, paneB])
     }
 
     // MARK: - resolveDrop: Zone → direction mapping

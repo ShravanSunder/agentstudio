@@ -16,7 +16,6 @@ struct WorkspaceTabDerivedTests {
             layout: Layout(paneId: paneA)
                 .inserting(
                     paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!,
-            visiblePaneIds: [paneA, paneB],
             minimizedPaneIds: [paneB]
         )
         let shell = TabShell(id: UUID(), name: "Review")

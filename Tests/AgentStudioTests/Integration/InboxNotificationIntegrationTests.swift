@@ -104,8 +104,7 @@ struct InboxNotificationIntegrationTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: Layout(paneId: paneId.uuid),
-            visiblePaneIds: [paneId.uuid]
+            layout: Layout(paneId: paneId.uuid)
         )
         let tab = Tab(
             name: "Tab",

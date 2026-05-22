@@ -63,7 +63,44 @@ enum TabArrangementRepairRules {
                     updated.activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(in: updated)
                 }
             }
+            updated.drawerViews = pruningInvalidDrawerPaneIds(validPaneIds: validPaneIds, from: updated.drawerViews)
             return updated
         }
+    }
+
+    private static func pruningInvalidDrawerPaneIds(
+        validPaneIds: Set<UUID>,
+        from drawerViews: [UUID: DrawerView]
+    ) -> [UUID: DrawerView] {
+        var updatedDrawerViews = drawerViews
+        for drawerId in updatedDrawerViews.keys {
+            guard var drawerView = updatedDrawerViews[drawerId] else { continue }
+            let invalidIds = drawerView.layout.paneIds.filter { !validPaneIds.contains($0) }
+            for paneId in invalidIds {
+                drawerView.layout =
+                    drawerView.layout.removing(paneId: paneId, sizingMode: .proportional)
+                    ?? DrawerGridLayout()
+            }
+            drawerView.minimizedPaneIds = drawerView.minimizedPaneIds.intersection(drawerView.layout.paneIds)
+
+            guard !drawerView.layout.isEmpty else {
+                updatedDrawerViews.removeValue(forKey: drawerId)
+                continue
+            }
+
+            if let activeChildId = drawerView.activeChildId,
+                drawerView.layout.contains(activeChildId),
+                !drawerView.minimizedPaneIds.contains(activeChildId)
+            {
+                updatedDrawerViews[drawerId] = drawerView
+                continue
+            }
+
+            drawerView.activeChildId = drawerView.layout.paneIds.first {
+                !drawerView.minimizedPaneIds.contains($0)
+            }
+            updatedDrawerViews[drawerId] = drawerView
+        }
+        return updatedDrawerViews
     }
 }

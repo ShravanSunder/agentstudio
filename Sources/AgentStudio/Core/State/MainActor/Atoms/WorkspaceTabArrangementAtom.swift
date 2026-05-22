@@ -460,18 +460,6 @@ final class WorkspaceTabArrangementAtom {
         arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
     }
 
-    func setShowsMinimizedDrawerPanes(_ value: Bool, drawerId: UUID, inTab tabId: UUID) {
-        guard let tabIndex = findTabIndex(tabId) else {
-            workspaceTabArrangementLogger.warning("setShowsMinimizedDrawerPanes: tab \(tabId) not found")
-            return
-        }
-        let arrangementIndex = activeArrangementIndex(for: tabIndex)
-        guard var drawerView = arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId]
-        else { return }
-        drawerView.showsMinimizedPanes = value
-        arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
-    }
-
     func moveDrawerPane(
         _ drawerPaneId: UUID,
         drawerId: UUID,
@@ -754,8 +742,7 @@ final class WorkspaceTabArrangementAtom {
         return DrawerView(
             layout: DrawerGridLayout(topRow: Layout.autoTiled(drawerPaneIds)),
             activeChildId: drawerPaneIds[0],
-            minimizedPaneIds: [],
-            showsMinimizedPanes: true
+            minimizedPaneIds: []
         )
     }
 }

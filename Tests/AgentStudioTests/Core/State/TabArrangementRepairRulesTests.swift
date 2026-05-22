@@ -6,7 +6,7 @@ import Testing
 @Suite(.serialized)
 struct TabArrangementRepairRulesTests {
     @Test
-    func removingPane_removesItFromLayoutVisibleAndMinimizedSets() {
+    func removingPane_removesItFromLayoutAndMinimizedSet() {
         let paneA = UUID()
         let paneB = UUID()
         let arrangements = [
@@ -16,7 +16,6 @@ struct TabArrangementRepairRulesTests {
                 layout: Layout(paneId: paneA)
                     .inserting(
                         paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!,
-                visiblePaneIds: [paneA, paneB],
                 minimizedPaneIds: [paneB]
             )
         ]
@@ -24,7 +23,6 @@ struct TabArrangementRepairRulesTests {
         let updated = TabArrangementRepairRules.removingPane(paneB, from: arrangements)
 
         #expect(updated[0].layout.paneIds == [paneA])
-        #expect(updated[0].visiblePaneIds == [paneA])
         #expect(updated[0].minimizedPaneIds.isEmpty)
     }
 
@@ -40,7 +38,6 @@ struct TabArrangementRepairRulesTests {
                     .inserting(
                         paneId: stalePane, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget
                     )!,
-                visiblePaneIds: [paneA, stalePane],
                 minimizedPaneIds: [stalePane]
             )
         ]
@@ -51,7 +48,48 @@ struct TabArrangementRepairRulesTests {
         )
 
         #expect(updated[0].layout.paneIds == [paneA])
-        #expect(updated[0].visiblePaneIds == [paneA])
         #expect(updated[0].minimizedPaneIds.isEmpty)
+    }
+
+    @Test
+    func pruningInvalidPaneIds_repairsDrawerViews() throws {
+        let parentPane = UUID()
+        let drawerId = UUID()
+        let validDrawerPane = UUID()
+        let staleDrawerPane = UUID()
+        let drawerLayout = DrawerGridLayout(
+            topRow: Layout(paneId: validDrawerPane)
+                .inserting(
+                    paneId: staleDrawerPane,
+                    at: validDrawerPane,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )!
+        )
+        let arrangements = [
+            PaneArrangement(
+                name: "Default",
+                isDefault: true,
+                layout: Layout(paneId: parentPane),
+                drawerViews: [
+                    drawerId: DrawerView(
+                        layout: drawerLayout,
+                        activeChildId: staleDrawerPane,
+                        minimizedPaneIds: [staleDrawerPane]
+                    )
+                ]
+            )
+        ]
+
+        let updated = TabArrangementRepairRules.pruningInvalidPaneIds(
+            validPaneIds: [parentPane, validDrawerPane],
+            from: arrangements
+        )
+
+        let drawerView = try #require(updated[0].drawerViews[drawerId])
+        #expect(drawerView.layout.paneIds == [validDrawerPane])
+        #expect(drawerView.minimizedPaneIds.isEmpty)
+        #expect(drawerView.activeChildId == validDrawerPane)
     }
 }

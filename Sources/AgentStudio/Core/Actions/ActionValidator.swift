@@ -31,7 +31,7 @@ enum ActionValidationError: Error, Equatable {
     case crossTabDestNotFound(tabId: UUID)
     case crossTabTargetNotFound(paneId: UUID, tabId: UUID)
     case tabReorderIndexOutOfRange(index: Int)
-    case retiredCrossTabInsertPane(paneId: UUID, sourceTabId: UUID, targetTabId: UUID)
+    case crossTabInsertPaneRequest(paneId: UUID, sourceTabId: UUID, targetTabId: UUID)
 }
 
 enum DrawerLayoutValidationFailure: Error, Equatable, Sendable, CustomStringConvertible {
@@ -126,7 +126,7 @@ enum WorkspaceCommandValidator {
             if case .existingPane(let sourcePaneId, let sourceTabId) = request.source {
                 guard sourceTabId == request.targetTabId else {
                     return .failure(
-                        .retiredCrossTabInsertPane(
+                        .crossTabInsertPaneRequest(
                             paneId: sourcePaneId,
                             sourceTabId: sourceTabId,
                             targetTabId: request.targetTabId
@@ -322,8 +322,7 @@ enum WorkspaceCommandValidator {
             .resizeDrawerPane(let parentPaneId, _, _),
             .equalizeDrawerPanes(let parentPaneId),
             .minimizeDrawerPane(let parentPaneId, _),
-            .expandDrawerPane(let parentPaneId, _),
-            .setShowsMinimizedDrawerPanes(let parentPaneId, _):
+            .expandDrawerPane(let parentPaneId, _):
             guard state.tabShowing(paneId: parentPaneId) != nil else {
                 return .failure(.paneNotFound(paneId: parentPaneId, tabId: state.activeTabId ?? UUID()))
             }

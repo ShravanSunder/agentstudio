@@ -300,8 +300,7 @@ struct WorkspacePaneFocusDerivedProjectionTests {
         let namedArrangement = PaneArrangement(
             name: "Review",
             isDefault: false,
-            layout: tab.layout,
-            visiblePaneIds: Set(tab.activePaneIds)
+            layout: tab.layout
         )
         tab.arrangements.append(namedArrangement)
         store.appendTab(tab)

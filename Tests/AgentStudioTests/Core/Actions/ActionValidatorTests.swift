@@ -530,7 +530,7 @@ final class WorkspaceCommandValidatorTests {
 
     @Test
 
-    func test_insertPane_existingPane_crossTab_failsWithRetiredPath() {
+    func test_insertPane_existingPane_crossTab_failsAsInvalidRequestShape() {
         // Arrange
         let sourcePaneId = UUID()
         let targetPaneId = UUID()
@@ -562,14 +562,14 @@ final class WorkspaceCommandValidatorTests {
 
         // Assert
         if case .failure(
-            .retiredCrossTabInsertPane(
+            .crossTabInsertPaneRequest(
                 paneId: sourcePaneId,
                 sourceTabId: sourceTabId,
                 targetTabId: targetTabId)
         ) = result {
             return
         }
-        Issue.record("Expected retiredCrossTabInsertPane error")
+        Issue.record("Expected crossTabInsertPaneRequest error")
     }
 
     @Test

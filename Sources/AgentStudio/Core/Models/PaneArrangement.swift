@@ -8,19 +8,37 @@ struct DrawerView: Codable, Hashable {
     var activeChildId: UUID?
     /// Panes currently minimized to narrow vertical bars.
     var minimizedPaneIds: Set<UUID>
-    /// Whether minimized drawer panes are still rendered as collapsed bars.
-    var showsMinimizedPanes: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case layout
+        case activeChildId
+        case minimizedPaneIds
+    }
 
     init(
         layout: DrawerGridLayout = DrawerGridLayout(),
         activeChildId: UUID? = nil,
-        minimizedPaneIds: Set<UUID> = [],
-        showsMinimizedPanes: Bool = true
+        minimizedPaneIds: Set<UUID> = []
     ) {
         self.layout = layout
         self.activeChildId = Self.normalizedActiveChildId(activeChildId, paneIds: layout.paneIds)
         self.minimizedPaneIds = minimizedPaneIds.intersection(layout.paneIds)
-        self.showsMinimizedPanes = showsMinimizedPanes
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            layout: try container.decode(DrawerGridLayout.self, forKey: .layout),
+            activeChildId: try container.decodeIfPresent(UUID.self, forKey: .activeChildId),
+            minimizedPaneIds: try container.decode(Set<UUID>.self, forKey: .minimizedPaneIds)
+        )
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(layout, forKey: .layout)
+        try container.encodeIfPresent(activeChildId, forKey: .activeChildId)
+        try container.encode(minimizedPaneIds, forKey: .minimizedPaneIds)
     }
 
     private static func normalizedActiveChildId(_ activeChildId: UUID?, paneIds: [UUID]) -> UUID? {

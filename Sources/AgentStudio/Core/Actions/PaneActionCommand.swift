@@ -163,8 +163,6 @@ enum PaneActionCommand: Equatable, Hashable {
     case minimizeDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
     /// Expand a minimized pane within a drawer.
     case expandDrawerPane(parentPaneId: UUID, drawerPaneId: UUID)
-    /// Set whether minimized drawer panes render as collapsed bars in the active arrangement's drawer view.
-    case setShowsMinimizedDrawerPanes(parentPaneId: UUID, value: Bool)
     /// Insert a new pane into a drawer's layout next to a target drawer pane.
     case insertDrawerPane(
         parentPaneId: UUID,

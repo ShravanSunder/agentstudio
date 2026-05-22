@@ -17,7 +17,8 @@ enum WorkspaceCommandResolver {
     static func resolve<T: ResolvableTab>(
         command: AppCommand,
         tabs: [T],
-        activeTabId: UUID?
+        activeTabId: UUID?,
+        visiblePaneIds: (T) -> [UUID] = { $0.visiblePaneIds }
     ) -> PaneActionCommand? {
         if isNonPaneCommand(command) {
             return nil
@@ -64,7 +65,7 @@ enum WorkspaceCommandResolver {
         case .closePane:
             guard let (tab, paneId) = activeTabAndPane(tabs: tabs, activeTabId: activeTabId)
             else { return nil }
-            if tab.visiblePaneIds.count <= 1 {
+            if visiblePaneIds(tab).count <= 1 {
                 return .closeTab(tabId: tab.id)
             }
             return .closePane(tabId: tab.id, paneId: paneId)
@@ -207,13 +208,14 @@ enum WorkspaceCommandResolver {
         knownRepoIds: Set<UUID> = [],
         knownWorktreeIds: Set<UUID> = [],
         drawerParentByPaneId: [UUID: UUID] = [:],
-        drawerLayoutByParentPaneId: [UUID: DrawerGridLayout] = [:]
+        drawerLayoutByParentPaneId: [UUID: DrawerGridLayout] = [:],
+        visiblePaneIds: (T) -> [UUID] = { $0.visiblePaneIds }
     ) -> ActionStateSnapshot {
         ActionStateSnapshot(
             tabs: tabs.map { tab in
                 TabSnapshot(
                     id: tab.id,
-                    visiblePaneIds: tab.visiblePaneIds,
+                    visiblePaneIds: visiblePaneIds(tab),
                     ownedPaneIds: tab.ownedPaneIds,
                     activePaneId: tab.activePaneId
                 )

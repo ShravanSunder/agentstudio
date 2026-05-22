@@ -22,8 +22,7 @@ struct AttendedPaneAtomTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: Layout(paneId: layoutPaneId),
-            visiblePaneIds: Set(paneIds)
+            layout: Layout.autoTiled(paneIds.isEmpty ? [layoutPaneId] : paneIds)
         )
         let tab = Tab(
             name: "Tab",

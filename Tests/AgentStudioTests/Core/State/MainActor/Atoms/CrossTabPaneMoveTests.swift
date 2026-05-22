@@ -92,7 +92,6 @@ struct CrossTabPaneMoveTests {
             #expect(drawerView.layout.paneIds == drawerPaneIds)
             #expect(drawerView.activeChildId == drawerPaneIds[0])
             #expect(drawerView.minimizedPaneIds.isEmpty)
-            #expect(drawerView.showsMinimizedPanes)
         }
     }
 

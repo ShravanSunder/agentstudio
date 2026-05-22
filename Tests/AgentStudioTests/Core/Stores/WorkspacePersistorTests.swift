@@ -237,6 +237,54 @@ final class WorkspacePersistorTests {
     }
 
     @Test
+    func test_load_canonicalState_oldArrangementShape_returnsCorrupt() throws {
+        let workspaceId = UUID()
+        let tabId = UUID()
+        let arrangementId = UUID()
+        let paneId = UUID()
+        let json = """
+            {
+              "schemaVersion": 1,
+              "id": "\(workspaceId.uuidString)",
+              "name": "Test Workspace",
+              "repos": [],
+              "worktrees": [],
+              "unavailableRepoIds": [],
+              "panes": [],
+              "tabs": [
+                {
+                  "id": "\(tabId.uuidString)",
+                  "name": "Tab",
+                  "panes": ["\(paneId.uuidString)"],
+                  "arrangements": [
+                    {
+                      "id": "\(arrangementId.uuidString)",
+                      "name": "Default",
+                      "isDefault": true,
+                      "layout": {
+                        "panes": [
+                          { "paneId": "\(paneId.uuidString)", "ratio": 1 }
+                        ],
+                        "dividerIds": []
+                      },
+                      "visiblePaneIds": ["\(paneId.uuidString)"]
+                    }
+                  ],
+                  "activeArrangementId": "\(arrangementId.uuidString)"
+                }
+              ],
+              "sidebarWidth": 250,
+              "createdAt": "\(ISO8601DateFormatter().string(from: Date()))",
+              "updatedAt": "\(ISO8601DateFormatter().string(from: Date()))"
+            }
+            """
+        let stateURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.state.json")
+        try Data(json.utf8).write(to: stateURL, options: .atomic)
+
+        #expect(persistor.load().isCorrupt)
+    }
+
+    @Test
     func test_load_ignoresCacheAndUIFiles() throws {
         // Arrange — write only cache and UI files, no canonical state
         let workspaceId = UUID()

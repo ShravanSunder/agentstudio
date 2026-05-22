@@ -20,7 +20,7 @@ struct ShowsMinimizedPanesStateTests {
         let customArrangement = PaneArrangement(
             name: "Focus",
             isDefault: false,
-            layout: Layout(paneId: paneA),
+            layout: Layout.autoTiled([paneB, paneA]),
             showsMinimizedPanes: true,
             activePaneId: paneA
         )
@@ -42,7 +42,7 @@ struct ShowsMinimizedPanesStateTests {
     }
 
     @Test
-    func setShowsMinimizedDrawerPanes_mutatesOnlyActiveArrangementDrawerView() throws {
+    func setShowsMinimizedPanes_doesNotMutateDrawerViewState() throws {
         let parentPaneId = UUID()
         let drawerId = UUID()
         let drawerPaneId = UUID()
@@ -54,7 +54,8 @@ struct ShowsMinimizedPanesStateTests {
             drawerViews: [
                 drawerId: DrawerView(
                     layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)),
-                    showsMinimizedPanes: true
+                    activeChildId: drawerPaneId,
+                    minimizedPaneIds: [drawerPaneId]
                 )
             ]
         )
@@ -66,7 +67,8 @@ struct ShowsMinimizedPanesStateTests {
             drawerViews: [
                 drawerId: DrawerView(
                     layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)),
-                    showsMinimizedPanes: true
+                    activeChildId: drawerPaneId,
+                    minimizedPaneIds: []
                 )
             ]
         )
@@ -86,12 +88,14 @@ struct ShowsMinimizedPanesStateTests {
             )
         )
 
-        tabArrangement.setShowsMinimizedDrawerPanes(false, drawerId: drawerId, inTab: tab.id)
+        tabArrangement.setShowsMinimizedPanes(false, inTab: tab.id)
 
         let updatedState = try #require(tabArrangement.arrangementState(tab.id))
         let updatedDefault = try #require(updatedState.arrangements.first { $0.id == defaultArrangement.id })
         let updatedCustom = try #require(updatedState.arrangements.first { $0.id == customArrangement.id })
-        #expect(updatedDefault.drawerViews[drawerId]?.showsMinimizedPanes == true)
-        #expect(updatedCustom.drawerViews[drawerId]?.showsMinimizedPanes == false)
+        #expect(updatedDefault.drawerViews[drawerId]?.minimizedPaneIds == [drawerPaneId])
+        #expect(updatedCustom.drawerViews[drawerId]?.minimizedPaneIds.isEmpty == true)
+        #expect(updatedDefault.showsMinimizedPanes == true)
+        #expect(updatedCustom.showsMinimizedPanes == false)
     }
 }

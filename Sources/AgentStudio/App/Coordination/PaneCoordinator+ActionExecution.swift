@@ -617,21 +617,6 @@ extension PaneCoordinator {
                 reattachForViewSwitch(paneId: drawerPaneId)
             }
 
-        case .setShowsMinimizedDrawerPanes(let parentPaneId, let value):
-            guard
-                let drawerContext = drawerCommandContext(
-                    parentPaneId: parentPaneId,
-                    command: "setShowsMinimizedDrawerPanes")
-            else { break }
-            let previousVisiblePaneIds = Set(arrangementView.drawerVisiblePaneIds(forParent: parentPaneId))
-            store.tabArrangementAtom.setShowsMinimizedDrawerPanes(
-                value, drawerId: drawerContext.drawerId, inTab: drawerContext.tabId)
-            let newVisiblePaneIds = Set(arrangementView.drawerVisiblePaneIds(forParent: parentPaneId))
-            reconcileVisiblePaneTransition(
-                previousVisiblePaneIds: previousVisiblePaneIds,
-                newVisiblePaneIds: newVisiblePaneIds
-            )
-
         case .insertDrawerPane(let parentPaneId, let targetDrawerPaneId, let direction, let sizingMode):
             executeInsertDrawerPane(
                 parentPaneId: parentPaneId,

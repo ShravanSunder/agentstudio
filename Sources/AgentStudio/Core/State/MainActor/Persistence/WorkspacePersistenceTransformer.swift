@@ -134,28 +134,10 @@ enum WorkspacePersistenceTransformer {
         for tabIndex in tabs.indices {
             tabs[tabIndex].panes.removeAll { !validPaneIds.contains($0) }
 
-            for arrIndex in tabs[tabIndex].arrangements.indices {
-                let invalidIds = tabs[tabIndex].arrangements[arrIndex].layout.paneIds.filter {
-                    !validPaneIds.contains($0)
-                }
-                for paneId in invalidIds {
-                    if let newLayout = tabs[tabIndex].arrangements[arrIndex].layout.removing(
-                        paneId: paneId,
-                        sizingMode: .halveTarget
-                    ) {
-                        tabs[tabIndex].arrangements[arrIndex].layout = newLayout
-                    } else {
-                        tabs[tabIndex].arrangements[arrIndex].layout = Layout()
-                    }
-                    tabs[tabIndex].arrangements[arrIndex].minimizedPaneIds.remove(paneId)
-                    if tabs[tabIndex].arrangements[arrIndex].activePaneId == paneId {
-                        tabs[tabIndex].arrangements[arrIndex].activePaneId =
-                            TabArrangementSelectionRules.firstUnminimizedPaneId(
-                                in: tabs[tabIndex].arrangements[arrIndex]
-                            )
-                    }
-                }
-            }
+            tabs[tabIndex].arrangements = TabArrangementRepairRules.pruningInvalidPaneIds(
+                validPaneIds: validPaneIds,
+                from: tabs[tabIndex].arrangements
+            )
 
             if tabs[tabIndex].activeArrangement.layout.isEmpty && !tabs[tabIndex].defaultArrangement.layout.isEmpty {
                 tabs[tabIndex].activeArrangementId = tabs[tabIndex].defaultArrangement.id

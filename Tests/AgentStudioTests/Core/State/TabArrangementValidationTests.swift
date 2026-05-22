@@ -12,8 +12,7 @@ struct TabArrangementValidationTests {
         let firstArrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: Layout(paneId: sharedPane),
-            visiblePaneIds: [sharedPane]
+            layout: Layout(paneId: sharedPane)
         )
         let first = TabArrangementState(
             tabId: UUID(),
@@ -30,7 +29,6 @@ struct TabArrangementValidationTests {
                 .inserting(
                     paneId: uniquePane, at: sharedPane, direction: .horizontal, position: .after,
                     sizingMode: .halveTarget)!,
-            visiblePaneIds: [sharedPane, uniquePane],
             minimizedPaneIds: [sharedPane]
         )
         let second = TabArrangementState(

@@ -15,7 +15,12 @@ enum DrawerDropDispatch {
     }
 
     static func context(parentPaneId: UUID, store: WorkspaceStore) -> Context {
-        Context(
+        let arrangementView = WorkspaceArrangementViewDerived(
+            tabLayoutAtom: store.tabLayoutAtom,
+            paneAtom: store.paneAtom,
+            managementLayerAtom: atom(\.managementLayer)
+        )
+        return Context(
             parentPaneId: parentPaneId,
             state: WorkspaceCommandResolver.snapshot(
                 from: store.tabLayoutAtom.tabs,
@@ -23,7 +28,10 @@ enum DrawerDropDispatch {
                 isManagementLayerActive: atom(\.managementLayer).isActive,
                 knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
                 drawerParentByPaneId: drawerParentByPaneId(store: store),
-                drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(store: store)
+                drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(store: store),
+                visiblePaneIds: { tab in
+                    arrangementView.activeVisiblePaneIds(forTab: tab.id)
+                }
             )
         )
     }

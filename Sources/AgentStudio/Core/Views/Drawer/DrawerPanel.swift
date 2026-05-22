@@ -79,7 +79,12 @@ struct DrawerPanel: View {
     }
 
     private var renderedDrawerPaneIds: Set<UUID> {
-        Set(layout.paneIds)
+        Self.renderedPaneIds(
+            layout: layout,
+            minimizedPaneIds: minimizedPaneIds,
+            showsMinimizedPanes: showsMinimizedPanes,
+            isManagementLayerActive: managementLayer.isActive
+        )
     }
 
     init(
@@ -221,41 +226,6 @@ struct DrawerPanel: View {
         .help(LocalActionSpec.addDrawerTerminal.actionSpec.helpText)
     }
 
-    @ViewBuilder
-    private var drawerHeader: some View {
-        HStack(spacing: AppStyles.General.Spacing.standard) {
-            Spacer()
-
-            Text("Show minimized panes")
-                .font(.system(size: AppStyles.General.Typography.textXs))
-                .foregroundStyle(.secondary)
-
-            let minimizedCount = minimizedPaneIds.count
-            if minimizedCount > 0 {
-                Text("\(minimizedCount)")
-                    .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, AppStyles.General.Spacing.tight)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(Color.white.opacity(AppStyles.General.Fill.hover)))
-                    .fixedSize()
-            }
-
-            Toggle(
-                "",
-                isOn: Binding(
-                    get: { showsMinimizedPanes },
-                    set: { action(.setShowsMinimizedDrawerPanes(parentPaneId: parentPaneId, value: $0)) }
-                )
-            )
-            .toggleStyle(.switch)
-            .controlSize(.mini)
-            .labelsHidden()
-        }
-        .padding(.horizontal, DrawerLayout.panelContentPadding)
-        .padding(.bottom, AppStyles.General.Spacing.tight)
-    }
-
     var body: some View {
         GeometryReader { geometry in
             let containerBounds = CGRect(origin: .zero, size: geometry.size)
@@ -265,8 +235,6 @@ struct DrawerPanel: View {
                     DrawerResizeHandle(onDrag: onResize)
 
                     if !layout.isEmpty {
-                        drawerHeader
-
                         // Row-to-row spacing matches horizontal pane gap so the
                         // grid reads as a uniform 2x2 arrangement instead of
                         // two visually separate strips.
@@ -328,6 +296,18 @@ struct DrawerPanel: View {
     }
 
     private static let drawerDropCoordinateSpace = "drawerContainer"
+
+    static func renderedPaneIds(
+        layout: DrawerGridLayout,
+        minimizedPaneIds: Set<UUID>,
+        showsMinimizedPanes: Bool,
+        isManagementLayerActive: Bool
+    ) -> Set<UUID> {
+        guard !isManagementLayerActive && !showsMinimizedPanes else {
+            return Set(layout.paneIds)
+        }
+        return Set(layout.paneIds.filter { !minimizedPaneIds.contains($0) })
+    }
 }
 
 private struct DrawerSurfaceRegistrationModifier: ViewModifier {

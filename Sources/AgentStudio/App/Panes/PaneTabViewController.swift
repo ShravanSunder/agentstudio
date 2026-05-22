@@ -1068,7 +1068,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             isManagementLayerActive: atom(\.managementLayer).isActive,
             knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
             drawerParentByPaneId: drawerParentByPaneId(),
-            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId()
+            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
+            visiblePaneIds: { [arrangementView] tab in
+                arrangementView.activeVisiblePaneIds(forTab: tab.id)
+            }
         )
     }
 
@@ -1695,7 +1698,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
             isManagementLayerActive: atom(\.managementLayer).isActive,
             knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
             drawerParentByPaneId: drawerParentByPaneId(),
-            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId()
+            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
+            visiblePaneIds: { [arrangementView] tab in
+                arrangementView.activeVisiblePaneIds(forTab: tab.id)
+            }
         )
 
         switch WorkspaceCommandValidator.validate(action, state: snapshot) {
@@ -1914,7 +1920,12 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
         // Try the validated pipeline for pane/tab structural actions
         if let action = WorkspaceCommandResolver.resolve(
-            command: command, tabs: store.tabLayoutAtom.tabs, activeTabId: store.tabLayoutAtom.activeTabId
+            command: command,
+            tabs: store.tabLayoutAtom.tabs,
+            activeTabId: store.tabLayoutAtom.activeTabId,
+            visiblePaneIds: { [arrangementView] tab in
+                arrangementView.activeVisiblePaneIds(forTab: tab.id)
+            }
         ) {
             dispatchAction(action)
             return
@@ -2381,7 +2392,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 knownRepoIds: Set(store.repositoryTopologyAtom.repos.map(\.id)),
                 knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
                 drawerParentByPaneId: drawerParentByPaneId(),
-                drawerLayoutByParentPaneId: drawerLayoutByParentPaneId()
+                drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
+                visiblePaneIds: { [arrangementView] tab in
+                    arrangementView.activeVisiblePaneIds(forTab: tab.id)
+                }
             )
             if case .success = WorkspaceCommandValidator.validate(action, state: snapshot) {
                 return true
@@ -2450,7 +2464,12 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
 
         // Try resolving — if it resolves, validate it
         if let action = WorkspaceCommandResolver.resolve(
-            command: command, tabs: store.tabLayoutAtom.tabs, activeTabId: store.tabLayoutAtom.activeTabId
+            command: command,
+            tabs: store.tabLayoutAtom.tabs,
+            activeTabId: store.tabLayoutAtom.activeTabId,
+            visiblePaneIds: { [arrangementView] tab in
+                arrangementView.activeVisiblePaneIds(forTab: tab.id)
+            }
         ) {
             let snapshot = WorkspaceCommandResolver.snapshot(
                 from: store.tabLayoutAtom.tabs,
@@ -2459,7 +2478,10 @@ class PaneTabViewController: NSViewController, WorkspaceCommandHandling {
                 knownRepoIds: Set(store.repositoryTopologyAtom.repos.map(\.id)),
                 knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
                 drawerParentByPaneId: drawerParentByPaneId(),
-                drawerLayoutByParentPaneId: drawerLayoutByParentPaneId()
+                drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
+                visiblePaneIds: { [arrangementView] tab in
+                    arrangementView.activeVisiblePaneIds(forTab: tab.id)
+                }
             )
             switch WorkspaceCommandValidator.validate(action, state: snapshot) {
             case .success: return true
