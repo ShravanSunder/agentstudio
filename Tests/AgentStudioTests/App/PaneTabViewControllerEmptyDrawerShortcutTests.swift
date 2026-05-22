@@ -148,7 +148,7 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
             #expect(
                 harness.controller.handleAppOwnedKeyEvent(event, allowsModifiedEmptyDrawerShortcutWithTextFocus: false))
 
-            let firstDrawerPaneId = try #require(harness.store.pane(parent.id)?.drawer?.activeChildId)
+            let firstDrawerPaneId = try #require(harness.store.drawerView(forParent: parent.id)?.activeChildId)
             #expect(
                 atom(\.workspaceFocusOwner).owner == .drawerPane(parentPaneId: parent.id, paneId: firstDrawerPaneId))
         }

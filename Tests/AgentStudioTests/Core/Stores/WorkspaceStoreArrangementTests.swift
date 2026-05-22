@@ -39,16 +39,12 @@ final class WorkspaceStoreArrangementTests {
 
     @Test
 
-    func test_createArrangement_subsetOfPanes() {
+    func test_createArrangement_copiesCompleteActiveView() {
         // Arrange
         let (tab, paneIds) = createTabWithPanes(3)
 
         // Act
-        let arrId = store.createArrangement(
-            name: "Focus",
-            paneIds: Set([paneIds[0], paneIds[1]]),
-            inTab: tab.id
-        )
+        let arrId = store.createArrangement(name: "Focus", inTab: tab.id)
 
         // Assert
         #expect((arrId) != nil)
@@ -58,34 +54,17 @@ final class WorkspaceStoreArrangementTests {
         let custom = updatedTab.arrangements.first { $0.id == arrId }!
         #expect(custom.name == "Focus")
         #expect(!(custom.isDefault))
-        #expect(Set(custom.layout.paneIds) == Set([paneIds[0], paneIds[1]]))
-        #expect(custom.visiblePaneIds == Set([paneIds[0], paneIds[1]]))
+        #expect(Set(custom.layout.paneIds) == Set(paneIds))
+        #expect(custom.visiblePaneIds == Set(paneIds))
     }
 
     @Test
 
-    func test_createArrangement_singlePane() {
+    func test_createArrangement_ignoresLegacySubsetParameter() {
         let (tab, paneIds) = createTabWithPanes(3)
 
         let arrId = store.createArrangement(
             name: "Solo",
-            paneIds: Set([paneIds[2]]),
-            inTab: tab.id
-        )
-
-        #expect((arrId) != nil)
-        let custom = store.tab(tab.id)!.arrangements.first { $0.id == arrId }!
-        #expect(custom.layout.paneIds == [paneIds[2]])
-    }
-
-    @Test
-
-    func test_createArrangement_allPanes_effectiveDuplicate() {
-        let (tab, paneIds) = createTabWithPanes(2)
-
-        let arrId = store.createArrangement(
-            name: "All",
-            paneIds: Set(paneIds),
             inTab: tab.id
         )
 
@@ -96,42 +75,57 @@ final class WorkspaceStoreArrangementTests {
 
     @Test
 
-    func test_createArrangement_emptyPanes_returnsNil() {
-        let (tab, _) = createTabWithPanes(2)
+    func test_createArrangement_allPanes_effectiveDuplicate() {
+        let (tab, paneIds) = createTabWithPanes(2)
 
         let arrId = store.createArrangement(
-            name: "Empty",
-            paneIds: Set(),
+            name: "All",
             inTab: tab.id
         )
 
-        #expect((arrId) == nil)
-        #expect(store.tab(tab.id)!.arrangements.count == 1)  // only default
+        #expect((arrId) != nil)
+        let custom = store.tab(tab.id)!.arrangements.first { $0.id == arrId }!
+        #expect(Set(custom.layout.paneIds) == Set(paneIds))
     }
 
     @Test
 
-    func test_createArrangement_invalidPaneId_returnsNil() {
-        let (tab, _) = createTabWithPanes(2)
+    func test_createArrangement_emptyLegacySubsetStillCreatesCompleteView() {
+        let (tab, paneIds) = createTabWithPanes(2)
 
         let arrId = store.createArrangement(
-            name: "Bad",
-            paneIds: Set([UUID()]),
+            name: "Empty",
             inTab: tab.id
         )
 
-        #expect((arrId) == nil)
+        #expect((arrId) != nil)
+        let custom = store.tab(tab.id)!.arrangements.first { $0.id == arrId }!
+        #expect(Set(custom.layout.paneIds) == Set(paneIds))
+    }
+
+    @Test
+
+    func test_createArrangement_invalidLegacySubsetStillCreatesCompleteView() {
+        let (tab, paneIds) = createTabWithPanes(2)
+
+        let arrId = store.createArrangement(
+            name: "Bad",
+            inTab: tab.id
+        )
+
+        #expect((arrId) != nil)
+        let custom = store.tab(tab.id)!.arrangements.first { $0.id == arrId }!
+        #expect(Set(custom.layout.paneIds) == Set(paneIds))
     }
 
     @Test
 
     func test_createArrangement_marksDirty() {
-        let (tab, paneIds) = createTabWithPanes(2)
+        let (tab, _) = createTabWithPanes(2)
         store.flush()
 
         _ = store.createArrangement(
             name: "Test",
-            paneIds: Set([paneIds[0]]),
             inTab: tab.id
         )
 
@@ -145,7 +139,6 @@ final class WorkspaceStoreArrangementTests {
 
         let arrId = store.createArrangement(
             name: "#1",
-            paneIds: Set([paneIds[0], paneIds[1]]),
             inTab: tab.id
         )!
 
@@ -161,7 +154,6 @@ final class WorkspaceStoreArrangementTests {
         let (tab, paneIds) = createTabWithPanes(3)
         let arrId = store.createArrangement(
             name: "Focus",
-            paneIds: Set([paneIds[0], paneIds[1]]),
             inTab: tab.id
         )!
 
@@ -180,7 +172,6 @@ final class WorkspaceStoreArrangementTests {
         let (tab, paneIds) = createTabWithPanes(3)
         let arrId = store.createArrangement(
             name: "Focus",
-            paneIds: Set([paneIds[0], paneIds[1]]),
             inTab: tab.id
         )!
         store.toggleZoom(paneId: paneIds[0], inTab: tab.id)
@@ -197,7 +188,6 @@ final class WorkspaceStoreArrangementTests {
         // Focus arrangement has panes 0 and 1 only
         let arrId = store.createArrangement(
             name: "Focus",
-            paneIds: Set([paneIds[0], paneIds[1]]),
             inTab: tab.id
         )!
 
@@ -215,11 +205,10 @@ final class WorkspaceStoreArrangementTests {
 
     @Test
 
-    func test_switchArrangement_keepActivePaneIfInNewArrangement() {
+    func test_switchArrangement_restoresTargetArrangementActivePane() {
         let (tab, paneIds) = createTabWithPanes(3)
         let arrId = store.createArrangement(
             name: "Focus",
-            paneIds: Set([paneIds[0], paneIds[1]]),
             inTab: tab.id
         )!
 
@@ -228,7 +217,7 @@ final class WorkspaceStoreArrangementTests {
 
         store.switchArrangement(to: arrId, inTab: tab.id)
 
-        #expect(store.tab(tab.id)!.activePaneId == paneIds[1])
+        #expect(store.tab(tab.id)!.activePaneId == paneIds[0])
     }
 
     @Test
@@ -236,7 +225,6 @@ final class WorkspaceStoreArrangementTests {
         let (tab, paneIds) = createTabWithPanes(3)
         let arrId = store.createArrangement(
             name: "#1",
-            paneIds: Set([paneIds[0], paneIds[1]]),
             inTab: tab.id
         )!
         store.renameArrangement(arrId, name: "#1", inTab: tab.id)
@@ -255,7 +243,6 @@ final class WorkspaceStoreArrangementTests {
         let (tab, paneIds) = createTabWithPanes(3)
         let arrId = store.createArrangement(
             name: "#1",
-            paneIds: Set([paneIds[0], paneIds[1]]),
             inTab: tab.id
         )!
 
@@ -298,10 +285,9 @@ final class WorkspaceStoreArrangementTests {
     @Test
 
     func test_removeArrangement_removesCustom() {
-        let (tab, paneIds) = createTabWithPanes(2)
+        let (tab, _) = createTabWithPanes(2)
         let arrId = store.createArrangement(
             name: "Focus",
-            paneIds: Set([paneIds[0]]),
             inTab: tab.id
         )!
 
@@ -325,10 +311,9 @@ final class WorkspaceStoreArrangementTests {
     @Test
 
     func test_removeArrangement_activeArrangement_switchesToDefault() {
-        let (tab, paneIds) = createTabWithPanes(3)
+        let (tab, _) = createTabWithPanes(3)
         let arrId = store.createArrangement(
             name: "Focus",
-            paneIds: Set([paneIds[0]]),
             inTab: tab.id
         )!
         store.switchArrangement(to: arrId, inTab: tab.id)
@@ -347,7 +332,6 @@ final class WorkspaceStoreArrangementTests {
         _ = store.minimizePane(paneIds[0], inTab: tab.id)
         let arrId = store.createArrangement(
             name: "#1",
-            paneIds: Set([paneIds[1], paneIds[2]]),
             inTab: tab.id
         )!
         store.switchArrangement(to: arrId, inTab: tab.id)
@@ -357,15 +341,16 @@ final class WorkspaceStoreArrangementTests {
 
         let updatedTab = store.tab(tab.id)!
         #expect(updatedTab.activeArrangementId == updatedTab.defaultArrangement.id)
-        #expect(updatedTab.activePaneId == paneIds[1])
+        #expect(updatedTab.activePaneId == paneIds[2])
+        #expect(updatedTab.defaultArrangement.minimizedPaneIds.contains(paneIds[0]))
     }
 
     @Test
 
     func test_removeArrangement_inactiveArrangement_doesNotChangeActive() {
-        let (tab, paneIds) = createTabWithPanes(3)
-        let arr1 = store.createArrangement(name: "A", paneIds: Set([paneIds[0]]), inTab: tab.id)!
-        _ = store.createArrangement(name: "B", paneIds: Set([paneIds[1]]), inTab: tab.id)!
+        let (tab, _) = createTabWithPanes(3)
+        let arr1 = store.createArrangement(name: "A", inTab: tab.id)!
+        _ = store.createArrangement(name: "B", inTab: tab.id)!
         store.switchArrangement(to: arr1, inTab: tab.id)
 
         // Remove B (not active)
@@ -381,10 +366,9 @@ final class WorkspaceStoreArrangementTests {
     @Test
 
     func test_renameArrangement_changesName() {
-        let (tab, paneIds) = createTabWithPanes(2)
+        let (tab, _) = createTabWithPanes(2)
         let arrId = store.createArrangement(
             name: "Old Name",
-            paneIds: Set([paneIds[0]]),
             inTab: tab.id
         )!
 
@@ -450,7 +434,6 @@ final class WorkspaceStoreArrangementTests {
         let (tab, paneIds) = createTabWithPanes(2)
         let arrId = store.createArrangement(
             name: "Focus",
-            paneIds: Set([paneIds[0]]),
             inTab: tab.id
         )!
         store.switchArrangement(to: arrId, inTab: tab.id)
@@ -477,7 +460,6 @@ final class WorkspaceStoreArrangementTests {
         let (tab, paneIds) = createTabWithPanes(3)
         let arrId = store.createArrangement(
             name: "Focus",
-            paneIds: Set([paneIds[0], paneIds[1]]),
             inTab: tab.id
         )!
         store.switchArrangement(to: arrId, inTab: tab.id)
@@ -515,7 +497,6 @@ final class WorkspaceStoreArrangementTests {
 
         let arrId = store1.createArrangement(
             name: "Focus",
-            paneIds: Set([pane1.id]),
             inTab: tab.id
         )!
         store1.switchArrangement(to: arrId, inTab: tab.id)

@@ -179,11 +179,11 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         let visibleArrangementId = try #require(
             harness.store.createArrangement(
                 name: "Visible Only",
-                paneIds: [visiblePane.id],
                 inTab: tab.id
             )
         )
         harness.store.switchArrangement(to: visibleArrangementId, inTab: tab.id)
+        #expect(harness.store.minimizePane(hiddenPane.id, inTab: tab.id))
 
         #expect(harness.store.tab(tab.id)?.activePaneIds == [visiblePane.id])
         #expect(harness.store.tab(tab.id)?.activeArrangementId == visibleArrangementId)
@@ -247,7 +247,7 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         #expect(harness.store.activeTabId == parentTab.id)
         #expect(harness.store.tab(parentTab.id)?.activePaneId == parentPane.id)
         #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == true)
-        #expect(harness.store.pane(parentPane.id)?.drawer?.activeChildId == drawerPane.id)
+        #expect(harness.store.drawerView(forParent: parentPane.id)?.activeChildId == drawerPane.id)
         #expect(harness.paneInboxPresenter.request?.parentPaneId == parentPane.id)
         #expect(harness.paneInboxPresenter.request?.paneIds == [parentPane.id, drawerPane.id])
     }

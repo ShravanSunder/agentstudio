@@ -83,6 +83,7 @@ struct WorkspacePaneFocusDerivedTests {
                 position: .after, sizingMode: .halveTarget
             )
             _ = store.addDrawerPane(to: paneA.id)
+            store.setActivePane(paneA.id, inTab: tab.id)
 
             let focus = atom(\.workspacePaneFocus).currentFocus(
                 workspaceTab: atom(\.workspaceTab),

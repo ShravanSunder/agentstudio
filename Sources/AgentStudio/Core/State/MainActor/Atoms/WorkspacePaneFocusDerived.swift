@@ -56,14 +56,15 @@ struct WorkspacePaneFocusDerived {
         }
 
         let drawer = pane.drawer
+        let drawerView = atom(\.arrangementView).drawerView(forParent: activePaneId)
         let normalizedFocusOwner = WorkspaceFocusOwnerNormalizer.normalize(
             requested: workspaceFocusOwner.owner,
             context: .init(
                 activeMainPaneId: activePaneId,
                 expandedDrawerParentPaneId: drawer?.isExpanded == true ? activePaneId : nil,
                 paneIds: drawer?.paneIds ?? [],
-                activeDrawerPaneId: drawer?.activeChildId,
-                minimizedDrawerPaneIds: drawer?.minimizedPaneIds ?? []
+                activeDrawerPaneId: drawerView?.activeChildId,
+                minimizedDrawerPaneIds: drawerView?.minimizedPaneIds ?? []
             )
         )
 

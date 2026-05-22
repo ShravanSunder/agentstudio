@@ -92,6 +92,13 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private let installedEditorTargetsProvider: @MainActor () -> [ExternalEditorTarget]
     private let openEditorHandler: OpenEditorHandler
     private let openFinderHandler: @MainActor (URL) -> Bool
+    private var arrangementView: WorkspaceArrangementViewDerived {
+        WorkspaceArrangementViewDerived(
+            tabLayoutAtom: store.tabLayoutAtom,
+            paneAtom: store.paneAtom,
+            managementLayerAtom: atom(\.managementLayer)
+        )
+    }
     private lazy var actionDispatcher = PaneTabActionDispatcher(
         dispatch: { [weak self] action in
             guard let self else {
@@ -261,10 +268,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             onSaveArrangement: { [weak self] tabId in
                 guard let self, let tab = self.store.tabLayoutAtom.tab(tabId) else { return }
                 let name = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
-                self.dispatchAction(
-                    .createArrangement(
-                        tabId: tabId, name: name, paneIds: Set(tab.activePaneIds)
-                    ))
+                self.dispatchAction(.createArrangement(tabId: tabId, name: name))
             },
             onOpenRepoInTab: {
                 CommandDispatcher.shared.dispatch(.showCommandBarRepos)
@@ -599,7 +603,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                     tabId: self.store.tabLayoutAtom.activeTabId,
                     paneId: drawerPaneId
                 )
-                self.store.paneAtom.setActiveDrawerPane(drawerPaneId, in: parentPaneId)
+                if let tabId = self.store.tabLayoutAtom.tabContaining(paneId: parentPaneId)?.id,
+                    let drawerId = self.store.paneAtom.pane(parentPaneId)?.drawer?.drawerId
+                {
+                    self.store.tabArrangementAtom.setActiveDrawerPane(drawerPaneId, drawerId: drawerId, inTab: tabId)
+                }
                 atom(\.workspaceFocusOwner).focusDrawerPane(
                     parentPaneId: parentPaneId,
                     paneId: drawerPaneId
@@ -836,12 +844,13 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private func currentWorkspaceFocusOwnerContext() -> WorkspaceFocusOwnerNormalizer.Context {
         let activeMainPaneId = activeMainPaneId()
         let drawer = activeMainPaneId.flatMap { store.paneAtom.pane($0)?.drawer }
+        let drawerView = activeMainPaneId.flatMap { arrangementView.drawerView(forParent: $0) }
         return .init(
             activeMainPaneId: activeMainPaneId,
             expandedDrawerParentPaneId: drawer?.isExpanded == true ? activeMainPaneId : nil,
             paneIds: drawer?.paneIds ?? [],
-            activeDrawerPaneId: drawer?.activeChildId,
-            minimizedDrawerPaneIds: drawer?.minimizedPaneIds ?? []
+            activeDrawerPaneId: drawerView?.activeChildId,
+            minimizedDrawerPaneIds: drawerView?.minimizedPaneIds ?? []
         )
     }
 
@@ -850,7 +859,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         if drawer.isExpanded {
             managementNavigationScope = .drawer(parentPaneId: parentPaneId)
-            if let drawerPaneId = drawer.activeChildId, !drawer.minimizedPaneIds.contains(drawerPaneId) {
+            let drawerView = arrangementView.drawerView(forParent: parentPaneId)
+            if let drawerPaneId = drawerView?.activeChildId,
+                drawerView?.minimizedPaneIds.contains(drawerPaneId) == false
+            {
                 atom(\.workspaceFocusOwner).focusDrawerPane(parentPaneId: parentPaneId, paneId: drawerPaneId)
             } else {
                 atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parentPaneId)
@@ -874,8 +886,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private func drawerLayoutByParentPaneId() -> [UUID: DrawerGridLayout] {
         Dictionary(
             uniqueKeysWithValues: store.paneAtom.panes.values.compactMap { pane in
-                guard let drawer = pane.drawer else { return nil }
-                return (pane.id, drawer.layout)
+                guard pane.drawer != nil, let drawerView = arrangementView.drawerView(forParent: pane.id) else {
+                    return nil
+                }
+                return (pane.id, drawerView.layout)
             }
         )
     }
@@ -883,8 +897,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private func visibleActiveDrawerPaneId(for parentPaneId: UUID) -> UUID? {
         guard let drawer = store.paneAtom.pane(parentPaneId)?.drawer else { return nil }
         guard drawer.isExpanded else { return nil }
-        guard let drawerPaneId = drawer.activeChildId else { return nil }
-        guard !drawer.minimizedPaneIds.contains(drawerPaneId) else { return nil }
+        guard let drawerView = arrangementView.drawerView(forParent: parentPaneId),
+            let drawerPaneId = drawerView.activeChildId
+        else { return nil }
+        guard !drawerView.minimizedPaneIds.contains(drawerPaneId) else { return nil }
         return drawerPaneId
     }
 
@@ -1237,6 +1253,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return false
         }
 
+        // Raw-character triggers always require neutral focus, even
+        // when modifier-keyed shortcuts are allowed through text focus.
         if let parentPaneId = firstDrawerPaneParentId(
             for: trigger,
             event: event,
@@ -1328,7 +1346,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         else {
             return nil
         }
-
         // Raw-character alternates must never be intercepted while
         // text input owns focus. Modified shortcuts may fire from
         // performKeyEquivalent even when a text field is focused.
@@ -1340,6 +1357,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             case .emptyDrawer(let parentPaneId) = normalizedWorkspaceNavigationScopeState(),
             store.paneAtom.pane(parentPaneId)?.drawer?.paneIds.isEmpty == true
         else {
+            Self.logger.warning(
+                "empty drawer shortcut ignored because navigation scope and pane drawer state disagree")
             return nil
         }
         return parentPaneId
@@ -1404,8 +1423,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     }
 
     private func visibleDrawerPaneIds(for parentPaneId: UUID) -> [UUID] {
-        guard let drawer = store.paneAtom.pane(parentPaneId)?.drawer else { return [] }
-        return drawer.paneIds.filter { !drawer.minimizedPaneIds.contains($0) }
+        arrangementView.drawerVisiblePaneIds(forParent: parentPaneId)
     }
 
     private func focusSiblingDrawerPane(in parentPaneId: UUID, delta: Int) {
@@ -1486,7 +1504,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             dispatchAction(.toggleDrawer(paneId: parentPaneId))
         }
 
-        if let drawerPaneId = store.paneAtom.pane(parentPaneId)?.drawer?.activeChildId {
+        if let drawerPaneId = arrangementView.drawerView(forParent: parentPaneId)?.activeChildId {
             managementNavigationScope = .drawer(parentPaneId: parentPaneId)
             handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)))
         } else {
@@ -1498,7 +1516,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func moveDrawerFocus(_ command: AppCommand) {
         guard case .drawer(let parentPaneId) = normalizedWorkspaceNavigationFocusScope() else { return }
-        guard let drawerPaneId = store.paneAtom.pane(parentPaneId)?.drawer?.activeChildId else { return }
+        guard let drawerView = arrangementView.drawerView(forParent: parentPaneId),
+            let drawerPaneId = drawerView.activeChildId
+        else { return }
 
         let direction: FocusDirection
         switch command {
@@ -1515,10 +1535,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
 
         guard
-            let targetPaneId = store.paneAtom.pane(parentPaneId)?
-                .drawer?
-                .layout
-                .neighbor(of: drawerPaneId, direction: direction)
+            let targetPaneId = drawerView.layout.neighbor(of: drawerPaneId, direction: direction)
         else { return }
 
         handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: targetPaneId)))
@@ -1760,9 +1777,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             // Direct action — save current layout as a new arrangement
             guard let tab = store.tabLayoutAtom.tab(tabId) else { return }
             let name = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
-            action = .createArrangement(
-                tabId: tabId, name: name, paneIds: Set(tab.activePaneIds)
-            )
+            action = .createArrangement(tabId: tabId, name: name)
         default:
             action = nil
         }
@@ -2081,9 +2096,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             guard let tabId = store.tabLayoutAtom.activeTabId,
                 let tab = store.tabLayoutAtom.tab(tabId),
                 let paneId = tab.activePaneId,
-                let pane = store.paneAtom.pane(paneId),
-                let drawer = pane.drawer,
-                let activeDrawerPaneId = drawer.activeChildId
+                store.paneAtom.pane(paneId)?.drawer != nil,
+                let activeDrawerPaneId = arrangementView.drawerView(forParent: paneId)?.activeChildId
             else { break }
             dispatchAction(.closePane(tabId: tabId, paneId: activeDrawerPaneId))
 
@@ -2092,10 +2106,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 let tab = store.tabLayoutAtom.tab(tabId)
             else { break }
             let name = ArrangementDerived.nextCustomArrangementName(existing: tab.arrangements)
-            dispatchAction(
-                .createArrangement(
-                    tabId: tabId, name: name, paneIds: Set(tab.activePaneIds)
-                ))
+            dispatchAction(.createArrangement(tabId: tabId, name: name))
 
         case .newTerminalInTab:
             guard let activeTabId = store.tabLayoutAtom.activeTabId,
@@ -2478,7 +2489,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return activeMainPaneId() != nil
         case .focusDrawerPaneUp, .focusDrawerPaneLeft, .focusDrawerPaneDown, .focusDrawerPaneRight:
             if case .drawerPane(let parentPaneId, _) = normalizedWorkspaceNavigationScopeState() {
-                return store.paneAtom.pane(parentPaneId)?.drawer?.activeChildId != nil
+                return arrangementView.drawerView(forParent: parentPaneId)?.activeChildId != nil
             }
             return false
         case .navigateDrawerPane:

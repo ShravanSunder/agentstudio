@@ -630,8 +630,9 @@ struct PaneLeafContainer: View {
     private var currentLocationTargetPaneId: UUID {
         guard let drawer,
             drawer.isExpanded,
-            let drawerPaneId = drawer.activeChildId,
-            !drawer.minimizedPaneIds.contains(drawerPaneId)
+            let drawerView = atom(\.arrangementView).drawerView(forParent: paneHost.id),
+            let drawerPaneId = drawerView.activeChildId,
+            !drawerView.minimizedPaneIds.contains(drawerPaneId)
         else {
             return paneHost.id
         }

@@ -200,7 +200,7 @@ enum WorkspaceCommandValidator {
             return .success(ValidatedAction(action))
 
         // Arrangement actions — validate tab exists
-        case .createArrangement(let tabId, _, _),
+        case .createArrangement(let tabId, _),
             .removeArrangement(let tabId, _),
             .switchArrangement(let tabId, _),
             .renameArrangement(let tabId, _, _):

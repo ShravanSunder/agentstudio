@@ -76,8 +76,7 @@ struct FlatTabStripContainer: View {
             actionDispatcher.dispatch(
                 .createArrangement(
                     tabId: tabId,
-                    name: arrangementName,
-                    paneIds: Set(tab.activePaneIds)
+                    name: arrangementName
                 )
             )
         }
@@ -290,7 +289,8 @@ struct FlatTabStripContainer: View {
             drawerPanelFrameInTab: drawerPanelFrameInTab
         ),
             let expandedDrawerPaneId = expandedDrawerParentPaneId,
-            let expandedDrawer = store.paneAtom.pane(expandedDrawerPaneId)?.drawer,
+            store.paneAtom.pane(expandedDrawerPaneId)?.drawer != nil,
+            let expandedDrawerView = atom(\.arrangementView).drawerView(forParent: expandedDrawerPaneId),
             let captureGeometry = DrawerCaptureGeometry.make(
                 panelFrameInTab: drawerPanelFrameInTab,
                 paneFramesInDrawer: drawerPaneFramesInDrawer
@@ -303,8 +303,8 @@ struct FlatTabStripContainer: View {
             )
             DrawerSplitContainerDropCaptureOverlay(
                 paneFrames: captureGeometry.paneFramesInDrawer,
-                layout: expandedDrawer.layout,
-                minimizedPaneIds: expandedDrawer.minimizedPaneIds,
+                layout: expandedDrawerView.layout,
+                minimizedPaneIds: expandedDrawerView.minimizedPaneIds,
                 containerBounds: drawerBounds,
                 target: $drawerDropTarget,
                 sourcePaneId: $activeDragSourcePaneId,

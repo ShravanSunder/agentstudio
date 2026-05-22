@@ -8,6 +8,7 @@ struct AgentStudioTraceTagSelection: Equatable, Sendable {
 enum AgentStudioTraceTag: String, CaseIterable, Codable, Sendable {
     case actions
     case appFocus = "app.focus"
+    case arrangement
     case atoms
     case drag
     case eventbus

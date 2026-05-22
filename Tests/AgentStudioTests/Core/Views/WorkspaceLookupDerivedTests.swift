@@ -97,14 +97,14 @@ struct WorkspaceLookupDerivedTests {
                         tabId: tab.id,
                         tabIndex: 0,
                         paneIndexInTab: 0,
-                        isActiveInTab: true
+                        isActiveInTab: false
                     ),
                     WorkspacePaneLocation(
                         paneId: paneB.id,
                         tabId: tab.id,
                         tabIndex: 0,
                         paneIndexInTab: 1,
-                        isActiveInTab: false
+                        isActiveInTab: true
                     ),
                 ]
             )

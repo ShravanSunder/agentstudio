@@ -85,8 +85,8 @@ enum PaneActionCommand: Equatable, Hashable {
 
     // Arrangement operations
 
-    /// Create a custom arrangement from a subset of panes.
-    case createArrangement(tabId: UUID, name: String, paneIds: Set<UUID>)
+    /// Create a custom arrangement as a complete view over the tab's panes.
+    case createArrangement(tabId: UUID, name: String)
     /// Remove a custom arrangement (cannot remove default).
     case removeArrangement(tabId: UUID, arrangementId: UUID)
     /// Switch to a different arrangement in a tab.
