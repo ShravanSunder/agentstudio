@@ -8,6 +8,7 @@ A fresh worktree or clone cannot build or test without completing these steps fi
 
 ### Prerequisites
 
+- **macOS 26 + Xcode 26 toolchain** — the package targets `.macOS(.v26)` and uses current Swift concurrency, Observation, WebKit, and AppKit APIs.
 - **mise** — build orchestrator: `brew install mise`
 - **swift-format** — code formatter: `brew install swift-format`
 - **swiftlint** — linter: `brew install swiftlint`
@@ -69,13 +70,35 @@ Use DeepWiki to gather grounded context on core dependencies and libraries.
   - *Focus*: Language features, standard library, runtime behavior.
 
 ## Documentation Links
+
+### Current Swift and Apple Platform References
+
+Use these primary docs when updating architecture docs or implementation details. Do not infer platform behavior from memory when the API has likely moved.
+
+- **Swift docs index**: [https://www.swift.org/documentation/](https://www.swift.org/documentation/)
+- **Swift language guide — concurrency**: [https://docs.swift.org/swift-book/documentation/the-swift-programming-language/concurrency/](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/concurrency/)
+- **Swift Package Manager**: [https://docs.swift.org/package-manager/](https://docs.swift.org/package-manager/)
+- **Swift Testing**: [https://developer.apple.com/documentation/testing](https://developer.apple.com/documentation/testing)
+- **AppKit**: [https://developer.apple.com/documentation/appkit](https://developer.apple.com/documentation/appkit)
+- **SwiftUI**: [https://developer.apple.com/documentation/swiftui](https://developer.apple.com/documentation/swiftui)
+- **SwiftUI/AppKit integration**: [https://developer.apple.com/documentation/swiftui/appkit-integration](https://developer.apple.com/documentation/swiftui/appkit-integration)
+- **Observation**: [https://developer.apple.com/documentation/observation](https://developer.apple.com/documentation/observation)
+- **WebKit**: [https://developer.apple.com/documentation/webkit](https://developer.apple.com/documentation/webkit)
+- **Designing for macOS**: [https://developer.apple.com/design/human-interface-guidelines/designing-for-macos](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos)
+
+Project target note: Swift.org may show a newer downloadable Swift toolchain than this repo targets. Follow `Package.swift`, `.mise.toml`, and the Xcode toolchain selected by `doctor-mac` for builds; use the docs links above for current API semantics.
+
+### Dependency and Vendor References
+
 - **Ghostty Docs**: [https://ghostty.org/docs](https://ghostty.org/docs)
-- **Swift.org**: [https://www.swift.org/documentation/](https://www.swift.org/documentation/)
-- **Apple Developer Docs**: [https://developer.apple.com/documentation/](https://developer.apple.com/documentation/)
-  - [AppKit](https://developer.apple.com/documentation/appkit)
-  - [SwiftUI](https://developer.apple.com/documentation/swiftui)
-  - [Metal](https://developer.apple.com/documentation/metal)
-  - [Foundation](https://developer.apple.com/documentation/foundation)
+- **Pierre Diffs / CodeView Docs**: [https://diffs.com/docs](https://diffs.com/docs)
+- **Trees Docs**: [https://trees.software/docs](https://trees.software/docs)
+- **Shiki Docs**: [https://shiki.style/](https://shiki.style/)
+- **Hunk inspiration**: [https://github.com/modem-dev/hunk](https://github.com/modem-dev/hunk) and [https://deepwiki.com/modem-dev/hunk](https://deepwiki.com/modem-dev/hunk). Use for annotation/review workflow research only; do not copy its terminal UI architecture into the React CodeView pane.
+- **swift-async-algorithms**: [https://github.com/apple/swift-async-algorithms](https://github.com/apple/swift-async-algorithms)
+- **JSON-RPC 2.0**: [https://www.jsonrpc.org/specification](https://www.jsonrpc.org/specification)
+- **Foundation**: [https://developer.apple.com/documentation/foundation](https://developer.apple.com/documentation/foundation)
+- **Metal**: [https://developer.apple.com/documentation/metal](https://developer.apple.com/documentation/metal)
 
 ## Research Guidance
 
@@ -85,8 +108,19 @@ When working on `Ghostty.swift` or `GhosttySurfaceView.swift`, verify C function
 ### AppKit Patterns
 For UI changes in `Sources/AgentStudio/App/`, refer to Apple's AppKit documentation for native macOS behaviors. This includes the responder chain, window delegation, and menu management.
 
+### App Organization
+The current app layout is hybrid:
+
+- `App/` owns composition, boot, lifecycle, windows, pane hosting, and cross-feature coordination.
+- `Core/` owns shared models, actions, runtime contracts, main-actor atoms, persistence wrappers, and feature-agnostic pane UI.
+- `Features/` owns vertical capability slices such as `Terminal`, `Bridge`, `Webview`, `CodeViewer`, `CommandBar`, `RepoExplorer`, and `InboxNotification`.
+- `SharedComponents/` owns stateless reusable UI primitives. It imports only `Infrastructure`.
+- `Infrastructure/` owns domain-agnostic utilities and external integrations.
+
+Use [Directory Structure & Module Boundaries](../architecture/directory_structure.md) as the placement source of truth.
+
 ### Zig Build System
 Ghostty and zmx are built via mise tasks (`mise run build-ghostty`, `mise run build-zmx`), which invoke `zig build` inside the vendor directories. If investigating build options or optimization flags, check `vendor/ghostty/build.zig` and `vendor/zmx/build.zig`.
 
 ### Swift Concurrency
-The project targets **macOS 26 only** (`.macOS(.v26)` in `Package.swift`). Use the latest Swift 6 concurrency features (async/await, Actors, `@MainActor`, `AsyncStream`). Refer to the [Swift Language Guide](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/concurrency/) for best practices.
+The project targets **macOS 26 only** (`.macOS(.v26)` in `Package.swift`). Use Swift 6.2 concurrency features deliberately: `@MainActor` for UI/state mutation, actors for boundary work, `AsyncStream`/`AsyncThrowingStream` for event streams, and `@concurrent nonisolated` for blocking work that must escape an actor executor. Refer to the [Swift Language Guide](https://docs.swift.org/swift-book/documentation/the-swift-programming-language/concurrency/) and [Pane Runtime EventBus Design](../architecture/pane_runtime_eventbus_design.md) before changing concurrency boundaries.
