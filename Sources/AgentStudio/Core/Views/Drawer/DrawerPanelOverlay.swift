@@ -167,6 +167,7 @@ struct DrawerPanelOverlay: View {
     let onOpenPaneGitHub: (UUID) -> Void
     let drawerDropTarget: DrawerRearrangeTarget?
     let dismissCoordinateView: NSView?
+    let workspaceWindowId: UUID?
     /// Active drag's source pane id, threaded through to DrawerPanel
     /// so its visuals dict applies the source-aware filter (R1, R2,
     /// R8/R13a).
@@ -262,7 +263,8 @@ struct DrawerPanelOverlay: View {
                     paneInboxPresentation: paneInboxPresentation,
                     onOpenPaneGitHub: onOpenPaneGitHub,
                     dropTarget: drawerDropTarget,
-                    dragSourcePaneId: dragSourcePaneId
+                    dragSourcePaneId: dragSourcePaneId,
+                    workspaceWindowId: workspaceWindowId
                 )
                 .id(paneId)
                 .frame(width: panelWidth)

@@ -74,6 +74,7 @@ Command bar is a first-class keyboard surface:
 - owns typing, arrows, Return, Escape, row shortcuts, and modified Enter
 - has top precedence while active
 - can be activated from any workspace-owned surface, including while a transient pane surface is active
+- is scoped to the workspace window that presented it; an active command bar in one workspace window must not suppress or reclassify shortcuts in another workspace window
 
 Command bar activation commands must remain visible in the command bar command list:
 
@@ -95,6 +96,8 @@ Transient surfaces are temporary keyboard islands layered above the stable owner
 - `.editorChooser(paneId:)`
 
 They suppress app/global/management shortcuts while their local responder handles local keys such as Return, Escape, arrows, and number selection.
+
+Transient registration is workspace-window scoped. Views that know their owning workspace window must pass that `workspaceWindowId` explicitly; the key/focused-window fallback exists only as a last resort for callers that cannot be threaded yet. A registered transient must keep its original workspace owner across kind changes such as arrangement panel to arrangement rename.
 
 ## Precedence
 
@@ -126,24 +129,44 @@ enum CommandBarScope: Equatable, Sendable {
 }
 ```
 
-`CommandBarSurfaceAtom` stores only command bar visibility/scope for routing:
+`CommandBarSurfaceAtom` stores command bar visibility/scope for routing, scoped to the workspace window that owns the active panel:
 
 ```swift
+struct CommandBarSurface: Equatable, Sendable {
+    let workspaceWindowId: UUID
+    let scope: CommandBarScope
+}
+
 @MainActor
 @Observable
 final class CommandBarSurfaceAtom {
-    private(set) var activeScope: CommandBarScope?
+    private(set) var activeSurface: CommandBarSurface?
+
+    var activeScope: CommandBarScope? {
+        activeSurface?.scope
+    }
 
     var isActive: Bool {
-        activeScope != nil
+        activeSurface != nil
     }
 
-    func present(scope: CommandBarScope) {
-        activeScope = scope
+    func activeScope(for workspaceWindowId: UUID?) -> CommandBarScope? {
+        guard let workspaceWindowId else { return nil }
+        guard activeSurface?.workspaceWindowId == workspaceWindowId else { return nil }
+        return activeSurface?.scope
     }
 
-    func dismiss() {
-        activeScope = nil
+    func present(scope: CommandBarScope, workspaceWindowId: UUID) {
+        activeSurface = CommandBarSurface(workspaceWindowId: workspaceWindowId, scope: scope)
+    }
+
+    func dismiss(workspaceWindowId: UUID? = nil) {
+        guard let workspaceWindowId else {
+            activeSurface = nil
+            return
+        }
+        guard activeSurface?.workspaceWindowId == workspaceWindowId else { return }
+        activeSurface = nil
     }
 }
 ```
@@ -171,7 +194,7 @@ struct KeyboardRoutingContext: Equatable, Sendable {
 Resolution order:
 
 ```swift
-if let commandBarScope = commandBarSurface.activeScope {
+if let commandBarScope = commandBarSurface.activeScope(for: resolvedWorkspaceWindowId) {
     activeSurface = .commandBar(scope: commandBarScope)
 } else if let transient = transientKeyboardSurface.topSurface(for: resolvedWorkspaceWindowId) {
     activeSurface = .transient(transient.kind)
@@ -193,8 +216,9 @@ Stable surface tests:
 
 Command bar surface tests:
 
-- set `CommandBarSurfaceAtom.present(scope:)`
+- set `CommandBarSurfaceAtom.present(scope:workspaceWindowId:)`
 - assert `KeyboardRoutingContext.current(...)` resolves `.commandBar(scope:)`
+- assert a command bar in a different workspace window does not affect the current window
 - assert command-bar activation shortcuts are allowed
 - assert non-command-bar shortcuts are blocked while command bar is active
 - assert command-bar activation commands are visible in `CommandBarDataSource`
@@ -203,6 +227,7 @@ Transient surface tests:
 
 - register each transient kind in `TransientKeyboardSurfaceAtom`
 - assert `KeyboardRoutingContext.current(...)` resolves `.transient(kind)`
+- assert SwiftUI transient registration preserves the original workspace window across kind changes
 - assert command-bar activation shortcuts are allowed
 - assert non-command-bar app/global/management shortcuts are blocked
 

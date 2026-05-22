@@ -4,7 +4,7 @@
 
 **Goal:** Build a compile-time-safe keyboard surface system where command bar is a first-class privileged surface, repo and inbox sidebars remain separate stable surfaces, and pane-local transient surfaces suppress app shortcuts without hiding command bar activation.
 
-**Architecture:** Use the current `KeyboardOwner` and `TransientKeyboardSurfaceAtom` model, but add `CommandBarSurfaceAtom` and a resolved `ActiveKeyboardSurface`. `KeyboardRoutingContext` becomes the single read model for policy: command bar wins first, transient surfaces win second, stable owners win third. Local responders still own local editing/navigation keys.
+**Architecture:** Use the current `KeyboardOwner` and `TransientKeyboardSurfaceAtom` model, but add a workspace-window-scoped `CommandBarSurfaceAtom` and a resolved `ActiveKeyboardSurface`. `KeyboardRoutingContext` becomes the single read model for policy: command bar for the current workspace window wins first, transient surfaces win second, stable owners win third. Local responders still own local editing/navigation keys.
 
 **Tech Stack:** Swift 6.2, SwiftUI, AppKit `NSPanel`/`NSPopover`, Swift Testing, AtomRegistry state.
 
@@ -27,11 +27,19 @@ The plan keeps the existing command architecture intact:
 The plan changes only the missing surface read model and the call sites that currently bypass it:
 
 - `KeyboardRoutingContext` learns the resolved active surface.
-- `CommandBarPanelController` publishes active command bar scope.
+- `CommandBarPanelController` publishes active command bar scope for the workspace window that owns the panel.
 - `PaneTabViewController`, `ManagementLayerMonitor`, and `Ghostty.SurfaceView` consult the same active-surface policy.
 - `AppCommand+Catalog` stops hiding command-bar activation commands from command bar results.
 
 These constraints keep the implementation aligned with `docs/architecture/commands_and_shortcuts.md`: command identity, keyboard binding, command bar metadata, and local UI presentation stay separate.
+
+## Post-Review Refinements
+
+The implementation must include these refinements from code review:
+
+- `CommandBarSurfaceAtom` is workspace-window scoped, not app-global. It stores the active `CommandBarScope` together with the owning `workspaceWindowId`; `KeyboardRoutingContext.current(...)` reads `activeScope(for: resolvedWorkspaceWindowId)` so an open command bar in one workspace window cannot block shortcuts in another.
+- `CommandBarPanelController.show(...)` receives the owning `workspaceWindowId`, publishes that id with the active scope, and reparents/repositions the panel when a visible command bar is re-shown for a different parent window.
+- Transient SwiftUI/AppKit surfaces pass their owning `workspaceWindowId` explicitly where possible. `TransientKeyboardSurfaceRegistrationModifier` preserves the first resolved owner across kind changes; key/focused-window lookup is only a fallback when no explicit owner is available.
 
 ## File Structure
 
@@ -40,7 +48,7 @@ These constraints keep the implementation aligned with `docs/architecture/comman
 - Modify: `Sources/AgentStudio/Features/CommandBar/CommandBarItem.swift`
   - Remove the old `CommandBarScope` declaration.
 - Create: `Sources/AgentStudio/Core/State/MainActor/Atoms/CommandBarSurfaceAtom.swift`
-  - Track active command bar scope as surface state.
+  - Track active command bar scope plus owning workspace window as surface state.
 - Modify: `Sources/AgentStudio/AtomRegistry.swift`
   - Register `commandBarSurface`.
 - Create: `Sources/AgentStudio/Core/Models/ActiveKeyboardSurface.swift`
@@ -56,7 +64,7 @@ These constraints keep the implementation aligned with `docs/architecture/comman
   - Block non-command-bar shortcuts while command bar or transient surfaces own keys.
   - Add terminal-app-owned policy.
 - Modify: `Sources/AgentStudio/Features/CommandBar/CommandBarPanelController.swift`
-  - Publish command-bar active scope to `CommandBarSurfaceAtom`.
+  - Publish command-bar active scope and owning workspace window to `CommandBarSurfaceAtom`.
 - Modify: `Sources/AgentStudio/App/Boot/AppDelegate.swift`
   - Pass `atomStore.commandBarSurface` into the command bar controller.
 - Modify: `Sources/AgentStudio/App/Panes/PaneTabViewController.swift`
@@ -65,6 +73,7 @@ These constraints keep the implementation aligned with `docs/architecture/comman
   - Route terminal-app-owned shortcuts through the new policy.
 - Create: `Sources/AgentStudio/Core/Views/TransientKeyboardSurfaceRegistrationModifier.swift`
   - Register SwiftUI popover/editor surfaces with the transient atom.
+  - Preserve the original workspace owner across transient kind changes and use key/focused-window fallback only when no explicit owner is available.
 - Modify: `Sources/AgentStudio/Core/Views/Panes/ArrangementPanel.swift`
   - Register arrangement panel and arrangement rename transient surfaces.
 - Modify: `Sources/AgentStudio/Features/InboxNotification/Views/PaneInboxNotificationPopover.swift`

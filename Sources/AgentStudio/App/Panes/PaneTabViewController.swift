@@ -272,7 +272,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             },
             onOpenRepoInTab: {
                 CommandDispatcher.shared.dispatch(.showCommandBarRepos)
-            }
+            },
+            workspaceWindowId: workspaceWindowId
         )
         tabBarHostingView = DraggableTabBarHostingView(rootView: tabBar)
         tabBarHostingView.configure(adapter: tabBarAdapter) { [weak self] fromId, toIndex in
@@ -872,7 +873,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             paneInboxPresentation: paneInboxPresentation,
             onOpenPaneGitHub: { [weak self] paneId in
                 self?.openGitHubWebview(for: paneId)
-            }
+            },
+            workspaceWindowId: workspaceWindowId
         )
 
         return PersistentTabHostView(tabId: tabId, rootView: contentView)

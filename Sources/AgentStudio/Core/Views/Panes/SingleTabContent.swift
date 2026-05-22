@@ -11,6 +11,7 @@ struct SingleTabContent: View {
     let onPaneFocusTrigger: PaneFocusTriggerHandler
     let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
+    let workspaceWindowId: UUID?
 
     init(
         tabId: UUID,
@@ -22,7 +23,8 @@ struct SingleTabContent: View {
         actionDispatcher: PaneActionDispatching,
         onPaneFocusTrigger: @escaping PaneFocusTriggerHandler,
         paneInboxPresentation: PaneInboxPresentation? = nil,
-        onOpenPaneGitHub: @escaping (UUID) -> Void
+        onOpenPaneGitHub: @escaping (UUID) -> Void,
+        workspaceWindowId: UUID? = nil
     ) {
         self.tabId = tabId
         self.store = store
@@ -34,6 +36,7 @@ struct SingleTabContent: View {
         self.onPaneFocusTrigger = onPaneFocusTrigger
         self.paneInboxPresentation = paneInboxPresentation
         self.onOpenPaneGitHub = onOpenPaneGitHub
+        self.workspaceWindowId = workspaceWindowId
     }
 
     private static func traceMissingTab(tabId: UUID) -> Int {
@@ -64,7 +67,8 @@ struct SingleTabContent: View {
                 viewRegistry: viewRegistry,
                 appLifecycleStore: appLifecycleStore,
                 paneInboxPresentation: paneInboxPresentation,
-                onOpenPaneGitHub: onOpenPaneGitHub
+                onOpenPaneGitHub: onOpenPaneGitHub,
+                workspaceWindowId: workspaceWindowId
             )
             .background(AppStyles.Shell.PaneChrome.background)
         }

@@ -7,6 +7,10 @@ extension AppDelegate {
             appLogger.warning("No window available for \(context, privacy: .public)")
             return
         }
+        guard let workspaceWindowId = windowLifecycleStore.focusedWindowId ?? windowLifecycleStore.keyWindowId else {
+            appLogger.warning("No workspace window available for \(context, privacy: .public)")
+            return
+        }
 
         let owner = KeyboardOwner.current(
             windowLifecycle: windowLifecycleStore,
@@ -14,10 +18,14 @@ extension AppDelegate {
             uiState: uiState
         )
         if let prefix {
-            commandBarController.show(prefix: prefix, parentWindow: window)
+            commandBarController.show(prefix: prefix, parentWindow: window, workspaceWindowId: workspaceWindowId)
         } else {
             let scope = CommandBarState.defaultScope(for: owner)
-            commandBarController.show(defaultRootScope: scope, parentWindow: window)
+            commandBarController.show(
+                defaultRootScope: scope,
+                parentWindow: window,
+                workspaceWindowId: workspaceWindowId
+            )
         }
     }
 }

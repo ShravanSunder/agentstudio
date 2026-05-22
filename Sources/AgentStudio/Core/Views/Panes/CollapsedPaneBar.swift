@@ -10,6 +10,7 @@ struct CollapsedPaneBar: View {
     let dropTargetCoordinateSpace: String?
     let useDrawerFramePreference: Bool
     let ordinal: Int?
+    let workspaceWindowId: UUID?
 
     @State private var isHovered = false
     @State private var isExpandHovered = false
@@ -32,7 +33,8 @@ struct CollapsedPaneBar: View {
         onSaveArrangement: (() -> Void)? = nil,
         dropTargetCoordinateSpace: String? = nil,
         useDrawerFramePreference: Bool = false,
-        ordinal: Int? = nil
+        ordinal: Int? = nil,
+        workspaceWindowId: UUID? = nil
     ) {
         self.paneId = paneId
         self.tabId = tabId
@@ -42,6 +44,7 @@ struct CollapsedPaneBar: View {
         self.dropTargetCoordinateSpace = dropTargetCoordinateSpace
         self.useDrawerFramePreference = useDrawerFramePreference
         self.ordinal = ordinal
+        self.workspaceWindowId = workspaceWindowId
     }
 
     private var isClosing: Bool {
@@ -187,6 +190,7 @@ struct CollapsedPaneBar: View {
         ) {
             ArrangementPanel(
                 tabId: tabId,
+                workspaceWindowId: workspaceWindowId,
                 panes: panes,
                 arrangements: arrangements,
                 inlineRenameState: arrangementInlineRenameState,

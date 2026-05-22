@@ -5,6 +5,7 @@ import SwiftUI
 /// Shows pane visibility toggles, arrangement chips, and save controls.
 struct ArrangementPanel: View {
     let tabId: UUID
+    let workspaceWindowId: UUID?
     let panes: [PaneVisibilityInfo]
     let arrangements: [ArrangementInfo]
     @Bindable var inlineRenameState: ArrangementInlineRenameState
@@ -126,7 +127,7 @@ struct ArrangementPanel: View {
         }
         .padding(10)
         .frame(minWidth: 400, idealWidth: 475, maxWidth: 575)
-        .transientKeyboardSurface(transientSurfaceKind)
+        .transientKeyboardSurface(transientSurfaceKind, workspaceWindowId: workspaceWindowId)
         .onAppear {
             guard highlightPaneId != nil else { return }
             highlightVisible = true

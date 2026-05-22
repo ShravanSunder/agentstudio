@@ -31,6 +31,7 @@ struct PaneLeafContainer: View {
     let useDrawerFramePreference: Bool
     let paneInboxPresentation: PaneInboxPresentation?
     let ordinal: Int?
+    let workspaceWindowId: UUID?
 
     @State private var isHovered: Bool = false
     @State private var paneInboxPopoverOpen = false
@@ -59,7 +60,8 @@ struct PaneLeafContainer: View {
         dropTargetCoordinateSpace: String? = "tabContainer",
         useDrawerFramePreference: Bool = false,
         paneInboxPresentation: PaneInboxPresentation? = nil,
-        ordinal: Int? = nil
+        ordinal: Int? = nil,
+        workspaceWindowId: UUID? = nil
     ) {
         self.paneHost = paneHost
         self.tabId = tabId
@@ -76,6 +78,7 @@ struct PaneLeafContainer: View {
         self.useDrawerFramePreference = useDrawerFramePreference
         self.paneInboxPresentation = paneInboxPresentation
         self.ordinal = ordinal
+        self.workspaceWindowId = workspaceWindowId
     }
 
     /// Whether this pane is a drawer child (no drag, no drop, no sub-drawer).
@@ -162,6 +165,7 @@ struct PaneLeafContainer: View {
         let trailingActions = DrawerEditorChooserFactory.makeTrailingActions(
             editorChooser: atom(\.editorChooser),
             paneId: locationTargetPaneId,
+            workspaceWindowId: workspaceWindowId,
             canOpenTarget: locationContext.targetPath != nil,
             refreshInstalledTargets: {
                 ExternalEditorTarget.refreshInstalledTargets()

@@ -25,6 +25,7 @@ enum DrawerEditorChooserFactory {
     static func makeTrailingActions(
         editorChooser: EditorChooserAtom,
         paneId: UUID,
+        workspaceWindowId: UUID? = nil,
         canOpenTarget: Bool,
         refreshInstalledTargets: @escaping @MainActor () -> [ExternalEditorTarget],
         onOpenFinder: @escaping () -> Void,
@@ -66,7 +67,7 @@ enum DrawerEditorChooserFactory {
                         return trigger == AppShortcut.openPaneLocationInEditorMenu.trigger
                     }
                 )
-                .transientKeyboardSurface(.editorChooser(paneId: paneId))
+                .transientKeyboardSurface(.editorChooser(paneId: paneId), workspaceWindowId: workspaceWindowId)
             ),
             editorMenuPresented: Binding(
                 get: { editorChooser.state.openForPaneId == paneId },

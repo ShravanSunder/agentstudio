@@ -35,7 +35,7 @@ extension KeyboardRoutingContext {
             workspaceWindowId ?? windowLifecycle.focusedWindowId ?? windowLifecycle.keyWindowId
 
         let activeSurface: ActiveKeyboardSurface
-        if let commandBarScope = commandBarSurface.activeScope {
+        if let commandBarScope = commandBarSurface.activeScope(for: resolvedWorkspaceWindowId) {
             activeSurface = .commandBar(scope: commandBarScope)
         } else if let transientSurface = transientKeyboardSurface.topSurface(for: resolvedWorkspaceWindowId) {
             activeSurface = .transient(transientSurface.kind)

@@ -24,7 +24,7 @@ struct KeyboardRoutingContextSurfaceTests {
         let workspaceWindowId = makeKeyWindow(windowLifecycle)
 
         managementLayer.activate()
-        commandBarSurface.present(scope: .commands)
+        commandBarSurface.present(scope: .commands, workspaceWindowId: workspaceWindowId)
         _ = transientSurface.present(.tabRename(tabId: UUID()), workspaceWindowId: workspaceWindowId)
 
         let context = KeyboardRoutingContext.current(
@@ -37,6 +37,31 @@ struct KeyboardRoutingContextSurfaceTests {
 
         #expect(context.stableOwner == .managementLayer)
         #expect(context.activeSurface == .commandBar(scope: .commands))
+    }
+
+    @Test("command bar in another window does not affect current window")
+    func commandBarInAnotherWindowDoesNotAffectCurrentWindow() {
+        let windowLifecycle = WindowLifecycleAtom()
+        let managementLayer = ManagementLayerAtom()
+        let uiState = UIStateAtom()
+        let commandBarSurface = CommandBarSurfaceAtom()
+        let transientSurface = TransientKeyboardSurfaceAtom()
+        let currentWindowId = makeKeyWindow(windowLifecycle)
+        let otherWindowId = UUID()
+
+        commandBarSurface.present(scope: .commands, workspaceWindowId: otherWindowId)
+
+        let context = KeyboardRoutingContext.current(
+            windowLifecycle: windowLifecycle,
+            managementLayer: managementLayer,
+            uiState: uiState,
+            commandBarSurface: commandBarSurface,
+            transientKeyboardSurface: transientSurface,
+            workspaceWindowId: currentWindowId
+        )
+
+        #expect(context.stableOwner == .mainWindowChain)
+        #expect(context.activeSurface == .stable(.mainWindowChain))
     }
 
     @Test("transient takes precedence over stable owner")

@@ -80,6 +80,7 @@ struct CommandBarPanelControllerTests {
     @Test
     func test_show_publishesCommandBarSurfaceScope() {
         let commandBarSurface = CommandBarSurfaceAtom()
+        let workspaceWindowId = UUID()
         let controller = CommandBarPanelController(
             store: WorkspaceStore(),
             repoCache: RepoCacheAtom(),
@@ -87,14 +88,16 @@ struct CommandBarPanelControllerTests {
             commandBarSurface: commandBarSurface
         )
 
-        controller.show(prefix: ">", parentWindow: window)
+        controller.show(prefix: ">", parentWindow: window, workspaceWindowId: workspaceWindowId)
 
         #expect(commandBarSurface.activeScope == .commands)
+        #expect(commandBarSurface.activeScope(for: workspaceWindowId) == .commands)
     }
 
     @Test
     func test_switchPrefix_updatesCommandBarSurfaceScope() {
         let commandBarSurface = CommandBarSurfaceAtom()
+        let workspaceWindowId = UUID()
         let controller = CommandBarPanelController(
             store: WorkspaceStore(),
             repoCache: RepoCacheAtom(),
@@ -102,10 +105,30 @@ struct CommandBarPanelControllerTests {
             commandBarSurface: commandBarSurface
         )
 
-        controller.show(prefix: ">", parentWindow: window)
-        controller.show(prefix: "$", parentWindow: window)
+        controller.show(prefix: ">", parentWindow: window, workspaceWindowId: workspaceWindowId)
+        controller.show(prefix: "$", parentWindow: window, workspaceWindowId: workspaceWindowId)
 
         #expect(commandBarSurface.activeScope == .panes)
+        #expect(commandBarSurface.activeScope(for: workspaceWindowId) == .panes)
+    }
+
+    @Test
+    func test_show_visibleCommandBar_movesSurfaceToNewWindow() {
+        let commandBarSurface = CommandBarSurfaceAtom()
+        let firstWindowId = UUID()
+        let secondWindowId = UUID()
+        let controller = CommandBarPanelController(
+            store: WorkspaceStore(),
+            repoCache: RepoCacheAtom(),
+            dispatcher: .shared,
+            commandBarSurface: commandBarSurface
+        )
+
+        controller.show(prefix: ">", parentWindow: window, workspaceWindowId: firstWindowId)
+        controller.show(prefix: "$", parentWindow: window, workspaceWindowId: secondWindowId)
+
+        #expect(commandBarSurface.activeScope(for: firstWindowId) == nil)
+        #expect(commandBarSurface.activeScope(for: secondWindowId) == .panes)
     }
 
     // MARK: - Dismiss via Public API
@@ -131,17 +154,19 @@ struct CommandBarPanelControllerTests {
     @Test
     func test_dismiss_clearsCommandBarSurfaceScope() {
         let commandBarSurface = CommandBarSurfaceAtom()
+        let workspaceWindowId = UUID()
         let controller = CommandBarPanelController(
             store: WorkspaceStore(),
             repoCache: RepoCacheAtom(),
             dispatcher: .shared,
             commandBarSurface: commandBarSurface
         )
-        controller.show(parentWindow: window)
+        controller.show(parentWindow: window, workspaceWindowId: workspaceWindowId)
 
         controller.dismiss()
 
         #expect(commandBarSurface.activeScope == nil)
+        #expect(commandBarSurface.activeScope(for: workspaceWindowId) == nil)
     }
 
     @Test

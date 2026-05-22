@@ -117,7 +117,8 @@ struct PaneCloseTransitionCoordinatorTests {
             repoCache: RepoCacheAtom(),
             viewRegistry: viewRegistry,
             appLifecycleStore: AppLifecycleAtom(),
-            onOpenPaneGitHub: { _ in }
+            onOpenPaneGitHub: { _ in },
+            workspaceWindowId: nil
         )
 
         guard let leaf = container.zoomedPaneLeafContainer() else {
@@ -205,7 +206,8 @@ struct PaneCloseTransitionCoordinatorTests {
             closeTransitionCoordinator: closeCoordinator,
             actionDispatcher: actionDispatcher,
             onPaneFocusTrigger: { _ in },
-            onOpenPaneGitHub: { _ in }
+            onOpenPaneGitHub: { _ in },
+            workspaceWindowId: nil
         )
 
         window.makeFirstResponder(drawerHost)

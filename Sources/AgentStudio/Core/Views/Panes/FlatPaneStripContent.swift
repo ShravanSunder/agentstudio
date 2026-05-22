@@ -42,6 +42,7 @@ struct FlatPaneStripContent: View {
     let isInactivePersistentTab: Bool
     let paneInboxPresentation: PaneInboxPresentation?
     let onOpenPaneGitHub: (UUID) -> Void
+    let workspaceWindowId: UUID?
     @State private var isSplitResizing = false
 
     var body: some View {
@@ -70,7 +71,8 @@ struct FlatPaneStripContent: View {
                                 onSaveArrangement: onSaveArrangement,
                                 dropTargetCoordinateSpace: coordinateSpaceName,
                                 useDrawerFramePreference: useDrawerFramePreference,
-                                ordinal: ordinalMap.ordinal(forPaneId: paneId)
+                                ordinal: ordinalMap.ordinal(forPaneId: paneId),
+                                workspaceWindowId: workspaceWindowId
                             )
                             .frame(width: collapsedPaneWidth)
                         }
@@ -101,7 +103,8 @@ struct FlatPaneStripContent: View {
                             onOpenPaneGitHub: onOpenPaneGitHub,
                             viewRegistry: viewRegistry,
                             paneSlot: paneSlot,
-                            ordinal: ordinalMap.ordinal(forPaneId: segment.paneId)
+                            ordinal: ordinalMap.ordinal(forPaneId: segment.paneId),
+                            workspaceWindowId: workspaceWindowId
                         )
                         .id("\(segment.paneId.uuidString)-registered=\(paneSlot.host != nil)")
                         .frame(width: segment.frame.width, height: segment.frame.height)
@@ -147,6 +150,7 @@ private struct PaneSegmentSlotView: View {
     let viewRegistry: ViewRegistry
     @Bindable var paneSlot: ViewRegistry.PaneViewSlot
     let ordinal: Int?
+    let workspaceWindowId: UUID?
 
     var body: some View {
         ZStack {
@@ -160,7 +164,8 @@ private struct PaneSegmentSlotView: View {
                         onSaveArrangement: onSaveArrangement,
                         dropTargetCoordinateSpace: coordinateSpaceName,
                         useDrawerFramePreference: useDrawerFramePreference,
-                        ordinal: ordinal
+                        ordinal: ordinal,
+                        workspaceWindowId: workspaceWindowId
                     )
                 }
             } else if let paneHost = paneSlot.host {
@@ -179,7 +184,8 @@ private struct PaneSegmentSlotView: View {
                     dropTargetCoordinateSpace: coordinateSpaceName,
                     useDrawerFramePreference: useDrawerFramePreference,
                     paneInboxPresentation: paneInboxPresentation,
-                    ordinal: ordinal
+                    ordinal: ordinal,
+                    workspaceWindowId: workspaceWindowId
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.985, anchor: .center)))
             } else {

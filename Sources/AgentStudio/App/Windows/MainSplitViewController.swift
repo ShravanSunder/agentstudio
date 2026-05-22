@@ -274,10 +274,11 @@ class MainSplitViewController: NSSplitViewController {
             clearRequest: { request in
                 presenter.clearRequest(request)
             },
-            popoverContent: { parentPaneId, paneIds, onClear, onClose in
+            popoverContent: { [weak self] parentPaneId, paneIds, onClear, onClose in
                 AnyView(
                     PaneInboxNotificationPopover(
                         parentPaneId: parentPaneId,
+                        workspaceWindowId: self?.workspaceWindowId,
                         paneIds: paneIds,
                         inboxAtom: inbox,
                         presentationAtom: paneInboxState,
