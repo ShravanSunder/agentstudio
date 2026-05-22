@@ -66,6 +66,7 @@ enum DrawerEditorChooserFactory {
                         return trigger == AppShortcut.openPaneLocationInEditorMenu.trigger
                     }
                 )
+                .transientKeyboardSurface(.editorChooser(paneId: paneId))
             ),
             editorMenuPresented: Binding(
                 get: { editorChooser.state.openForPaneId == paneId },

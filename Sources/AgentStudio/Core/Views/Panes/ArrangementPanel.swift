@@ -28,6 +28,13 @@ struct ArrangementPanel: View {
         )
     }
 
+    private var transientSurfaceKind: TransientKeyboardSurfaceKind {
+        if let editingArrangementId = inlineRenameState.editingArrangementId {
+            return .arrangementRename(tabId: tabId, arrangementId: editingArrangementId)
+        }
+        return .arrangementPanel(tabId: tabId)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Arrangements")
@@ -119,6 +126,7 @@ struct ArrangementPanel: View {
         }
         .padding(10)
         .frame(minWidth: 400, idealWidth: 475, maxWidth: 575)
+        .transientKeyboardSurface(transientSurfaceKind)
         .onAppear {
             guard highlightPaneId != nil else { return }
             highlightVisible = true

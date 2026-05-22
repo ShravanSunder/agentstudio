@@ -31,6 +31,7 @@ struct PaneInboxNotificationPopover: View {
             width: AppStyles.Components.PaneInbox.popoverWidth,
             height: AppStyles.Components.PaneInbox.popoverHeight
         )
+        .transientKeyboardSurface(.paneInbox(parentPaneId: parentPaneId))
         .background(Self.surfaceBackground.color)
         .background(
             SelectablePopoverKeyboardBridge(
