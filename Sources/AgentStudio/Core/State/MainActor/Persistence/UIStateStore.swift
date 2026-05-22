@@ -42,7 +42,6 @@ final class UIStateStore {
             atom.hydrate(
                 filterText: state.filterText,
                 isFilterVisible: state.isFilterVisible,
-                showMinimizedBars: state.showMinimizedBars,
                 sidebarCollapsed: state.sidebarCollapsed,
                 sidebarSurface: state.sidebarSurface
             )
@@ -77,7 +76,6 @@ final class UIStateStore {
         withObservationTracking {
             _ = atom.filterText
             _ = atom.isFilterVisible
-            _ = atom.showMinimizedBars
             _ = atom.sidebarCollapsed
             _ = atom.sidebarSurface
             _ = editorChooserAtom.state.bookmarkedEditorId
@@ -119,7 +117,6 @@ final class UIStateStore {
                     workspaceId: workspaceId,
                     filterText: atom.filterText,
                     isFilterVisible: atom.isFilterVisible,
-                    showMinimizedBars: atom.showMinimizedBars,
                     sidebarCollapsed: atom.sidebarCollapsed,
                     sidebarSurface: atom.sidebarSurface,
                     editorChooserState: .init(bookmarkedEditorId: editorChooserAtom.state.bookmarkedEditorId)

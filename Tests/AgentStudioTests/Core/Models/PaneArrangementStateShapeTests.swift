@@ -53,6 +53,51 @@ struct PaneArrangementStateShapeTests {
     }
 
     @Test
+    func drawerViewEncodingDoesNotPersistShowMinimizedPolicy() throws {
+        let drawerPaneId = UUID()
+        let drawerView = DrawerView(
+            layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)),
+            activeChildId: drawerPaneId,
+            minimizedPaneIds: [drawerPaneId]
+        )
+
+        let encodedData = try encoder.encode(drawerView)
+        let encoded = try #require(String(bytes: encodedData, encoding: .utf8))
+
+        #expect(encoded.contains("layout"))
+        #expect(encoded.contains("activeChildId"))
+        #expect(encoded.contains("minimizedPaneIds"))
+        #expect(!encoded.contains("showsMinimizedPanes"))
+    }
+
+    @Test
+    func drawerViewDecodingNormalizesActiveAndMinimizedPaneIds() throws {
+        let drawerPaneId = UUID()
+        let stalePaneId = UUID()
+        let encoded = Data(
+            """
+            {
+              "layout": {
+                "topRow": {
+                  "panes": [{"paneId": "\(drawerPaneId.uuidString)", "ratio": 1}],
+                  "dividerIds": []
+                }
+              },
+              "activeChildId": "\(stalePaneId.uuidString)",
+              "minimizedPaneIds": ["\(stalePaneId.uuidString)"],
+              "showsMinimizedPanes": false
+            }
+            """.utf8
+        )
+
+        let decoded = try decoder.decode(DrawerView.self, from: encoded)
+
+        #expect(decoded.layout.paneIds == [drawerPaneId])
+        #expect(decoded.activeChildId == drawerPaneId)
+        #expect(decoded.minimizedPaneIds.isEmpty)
+    }
+
+    @Test
     func drawerRejectsOldViewStateShape() throws {
         let drawerPaneId = UUID()
         let oldShapeData = Data(

@@ -24,7 +24,7 @@ struct PersistenceChaosTests {
                         {"schemaVersion":1,"id":"\(workspaceId.uuidString)"}
                         """,
                     sliceTypeErrorJSON: """
-                        {"schemaVersion":1,"id":"\(workspaceId.uuidString)","name":42}
+                        {"schemaVersion":1,"id":"\(workspaceId.uuidString)","name":42,"panes":[],"tabs":[]}
                         """,
                     sliceUnknownEnumJSON: workspaceJSON(workspaceId: workspaceId, schemaVersion: 1),
                     unknownSchemaVersionJSON: workspaceJSON(workspaceId: workspaceId, schemaVersion: 99_999)
@@ -36,6 +36,8 @@ struct PersistenceChaosTests {
             switch flavor {
             case .missing:
                 #expect(result.isMissingForChaos)
+            case .sliceMissing:
+                #expect(result.isCorruptForChaos)
             case _ where flavor.corruptsWholeFile:
                 #expect(result.isCorruptForChaos)
             default:
@@ -103,7 +105,7 @@ struct PersistenceChaosTests {
                         {"schemaVersion":1,"workspaceId":"\(workspaceId.uuidString)"}
                         """,
                     sliceTypeErrorJSON: """
-                        {"schemaVersion":1,"workspaceId":"\(workspaceId.uuidString)","showMinimizedBars":"bad"}
+                        {"schemaVersion":1,"workspaceId":"\(workspaceId.uuidString)","sidebarCollapsed":"bad"}
                         """,
                     sliceUnknownEnumJSON: uiJSON(
                         workspaceId: workspaceId,
@@ -294,7 +296,6 @@ struct PersistenceChaosTests {
             "workspaceId": "\(workspaceId.uuidString)",
             "filterText": "",
             "isFilterVisible": false,
-            "showMinimizedBars": true,
             "sidebarCollapsed": false,
             "sidebarSurface": "\(sidebarSurface)",
             "editorChooserState": {}

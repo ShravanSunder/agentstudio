@@ -32,24 +32,24 @@ struct WorkspaceArrangementViewDerived {
     func drawerView(forParent parentPaneId: UUID) -> DrawerView? {
         guard
             let tab = tabLayoutAtom.tabContaining(paneId: parentPaneId),
-            let drawer = paneAtom.pane(parentPaneId)?.drawer,
-            !drawer.paneIds.isEmpty
+            let drawer = paneAtom.pane(parentPaneId)?.drawer
         else { return nil }
-        return tab.activeArrangement.drawerViews[drawer.drawerId]
+        if let drawerView = tab.activeArrangement.drawerViews[drawer.drawerId] {
+            return drawerView
+        }
+        return drawer.paneIds.isEmpty ? DrawerView() : nil
     }
 
     func drawerVisiblePaneIds(forParent parentPaneId: UUID) -> [UUID] {
-        guard let drawerView = drawerView(forParent: parentPaneId) else { return [] }
+        guard
+            let tab = tabLayoutAtom.tabContaining(paneId: parentPaneId),
+            let drawerView = drawerView(forParent: parentPaneId)
+        else { return [] }
         return visiblePaneIds(
             layoutPaneIds: drawerView.layout.paneIds,
             minimizedPaneIds: drawerView.minimizedPaneIds,
-            showsMinimizedPanes: effectiveShowsMinimizedDrawerPanes(drawerView: drawerView)
+            showsMinimizedPanes: effectiveShowsMinimizedPanes(for: tab.activeArrangement)
         )
-    }
-
-    func effectiveShowsMinimizedDrawerPanes(forParent parentPaneId: UUID) -> Bool {
-        guard let drawerView = drawerView(forParent: parentPaneId) else { return true }
-        return effectiveShowsMinimizedDrawerPanes(drawerView: drawerView)
     }
 
     func activePaneId(forTab tabId: UUID) -> UUID? {
@@ -62,10 +62,6 @@ struct WorkspaceArrangementViewDerived {
 
     private func effectiveShowsMinimizedPanes(for arrangement: PaneArrangement) -> Bool {
         managementLayerAtom.isActive ? true : arrangement.showsMinimizedPanes
-    }
-
-    private func effectiveShowsMinimizedDrawerPanes(drawerView: DrawerView) -> Bool {
-        managementLayerAtom.isActive ? true : drawerView.showsMinimizedPanes
     }
 
     private func visiblePaneIds(

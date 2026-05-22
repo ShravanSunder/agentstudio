@@ -54,6 +54,30 @@ struct TabBarArrangementChipTests {
         #expect(chip.hasCustomArrangement == false)
     }
 
+    @Test("shows arrangement name when only name is set")
+    func showsArrangementNameWhenOnlyNameIsSet() {
+        let chip = TabBarArrangementChip(
+            index: nil,
+            name: "Default",
+            isHovered: false,
+            isPressed: false,
+            nameMaxWidth: 100
+        )
+        #expect(chip.showsArrangementName)
+    }
+
+    @Test("hides arrangement name when name is nil")
+    func hidesArrangementNameWhenNameIsNil() {
+        let chip = TabBarArrangementChip(
+            index: 1,
+            name: nil,
+            isHovered: false,
+            isPressed: false,
+            nameMaxWidth: 100
+        )
+        #expect(!chip.showsArrangementName)
+    }
+
     @Test("uses pressed fill opacity when isPressed is true")
     func usesPressedFillOpacityWhenPressed() {
         let chip = TabBarArrangementChip(

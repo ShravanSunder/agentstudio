@@ -168,8 +168,7 @@ final class ActionExecutorTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: layout,
-            visiblePaneIds: Set(layout.paneIds)
+            layout: layout
         )
         let tab = Tab(
             panes: layout.paneIds,
@@ -197,8 +196,7 @@ final class ActionExecutorTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: layout,
-            visiblePaneIds: Set(layout.paneIds)
+            layout: layout
         )
         let tab = Tab(
             panes: layout.paneIds,
@@ -227,8 +225,7 @@ final class ActionExecutorTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: layout,
-            visiblePaneIds: Set(layout.paneIds)
+            layout: layout
         )
         let tab = Tab(
             panes: layout.paneIds,
@@ -254,8 +251,7 @@ final class ActionExecutorTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: layout,
-            visiblePaneIds: Set(layout.paneIds)
+            layout: layout
         )
         let tab = Tab(
             panes: layout.paneIds,
@@ -337,8 +333,7 @@ final class ActionExecutorTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: layout,
-            visiblePaneIds: Set(layout.paneIds)
+            layout: layout
         )
         let tab = Tab(
             panes: layout.paneIds,

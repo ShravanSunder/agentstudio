@@ -1064,7 +1064,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             isManagementLayerActive: atom(\.managementLayer).isActive,
             knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
             drawerParentByPaneId: drawerParentByPaneId(),
-            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId()
+            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
+            visiblePaneIds: { [arrangementView] tab in
+                arrangementView.activeVisiblePaneIds(forTab: tab.id)
+            }
         )
     }
 
@@ -1073,8 +1076,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .paneAction(let action):
             dispatchAction(action)
         case .moveTab(let tabId, let toIndex):
-            store.tabLayoutAtom.moveTab(fromId: tabId, toIndex: toIndex)
-            store.tabLayoutAtom.setActiveTab(tabId)
+            dispatchAction(.reorderTab(tabId: tabId, newIndex: toIndex))
         case .extractPaneToTabThenMove(let paneId, let sourceTabId, let toIndex):
             let tabCountBefore = store.tabLayoutAtom.tabs.count
             dispatchAction(.extractPaneToTab(tabId: sourceTabId, paneId: paneId))
@@ -1084,8 +1086,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             else {
                 return
             }
-            store.tabLayoutAtom.moveTab(fromId: extractedTabId, toIndex: toIndex)
-            store.tabLayoutAtom.setActiveTab(extractedTabId)
+            dispatchAction(.reorderTab(tabId: extractedTabId, newIndex: toIndex))
         }
     }
 
@@ -1123,8 +1124,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .existingPane(let sourcePaneId, _):
             guard let sourcePane = store.paneAtom.pane(sourcePaneId) else { return false }
             return sourcePane.parentPaneId == nil
-        case .existingTab, .newTerminal:
+        case .newTerminal:
             return true
+        case .existingTab:
+            return false
         }
     }
 
@@ -1691,7 +1694,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             isManagementLayerActive: atom(\.managementLayer).isActive,
             knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
             drawerParentByPaneId: drawerParentByPaneId(),
-            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId()
+            drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
+            visiblePaneIds: { [arrangementView] tab in
+                arrangementView.activeVisiblePaneIds(forTab: tab.id)
+            }
         )
 
         switch WorkspaceCommandValidator.validate(action, state: snapshot) {
@@ -1862,7 +1868,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     // MARK: - Tab Reordering
 
     private func handleTabReorder(fromId: UUID, toIndex: Int) {
-        store.tabLayoutAtom.moveTab(fromId: fromId, toIndex: toIndex)
+        dispatchAction(.reorderTab(tabId: fromId, newIndex: toIndex))
     }
 
     // MARK: - Drag Payload
@@ -1910,8 +1916,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             sourceTab.activePaneIds.count == 1
         {
             if let targetTabIndex {
-                store.tabLayoutAtom.moveTab(fromId: tabId, toIndex: targetTabIndex)
-                store.tabLayoutAtom.setActiveTab(tabId)
+                dispatchAction(.reorderTab(tabId: tabId, newIndex: targetTabIndex))
             }
             return
         }
@@ -1927,8 +1932,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return
         }
 
-        store.tabLayoutAtom.moveTab(fromId: extractedTabId, toIndex: targetTabIndex)
-        store.tabLayoutAtom.setActiveTab(extractedTabId)
+        dispatchAction(.reorderTab(tabId: extractedTabId, newIndex: targetTabIndex))
     }
 
     private func dispatchMovePaneToTab(sourcePaneId: UUID, sourceTabId: UUID?, targetTabId: UUID) {
@@ -1959,12 +1963,15 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         guard let targetTab = store.tabLayoutAtom.tab(targetTabId) else { return nil }
         guard let targetPaneId = targetTab.activePaneId ?? targetTab.activePaneIds.first else { return nil }
 
-        return .insertPane(
-            source: .existingPane(paneId: sourcePaneId, sourceTabId: resolvedSourceTabId),
-            targetTabId: targetTabId,
-            targetPaneId: targetPaneId,
-            direction: .right,
-            sizingMode: .halveTarget
+        return .movePaneAcrossTabs(
+            CrossTabPaneMoveRequest(
+                paneId: sourcePaneId,
+                sourceTabId: resolvedSourceTabId,
+                destTabId: targetTabId,
+                targetPaneId: targetPaneId,
+                direction: .horizontal,
+                position: .after
+            )
         )
     }
 
@@ -1989,7 +1996,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         // Try the validated pipeline for pane/tab structural actions
         if let action = WorkspaceCommandResolver.resolve(
-            command: command, tabs: store.tabLayoutAtom.tabs, activeTabId: store.tabLayoutAtom.activeTabId
+            command: command,
+            tabs: store.tabLayoutAtom.tabs,
+            activeTabId: store.tabLayoutAtom.activeTabId,
+            visiblePaneIds: { [arrangementView] tab in
+                arrangementView.activeVisiblePaneIds(forTab: tab.id)
+            }
         ) {
             dispatchAction(action)
             return
@@ -2453,7 +2465,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 knownRepoIds: Set(store.repositoryTopologyAtom.repos.map(\.id)),
                 knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
                 drawerParentByPaneId: drawerParentByPaneId(),
-                drawerLayoutByParentPaneId: drawerLayoutByParentPaneId()
+                drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
+                visiblePaneIds: { [arrangementView] tab in
+                    arrangementView.activeVisiblePaneIds(forTab: tab.id)
+                }
             )
             if case .success = WorkspaceCommandValidator.validate(action, state: snapshot) {
                 return true
@@ -2522,7 +2537,12 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         // Try resolving — if it resolves, validate it
         if let action = WorkspaceCommandResolver.resolve(
-            command: command, tabs: store.tabLayoutAtom.tabs, activeTabId: store.tabLayoutAtom.activeTabId
+            command: command,
+            tabs: store.tabLayoutAtom.tabs,
+            activeTabId: store.tabLayoutAtom.activeTabId,
+            visiblePaneIds: { [arrangementView] tab in
+                arrangementView.activeVisiblePaneIds(forTab: tab.id)
+            }
         ) {
             let snapshot = WorkspaceCommandResolver.snapshot(
                 from: store.tabLayoutAtom.tabs,
@@ -2531,7 +2551,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 knownRepoIds: Set(store.repositoryTopologyAtom.repos.map(\.id)),
                 knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
                 drawerParentByPaneId: drawerParentByPaneId(),
-                drawerLayoutByParentPaneId: drawerLayoutByParentPaneId()
+                drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
+                visiblePaneIds: { [arrangementView] tab in
+                    arrangementView.activeVisiblePaneIds(forTab: tab.id)
+                }
             )
             switch WorkspaceCommandValidator.validate(action, state: snapshot) {
             case .success: return true

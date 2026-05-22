@@ -85,14 +85,14 @@ enum TabArrangementMutationRules {
 
     static func minimizingPane(_ paneId: UUID, in state: TabArrangementState) -> TabArrangementState? {
         let arrangement = activeArrangement(in: state)
-        let visiblePaneIds = arrangement.layout.paneIds
-        guard visiblePaneIds.contains(paneId) else { return nil }
+        let layoutPaneIds = arrangement.layout.paneIds
+        guard layoutPaneIds.contains(paneId) else { return nil }
 
         var updated = state
         let arrangementIndex = activeArrangementIndex(in: updated)
         updated.arrangements[arrangementIndex].minimizedPaneIds.insert(paneId)
         if updated.arrangements[arrangementIndex].activePaneId == paneId {
-            let nonMinimized = visiblePaneIds.filter {
+            let nonMinimized = layoutPaneIds.filter {
                 !updated.arrangements[arrangementIndex].minimizedPaneIds.contains($0)
             }
             updated.arrangements[arrangementIndex].activePaneId = nonMinimized.first
@@ -166,38 +166,36 @@ enum TabArrangementMutationRules {
 
         var updated = target
         updated.zoomedPaneId = nil
-        let targetArrangementIndex = activeArrangementIndex(in: updated)
-        let defaultArrangementIndex = defaultArrangementIndex(in: updated)
         let sourcePaneIds = defaultArrangement(in: source).layout.paneIds
-        var currentTarget = targetPaneId
-        for paneId in sourcePaneIds {
-            guard
-                let updatedActiveLayout = updated.arrangements[targetArrangementIndex].layout.inserting(
-                    paneId: paneId,
-                    at: currentTarget,
-                    direction: direction,
-                    position: position,
-                    sizingMode: .halveTarget
-                )
-            else { return nil }
-            updated.arrangements[targetArrangementIndex].layout = updatedActiveLayout
-            if targetArrangementIndex != defaultArrangementIndex {
-                if let updatedDefaultLayout = updated.arrangements[defaultArrangementIndex].layout.inserting(
-                    paneId: paneId,
-                    at: currentTarget,
-                    direction: direction,
-                    position: position,
-                    sizingMode: .halveTarget
-                ) {
-                    updated.arrangements[defaultArrangementIndex].layout = updatedDefaultLayout
+        for arrangementIndex in updated.arrangements.indices {
+            var currentTarget = targetPaneId
+            for paneId in sourcePaneIds {
+                let updatedLayout: Layout?
+                if updated.arrangements[arrangementIndex].layout.contains(currentTarget) {
+                    updatedLayout = updated.arrangements[arrangementIndex].layout.inserting(
+                        paneId: paneId,
+                        at: currentTarget,
+                        direction: direction,
+                        position: position,
+                        sizingMode: .halveTarget
+                    )
+                } else {
+                    updatedLayout = appendingPane(
+                        paneId,
+                        to: updated.arrangements[arrangementIndex].layout
+                    )
+                }
+                guard let updatedLayout else { return nil }
+                updated.arrangements[arrangementIndex].layout = updatedLayout
+                updated.arrangements[arrangementIndex].minimizedPaneIds.remove(paneId)
+                if position == .after {
+                    currentTarget = paneId
                 }
             }
-            if !updated.allPaneIds.contains(paneId) {
-                updated.allPaneIds.append(paneId)
-            }
-            if position == .after {
-                currentTarget = paneId
-            }
+        }
+
+        for paneId in sourcePaneIds where !updated.allPaneIds.contains(paneId) {
+            updated.allPaneIds.append(paneId)
         }
         return updated
     }

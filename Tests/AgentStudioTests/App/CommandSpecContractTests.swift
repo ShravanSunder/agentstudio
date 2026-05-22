@@ -107,8 +107,7 @@ struct CommandSpecContractTests {
             PaneArrangement(
                 name: "Review",
                 isDefault: false,
-                layout: tab.layout,
-                visiblePaneIds: Set(tab.activePaneIds)
+                layout: tab.layout
             )
         )
         store.appendTab(tab)

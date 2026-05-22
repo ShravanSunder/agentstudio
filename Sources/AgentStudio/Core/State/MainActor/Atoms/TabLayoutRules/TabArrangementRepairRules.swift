@@ -109,5 +109,4 @@ enum TabArrangementRepairRules {
             rowSplitRatio: layout.rowSplitRatio
         )
     }
-
 }

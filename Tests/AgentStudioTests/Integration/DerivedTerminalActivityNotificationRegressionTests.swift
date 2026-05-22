@@ -237,8 +237,7 @@ struct DerivedTerminalActivityNotificationRegressionTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: Layout(paneId: pane.id),
-            visiblePaneIds: [pane.id]
+            layout: Layout(paneId: pane.id)
         )
         let tab = Tab(
             name: "Tab",

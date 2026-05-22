@@ -277,8 +277,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let hiddenTab = Tab(paneId: hiddenParentPane.id, name: "Hidden")
         harness.store.appendTab(visibleTab)
         harness.store.appendTab(hiddenTab)
-        harness.store.setActiveTab(visibleTab.id)
         let hiddenDrawerPane = try #require(harness.store.addDrawerPane(to: hiddenParentPane.id))
+        harness.store.setActiveTab(visibleTab.id)
 
         let liveSessionId = ZmxBackend.drawerSessionId(
             parentPaneId: hiddenParentPane.id,
@@ -324,8 +324,8 @@ struct Luna295DirectZmxAttachIntegrationTests {
         let hiddenTab = Tab(paneId: hiddenParentPane.id, name: "Hidden")
         harness.store.appendTab(visibleTab)
         harness.store.appendTab(hiddenTab)
-        harness.store.setActiveTab(visibleTab.id)
         let hiddenDrawerPane = try #require(harness.store.addDrawerPane(to: hiddenParentPane.id))
+        harness.store.setActiveTab(visibleTab.id)
 
         let liveSessionId = ZmxBackend.drawerSessionId(
             parentPaneId: hiddenParentPane.id,
@@ -433,7 +433,7 @@ struct Luna295DirectZmxAttachIntegrationTests {
             position: .after, sizingMode: .halveTarget
         )
         _ = harness.store.minimizePane(secondPane.id, inTab: tab.id)
-        atom(\.uiState).setShowMinimizedBars(false)
+        harness.store.tabLayoutAtom.setShowsMinimizedPanes(false, inTab: tab.id)
 
         let framesByTabId = harness.coordinator.resolveInitialFramesByTabId(
             in: CGRect(x: 0, y: 0, width: 1000, height: 600)

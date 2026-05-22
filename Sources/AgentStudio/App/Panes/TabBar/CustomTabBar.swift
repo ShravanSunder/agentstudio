@@ -430,7 +430,7 @@ private struct TabBarArrangementButton: View {
     }
 
     private var hiddenMinimizedCount: Int {
-        guard !atom(\.uiState).showMinimizedBars else { return 0 }
+        guard activeTab?.showsMinimizedPanes == false else { return 0 }
         guard !atom(\.managementLayer).isActive else { return 0 }
         return activeTab?.minimizedCount ?? 0
     }
@@ -503,9 +503,9 @@ private struct TabBarArrangementButton: View {
                     inlineRenameState: arrangementInlineRenameState,
                     onPaneAction: onPaneAction,
                     onSaveArrangement: { onSaveArrangement(tab.id) },
-                    showMinimizedBarsBinding: Binding(
-                        get: { atom(\.uiState).showMinimizedBars },
-                        set: { atom(\.uiState).setShowMinimizedBars($0) }
+                    showsMinimizedPanesBinding: Binding(
+                        get: { tab.showsMinimizedPanes },
+                        set: { onPaneAction(.setShowsMinimizedPanes(tabId: tab.id, value: $0)) }
                     )
                 )
             }

@@ -97,8 +97,9 @@ final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolving {
     private func drawerView(forParent parentPaneId: UUID, in store: WorkspaceStore) -> DrawerView? {
         guard
             let tab = store.tabLayoutAtom.tabContaining(paneId: parentPaneId),
-            let drawerId = store.paneAtom.pane(parentPaneId)?.drawer?.drawerId
+            let drawer = store.paneAtom.pane(parentPaneId)?.drawer
         else { return nil }
-        return tab.activeArrangement.drawerViews[drawerId]
+
+        return tab.activeArrangement.drawerViews[drawer.drawerId]
     }
 }

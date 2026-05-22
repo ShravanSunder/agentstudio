@@ -26,6 +26,12 @@ enum ActionValidationError: Error, Equatable {
     case invalidRatio(ratio: Double)
     case paneAlreadyInLayout(paneId: UUID)
     case invalidDrawerLayout(parentPaneId: UUID, reason: DrawerLayoutValidationFailure)
+    case drawerPaneCannotCrossTabs(paneId: UUID)
+    case crossTabSameTab(tabId: UUID)
+    case crossTabDestNotFound(tabId: UUID)
+    case crossTabTargetNotFound(paneId: UUID, tabId: UUID)
+    case tabReorderIndexOutOfRange(index: Int)
+    case crossTabInsertPaneRequest(paneId: UUID, sourceTabId: UUID, targetTabId: UUID)
 }
 
 enum DrawerLayoutValidationFailure: Error, Equatable, Sendable, CustomStringConvertible {
@@ -118,6 +124,15 @@ enum WorkspaceCommandValidator {
                 return .failure(.paneNotFound(paneId: request.targetPaneId, tabId: request.targetTabId))
             }
             if case .existingPane(let sourcePaneId, let sourceTabId) = request.source {
+                guard sourceTabId == request.targetTabId else {
+                    return .failure(
+                        .crossTabInsertPaneRequest(
+                            paneId: sourcePaneId,
+                            sourceTabId: sourceTabId,
+                            targetTabId: request.targetTabId
+                        )
+                    )
+                }
                 guard state.tabOwnsPane(sourceTabId, paneId: sourcePaneId) else {
                     return .failure(
                         .sourcePaneNotFound(
@@ -199,11 +214,43 @@ enum WorkspaceCommandValidator {
             }
             return .success(ValidatedAction(action))
 
+        case .reorderTab(let tabId, let newIndex):
+            guard state.tab(tabId) != nil else {
+                return .failure(.tabNotFound(tabId: tabId))
+            }
+            guard newIndex >= 0 && newIndex < state.tabCount else {
+                return .failure(.tabReorderIndexOutOfRange(index: newIndex))
+            }
+            return .success(ValidatedAction(action))
+
+        case .movePaneAcrossTabs(let request):
+            let paneId = request.paneId
+            let sourceTabId = request.sourceTabId
+            let destTabId = request.destTabId
+            let targetPaneId = request.targetPaneId
+            guard sourceTabId != destTabId else {
+                return .failure(.crossTabSameTab(tabId: sourceTabId))
+            }
+            guard state.drawerParentPaneId(of: paneId) == nil else {
+                return .failure(.drawerPaneCannotCrossTabs(paneId: paneId))
+            }
+            guard state.tab(destTabId) != nil else {
+                return .failure(.crossTabDestNotFound(tabId: destTabId))
+            }
+            guard state.tabOwnsPane(sourceTabId, paneId: paneId) else {
+                return .failure(.sourcePaneNotFound(paneId: paneId, sourceTabId: sourceTabId))
+            }
+            guard state.tab(destTabId)?.ownsPane(targetPaneId) == true else {
+                return .failure(.crossTabTargetNotFound(paneId: targetPaneId, tabId: destTabId))
+            }
+            return .success(ValidatedAction(action))
+
         // Arrangement actions — validate tab exists
         case .createArrangement(let tabId, _),
             .removeArrangement(let tabId, _),
             .switchArrangement(let tabId, _),
-            .renameArrangement(let tabId, _, _):
+            .renameArrangement(let tabId, _, _),
+            .setShowsMinimizedPanes(let tabId, _):
             guard state.tab(tabId) != nil else {
                 return .failure(.tabNotFound(tabId: tabId))
             }

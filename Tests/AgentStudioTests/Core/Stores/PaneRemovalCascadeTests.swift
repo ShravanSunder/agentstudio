@@ -86,12 +86,10 @@ final class PaneRemovalCascadeTests {
         let updatedTab = store.tabs.first { $0.id == tab.id }!
         let defaultArr = updatedTab.defaultArrangement
         #expect(!(defaultArr.layout.contains(paneIds[1])))
-        #expect(!(defaultArr.visiblePaneIds.contains(paneIds[1])))
 
         // Should be removed from custom arrangement
         let customArr = updatedTab.arrangements.first { $0.id == arrId }!
         #expect(!(customArr.layout.contains(paneIds[1])))
-        #expect(!(customArr.visiblePaneIds.contains(paneIds[1])))
     }
 
     @Test
@@ -238,9 +236,7 @@ final class PaneRemovalCascadeTests {
         let rightArrangement = updatedTab.arrangements.first { $0.id == focusRightId }!
 
         #expect(!(leftArrangement.layout.contains(paneIds[1])))
-        #expect(!(leftArrangement.visiblePaneIds.contains(paneIds[1])))
         #expect(!(rightArrangement.layout.contains(paneIds[1])))
-        #expect(!(rightArrangement.visiblePaneIds.contains(paneIds[1])))
     }
 
     @Test

@@ -39,8 +39,7 @@ struct CommandBarDataSourceTests {
         let namedArrangement = PaneArrangement(
             name: "Review",
             isDefault: false,
-            layout: tab.layout,
-            visiblePaneIds: Set(tab.activePaneIds)
+            layout: tab.layout
         )
         tab.arrangements.append(namedArrangement)
         store.appendTab(tab)
@@ -432,8 +431,7 @@ struct CommandBarDataSourceTests {
         let arrangement = PaneArrangement(
             name: "Default",
             isDefault: true,
-            layout: Layout(),
-            visiblePaneIds: []
+            layout: Layout()
         )
         let tab = Tab(
             name: "Empty",
@@ -691,8 +689,7 @@ struct CommandBarDataSourceTests {
         let namedArrangement = PaneArrangement(
             name: "Review",
             isDefault: false,
-            layout: tab.layout,
-            visiblePaneIds: Set(tab.activePaneIds)
+            layout: tab.layout
         )
         tab.arrangements.append(namedArrangement)
         store.appendTab(tab)

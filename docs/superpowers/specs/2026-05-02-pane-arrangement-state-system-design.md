@@ -19,7 +19,7 @@
 
 ## 1. Goal
 
-Make every pane arrangement a complete VIEW over a single source of DATA, with no asymmetry between main panes and drawer panes. Eliminate `visiblePaneIds` as stored state. Move per-arrangement drawer behavioral state (layout, minimize, active child) under `PaneArrangement` so switching arrangements correctly switches drawer state too. (Drawer.isExpanded stays GLOBAL per drawer — Q4.) Add a per-arrangement `showsMinimizedPanes` toggle (and per-drawer equivalent).
+Make every pane arrangement a complete VIEW over a single source of DATA, with no asymmetry between main panes and drawer panes. Eliminate `visiblePaneIds` as stored state. Move per-arrangement drawer behavioral state (layout, minimize, active child) under `PaneArrangement` so switching arrangements correctly switches drawer state too. (Drawer.isExpanded stays GLOBAL per drawer — Q4.) Add one per-arrangement `showsMinimizedPanes` toggle that controls both main panes and drawer panes in that arrangement.
 
 ## 2. Motivation
 
@@ -173,7 +173,6 @@ WorkspaceTabArrangementAtom (per-arrangement VIEW)
         layout: DrawerGridLayout           drawer grid positions
         activeChildId: UUID?
         minimizedPaneIds: Set<UUID>        now persisted
-        showsMinimizedPanes: Bool          per-drawer view toggle
                                             (default true)
         // NOTE: isExpanded NOT here — stays on Drawer (Q4 decision)
 ```
@@ -274,10 +273,6 @@ struct WorkspaceArrangementViewDerived {
     // returns [] if drawer is empty
     // Applies management override for showsMinimizedPanes
 
-    func effectiveShowsMinimizedDrawerPanes(
-        forParent parentPaneId: UUID
-    ) -> Bool
-
     // ===== Convenience accessors =====
 
     func activePaneId(forTab tabId: UUID) -> UUID?
@@ -330,14 +325,14 @@ visible(arrangement) =
                                                              (minimized hidden)
 ```
 
-Same rule applies to drawer (computed by
+Same arrangement-level show rule applies to drawer panes (computed by
 `WorkspaceArrangementViewDerived.drawerVisiblePaneIds`):
 
 ```
 let effectiveShows =
   managementLayerAtom.isActive
     ? true
-    : drawerView.showsMinimizedPanes
+    : activeArrangement.showsMinimizedPanes
 
 visible(drawerView) =
   if effectiveShows
@@ -463,8 +458,9 @@ struct DrawerView: Codable, Hashable {
     var layout: DrawerGridLayout
     var activeChildId: UUID?
     var minimizedPaneIds: Set<UUID>
-    var showsMinimizedPanes: Bool
     // NOTE: NO isExpanded — kept on Drawer struct (Q4)
+    // NOTE: NO showsMinimizedPanes — drawer panes use the parent
+    // arrangement's showsMinimizedPanes policy.
 }
 ```
 
@@ -490,8 +486,7 @@ equalizeDrawerPanesInActive(parentPaneId:)
 minimizeDrawerPaneInActive(drawerPaneId:, parentPaneId:)
 expandDrawerPaneInActive(drawerPaneId:, parentPaneId:)
 setActiveDrawerPaneInActive(drawerPaneId:, parentPaneId:)
-setShowsMinimizedPanesInActive(value:)            // main panes
-setShowsMinimizedDrawerPanesInActive(parentPaneId:, value:)
+setShowsMinimizedPanesInActive(value:)            // main + drawer panes
 setActivePaneInActive(paneId:)                    // moved from per-tab
 ```
 
@@ -833,7 +828,6 @@ NEW:
                     targetPaneId:, direction:, position:)
 .reorderTab(tabId:, newIndex:)
 .setShowsMinimizedPanes(tabId:, value:)
-.setShowsMinimizedDrawerPanes(parentPaneId:, value:)
 ```
 
 CHANGED SIGNATURE (subset arrangements removed):
@@ -1309,7 +1303,7 @@ ManagementModeOverrideTests
     effective = true (override; minimized panes shown as bars)
   ▸ exiting management mode does NOT mutate stored
     showsMinimizedPanes — it returns to the user's preference
-  ▸ same applies to drawer's showsMinimizedPanes per drawerView
+  ▸ same arrangement-level policy applies to drawer panes
 
 EmptyArrangementPlaceholderTests (Q6 — model-side only)
   ▸ arrangement with empty layout → activeVisiblePaneIds == []
@@ -1338,9 +1332,10 @@ TabReorderTests
   ▸ tab-into-tab rejected at validator AND at drag source-filter
 
 ShowsMinimizedPanesTests
-  ▸ per-arrangement toggle hides minimized panes from layout
-    rendering when false (via WorkspaceArrangementViewDerived)
-  ▸ per-drawer toggle does the same for drawer panes
+  ▸ per-arrangement toggle hides minimized main and drawer panes
+    from layout rendering when false (via WorkspaceArrangementViewDerived)
+  ▸ drawer panes use the parent arrangement's policy; there is no
+    per-drawer show-minimized toggle
   ▸ derived visiblePaneIds matches the rule in §6.2
   ▸ ships in PR 1
 
@@ -1348,9 +1343,8 @@ ShowsMinimizedPanesUITests (PR 2)
   ▸ UI toggle control in arrangement panel mutates active
     arrangement's showsMinimizedPanes via PaneActionCommand
     .setShowsMinimizedPanes
-  ▸ UI toggle control in drawer header mutates active
-    arrangement's drawerView via PaneActionCommand
-    .setShowsMinimizedDrawerPanes
+  ▸ no drawer-header show-minimized toggle exists; drawer panes use
+    the active arrangement's showsMinimizedPanes policy
   ▸ ships in PR 2 (depends on PR 1's per-arrangement
     persistence)
 
@@ -1542,7 +1536,7 @@ PR 2 — New user behaviors enabled by PR 1
   showsMinimizedPanes UI toggle
     ▸ Add toggle control in arrangement panel UI
     ▸ Per-arrangement persistence (already wired in PR 1)
-    ▸ Per-drawer toggle in drawer header UI
+    ▸ No per-drawer toggle in drawer header UI
 
   Empty visible arrangement placeholder
     ▸ Tab content view renders the empty-arrangement placeholder

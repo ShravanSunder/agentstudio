@@ -74,6 +74,23 @@ private func decodeRequiredIdentity<Key: CodingKey, Value: Decodable>(
     }
 }
 
+/// Decodes canonical state slices whose absence changes workspace semantics.
+private func decodeRequiredCanonicalField<Key: CodingKey, Value: Decodable>(
+    _ type: Value.Type,
+    from container: KeyedDecodingContainer<Key>,
+    forKey key: Key,
+    payloadName: String
+) throws -> Value {
+    do {
+        return try container.decode(type, forKey: key)
+    } catch {
+        persistorPayloadLogger.warning(
+            "\(payloadName, privacy: .public) invalid canonical field \(key.stringValue, privacy: .public); treating file as corrupt"
+        )
+        throw error
+    }
+}
+
 extension WorkspacePersistor {
     /// On-disk representation of workspace state.
     struct PersistableState: Codable {
@@ -162,8 +179,18 @@ extension WorkspacePersistor {
             self.repos = decodeField([CanonicalRepo].self, forKey: .repos, default: [])
             self.worktrees = decodeField([CanonicalWorktree].self, forKey: .worktrees, default: [])
             self.unavailableRepoIds = decodeField(Set<UUID>.self, forKey: .unavailableRepoIds, default: [])
-            self.panes = decodeField([Pane].self, forKey: .panes, default: [])
-            self.tabs = decodeField([Tab].self, forKey: .tabs, default: [])
+            self.panes = try decodeRequiredCanonicalField(
+                [Pane].self,
+                from: container,
+                forKey: .panes,
+                payloadName: "PersistableState"
+            )
+            self.tabs = try decodeRequiredCanonicalField(
+                [Tab].self,
+                from: container,
+                forKey: .tabs,
+                payloadName: "PersistableState"
+            )
             self.activeTabId = decodeField(UUID?.self, forKey: .activeTabId, default: nil)
             self.sidebarWidth = decodeField(CGFloat.self, forKey: .sidebarWidth, default: 250)
             self.windowFrame = decodeField(CGRect?.self, forKey: .windowFrame, default: nil)
@@ -302,7 +329,6 @@ extension WorkspacePersistor {
         var workspaceId: UUID
         var filterText: String
         var isFilterVisible: Bool
-        var showMinimizedBars: Bool
         var sidebarCollapsed: Bool
         var sidebarSurface: SidebarSurface
         var editorChooserState: PersistedEditorChooserState
@@ -311,7 +337,6 @@ extension WorkspacePersistor {
             workspaceId: UUID,
             filterText: String = "",
             isFilterVisible: Bool = false,
-            showMinimizedBars: Bool = true,
             sidebarCollapsed: Bool = false,
             sidebarSurface: SidebarSurface = .repos,
             editorChooserState: PersistedEditorChooserState = .init()
@@ -320,7 +345,6 @@ extension WorkspacePersistor {
             self.workspaceId = workspaceId
             self.filterText = filterText
             self.isFilterVisible = isFilterVisible
-            self.showMinimizedBars = showMinimizedBars
             self.sidebarCollapsed = sidebarCollapsed
             self.sidebarSurface = sidebarSurface
             self.editorChooserState = editorChooserState
@@ -331,7 +355,6 @@ extension WorkspacePersistor {
             case workspaceId
             case filterText
             case isFilterVisible
-            case showMinimizedBars
             case sidebarCollapsed
             case sidebarSurface
             case editorChooserState
@@ -367,14 +390,6 @@ extension WorkspacePersistor {
                 schemaVersion: schemaVersion,
                 payloadName: "PersistableUIState",
                 default: false
-            )
-            self.showMinimizedBars = decodeRecoverableField(
-                Bool.self,
-                from: container,
-                forKey: .showMinimizedBars,
-                schemaVersion: schemaVersion,
-                payloadName: "PersistableUIState",
-                default: true
             )
             self.sidebarCollapsed = decodeRecoverableField(
                 Bool.self,

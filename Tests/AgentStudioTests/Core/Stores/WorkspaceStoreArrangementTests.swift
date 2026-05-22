@@ -54,13 +54,12 @@ final class WorkspaceStoreArrangementTests {
         let custom = updatedTab.arrangements.first { $0.id == arrId }!
         #expect(custom.name == "Focus")
         #expect(!(custom.isDefault))
-        #expect(Set(custom.layout.paneIds) == Set(paneIds))
-        #expect(custom.visiblePaneIds == Set(paneIds))
+        #expect(custom.layout.paneIds == paneIds)
     }
 
     @Test
 
-    func test_createArrangement_ignoresLegacySubsetParameter() {
+    func test_createArrangement_hasNoSubsetInputAndCreatesCompleteView() {
         let (tab, paneIds) = createTabWithPanes(3)
 
         let arrId = store.createArrangement(
@@ -90,7 +89,7 @@ final class WorkspaceStoreArrangementTests {
 
     @Test
 
-    func test_createArrangement_emptyLegacySubsetStillCreatesCompleteView() {
+    func test_createArrangement_emptyTabPaneSetStillCreatesNoSubsetState() {
         let (tab, paneIds) = createTabWithPanes(2)
 
         let arrId = store.createArrangement(
@@ -105,7 +104,7 @@ final class WorkspaceStoreArrangementTests {
 
     @Test
 
-    func test_createArrangement_invalidLegacySubsetStillCreatesCompleteView() {
+    func test_createArrangement_completeViewDoesNotDependOnCallerPaneSelection() {
         let (tab, paneIds) = createTabWithPanes(2)
 
         let arrId = store.createArrangement(
