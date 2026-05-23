@@ -200,7 +200,7 @@ struct CollapsedPaneBar: View {
                 },
                 onSaveArrangement: { onSaveArrangement?() },
                 showsMinimizedPanesBinding: Binding(
-                    get: { atom(\.arrangementView).effectiveShowsMinimizedPanes(forTab: tabId) },
+                    get: { atom(\.arrangementView).userShowsMinimizedPanes(forTab: tabId) },
                     set: { actionDispatcher.dispatch(.setShowsMinimizedPanes(tabId: tabId, value: $0)) }
                 ),
                 highlightPaneId: paneId,

@@ -111,6 +111,7 @@ struct ArrangementPanel: View {
                         .toggleStyle(.switch)
                         .controlSize(.mini)
                         .labelsHidden()
+                        .disabled(atom(\.managementLayer).isActive)
                     }
                     .padding(.top, AppStyles.General.Spacing.standard)
 

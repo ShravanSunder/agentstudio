@@ -52,6 +52,48 @@ struct WorkspaceArrangementViewDerivedTests {
     }
 
     @Test
+    func userShowsMinimizedPanes_returnsStoredPreferenceWhenManagementOverridesEffectiveValue() {
+        let paneA = UUID()
+        let paneB = UUID()
+        let layout = Layout(paneId: paneA)
+            .inserting(
+                paneId: paneB,
+                at: paneA,
+                direction: .horizontal,
+                position: .after,
+                sizingMode: .halveTarget
+            )!
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: layout,
+            minimizedPaneIds: [MainPaneId(paneB)],
+            showsMinimizedPanes: false,
+            activePaneId: MainPaneId(paneA)
+        )
+        let tab = Tab(
+            name: "Tab",
+            allPaneIds: [paneA, paneB],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id
+        )
+        let tabLayout = WorkspaceTabLayoutAtom()
+        let paneAtom = WorkspacePaneAtom()
+        let managementLayer = ManagementLayerAtom()
+        tabLayout.appendTab(tab)
+        let derived = WorkspaceArrangementViewDerived(
+            tabLayoutAtom: tabLayout,
+            paneAtom: paneAtom,
+            managementLayerAtom: managementLayer
+        )
+
+        managementLayer.activate()
+
+        #expect(derived.userShowsMinimizedPanes(forTab: tab.id) == false)
+        #expect(derived.effectiveShowsMinimizedPanes(forTab: tab.id) == true)
+    }
+
+    @Test
     func drawerVisiblePaneIds_usesArrangementShowMinimizedPolicyUntilManagementOverride() {
         let parentPane = makePane(id: UUIDv7.generate())
         let drawerPaneA = makeDrawerChild(id: UUIDv7.generate(), parentPaneId: parentPane.id)

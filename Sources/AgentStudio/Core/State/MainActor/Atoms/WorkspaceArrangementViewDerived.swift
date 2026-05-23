@@ -29,6 +29,11 @@ struct WorkspaceArrangementViewDerived {
         return effectiveShowsMinimizedPanes(for: arrangement)
     }
 
+    func userShowsMinimizedPanes(forTab tabId: UUID) -> Bool {
+        guard let arrangement = tabLayoutAtom.tab(tabId)?.activeArrangement else { return true }
+        return arrangement.showsMinimizedPanes
+    }
+
     func drawerView(forParent parentPaneId: UUID) -> DrawerView? {
         drawerViewState(forParent: parentPaneId)?.drawerView
     }
