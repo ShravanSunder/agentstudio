@@ -751,7 +751,7 @@ extension PaneCoordinator {
     }
 
     /// Remove oldest undo entries beyond the limit, cleaning up their orphaned panes.
-    private func expireOldUndoEntries() {
+    func expireOldUndoEntries() {
         while undoStack.count > maxUndoStackSize {
             let expired = removeFirstUndoEntry()
 
@@ -761,6 +761,10 @@ extension PaneCoordinator {
             switch expired {
             case .tab(let s): expiredPanes = s.panes
             case .pane(let s): expiredPanes = [s.pane] + s.drawerChildPanes
+            case .crossTabSourceDrain:
+                // Cross-tab drain entries move live panes back from the destination
+                // tab. They do not own orphaned pane models that can be garbage-collected.
+                expiredPanes = []
             }
 
             for pane in expiredPanes where !allOwnedPaneIds.contains(pane.id) {

@@ -12,6 +12,7 @@ final class WorkspaceMutationCoordinator {
     enum CloseEntry {
         case tab(TabCloseSnapshot)
         case pane(PaneCloseSnapshot)
+        case crossTabSourceDrain(CrossTabSourceDrainSnapshot)
     }
 
     struct TabCloseSnapshot {
@@ -26,6 +27,14 @@ final class WorkspaceMutationCoordinator {
         let tabId: UUID
         let anchorPaneId: UUID?
         let direction: Layout.SplitDirection
+    }
+
+    struct CrossTabSourceDrainSnapshot {
+        let sourceTabSnapshot: TabCloseSnapshot
+        let destinationTabId: UUID
+        let movedPaneId: UUID
+        let drawerId: UUID?
+        let drawerPaneIds: [UUID]
     }
 
     private let repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom

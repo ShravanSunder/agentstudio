@@ -178,7 +178,7 @@ struct PaneCoordinatorTests {
         switch entry {
         case .tab(let snapshot):
             #expect(snapshot.tab.id == tab.id)
-        case .pane:
+        case .pane, .crossTabSourceDrain:
             Issue.record("Expected tab snapshot when closing the last pane")
         }
     }

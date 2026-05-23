@@ -15,6 +15,7 @@ final class ActionExecutorTests {
     private var tempDir: URL!
 
     init() {
+        installTestAtomRegistryIfNeeded()
         tempDir = FileManager.default.temporaryDirectory
             .appending(path: "executor-tests-\(UUID().uuidString)")
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
@@ -382,6 +383,51 @@ final class ActionExecutorTests {
         #expect(store.tabs[0].isSplit)
         #expect(store.tabs[0].paneIds.contains(p1.id))
         #expect(store.tabs[0].paneIds.contains(p2.id))
+    }
+
+    @Test
+    func test_undoCloseTab_afterMovePaneAcrossTabsRestoresDrainedSourceTab() {
+        let destinationPane = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://destination.example")!)),
+            metadata: PaneMetadata(
+                source: .floating(launchDirectory: nil, title: "Destination"),
+                title: "Destination"
+            )
+        )
+        let movedPane = store.createPane(
+            content: .webview(WebviewState(url: URL(string: "https://source.example")!)),
+            metadata: PaneMetadata(
+                source: .floating(launchDirectory: nil, title: "Source"),
+                title: "Source"
+            )
+        )
+        let sourceTab = Tab(paneId: movedPane.id, name: "Source Tab")
+        let destinationTab = Tab(paneId: destinationPane.id, name: "Destination Tab")
+        store.appendTab(sourceTab)
+        store.appendTab(destinationTab)
+
+        executor.execute(
+            .movePaneAcrossTabs(
+                CrossTabPaneMoveRequest(
+                    paneId: movedPane.id,
+                    sourceTabId: sourceTab.id,
+                    destTabId: destinationTab.id,
+                    targetPaneId: destinationPane.id,
+                    direction: .horizontal,
+                    position: .after
+                )
+            )
+        )
+        #expect(store.tab(sourceTab.id) == nil)
+        #expect(store.tab(destinationTab.id)?.paneIds.contains(movedPane.id) == true)
+        #expect(executor.undoStack.count == 1)
+
+        executor.undoCloseTab()
+
+        #expect(store.tab(sourceTab.id)?.paneIds == [movedPane.id])
+        #expect(store.tab(destinationTab.id)?.paneIds == [destinationPane.id])
+        #expect(store.activeTabId == sourceTab.id)
+        #expect(executor.undoStack.isEmpty)
     }
 
     @Test

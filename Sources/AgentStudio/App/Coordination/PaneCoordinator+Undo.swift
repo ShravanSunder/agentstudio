@@ -31,6 +31,10 @@ extension PaneCoordinator {
                 }
                 undoPaneClose(snapshot)
                 return
+
+            case .crossTabSourceDrain(let snapshot):
+                undoCrossTabSourceDrain(snapshot)
+                return
             }
         }
         Self.logger.info("No entries to restore from undo stack")
@@ -130,6 +134,62 @@ extension PaneCoordinator {
             return
         }
         store.tabLayoutAtom.setActiveTab(snapshot.tabId)
+    }
+
+    private func undoCrossTabSourceDrain(_ snapshot: WorkspaceMutationCoordinator.CrossTabSourceDrainSnapshot) {
+        let movedPaneIds = [snapshot.movedPaneId] + snapshot.drawerPaneIds
+        if store.tabLayoutAtom.tab(snapshot.destinationTabId) != nil {
+            store.tabLayoutAtom.removePaneFromLayout(
+                snapshot.movedPaneId,
+                inTab: snapshot.destinationTabId,
+                removingDrawerId: snapshot.drawerId
+            )
+            for drawerPaneId in snapshot.drawerPaneIds {
+                store.tabLayoutAtom.removePaneFromLayout(drawerPaneId, inTab: snapshot.destinationTabId)
+            }
+        } else {
+            Self.logger.info(
+                "undoCrossTabSourceDrain: destination tab \(snapshot.destinationTabId) gone while restoring source tab"
+            )
+        }
+
+        for paneId in movedPaneIds {
+            closeTransitionCoordinator.cancelCloseTransition(paneId)
+        }
+
+        store.mutationCoordinator.restoreFromSnapshot(snapshot.sourceTabSnapshot)
+        var failedPaneIds: [UUID] = []
+        for pane in snapshot.sourceTabSnapshot.panes {
+            viewRegistry.ensureSlot(for: pane.id)
+            guard viewRegistry.view(for: pane.id) == nil else { continue }
+            let restored = restoreUndoPane(
+                pane,
+                worktree: nil,
+                repo: nil,
+                label: "Cross-tab source"
+            )
+            if !restored {
+                failedPaneIds.append(pane.id)
+            }
+        }
+
+        for paneId in failedPaneIds {
+            Self.logger.warning(
+                "undoCrossTabSourceDrain: removing broken pane \(paneId) from tab \(snapshot.sourceTabSnapshot.tab.id)"
+            )
+            removeFailedRestoredPane(paneId, fromTab: snapshot.sourceTabSnapshot.tab.id)
+        }
+
+        recoverActiveArrangementIfNeeded(tabId: snapshot.sourceTabSnapshot.tab.id)
+        guard let restoredTab = store.tabLayoutAtom.tab(snapshot.sourceTabSnapshot.tab.id), !restoredTab.panes.isEmpty
+        else {
+            Self.logger.error(
+                "undoCrossTabSourceDrain: no panes remain in tab \(snapshot.sourceTabSnapshot.tab.id); removing empty tab"
+            )
+            store.tabLayoutAtom.removeTab(snapshot.sourceTabSnapshot.tab.id)
+            return
+        }
+        store.tabLayoutAtom.setActiveTab(snapshot.sourceTabSnapshot.tab.id)
     }
 
     private func restoreUndoPane(

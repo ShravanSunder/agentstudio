@@ -13,6 +13,7 @@ extension PaneCoordinator {
 
         let previousVisiblePaneIds = Set(arrangementView.activeVisiblePaneIds(forTab: sourceTabId))
         let drawer = pane.drawer
+        let sourceTabDrainSnapshot = store.mutationCoordinator.snapshotForClose(tabId: sourceTabId)
         guard
             let result = store.tabLayoutAtom.movePaneAcrossTabs(
                 CrossTabPaneMoveMutation(
@@ -34,6 +35,20 @@ extension PaneCoordinator {
                 sourceTabClosed: result.sourceTabClosed
             )
         )
+        if result.sourceTabClosed, let sourceTabDrainSnapshot {
+            appendUndoEntry(
+                .crossTabSourceDrain(
+                    WorkspaceMutationCoordinator.CrossTabSourceDrainSnapshot(
+                        sourceTabSnapshot: sourceTabDrainSnapshot,
+                        destinationTabId: destTabId,
+                        movedPaneId: paneId,
+                        drawerId: drawer?.drawerId,
+                        drawerPaneIds: drawer?.paneIds ?? []
+                    )
+                )
+            )
+            expireOldUndoEntries()
+        }
         let newVisiblePaneIds = Set(arrangementView.activeVisiblePaneIds(forTab: destTabId))
         let movedPaneIds = Set([paneId] + (drawer?.paneIds ?? []))
         for movedPaneId in movedPaneIds {
