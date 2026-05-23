@@ -1,7 +1,12 @@
 import Foundation
 
 /// A drawer container attached to a parent layout pane.
-/// View state such as layout, focus, and minimized panes lives on `PaneArrangement`.
+///
+/// `parentPaneId` intentionally duplicates the owning `Pane.id` so detached
+/// drawer-child flows and persisted drawer payloads can name the parent shell
+/// without depending on dictionary membership. `Pane` decode validates the two
+/// identities match for layout panes. View state such as layout, focus, and
+/// minimized panes lives on `PaneArrangement`.
 struct Drawer: Codable, Hashable {
     let drawerId: UUID
     let parentPaneId: UUID

@@ -74,7 +74,17 @@ struct Pane: Codable, Identifiable, Hashable {
             contentType: Self.contentType(for: content)
         )
         self.residency = try container.decode(SessionResidency.self, forKey: .residency)
-        self.kind = try container.decode(PaneKind.self, forKey: .kind)
+        let decodedKind = try container.decode(PaneKind.self, forKey: .kind)
+        if case .layout(let drawer) = decodedKind, drawer.parentPaneId != decodedId {
+            throw DecodingError.dataCorruptedError(
+                forKey: .kind,
+                in: container,
+                debugDescription:
+                    "Pane layout drawer parentPaneId (\(drawer.parentPaneId.uuidString)) must match "
+                    + "Pane.id (\(decodedId.uuidString)) in canonical schema"
+            )
+        }
+        self.kind = decodedKind
     }
 
     /// Encodes using the canonical schema.

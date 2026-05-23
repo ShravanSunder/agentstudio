@@ -181,12 +181,15 @@ final class PaneTests {
     @Test
 
     func test_codable_roundTrip_paneWithDrawer() throws {
+        let parentPaneId = UUIDv7.generate()
         let drawerPaneId = UUID()
         let drawer = Drawer(
+            parentPaneId: parentPaneId,
             paneIds: [drawerPaneId],
             isExpanded: false
         )
         let pane = Pane(
+            id: parentPaneId,
             content: .terminal(TerminalState(provider: .zmx, lifetime: .persistent)),
             metadata: PaneMetadata(source: .floating(launchDirectory: nil, title: nil), title: "Host"),
             kind: .layout(drawer: drawer)
@@ -199,6 +202,27 @@ final class PaneTests {
         #expect(decoded.drawer!.paneIds.count == 1)
         #expect(decoded.drawer!.paneIds[0] == drawerPaneId)
         #expect(!(decoded.drawer!.isExpanded))
+    }
+
+    @Test
+
+    func test_decode_layoutDrawerParentMismatch_throws() throws {
+        let pane = makePane(id: UUIDv7.generate())
+        let mismatchedParentPaneId = UUIDv7.generate()
+        let drawer = Drawer(parentPaneId: mismatchedParentPaneId)
+        let invalidPane = Pane(
+            id: pane.id,
+            content: pane.content,
+            metadata: pane.metadata,
+            residency: pane.residency,
+            kind: .layout(drawer: drawer)
+        )
+
+        let data = try encoder.encode(invalidPane)
+
+        #expect(throws: DecodingError.self) {
+            _ = try decoder.decode(Pane.self, from: data)
+        }
     }
 
     @Test
