@@ -84,7 +84,6 @@ final class WorkspaceTabLayoutAtom {
         shellAtom.setActiveTab(tabId)
     }
 
-    @discardableResult
     func insertPane(
         _ paneId: UUID,
         inTab tabId: UUID,

@@ -76,14 +76,17 @@ extension PaneCoordinator {
         )
         viewRegistry.ensureSlot(for: pane.id)
 
-        store.tabLayoutAtom.insertPane(
-            pane.id,
-            inTab: activeTabId,
-            at: targetPaneId,
-            direction: .horizontal,
-            position: .after,
-            sizingMode: .halveTarget
-        )
+        guard
+            insertPaneIntoTab(
+                PaneInsertionRequest(
+                    paneId: pane.id, tabId: activeTabId, targetPaneId: targetPaneId,
+                    direction: .horizontal, position: .after, sizingMode: .halveTarget,
+                    failureContext: "openWorktreeInPane"))
+        else {
+            store.mutationCoordinator.removePane(pane.id)
+            viewRegistry.removeSlot(for: pane.id)
+            return nil
+        }
         store.tabLayoutAtom.setActivePane(pane.id, inTab: activeTabId)
         ensureTerminalPaneView(pane)
         postRecentTargetOpened(
@@ -159,14 +162,17 @@ extension PaneCoordinator {
 
         let layoutDirection = bridgeDirection(direction)
         let position: Layout.Position = (direction == .left || direction == .up) ? .before : .after
-        store.tabLayoutAtom.insertPane(
-            pane.id,
-            inTab: targetTabId,
-            at: sourcePaneId,
-            direction: layoutDirection,
-            position: position,
-            sizingMode: .halveTarget
-        )
+        guard
+            insertPaneIntoTab(
+                PaneInsertionRequest(
+                    paneId: pane.id, tabId: targetTabId, targetPaneId: sourcePaneId,
+                    direction: layoutDirection, position: position, sizingMode: .halveTarget,
+                    failureContext: "openContextualWebview"))
+        else {
+            store.mutationCoordinator.removePane(pane.id)
+            viewRegistry.removeSlot(for: pane.id)
+            return nil
+        }
         store.tabLayoutAtom.setActivePane(pane.id, inTab: targetTabId)
 
         Self.logger.info("Opened contextual webview pane \(pane.id) from source pane \(sourcePaneId)")
@@ -493,14 +499,15 @@ extension PaneCoordinator {
                     drawerId: drawerId, drawerPaneId: drawerPaneId, inTab: tabId)
             }
 
-            store.tabLayoutAtom.insertPane(
-                drawerPaneId,
-                inTab: tabId,
-                at: parentPaneId,
-                direction: .horizontal,
-                position: .after,
-                sizingMode: .halveTarget
-            )
+            guard
+                insertPaneIntoTab(
+                    PaneInsertionRequest(
+                        paneId: drawerPaneId, tabId: tabId, targetPaneId: parentPaneId,
+                        direction: .horizontal, position: .after, sizingMode: .halveTarget,
+                        failureContext: "detachDrawerPane"))
+            else {
+                break
+            }
             store.tabLayoutAtom.setActivePane(drawerPaneId, inTab: tabId)
             restoreViewsForActiveTabIfNeeded()
             reattachForViewSwitch(paneId: drawerPaneId)
@@ -908,10 +915,15 @@ extension PaneCoordinator {
                 return
             }
             store.tabLayoutAtom.removePaneFromLayout(paneId, inTab: sourceTabId)
-            store.tabLayoutAtom.insertPane(
-                paneId, inTab: targetTabId, at: targetPaneId,
-                direction: layoutDirection, position: position, sizingMode: sizingMode
-            )
+            guard
+                insertPaneIntoTab(
+                    PaneInsertionRequest(
+                        paneId: paneId, tabId: targetTabId, targetPaneId: targetPaneId,
+                        direction: layoutDirection, position: position, sizingMode: sizingMode,
+                        failureContext: "insertPane existingPane"))
+            else {
+                return
+            }
 
         case .newTerminal:
             let targetPane = store.paneAtom.pane(targetPaneId)
@@ -928,10 +940,17 @@ extension PaneCoordinator {
                 )
                 viewRegistry.ensureSlot(for: pane.id)
 
-                store.tabLayoutAtom.insertPane(
-                    pane.id, inTab: targetTabId, at: targetPaneId,
-                    direction: layoutDirection, position: position, sizingMode: sizingMode
-                )
+                guard
+                    insertPaneIntoTab(
+                        PaneInsertionRequest(
+                            paneId: pane.id, tabId: targetTabId, targetPaneId: targetPaneId,
+                            direction: layoutDirection, position: position, sizingMode: sizingMode,
+                            failureContext: "insertPane newTerminal"))
+                else {
+                    store.mutationCoordinator.removePane(pane.id)
+                    viewRegistry.removeSlot(for: pane.id)
+                    return
+                }
                 ensureTerminalPaneView(pane)
                 return
             }
@@ -946,10 +965,17 @@ extension PaneCoordinator {
             )
             viewRegistry.ensureSlot(for: pane.id)
 
-            store.tabLayoutAtom.insertPane(
-                pane.id, inTab: targetTabId, at: targetPaneId,
-                direction: layoutDirection, position: position, sizingMode: sizingMode
-            )
+            guard
+                insertPaneIntoTab(
+                    PaneInsertionRequest(
+                        paneId: pane.id, tabId: targetTabId, targetPaneId: targetPaneId,
+                        direction: layoutDirection, position: position, sizingMode: sizingMode,
+                        failureContext: "insertPane newTerminal"))
+            else {
+                store.mutationCoordinator.removePane(pane.id)
+                viewRegistry.removeSlot(for: pane.id)
+                return
+            }
             ensureTerminalPaneView(pane)
         }
     }

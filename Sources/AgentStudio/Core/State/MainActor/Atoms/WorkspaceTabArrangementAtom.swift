@@ -60,7 +60,6 @@ final class WorkspaceTabArrangementAtom {
         arrangementStates.insert(state, at: clampedIndex)
     }
 
-    @discardableResult
     func insertPane(
         _ paneId: UUID,
         inTab tabId: UUID,
@@ -73,46 +72,55 @@ final class WorkspaceTabArrangementAtom {
             workspaceTabArrangementLogger.warning("insertPane: tab \(tabId) not found")
             return false
         }
-        let arrIndex = activeArrangementIndex(for: tabIndex)
+        var stagedState = arrangementStates[tabIndex]
+        guard
+            let activeArrangementIndex = stagedState.arrangements.firstIndex(where: {
+                $0.id == stagedState.activeArrangementId
+            })
+        else {
+            workspaceTabArrangementLogger.warning("insertPane: active arrangement missing for tab \(tabId)")
+            return false
+        }
 
-        guard arrangementStates[tabIndex].arrangements[arrIndex].layout.contains(targetPaneId) else {
+        guard stagedState.arrangements[activeArrangementIndex].layout.contains(targetPaneId) else {
             workspaceTabArrangementLogger.warning("insertPane: targetPaneId \(targetPaneId) not in active arrangement")
             return false
         }
 
         guard
-            let updatedActiveLayout = arrangementStates[tabIndex].arrangements[arrIndex].layout.inserting(
+            let updatedActiveLayout = stagedState.arrangements[activeArrangementIndex].layout.inserting(
                 paneId: paneId, at: targetPaneId, direction: direction, position: position, sizingMode: sizingMode)
         else {
             workspaceTabArrangementLogger.warning("insertPane: targetPaneId \(targetPaneId) rejected during insertion")
             return false
         }
 
-        arrangementStates[tabIndex].zoomedPaneId = nil
-        for arrangementIndex in arrangementStates[tabIndex].arrangements.indices {
-            if arrangementIndex == arrIndex {
-                arrangementStates[tabIndex].arrangements[arrangementIndex].layout = updatedActiveLayout
-                arrangementStates[tabIndex].arrangements[arrangementIndex].activePaneId = MainPaneId(paneId)
-            } else if !arrangementStates[tabIndex].arrangements[arrangementIndex].layout.contains(paneId) {
+        for arrangementIndex in stagedState.arrangements.indices {
+            if arrangementIndex == activeArrangementIndex {
+                stagedState.arrangements[arrangementIndex].layout = updatedActiveLayout
+                stagedState.arrangements[arrangementIndex].activePaneId = MainPaneId(paneId)
+            } else if !stagedState.arrangements[arrangementIndex].layout.contains(paneId) {
                 guard
                     let updatedLayout = Self.appendingPane(
                         paneId,
-                        to: arrangementStates[tabIndex].arrangements[arrangementIndex].layout
+                        to: stagedState.arrangements[arrangementIndex].layout
                     )
                 else {
                     workspaceTabArrangementLogger.warning(
-                        "insertPane: failed appending pane \(paneId) to arrangement \(arrangementIndex)"
+                        "insertPane: failed appending pane \(paneId) to arrangement \(stagedState.arrangements[arrangementIndex].id)"
                     )
                     return false
                 }
-                arrangementStates[tabIndex].arrangements[arrangementIndex].layout = updatedLayout
+                stagedState.arrangements[arrangementIndex].layout = updatedLayout
             }
-            arrangementStates[tabIndex].arrangements[arrangementIndex].minimizedPaneIds.remove(MainPaneId(paneId))
+            stagedState.arrangements[arrangementIndex].minimizedPaneIds.remove(MainPaneId(paneId))
         }
 
-        if !arrangementStates[tabIndex].allPaneIds.contains(paneId) {
-            arrangementStates[tabIndex].allPaneIds.append(paneId)
+        if !stagedState.allPaneIds.contains(paneId) {
+            stagedState.allPaneIds.append(paneId)
         }
+        stagedState.zoomedPaneId = nil
+        arrangementStates[tabIndex] = stagedState
         return true
     }
 

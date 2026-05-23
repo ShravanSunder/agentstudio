@@ -29,6 +29,7 @@ final class PaneArrangementInvariantTests {
             sizingMode: .halveTarget
         )
         let customArrangementId = try #require(store.createArrangement(name: "Focus", inTab: tab.id))
+        let reviewArrangementId = try #require(store.createArrangement(name: "Review", inTab: tab.id))
 
         let thirdPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
         store.insertPane(
@@ -42,8 +43,10 @@ final class PaneArrangementInvariantTests {
 
         let updatedTab = try #require(store.tab(tab.id))
         let customArrangement = try #require(updatedTab.arrangements.first { $0.id == customArrangementId })
+        let reviewArrangement = try #require(updatedTab.arrangements.first { $0.id == reviewArrangementId })
         #expect(updatedTab.arrangements.allSatisfy { Set($0.layout.paneIds) == Set(updatedTab.allPaneIds) })
         #expect(customArrangement.layout.contains(thirdPane.id))
+        #expect(reviewArrangement.layout.contains(thirdPane.id))
     }
 
     @Test
