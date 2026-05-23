@@ -86,6 +86,22 @@ final class PaneArrangementInvariantTests {
     }
 
     @Test
+    func drawerExpansionRemainsGlobalWhenSwitchingArrangements() throws {
+        let parentPane = store.createPane(source: .floating(launchDirectory: nil, title: nil))
+        let tab = Tab(paneId: parentPane.id)
+        store.appendTab(tab)
+        _ = try #require(store.addDrawerPane(to: parentPane.id))
+        let customArrangementId = try #require(store.createArrangement(name: "Focus", inTab: tab.id))
+
+        #expect(store.pane(parentPane.id)?.drawer?.isExpanded == true)
+
+        store.switchArrangement(to: customArrangementId, inTab: tab.id)
+
+        #expect(store.tab(tab.id)?.activeArrangementId == customArrangementId)
+        #expect(store.pane(parentPane.id)?.drawer?.isExpanded == true)
+    }
+
+    @Test
     func addDrawerPaneView_fansOutToEveryArrangementContainingParent() throws {
         let parentPane = UUID()
         let drawerPane = UUID()

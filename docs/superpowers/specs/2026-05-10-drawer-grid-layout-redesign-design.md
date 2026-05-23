@@ -109,6 +109,20 @@ Open design questions to answer in the dedicated session:
   .swift`, `DrawerPanel.swift`. AppPolicies: `drawerMaxRows` →
   `drawerMaxStackedPerColumn`.
 
+### Drawer expansion contract
+
+`Drawer.isExpanded` remains global to the parent pane, not per
+arrangement. The drawer is part of the parent pane shell.
+Arrangements own how drawer children are ordered, which drawer
+child is active, and which drawer children are minimized. They do
+not own whether the shell is open.
+
+When switching arrangements, an expanded drawer remains expanded.
+The active drawer child and minimized drawer children are read
+from the destination arrangement's `DrawerView`. An empty drawer
+renders as an explicit empty drawer state, not as persisted fake
+drawer view data.
+
 ### Why workstream B is at the bottom
 
 Workstream A is implementation-ready (sizing primitives + drag

@@ -7,6 +7,9 @@ import Foundation
 /// without depending on dictionary membership. `Pane` decode validates the two
 /// identities match for layout panes. View state such as layout, focus, and
 /// minimized panes lives on `PaneArrangement`.
+/// Expansion is global to the parent pane shell. Arrangement-specific drawer
+/// view state owns layout, active child, and minimized drawer children, but it
+/// does not decide whether the drawer panel is open.
 struct Drawer: Codable, Hashable {
     let drawerId: UUID
     let parentPaneId: UUID
