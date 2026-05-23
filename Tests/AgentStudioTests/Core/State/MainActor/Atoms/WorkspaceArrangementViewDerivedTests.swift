@@ -146,6 +146,7 @@ struct WorkspaceArrangementViewDerivedTests {
 
         let drawerView = derived.drawerView(forParent: parentPane.id)
 
+        #expect(derived.drawerViewState(forParent: parentPane.id) == .empty)
         #expect(drawerView?.layout.isEmpty == true)
         #expect(drawerView?.activeChildId == nil)
         #expect(derived.drawerVisiblePaneIds(forParent: parentPane.id).isEmpty)
@@ -184,6 +185,9 @@ struct WorkspaceArrangementViewDerivedTests {
             managementLayerAtom: managementLayer
         )
 
+        #expect(
+            derived.drawerViewState(forParent: parentPane.id)
+                == .missingForNonEmptyDrawer(drawerId: DrawerId(parentPane.drawer!.drawerId)))
         #expect(derived.drawerView(forParent: parentPane.id) == nil)
     }
 

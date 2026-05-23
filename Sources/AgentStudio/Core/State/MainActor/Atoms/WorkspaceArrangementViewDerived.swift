@@ -30,14 +30,18 @@ struct WorkspaceArrangementViewDerived {
     }
 
     func drawerView(forParent parentPaneId: UUID) -> DrawerView? {
+        drawerViewState(forParent: parentPaneId)?.drawerView
+    }
+
+    func drawerViewState(forParent parentPaneId: UUID) -> DrawerViewState? {
         guard
             let tab = tabLayoutAtom.tabContaining(paneId: parentPaneId),
             let drawer = paneAtom.pane(parentPaneId)?.drawer
         else { return nil }
         if let drawerView = tab.activeArrangement.drawerViews[drawer.drawerId] {
-            return drawerView
+            return .populated(drawerView)
         }
-        return drawer.paneIds.isEmpty ? DrawerView() : nil
+        return drawer.paneIds.isEmpty ? .empty : .missingForNonEmptyDrawer(drawerId: DrawerId(drawer.drawerId))
     }
 
     func drawerVisiblePaneIds(forParent parentPaneId: UUID) -> [UUID] {
