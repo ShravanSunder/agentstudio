@@ -149,4 +149,48 @@ struct TabArrangementValidationTests {
         #expect(!repairedLayout.contains(corruptPane))
         #expect(validated[0].arrangements[0].activePaneId == MainPaneId(canonicalPane))
     }
+
+    @Test
+    func validate_removesDrawerViewPaneIdsThatAreNotInCanonicalDrawerMembership() {
+        let parentPane = UUID()
+        let canonicalDrawerPane = UUID()
+        let strayDrawerPane = UUID()
+        let drawerId = UUID()
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: parentPane),
+            activePaneId: MainPaneId(parentPane),
+            drawerViews: [
+                drawerId: DrawerView(
+                    layout: DrawerGridLayout(
+                        topRow: Layout(paneId: canonicalDrawerPane)
+                            .inserting(
+                                paneId: strayDrawerPane,
+                                at: canonicalDrawerPane,
+                                direction: .horizontal,
+                                position: .after,
+                                sizingMode: .halveTarget
+                            )!
+                    ),
+                    activeChildId: DrawerPaneId(strayDrawerPane),
+                    minimizedPaneIds: [DrawerPaneId(strayDrawerPane)]
+                )
+            ]
+        )
+        let state = TabArrangementState(
+            tabId: UUID(),
+            allPaneIds: [parentPane, canonicalDrawerPane],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id,
+            zoomedPaneId: nil
+        )
+
+        let validated = TabArrangementValidation.validating([state])
+
+        let drawerView = validated[0].arrangements[0].drawerViews[drawerId]
+        #expect(drawerView?.layout.paneIds == [canonicalDrawerPane])
+        #expect(drawerView?.activeChildId == DrawerPaneId(canonicalDrawerPane))
+        #expect(drawerView?.minimizedPaneIds.isEmpty == true)
+    }
 }

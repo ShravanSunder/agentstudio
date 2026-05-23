@@ -84,4 +84,50 @@ final class PaneArrangementInvariantTests {
         let reconstitutedDrawerId = try #require(store.pane(parentPane.id)?.drawer?.drawerId)
         #expect(reconstitutedDrawerId == drawerId)
     }
+
+    @Test
+    func addDrawerPaneView_fansOutToEveryArrangementContainingParent() throws {
+        let parentPane = UUID()
+        let drawerPane = UUID()
+        let drawerId = UUID()
+        let defaultArrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: parentPane),
+            activePaneId: MainPaneId(parentPane)
+        )
+        let layoutOne = PaneArrangement(
+            name: "Layout 1",
+            isDefault: false,
+            layout: Layout(paneId: parentPane),
+            activePaneId: MainPaneId(parentPane)
+        )
+        let layoutTwo = PaneArrangement(
+            name: "Layout 2",
+            isDefault: false,
+            layout: Layout(paneId: parentPane),
+            activePaneId: MainPaneId(parentPane)
+        )
+        let atom = WorkspaceTabArrangementAtom()
+        let tabId = UUID()
+        atom.appendState(
+            TabArrangementState(
+                tabId: tabId,
+                allPaneIds: [parentPane, drawerPane],
+                arrangements: [defaultArrangement, layoutOne, layoutTwo],
+                activeArrangementId: defaultArrangement.id,
+                zoomedPaneId: nil
+            )
+        )
+
+        atom.addDrawerPaneView(
+            drawerId: drawerId,
+            parentPaneId: parentPane,
+            drawerPaneId: drawerPane,
+            inTab: tabId
+        )
+
+        let state = try #require(atom.arrangementState(tabId))
+        #expect(state.arrangements.allSatisfy { $0.drawerViews[drawerId]?.layout.paneIds == [drawerPane] })
+    }
 }

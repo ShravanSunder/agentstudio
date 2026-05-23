@@ -72,9 +72,9 @@ enum TabArrangementValidation {
             let validPaneIds = Set(updatedStates[tabIndex].allPaneIds)
             for arrangementIndex in updatedStates[tabIndex].arrangements.indices {
                 updatedStates[tabIndex].arrangements[arrangementIndex].drawerViews =
-                    TabArrangementRepairRules.pruningInvalidDrawerViewPaneIds(
+                    pruningDrawerViewsToCanonicalPaneMembership(
+                        arrangement: updatedStates[tabIndex].arrangements[arrangementIndex],
                         validPaneIds: validPaneIds,
-                        from: updatedStates[tabIndex].arrangements[arrangementIndex].drawerViews
                     )
                 let drawerPaneIds = Set(
                     updatedStates[tabIndex].arrangements[arrangementIndex].drawerViews.flatMap {
@@ -146,6 +146,16 @@ enum TabArrangementValidation {
         }
 
         return updatedLayout
+    }
+
+    private static func pruningDrawerViewsToCanonicalPaneMembership(
+        arrangement: PaneArrangement,
+        validPaneIds: Set<UUID>
+    ) -> [UUID: DrawerView] {
+        TabArrangementRepairRules.pruningInvalidDrawerViewPaneIds(
+            validPaneIds: validPaneIds,
+            from: arrangement.drawerViews
+        )
     }
 
     private static func appendingPane(_ paneId: UUID, to layout: Layout) -> Layout {
