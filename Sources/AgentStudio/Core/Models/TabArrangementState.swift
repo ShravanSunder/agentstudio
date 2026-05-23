@@ -5,14 +5,19 @@ struct TabArrangementState: Equatable {
     var allPaneIds: [UUID]
     var arrangements: [PaneArrangement]
     var activeArrangementId: UUID
-    var zoomedPaneId: UUID?
+    var transientState: TabTransientState
+
+    var zoomedPaneId: UUID? {
+        get { transientState.zoomedPaneId }
+        set { transientState.zoomedPaneId = newValue }
+    }
 
     init(
         tabId: UUID,
         allPaneIds: [UUID],
         arrangements: [PaneArrangement],
         activeArrangementId: UUID,
-        zoomedPaneId: UUID?
+        transientState: TabTransientState = TabTransientState()
     ) {
         precondition(!arrangements.isEmpty, "TabArrangementState must have at least one arrangement")
         precondition(
@@ -27,6 +32,6 @@ struct TabArrangementState: Equatable {
         self.allPaneIds = allPaneIds
         self.arrangements = arrangements
         self.activeArrangementId = activeArrangementId
-        self.zoomedPaneId = zoomedPaneId
+        self.transientState = transientState
     }
 }

@@ -215,6 +215,18 @@ final class TabTests {
         }
     }
 
+    @Test
+    func test_codable_zoomedPaneId_isTransientAndRestoresNil() throws {
+        let paneId = UUID()
+        let tab = Tab(paneId: paneId).withTransientState(TabTransientState(zoomedPaneId: paneId))
+
+        let data = try JSONEncoder().encode(tab)
+        let decoded = try JSONDecoder().decode(Tab.self, from: data)
+
+        #expect(tab.zoomedPaneId == paneId)
+        #expect(decoded.zoomedPaneId == nil)
+    }
+
     // MARK: - Hashable
 
     @Test

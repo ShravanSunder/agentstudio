@@ -31,7 +31,7 @@ struct TabArrangementMutationRulesTests {
             arrangements: [arrangement],
             activeArrangementId: arrangement.id,
             activePaneId: paneA,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
 
         let created = TabArrangementMutationRules.createArrangement(
@@ -106,7 +106,7 @@ struct TabArrangementMutationRulesTests {
             arrangements: [defaultArrangement, focusArrangement],
             activeArrangementId: defaultArrangement.id,
             activePaneId: paneA,
-            zoomedPaneId: paneA
+            transientState: TabTransientState(zoomedPaneId: paneA)
         )
 
         let updated = TabArrangementMutationRules.switchingArrangement(to: focusArrangement.id, in: state)
@@ -133,7 +133,7 @@ struct TabArrangementMutationRulesTests {
             arrangements: [arrangement],
             activeArrangementId: arrangement.id,
             activePaneId: paneA,
-            zoomedPaneId: paneA
+            transientState: TabTransientState(zoomedPaneId: paneA)
         )
 
         let minimized = TabArrangementMutationRules.minimizingPane(paneA, in: state)
@@ -163,7 +163,7 @@ struct TabArrangementMutationRulesTests {
             arrangements: [arrangement],
             activeArrangementId: arrangement.id,
             activePaneId: paneA,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
 
         let brokenUp = TabArrangementMutationRules.breakingUpTab(state)
@@ -197,7 +197,7 @@ struct TabArrangementMutationRulesTests {
             arrangements: [defaultArrangement, focusArrangement],
             activeArrangementId: focusArrangement.id,
             activePaneId: paneA,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
 
         let brokenUp = TabArrangementMutationRules.breakingUpTab(state)
@@ -226,7 +226,7 @@ struct TabArrangementMutationRulesTests {
             arrangements: [sourceArrangement],
             activeArrangementId: sourceArrangement.id,
             activePaneId: sourcePane,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
         let target = TabArrangementState(
             tabId: UUID(),
@@ -234,7 +234,7 @@ struct TabArrangementMutationRulesTests {
             arrangements: [targetArrangement],
             activeArrangementId: targetArrangement.id,
             activePaneId: targetPane,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
 
         let merged = TabArrangementMutationRules.merging(
@@ -278,7 +278,7 @@ struct TabArrangementMutationRulesTests {
             arrangements: [sourceDefault, sourceFocus],
             activeArrangementId: sourceFocus.id,
             activePaneId: sourcePaneA,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
         let target = TabArrangementState(
             tabId: UUID(),
@@ -286,7 +286,7 @@ struct TabArrangementMutationRulesTests {
             arrangements: [targetDefault],
             activeArrangementId: targetDefault.id,
             activePaneId: targetPane,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
 
         let merged = TabArrangementMutationRules.merging(
@@ -325,7 +325,7 @@ struct TabArrangementMutationRulesTests {
             arrangements: [sourceDefault],
             activeArrangementId: sourceDefault.id,
             activePaneId: sourcePaneA,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
         let target = TabArrangementState(
             tabId: UUID(),
@@ -333,7 +333,7 @@ struct TabArrangementMutationRulesTests {
             arrangements: [targetDefault],
             activeArrangementId: targetDefault.id,
             activePaneId: targetPane,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
 
         let merged = TabArrangementMutationRules.merging(
@@ -376,7 +376,7 @@ struct TabArrangementMutationRulesTests {
             arrangements: [sourceDefault],
             activeArrangementId: sourceDefault.id,
             activePaneId: sourcePane,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
         let target = TabArrangementState(
             tabId: UUID(),
@@ -384,7 +384,7 @@ struct TabArrangementMutationRulesTests {
             arrangements: [targetDefault, targetFocus],
             activeArrangementId: targetFocus.id,
             activePaneId: targetPaneB,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
 
         let merged = TabArrangementMutationRules.merging(
@@ -435,7 +435,7 @@ struct TabArrangementMutationRulesTests {
             arrangements: [sourceDefault],
             activeArrangementId: sourceDefault.id,
             activePaneId: sourcePane,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
         let target = TabArrangementState(
             tabId: UUID(),
@@ -443,7 +443,7 @@ struct TabArrangementMutationRulesTests {
             arrangements: [targetDefault, targetFocus, targetReview],
             activeArrangementId: targetFocus.id,
             activePaneId: targetPaneB,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
 
         let merged = TabArrangementMutationRules.merging(
@@ -480,7 +480,7 @@ struct TabArrangementMutationRulesTests {
             arrangements: [defaultArrangement, focusArrangement],
             activeArrangementId: focusArrangement.id,
             activePaneId: paneA,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
 
         let updated = TabArrangementMutationRules.removingArrangement(focusArrangement.id, from: state)
@@ -508,7 +508,7 @@ struct TabArrangementMutationRulesTests {
             arrangements: [arrangement],
             activeArrangementId: arrangement.id,
             activePaneId: paneB,
-            zoomedPaneId: paneB
+            transientState: TabTransientState(zoomedPaneId: paneB)
         )
 
         let result = TabArrangementMutationRules.extractingPane(paneB, from: state)

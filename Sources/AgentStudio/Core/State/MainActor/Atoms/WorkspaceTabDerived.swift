@@ -18,9 +18,9 @@ struct WorkspaceTabDerived {
             name: shell.name,
             allPaneIds: arrangementState.allPaneIds,
             arrangements: arrangementState.arrangements,
-            activeArrangementId: arrangementState.activeArrangementId,
-            zoomedPaneId: arrangementState.zoomedPaneId
+            activeArrangementId: arrangementState.activeArrangementId
         )
+        .withTransientState(arrangementState.transientState)
     }
 
     var tabs: [Tab] {

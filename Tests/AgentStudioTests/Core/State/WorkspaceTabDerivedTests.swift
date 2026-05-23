@@ -25,7 +25,7 @@ struct WorkspaceTabDerivedTests {
             arrangements: [arrangement],
             activeArrangementId: arrangement.id,
             activePaneId: paneA,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
 
         let tab = WorkspaceTabDerived.assembleTab(shell: shell, arrangementState: state)
@@ -42,21 +42,25 @@ struct WorkspaceTabDerivedTests {
     func tabs_preservesShellOrderWhenArrangementStorageOrderDiffers() {
         let firstShell = TabShell(id: UUID(), name: "One")
         let secondShell = TabShell(id: UUID(), name: "Two")
+        let firstPane = UUID()
+        let secondPane = UUID()
+        let firstArrangement = PaneArrangement(name: "Default", isDefault: true, layout: Layout(paneId: firstPane))
+        let secondArrangement = PaneArrangement(name: "Default", isDefault: true, layout: Layout(paneId: secondPane))
         let firstState = TabArrangementState(
             tabId: firstShell.id,
-            allPaneIds: [UUID()],
-            arrangements: [PaneArrangement(name: "Default", isDefault: true, layout: Layout(paneId: UUID()))],
-            activeArrangementId: UUID(),
+            allPaneIds: [firstPane],
+            arrangements: [firstArrangement],
+            activeArrangementId: firstArrangement.id,
             activePaneId: nil,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
         let secondState = TabArrangementState(
             tabId: secondShell.id,
-            allPaneIds: [UUID()],
-            arrangements: [PaneArrangement(name: "Default", isDefault: true, layout: Layout(paneId: UUID()))],
-            activeArrangementId: UUID(),
+            allPaneIds: [secondPane],
+            arrangements: [secondArrangement],
+            activeArrangementId: secondArrangement.id,
             activePaneId: nil,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
 
         let shellAtom = WorkspaceTabShellAtom()
@@ -103,7 +107,7 @@ struct WorkspaceTabDerivedTests {
                 arrangements: [firstArrangement],
                 activeArrangementId: firstArrangement.id,
                 activePaneId: paneA,
-                zoomedPaneId: nil
+                transientState: TabTransientState()
             )
         )
         arrangementAtom.appendState(
@@ -113,7 +117,7 @@ struct WorkspaceTabDerivedTests {
                 arrangements: [secondArrangement],
                 activeArrangementId: secondArrangement.id,
                 activePaneId: paneB,
-                zoomedPaneId: nil
+                transientState: TabTransientState()
             )
         )
 
@@ -143,7 +147,7 @@ struct WorkspaceTabDerivedTests {
                 arrangements: [arrangementA],
                 activeArrangementId: arrangementA.id,
                 activePaneId: paneA,
-                zoomedPaneId: nil
+                transientState: TabTransientState()
             )
         )
         arrangementAtom.appendState(
@@ -153,7 +157,7 @@ struct WorkspaceTabDerivedTests {
                 arrangements: [arrangementB],
                 activeArrangementId: arrangementB.id,
                 activePaneId: paneB,
-                zoomedPaneId: nil
+                transientState: TabTransientState()
             )
         )
 

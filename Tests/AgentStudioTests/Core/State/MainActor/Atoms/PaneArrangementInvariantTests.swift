@@ -116,7 +116,7 @@ final class PaneArrangementInvariantTests {
                 allPaneIds: [parentPane, drawerPane],
                 arrangements: [defaultArrangement, layoutOne, layoutTwo],
                 activeArrangementId: defaultArrangement.id,
-                zoomedPaneId: nil
+                transientState: TabTransientState()
             )
         )
 

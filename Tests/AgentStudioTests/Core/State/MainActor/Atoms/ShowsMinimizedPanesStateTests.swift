@@ -84,7 +84,7 @@ struct ShowsMinimizedPanesStateTests {
                 allPaneIds: tab.allPaneIds,
                 arrangements: tab.arrangements,
                 activeArrangementId: tab.activeArrangementId,
-                zoomedPaneId: tab.zoomedPaneId
+                transientState: tab.transientState
             )
         )
 

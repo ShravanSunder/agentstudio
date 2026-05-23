@@ -20,7 +20,7 @@ struct TabArrangementValidationTests {
             arrangements: [firstArrangement],
             activeArrangementId: firstArrangement.id,
             activePaneId: sharedPane,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
         let secondArrangement = PaneArrangement(
             name: "Default",
@@ -37,7 +37,7 @@ struct TabArrangementValidationTests {
             arrangements: [secondArrangement],
             activeArrangementId: secondArrangement.id,
             activePaneId: sharedPane,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
 
         let validated = TabArrangementValidation.validating([first, second])
@@ -81,7 +81,7 @@ struct TabArrangementValidationTests {
             arrangements: [arrangement],
             activeArrangementId: arrangement.id,
             activePaneId: parentPane,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
 
         let validated = TabArrangementValidation.pruningInvalidPaneIds(
@@ -114,7 +114,7 @@ struct TabArrangementValidationTests {
             arrangements: [arrangement],
             activeArrangementId: arrangement.id,
             activePaneId: parentPane,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
 
         let validated = TabArrangementValidation.validating([state])
@@ -138,7 +138,7 @@ struct TabArrangementValidationTests {
             allPaneIds: [canonicalPane],
             arrangements: [arrangement],
             activeArrangementId: arrangement.id,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
 
         let validated = TabArrangementValidation.validating([state])
@@ -183,7 +183,7 @@ struct TabArrangementValidationTests {
             allPaneIds: [parentPane, canonicalDrawerPane],
             arrangements: [arrangement],
             activeArrangementId: arrangement.id,
-            zoomedPaneId: nil
+            transientState: TabTransientState()
         )
 
         let validated = TabArrangementValidation.validating([state])

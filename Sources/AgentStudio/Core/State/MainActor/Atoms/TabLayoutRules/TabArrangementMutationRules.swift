@@ -125,7 +125,7 @@ enum TabArrangementMutationRules {
                 allPaneIds: tab.allPaneIds,
                 arrangements: tab.arrangements,
                 activeArrangementId: tab.activeArrangementId,
-                zoomedPaneId: tab.zoomedPaneId
+                transientState: tab.transientState
             )
         }
     }
@@ -151,7 +151,7 @@ enum TabArrangementMutationRules {
             allPaneIds: newTab.allPaneIds,
             arrangements: newTab.arrangements,
             activeArrangementId: newTab.activeArrangementId,
-            zoomedPaneId: newTab.zoomedPaneId
+            transientState: newTab.transientState
         )
         return (updated, extractedState)
     }

@@ -66,7 +66,28 @@ extension TabArrangementState {
             allPaneIds: allPaneIds,
             arrangements: normalizedArrangements,
             activeArrangementId: activeArrangementId,
-            zoomedPaneId: zoomedPaneId
+            transientState: TabTransientState(zoomedPaneId: zoomedPaneId)
+        )
+    }
+
+    init(
+        tabId: UUID,
+        allPaneIds: [UUID],
+        arrangements: [PaneArrangement],
+        activeArrangementId: UUID,
+        activePaneId: UUID?,
+        transientState: TabTransientState
+    ) {
+        var normalizedArrangements = arrangements
+        if let activeIndex = normalizedArrangements.firstIndex(where: { $0.id == activeArrangementId }) {
+            normalizedArrangements[activeIndex].activePaneId = activePaneId.map(MainPaneId.init)
+        }
+        self.init(
+            tabId: tabId,
+            allPaneIds: allPaneIds,
+            arrangements: normalizedArrangements,
+            activeArrangementId: activeArrangementId,
+            transientState: transientState
         )
     }
 

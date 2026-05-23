@@ -17,8 +17,14 @@ struct Tab: Codable, Identifiable, Hashable {
     var arrangements: [PaneArrangement]
     /// The currently active arrangement ID.
     var activeArrangementId: UUID
-    /// Display-only zoom state — NOT persisted. When set, the zoomed pane fills the tab.
-    var zoomedPaneId: UUID?
+    /// Display-only state — NOT persisted.
+    var transientState: TabTransientState
+
+    /// Display-only zoom state. When set, the zoomed pane fills the tab.
+    var zoomedPaneId: UUID? {
+        get { transientState.zoomedPaneId }
+        set { transientState.zoomedPaneId = newValue }
+    }
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -43,7 +49,7 @@ struct Tab: Codable, Identifiable, Hashable {
         )
         self.arrangements = [defaultArrangement]
         self.activeArrangementId = defaultArrangement.id
-        self.zoomedPaneId = nil
+        self.transientState = TabTransientState()
     }
 
     /// Create a tab with an existing layout and arrangements.
@@ -63,7 +69,7 @@ struct Tab: Codable, Identifiable, Hashable {
         self.allPaneIds = allPaneIds
         self.arrangements = arrangements
         self.activeArrangementId = activeArrangementId
-        self.zoomedPaneId = zoomedPaneId
+        self.transientState = TabTransientState(zoomedPaneId: zoomedPaneId)
     }
 
     init(
@@ -122,6 +128,12 @@ struct Tab: Codable, Identifiable, Hashable {
             activeArrangementId: activeArrangementId,
             zoomedPaneId: nil
         )
+    }
+
+    func withTransientState(_ transientState: TabTransientState) -> Self {
+        var copy = self
+        copy.transientState = transientState
+        return copy
     }
 
     // MARK: - Derived
