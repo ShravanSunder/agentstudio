@@ -169,6 +169,52 @@ final class TabTests {
         #expect((decoded.activePaneId) == nil)
     }
 
+    @Test
+    func test_decode_zeroDefaultArrangements_throws() throws {
+        let paneId = UUID()
+        let tab = Tab(paneId: paneId)
+        let data = try encodedTabData(
+            tab,
+            replacing: #""isDefault":true"#,
+            with: #""isDefault":false"#
+        )
+
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(Tab.self, from: data)
+        }
+    }
+
+    @Test
+    func test_decode_multipleDefaultArrangements_throws() throws {
+        let paneA = UUID()
+        let paneB = UUID()
+        let defaultArrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: paneA)
+        )
+        let customArrangement = PaneArrangement(
+            name: "Also Default",
+            isDefault: false,
+            layout: Layout(paneId: paneB)
+        )
+        let tab = Tab(
+            panes: [paneA, paneB],
+            arrangements: [defaultArrangement, customArrangement],
+            activeArrangementId: defaultArrangement.id,
+            activePaneId: paneA
+        )
+        let data = try encodedTabData(
+            tab,
+            replacing: #""isDefault":false"#,
+            with: #""isDefault":true"#
+        )
+
+        #expect(throws: DecodingError.self) {
+            _ = try JSONDecoder().decode(Tab.self, from: data)
+        }
+    }
+
     // MARK: - Hashable
 
     @Test
@@ -195,5 +241,13 @@ final class TabTests {
         // Assert
         let copied = tab
         #expect(copied == tab)
+    }
+
+    private func encodedTabData(_ tab: Tab, replacing target: String, with replacement: String) throws -> Data {
+        let data = try JSONEncoder().encode(tab)
+        let encoded = try #require(String(data: data, encoding: .utf8))
+        #expect(encoded.contains(target))
+        let corrupted = encoded.replacingOccurrences(of: target, with: replacement)
+        return Data(corrupted.utf8)
     }
 }

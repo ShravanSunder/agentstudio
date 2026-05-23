@@ -84,6 +84,46 @@ struct Tab: Codable, Identifiable, Hashable {
         )
     }
 
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let id = try container.decode(UUID.self, forKey: .id)
+        let name = try container.decode(String.self, forKey: .name)
+        let allPaneIds = try container.decode([UUID].self, forKey: .allPaneIds)
+        let arrangements = try container.decode([PaneArrangement].self, forKey: .arrangements)
+        let activeArrangementId = try container.decode(UUID.self, forKey: .activeArrangementId)
+
+        guard !arrangements.isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .arrangements,
+                in: container,
+                debugDescription: "Tab must have at least one arrangement"
+            )
+        }
+        guard arrangements.filter(\.isDefault).count == 1 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .arrangements,
+                in: container,
+                debugDescription: "Tab must have exactly one default arrangement"
+            )
+        }
+        guard arrangements.contains(where: { $0.id == activeArrangementId }) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .activeArrangementId,
+                in: container,
+                debugDescription: "Tab activeArrangementId must resolve to an arrangement"
+            )
+        }
+
+        self.init(
+            id: id,
+            name: name,
+            allPaneIds: allPaneIds,
+            arrangements: arrangements,
+            activeArrangementId: activeArrangementId,
+            zoomedPaneId: nil
+        )
+    }
+
     // MARK: - Derived
 
     /// The default arrangement. Falls back to the first arrangement if no default is marked.
