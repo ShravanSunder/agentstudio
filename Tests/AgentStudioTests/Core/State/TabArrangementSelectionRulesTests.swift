@@ -15,7 +15,7 @@ struct TabArrangementSelectionRulesTests {
             layout: Layout(paneId: paneA)
                 .inserting(
                     paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!,
-            minimizedPaneIds: [paneA]
+            minimizedPaneIds: [MainPaneId(paneA)]
         )
 
         let resolved = TabArrangementSelectionRules.firstUnminimizedPaneId(in: arrangement)
@@ -30,7 +30,7 @@ struct TabArrangementSelectionRulesTests {
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: paneA),
-            minimizedPaneIds: [paneA]
+            minimizedPaneIds: [MainPaneId(paneA)]
         )
 
         let resolved = TabArrangementSelectionRules.firstUnminimizedPaneId(in: arrangement)
@@ -68,7 +68,7 @@ struct TabArrangementSelectionRulesTests {
             layout: Layout(paneId: paneA)
                 .inserting(
                     paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!,
-            minimizedPaneIds: [paneB]
+            minimizedPaneIds: [MainPaneId(paneB)]
         )
 
         let resolved = TabArrangementSelectionRules.fallbackActivePaneId(
@@ -86,7 +86,7 @@ struct TabArrangementSelectionRulesTests {
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: paneA),
-            minimizedPaneIds: [paneA]
+            minimizedPaneIds: [MainPaneId(paneA)]
         )
 
         let resolved = TabArrangementSelectionRules.fallbackActivePaneId(

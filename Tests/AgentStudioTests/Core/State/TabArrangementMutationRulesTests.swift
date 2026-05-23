@@ -7,7 +7,7 @@ import Testing
 struct TabArrangementMutationRulesTests {
     private func activeArrangementActivePaneId(in state: TabArrangementState?) -> UUID? {
         guard let state else { return nil }
-        return state.arrangements.first { $0.id == state.activeArrangementId }?.activePaneId
+        return state.arrangements.first { $0.id == state.activeArrangementId }?.activePaneId?.rawValue
     }
 
     @Test
@@ -22,7 +22,7 @@ struct TabArrangementMutationRulesTests {
             name: "Default",
             isDefault: true,
             layout: layout,
-            minimizedPaneIds: [paneB, paneC],
+            minimizedPaneIds: [MainPaneId(paneB), MainPaneId(paneC)],
             showsMinimizedPanes: false
         )
         let state = TabArrangementState(
@@ -40,7 +40,7 @@ struct TabArrangementMutationRulesTests {
         )
 
         #expect(created?.layout == layout)
-        #expect(created?.minimizedPaneIds == Set([paneB, paneC]))
+        #expect(created?.minimizedPaneIds == Set([MainPaneId(paneB), MainPaneId(paneC)]))
         #expect(created?.showsMinimizedPanes == false)
     }
 
@@ -66,8 +66,8 @@ struct TabArrangementMutationRulesTests {
             drawerViews: [
                 drawerId: DrawerView(
                     layout: drawerLayout,
-                    activeChildId: drawerPaneB,
-                    minimizedPaneIds: [drawerPaneB]
+                    activeChildId: DrawerPaneId(drawerPaneB),
+                    minimizedPaneIds: [DrawerPaneId(drawerPaneB)]
                 )
             ]
         )
@@ -79,7 +79,7 @@ struct TabArrangementMutationRulesTests {
 
         let drawerView = updated[0].drawerViews[drawerId]
         #expect(drawerView?.layout.paneIds == [drawerPaneA])
-        #expect(drawerView?.activeChildId == drawerPaneA)
+        #expect(drawerView?.activeChildId?.rawValue == drawerPaneA)
         #expect(drawerView?.minimizedPaneIds.isEmpty == true)
     }
 
@@ -98,7 +98,7 @@ struct TabArrangementMutationRulesTests {
             name: "Focus",
             isDefault: false,
             layout: Layout.autoTiled([paneA, paneB]),
-            minimizedPaneIds: [paneA, paneB]
+            minimizedPaneIds: [MainPaneId(paneA), MainPaneId(paneB)]
         )
         let state = TabArrangementState(
             tabId: UUID(),
@@ -139,7 +139,7 @@ struct TabArrangementMutationRulesTests {
         let minimized = TabArrangementMutationRules.minimizingPane(paneA, in: state)
         let expanded = minimized.map { TabArrangementMutationRules.expandingPane(paneA, in: $0) }
 
-        #expect(minimized?.arrangements[0].minimizedPaneIds == Set([paneA]))
+        #expect(minimized?.arrangements[0].minimizedPaneIds == Set([MainPaneId(paneA)]))
         #expect(activeArrangementActivePaneId(in: minimized) == paneB)
         #expect(minimized?.zoomedPaneId == nil)
         #expect(expanded?.arrangements[0].minimizedPaneIds.isEmpty == true)
@@ -467,7 +467,7 @@ struct TabArrangementMutationRulesTests {
             layout: Layout(paneId: paneA)
                 .inserting(
                     paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!,
-            minimizedPaneIds: [paneA]
+            minimizedPaneIds: [MainPaneId(paneA)]
         )
         let focusArrangement = PaneArrangement(
             name: "Focus",
@@ -500,7 +500,7 @@ struct TabArrangementMutationRulesTests {
             layout: Layout(paneId: paneA)
                 .inserting(
                     paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!,
-            minimizedPaneIds: [paneB]
+            minimizedPaneIds: [MainPaneId(paneB)]
         )
         let state = TabArrangementState(
             tabId: UUID(),

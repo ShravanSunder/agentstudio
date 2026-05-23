@@ -249,7 +249,7 @@ struct PaneTabViewControllerPaneInboxCommandTests {
         #expect(harness.store.activeTabId == parentTab.id)
         #expect(harness.store.tab(parentTab.id)?.activePaneId == parentPane.id)
         #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == true)
-        #expect(harness.store.drawerView(forParent: parentPane.id)?.activeChildId == drawerPane.id)
+        #expect(harness.store.drawerView(forParent: parentPane.id)?.activeChildId?.rawValue == drawerPane.id)
         #expect(harness.paneInboxPresenter.request?.parentPaneId == parentPane.id)
         #expect(harness.paneInboxPresenter.request?.paneIds == [parentPane.id, drawerPane.id])
     }

@@ -16,7 +16,7 @@ struct TabArrangementRepairRulesTests {
                 layout: Layout(paneId: paneA)
                     .inserting(
                         paneId: paneB, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget)!,
-                minimizedPaneIds: [paneB]
+                minimizedPaneIds: [MainPaneId(paneB)]
             )
         ]
 
@@ -38,7 +38,7 @@ struct TabArrangementRepairRulesTests {
                     .inserting(
                         paneId: stalePane, at: paneA, direction: .horizontal, position: .after, sizingMode: .halveTarget
                     )!,
-                minimizedPaneIds: [stalePane]
+                minimizedPaneIds: [MainPaneId(stalePane)]
             )
         ]
 
@@ -75,8 +75,8 @@ struct TabArrangementRepairRulesTests {
                 drawerViews: [
                     drawerId: DrawerView(
                         layout: drawerLayout,
-                        activeChildId: staleDrawerPane,
-                        minimizedPaneIds: [staleDrawerPane]
+                        activeChildId: DrawerPaneId(staleDrawerPane),
+                        minimizedPaneIds: [DrawerPaneId(staleDrawerPane)]
                     )
                 ]
             )
@@ -90,6 +90,6 @@ struct TabArrangementRepairRulesTests {
         let drawerView = try #require(updated[0].drawerViews[drawerId])
         #expect(drawerView.layout.paneIds == [validDrawerPane])
         #expect(drawerView.minimizedPaneIds.isEmpty)
-        #expect(drawerView.activeChildId == validDrawerPane)
+        #expect(drawerView.activeChildId?.rawValue == validDrawerPane)
     }
 }

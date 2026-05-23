@@ -15,14 +15,14 @@ struct ShowsMinimizedPanesStateTests {
             isDefault: true,
             layout: Layout.autoTiled([paneA, paneB]),
             showsMinimizedPanes: true,
-            activePaneId: paneA
+            activePaneId: MainPaneId(paneA)
         )
         let customArrangement = PaneArrangement(
             name: "Focus",
             isDefault: false,
             layout: Layout.autoTiled([paneB, paneA]),
             showsMinimizedPanes: true,
-            activePaneId: paneA
+            activePaneId: MainPaneId(paneA)
         )
         let tab = Tab(
             allPaneIds: [paneA, paneB],
@@ -50,12 +50,12 @@ struct ShowsMinimizedPanesStateTests {
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: parentPaneId),
-            activePaneId: parentPaneId,
+            activePaneId: MainPaneId(parentPaneId),
             drawerViews: [
                 drawerId: DrawerView(
                     layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)),
-                    activeChildId: drawerPaneId,
-                    minimizedPaneIds: [drawerPaneId]
+                    activeChildId: DrawerPaneId(drawerPaneId),
+                    minimizedPaneIds: [DrawerPaneId(drawerPaneId)]
                 )
             ]
         )
@@ -63,11 +63,11 @@ struct ShowsMinimizedPanesStateTests {
             name: "Focus",
             isDefault: false,
             layout: Layout(paneId: parentPaneId),
-            activePaneId: parentPaneId,
+            activePaneId: MainPaneId(parentPaneId),
             drawerViews: [
                 drawerId: DrawerView(
                     layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)),
-                    activeChildId: drawerPaneId,
+                    activeChildId: DrawerPaneId(drawerPaneId),
                     minimizedPaneIds: []
                 )
             ]
@@ -93,7 +93,7 @@ struct ShowsMinimizedPanesStateTests {
         let updatedState = try #require(tabArrangement.arrangementState(tab.id))
         let updatedDefault = try #require(updatedState.arrangements.first { $0.id == defaultArrangement.id })
         let updatedCustom = try #require(updatedState.arrangements.first { $0.id == customArrangement.id })
-        #expect(updatedDefault.drawerViews[drawerId]?.minimizedPaneIds == [drawerPaneId])
+        #expect(updatedDefault.drawerViews[drawerId]?.minimizedPaneIds == [DrawerPaneId(drawerPaneId)])
         #expect(updatedCustom.drawerViews[drawerId]?.minimizedPaneIds.isEmpty == true)
         #expect(updatedDefault.showsMinimizedPanes == true)
         #expect(updatedCustom.showsMinimizedPanes == false)

@@ -280,7 +280,7 @@ final class TabArrangementTests {
             name: "Focus",
             isDefault: false,
             layout: layout,
-            minimizedPaneIds: [paneB]
+            minimizedPaneIds: [MainPaneId(paneB)]
         )
 
         let data = try JSONEncoder().encode(arr)
@@ -290,7 +290,7 @@ final class TabArrangementTests {
         #expect(decoded.id == arr.id)
         #expect(decoded.name == "Focus")
         #expect(!(decoded.isDefault))
-        #expect(decoded.minimizedPaneIds == [paneB])
+        #expect(decoded.minimizedPaneIds == [MainPaneId(paneB)])
         #expect(decoded.layout.paneIds == [paneA, paneB])
         #expect(!encoded.contains("visiblePaneIds"))
     }

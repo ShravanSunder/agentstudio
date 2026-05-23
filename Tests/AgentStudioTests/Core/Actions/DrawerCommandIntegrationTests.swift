@@ -94,7 +94,7 @@ final class DrawerCommandIntegrationTests {
         let dp2 = store.addDrawerPane(to: parentPaneId)!
         #expect(store.pane(parentPaneId)!.drawer!.paneIds.count == 2)
         #expect(
-            drawerView(for: parentPaneId)?.activeChildId == dp2.id,
+            drawerView(for: parentPaneId)?.activeChildId?.rawValue == dp2.id,
             "Last added drawer pane should be active initially")
 
         // Act — close the active drawer pane (dp2)
@@ -105,7 +105,9 @@ final class DrawerCommandIntegrationTests {
         #expect((drawer) != nil)
         #expect(drawer!.paneIds.count == 1, "Only 1 drawer pane should remain")
         #expect(drawer!.paneIds[0] == dp1.id, "The remaining pane should be dp1")
-        #expect(drawerView(for: parentPaneId)?.activeChildId == dp1.id, "dp1 should become the active drawer pane")
+        #expect(
+            drawerView(for: parentPaneId)?.activeChildId?.rawValue == dp1.id, "dp1 should become the active drawer pane"
+        )
     }
 
     // MARK: - Toggle Drawer
@@ -157,7 +159,7 @@ final class DrawerCommandIntegrationTests {
         )
 
         #expect(snapshot.activeTabId == tabId)
-        #expect(drawerView(for: parentPaneId)?.activeChildId == drawerPane.id)
+        #expect(drawerView(for: parentPaneId)?.activeChildId?.rawValue == drawerPane.id)
     }
 
     // MARK: - Set Active Drawer Pane
@@ -169,13 +171,13 @@ final class DrawerCommandIntegrationTests {
         let (parentPaneId, _) = createParentPaneInTab()
         let dp1 = store.addDrawerPane(to: parentPaneId)!
         let dp2 = store.addDrawerPane(to: parentPaneId)!
-        #expect(drawerView(for: parentPaneId)?.activeChildId == dp2.id)
+        #expect(drawerView(for: parentPaneId)?.activeChildId?.rawValue == dp2.id)
 
         // Act
         executor.execute(.setActiveDrawerPane(parentPaneId: parentPaneId, drawerPaneId: dp1.id))
 
         // Assert
-        #expect(drawerView(for: parentPaneId)?.activeChildId == dp1.id)
+        #expect(drawerView(for: parentPaneId)?.activeChildId?.rawValue == dp1.id)
     }
 
     @Test
@@ -197,7 +199,7 @@ final class DrawerCommandIntegrationTests {
         let view = drawerView(for: parentPaneId)
         #expect(Set(view?.layout.paneIds ?? []) == Set([dp1.id, dp2.id, dp3.id]))
         #expect(view?.layout.paneIds.last == dp1.id)
-        #expect(view?.activeChildId == dp1.id)
+        #expect(view?.activeChildId?.rawValue == dp1.id)
     }
 
     @Test
@@ -297,7 +299,7 @@ final class DrawerCommandIntegrationTests {
 
         // Assert
         let view = drawerView(for: parentPaneId)
-        #expect(view?.minimizedPaneIds.contains(dp1.id) == true)
+        #expect(view?.minimizedPaneIds.contains(DrawerPaneId(dp1.id)) == true)
     }
 
     @Test
@@ -308,14 +310,14 @@ final class DrawerCommandIntegrationTests {
         let dp1 = store.addDrawerPane(to: parentPaneId)!
         store.addDrawerPane(to: parentPaneId)
         store.minimizeDrawerPane(dp1.id, in: parentPaneId)
-        #expect(drawerView(for: parentPaneId)?.minimizedPaneIds.contains(dp1.id) == true)
+        #expect(drawerView(for: parentPaneId)?.minimizedPaneIds.contains(DrawerPaneId(dp1.id)) == true)
 
         // Act
         executor.execute(.expandDrawerPane(parentPaneId: parentPaneId, drawerPaneId: dp1.id))
 
         // Assert
         let view = drawerView(for: parentPaneId)
-        #expect(view?.minimizedPaneIds.contains(dp1.id) == false)
+        #expect(view?.minimizedPaneIds.contains(DrawerPaneId(dp1.id)) == false)
     }
 
     // MARK: - Resize / Equalize Drawer Panes

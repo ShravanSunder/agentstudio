@@ -142,7 +142,7 @@ final class WorkspaceStoreArrangementTests {
         )!
 
         let custom = store.tab(tab.id)!.arrangements.first { $0.id == arrId }!
-        #expect(custom.minimizedPaneIds == Set([paneIds[1]]))
+        #expect(custom.minimizedPaneIds == Set([MainPaneId(paneIds[1])]))
     }
 
     // MARK: - switchArrangement
@@ -335,7 +335,7 @@ final class WorkspaceStoreArrangementTests {
         let updatedTab = store.tab(tab.id)!
         #expect(updatedTab.activeArrangementId == updatedTab.defaultArrangement.id)
         #expect(updatedTab.activePaneId == paneIds[2])
-        #expect(updatedTab.defaultArrangement.minimizedPaneIds.contains(paneIds[0]))
+        #expect(updatedTab.defaultArrangement.minimizedPaneIds.contains(MainPaneId(paneIds[0])))
     }
 
     @Test

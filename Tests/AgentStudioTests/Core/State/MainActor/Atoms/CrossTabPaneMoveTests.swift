@@ -19,16 +19,16 @@ struct CrossTabPaneMoveTests {
             name: "Default",
             isDefault: true,
             layout: Layout.autoTiled([sourcePaneId, sourceSiblingId]),
-            activePaneId: sourcePaneId,
+            activePaneId: MainPaneId(sourcePaneId),
             drawerViews: [drawerId: DrawerView(layout: DrawerGridLayout(topRow: Layout.autoTiled(drawerPaneIds)))]
         )
         let sourceCustom = PaneArrangement(
             name: "Source Focus",
             isDefault: false,
             layout: Layout(paneId: sourcePaneId),
-            minimizedPaneIds: [sourcePaneId],
+            minimizedPaneIds: [MainPaneId(sourcePaneId)],
             showsMinimizedPanes: false,
-            activePaneId: sourcePaneId,
+            activePaneId: MainPaneId(sourcePaneId),
             drawerViews: [drawerId: DrawerView(layout: DrawerGridLayout(topRow: Layout.autoTiled(drawerPaneIds)))]
         )
         let sourceTab = Tab(
@@ -41,13 +41,13 @@ struct CrossTabPaneMoveTests {
             name: "Default",
             isDefault: true,
             layout: Layout.autoTiled([targetPaneId, targetSiblingId]),
-            activePaneId: targetPaneId
+            activePaneId: MainPaneId(targetPaneId)
         )
         let destinationCustom = PaneArrangement(
             name: "Destination Focus",
             isDefault: false,
             layout: Layout(paneId: targetPaneId),
-            activePaneId: targetPaneId
+            activePaneId: MainPaneId(targetPaneId)
         )
         let destinationTab = Tab(
             name: "Destination",
@@ -79,7 +79,7 @@ struct CrossTabPaneMoveTests {
         #expect(updatedSource.allPaneIds == [sourceSiblingId])
         #expect(drawerPaneIds.allSatisfy { !updatedSource.allPaneIds.contains($0) })
         #expect(updatedSource.arrangements.allSatisfy { !$0.layout.contains(sourcePaneId) })
-        #expect(updatedSource.arrangements.allSatisfy { !$0.minimizedPaneIds.contains(sourcePaneId) })
+        #expect(updatedSource.arrangements.allSatisfy { !$0.minimizedPaneIds.contains(MainPaneId(sourcePaneId)) })
         #expect(updatedSource.arrangements.allSatisfy { $0.drawerViews[drawerId] == nil })
 
         let updatedDestination = try #require(tabLayout.tab(destinationTab.id))
@@ -91,7 +91,7 @@ struct CrossTabPaneMoveTests {
         for arrangement in updatedDestination.arrangements {
             let drawerView = try #require(arrangement.drawerViews[drawerId])
             #expect(drawerView.layout.paneIds == drawerPaneIds)
-            #expect(drawerView.activeChildId == drawerPaneIds[0])
+            #expect(drawerView.activeChildId?.rawValue == drawerPaneIds[0])
             #expect(drawerView.minimizedPaneIds.isEmpty)
         }
     }

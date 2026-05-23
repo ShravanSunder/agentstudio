@@ -5,9 +5,9 @@ struct DrawerView: Codable, Hashable {
     /// Spatial arrangement of panes within the drawer's local grid.
     var layout: DrawerGridLayout
     /// Currently focused pane in the drawer. Nil only when empty.
-    var activeChildId: UUID?
+    var activeChildId: DrawerPaneId?
     /// Panes currently minimized to narrow vertical bars.
-    var minimizedPaneIds: Set<UUID>
+    var minimizedPaneIds: Set<DrawerPaneId>
 
     private enum CodingKeys: String, CodingKey {
         case layout
@@ -17,20 +17,20 @@ struct DrawerView: Codable, Hashable {
 
     init(
         layout: DrawerGridLayout = DrawerGridLayout(),
-        activeChildId: UUID? = nil,
-        minimizedPaneIds: Set<UUID> = []
+        activeChildId: DrawerPaneId? = nil,
+        minimizedPaneIds: Set<DrawerPaneId> = []
     ) {
         self.layout = layout
         self.activeChildId = Self.normalizedActiveChildId(activeChildId, paneIds: layout.paneIds)
-        self.minimizedPaneIds = minimizedPaneIds.intersection(layout.paneIds)
+        self.minimizedPaneIds = minimizedPaneIds.filtering(toRawPaneIds: Set(layout.paneIds))
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
             layout: try container.decode(DrawerGridLayout.self, forKey: .layout),
-            activeChildId: try container.decodeIfPresent(UUID.self, forKey: .activeChildId),
-            minimizedPaneIds: try container.decode(Set<UUID>.self, forKey: .minimizedPaneIds)
+            activeChildId: try container.decodeIfPresent(DrawerPaneId.self, forKey: .activeChildId),
+            minimizedPaneIds: try container.decode(Set<DrawerPaneId>.self, forKey: .minimizedPaneIds)
         )
     }
 
@@ -41,9 +41,9 @@ struct DrawerView: Codable, Hashable {
         try container.encode(minimizedPaneIds, forKey: .minimizedPaneIds)
     }
 
-    private static func normalizedActiveChildId(_ activeChildId: UUID?, paneIds: [UUID]) -> UUID? {
+    private static func normalizedActiveChildId(_ activeChildId: DrawerPaneId?, paneIds: [UUID]) -> DrawerPaneId? {
         guard !paneIds.isEmpty else { return nil }
-        guard let activeChildId, paneIds.contains(activeChildId) else { return paneIds[0] }
+        guard let activeChildId, paneIds.contains(activeChildId.rawValue) else { return DrawerPaneId(paneIds[0]) }
         return activeChildId
     }
 }
@@ -59,11 +59,11 @@ struct PaneArrangement: Codable, Identifiable, Hashable {
     /// The spatial layout of panes in this arrangement.
     var layout: Layout
     /// Pane IDs currently minimized in this arrangement.
-    var minimizedPaneIds: Set<UUID>
+    var minimizedPaneIds: Set<MainPaneId>
     /// Whether minimized panes are still rendered as collapsed bars.
     var showsMinimizedPanes: Bool
     /// Focused pane for this arrangement. Nil only when the arrangement has no visible candidate.
-    var activePaneId: UUID?
+    var activePaneId: MainPaneId?
     /// Per-arrangement drawer view state, keyed by `Drawer.drawerId`.
     var drawerViews: [UUID: DrawerView]
 
@@ -83,19 +83,19 @@ struct PaneArrangement: Codable, Identifiable, Hashable {
         name: String = "Default",
         isDefault: Bool = true,
         layout: Layout,
-        minimizedPaneIds: Set<UUID> = [],
+        minimizedPaneIds: Set<MainPaneId> = [],
         showsMinimizedPanes: Bool = true,
-        activePaneId: UUID? = nil,
+        activePaneId: MainPaneId? = nil,
         drawerViews: [UUID: DrawerView] = [:]
     ) {
         self.id = id
         self.name = name
         self.isDefault = isDefault
         self.layout = layout
-        self.minimizedPaneIds = minimizedPaneIds.intersection(layout.paneIds)
+        self.minimizedPaneIds = minimizedPaneIds.filtering(toRawPaneIds: Set(layout.paneIds))
         self.showsMinimizedPanes = showsMinimizedPanes
         self.activePaneId = Self.normalizedActivePaneId(
-            activePaneId, layout: layout, minimizedPaneIds: minimizedPaneIds)
+            activePaneId, layout: layout, minimizedPaneIds: self.minimizedPaneIds)
         self.drawerViews = drawerViews
     }
 
@@ -106,11 +106,11 @@ struct PaneArrangement: Codable, Identifiable, Hashable {
         isDefault = try container.decode(Bool.self, forKey: .isDefault)
         layout = try container.decode(Layout.self, forKey: .layout)
         minimizedPaneIds =
-            try container.decode(Set<UUID>.self, forKey: .minimizedPaneIds)
-            .intersection(layout.paneIds)
+            try container.decode(Set<MainPaneId>.self, forKey: .minimizedPaneIds)
+            .filtering(toRawPaneIds: Set(layout.paneIds))
         showsMinimizedPanes = try container.decode(Bool.self, forKey: .showsMinimizedPanes)
         activePaneId = Self.normalizedActivePaneId(
-            try container.decodeIfPresent(UUID.self, forKey: .activePaneId),
+            try container.decodeIfPresent(MainPaneId.self, forKey: .activePaneId),
             layout: layout,
             minimizedPaneIds: minimizedPaneIds
         )
@@ -118,14 +118,15 @@ struct PaneArrangement: Codable, Identifiable, Hashable {
     }
 
     private static func normalizedActivePaneId(
-        _ activePaneId: UUID?,
+        _ activePaneId: MainPaneId?,
         layout: Layout,
-        minimizedPaneIds: Set<UUID>
-    ) -> UUID? {
+        minimizedPaneIds: Set<MainPaneId>
+    ) -> MainPaneId? {
         guard !layout.isEmpty else { return nil }
-        if let activePaneId, layout.contains(activePaneId), !minimizedPaneIds.contains(activePaneId) {
+        if let activePaneId, layout.contains(activePaneId.rawValue), !minimizedPaneIds.contains(activePaneId) {
             return activePaneId
         }
-        return layout.paneIds.first { !minimizedPaneIds.contains($0) } ?? layout.paneIds.first
+        return layout.paneIds.first { !minimizedPaneIds.contains(MainPaneId($0)) }.map(MainPaneId.init)
+            ?? layout.paneIds.first.map(MainPaneId.init)
     }
 }

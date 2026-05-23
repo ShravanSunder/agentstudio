@@ -48,4 +48,38 @@ struct PaneArrangementIdentityTests {
 
         #expect(decoded.rawValue == raw)
     }
+
+    @Test
+    func paneArrangement_encodesMainPaneViewStateAsBareUUIDs() throws {
+        let paneId = UUIDv7.generate()
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: paneId),
+            minimizedPaneIds: [MainPaneId(paneId)],
+            activePaneId: MainPaneId(paneId)
+        )
+
+        let data = try JSONEncoder().encode(arrangement)
+        let decoded = try JSONDecoder().decode(PaneArrangement.self, from: data)
+
+        #expect(decoded.activePaneId == MainPaneId(paneId))
+        #expect(decoded.minimizedPaneIds == [MainPaneId(paneId)])
+    }
+
+    @Test
+    func drawerView_encodesDrawerPaneViewStateAsBareUUIDs() throws {
+        let paneId = UUIDv7.generate()
+        let drawerView = DrawerView(
+            layout: DrawerGridLayout(topRow: Layout(paneId: paneId)),
+            activeChildId: DrawerPaneId(paneId),
+            minimizedPaneIds: [DrawerPaneId(paneId)]
+        )
+
+        let data = try JSONEncoder().encode(drawerView)
+        let decoded = try JSONDecoder().decode(DrawerView.self, from: data)
+
+        #expect(decoded.activeChildId == DrawerPaneId(paneId))
+        #expect(decoded.minimizedPaneIds == [DrawerPaneId(paneId)])
+    }
 }

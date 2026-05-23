@@ -13,7 +13,9 @@ enum TabArrangementMutationRules {
             )
         else { return nil }
         let arrangementPaneIds = Set(arrangementLayout.paneIds)
-        let arrangementMinimizedPaneIds = activeArrangement.minimizedPaneIds.intersection(arrangementPaneIds)
+        let arrangementMinimizedPaneIds = activeArrangement.minimizedPaneIds.filtering(
+            toRawPaneIds: arrangementPaneIds
+        )
 
         return PaneArrangement(
             name: name,
@@ -22,7 +24,7 @@ enum TabArrangementMutationRules {
             minimizedPaneIds: arrangementMinimizedPaneIds,
             showsMinimizedPanes: activeArrangement.showsMinimizedPanes,
             activePaneId: TabArrangementSelectionRules.fallbackActivePaneId(
-                currentActivePaneId: activeArrangement.activePaneId,
+                currentActivePaneId: activeArrangement.activePaneId?.rawValue,
                 in: PaneArrangement(
                     name: name,
                     isDefault: false,
@@ -30,7 +32,7 @@ enum TabArrangementMutationRules {
                     minimizedPaneIds: arrangementMinimizedPaneIds,
                     showsMinimizedPanes: activeArrangement.showsMinimizedPanes
                 )
-            ),
+            ).map(MainPaneId.init),
             drawerViews: activeArrangement.drawerViews
         )
     }
@@ -77,9 +79,9 @@ enum TabArrangementMutationRules {
         updated.activeArrangementId = arrangementId
         let arrangementIndex = activeArrangementIndex(in: updated)
         updated.arrangements[arrangementIndex].activePaneId = TabArrangementSelectionRules.fallbackActivePaneId(
-            currentActivePaneId: updated.arrangements[arrangementIndex].activePaneId,
+            currentActivePaneId: updated.arrangements[arrangementIndex].activePaneId?.rawValue,
             in: updated.arrangements[arrangementIndex]
-        )
+        ).map(MainPaneId.init)
         return updated
     }
 
@@ -90,12 +92,12 @@ enum TabArrangementMutationRules {
 
         var updated = state
         let arrangementIndex = activeArrangementIndex(in: updated)
-        updated.arrangements[arrangementIndex].minimizedPaneIds.insert(paneId)
-        if updated.arrangements[arrangementIndex].activePaneId == paneId {
+        updated.arrangements[arrangementIndex].minimizedPaneIds.insert(MainPaneId(paneId))
+        if updated.arrangements[arrangementIndex].activePaneId?.rawValue == paneId {
             let nonMinimized = layoutPaneIds.filter {
-                !updated.arrangements[arrangementIndex].minimizedPaneIds.contains($0)
+                !updated.arrangements[arrangementIndex].minimizedPaneIds.contains(MainPaneId($0))
             }
-            updated.arrangements[arrangementIndex].activePaneId = nonMinimized.first
+            updated.arrangements[arrangementIndex].activePaneId = nonMinimized.first.map(MainPaneId.init)
         }
         if updated.zoomedPaneId == paneId {
             updated.zoomedPaneId = nil
@@ -106,9 +108,9 @@ enum TabArrangementMutationRules {
     static func expandingPane(_ paneId: UUID, in state: TabArrangementState) -> TabArrangementState {
         var updated = state
         let arrangementIndex = activeArrangementIndex(in: updated)
-        guard updated.arrangements[arrangementIndex].minimizedPaneIds.contains(paneId) else { return state }
-        updated.arrangements[arrangementIndex].minimizedPaneIds.remove(paneId)
-        updated.arrangements[arrangementIndex].activePaneId = paneId
+        guard updated.arrangements[arrangementIndex].minimizedPaneIds.contains(MainPaneId(paneId)) else { return state }
+        updated.arrangements[arrangementIndex].minimizedPaneIds.remove(MainPaneId(paneId))
+        updated.arrangements[arrangementIndex].activePaneId = MainPaneId(paneId)
         return updated
     }
 
@@ -187,7 +189,7 @@ enum TabArrangementMutationRules {
                 }
                 guard let updatedLayout else { return nil }
                 updated.arrangements[arrangementIndex].layout = updatedLayout
-                updated.arrangements[arrangementIndex].minimizedPaneIds.remove(paneId)
+                updated.arrangements[arrangementIndex].minimizedPaneIds.remove(MainPaneId(paneId))
                 if position == .after {
                     currentTarget = paneId
                 }

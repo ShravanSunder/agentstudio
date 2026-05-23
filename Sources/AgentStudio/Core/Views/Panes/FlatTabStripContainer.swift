@@ -385,7 +385,7 @@ struct FlatTabStripContainer: View {
             DrawerSplitContainerDropCaptureOverlay(
                 paneFrames: captureGeometry.paneFramesInDrawer,
                 layout: expandedDrawerView.layout,
-                minimizedPaneIds: expandedDrawerView.minimizedPaneIds,
+                minimizedPaneIds: expandedDrawerView.minimizedPaneIds.rawUUIDs,
                 containerBounds: drawerBounds,
                 target: $drawerDropTarget,
                 sourcePaneId: $activeDragSourcePaneId,

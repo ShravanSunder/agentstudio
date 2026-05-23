@@ -14,7 +14,7 @@ extension Tab {
     ) {
         var normalizedArrangements = arrangements
         if let activeIndex = normalizedArrangements.firstIndex(where: { $0.id == activeArrangementId }) {
-            normalizedArrangements[activeIndex].activePaneId = activePaneId
+            normalizedArrangements[activeIndex].activePaneId = activePaneId.map(MainPaneId.init)
         }
         self.init(
             id: id,
@@ -59,7 +59,7 @@ extension TabArrangementState {
     ) {
         var normalizedArrangements = arrangements
         if let activeIndex = normalizedArrangements.firstIndex(where: { $0.id == activeArrangementId }) {
-            normalizedArrangements[activeIndex].activePaneId = activePaneId
+            normalizedArrangements[activeIndex].activePaneId = activePaneId.map(MainPaneId.init)
         }
         self.init(
             tabId: tabId,
@@ -71,7 +71,7 @@ extension TabArrangementState {
     }
 
     var activePaneId: UUID? {
-        arrangements.first { $0.id == activeArrangementId }?.activePaneId
+        arrangements.first { $0.id == activeArrangementId }?.activePaneId?.rawValue
     }
 }
 

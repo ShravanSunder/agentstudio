@@ -16,7 +16,7 @@ struct PaneObservationResolverTests {
             ),
             childId: makeDrawerChildPane(id: childId, parentPaneId: parentId),
         ]
-        let drawerView = DrawerView(layout: .init(topRow: .init(paneId: childId)), activeChildId: childId)
+        let drawerView = DrawerView(layout: .init(topRow: .init(paneId: childId)), activeChildId: DrawerPaneId(childId))
 
         let resolved = PaneObservationResolver.currentAttendedPaneId(
             attendedPaneId: parentId,
@@ -51,8 +51,8 @@ struct PaneObservationResolverTests {
         ]
         let drawerView = DrawerView(
             layout: .init(topRow: .init(paneId: childId)),
-            activeChildId: childId,
-            minimizedPaneIds: [childId]
+            activeChildId: DrawerPaneId(childId),
+            minimizedPaneIds: [DrawerPaneId(childId)]
         )
 
         let resolved = PaneObservationResolver.currentAttendedPaneId(
@@ -78,7 +78,7 @@ struct PaneObservationResolverTests {
             siblingId: makeLayoutPane(id: siblingId, drawer: .init()),
         ]
         let tab = makeTab(paneIds: [parentId, siblingId], activePaneId: parentId)
-        let drawerView = DrawerView(layout: .init(topRow: .init(paneId: childId)), activeChildId: childId)
+        let drawerView = DrawerView(layout: .init(topRow: .init(paneId: childId)), activeChildId: DrawerPaneId(childId))
 
         let observedPaneIds = PaneObservationResolver.currentObservedPaneIds(
             attendedPaneId: parentId,

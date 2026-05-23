@@ -82,16 +82,17 @@ enum TabArrangementValidation {
                         validPaneIds: validPaneIds,
                         from: updatedStates[tabIndex].arrangements[arrangementIndex].drawerViews
                     )
-                updatedStates[tabIndex].arrangements[arrangementIndex].minimizedPaneIds.formIntersection(validPaneIds)
-                updatedStates[tabIndex].arrangements[arrangementIndex].minimizedPaneIds.formIntersection(
-                    arrangementPaneIds)
+                updatedStates[tabIndex].arrangements[arrangementIndex].minimizedPaneIds =
+                    updatedStates[tabIndex].arrangements[arrangementIndex].minimizedPaneIds.filtering(
+                        toRawPaneIds: validPaneIds.intersection(arrangementPaneIds)
+                    )
                 if let activePaneId = updatedStates[tabIndex].arrangements[arrangementIndex].activePaneId,
-                    !arrangementPaneIds.contains(activePaneId)
+                    !arrangementPaneIds.contains(activePaneId.rawValue)
                 {
                     updatedStates[tabIndex].arrangements[arrangementIndex].activePaneId =
                         TabArrangementSelectionRules.firstUnminimizedPaneId(
                             in: updatedStates[tabIndex].arrangements[arrangementIndex]
-                        )
+                        ).map(MainPaneId.init)
                 }
             }
 

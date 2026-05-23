@@ -252,7 +252,8 @@ struct PaneTabViewControllerEmptyDrawerShortcutTests {
                         )
                     )
 
-                    let firstDrawerPaneId = try #require(harness.store.drawerView(forParent: parent.id)?.activeChildId)
+                    let firstDrawerPaneId = try #require(
+                        harness.store.drawerView(forParent: parent.id)?.activeChildId?.rawValue)
                     #expect(
                         atom(\.workspaceFocusOwner).owner
                             == .drawerPane(parentPaneId: parent.id, paneId: firstDrawerPaneId))

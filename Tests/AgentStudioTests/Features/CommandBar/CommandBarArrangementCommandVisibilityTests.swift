@@ -40,7 +40,7 @@ struct CommandBarArrangementCommandVisibilityTests {
             name: "Review",
             isDefault: false,
             layout: tab.layout,
-            activePaneId: tab.activePaneId
+            activePaneId: tab.activePaneId.map(MainPaneId.init)
         )
         tab.arrangements.append(savedArrangement)
         store.appendTab(tab)

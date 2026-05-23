@@ -29,7 +29,7 @@ struct TabArrangementValidationTests {
                 .inserting(
                     paneId: uniquePane, at: sharedPane, direction: .horizontal, position: .after,
                     sizingMode: .halveTarget)!,
-            minimizedPaneIds: [sharedPane]
+            minimizedPaneIds: [MainPaneId(sharedPane)]
         )
         let second = TabArrangementState(
             tabId: UUID(),
@@ -70,8 +70,8 @@ struct TabArrangementValidationTests {
             drawerViews: [
                 drawerId: DrawerView(
                     layout: drawerLayout,
-                    activeChildId: invalidDrawerPane,
-                    minimizedPaneIds: [invalidDrawerPane]
+                    activeChildId: DrawerPaneId(invalidDrawerPane),
+                    minimizedPaneIds: [DrawerPaneId(invalidDrawerPane)]
                 )
             ]
         )
@@ -91,7 +91,7 @@ struct TabArrangementValidationTests {
 
         let drawerView = validated[0].arrangements[0].drawerViews[drawerId]
         #expect(drawerView?.layout.paneIds == [validDrawerPane])
-        #expect(drawerView?.activeChildId == validDrawerPane)
+        #expect(drawerView?.activeChildId?.rawValue == validDrawerPane)
         #expect(drawerView?.minimizedPaneIds.isEmpty == true)
     }
 

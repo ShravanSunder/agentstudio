@@ -23,7 +23,7 @@ enum PaneObservationResolver {
             else {
                 return nil
             }
-            return activeChildId
+            return activeChildId.rawValue
         }
         return attendedPaneId
     }
@@ -43,7 +43,7 @@ enum PaneObservationResolver {
                     let activeChildId = view.activeChildId,
                     !view.minimizedPaneIds.contains(activeChildId)
                 {
-                    observedPaneIds.insert(activeChildId)
+                    observedPaneIds.insert(activeChildId.rawValue)
                 }
             } else {
                 observedPaneIds.insert(paneId)

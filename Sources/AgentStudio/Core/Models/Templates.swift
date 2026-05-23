@@ -120,7 +120,7 @@ struct WorktreeTemplate: Codable, Identifiable, Hashable {
             name: "Default",
             isDefault: true,
             layout: layout,
-            activePaneId: first.id
+            activePaneId: MainPaneId(first.id)
         )
         let tab = Tab(
             name: first.title,

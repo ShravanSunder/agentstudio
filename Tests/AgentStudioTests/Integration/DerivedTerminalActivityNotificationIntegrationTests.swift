@@ -220,7 +220,7 @@ struct DerivedActivityNotificationIntegrationTests {
             addDrawerPane(to: parentPaneId.uuid, in: fixture)
         )
         makeWindowKey(fixture.windowLifecycle)
-        #expect(drawerView(for: parentPaneId.uuid, in: fixture)?.activeChildId == secondDrawerPane.id)
+        #expect(drawerView(for: parentPaneId.uuid, in: fixture)?.activeChildId?.rawValue == secondDrawerPane.id)
 
         await postScrollbackBurst(
             paneId: PaneId(uuid: firstDrawerPane.id),
@@ -512,7 +512,7 @@ struct DerivedActivityNotificationIntegrationTests {
         )
         makeWindowKey(fixture.windowLifecycle)
         #expect(fixture.paneAtom.pane(parentPaneId.uuid)?.drawer?.isExpanded == true)
-        #expect(drawerView(for: parentPaneId.uuid, in: fixture)?.activeChildId == activeDrawerPane.id)
+        #expect(drawerView(for: parentPaneId.uuid, in: fixture)?.activeChildId?.rawValue == activeDrawerPane.id)
 
         await postScrollbackBurst(
             paneId: PaneId(uuid: hiddenDrawerPane.id),

@@ -63,8 +63,8 @@ struct WorkspacePaneFocusDerived {
                 activeMainPaneId: activePaneId,
                 expandedDrawerParentPaneId: drawer?.isExpanded == true ? activePaneId : nil,
                 paneIds: drawer?.paneIds ?? [],
-                activeDrawerPaneId: drawerView?.activeChildId,
-                minimizedDrawerPaneIds: drawerView?.minimizedPaneIds ?? []
+                activeDrawerPaneId: drawerView?.activeChildId?.rawValue,
+                minimizedDrawerPaneIds: drawerView?.minimizedPaneIds.rawUUIDs ?? []
             )
         )
 

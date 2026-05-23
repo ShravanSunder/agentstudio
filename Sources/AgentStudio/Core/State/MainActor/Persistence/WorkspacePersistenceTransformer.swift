@@ -145,14 +145,14 @@ enum WorkspacePersistenceTransformer {
 
             let activeArrangementIndex = tabs[tabIndex].activeArrangementIndex
             if let activePaneId = tabs[tabIndex].arrangements[activeArrangementIndex].activePaneId,
-                !validPaneIds.contains(activePaneId)
-                    || !tabs[tabIndex].arrangements[activeArrangementIndex].layout.contains(activePaneId)
+                !validPaneIds.contains(activePaneId.rawValue)
+                    || !tabs[tabIndex].arrangements[activeArrangementIndex].layout.contains(activePaneId.rawValue)
                     || tabs[tabIndex].arrangements[activeArrangementIndex].minimizedPaneIds.contains(activePaneId)
             {
                 tabs[tabIndex].arrangements[activeArrangementIndex].activePaneId =
                     TabArrangementSelectionRules.firstUnminimizedPaneId(
                         in: tabs[tabIndex].arrangements[activeArrangementIndex]
-                    )
+                    ).map(MainPaneId.init)
             }
         }
 

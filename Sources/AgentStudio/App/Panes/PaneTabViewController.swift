@@ -847,8 +847,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             activeMainPaneId: activeMainPaneId,
             expandedDrawerParentPaneId: drawer?.isExpanded == true ? activeMainPaneId : nil,
             paneIds: drawer?.paneIds ?? [],
-            activeDrawerPaneId: drawerView?.activeChildId,
-            minimizedDrawerPaneIds: drawerView?.minimizedPaneIds ?? []
+            activeDrawerPaneId: drawerView?.activeChildId?.rawValue,
+            minimizedDrawerPaneIds: drawerView?.minimizedPaneIds.rawUUIDs ?? []
         )
     }
 
@@ -861,7 +861,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             if let drawerPaneId = drawerView?.activeChildId,
                 drawerView?.minimizedPaneIds.contains(drawerPaneId) == false
             {
-                atom(\.workspaceFocusOwner).focusDrawerPane(parentPaneId: parentPaneId, paneId: drawerPaneId)
+                atom(\.workspaceFocusOwner).focusDrawerPane(parentPaneId: parentPaneId, paneId: drawerPaneId.rawValue)
             } else {
                 atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parentPaneId)
                 _ = clearFirstResponderToWindowContentForDrawer(parentPaneId: parentPaneId)
@@ -899,7 +899,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             let drawerPaneId = drawerView.activeChildId
         else { return nil }
         guard !drawerView.minimizedPaneIds.contains(drawerPaneId) else { return nil }
-        return drawerPaneId
+        return drawerPaneId.rawValue
     }
 
     // MARK: - Tab Content Hosts
@@ -1555,7 +1555,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
         if let drawerPaneId = arrangementView.drawerView(forParent: parentPaneId)?.activeChildId {
             managementNavigationScope = .drawer(parentPaneId: parentPaneId)
-            handlePaneFocusTrigger(.drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId)))
+            handlePaneFocusTrigger(
+                .drawer(.selectPane(parentPaneId: parentPaneId, drawerPaneId: drawerPaneId.rawValue)))
         } else {
             managementNavigationScope = .drawer(parentPaneId: parentPaneId)
             atom(\.workspaceFocusOwner).focusEmptyDrawer(parentPaneId: parentPaneId)
@@ -1598,7 +1599,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func focusDrawerPaneOrdinal(command: AppCommand) -> Bool {
         guard let target = resolveDrawerPaneOrdinalTarget(for: command) else { return false }
-        if target.drawerView.minimizedPaneIds.contains(target.drawerPaneId) {
+        if target.drawerView.minimizedPaneIds.contains(DrawerPaneId(target.drawerPaneId)) {
             dispatchAction(.expandDrawerPane(parentPaneId: target.parentPaneId, drawerPaneId: target.drawerPaneId))
         }
         focusTargetedDrawerPane(parentPaneId: target.parentPaneId, drawerPaneId: target.drawerPaneId)
@@ -2222,7 +2223,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 store.paneAtom.pane(paneId)?.drawer != nil,
                 let activeDrawerPaneId = arrangementView.drawerView(forParent: paneId)?.activeChildId
             else { break }
-            dispatchAction(.closePane(tabId: tabId, paneId: activeDrawerPaneId))
+            dispatchAction(.closePane(tabId: tabId, paneId: activeDrawerPaneId.rawValue))
 
         case .saveArrangement:
             guard let tabId = store.tabLayoutAtom.activeTabId,

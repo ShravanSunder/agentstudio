@@ -103,13 +103,13 @@ final class MinimizeLayoutIntegrationTests {
         #expect(r1)
         #expect(r2)
         let drawerView = store.drawerView(forParent: pane.id)!
-        #expect(drawerView.minimizedPaneIds == Set([d1.id, d2.id]))
+        #expect(drawerView.minimizedPaneIds == Set([DrawerPaneId(d1.id), DrawerPaneId(d2.id)]))
 
         let renderInfo = FlatTabStripMetrics.compute(
             layout: drawerView.layout.topRow,
             in: CGRect(x: 0, y: 0, width: 1200, height: 300),
             dividerThickness: AppStyles.General.Layout.paneGap,
-            minimizedPaneIds: drawerView.minimizedPaneIds,
+            minimizedPaneIds: drawerView.minimizedPaneIds.rawUUIDs,
             collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
         )
         #expect(renderInfo.allMinimized)

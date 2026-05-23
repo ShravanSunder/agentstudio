@@ -23,9 +23,10 @@ enum TabArrangementRepairRules {
             } else if updated.layout.contains(paneId) {
                 updated.layout = Layout()
             }
-            updated.minimizedPaneIds.remove(paneId)
-            if updated.activePaneId == paneId {
-                updated.activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(in: updated)
+            updated.minimizedPaneIds.remove(MainPaneId(paneId))
+            if updated.activePaneId?.rawValue == paneId {
+                updated.activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(in: updated).map(
+                    MainPaneId.init)
             }
             return updated
         }
@@ -39,9 +40,10 @@ enum TabArrangementRepairRules {
             var updated = arrangement
             let invalidIds = updated.layout.paneIds.filter { !validPaneIds.contains($0) }
             for paneId in invalidIds {
-                updated.minimizedPaneIds.remove(paneId)
-                if updated.activePaneId == paneId {
+                updated.minimizedPaneIds.remove(MainPaneId(paneId))
+                if updated.activePaneId?.rawValue == paneId {
                     updated.activePaneId = TabArrangementSelectionRules.firstUnminimizedPaneId(in: updated)
+                        .map(MainPaneId.init)
                 }
             }
             updated.layout = pruningInvalidPaneIds(validPaneIds: validPaneIds, from: updated.layout)
@@ -58,7 +60,9 @@ enum TabArrangementRepairRules {
         for drawerId in Array(updated.keys) {
             guard var drawerView = updated[drawerId] else { continue }
             drawerView.layout = pruningInvalidPaneIds(validPaneIds: validPaneIds, from: drawerView.layout)
-            drawerView.minimizedPaneIds.formIntersection(drawerView.layout.paneIds)
+            drawerView.minimizedPaneIds = drawerView.minimizedPaneIds.filtering(
+                toRawPaneIds: Set(drawerView.layout.paneIds)
+            )
 
             if drawerView.layout.isEmpty {
                 updated.removeValue(forKey: drawerId)
@@ -66,7 +70,7 @@ enum TabArrangementRepairRules {
             }
 
             if let activeChildId = drawerView.activeChildId,
-                drawerView.layout.contains(activeChildId),
+                drawerView.layout.contains(activeChildId.rawValue),
                 !drawerView.minimizedPaneIds.contains(activeChildId)
             {
                 updated[drawerId] = drawerView
@@ -74,8 +78,8 @@ enum TabArrangementRepairRules {
             }
 
             drawerView.activeChildId = drawerView.layout.paneIds.first {
-                !drawerView.minimizedPaneIds.contains($0)
-            }
+                !drawerView.minimizedPaneIds.contains(DrawerPaneId($0))
+            }.map(DrawerPaneId.init)
             updated[drawerId] = drawerView
         }
         return updated

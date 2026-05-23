@@ -123,7 +123,10 @@ struct WorkspacePersistenceTransformerTests {
             paneIds: [persistentPane.id, temporaryPane.id],
             activePaneId: persistentPane.id
         )
-        tab.arrangements[tab.activeArrangementIndex].minimizedPaneIds = [persistentPane.id, temporaryPane.id]
+        tab.arrangements[tab.activeArrangementIndex].minimizedPaneIds = [
+            MainPaneId(persistentPane.id),
+            MainPaneId(temporaryPane.id),
+        ]
         tabLayoutAtom.appendTab(tab)
         tabLayoutAtom.setActiveTab(tab.id)
 
@@ -175,8 +178,8 @@ struct WorkspacePersistenceTransformerTests {
         )
         tab.arrangements[tab.activeArrangementIndex].drawerViews[drawerId] = DrawerView(
             layout: drawerLayout,
-            activeChildId: temporaryDrawerPane.id,
-            minimizedPaneIds: [temporaryDrawerPane.id]
+            activeChildId: DrawerPaneId(temporaryDrawerPane.id),
+            minimizedPaneIds: [DrawerPaneId(temporaryDrawerPane.id)]
         )
         tabLayoutAtom.appendTab(tab)
         tabLayoutAtom.setActiveTab(tab.id)
@@ -192,7 +195,7 @@ struct WorkspacePersistenceTransformerTests {
         let drawerView = try #require(state.tabs[0].arrangements[0].drawerViews[drawerId])
         #expect(drawerView.layout.paneIds == [persistentDrawerPane.id])
         #expect(drawerView.minimizedPaneIds.isEmpty)
-        #expect(drawerView.activeChildId == persistentDrawerPane.id)
+        #expect(drawerView.activeChildId?.rawValue == persistentDrawerPane.id)
     }
 
     @Test
@@ -219,7 +222,7 @@ struct WorkspacePersistenceTransformerTests {
             paneIds: [persistentPane.id, temporaryPane.id],
             activePaneId: temporaryPane.id
         )
-        tab.arrangements[tab.activeArrangementIndex].minimizedPaneIds = [persistentPane.id]
+        tab.arrangements[tab.activeArrangementIndex].minimizedPaneIds = [MainPaneId(persistentPane.id)]
         tabLayoutAtom.appendTab(tab)
         tabLayoutAtom.setActiveTab(tab.id)
 
@@ -263,7 +266,7 @@ struct WorkspacePersistenceTransformerTests {
             name: "Temporary Only",
             isDefault: false,
             layout: Layout(paneId: temporaryPane.id),
-            activePaneId: temporaryPane.id
+            activePaneId: MainPaneId(temporaryPane.id)
         )
         tab.arrangements.append(customArrangement)
         tab.activeArrangementId = customArrangement.id

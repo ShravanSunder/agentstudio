@@ -39,7 +39,7 @@ struct Tab: Codable, Identifiable, Hashable {
             name: "Default",
             isDefault: true,
             layout: layout,
-            activePaneId: paneId
+            activePaneId: MainPaneId(paneId)
         )
         self.arrangements = [defaultArrangement]
         self.activeArrangementId = defaultArrangement.id
@@ -104,10 +104,10 @@ struct Tab: Codable, Identifiable, Hashable {
     var activePaneIds: [UUID] { activeArrangement.layout.paneIds }
 
     /// Pane IDs minimized in the active arrangement.
-    var activeMinimizedPaneIds: Set<UUID> { activeArrangement.minimizedPaneIds }
+    var activeMinimizedPaneIds: Set<UUID> { activeArrangement.minimizedPaneIds.rawUUIDs }
 
     /// The focused pane within the active arrangement. Nil only when no pane can receive focus.
-    var activePaneId: UUID? { activeArrangement.activePaneId }
+    var activePaneId: UUID? { activeArrangement.activePaneId?.rawValue }
 
     /// Whether the active arrangement has a split layout (more than one pane).
     var isSplit: Bool { activeArrangement.layout.isSplit }

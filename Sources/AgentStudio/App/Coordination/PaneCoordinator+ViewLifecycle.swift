@@ -919,7 +919,7 @@ extension PaneCoordinator {
                     for: drawerView.layout,
                     in: drawerContentRect,
                     dividerThickness: AppStyles.General.Layout.paneGap,
-                    minimizedPaneIds: drawerView.minimizedPaneIds,
+                    minimizedPaneIds: drawerView.minimizedPaneIds.rawUUIDs,
                     collapsedPaneWidth: AppStyles.Shell.PaneChrome.collapsedBarWidth
                 )
 

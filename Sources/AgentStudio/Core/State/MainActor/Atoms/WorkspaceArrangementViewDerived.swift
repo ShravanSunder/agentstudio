@@ -19,7 +19,7 @@ struct WorkspaceArrangementViewDerived {
         }
         return visiblePaneIds(
             layoutPaneIds: arrangement.layout.paneIds,
-            minimizedPaneIds: arrangement.minimizedPaneIds,
+            minimizedPaneIds: arrangement.minimizedPaneIds.rawUUIDs,
             showsMinimizedPanes: effectiveShowsMinimizedPanes(for: arrangement)
         )
     }
@@ -47,17 +47,17 @@ struct WorkspaceArrangementViewDerived {
         else { return [] }
         return visiblePaneIds(
             layoutPaneIds: drawerView.layout.paneIds,
-            minimizedPaneIds: drawerView.minimizedPaneIds,
+            minimizedPaneIds: drawerView.minimizedPaneIds.rawUUIDs,
             showsMinimizedPanes: effectiveShowsMinimizedPanes(for: tab.activeArrangement)
         )
     }
 
     func activePaneId(forTab tabId: UUID) -> UUID? {
-        tabLayoutAtom.tab(tabId)?.activeArrangement.activePaneId
+        tabLayoutAtom.tab(tabId)?.activeArrangement.activePaneId?.rawValue
     }
 
     func activeMinimizedPaneIds(forTab tabId: UUID) -> Set<UUID> {
-        tabLayoutAtom.tab(tabId)?.activeArrangement.minimizedPaneIds ?? []
+        tabLayoutAtom.tab(tabId)?.activeArrangement.minimizedPaneIds.rawUUIDs ?? []
     }
 
     private func effectiveShowsMinimizedPanes(for arrangement: PaneArrangement) -> Bool {

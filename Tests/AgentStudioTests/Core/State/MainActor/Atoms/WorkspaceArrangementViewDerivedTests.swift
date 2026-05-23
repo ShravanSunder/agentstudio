@@ -22,9 +22,9 @@ struct WorkspaceArrangementViewDerivedTests {
             name: "Default",
             isDefault: true,
             layout: layout,
-            minimizedPaneIds: [paneB],
+            minimizedPaneIds: [MainPaneId(paneB)],
             showsMinimizedPanes: false,
-            activePaneId: paneA
+            activePaneId: MainPaneId(paneA)
         )
         let tab = Tab(
             name: "Tab",
@@ -76,12 +76,12 @@ struct WorkspaceArrangementViewDerivedTests {
             isDefault: true,
             layout: Layout(paneId: parentWithDrawerPanes.id),
             showsMinimizedPanes: false,
-            activePaneId: parentWithDrawerPanes.id,
+            activePaneId: MainPaneId(parentWithDrawerPanes.id),
             drawerViews: [
                 drawer.drawerId: DrawerView(
                     layout: drawerLayout,
-                    activeChildId: drawerPaneA.id,
-                    minimizedPaneIds: [drawerPaneB.id]
+                    activeChildId: DrawerPaneId(drawerPaneA.id),
+                    minimizedPaneIds: [DrawerPaneId(drawerPaneB.id)]
                 )
             ]
         )
@@ -125,7 +125,7 @@ struct WorkspaceArrangementViewDerivedTests {
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: parentPane.id),
-            activePaneId: parentPane.id
+            activePaneId: MainPaneId(parentPane.id)
         )
         let tab = Tab(
             name: "Tab",
@@ -164,7 +164,7 @@ struct WorkspaceArrangementViewDerivedTests {
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: parentPane.id),
-            activePaneId: parentPane.id
+            activePaneId: MainPaneId(parentPane.id)
         )
         let tab = Tab(
             name: "Tab",

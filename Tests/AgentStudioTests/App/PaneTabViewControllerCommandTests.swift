@@ -351,7 +351,7 @@ struct PaneTabViewControllerCommandTests {
         #expect(harness.store.activeTabId == parentTab.id)
         #expect(harness.store.tab(parentTab.id)?.activePaneId == parentPane.id)
         #expect(harness.store.pane(parentPane.id)?.drawer?.isExpanded == true)
-        #expect(harness.store.drawerView(forParent: parentPane.id)?.activeChildId == drawerPane.id)
+        #expect(harness.store.drawerView(forParent: parentPane.id)?.activeChildId?.rawValue == drawerPane.id)
         #expect(atom(\.workspaceFocusOwner).owner == .drawerPane(parentPaneId: parentPane.id, paneId: drawerPane.id))
     }
 

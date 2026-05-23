@@ -73,6 +73,10 @@ extension Collection where Element == MainPaneId {
 
 extension Set where Element == MainPaneId {
     var rawUUIDs: Set<UUID> { Set<UUID>(map(\.rawValue)) }
+
+    func filtering(toRawPaneIds paneIds: Set<UUID>) -> Set<MainPaneId> {
+        filter { paneIds.contains($0.rawValue) }
+    }
 }
 
 extension Collection where Element == DrawerPaneId {
@@ -81,4 +85,8 @@ extension Collection where Element == DrawerPaneId {
 
 extension Set where Element == DrawerPaneId {
     var rawUUIDs: Set<UUID> { Set<UUID>(map(\.rawValue)) }
+
+    func filtering(toRawPaneIds paneIds: Set<UUID>) -> Set<DrawerPaneId> {
+        filter { paneIds.contains($0.rawValue) }
+    }
 }

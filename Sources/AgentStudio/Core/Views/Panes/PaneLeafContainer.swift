@@ -648,7 +648,7 @@ struct PaneLeafContainer: View {
             return paneHost.id
         }
 
-        return drawerPaneId
+        return drawerPaneId.rawValue
     }
 
 }

@@ -538,9 +538,9 @@ extension PaneCoordinator {
             let willBecomeEmptyDrawer =
                 drawerBeforeRemoval?.paneIds.contains { $0 != drawerPaneId } == false
             if let drawer = drawerBeforeRemoval,
-                drawerViewBeforeRemoval?.activeChildId == drawerPaneId
+                drawerViewBeforeRemoval?.activeChildId?.rawValue == drawerPaneId
             {
-                let minimizedPaneIds = drawerViewBeforeRemoval?.minimizedPaneIds ?? []
+                let minimizedPaneIds = drawerViewBeforeRemoval?.minimizedPaneIds.rawUUIDs ?? []
                 let preRemovalFallbackPaneId = drawer.paneIds.first { candidatePaneId in
                     candidatePaneId != drawerPaneId && !minimizedPaneIds.contains(candidatePaneId)
                 }
@@ -560,7 +560,7 @@ extension PaneCoordinator {
             }
             viewRegistry.retireSlot(for: drawerPaneId)
             if let activeDrawerPaneId = arrangementView.drawerView(forParent: parentPaneId)?.activeChildId {
-                focusVisiblePaneHost(activeDrawerPaneId)
+                focusVisiblePaneHost(activeDrawerPaneId.rawValue)
             } else if willBecomeEmptyDrawer {
                 _ = clearFirstResponderToWindowContent(for: parentPaneId)
             } else {
@@ -574,7 +574,7 @@ extension PaneCoordinator {
                 let activeDrawerPaneId = arrangementView.drawerView(forParent: paneId)?.activeChildId
             {
                 restoreViewsForActiveTabIfNeeded()
-                focusVisiblePaneHost(activeDrawerPaneId)
+                focusVisiblePaneHost(activeDrawerPaneId.rawValue)
             } else {
                 focusVisiblePaneHost(paneId)
             }

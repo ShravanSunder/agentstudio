@@ -15,9 +15,9 @@ struct PaneArrangementStateShapeTests {
             name: "Default",
             isDefault: true,
             layout: Layout(paneId: paneId),
-            minimizedPaneIds: [paneId],
+            minimizedPaneIds: [MainPaneId(paneId)],
             showsMinimizedPanes: true,
-            activePaneId: paneId,
+            activePaneId: MainPaneId(paneId),
             drawerViews: [:]
         )
 
@@ -57,8 +57,8 @@ struct PaneArrangementStateShapeTests {
         let drawerPaneId = UUID()
         let drawerView = DrawerView(
             layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)),
-            activeChildId: drawerPaneId,
-            minimizedPaneIds: [drawerPaneId]
+            activeChildId: DrawerPaneId(drawerPaneId),
+            minimizedPaneIds: [DrawerPaneId(drawerPaneId)]
         )
 
         let encodedData = try encoder.encode(drawerView)
@@ -93,7 +93,7 @@ struct PaneArrangementStateShapeTests {
         let decoded = try decoder.decode(DrawerView.self, from: encoded)
 
         #expect(decoded.layout.paneIds == [drawerPaneId])
-        #expect(decoded.activeChildId == drawerPaneId)
+        #expect(decoded.activeChildId?.rawValue == drawerPaneId)
         #expect(decoded.minimizedPaneIds.isEmpty)
     }
 

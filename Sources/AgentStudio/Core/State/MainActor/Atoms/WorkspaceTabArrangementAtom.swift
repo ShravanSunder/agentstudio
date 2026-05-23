@@ -92,7 +92,7 @@ final class WorkspaceTabArrangementAtom {
         for arrangementIndex in arrangementStates[tabIndex].arrangements.indices {
             if arrangementIndex == arrIndex {
                 arrangementStates[tabIndex].arrangements[arrangementIndex].layout = updatedActiveLayout
-                arrangementStates[tabIndex].arrangements[arrangementIndex].activePaneId = paneId
+                arrangementStates[tabIndex].arrangements[arrangementIndex].activePaneId = MainPaneId(paneId)
             } else if !arrangementStates[tabIndex].arrangements[arrangementIndex].layout.contains(paneId) {
                 guard
                     let updatedLayout = Self.appendingPane(
@@ -107,7 +107,7 @@ final class WorkspaceTabArrangementAtom {
                 }
                 arrangementStates[tabIndex].arrangements[arrangementIndex].layout = updatedLayout
             }
-            arrangementStates[tabIndex].arrangements[arrangementIndex].minimizedPaneIds.remove(paneId)
+            arrangementStates[tabIndex].arrangements[arrangementIndex].minimizedPaneIds.remove(MainPaneId(paneId))
         }
 
         if !arrangementStates[tabIndex].allPaneIds.contains(paneId) {
@@ -186,7 +186,7 @@ final class WorkspaceTabArrangementAtom {
             }
         }
         let arrIndex = activeArrangementIndex(for: tabIndex)
-        arrangementStates[tabIndex].arrangements[arrIndex].activePaneId = paneId
+        arrangementStates[tabIndex].arrangements[arrIndex].activePaneId = paneId.map(MainPaneId.init)
     }
 
     @discardableResult
@@ -337,10 +337,10 @@ final class WorkspaceTabArrangementAtom {
                 ?? DrawerView(layout: DrawerGridLayout(topRow: Layout(paneId: drawerPaneId)))
 
             if drawerView.layout.contains(drawerPaneId) {
-                drawerView.activeChildId = drawerPaneId
+                drawerView.activeChildId = DrawerPaneId(drawerPaneId)
             } else if drawerView.layout.isEmpty {
                 drawerView.layout = DrawerGridLayout(topRow: Layout(paneId: drawerPaneId))
-                drawerView.activeChildId = drawerPaneId
+                drawerView.activeChildId = DrawerPaneId(drawerPaneId)
             } else {
                 let targetPaneId = targetDrawerPaneId ?? drawerView.layout.paneIds.last
                 if let targetPaneId,
@@ -353,7 +353,7 @@ final class WorkspaceTabArrangementAtom {
                 {
                     drawerView.layout = updatedLayout
                     if arrangementIndex == activeArrangementIndex(for: tabIndex) {
-                        drawerView.activeChildId = drawerPaneId
+                        drawerView.activeChildId = DrawerPaneId(drawerPaneId)
                     }
                 }
             }
@@ -371,7 +371,7 @@ final class WorkspaceTabArrangementAtom {
         for arrangementIndex in arrangementStates[tabIndex].arrangements.indices {
             guard var drawerView = arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId]
             else { continue }
-            drawerView.minimizedPaneIds.remove(drawerPaneId)
+            drawerView.minimizedPaneIds.remove(DrawerPaneId(drawerPaneId))
             if drawerView.layout.contains(drawerPaneId) {
                 drawerView.layout =
                     drawerView.layout.removing(paneId: drawerPaneId, sizingMode: .proportional)
@@ -381,8 +381,8 @@ final class WorkspaceTabArrangementAtom {
                 arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews.removeValue(forKey: drawerId)
                 continue
             }
-            if drawerView.activeChildId == drawerPaneId {
-                drawerView.activeChildId = drawerView.layout.paneIds.first
+            if drawerView.activeChildId?.rawValue == drawerPaneId {
+                drawerView.activeChildId = drawerView.layout.paneIds.first.map(DrawerPaneId.init)
             }
             arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
         }
@@ -400,7 +400,7 @@ final class WorkspaceTabArrangementAtom {
             workspaceTabArrangementLogger.warning("setActiveDrawerPane: drawer pane \(drawerPaneId) not found")
             return
         }
-        drawerView.activeChildId = drawerPaneId
+        drawerView.activeChildId = DrawerPaneId(drawerPaneId)
         arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
     }
 
@@ -439,9 +439,11 @@ final class WorkspaceTabArrangementAtom {
             drawerView.layout.contains(drawerPaneId)
         else { return false }
 
-        drawerView.minimizedPaneIds.insert(drawerPaneId)
-        if drawerView.activeChildId == drawerPaneId {
-            drawerView.activeChildId = drawerView.layout.paneIds.first { !drawerView.minimizedPaneIds.contains($0) }
+        drawerView.minimizedPaneIds.insert(DrawerPaneId(drawerPaneId))
+        if drawerView.activeChildId?.rawValue == drawerPaneId {
+            drawerView.activeChildId = drawerView.layout.paneIds.first {
+                !drawerView.minimizedPaneIds.contains(DrawerPaneId($0))
+            }.map(DrawerPaneId.init)
         }
         arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
         return true
@@ -455,8 +457,8 @@ final class WorkspaceTabArrangementAtom {
         let arrangementIndex = activeArrangementIndex(for: tabIndex)
         guard var drawerView = arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId]
         else { return }
-        drawerView.minimizedPaneIds.remove(drawerPaneId)
-        drawerView.activeChildId = drawerPaneId
+        drawerView.minimizedPaneIds.remove(DrawerPaneId(drawerPaneId))
+        drawerView.activeChildId = DrawerPaneId(drawerPaneId)
         arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
     }
 
@@ -478,7 +480,7 @@ final class WorkspaceTabArrangementAtom {
         switch drawerView.layout.projectedMove(paneId: drawerPaneId, target: target, sizingMode: sizingMode) {
         case .success(let movedLayout):
             drawerView.layout = movedLayout
-            drawerView.activeChildId = drawerPaneId
+            drawerView.activeChildId = DrawerPaneId(drawerPaneId)
             arrangementStates[tabIndex].arrangements[arrangementIndex].drawerViews[drawerId] = drawerView
         case .failure(let failure):
             workspaceTabArrangementLogger.warning(
@@ -621,7 +623,7 @@ final class WorkspaceTabArrangementAtom {
                     position: position,
                     sizingMode: .halveTarget
                 )
-                destState.arrangements[arrangementIndex].activePaneId = paneId
+                destState.arrangements[arrangementIndex].activePaneId = MainPaneId(paneId)
             } else {
                 updatedLayout = Self.appendingPane(paneId, to: destState.arrangements[arrangementIndex].layout)
             }
@@ -631,7 +633,7 @@ final class WorkspaceTabArrangementAtom {
                 return nil
             }
             destState.arrangements[arrangementIndex].layout = updatedLayout
-            destState.arrangements[arrangementIndex].minimizedPaneIds.remove(paneId)
+            destState.arrangements[arrangementIndex].minimizedPaneIds.remove(MainPaneId(paneId))
             if let seededDrawerView, let drawerId {
                 destState.arrangements[arrangementIndex].drawerViews[drawerId] = seededDrawerView
             }
@@ -743,7 +745,7 @@ final class WorkspaceTabArrangementAtom {
         guard drawerId != nil, !drawerPaneIds.isEmpty else { return nil }
         return DrawerView(
             layout: DrawerGridLayout(topRow: Layout.autoTiled(drawerPaneIds)),
-            activeChildId: drawerPaneIds[0],
+            activeChildId: DrawerPaneId(drawerPaneIds[0]),
             minimizedPaneIds: []
         )
     }
