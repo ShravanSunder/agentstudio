@@ -75,8 +75,9 @@ extension InboxNotificationRouterTests {
         let fixture = await makeFixture()
         let focusedPaneId = PaneId()
         let visibleSiblingPaneId = PaneId()
-        _ = addTerminalPane(focusedPaneId, to: fixture)
+        let tabId = addTerminalPane(focusedPaneId, to: fixture)
         addVisiblePaneToActiveTab(visibleSiblingPaneId, to: fixture)
+        fixture.tabLayout.setActivePane(focusedPaneId.uuid, inTab: tabId)
         makeWindowKey(fixture.windowLifecycle)
 
         _ = await fixture.bus.post(
@@ -111,8 +112,9 @@ extension InboxNotificationRouterTests {
         let fixture = await makeFixture()
         let focusedPaneId = PaneId()
         let visibleSiblingPaneId = PaneId()
-        _ = addTerminalPane(focusedPaneId, to: fixture)
+        let tabId = addTerminalPane(focusedPaneId, to: fixture)
         addVisiblePaneToActiveTab(visibleSiblingPaneId, to: fixture)
+        fixture.tabLayout.setActivePane(focusedPaneId.uuid, inTab: tabId)
         makeWindowKey(fixture.windowLifecycle)
 
         _ = await fixture.bus.post(

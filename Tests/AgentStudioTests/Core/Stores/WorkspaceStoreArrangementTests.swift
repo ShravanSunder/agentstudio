@@ -162,7 +162,7 @@ final class WorkspaceStoreArrangementTests {
         // Assert
         let updatedTab = store.tab(tab.id)!
         #expect(updatedTab.activeArrangementId == arrId)
-        #expect(Set(updatedTab.paneIds) == Set([paneIds[0], paneIds[1]]))
+        #expect(Set(updatedTab.paneIds) == Set(paneIds))
     }
 
     @Test
@@ -182,24 +182,18 @@ final class WorkspaceStoreArrangementTests {
 
     @Test
 
-    func test_switchArrangement_updatesActivePaneIdIfNotInNewArrangement() {
+    func test_switchArrangement_restoresTargetArrangementActivePaneWhenCurrentPaneDiffers() {
         let (tab, paneIds) = createTabWithPanes(3)
-        // Focus arrangement has panes 0 and 1 only
         let arrId = store.createArrangement(
             name: "Focus",
             inTab: tab.id
         )!
 
-        // Set active pane to one NOT in focus arrangement
         store.setActivePane(paneIds[2], inTab: tab.id)
 
-        // Act
         store.switchArrangement(to: arrId, inTab: tab.id)
 
-        // Assert: active pane should be reset to one in the arrangement
-        let activePaneId = store.tab(tab.id)!.activePaneId
-        #expect((activePaneId) != nil)
-        #expect([paneIds[0], paneIds[1]].contains(activePaneId!))
+        #expect(store.tab(tab.id)!.activePaneId == paneIds[2])
     }
 
     @Test
@@ -211,12 +205,11 @@ final class WorkspaceStoreArrangementTests {
             inTab: tab.id
         )!
 
-        // Set active pane to one IN focus arrangement
         store.setActivePane(paneIds[1], inTab: tab.id)
 
         store.switchArrangement(to: arrId, inTab: tab.id)
 
-        #expect(store.tab(tab.id)!.activePaneId == paneIds[0])
+        #expect(store.tab(tab.id)!.activePaneId == paneIds[2])
     }
 
     @Test
@@ -234,7 +227,7 @@ final class WorkspaceStoreArrangementTests {
 
         store.switchArrangement(to: arrId, inTab: tab.id)
 
-        #expect(store.tab(tab.id)!.activePaneId == paneIds[0])
+        #expect(store.tab(tab.id)!.activePaneId == paneIds[2])
     }
 
     @Test
@@ -248,6 +241,7 @@ final class WorkspaceStoreArrangementTests {
         store.switchArrangement(to: arrId, inTab: tab.id)
         _ = store.minimizePane(paneIds[0], inTab: tab.id)
         _ = store.minimizePane(paneIds[1], inTab: tab.id)
+        _ = store.minimizePane(paneIds[2], inTab: tab.id)
         store.switchArrangement(to: tab.defaultArrangement.id, inTab: tab.id)
 
         store.switchArrangement(to: arrId, inTab: tab.id)
@@ -510,7 +504,7 @@ final class WorkspaceStoreArrangementTests {
 
         let restoredCustom = restoredTab.arrangements.first { !$0.isDefault }!
         #expect(restoredCustom.name == "Focus")
-        #expect(restoredCustom.layout.paneIds == [pane1.id])
+        #expect(Set(restoredCustom.layout.paneIds) == Set([pane1.id, pane2.id]))
         #expect(restoredTab.activeArrangementId == arrId)
 
         try? FileManager.default.removeItem(at: tempDir)
